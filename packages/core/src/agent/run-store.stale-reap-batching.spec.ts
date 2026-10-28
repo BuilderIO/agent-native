@@ -1,26 +1,27 @@
-/**
- * `reapAllStaleRuns` returned a bare count, and every per-row failure inside it
- * was coerced to "not reaped" by a `.catch(() => false)`. So a pass in which
- * every single row failed to reap returned `0` — the same value as "nothing was
- * stale". The route above it had just been given a `null`-vs-`0` distinction for
- * exactly this reason, which that coercion made worthless one level down.
- *
- * The sweep is also now the first thing on the shared durable tick, ahead of
- * `processRecurringJobs`. Production carried 1,216 stale rows while nothing
- * periodic reaped them, so the first tick after that fix meets a backlog; an
- * unbounded pass at ~5-10 serial round trips per row would spend the whole
- * platform wall before any recurring job ran.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let staleSelectRows: Array<{ id: string }> = [];
 const updatedRunIds: string[] = [];
 
 const mockDb = {
+  transaction: async (fn: (tx: any) => Promise<unknown>) => fn(mockDb),
   execute: vi.fn(
     async (statement: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof statement === "string" ? statement : statement.sql;
       const args = typeof statement === "string" ? [] : (statement.args ?? []);
+
+      if (/SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id/i.test(sql)) {
+        return {
+          rows: [{ thread_id: "thread-1", turn_id: args[0] }],
+          rowsAffected: 0,
+        };
+      }
+      if (/SELECT status, worker_generation FROM agent_runs/i.test(sql)) {
+        return {
+          rows: [{ status: "running", worker_generation: null }],
+          rowsAffected: 0,
+        };
+      }
 
       if (
         /SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1/i.test(sql)
@@ -28,8 +29,6 @@ const mockDb = {
         return { rows: staleSelectRows.slice(0, 1), rowsAffected: 0 };
       }
       if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(sql)) {
-        // Honour the LIMIT the sweep asks for, so a test can prove the cap is
-        // real rather than that the fixture happened to be small.
         const limit = /LIMIT (\d+)/i.exec(sql)?.[1];
         return {
           rows: limit
@@ -64,6 +63,7 @@ vi.mock("../db/client.js", () => ({
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -88,8 +88,6 @@ describe("reapAllStaleRuns accounting", () => {
 
     expect(result.failed).toBe(1);
     expect(result.reaped).toBe(0);
-    // The distinction the caller depends on: a pass where everything failed
-    // must not be reportable as a clean sweep of an empty table.
     const nothingStale = { reaped: 0, failed: 0, truncated: false };
     expect(result).not.toEqual(nothingStale);
   });

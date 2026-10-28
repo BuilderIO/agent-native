@@ -3,6 +3,47 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("Clips overlay follow permissions", () => {
+  it("reconciles restored recording state and clears terminal saving overlays", () => {
+    const backgroundSource = readFileSync(
+      new URL("./background.ts", import.meta.url),
+      "utf8",
+    );
+    const restoreStart = backgroundSource.indexOf(
+      "async function restoreRuntimeState",
+    );
+    const restoreEnd = backgroundSource.indexOf(
+      "\nfunction sendTabMessage",
+      restoreStart,
+    );
+    const restoreSource = backgroundSource.slice(restoreStart, restoreEnd);
+
+    expect(restoreSource).toContain(
+      "await reconcilePersistedNativeRecording()",
+    );
+    expect(restoreSource).toContain("shouldClearTerminalSavingOverlay(");
+    expect(restoreSource).toContain("await broadcastUnmount()");
+    expect(restoreSource).toContain(
+      "await finishSaving(\n      activeNativeRecording,\n      activeNativeRecording.recordingId,\n      true,\n    );",
+    );
+    expect(restoreSource).toContain('setActionPopup("src/popup.html")');
+
+    const finishStart = backgroundSource.indexOf(
+      "async function finishSaving(",
+    );
+    const finishEnd = backgroundSource.indexOf(
+      "\nasync function stopRecording",
+      finishStart,
+    );
+    const finishSource = backgroundSource.slice(finishStart, finishEnd);
+    expect(finishSource).toContain(
+      'restoringCompletedRecording && recording.status === "complete"',
+    );
+    expect(finishSource).toContain(
+      "claimRecordingFinalization(recording.sessionId)",
+    );
+    expect(finishSource).toContain("if (!releaseFinalization) return false;");
+  });
+
   it("gates page error telemetry on active recording and guards reinjection", () => {
     const contentScriptSource = readFileSync(
       new URL("./content-script.ts", import.meta.url),

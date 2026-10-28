@@ -20,10 +20,6 @@ export default defineAction({
       await getDb().delete(schema.assets).where(eq(schema.assets.id, id));
       return { id, deleted: true };
     }
-    // A draft author's delete was authorized from a prior read. If an editor
-    // approved the candidate in between, that save wins — re-running the rule
-    // against the row's new state reports why, rather than reporting a delete
-    // that did not happen.
     if (await deleteDraftAssetIfUnchanged(asset)) {
       return { id, deleted: true };
     }

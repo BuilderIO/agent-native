@@ -1,14 +1,3 @@
-/**
- * Catalog entries for the transactional emails Clips sends.
- *
- * Registered from `server/plugins/transactional-emails.ts` so Dispatch can list
- * and preview them without the app having sent anything yet.
- *
- * Every entry except the organization invite renders through
- * `renderClipsTransactionalEmail`, so a preview shows the real template rather
- * than a copy of it.
- */
-
 import {
   replaceTransactionalEmails,
   type TransactionalEmailDefinition,
@@ -33,7 +22,6 @@ import {
   type ClipsTransactionalEmailRenderOptions,
 } from "./transactional-email-templates.js";
 
-/** Obviously-fake sample data — these render in a preview pane, never send. */
 const PREVIEW_OPTIONS: ClipsTransactionalEmailRenderOptions = {
   appUrl: "https://example.com",
 };
@@ -47,10 +35,6 @@ function preview(input: ClipsTransactionalEmailInput) {
 
 export const CLIPS_ORGANIZATION_INVITE_EMAIL_ID = "clips.organization-invite";
 
-/**
- * How the shared Clips sender resolves From and Reply-To for every kind it
- * renders, so each entry can say so without restating the mechanism.
- */
 const CLIPS_SENDER =
   'From is the configured EMAIL_FROM with the display name "Agent-Native Clips"; on first-party agent-native.com deployments it becomes clips@agent-native.com. Reply-to is hello@agent-native.com.';
 

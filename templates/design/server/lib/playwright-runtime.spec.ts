@@ -3,19 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const serverMocks = vi.hoisted(() => ({
   requestBuilderBrowserConnection: vi.fn(),
 }));
-const serverlessChromiumMocks = vi.hoisted(() => ({
-  chromiumPackUrl: vi.fn(),
-  loadOptionalServerlessChromium: vi.fn(),
-}));
 
 vi.mock("@agent-native/core/server", () => serverMocks);
-vi.mock(
-  "@agent-native/creative-context/connectors/serverless-chromium",
-  () => serverlessChromiumMocks,
-);
 
 import {
+  ChromiumUnavailableError,
   importPlaywright,
+  isMissingBrowserError,
   launchChromium,
   type PlaywrightModule,
 } from "./playwright-runtime.js";
@@ -29,7 +23,7 @@ describe("importPlaywright", () => {
     const imported = {
       chromium: {
         connectOverCDP,
-        launch: vi.fn(),
+        launch: vi.fn().mockResolvedValue(browser),
       } as unknown as PlaywrightModule["chromium"],
     };
     const attempts: string[] = [];
@@ -46,17 +40,16 @@ describe("importPlaywright", () => {
     expect(result).toBe(imported);
     expect(attempts).toEqual(["playwright", "playwright-core"]);
     await expect(launchChromium(result.chromium)).resolves.toBe(browser);
-    expect(connectOverCDP).toHaveBeenCalledWith(
-      "wss://browser.example.test/cdp",
-    );
+    expect(serverMocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
+    expect(connectOverCDP).not.toHaveBeenCalled();
   });
 });
 
 describe("launchChromium", () => {
-  it("uses Builder Browser before trying local Chromium", async () => {
+  it("uses sandboxed local Chromium without requesting a remote browser when available", async () => {
     const browser = {};
     const connectOverCDP = vi.fn().mockResolvedValue(browser);
-    const launch = vi.fn();
+    const launch = vi.fn().mockResolvedValue(browser);
     const chromium = {
       connectOverCDP,
       launch,
@@ -67,18 +60,41 @@ describe("launchChromium", () => {
 
     await expect(launchChromium(chromium)).resolves.toBe(browser);
 
+    expect(launch).toHaveBeenCalledWith({ chromiumSandbox: true });
+    expect(serverMocks.requestBuilderBrowserConnection).not.toHaveBeenCalled();
+    expect(connectOverCDP).not.toHaveBeenCalled();
+  });
+
+  it("uses a bounded Builder Browser connection when local Chromium is unavailable", async () => {
+    const browser = {};
+    const launch = vi
+      .fn()
+      .mockRejectedValue(new Error("Executable doesn't exist"));
+    const connectOverCDP = vi.fn().mockResolvedValue(browser);
+    const chromium = {
+      connectOverCDP,
+      launch,
+    } as unknown as PlaywrightModule["chromium"];
+    serverMocks.requestBuilderBrowserConnection.mockResolvedValue({
+      wsUrl: "wss://browser.example.test/cdp",
+    });
+    await expect(launchChromium(chromium)).resolves.toBe(browser);
+    expect(launch).toHaveBeenCalledWith({ chromiumSandbox: true });
     expect(serverMocks.requestBuilderBrowserConnection).toHaveBeenCalledWith({
       sessionId: expect.stringMatching(/^design-render-/),
     });
     expect(connectOverCDP).toHaveBeenCalledWith(
       "wss://browser.example.test/cdp",
+      { timeout: 30_000 },
     );
-    expect(launch).not.toHaveBeenCalled();
+    expect(launch.mock.invocationCallOrder[0]).toBeLessThan(
+      serverMocks.requestBuilderBrowserConnection.mock.invocationCallOrder[0],
+    );
   });
 
-  it("falls back to local Chromium when Builder Browser is unavailable", async () => {
-    const browser = {};
-    const launch = vi.fn().mockResolvedValue(browser);
+  it("fails closed with a typed error when no safe renderer is available", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const launch = vi.fn().mockRejectedValue(new Error("sandbox unavailable"));
     const chromium = {
       connectOverCDP: vi.fn(),
       launch,
@@ -86,42 +102,28 @@ describe("launchChromium", () => {
     serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
       new Error("Builder Browser unavailable"),
     );
-
-    await expect(launchChromium(chromium)).resolves.toBe(browser);
-    expect(launch).toHaveBeenCalledWith({ args: ["--no-sandbox"] });
-  });
-
-  it("launches the packaged Chromium binary when the host has no browser", async () => {
-    const browser = {};
-    const launch = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("Executable doesn't exist at /missing"))
-      .mockResolvedValueOnce(browser);
-    const executablePath = vi.fn().mockResolvedValue("/tmp/chromium");
-    const chromium = {
-      connectOverCDP: vi.fn(),
-      launch,
-    } as unknown as PlaywrightModule["chromium"];
-    serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
-      new Error("Builder Browser unavailable"),
+    const launchPromise = launchChromium(chromium);
+    await expect(launchPromise).rejects.toBeInstanceOf(
+      ChromiumUnavailableError,
     );
-    serverlessChromiumMocks.chromiumPackUrl.mockReturnValue(
-      "https://example.test/chromium.tar",
-    );
-    serverlessChromiumMocks.loadOptionalServerlessChromium.mockResolvedValue({
-      args: ["--disable-dev-shm-usage"],
-      executablePath,
+    await expect(launchPromise).rejects.toMatchObject({
+      code: "chromium_unavailable",
+      message: expect.stringContaining("Chromium unavailable:"),
     });
-
-    await expect(launchChromium(chromium)).resolves.toBe(browser);
-
-    expect(executablePath).toHaveBeenCalledWith(
-      "https://example.test/chromium.tar",
-    );
-    expect(launch).toHaveBeenNthCalledWith(1, { args: ["--no-sandbox"] });
-    expect(launch).toHaveBeenNthCalledWith(2, {
-      args: ["--no-sandbox", "--disable-dev-shm-usage"],
-      executablePath: "/tmp/chromium",
+    await expect(launchPromise).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "Builder Browser unavailable: Builder Browser unavailable; sandboxed local Chromium unavailable: sandbox unavailable",
+      ),
     });
+    expect(
+      isMissingBrowserError(
+        new ChromiumUnavailableError(new Error("connection unavailable")),
+      ),
+    ).toBe(true);
+    expect(launch).toHaveBeenCalledWith({ chromiumSandbox: true });
+    expect(errorLog).toHaveBeenCalledWith(
+      "Design export could not launch sandboxed local Chromium:",
+      expect.objectContaining({ message: "sandbox unavailable" }),
+    );
   });
 });

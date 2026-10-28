@@ -17,11 +17,6 @@ export function parseStoredFormSettings(
   return parsed as FormSettings;
 }
 
-/**
- * The public form endpoints are cross-origin by design. An empty allowlist is
- * the legacy "any origin" setting; once configured, only exact browser origins
- * may upload or submit.
- */
 export function isPublicFormOriginAllowed(
   event: H3Event,
   settings: FormSettings,
@@ -36,7 +31,6 @@ export function isPublicFormOriginAllowed(
     : origin !== undefined && allowedOrigins.includes(origin);
 }
 
-/** Keep CORS response headers aligned with a configured exact-origin policy. */
 export function setPublicFormCors(
   event: H3Event,
   settings: FormSettings,

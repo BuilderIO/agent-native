@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import type { ActionRunContext } from "@agent-native/core/action";
-import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { factoryAuditEvents } from "../db/schema.js";
@@ -30,6 +29,8 @@ export interface FactoryAuditInput {
   details?: Record<string, unknown>;
 }
 
+type FactoryAuditDbClient = Pick<ReturnType<typeof getDb>, "insert">;
+
 function boundedText(value: string, max: number): string {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
@@ -48,7 +49,6 @@ function boundedDetails(value: Record<string, unknown> | undefined): string {
     : serialized;
 }
 
-/** Record which prompt version and execution hash an automation run used. */
 export async function recordFactoryAutomationRunPrompt(input: {
   identity: { userEmail: string; orgId: string };
   automationRunId: string;
@@ -88,7 +88,6 @@ export async function recordFactoryAutomationRunPrompt(input: {
     });
 }
 
-/** Persist a governance event outside an automation run (startup repair, etc.). */
 export async function recordFactoryGovernanceAudit(
   identity: { userEmail: string; orgId: string },
   input: FactoryAuditInput,
@@ -117,11 +116,6 @@ export async function recordFactoryGovernanceAudit(
     });
 }
 
-/**
- * Persist a bounded, source-linked explanation of an automation action. The
- * agent run id is the join key to core's automation history; no raw provider
- * payload is copied into this table.
- */
 export async function recordFactoryAudit(
   context: ActionRunContext | undefined,
   identity: { userEmail: string; orgId: string },
@@ -152,59 +146,39 @@ export async function recordFactoryAudit(
     });
 }
 
-/** Skip an item-scoped decision that repeats the last recorded summary. */
-export async function recordFactoryAuditIfChanged(
-  context: ActionRunContext | undefined,
+/**
+ * Persist a human-initiated item action regardless of caller. Unlike
+ * `recordFactoryAudit`, this is not gated on an automation run id, so a
+ * manual UI edit still lands on the item's own timeline (`get-triage-item`
+ * reads this table by itemId, not by run).
+ *
+ * Pass `dbClient` (the `tx` from a `db.transaction()` callback) so the
+ * caller's status mutation and this audit insert commit or roll back
+ * together instead of as two independent writes.
+ */
+export async function recordManualFactoryAudit(
   identity: { userEmail: string; orgId: string },
   input: FactoryAuditInput,
   factoryId?: string | null,
+  dbClient: FactoryAuditDbClient = getDb(),
 ): Promise<void> {
-  if (context?.caller !== "automation" || !context.runId || !input.itemId) {
-    await recordFactoryAudit(context, identity, input, factoryId);
-    return;
-  }
-  const itemId = input.itemId;
-  const runId = context.runId;
-  const status = input.status ?? "success";
-  const summary = boundedText(input.summary, MAX_SUMMARY_LENGTH);
-  const action = boundedText(input.action, 120);
-  await getDb().transaction(async (tx) => {
-    const last = (
-      await tx
-        .select({
-          summary: factoryAuditEvents.summary,
-          status: factoryAuditEvents.status,
-        })
-        .from(factoryAuditEvents)
-        .where(
-          and(
-            eq(factoryAuditEvents.itemId, itemId),
-            eq(factoryAuditEvents.action, action),
-            eq(factoryAuditEvents.kind, input.kind),
-          ),
-        )
-        .orderBy(desc(factoryAuditEvents.createdAt))
-        .limit(1)
-    )[0];
-    if (last && last.summary === summary && last.status === status) return;
-    const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
-    await tx.insert(factoryAuditEvents).values({
-      id: randomUUID(),
-      automationRunId: runId,
-      automationThreadId: context.threadId ?? null,
-      automationName: context.automation?.triggerName ?? null,
-      factoryId: resolvedFactoryId,
-      itemId,
-      source: input.source ?? null,
-      sourceUrl: input.sourceUrl ?? null,
-      action,
-      kind: input.kind,
-      status,
-      summary,
-      detailsJson: boundedDetails(input.details),
-      createdAt: new Date().toISOString(),
-      ownerEmail: identity.userEmail,
-      orgId: identity.orgId,
-    });
+  const resolvedFactoryId = factoryId ?? input.factoryId ?? null;
+  await dbClient.insert(factoryAuditEvents).values({
+    id: randomUUID(),
+    automationRunId: null,
+    automationThreadId: null,
+    automationName: null,
+    factoryId: resolvedFactoryId,
+    itemId: input.itemId ?? null,
+    source: input.source ?? null,
+    sourceUrl: input.sourceUrl ?? null,
+    action: boundedText(input.action, 120),
+    kind: input.kind,
+    status: input.status ?? "success",
+    summary: boundedText(input.summary, MAX_SUMMARY_LENGTH),
+    detailsJson: boundedDetails(input.details),
+    createdAt: new Date().toISOString(),
+    ownerEmail: identity.userEmail,
+    orgId: identity.orgId,
   });
 }

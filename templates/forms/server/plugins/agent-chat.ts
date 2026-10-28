@@ -52,16 +52,14 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "forms",
-  // Delegated (A2A) turns served from the foreground hit the 40s
-  // serverless wall; opting in routes them to the background worker,
-  // as every other A2A-serving app in this fleet already does.
   durableBackgroundRuns: true,
   systemPrompt: FORMS_SYSTEM_PROMPT,
   leanPrompt: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     instructions:
-      'Build with create-form, then patch-form-fields for individual field changes and update-form for title/settings; publish with update-form { status: "published" }. Read a form with get-form, the workspace with list-forms. Analyze with response-insights (chart/table/combined) and list-responses / export-responses; never invent SQL.',
+      "Build a complete new form with create-form. For edits, publishing, existing forms, response analysis, or exports, use ask_app because these operations have no advertised direct tool. Include the form ID when known and describe the requested outcome. If ask_app returns a taskId, follow its ask_app_status polling instruction until the task completes. Copy a returned publicUrl verbatim instead of constructing a public link. Never invent SQL or response data.",
   },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   nativeActionsInDev: true,

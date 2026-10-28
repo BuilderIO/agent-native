@@ -1,32 +1,18 @@
 // @vitest-environment happy-dom
 
-import type { ChatThreadSummary } from "@agent-native/core/client/agent-chat";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/toolkit/app/chat/ownership-history", () => ({
+  useOwnershipChatHistory: vi.fn(),
+  OwnershipChatHistoryRail: () => null,
+  ownDraftRows: () => [],
+}));
 
 import {
   getStoredVisibilityFilter,
   matchesVisibilityFilter,
   setStoredVisibilityFilter,
-  threadMatchesVisibilityFilter,
 } from "./Sidebar";
-
-function makeThread(
-  overrides: Partial<ChatThreadSummary> & { visibility?: unknown } = {},
-): ChatThreadSummary {
-  return {
-    id: "thread-1",
-    title: "Thread",
-    preview: "",
-    messageCount: 1,
-    createdAt: 1,
-    updatedAt: 1,
-    scope: null,
-    source: null,
-    pinnedAt: null,
-    archivedAt: null,
-    ...overrides,
-  };
-}
 
 describe("Sidebar visibility helpers", () => {
   it("defaults dashboard visibility to all when nothing is stored", () => {
@@ -84,6 +70,49 @@ describe("Sidebar visibility helpers", () => {
     ).toBe(false);
   });
 
+  it("keeps dashboards I own in Mine after sharing them with the org", () => {
+    const shared = {
+      visibility: "org" as const,
+      ownerEmail: "viewer@example.com",
+    };
+
+    expect(
+      matchesVisibilityFilter(shared, "private", "viewer@example.com"),
+    ).toBe(true);
+    expect(
+      matchesVisibilityFilter(shared, "shared", "viewer@example.com"),
+    ).toBe(false);
+  });
+
+  it("keeps an analysis shared with me out of Mine", () => {
+    const analysis = {
+      visibility: "private" as const,
+      ownerEmail: "owner@example.com",
+    };
+
+    expect(
+      matchesVisibilityFilter(analysis, "private", "viewer@example.com"),
+    ).toBe(false);
+  });
+
+  it("keeps installed demo dashboards out of Mine and Shared", () => {
+    const demo = {
+      visibility: "private" as const,
+      ownerEmail: "viewer@example.com",
+      demo: true,
+    };
+
+    expect(matchesVisibilityFilter(demo, "all", "viewer@example.com")).toBe(
+      true,
+    );
+    expect(matchesVisibilityFilter(demo, "private", "viewer@example.com")).toBe(
+      false,
+    );
+    expect(matchesVisibilityFilter(demo, "shared", "viewer@example.com")).toBe(
+      false,
+    );
+  });
+
   it("keeps legacy private dashboards without ownership metadata in Mine", () => {
     expect(
       matchesVisibilityFilter(
@@ -97,26 +126,6 @@ describe("Sidebar visibility helpers", () => {
         { visibility: "private" },
         "shared",
         "viewer@example.com",
-      ),
-    ).toBe(false);
-  });
-
-  it("defaults chats without runtime visibility metadata to mine", () => {
-    expect(threadMatchesVisibilityFilter(makeThread(), "private")).toBe(true);
-    expect(threadMatchesVisibilityFilter(makeThread(), "shared")).toBe(false);
-  });
-
-  it("reads runtime chat visibility when the server includes it", () => {
-    expect(
-      threadMatchesVisibilityFilter(
-        makeThread({ visibility: "org" }),
-        "shared",
-      ),
-    ).toBe(true);
-    expect(
-      threadMatchesVisibilityFilter(
-        makeThread({ visibility: "org" }),
-        "private",
       ),
     ).toBe(false);
   });

@@ -1,7 +1,19 @@
 // @vitest-environment happy-dom
 
 import { applyVisualEdit } from "@shared/code-layer";
-import { createCornerNode, type PenPath } from "@shared/pen-path";
+import {
+  closePenPath,
+  createCornerNode,
+  parsePenNodes,
+  serializePenPath,
+  type PenPath,
+} from "@shared/pen-path";
+import {
+  VECTOR_END_ENDPOINT_PROPERTY,
+  VECTOR_START_ENDPOINT_PROPERTY,
+  isVectorEndpointPrimitiveKind,
+  vectorEndpointMarkerId,
+} from "@shared/vector-endpoints";
 import { describe, expect, it } from "vitest";
 
 import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/types";
@@ -9,19 +21,18 @@ import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/typ
 import {
   appendCanvasPrimitiveToHtml,
   blankScreenHtml,
+  canvasPrimitiveInsertionHostNodeId,
   extractCanvasPrimitiveHtml,
+  updateCanvasPolygonSvgGeometry,
 } from "./canvas-primitive-insert";
 import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
 import { cssStyleAliases, parseInlineStyleAttribute } from "./code-layer-state";
+import { destinationBackgroundLightness } from "./cross-screen-text-color";
 
 describe("blankScreenHtml", () => {
   const html = blankScreenHtml("Screen 1");
 
   it("is a free canvas: no centering grid and no <main> wrapper", () => {
-    // The centering grid + <main> wrapper trapped drawn shapes at center and,
-    // once dragged, flow-inserted them (converting the wrapper to auto layout
-    // and stripping their absolute position). A blank screen must be a plain
-    // free canvas so absolute children keep their x,y.
     expect(html).not.toMatch(/display:\s*grid/);
     expect(html).not.toMatch(/place-items:\s*center/);
     expect(html).not.toContain("<main");
@@ -49,12 +60,14 @@ describe("blankScreenHtml", () => {
     );
     expect(blankScreenHtml("A & B")).toContain("<title>A &amp; B</title>");
   });
+
+  it("loads the Inter family used by new screens", () => {
+    expect(blankScreenHtml("Screen 1")).toMatch(
+      /fonts\.googleapis\.com[^\"]*family=Inter/,
+    );
+  });
 });
 
-// BUG F4: a live/localhost screen stores its route URL in `design_files.content`.
-// DOMParser turns that URL into body text, so appending a primitive returned a
-// full HTML document that the caller persisted OVER the URL — the screen stopped
-// being live and the route was destroyed.
 describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
   const rect: CanvasPrimitiveInsert = {
     kind: "rectangle",
@@ -94,8 +107,9 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     expect(textAt("background:#0b0f19")).toContain("color: #ffffff");
   });
 
-  it("leaves drawn text inheriting currentColor on a light screen", () => {
-    expect(textAt("background:#ffffff")).toContain("color: currentcolor");
+  it("chooses the higher-contrast text color instead of a luminance cutoff", () => {
+    expect(textAt("background:#777777")).toContain("color: #000000");
+    expect(textAt("background:#8c8c8c")).toContain("color: #000000");
   });
 
   it("makes click-created text intrinsic instead of shrinking to the screen remainder", () => {
@@ -115,6 +129,20 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
 
     expect(element?.style.width).toBe("max-content");
     expect(element?.style.height).toBe("auto");
+  });
+
+  it("loads Inter when new text is added to an existing screen", () => {
+    const html = appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head></head><body></body></html>",
+      {
+        kind: "text",
+        nodeId: "inter-text",
+        geometry: { x: 0, y: 0, width: 80, height: 24 },
+        text: "Hello",
+      },
+    );
+
+    expect(html).toMatch(/fonts\.googleapis\.com[^\"]*family=Inter/);
   });
 
   const withContainer = (kind: "frame" | "rectangle") =>
@@ -167,6 +195,67 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     expect(segAt).toBeLessThan(html.indexOf("</div>", frameAt));
   });
 
+  it("wraps the absolutely placed layers a drawn frame fully encloses, keeping them in place", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="inside" style="position:absolute;left:80px;top:80px;width:340px"></div>
+      <div data-agent-native-node-id="straddles" style="position:absolute;left:400px;top:80px;width:100px;height:40px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "frame",
+          nodeId: "wrap",
+          geometry: { x: 60, y: 60, width: 380, height: 120 },
+        },
+        {
+          liveLayerSizes: new Map([
+            ["inside", { width: 340, height: 80 }],
+            ["straddles", { width: 100, height: 40 }],
+          ]),
+        },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const inside = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="inside"]',
+    )!;
+    const straddles = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="straddles"]',
+    )!;
+    expect(
+      inside.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("wrap");
+    expect([inside.style.left, inside.style.top]).toEqual(["20px", "20px"]);
+    expect(straddles.parentElement).toBe(doc.body);
+    expect([straddles.style.left, straddles.style.top]).toEqual([
+      "400px",
+      "80px",
+    ]);
+  });
+
+  it("keeps adopted layers on whole pixels inside the drawn frame", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="inside" style="position:absolute;left:80.6px;top:80.4px;width:40px;height:20px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "frame",
+          nodeId: "wrap",
+          geometry: { x: 60, y: 60, width: 380, height: 120 },
+        },
+        { liveLayerSizes: new Map([["inside", { width: 40, height: 20 }]]) },
+      ) ?? "";
+    const inside = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="inside"]')!;
+    expect(
+      inside.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("wrap");
+    expect([inside.style.left, inside.style.top]).toEqual(["21px", "20px"]);
+  });
+
   it("resolves a nested frame against document coordinates", () => {
     const outer =
       appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
@@ -174,8 +263,6 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
         nodeId: "outer",
         geometry: { x: 100, y: 100, width: 400, height: 400 },
       }) ?? "";
-    // Nested frame's inline left/top are relative to `outer`, so a primitive
-    // at document 180,180 lands inside it only if offsets accumulate.
     const nested =
       appendCanvasPrimitiveToHtml(outer, {
         kind: "frame",
@@ -212,8 +299,6 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
       }) ?? "";
     const vectorAt = html.indexOf('data-agent-native-node-id="vector"');
     const style = html.slice(vectorAt, html.indexOf(">", vectorAt));
-    // Screen-absolute values here render the vector offset by the frame's own
-    // origin — 60,120 is 100,240 expressed inside a frame at 40,120.
     expect(style).toContain("left:60px");
     expect(style).toContain("top:120px");
   });
@@ -316,14 +401,12 @@ describe("a freshly drawn frame is visible", () => {
     "";
 
   it("carries a background on a light destination", () => {
-    // Deselecting a bare frame leaves nothing on screen, and a second one
-    // drawn next to it is invisible too.
     expect(frameStyle(drawFrame(false))).toMatch(
       /background(-color)?:\s*#fff/i,
     );
   });
 
-  it("is white on the dark board too, as in Figma", () => {
+  it("keeps its default white fill on a dark board", () => {
     expect(frameStyle(drawFrame(true))).toMatch(/background(-color)?:\s*#fff/i);
   });
 
@@ -369,8 +452,6 @@ describe("a primitive nested into a frame is positioned frame-relative", () => {
         geometry: { x: 150, y: 150, width: 50, height: 50 },
       }) ?? "";
     const style = styleOf(withRect, "r");
-    // 150 - 100 frame origin - 5 border: an absolute child starts inside the
-    // border, so ignoring it shifts everything dropped into the frame.
     expect(px(style, "left")).toBe(45);
     expect(px(style, "top")).toBe(45);
   });
@@ -396,7 +477,6 @@ describe("a primitive nested into a frame is positioned frame-relative", () => {
 
     const rect = styleOf(withRect, "r");
     const line = styleOf(withLine, "l");
-    // Both land inside the same host, so both must be in the host's space.
     expect(px(rect, "left")).toBe(60);
     expect(px(rect, "top")).toBe(80);
     expect(px(line, "left")).toBe(px(rect, "left"));
@@ -450,8 +530,6 @@ describe("every primitive kind shares one coordinate space", () => {
       const top = Number(
         /(?:^|;)\s*top\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1] ?? NaN,
       );
-      // Absolute canvas coords (160/180) would put it outside the host, which
-      // clips its content — the shape then exists in Layers and nowhere else.
       expect(left, `${kind} left`).toBe(60);
       expect(top, `${kind} top`).toBe(80);
     },
@@ -483,8 +561,88 @@ describe("text takes its colour from what it lands on", () => {
       "i",
     ).exec(html)?.[1] ?? "";
 
+  const textColorOnBoard = (
+    paints: string[],
+    boardBackground: string,
+  ): string => {
+    const content = `<!doctype html><html><body>${paints
+      .map(
+        (background, index) =>
+          `<div data-surface="${index}" style="background:${background}"></div>`,
+      )
+      .join("")}</body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const surfaces = Array.from(
+      liveDocument.querySelectorAll<HTMLElement>("[data-surface]"),
+    );
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => surfaces,
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground, liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
+  const textColorOnSvgPaint = (shape: string, underlay = ""): string => {
+    const content = `<!doctype html><html><body>${underlay}<svg xmlns="http://www.w3.org/2000/svg">${shape}</svg></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const svgPaint = liveDocument.querySelector("[data-svg-paint]");
+    if (!svgPaint) throw new Error("SVG paint fixture is missing its target");
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [
+        svgPaint,
+        ...Array.from(liveDocument.querySelectorAll("[data-underlay]")),
+      ],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground: "#111111", liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
+  const textColorOnMediaHit = (tagName: "img" | "video" | "canvas") => {
+    const media =
+      tagName === "img"
+        ? '<img data-agent-native-node-id="media" data-media-hit style="position:absolute;left:0;top:0;width:100px;height:100px;background:#ffffff">'
+        : `<${tagName} data-agent-native-node-id="media" data-media-hit style="position:absolute;left:0;top:0;width:100px;height:100px;background:#ffffff"></${tagName}>`;
+    const content = `<!doctype html><html><body>${media}</body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const mediaHit = liveDocument.querySelector("[data-media-hit]");
+    if (!mediaHit) throw new Error("Media fixture is missing its hit target");
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [mediaHit],
+    });
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground: "#111111", liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
   it("is not white when dropped into a white frame on the board", () => {
-    // isBoardTarget describes the surface BEHIND the frame, not the frame.
     const withFrame =
       appendCanvasPrimitiveToHtml(
         blankScreenHtml("S"),
@@ -510,8 +668,6 @@ describe("text takes its colour from what it lands on", () => {
   });
 
   it("ignores a background on the board body, which is never painted", () => {
-    // The board renderer forces its document transparent, so this white is
-    // invisible: judging it would put dark text on the dark canvas in front.
     const whiteBody =
       "<!doctype html><html><head><title>S</title></head>" +
       '<body style="background-color: #ffffff"></body></html>';
@@ -544,10 +700,450 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
-  it("inherits instead of going white on a light canvas", () => {
-    // The board document is transparent, so its colour can only arrive from
-    // the host — without it the light canvas reads as the old dark board and
-    // the text lands white-on-light.
+  const textOverBox = (bodyBackground: string, boxBackground: string) =>
+    appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head><title>S</title></head>" +
+        `<body style="background:${bodyBackground}">` +
+        `<div data-agent-native-node-id="box" style="position:absolute;left:20px;top:150px;width:280px;height:300px;background:${boxBackground}"></div>` +
+        "</body></html>",
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "Not a child",
+      },
+    ) ?? "";
+
+  it("avoids white text when it lands on a light rectangle over a dark screen", () => {
+    const html = textOverBox("#0f1115", "#D9D9D9");
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#ffffff/i);
+    expect(html).toMatch(
+      /<body[^>]*>\s*<div data-agent-native-node-id="box"[^>]*><\/div>\s*<div data-agent-native-node-id="t"/,
+    );
+  });
+
+  it("is white over a dark rectangle on a light screen", () => {
+    expect(styleOf(textOverBox("#ffffff", "#111111"), "t")).toMatch(
+      /color:\s*#ffffff/i,
+    );
+  });
+
+  it("uses the flow host color instead of the click point's child surface", () => {
+    const content = `<!doctype html><html><head><title>S</title></head><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" style="position:absolute;left:100px;top:100px;width:300px;height:200px;background:#111111">
+        <div style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#ffffff"></div>
+      </div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        { positioning: "flow" },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="t"]',
+    );
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+    expect(text?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "host",
+    );
+    expect(text?.style.position).toBe("relative");
+  });
+
+  it("keeps inherited text color when a positioned child can cover appended flow text", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" style="position:absolute;left:100px;top:100px;width:300px;height:200px;background:#111111">
+        <div class="overlay" style="position:absolute;inset:0;width:300px;height:200px;background:#ffffff"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const liveHost = liveDocument.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="host"]',
+    )!;
+    const overlay = liveDocument.querySelector<HTMLElement>(".overlay")!;
+    const coveredRect = {
+      left: 100,
+      top: 100,
+      right: 400,
+      bottom: 300,
+      width: 300,
+      height: 200,
+    };
+    Object.defineProperty(liveHost, "getBoundingClientRect", {
+      value: () => coveredRect,
+    });
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => coveredRect,
+    });
+
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        { positioning: "flow", liveDocument },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentcolor/i);
+  });
+
+  it("keeps the flow host stylesheet paint separate from the cursor child", () => {
+    const content = `<!doctype html><html><head><title>S</title></head><body>
+      <div data-agent-native-node-id="host" data-an-primitive="frame" class="host" style="position:absolute;left:100px;top:100px;width:300px;height:200px">
+        <div class="dark-child" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(
+      `<!doctype html><html><head><style>
+        .host { background: #ffffff; }
+        .dark-child { background: #111111; }
+      </style></head><body>
+        <div data-agent-native-node-id="host" data-an-primitive="frame" class="host">
+          <div class="dark-child"></div>
+        </div>
+      </body></html>`,
+      "text/html",
+    );
+    expect(
+      liveDocument.defaultView?.getComputedStyle(
+        liveDocument.querySelector('[data-agent-native-node-id="host"]')!,
+      ).backgroundColor,
+    ).toBe("#ffffff");
+    expect(
+      liveDocument.defaultView?.getComputedStyle(
+        liveDocument.querySelector(".dark-child")!,
+      ).backgroundColor,
+    ).toBe("#111111");
+    const sourceDocument = new DOMParser().parseFromString(
+      content,
+      "text/html",
+    );
+    expect(
+      destinationBackgroundLightness(
+        sourceDocument.querySelector('[data-agent-native-node-id="host"]')!,
+        liveDocument,
+      ),
+    ).toBe(true);
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 130, y: 130, width: 120, height: 24 },
+          text: "append to the host",
+        },
+        {
+          positioning: "flow",
+          isBoardTarget: true,
+          boardBackground: "#111111",
+          liveDocument,
+        },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="t"]',
+    );
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+    expect(text?.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "host",
+    );
+  });
+
+  it("uses class-based dark surfaces when live computed paint is unavailable", () => {
+    const content =
+      "<!doctype html><html><head><title>S</title></head>" +
+      '<body style="background:#ffffff">' +
+      '<div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>' +
+      "</body></html>";
+    const html =
+      appendCanvasPrimitiveToHtml(content, {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "on a class-painted dark surface",
+      }) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("uses class-based light surfaces over a dark board without a live preview", () => {
+    const content = `<!doctype html><html><body>
+      <div class="p-4 bg-white" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+    </body></html>`;
+    const parsed = new DOMParser().parseFromString(content, "text/html");
+    expect(
+      destinationBackgroundLightness(parsed.querySelector(".bg-white")!),
+    ).toBe(true);
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a class-painted light surface",
+        },
+        { isBoardTarget: true, boardBackground: "#111111" },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it.each([
+    ["bg-slate-900/80", "#ffffff", "#ffffff"],
+    ["bg-white/90", "#111111", "#000000"],
+    ["bg-slate-900/[.85]", "#ffffff", "#ffffff"],
+    ["bg-white/[0.9]", "#111111", "#000000"],
+    ["bg-slate-900!", "#ffffff", "#ffffff"],
+    ["bg-white!", "#111111", "#000000"],
+  ])(
+    "chooses readable text over %s when live background styles are unavailable",
+    (className, ancestorBackground, expectedColor) => {
+      const content = `<!doctype html><html><body style="background:${ancestorBackground}">
+        <div class="${className}" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+      </body></html>`;
+      const html =
+        appendCanvasPrimitiveToHtml(content, {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a class-painted surface",
+        }) ?? "";
+
+      expect(styleOf(html, "t")).toMatch(
+        new RegExp(`color:\\s*${expectedColor}`, "i"),
+      );
+    },
+  );
+
+  it.each(["bg-white/10", "bg-white/[.1]"])(
+    "does not treat translucent white background utility %s as opaque in fallback sampling",
+    (className) => {
+      const content = `<!doctype html><html><body>
+      <div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px">
+        <div class="${className}" style="position:absolute;left:0;top:0;width:280px;height:300px"></div>
+      </div>
+    </body></html>`;
+      const parsed = new DOMParser().parseFromString(content, "text/html");
+      const translucentWhite = parsed.querySelector(`[class="${className}"]`);
+
+      expect(destinationBackgroundLightness(translucentWhite!)).toBe(false);
+
+      const html =
+        appendCanvasPrimitiveToHtml(
+          content,
+          {
+            kind: "text",
+            nodeId: "t",
+            geometry: { x: 60, y: 260, width: 120, height: 24 },
+            text: "over a translucent white overlay",
+          },
+          { isBoardTarget: true },
+        ) ?? "";
+
+      expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+    },
+  );
+
+  it.each([
+    ["p-4 bg-white", true],
+    ["p-4 bg-slate-900", false],
+  ])(
+    "recognizes a class background utility after earlier class tokens (%s)",
+    (className, isLight) => {
+      const parsed = new DOMParser().parseFromString(
+        `<div class="${className}"></div>`,
+        "text/html",
+      );
+
+      expect(destinationBackgroundLightness(parsed.querySelector("div")!)).toBe(
+        isLight,
+      );
+    },
+  );
+
+  it("uses a dark fill for translucent dark-class paint when no board is measured", () => {
+    const content = `<!doctype html><html><body>
+      <div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px;opacity:0.5"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a translucent dark surface",
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("does not treat the fallback color as measured stylesheet paint", () => {
+    const content = `<!doctype html><html><head><style>
+      .dark-surface { background: #111111; color: #ffffff; }
+    </style></head><body>
+      <div class="dark-surface" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(content, {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "on a stylesheet-painted dark surface",
+      }) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentcolor/i);
+  });
+
+  it("composites a translucent surface over the surface below it", () => {
+    expect(textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "#111111")).toMatch(
+      /color:\s*#ffffff/i,
+    );
+  });
+
+  it("composites multiple translucent surfaces before choosing text color", () => {
+    expect(
+      textColorOnBoard(
+        ["rgba(255, 255, 255, 0.3)", "rgba(255, 255, 255, 0.3)"],
+        "#111111",
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("preserves inherited text color when translucent paint has no known base", () => {
+    expect(
+      textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "transparent"),
+    ).toMatch(/color:\s*currentcolor/i);
+  });
+
+  it("uses the dark-board fallback when a surface has a background image", () => {
+    expect(
+      textColorOnBoard(["linear-gradient(90deg, #ffffff, #111111)"], "#111111"),
+    ).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("samples a supported SVG fill when choosing text color", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("resolves inherited currentColor for an SVG fill", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<g style="color:#ffffff"><rect data-svg-paint="" fill="currentColor" width="100" height="100"/></g>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("composites SVG fill opacity over the board", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" fill-opacity=".5" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("samples a supported SVG stroke when choosing text color", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<line data-svg-paint="" fill="none" stroke="#ffffff" stroke-width="12" x1="0" y1="0" x2="100" y2="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("samples an SVG line stroke without treating its default fill as paint", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<line data-svg-paint="" stroke="#ffffff" stroke-width="12" x1="0" y1="0" x2="100" y2="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("uses the board fallback for an unsupported SVG paint server", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="url(#wash)" width="100" height="100"/>',
+        '<div data-underlay="" style="background:#ffffff;width:100px;height:100px"></div>',
+      ),
+    ).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it.each(["img", "video", "canvas"] as const)(
+    "uses the dark-board fallback when an HTML <%s> hit contains raster paint",
+    (tagName) => {
+      expect(textColorOnMediaHit(tagName)).toMatch(/color:\s*#ffffff/i);
+    },
+  );
+
+  it("ignores an unmeasured SVG image behind an opaque SVG surface", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" width="100" height="100"/>',
+        '<image data-underlay="" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("skips a zero-opacity hit and its descendants before sampling below", () => {
+    const content = `<!doctype html><html><body>
+      <div class="light-board" style="background:#ffffff;width:100px;height:100px"></div>
+      <div class="transparent" style="position:absolute;left:0;top:0;width:100px;height:100px;background:#111111;opacity:0">
+        <div class="hidden-child" style="background:#000000;width:100px;height:100px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const board = liveDocument.querySelector<HTMLElement>(".light-board")!;
+    const transparent =
+      liveDocument.querySelector<HTMLElement>(".transparent")!;
+    const child = liveDocument.querySelector<HTMLElement>(".hidden-child")!;
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [child, transparent, board],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the visible board",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("keeps inherited text color when a surface is translucent", () => {
+    expect(textColorOnBoard(["#ffffff;opacity:0.5"], "#111111")).toMatch(
+      /color:\s*currentColor/i,
+    );
+  });
+
+  it("uses the higher-contrast text color on a light canvas", () => {
     const html =
       appendCanvasPrimitiveToHtml(
         blankScreenHtml("S"),
@@ -559,8 +1155,192 @@ describe("text takes its colour from what it lands on", () => {
         },
         { isBoardTarget: true, boardBackground: "rgb(235, 235, 235)" },
       ) ?? "";
-    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
-    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("uses class fills and rendered stacking order for overlapping surfaces", () => {
+    const content = `<!doctype html><html><head><style>
+      .upper { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #ffffff; z-index: 2; }
+      .lower { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #111111; z-index: 1; }
+    </style></head><body><div class="upper"></div><div class="lower"></div></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const upper = liveDocument.querySelector<HTMLElement>(".upper");
+    const lower = liveDocument.querySelector<HTMLElement>(".lower");
+    expect(upper).not.toBeNull();
+    expect(lower).not.toBeNull();
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [upper!, lower!],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the upper surface",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "hsl(0 0% 10%)",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("does not sample an opaque ancestor outside its box for an overflowing child", () => {
+    const content = `<!doctype html><html><body>
+      <div class="card" style="position:absolute;left:0;top:0;width:20px;height:20px;background:#ffffff">
+        <div class="overflow" style="position:absolute;left:30px;top:30px;width:20px;height:20px"></div>
+      </div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const card = liveDocument.querySelector<HTMLElement>(".card")!;
+    const overflow = liveDocument.querySelector<HTMLElement>(".overflow")!;
+    Object.defineProperty(card, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 20,
+        bottom: 20,
+        width: 20,
+        height: 20,
+      }),
+    });
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [overflow],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 30, y: 30, width: 120, height: 24 },
+        text: "on the board outside the card",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it("treats a pointer-transparent painted overlay as an unknown surface", () => {
+    const content = `<!doctype html><html><body>
+      <div class="light-board" style="background:#ffffff"></div>
+      <div class="dark-overlay" style="position:absolute;left:0;top:0;width:100px;height:100px;pointer-events:none;background-image:linear-gradient(#111111,#111111)"></div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const board = liveDocument.querySelector<HTMLElement>(".light-board")!;
+    const overlay = liveDocument.querySelector<HTMLElement>(".dark-overlay")!;
+    const originalOverlayStyle = overlay.getAttribute("style");
+    Object.defineProperty(overlay, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+      }),
+    });
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () =>
+        [overlay, board].filter(
+          (element) =>
+            liveDocument.defaultView?.getComputedStyle(element)
+              .pointerEvents !== "none",
+        ),
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on a painted overlay",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#ffffff",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*currentcolor/i);
+    expect(overlay.getAttribute("style")).toBe(originalOverlayStyle);
+  });
+
+  it("ignores unknown paint beneath an opaque foreground surface", () => {
+    const content = `<!doctype html><html><body>
+      <div class="image-board" style="background-image:linear-gradient(#111111,#111111)"></div>
+      <div class="white-card" style="background:#ffffff"></div>
+    </body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const card = liveDocument.querySelector<HTMLElement>(".white-card")!;
+    const board = liveDocument.querySelector<HTMLElement>(".image-board")!;
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [card, board],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the card",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "#111111",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("checks lower painted siblings before a nested hit's painted ancestor", () => {
+    const content = `<!doctype html><html><head><style>
+      .parent { position: relative; width: 100px; height: 100px; background: #ffffff; }
+      .nested { position: absolute; inset: 0; z-index: 2; background: transparent; }
+      .lower { position: absolute; left: 0; top: 0; width: 100px; height: 100px; background: #111111; z-index: 1; }
+    </style></head><body><div class="parent"><div class="nested"></div></div><div class="lower"></div></body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const parent = liveDocument.querySelector<HTMLElement>(".parent");
+    const nested = liveDocument.querySelector<HTMLElement>(".nested");
+    const lower = liveDocument.querySelector<HTMLElement>(".lower");
+    expect(parent).not.toBeNull();
+    expect(nested).not.toBeNull();
+    expect(lower).not.toBeNull();
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [nested!, lower!, parent!],
+    });
+
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the lower surface",
+      },
+      {
+        isBoardTarget: true,
+        boardBackground: "hsl(0 0% 10%)",
+        liveDocument,
+      },
+    );
+
+    expect(styleOf(html ?? "", "t")).toMatch(/color:\s*#ffffff/i);
   });
 });
 
@@ -572,7 +1352,6 @@ describe("nesting follows where you started, not whether the box fits", () => {
         nodeId: "host",
         geometry: { x: 100, y: 100, width: 115, height: 71 },
       }) ?? "";
-    // Origin inside the frame, right edge past it — a click-created text.
     const html =
       appendCanvasPrimitiveToHtml(base, {
         kind: "text",
@@ -626,16 +1405,74 @@ describe("pen path paint defaults", () => {
     return path;
   };
 
-  it("commits a closed pen path like a drawn rectangle: filled, unstroked", () => {
+  it("commits a closed pen path as stroke-only", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
-    expect(path.getAttribute("fill")).toBe("rgb(218 218 218)");
-    expect(path.getAttribute("stroke")).toBe("none");
+    expect(path.getAttribute("fill")).toBe("none");
+    expect(path.getAttribute("stroke")).toBe("#000000");
+  });
+
+  it("keeps a pen path's box on its bounds when it starts past the screen edge", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "path",
+      nodeId: "pen-1",
+      geometry: { x: -40.5, y: -20, width: 140.25, height: 90 },
+      pathData: "M -40.5 -20 L 99.75 70",
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector<SVGSVGElement>("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("-40.5 -20 140.25 90");
+    expect(svg?.style.left).toBe("-40.5px");
+    expect(svg?.style.top).toBe("-20px");
+    expect(svg?.style.width).toBe("140.25px");
+    expect(svg?.style.height).toBe("90px");
   });
 
   it("keeps the stroke on an open pen path, which is only its stroke", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70"));
     expect(path.getAttribute("fill")).toBe("none");
     expect(path.getAttribute("stroke")).toBe("#000000");
+    expect(path.getAttribute("fill-opacity")).toBeNull();
+    expect(path.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(path.style.getPropertyPriority("fill-opacity")).toBe("important");
+    expect(
+      committedPath(penPath("M 10 10 L 90 10 L 50 70 Z")).getAttribute(
+        "fill-opacity",
+      ),
+    ).toBeNull();
+  });
+
+  it("restores fresh open-path opacity on its first close", () => {
+    const openPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 10 }),
+        createCornerNode({ x: 90, y: 10 }),
+        createCornerNode({ x: 50, y: 70 }),
+      ],
+    };
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      ...penPath(serializePenPath(openPath)),
+    });
+    if (!html) throw new Error("open pen path did not commit");
+    const openElement = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("path")!;
+    expect(openElement.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openElement.hasAttribute("data-an-open-fill-opacity")).toBe(true);
+
+    const closed = writeBackVectorEditedPenPath(
+      html,
+      "pen-1",
+      closePenPath(openPath),
+    );
+    if (!closed) throw new Error("first close did not commit");
+    const closedElement = new DOMParser()
+      .parseFromString(closed, "text/html")
+      .querySelector("path")!;
+    expect(closedElement.getAttribute("fill-opacity")).toBeNull();
+    expect(closedElement.style.getPropertyValue("fill-opacity")).toBe("");
+    expect(closedElement.hasAttribute("data-an-open-fill-opacity")).toBe(false);
   });
 
   it("still honours an explicitly chosen fill and stroke", () => {
@@ -656,12 +1493,110 @@ describe("pen path paint defaults", () => {
       nodeId: "poly-1",
       geometry: { x: 0, y: 0, width: 40, height: 40 },
     });
-    const polygon = new DOMParser()
+    const svg = new DOMParser()
       .parseFromString(html ?? "", "text/html")
-      .querySelector("polygon");
-    expect(polygon?.getAttribute("fill")).toBe("rgb(218 218 218)");
-    expect(polygon?.getAttribute("stroke")).toBe("none");
+      .querySelector<SVGSVGElement>("svg[data-an-primitive='polygon']");
+    const path = svg?.querySelector<SVGPathElement>(":scope > path");
+    expect(path?.getAttribute("fill")).toBe("rgb(217 217 217)");
+    expect(path?.getAttribute("stroke")).toBe("none");
+    const penPath = parsePenNodes(svg?.getAttribute("data-an-pen-nodes") ?? "");
+    expect(penPath?.closed).toBe(true);
+    expect(penPath?.nodes).toHaveLength(3);
+    expect(penPath?.nodes[0]?.point).toEqual({ x: 20, y: 0 });
   });
+
+  it.each(["polygon", "star"] as const)(
+    "%s stores editable closed-path geometry that corner radius can round and restore",
+    (kind) => {
+      const inserted = appendCanvasPrimitiveToHtml(
+        blankScreenHtml("Screen 1"),
+        {
+          kind,
+          nodeId: `${kind}-radius`,
+          geometry: { x: 0, y: 0, width: 100, height: 100 },
+        },
+      )!;
+      const originalSvg = new DOMParser()
+        .parseFromString(inserted, "text/html")
+        .querySelector<SVGSVGElement>(`svg[data-an-primitive='${kind}']`);
+      const originalPath =
+        originalSvg?.querySelector<SVGPathElement>(":scope > path");
+      expect(originalPath).not.toBeNull();
+      const originalD = originalPath!.getAttribute("d");
+      expect(
+        parsePenNodes(originalSvg!.getAttribute("data-an-pen-nodes")!),
+      ).toMatchObject({ closed: true });
+
+      const rounded = applyVisualEdit(inserted, {
+        kind: "style",
+        target: { nodeId: `${kind}-radius` },
+        property: "border-radius",
+        value: "8px",
+      });
+      expect(rounded.result.status).toBe("applied");
+      expect(rounded.content).toContain('data-an-corner-radius="8"');
+      expect(rounded.content).toContain(" A 8 8 ");
+
+      const restored = applyVisualEdit(rounded.content, {
+        kind: "style",
+        target: { nodeId: `${kind}-radius` },
+        property: "border-radius",
+        value: "0px",
+      });
+      expect(restored.result.status).toBe("applied");
+      expect(restored.content).toContain(`d="${originalD}"`);
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "updates %s draft polygon points when the preview is resized",
+    (kind) => {
+      const svg = new DOMParser()
+        .parseFromString(
+          '<svg xmlns="http://www.w3.org/2000/svg"><polygon points="0,0" /></svg>',
+          "image/svg+xml",
+        )
+        .querySelector<SVGSVGElement>("svg")!;
+
+      updateCanvasPolygonSvgGeometry(svg, kind, 100, 100);
+      const initialPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      updateCanvasPolygonSvgGeometry(svg, kind, 160, 60);
+
+      expect(svg.getAttribute("viewBox")).toBe("0 0 160 60");
+      const resizedPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      expect(resizedPoints).not.toBe(initialPoints);
+      expect(resizedPoints?.split(" ")[0]).toBe("80,0");
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "updates %s path data and editable points when an inserted path is resized",
+    (kind) => {
+      const svg = new DOMParser()
+        .parseFromString(
+          '<svg xmlns="http://www.w3.org/2000/svg"><path /></svg>',
+          "image/svg+xml",
+        )
+        .querySelector<SVGSVGElement>("svg")!;
+
+      updateCanvasPolygonSvgGeometry(svg, kind, 100, 100);
+      const initialPath = svg.querySelector(":scope > path")!.getAttribute("d");
+      updateCanvasPolygonSvgGeometry(svg, kind, 160, 60);
+
+      expect(svg.getAttribute("viewBox")).toBe("0 0 160 60");
+      expect(svg.querySelector(":scope > path")!.getAttribute("d")).not.toBe(
+        initialPath,
+      );
+      const resized = parsePenNodes(svg.getAttribute("data-an-pen-nodes")!);
+      expect(resized?.closed).toBe(true);
+      expect(resized?.nodes).toHaveLength(kind === "polygon" ? 3 : 10);
+      expect(resized?.nodes[0]?.point).toEqual({ x: 80, y: 0 });
+    },
+  );
 });
 
 describe("reopening and reclosing a pen path", () => {
@@ -712,8 +1647,6 @@ describe("reopening and reclosing a pen path", () => {
   };
 
   it("drops the stroke it added for visibility when the path closes again", () => {
-    // A path drawn closed commits unstroked; reopening has to paint something,
-    // but reclosing must land back on the closed default, not keep the outline.
     const reopened = writeBackVectorEditedPenPath(
       svgHtml("rgb(218 218 218)", "none"),
       "pen-1",
@@ -721,9 +1654,17 @@ describe("reopening and reclosing a pen path", () => {
     );
     if (!reopened) throw new Error("pen path reopen did not commit");
     expect(pathAttributes(reopened)).toEqual({
-      fill: "none",
+      fill: "rgb(218 218 218)",
       stroke: "#000000",
     });
+    const reopenedPath = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(reopenedPath.getAttribute("fill-opacity")).toBeNull();
+    expect(reopenedPath.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(reopenedPath.style.getPropertyPriority("fill-opacity")).toBe(
+      "important",
+    );
 
     const reclosed = writeBackVectorEditedPenPath(
       reopened,
@@ -735,6 +1676,45 @@ describe("reopening and reclosing a pen path", () => {
       fill: "rgb(218 218 218)",
       stroke: "none",
     });
+  });
+
+  it("paints a kept fill only while the path is closed", () => {
+    const reopened = writeBackVectorEditedPenPath(
+      svgHtml("none", "#000000").replace(
+        "<path ",
+        '<path style="fill: #ff0000" ',
+      ),
+      "pen-1",
+      openPath,
+    );
+    if (!reopened) throw new Error("reopen did not commit");
+    const openEl = new DOMParser()
+      .parseFromString(reopened, "text/html")
+      .querySelector("path")!;
+    expect(openEl.getAttribute("fill-opacity")).toBeNull();
+    expect(openEl.style.getPropertyValue("fill-opacity")).toBe("0");
+    expect(openEl.style.getPropertyPriority("fill-opacity")).toBe("important");
+    expect(openEl.style.fill).toBe("#ff0000");
+    const reclosed = writeBackVectorEditedPenPath(
+      reopened,
+      "pen-1",
+      closedPath,
+    );
+    if (!reclosed) throw new Error("reclose did not commit");
+    const closedEl = new DOMParser()
+      .parseFromString(reclosed, "text/html")
+      .querySelector("path")!;
+    expect(closedEl.getAttribute("fill-opacity")).toBeNull();
+  });
+
+  it("keeps a stroke-only pen path unfilled when it closes", () => {
+    const content = svgHtml("none", "#000000").replace(
+      'd="M 0 0 L 10 0 L 5 10 Z"',
+      'd="M 0 0 L 10 0 L 5 10"',
+    );
+    const closed = writeBackVectorEditedPenPath(content, "pen-1", closedPath);
+    if (!closed) throw new Error("pen path close did not commit");
+    expect(pathAttributes(closed)).toEqual({ fill: "none", stroke: "#000000" });
   });
 
   it("keeps a stroke the user chose when the path closes", () => {
@@ -873,9 +1853,6 @@ describe("reopening and reclosing a pen path", () => {
 
 describe("arrow paint target", () => {
   it("is the shaft, not the arrowhead buried in <defs>", () => {
-    // The marker's <path> is appended before the shaft, so a descendant
-    // search finds the arrowhead first — the bridge must match direct
-    // children only, like code-layer's childIndexes walk.
     const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
       kind: "arrow",
       nodeId: "arrow-1",
@@ -893,20 +1870,185 @@ describe("arrow paint target", () => {
     const shaft = svg.querySelector(
       ":scope > path, :scope > polygon, :scope > ellipse, :scope > rect, :scope > line, :scope > polyline",
     );
-    expect(shaft?.getAttribute("marker-end")).toBe("url(#arrow-1-arrow)");
+    expect(shaft?.getAttribute("marker-end")).toBe(
+      "url(#arrow-1-vector-marker-end)",
+    );
     expect(svg.querySelector("defs path")).not.toBe(shaft);
   });
+
+  it("renders independent endpoint markers and keeps their style values on the wrapper", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: "line-1",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: "diamond",
+      endPoint: "circle",
+      stroke: "#12ab34",
+      strokeWidth: 3,
+    });
+    const doc = new DOMParser().parseFromString(html ?? "", "text/html");
+    const svg = doc.querySelector("svg[data-agent-native-node-id='line-1']");
+    const path = svg?.querySelector(":scope > path");
+    expect(
+      (svg as SVGSVGElement).style.getPropertyValue(
+        VECTOR_START_ENDPOINT_PROPERTY,
+      ),
+    ).toBe("diamond");
+    expect(
+      (svg as SVGSVGElement).style.getPropertyValue(
+        VECTOR_END_ENDPOINT_PROPERTY,
+      ),
+    ).toBe("circle");
+    expect(path?.getAttribute("marker-start")).toBe(
+      "url(#line-1-vector-marker-start)",
+    );
+    expect(path?.getAttribute("marker-end")).toBe(
+      "url(#line-1-vector-marker-end)",
+    );
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start'] path")
+        ?.getAttribute("stroke"),
+    ).toBe("context-stroke");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end'] circle")
+        ?.getAttribute("stroke"),
+    ).toBe("context-stroke");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("orient"),
+    ).toBe("auto-start-reverse");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("orient"),
+    ).toBe("auto");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("refX"),
+    ).toBe("8");
+  });
+
+  it("anchors reversed triangles at their tip in source markup", () => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: "line-reversed",
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: "reversed-triangle",
+      endPoint: "reversed-triangle",
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='start']")
+        ?.getAttribute("refX"),
+    ).toBe("0");
+    expect(
+      svg
+        ?.querySelector("marker[data-an-vector-endpoint-marker='end']")
+        ?.getAttribute("refX"),
+    ).toBe("0");
+  });
+
+  it.each([
+    "none",
+    "round",
+    "square",
+    "line",
+    "triangle",
+    "reversed-triangle",
+    "circle",
+    "diamond",
+  ] as const)("renders the %s endpoint style", (endpoint) => {
+    const html = appendCanvasPrimitiveToHtml(blankScreenHtml("Screen 1"), {
+      kind: "line",
+      nodeId: `line-${endpoint}`,
+      geometry: { x: 0, y: 0, width: 100, height: 40 },
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 40 },
+      ],
+      startPoint: endpoint,
+      endPoint: endpoint,
+    });
+    const svg = new DOMParser()
+      .parseFromString(html ?? "", "text/html")
+      .querySelector("svg");
+    const path = svg?.querySelector(":scope > path");
+    if (endpoint === "none") {
+      expect(path?.hasAttribute("marker-start")).toBe(false);
+      expect(path?.hasAttribute("marker-end")).toBe(false);
+      return;
+    }
+    expect(svg?.querySelectorAll("marker")).toHaveLength(2);
+    expect(path?.getAttribute("marker-start")).toContain("vector-marker-start");
+    expect(path?.getAttribute("marker-end")).toContain("vector-marker-end");
+  });
+
+  it("reassigns node IDs and marker URL references together on duplication", async () => {
+    const { reassignDuplicatedNodeIds } =
+      await import("./canvas-primitive-insert");
+    const copied = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="line-1"><defs><marker id="line-1-vector-marker-end"/></defs><path marker-end="url(#line-1-vector-marker-end)"/></svg>',
+    );
+    const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
+    expect(nextId).toBeTruthy();
+    expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
+    expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("rekeys sanitized marker IDs when duplicating a punctuated node ID", async () => {
+    const { reassignDuplicatedNodeIds } =
+      await import("./canvas-primitive-insert");
+    const copied = reassignDuplicatedNodeIds(
+      '<svg data-agent-native-node-id="line.1"><defs><marker id="line-1-vector-marker-end"/></defs><path marker-end="url(#line-1-vector-marker-end)"/></svg>',
+    );
+    const nextId = /data-agent-native-node-id="([^"]+)"/.exec(copied)?.[1];
+    expect(nextId).toBeTruthy();
+    expect(copied).not.toContain('id="line-1-vector-marker-end"');
+    expect(copied).toContain(`id="${nextId}-vector-marker-end"`);
+    expect(copied).toContain(`url(#${nextId}-vector-marker-end)`);
+  });
+
+  it("keeps marker IDs distinct when node IDs sanitize to the same value", () => {
+    expect(vectorEndpointMarkerId("a.b", "end")).not.toBe(
+      vectorEndpointMarkerId("a-b", "end"),
+    );
+  });
+
+  it.each(["path", "line", "arrow"] as const)(
+    "recognizes %s as a live endpoint primitive",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(true);
+    },
+  );
+
+  it.each(["polygon", "star", "rect", "ellipse", "circle", "boolean"])(
+    "keeps %s out of live endpoint primitives",
+    (kind) => {
+      expect(isVectorEndpointPrimitiveKind(kind)).toBe(false);
+    },
+  );
 });
 
-// search-icon-2: a freshly drawn shape must expose a `backgroundColor` the
-// Fill inspector can read once the selection is refreshed from SOURCE (not
-// the live iframe) — e.g. right after the draw commits new file content.
-// refreshElementInfoFromContent re-derives computedStyles by parsing the
-// raw inline `style` attribute (parseInlineStyleAttribute) through
-// cssStyleAliases, which only aliases hyphenated longhands
-// (`border-color` -> `borderColor`) — it never expands a shorthand like
-// `background: <color>` into the `backgroundColor` key FillProperties
-// reads, so the shape appeared to have no fill at all after that refresh.
 describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyles refresh", () => {
   it("an ellipse's background survives cssStyleAliases as backgroundColor", () => {
     const html = appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
@@ -936,5 +2078,165 @@ describe("appendCanvasPrimitiveToHtml fill survives a source-based computedStyle
     const rawStyles = parseInlineStyleAttribute(el.getAttribute("style"));
     const aliased = cssStyleAliases(rawStyles);
     expect(aliased.backgroundColor).toBeTruthy();
+  });
+});
+
+describe("cssStyleAliases border and outline shorthands", () => {
+  it("expands an authored border into the longhands the Stroke section reads", () => {
+    const aliased = cssStyleAliases({ border: "1px solid #f08989" });
+    expect(aliased.borderWidth).toBe("1px");
+    expect(aliased.borderStyle).toBe("solid");
+    expect(aliased.borderColor).toBeTruthy();
+  });
+
+  it("keeps an outline with style none unpainted", () => {
+    const aliased = cssStyleAliases({ outline: "#ff6666 none 9px" });
+    expect(aliased.outlineStyle).toBe("none");
+  });
+});
+
+describe("drawing on an authored container nests into it", () => {
+  const authored = `<!doctype html><html><body data-agent-native-node-id="body">
+<main data-agent-native-node-id="main" style="padding:40px">
+  <div data-agent-native-node-id="card" style="width:400px;height:260px;padding:24px;background:#1E1E2A;border-radius:12px">
+    <h2 data-agent-native-node-id="title" style="color:#fff">Card title</h2>
+  </div>
+  <div data-agent-native-node-id="row" style="display:flex;gap:12px;padding:16px;width:600px;height:140px">
+    <div data-agent-native-node-id="red" style="width:80px;height:80px">A</div>
+    <div data-agent-native-node-id="green" style="width:80px;height:80px">B</div>
+  </div>
+  <div data-agent-native-node-id="locked" data-agent-native-locked="true" style="width:300px;height:100px"><span data-agent-native-node-id="locked-child">x</span></div>
+</main>
+</body></html>`;
+  const boxes: Record<string, [number, number, number, number]> = {
+    main: [0, 0, 1200, 640],
+    card: [40, 40, 400, 260],
+    title: [64, 64, 352, 30],
+    row: [40, 300, 600, 140],
+    red: [56, 316, 80, 80],
+    green: [148, 316, 80, 80],
+    locked: [40, 440, 300, 100],
+    "locked-child": [40, 440, 10, 20],
+  };
+  // The rendered screen: the same markup, measured where the browser laid it out.
+  const liveDocumentFor = (content: string) => {
+    const live = new DOMParser().parseFromString(content, "text/html");
+    for (const [id, [x, y, width, height]] of Object.entries(boxes)) {
+      const element = live.querySelector(`[data-agent-native-node-id="${id}"]`);
+      if (!element) continue;
+      Object.defineProperty(element, "getBoundingClientRect", {
+        value: () => ({
+          x,
+          y,
+          left: x,
+          top: y,
+          width,
+          height,
+          right: x + width,
+          bottom: y + height,
+        }),
+      });
+    }
+    return live;
+  };
+  const draw = (
+    primitive: CanvasPrimitiveInsert,
+    positioning: "absolute" | "flow" = "absolute",
+  ) => {
+    const html =
+      appendCanvasPrimitiveToHtml(authored, primitive, {
+        positioning,
+        liveDocument: liveDocumentFor(authored),
+      }) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const created = doc.querySelector<HTMLElement>(
+      `[data-agent-native-node-id="${primitive.nodeId}"]`,
+    );
+    if (!created) throw new Error("the drawn layer was not inserted");
+    return { html, doc, created };
+  };
+
+  it("nests a rectangle drawn on an authored card, at the drawn spot in whole pixels", () => {
+    const { created } = draw({
+      kind: "rectangle",
+      nodeId: "r",
+      geometry: { x: 200.4, y: 150.6, width: 100, height: 70 },
+    });
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("card");
+    expect([created.style.left, created.style.top]).toEqual(["160px", "111px"]);
+  });
+
+  it("gives a static card a containing block without rewriting its authored style", () => {
+    const { doc } = draw({
+      kind: "ellipse",
+      nodeId: "o",
+      geometry: { x: 200, y: 150, width: 60, height: 60 },
+    });
+    expect(
+      doc
+        .querySelector('[data-agent-native-node-id="card"]')
+        ?.getAttribute("style"),
+    ).toBe(
+      "width:400px;height:260px;padding:24px;background:#1E1E2A;border-radius:12px;position: relative",
+    );
+  });
+
+  it("nests click-created text on a card's heading into the card, not the text leaf", () => {
+    const { created } = draw({
+      kind: "text",
+      nodeId: "t",
+      geometry: { x: 100, y: 70, width: 80, height: 20 },
+      text: "Hi",
+    });
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("card");
+  });
+
+  it("joins an auto layout row at the drop position", () => {
+    const { created } = draw(
+      {
+        kind: "rectangle",
+        nodeId: "r",
+        geometry: { x: 140, y: 330, width: 40, height: 40 },
+      },
+      "flow",
+    );
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("row");
+    expect(
+      Array.from(created.parentElement!.children).map((child) =>
+        child.getAttribute("data-agent-native-node-id"),
+      ),
+    ).toEqual(["red", "r", "green"]);
+  });
+
+  it("does not nest into a locked layer", () => {
+    const { created } = draw({
+      kind: "rectangle",
+      nodeId: "r",
+      geometry: { x: 100, y: 470, width: 40, height: 40 },
+    });
+    expect(
+      created.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("main");
+  });
+
+  it("reports the authored card as the host the creation layout is read from", () => {
+    expect(
+      canvasPrimitiveInsertionHostNodeId(
+        authored,
+        {
+          kind: "rectangle",
+          nodeId: "r",
+          geometry: { x: 200, y: 150, width: 100, height: 70 },
+        },
+        false,
+        liveDocumentFor(authored),
+      ),
+    ).toEqual({ kind: "frame", nodeId: "card" });
   });
 });

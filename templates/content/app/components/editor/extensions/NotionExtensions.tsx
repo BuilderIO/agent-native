@@ -1,3 +1,10 @@
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  safeParseIconValue,
+  serializeIconValue,
+  type IconValue,
+} from "@agent-native/core/icons";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import { NFM_COLORS } from "@shared/nfm";
 import {
@@ -25,8 +32,14 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
+import { useState } from "react";
 
+import { usePageLinkTarget } from "../../../hooks/use-content-links";
+import { ContentIcon } from "../../icons/ContentIcon";
+import { runPersistableHistoryCommand } from "../editor-transaction-meta";
+import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
+import { isSuggestingEdits } from "../suggestions/read-only-blocks";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -52,15 +65,8 @@ const INLINE_ATOM_TAGS = [
   "mention-custom-emoji",
 ];
 
-export interface NotionPageLink {
-  notionPageId: string;
-  documentId: string;
-  title: string;
-  icon: string | null;
-}
-
 interface NotionBlockAtomOptions {
-  resolvePageLink?: (notionPageId: string) => NotionPageLink | null;
+  documentId?: string;
   onOpenPageLink?: (documentId: string) => void;
 }
 
@@ -79,7 +85,7 @@ function readElementAttributes(
   return attrs;
 }
 
-function parseAttrsJson(
+export function parseAttrsJson(
   attrsJson: string | null | undefined,
 ): Record<string, string> {
   if (!attrsJson) return {};
@@ -127,7 +133,7 @@ function serializeAtomTag(
     : `<${tagName}${serializeTagAttributes(attrs)} />`;
 }
 
-function humanizeTag(tagName: string): string {
+export function humanizeTag(tagName: string): string {
   return tagName.replace(/[_-]/g, " ");
 }
 
@@ -160,7 +166,7 @@ function getNotionPageId(attrs: Record<string, string>) {
   );
 }
 
-function safeExternalPageUrl(input: string | null): string | null {
+export function safeExternalPageUrl(input: string | null): string | null {
   if (!input) return null;
   try {
     const url = new URL(input);
@@ -289,7 +295,7 @@ export function outdentDirectToggleChild(editor: Editor): boolean {
   return true;
 }
 
-function normalizeIndentAttr(value: unknown): number {
+export function normalizeIndentAttr(value: unknown): number {
   const parsed =
     typeof value === "number"
       ? value
@@ -316,7 +322,7 @@ export function focusMostRecentEmptyToggleSummary(editor: {
     }
 
     const inputs = Array.from(
-      editorDom.querySelectorAll<HTMLInputElement>(".notion-toggle__summary"),
+      editorDom.querySelectorAll<HTMLInputElement>(".content-toggle__summary"),
     );
     const target =
       [...inputs].reverse().find((input) => input.value === "") ??
@@ -341,16 +347,20 @@ export function focusToggleSummaryAtPosition(
   const nodeDom = editor.view.nodeDOM(pos);
   if (!(nodeDom instanceof HTMLElement)) return;
   const target = nodeDom.querySelector<HTMLInputElement>(
-    ".notion-toggle__summary",
+    ".content-toggle__summary",
   );
   target?.focus();
   target?.select();
 }
 
 function ToggleView({ node, editor, getPos }: NodeViewProps) {
-  const open = !!node.attrs.open;
+  // The page stores whether a Toggle is open, which a suggestion cannot
+  // change, so while suggesting it opens and closes only in this view.
+  const suggesting = isSuggestingEdits(editor.state);
+  const [suggestingOpen, setSuggestingOpen] = useState<boolean | null>(null);
+  const open = suggestingOpen ?? !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
-  const isEditable = editor.isEditable;
+  const isEditable = editor.isEditable && !suggesting;
   const bodyHasNoBlocks = node.childCount === 0;
 
   const updateToggleAttributes = (
@@ -371,7 +381,9 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   };
 
   const setOpen = (value: boolean) =>
-    updateToggleAttributes({ open: value }, "pointer");
+    suggesting
+      ? setSuggestingOpen(value)
+      : updateToggleAttributes({ open: value }, "pointer");
 
   const focusEmptyBody = (event: React.MouseEvent<HTMLElement>) => {
     if (!isEditable) return;
@@ -487,7 +499,23 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!isEditable) return;
 
-    if (e.key === "Enter") {
+    // The page never sees the summary's keys, and the browser's own undo
+    // loses track of a field the page rewrites, so undo and redo use the
+    // page's history, as they do in the body.
+    const key = e.key.toLowerCase();
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      !e.nativeEvent.isComposing &&
+      (key === "z" || (key === "y" && !e.shiftKey))
+    ) {
+      e.preventDefault();
+      runPersistableHistoryCommand(
+        editor,
+        key === "z" && !e.shiftKey ? "undo" : "redo",
+        { focusEditor: false },
+      );
+    } else if (e.key === "Enter") {
       e.preventDefault();
       const pos = getPos();
       if (typeof pos !== "number") return;
@@ -506,7 +534,6 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       e.preventDefault();
       const pos = getPos();
       if (typeof pos !== "number") return;
-      // Delete this empty toggle and replace with paragraph
       const paragraph = editor.state.schema.nodes.paragraph;
       if (!paragraph) return;
       const tr = editor.state.tr.replaceWith(
@@ -524,8 +551,8 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
 
   return (
     <NodeViewWrapper
-      className={`notion-toggle ${open ? "notion-toggle--open" : ""} ${
-        bodyHasNoBlocks ? "notion-toggle--body-empty" : ""
+      className={`content-toggle ${open ? "content-toggle--open" : ""} ${
+        bodyHasNoBlocks ? "content-toggle--body-empty" : ""
       }`}
       data-color={node.attrs.color || undefined}
       data-heading-level={node.attrs.headingLevel || undefined}
@@ -534,10 +561,10 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       data-drag-handle=""
     >
       <div
-        className="notion-toggle__summary-row"
+        className="content-toggle__summary-row"
         onClick={() => setOpen(!open)}
       >
-        <span className="notion-toggle__chevron" contentEditable={false}>
+        <span className="content-toggle__chevron" contentEditable={false}>
           {open ? (
             <IconChevronDown size={18} stroke={2} />
           ) : (
@@ -556,20 +583,20 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
             onKeyDown={handleKeyDown}
             onClick={(e) => e.stopPropagation()}
             placeholder={TOGGLE_SUMMARY_PLACEHOLDER}
-            className="notion-toggle__summary"
+            className="content-toggle__summary"
           />
         ) : (
-          <span className="notion-toggle__summary" contentEditable={false}>
+          <span className="content-toggle__summary" contentEditable={false}>
             {summary || TOGGLE_SUMMARY_PLACEHOLDER}
           </span>
         )}
       </div>
       <div
-        className={`notion-toggle__body ${open ? "" : "notion-toggle__body--collapsed"}`}
+        className={`content-toggle__body ${open ? "" : "content-toggle__body--collapsed"}`}
       >
         {isEditable && open && bodyHasNoBlocks ? (
           <div
-            className="notion-toggle__body-placeholder notion-toggle__body-placeholder--empty-node"
+            className="content-toggle__body-placeholder content-toggle__body-placeholder--empty-node"
             contentEditable={false}
             onDragEnter={allowEmptyBodyDrop}
             onDragOver={allowEmptyBodyDrop}
@@ -579,7 +606,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
             {EMPTY_TOGGLE_BODY_PLACEHOLDER}
           </div>
         ) : null}
-        <NodeViewContent className="notion-toggle__content" />
+        <NodeViewContent className="content-toggle__content" />
       </div>
     </NodeViewWrapper>
   );
@@ -590,10 +617,15 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const label = (node.attrs.label || "") as string;
   const attrs = parseAttrsJson(node.attrs.attrsJson as string);
   const options = extension.options as NotionBlockAtomOptions;
+  const t = useT();
   const notionPageId = tagName === "page" ? getNotionPageId(attrs) : null;
-  const pageLink = notionPageId
-    ? options.resolvePageLink?.(notionPageId)
-    : null;
+  const pageLinkQuery = usePageLinkTarget(
+    notionPageId && options.onOpenPageLink ? notionPageId : null,
+  );
+  const pageLink = pageLinkQuery.data ?? null;
+  // An unreadable lookup is not a missing page: keep the block usable so a
+  // click retries instead of presenting the link as gone.
+  const pageLinkLookupFailed = pageLinkQuery.isError;
   const primary =
     pageLink?.title ||
     label ||
@@ -622,6 +654,15 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
         options.onOpenPageLink(pageLink.documentId);
         return;
       }
+      if (pageLinkLookupFailed) {
+        const retry = pageLinkQuery.refetch();
+        if (!externalUrl) {
+          void retry.then((result) => {
+            if (result.data) options.onOpenPageLink?.(result.data.documentId);
+          });
+          return;
+        }
+      }
       if (externalUrl) {
         window.open(externalUrl, "_blank", "noopener,noreferrer");
       }
@@ -629,30 +670,38 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
 
     return (
       <NodeViewWrapper
-        className={`notion-page-reference ${
-          canOpenLocalPage || externalUrl
-            ? "notion-page-reference--clickable"
+        className={`content-page-reference ${
+          canOpenLocalPage || pageLinkLookupFailed || externalUrl
+            ? "content-page-reference--clickable"
             : ""
         }`}
+        data-page-link-state={pageLinkLookupFailed ? "unavailable" : undefined}
       >
         <button
           type="button"
-          className="notion-page-reference__button"
+          className="content-page-reference__button"
           contentEditable={false}
-          disabled={!canOpenLocalPage && !externalUrl}
+          disabled={!canOpenLocalPage && !pageLinkLookupFailed && !externalUrl}
+          title={
+            pageLinkLookupFailed ? t("editor.reference.loadError") : undefined
+          }
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
             openPage();
           }}
         >
-          <span className="notion-page-reference__icon" aria-hidden="true">
-            {pageLink?.icon || <IconFileText size={20} stroke={1.8} />}
+          <span className="content-page-reference__icon" aria-hidden="true">
+            <ContentIcon
+              value={pageLink?.icon}
+              size={20}
+              fallback={<IconFileText size={20} stroke={1.8} />}
+            />
           </span>
-          <span className="notion-page-reference__label">{primary}</span>
+          <span className="content-page-reference__label">{primary}</span>
           {!pageLink && externalUrl ? (
             <IconExternalLink
-              className="notion-page-reference__external"
+              className="content-page-reference__external"
               size={16}
               stroke={1.8}
             />
@@ -665,12 +714,12 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const AtomIcon = tagName === "database" ? IconDatabase : IconFileText;
 
   return (
-    <NodeViewWrapper className="notion-atom notion-atom--block">
-      <div className="notion-atom__kind">
+    <NodeViewWrapper className="content-atom content-atom--block">
+      <div className="content-atom__kind">
         <AtomIcon size={14} stroke={1.8} />
         {humanizeTag(tagName)}
       </div>
-      <div className="notion-atom__label">{primary}</div>
+      <div className="content-atom__label">{primary}</div>
     </NodeViewWrapper>
   );
 }
@@ -697,7 +746,7 @@ function InlineAtomView({ node }: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="span"
-      className="notion-inline-atom"
+      className="content-inline-atom"
       contentEditable={false}
     >
       {label || humanizeTag(tagName)}
@@ -753,13 +802,13 @@ export const NotionSpanMark = Mark.create({
       NFM_COLORS.has(HTMLAttributes.color) &&
       !HTMLAttributes.color.endsWith("_bg")
     ) {
-      classes.push(`notion-block-color--${HTMLAttributes.color}`);
+      classes.push(`content-block-color--${HTMLAttributes.color}`);
     }
     if (
       NFM_COLORS.has(HTMLAttributes.bgColor) &&
       HTMLAttributes.bgColor.endsWith("_bg")
     ) {
-      classes.push(`notion-block-bg--${HTMLAttributes.bgColor.slice(0, -3)}`);
+      classes.push(`content-block-bg--${HTMLAttributes.bgColor.slice(0, -3)}`);
     }
     if (HTMLAttributes.underline === "true") {
       style.push("text-decoration: underline");
@@ -900,13 +949,6 @@ export const NotionToggle = Node.create({
   addStorage() {
     return {
       markdown: {
-        // NOTE: must be a regular function (not arrow) so that
-        // tiptap-markdown's `serialize.bind({editor, options})` actually
-        // sets `this`. Arrow functions ignore .bind() — that left
-        // `this.editor` undefined inside `serializeInnerMarkdown`,
-        // which silently fell back to `node.textContent` and stripped
-        // every paragraph break, blockquote marker, and inline mark
-        // from the toggle's contents on save.
         serialize: function (_state: any, node: any) {
           const attrs: Record<string, string> = {};
           if (node.attrs.color) attrs.color = String(node.attrs.color);
@@ -936,6 +978,59 @@ export const NotionToggle = Node.create({
     };
   },
 });
+
+function CalloutView({ editor, getPos, node, extension }: NodeViewProps) {
+  const documentId = (extension.options as NotionBlockAtomOptions).documentId;
+  const registerPrivateIcon = useActionMutation(
+    "register-private-callout-icon",
+  );
+  const icon = typeof node.attrs.icon === "string" ? node.attrs.icon : "💡";
+  const updateIcon = async (value: IconValue | null) => {
+    if (!editor.isEditable) throw new Error("Callout is not editable");
+    if (value?.kind === "image" && value.authority === "private-icon") {
+      if (!documentId) throw new Error("Callout document is unavailable");
+      await registerPrivateIcon.mutateAsync({
+        documentId,
+        assetId: value.assetId,
+      });
+    }
+    const pos = getPos();
+    if (typeof pos !== "number") throw new Error("Callout is unavailable");
+    const currentNode = editor.state.doc.nodeAt(pos);
+    if (currentNode?.type.name !== "notionCallout")
+      throw new Error("Callout is unavailable");
+    const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+      ...currentNode.attrs,
+      icon: value ? serializeIconValue(value) : "💡",
+    });
+    tr.setMeta("preventClearDocument", true);
+    tr.setMeta("uiEvent", "pointer");
+    editor.view.dispatch(tr);
+  };
+  return (
+    <NodeViewWrapper
+      data-notion-callout="true"
+      data-icon={icon}
+      data-color={node.attrs.color || undefined}
+    >
+      <div data-notion-callout-icon="true" contentEditable={false}>
+        {isSuggestingEdits(editor.state) ? (
+          <span className="flex size-9 shrink-0 items-center justify-center">
+            <ContentIcon value={icon} size={22} />
+          </span>
+        ) : (
+          <EmojiPicker
+            icon={icon}
+            assetScopeDocumentId={documentId}
+            variant="compact"
+            onSelect={updateIcon}
+          />
+        )}
+      </div>
+      <NodeViewContent data-notion-callout-content="true" />
+    </NodeViewWrapper>
+  );
+}
 
 export const NotionCallout = Node.create({
   name: "notionCallout",
@@ -981,6 +1076,11 @@ export const NotionCallout = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
+    const parsedIcon = safeParseIconValue(HTMLAttributes.icon || "💡");
+    const fallbackIcon =
+      parsedIcon.success && parsedIcon.data?.kind === "emoji"
+        ? parsedIcon.data.emoji
+        : "";
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
@@ -988,19 +1088,18 @@ export const NotionCallout = Node.create({
         "data-icon": HTMLAttributes.icon || "💡",
         "data-color": HTMLAttributes.color || undefined,
       }),
-      [
-        "div",
-        { "data-notion-callout-icon": "true" },
-        HTMLAttributes.icon || "💡",
-      ],
+      ["div", { "data-notion-callout-icon": "true" }, fallbackIcon],
       ["div", { "data-notion-callout-content": "true" }, 0],
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(CalloutView);
   },
 
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(
@@ -1042,7 +1141,6 @@ export const NotionColumns = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("columns", {}, inner));
@@ -1074,7 +1172,6 @@ export const NotionColumn = Node.create({
   addStorage() {
     return {
       markdown: {
-        // Regular function — see NotionToggle.serialize for why.
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
           _state.write(serializeContainerTag("column", {}, inner));
@@ -1095,7 +1192,6 @@ export const NotionBlockAtom = Node.create({
 
   addOptions(): NotionBlockAtomOptions {
     return {
-      resolvePageLink: undefined,
       onOpenPageLink: undefined,
     };
   },
@@ -1105,12 +1201,6 @@ export const NotionBlockAtom = Node.create({
       tagName: { default: "unknown" },
       attrsJson: { default: "{}" },
       label: { default: "" },
-      // Verbatim source for unrecognized raw containers (e.g. <meeting-notes>)
-      // preserved by parseRawContainer. Must survive editor load/save so the
-      // real content isn't replaced by the tagName summary on the next save.
-      // Kept out of the rendered DOM (see renderHTML) since the NodeView
-      // renders from label/tagName; parseHTML restores it from data-raw for
-      // the rare case content is round-tripped through HTML (e.g. paste).
       __raw: { default: "" },
     };
   },
@@ -1258,7 +1348,7 @@ export const NotionInlineAtom = Node.create({
         "data-notion-inline-atom": "true",
         "data-tag-name": HTMLAttributes.tagName,
         "data-attrs-json": HTMLAttributes.attrsJson,
-        class: "notion-inline-atom",
+        class: "content-inline-atom",
       }),
       HTMLAttributes.label || humanizeTag(HTMLAttributes.tagName || "mention"),
     ];
@@ -1292,7 +1382,7 @@ export function createNotionEditorExtensions(
   return [
     NotionSpanMark,
     NotionToggle,
-    NotionCallout,
+    NotionCallout.configure({ documentId: blockAtomOptions.documentId }),
     NotionColumns,
     NotionColumn,
     NotionBlockAtom.configure(blockAtomOptions),

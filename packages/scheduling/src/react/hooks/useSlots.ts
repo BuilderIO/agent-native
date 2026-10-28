@@ -1,11 +1,3 @@
-/**
- * useSlots — fetches available time slots for an event type over a date
- * range. Plays well with @tanstack/react-query when it's available, falls
- * back to a plain fetch + state when not.
- *
- * The hook is transport-agnostic: consumers pass a `fetchSlots` callback
- * that calls their own API (typically an action like `check-availability`).
- */
 import { useEffect, useState, useCallback } from "react";
 
 import type { Slot } from "../../shared/index.js";
@@ -18,7 +10,6 @@ export interface UseSlotsOpts {
   from: string;
   to: string;
   timezone?: string;
-  /** Consumer-provided fetch function — typically calls `check-availability` */
   fetchSlots: (params: {
     eventTypeId?: string;
     slug?: string;
@@ -28,7 +19,6 @@ export interface UseSlotsOpts {
     to: string;
     timezone?: string;
   }) => Promise<{ slots: Slot[] }>;
-  /** If false, don't fetch (e.g. waiting on a dependency) */
   enabled?: boolean;
 }
 

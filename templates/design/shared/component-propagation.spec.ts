@@ -505,7 +505,6 @@ describe("linked component property propagation", () => {
       },
     ]);
 
-    // Older saves may contain a root-position marker from before this boundary.
     const currentInstance = durableNode(
       documents[1]!,
       "reset-position-instance-root",

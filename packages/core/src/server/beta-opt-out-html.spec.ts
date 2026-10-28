@@ -184,9 +184,6 @@ describe("injectBetaOptOutPersistence", () => {
     );
     const stylesheet = css.slice(css.indexOf(">") + 1, css.indexOf("</style>"));
 
-    // A declaration before the first rule is not a contained parse error: the
-    // following rule's prelude absorbs it and that rule is dropped, which
-    // silently unpins the badge.
     expect(stylesheet.trimStart()).toMatch(/^[.#a-zA-Z@:*]/);
     expect(stylesheet.trimStart()).not.toMatch(/^[a-z-]+\s*:/);
     expect(stylesheet).toContain(".environment-switcher {");

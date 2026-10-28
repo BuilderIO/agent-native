@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { McpIntegrationsLanding } from "@agent-native/core/client/integrations";
+import { McpIntegrationsLanding } from "@agent-native/toolkit/app/integrations";
 import { Link } from "react-router";
 
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -20,7 +20,7 @@ export default function AgentIntegrationsRoute() {
         <p className="mt-5 text-right text-xs text-muted-foreground">
           <Link
             className="underline-offset-4 hover:text-foreground hover:underline"
-            to="/integrations"
+            to="/settings/integrations"
           >
             {t("integrations.connectedAccounts")}
           </Link>

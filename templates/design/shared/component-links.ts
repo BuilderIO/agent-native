@@ -99,7 +99,6 @@ function sameDocument(left: LocatedNode, right: LocatedNode): boolean {
   );
 }
 
-/** Resolve canonical mains and explicit refs by opaque ID, never by name. */
 export function analyzeComponentLinks(
   projections: readonly CodeLayerProjection[],
 ): ComponentLinkAnalysis {
@@ -204,7 +203,6 @@ interface MaterializeComponentLinkInput {
   mainNode: CodeLayerNode;
   targetSource: CodeLayerSource;
   cloneHtml: string;
-  /** Old durable node ID -> the ID assigned by prepareClonedHtmlLayer. */
   nodeIdMap: ReadonlyMap<string, string>;
 }
 
@@ -259,11 +257,6 @@ function validateNestedReference(
     return null;
   }
 
-  // A nested root is also a materialized instance of its inner component. Its
-  // source marker therefore belongs to the inner component's source domain,
-  // while the nested root's durable node ID belongs to the outer main. The
-  // marker is optional on a canonical nested root, but an authored marker must
-  // identify the inner canonical root exactly.
   const nestedSourceNodeId = identityValue(
     reference,
     COMPONENT_SOURCE_NODE_ID_ATTR,
@@ -427,11 +420,6 @@ function atomicComponentSubtree(
   return { nodes, nestedRoots };
 }
 
-/**
- * Convert a clone of a canonical main into an explicitly linked instance.
- * The caller supplies the clone helper's durable-ID map; this function never
- * guesses a descendant correspondence from names, tags, or source order.
- */
 export function materializeComponentLink({
   mainProjection,
   projections = [mainProjection],
@@ -684,6 +672,7 @@ export interface ComponentNodeHandle {
 export type ComponentPropertyEdit =
   | { kind: "style"; property: string; value: string | null }
   | { kind: "textContent"; value: string }
+  | { kind: "attribute"; attribute: string; value: string }
   | { kind: "layerName"; value: string };
 
 export interface ComponentSourceChange {
@@ -724,11 +713,6 @@ export type ComponentPropertyTransformResult =
       message?: string;
     };
 
-/**
- * Result shape shared by property and structural component propagation.
- * Structural callers receive the same typed refusal vocabulary so a rejected
- * reconciliation cannot be mistaken for a successful save.
- */
 export type ComponentStructureTransformResult =
   ComponentPropertyTransformResult;
 
@@ -760,6 +744,7 @@ function stylePropertyName(property: string): string {
 function propertyKey(edit: ComponentPropertyEdit): string {
   if (edit.kind === "style") return `style:${stylePropertyName(edit.property)}`;
   if (edit.kind === "textContent") return "textContent";
+  if (edit.kind === "attribute") return `attribute:${edit.attribute}`;
   return `attribute:${LAYER_NAME_ATTR}`;
 }
 
@@ -802,6 +787,14 @@ function editIntent(
   if (edit.kind === "textContent") {
     return { kind: "textContent", target, value: edit.value };
   }
+  if (edit.kind === "attribute") {
+    return {
+      kind: "attribute",
+      target,
+      name: edit.attribute,
+      value: edit.value,
+    };
+  }
   return {
     kind: "attribute",
     target,
@@ -820,6 +813,11 @@ function readInheritedValue(
   }
   if (edit.kind === "textContent") {
     return readCodeLayerNodeTextContent(document.content, node);
+  }
+  if (edit.kind === "attribute") {
+    const value =
+      node.dataAttributes[edit.attribute] ?? node.attributes[edit.attribute];
+    return typeof value === "string" ? value : null;
   }
   return (
     resolveLayerNameAttribute((attribute) => {
@@ -1552,11 +1550,6 @@ interface RenderedComponentChild {
   idMap: Map<string, string>;
 }
 
-/**
- * Rebuild one projected container from its original source slots. The
- * projected child list can change order and membership while raw gaps,
- * comments, and unprojected markup stay in the component.
- */
 function renderComponentChildren(
   content: string,
   sourceContent: string,
@@ -2134,8 +2127,6 @@ function renderComponentStructureNode(
   context.visiting.add(sourceNodeId);
 
   try {
-    // Nested linked components are one opaque correspondence unit. The
-    // nested component owns its descendants and is handled by its own edit.
     if (context.newMainTree.nestedBySourceId.has(sourceNodeId)) {
       const instanceNode = context.oldInstanceBySourceId.get(sourceNodeId);
       if (!instanceNode) {
@@ -2346,11 +2337,7 @@ const STRUCTURE_INSTANCE_ATTRIBUTES = new Set([
 
 function canSyncStructureAttribute(name: string): boolean {
   const lowerName = name.toLowerCase();
-  return (
-    !STRUCTURE_INSTANCE_ATTRIBUTES.has(lowerName) &&
-    !lowerName.startsWith("data-agent-native-prop-") &&
-    lowerName !== "style"
-  );
+  return !STRUCTURE_INSTANCE_ATTRIBUTES.has(lowerName) && lowerName !== "style";
 }
 
 function structureAttributeValue(
@@ -2401,12 +2388,16 @@ function syncInheritedStructureValues(args: {
     const attributes: Record<string, string | null> = {};
     const attributeNames = new Set([
       ...Object.keys(oldMainNode.attributes),
+      ...Object.keys(oldMainNode.dataAttributes),
       ...Object.keys(newMainNode.attributes),
+      ...Object.keys(newMainNode.dataAttributes),
     ]);
     for (const name of [...attributeNames].sort()) {
       if (!canSyncStructureAttribute(name)) continue;
-      const before = oldMainNode.attributes[name];
-      const after = newMainNode.attributes[name];
+      const before =
+        oldMainNode.dataAttributes[name] ?? oldMainNode.attributes[name];
+      const after =
+        newMainNode.dataAttributes[name] ?? newMainNode.attributes[name];
       if (before === after) continue;
       if (
         overrides.some(
@@ -2498,11 +2489,6 @@ interface ComponentStructureReplacement {
   content: string;
 }
 
-/**
- * Reconcile one canonical MAIN snapshot against every materialized reference.
- * The caller owns persistence; this function only returns an all-or-nothing
- * set of source changes after validating both identity graphs.
- */
 export function applyComponentStructureEdit(args: {
   documents: readonly ComponentSourceDocument[];
   target: ComponentNodeHandle;
@@ -3054,7 +3040,6 @@ function resultChanges(
   });
 }
 
-/** Apply a supported property edit to a main or one linked instance. */
 export function applyComponentPropertyEdit(args: {
   documents: readonly ComponentSourceDocument[];
   target: ComponentNodeHandle;
@@ -3387,7 +3372,6 @@ export function applyComponentStructureIntent(args: {
   });
 }
 
-/** Apply one inspector commit across linked and ordinary selected targets. */
 export function applyComponentStyleTargetsEdit(args: {
   documents: readonly ComponentSourceDocument[];
   targets: readonly ComponentStyleTarget[];
@@ -3496,7 +3480,6 @@ export function applyComponentStyleTargetsEdit(args: {
   };
 }
 
-/** Reset every supported override on one linked instance to its latest main value. */
 export function resetComponentInstanceOverrides(args: {
   documents: readonly ComponentSourceDocument[];
   instance: ComponentNodeHandle;
@@ -3611,7 +3594,13 @@ export function resetComponentInstanceOverrides(args: {
               }
             : override.property === `attribute:${LAYER_NAME_ATTR}`
               ? { kind: "layerName", value: "" }
-              : null;
+              : override.property.startsWith("attribute:")
+                ? {
+                    kind: "attribute",
+                    attribute: override.property.slice("attribute:".length),
+                    value: "",
+                  }
+                : null;
       if (!propertyEdit)
         return {
           status: "unsupported-reset-value",

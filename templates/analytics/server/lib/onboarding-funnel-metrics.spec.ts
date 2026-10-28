@@ -1,0 +1,840 @@
+import { createRequire } from "node:module";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { assertFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend.js";
+import {
+  scopedAnalyticsSql,
+  validateFirstPartyAnalyticsSql,
+} from "./first-party-analytics.js";
+import { buildPanel } from "./first-party-metric-catalog.js";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+
+function interpolate(sql: string, values: Record<string, string>): string {
+  return sql.replace(
+    /{{\s*([A-Za-z0-9_]+)\s*}}/g,
+    (_match, key: string) => values[key] ?? "",
+  );
+}
+
+const FILTERS = {
+  timeRange: "",
+  emailFilter: "exclude_builder",
+  appFilter: "",
+};
+let nextRowId = 0;
+let eventDay = "";
+
+describe("onboarding funnel metrics", () => {
+  let client: PGliteClient;
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await client?.close();
+  });
+
+  async function createEventsTable() {
+    client = await PGlite.create("memory://");
+    eventDay = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    await client.query(`
+      CREATE TABLE analytics_events (
+        id text PRIMARY KEY,
+        event_name text NOT NULL,
+        user_id text,
+        anonymous_id text,
+        user_key text,
+        session_id text,
+        timestamp text NOT NULL,
+        event_date text,
+        app text,
+        template text,
+        hostname text,
+        signed_in text,
+        properties text NOT NULL DEFAULT '{}',
+        org_id text DEFAULT 'org-1',
+        owner_email text
+      )
+    `);
+  }
+
+  async function insertEvent(
+    eventName: string,
+    authUserId: string,
+    properties: Record<string, unknown>,
+    options: {
+      email?: string | null;
+      anonymousId?: string | null;
+      userKey?: string | null;
+      authUserId?: string | null;
+      at?: string;
+      sessionId?: string;
+    } = {},
+  ) {
+    const canonicalAuthUserId =
+      options.authUserId === undefined ? authUserId : options.authUserId;
+    await client.query(
+      `INSERT INTO analytics_events
+        (id, event_name, user_id, anonymous_id, user_key, timestamp, event_date, app, template, hostname, properties, session_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'clips', 'clips', 'clips.agent-native.com', $8, $9)`,
+      [
+        `event-${nextRowId++}`,
+        eventName,
+        Object.prototype.hasOwnProperty.call(options, "email")
+          ? options.email
+          : `${authUserId}@example.com`,
+        options.anonymousId === undefined
+          ? `anon-${authUserId}`
+          : options.anonymousId,
+        options.userKey ?? null,
+        options.at ?? `${eventDay}T12:00:00.000Z`,
+        eventDay,
+        JSON.stringify({
+          ...properties,
+          ...(canonicalAuthUserId ? { auth_user_id: canonicalAuthUserId } : {}),
+        }),
+        options.sessionId ?? null,
+      ],
+    );
+  }
+
+  it("counts reached, completed, skipped, and unresolved users separately", async () => {
+    await createEventsTable();
+    const step = {
+      flow: "first_run",
+      step_id: "choice",
+      step_index: 1,
+    };
+    for (const user of ["u1", "u2", "u3", "u4", "u5+autoz"]) {
+      await insertEvent("onboarding_step_viewed", user, step);
+    }
+    await insertEvent("onboarding_step_completed", "u1", step);
+    await insertEvent("onboarding_step_skipped", "u2", step);
+    await insertEvent("onboarding_step_completed", "u4", step);
+    await insertEvent("onboarding_step_skipped", "u4", step);
+
+    const panel = buildPanel("onboarding-step-dropoff")!;
+    expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
+    expect(() => assertFirstPartyAnalyticsBigQuerySql(panel.sql)).not.toThrow();
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(result.rows).toContainEqual(
+      expect.objectContaining({
+        flow: "first_run",
+        step_id: "choice",
+        users_reached: 4,
+        users_completed: 2,
+        users_skipped: 2,
+        users_no_recorded_outcome: 1,
+      }),
+    );
+  }, 20_000);
+
+  it("joins pre-signup visits and later activity by canonical auth identity", async () => {
+    await createEventsTable();
+    const anonymous = {
+      email: null,
+      anonymousId: "visitor-1",
+      authUserId: null,
+    };
+    const signedIn = {
+      email: "alice-new@example.com",
+      userKey: "alice-new@example.com",
+      anonymousId: "visitor-1",
+      authUserId: "auth-alice",
+    };
+
+    await insertEvent("auth.signup_viewed", "anon", {}, anonymous);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      anonymous,
+    );
+    await insertEvent(
+      "signup",
+      "alice",
+      { signup_method: "google" },
+      {
+        email: "alice-old@example.com",
+        userKey: "alice-old@example.com",
+        anonymousId: "visitor-1",
+        authUserId: "auth-alice",
+      },
+    );
+    await insertEvent("onboarding_started", "alice", {}, signedIn);
+    await insertEvent(
+      "onboarding_step_viewed",
+      "alice",
+      { flow: "first_run", step_id: "connect", step_index: 1 },
+      signedIn,
+    );
+    await insertEvent("onboarding_completed", "alice", {}, signedIn);
+    await insertEvent("app_entered", "alice", {}, signedIn);
+    await insertEvent(
+      "app.first_action",
+      "alice",
+      { action: "chat_submit" },
+      signedIn,
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(result.rows.map(({ stage, users }) => [stage, users])).toEqual([
+      ["Signup page viewed", 1],
+      ["Signup CTA clicked", 1],
+      ["Signed up", 1],
+      ["Onboarding started", 1],
+      ["Onboarding step reached", 1],
+      ["Onboarding completed", 1],
+      ["Entered app", 1],
+      ["First significant action", 1],
+    ]);
+  }, 20_000);
+
+  it("joins a visitor without analytics consent to their signup in the same session", async () => {
+    await createEventsTable();
+    const unconsented = {
+      email: null,
+      anonymousId: null,
+      authUserId: null,
+      sessionId: "session-1",
+    };
+    await insertEvent("auth.signup_viewed", "anon", {}, unconsented);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      unconsented,
+    );
+    // Another visitor without consent, in another session, never signs up.
+    await insertEvent(
+      "auth.signup_viewed",
+      "anon",
+      {},
+      { ...unconsented, sessionId: "session-2" },
+    );
+    await insertEvent(
+      "signup",
+      "bea",
+      { signup_method: "google" },
+      {
+        email: "bea@example.com",
+        userKey: "bea@example.com",
+        anonymousId: null,
+        authUserId: "auth-bea",
+        sessionId: "session-1",
+      },
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(
+      result.rows.slice(0, 3).map(({ stage, users }) => [stage, users]),
+    ).toEqual([
+      ["Signup page viewed", 1],
+      ["Signup CTA clicked", 1],
+      ["Signed up", 1],
+    ]);
+  }, 20_000);
+
+  it("keeps a signed-in event's own identity over its session's signup", async () => {
+    await createEventsTable();
+    // Bea views the signup page without consent, and signs up in that session.
+    await insertEvent(
+      "auth.signup_viewed",
+      "anon",
+      {},
+      {
+        email: null,
+        anonymousId: null,
+        authUserId: null,
+        sessionId: "session-1",
+      },
+    );
+    // Carl, signed in without analytics consent, in that same session.
+    await insertEvent(
+      "auth.signup_viewed",
+      "carl",
+      {},
+      {
+        email: "carl@example.com",
+        anonymousId: null,
+        authUserId: null,
+        sessionId: "session-1",
+      },
+    );
+    await insertEvent(
+      "signup",
+      "bea",
+      { signup_method: "google" },
+      {
+        email: "bea@example.com",
+        userKey: "bea@example.com",
+        anonymousId: null,
+        authUserId: "auth-bea",
+        sessionId: "session-1",
+      },
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(
+      result.rows.slice(0, 3).map(({ stage, users }) => [stage, users]),
+    ).toEqual([
+      ["Signup page viewed", 2],
+      ["Signup CTA clicked", 0],
+      ["Signed up", 0],
+    ]);
+  }, 20_000);
+
+  it("bridges no session that holds signups for two different emails", async () => {
+    await createEventsTable();
+    const unconsented = {
+      email: null,
+      anonymousId: null,
+      authUserId: null,
+      sessionId: "shared-session",
+    };
+    await insertEvent("auth.signup_viewed", "anon", {}, unconsented);
+    for (const email of ["ana@example.com", "ben@example.com"]) {
+      await insertEvent(
+        "signup",
+        email,
+        { signup_method: "email" },
+        {
+          email,
+          userKey: email,
+          anonymousId: null,
+          authUserId: null,
+          sessionId: "shared-session",
+        },
+      );
+    }
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(result.rows[0]).toMatchObject({
+      stage: "Signup page viewed",
+      users: 0,
+    });
+  }, 20_000);
+
+  it("bridges legacy signup email cohorts to a later auth ID", async () => {
+    await createEventsTable();
+    const anonymous = {
+      email: null,
+      anonymousId: "legacy-visitor",
+      authUserId: null,
+    };
+    await insertEvent("auth.signup_viewed", "anon", {}, anonymous);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      anonymous,
+    );
+    await insertEvent(
+      "signup",
+      "legacy-user",
+      { signup_method: "google" },
+      {
+        email: "legacy@example.com",
+        anonymousId: "legacy-visitor",
+        authUserId: null,
+      },
+    );
+    await insertEvent(
+      "onboarding_started",
+      "auth-user",
+      {},
+      {
+        email: "legacy@example.com",
+        userKey: "legacy@example.com",
+        anonymousId: "legacy-visitor",
+        authUserId: "auth-legacy-user",
+      },
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<{ stage: string; users: number }>;
+    };
+    expect(
+      result.rows.find((row) => row.stage === "Onboarding started")?.users,
+    ).toBe(1);
+  }, 20_000);
+
+  it("applies Builder-only filtering after signup identity stitching", async () => {
+    await createEventsTable();
+    const anonymous = {
+      email: null,
+      anonymousId: "builder-only-visitor",
+      authUserId: null,
+    };
+    const builderUser = {
+      email: null,
+      userKey: "founder@builder.io",
+      anonymousId: "builder-only-visitor",
+      authUserId: "builder-auth-user",
+    };
+
+    await insertEvent("auth.signup_viewed", "anon", {}, anonymous);
+    await insertEvent(
+      "auth.signup_clicked",
+      "anon",
+      { method: "google" },
+      anonymous,
+    );
+    await insertEvent(
+      "signup",
+      "builder-auth-user",
+      { signup_method: "google" },
+      builderUser,
+    );
+    await insertEvent(
+      "onboarding_started",
+      "builder-auth-user",
+      {},
+      builderUser,
+    );
+
+    const panel = buildPanel("activation-funnel")!;
+    const result = (await client.query(
+      interpolate(panel.sql, {
+        ...FILTERS,
+        emailFilter: "only_builder",
+      }),
+    )) as { rows: Array<{ stage: string; users: number }> };
+    expect(result.rows.map(({ stage, users }) => [stage, users])).toEqual([
+      ["Signup page viewed", 1],
+      ["Signup CTA clicked", 1],
+      ["Signed up", 1],
+      ["Onboarding started", 1],
+      ["Onboarding step reached", 0],
+      ["Onboarding completed", 0],
+      ["Entered app", 0],
+      ["First significant action", 0],
+    ]);
+  }, 20_000);
+
+  it("joins choice, Builder outcomes, and unresolved attempts by canonical identity and attempt id", async () => {
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    for (const user of ["u1", "u2", "u3", "u4", "u6", "u5+autoz", "internal"]) {
+      await insertEvent("onboarding_step_viewed", user, step, {
+        email:
+          user === "u1"
+            ? null
+            : user === "internal"
+              ? "test@builder.io"
+              : `${user}@example.com`,
+        anonymousId: `view-${user}`,
+      });
+    }
+    const attempts = [
+      {
+        user: "u1",
+        method: "builder_create_account",
+        id: "a1",
+        outcome: "connected",
+      },
+      {
+        user: "u2",
+        method: "builder_create_account",
+        id: "a2",
+        outcome: "failed",
+      },
+      {
+        user: "u3",
+        method: "custom_keys",
+        id: "a3",
+        outcome: "settings_opened",
+      },
+      {
+        user: "u3",
+        method: "custom_keys",
+        id: "a7",
+        outcome: "handoff_failed",
+      },
+      { user: "u6", method: "builder_sign_in", id: "a4" },
+      {
+        user: "u5+autoz",
+        method: "builder_create_account",
+        id: "a5",
+        outcome: "connected",
+      },
+    ];
+    for (const attempt of attempts) {
+      const properties = {
+        ...step,
+        method_id: attempt.method,
+        method_kind: attempt.method === "custom_keys" ? "manual" : "builder",
+        onboarding_attempt_id: attempt.id,
+      };
+      const email = `${attempt.user}@example.com`;
+      await insertEvent("onboarding_method_clicked", attempt.user, properties, {
+        email,
+        anonymousId: `click-${attempt.user}`,
+      });
+      await insertEvent("onboarding_method_started", attempt.user, properties, {
+        email,
+        anonymousId: `start-${attempt.user}`,
+      });
+      if (attempt.outcome) {
+        await insertEvent(
+          "onboarding_method_outcome",
+          attempt.user,
+          { ...properties, outcome: attempt.outcome },
+          { email, anonymousId: `outcome-${attempt.user}` },
+        );
+      }
+    }
+    await insertEvent("onboarding_method_clicked", "unseen", {
+      ...step,
+      method_id: "builder_create_account",
+      onboarding_attempt_id: "a8",
+    });
+
+    const panel = buildPanel("onboarding-setup-choice")!;
+    expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
+    expect(() => assertFirstPartyAnalyticsBigQuerySql(panel.sql)).not.toThrow();
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    const createAccount = result.rows.find(
+      (row) => row.method_id === "builder_create_account",
+    );
+    expect(createAccount).toMatchObject({
+      method_label: "Use Builder.io",
+      choice_screen_viewers: 5,
+      first_choice_users: 2,
+      first_choice_rate: 0.4,
+      connection_success_users: 1,
+      connection_failure_users: 1,
+      connection_success_attempts: 1,
+      connection_failure_attempts: 1,
+      handoff_failure_attempts: 0,
+    });
+    expect(
+      result.rows.find((row) => row.method_id === "builder_sign_in"),
+    ).toMatchObject({
+      first_choice_users: 1,
+      connection_no_outcome_attempts: 1,
+    });
+    expect(
+      result.rows.find((row) => row.method_id === "custom_keys"),
+    ).toMatchObject({
+      first_choice_users: 1,
+      settings_handoff_attempts: 1,
+      handoff_failure_attempts: 1,
+    });
+  }, 20_000);
+
+  it("keeps onboarding identity stable across the auth-user-id rollout", async () => {
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    await insertEvent("onboarding_step_viewed", "legacy", step, {
+      email: "alice@example.com",
+      userKey: "alice@example.com",
+      authUserId: null,
+      anonymousId: "legacy-visitor",
+    });
+    await insertEvent(
+      "onboarding_method_clicked",
+      "current",
+      {
+        ...step,
+        method_id: "builder_create_account",
+        method_kind: "builder",
+        onboarding_attempt_id: "attempt-1",
+      },
+      {
+        email: "alice@example.com",
+        userKey: "alice@example.com",
+        authUserId: "better-auth-alice",
+        anonymousId: "identified-visitor",
+      },
+    );
+
+    const panel = buildPanel("onboarding-setup-choice")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(
+      result.rows.find((row) => row.method_id === "builder_create_account"),
+    ).toMatchObject({
+      choice_screen_viewers: 1,
+      first_choice_users: 1,
+      first_choice_rate: 1,
+    });
+  }, 20_000);
+
+  it("uses the canonical auth ID when a user's email changes", async () => {
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    await insertEvent("onboarding_step_viewed", "alice", step, {
+      email: "alice-old@example.com",
+      userKey: "alice-old@example.com",
+      authUserId: "better-auth-alice",
+    });
+    await insertEvent(
+      "onboarding_method_clicked",
+      "alice",
+      {
+        ...step,
+        method_id: "builder_create_account",
+        method_kind: "builder",
+        onboarding_attempt_id: "attempt-1",
+      },
+      {
+        email: "alice-new@example.com",
+        userKey: "alice-new@example.com",
+        authUserId: "better-auth-alice",
+      },
+    );
+
+    const panel = buildPanel("onboarding-setup-choice")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(
+      result.rows.find((row) => row.method_id === "builder_create_account"),
+    ).toMatchObject({
+      choice_screen_viewers: 1,
+      first_choice_users: 1,
+      first_choice_rate: 1,
+    });
+  }, 20_000);
+
+  it("filters email-valued user keys but not opaque identity keys", async () => {
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    for (const user of [
+      {
+        key: "employee@builder.io",
+        authId: "employee-auth-id",
+        method: "builder_create_account",
+      },
+      {
+        key: "seed+autoz@example.com",
+        authId: "seed-auth-id",
+        method: "builder_create_account",
+      },
+      {
+        key: "opaque-user-key-123",
+        authId: "opaque-auth-id",
+        method: "builder_sign_in",
+      },
+    ]) {
+      const options = {
+        email: null,
+        userKey: user.key,
+        authUserId: user.authId,
+      };
+      await insertEvent("onboarding_step_viewed", user.authId, step, options);
+      await insertEvent(
+        "onboarding_method_clicked",
+        user.authId,
+        {
+          ...step,
+          method_id: user.method,
+          method_kind: "builder",
+          onboarding_attempt_id: `${user.authId}-attempt`,
+        },
+        options,
+      );
+    }
+
+    const panel = buildPanel("onboarding-setup-choice")!;
+    const result = (await client.query(interpolate(panel.sql, FILTERS))) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(
+      result.rows.find((row) => row.method_id === "builder_sign_in"),
+    ).toMatchObject({
+      method_id: "builder_sign_in",
+      choice_screen_viewers: 1,
+      first_choice_users: 1,
+      first_choice_rate: 1,
+    });
+    expect(
+      result.rows.find((row) => row.method_id === "builder_create_account"),
+    ).toMatchObject({
+      selected_users: 0,
+      first_choice_users: 0,
+    });
+  }, 20_000);
+
+  it("excludes the deployment's configured test identities through the query boundary", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "seed-reader@example.com");
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    for (const user of [
+      { key: "reader@example.com", authId: "reader-auth-id" },
+      { key: "seed-reader@example.com", authId: "seed-auth-id" },
+    ]) {
+      await insertEvent("onboarding_step_viewed", user.authId, step, {
+        email: null,
+        userKey: user.key,
+        authUserId: user.authId,
+      });
+    }
+
+    const panel = buildPanel("onboarding-step-dropoff")!;
+    const scoped = scopedAnalyticsSql(
+      interpolate(panel.sql, FILTERS),
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      eventDay,
+    );
+    const result = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(result.rows).toContainEqual(
+      expect.objectContaining({ step_id: "choice", users_reached: 1 }),
+    );
+  }, 20_000);
+
+  it("compares first_run_builder_credits variants per exposed person", async () => {
+    await createEventsTable();
+    const choice = { flow: "first_run", step_id: "choice", step_index: 1 };
+    const experiment = (variant: string) => ({
+      ...choice,
+      experiment_id: "first_run_builder_credits",
+      experiment_variant: variant,
+    });
+    for (const user of ["c1", "c2", "c3"]) {
+      await insertEvent(
+        "onboarding_experiment_exposed",
+        user,
+        experiment("control"),
+      );
+    }
+    for (const user of ["v1", "v2", "v3"]) {
+      await insertEvent(
+        "onboarding_experiment_exposed",
+        user,
+        experiment("credits"),
+      );
+    }
+    await insertEvent("onboarding_step_viewed", "untagged", choice);
+    await insertEvent("onboarding_method_clicked", "c1", {
+      ...experiment("control"),
+      method_id: "builder_create_account",
+    });
+    await insertEvent("onboarding_method_outcome", "c1", {
+      ...experiment("control"),
+      method_id: "builder_create_account",
+      outcome: "connected",
+    });
+    await insertEvent("onboarding_method_clicked", "c2", {
+      ...experiment("control"),
+      method_id: "custom_keys",
+    });
+    await insertEvent("onboarding_step_skipped", "c3", experiment("control"));
+    await insertEvent("onboarding_method_clicked", "v1", {
+      ...experiment("credits"),
+      method_id: "builder_create_account",
+    });
+    await insertEvent("onboarding_method_outcome", "v1", {
+      ...experiment("credits"),
+      method_id: "builder_create_account",
+      outcome: "already_connected",
+    });
+    for (const user of ["v1", "v2"]) {
+      await insertEvent(
+        "onboarding_more_info_opened",
+        user,
+        experiment("credits"),
+      );
+    }
+    await insertEvent("onboarding_method_clicked", "untagged", {
+      ...choice,
+      method_id: "builder_create_account",
+    });
+    // Tagged events without an exposure event are excluded.
+    await insertEvent("onboarding_method_clicked", "noexp", {
+      ...experiment("credits"),
+      method_id: "builder_create_account",
+    });
+    // Opposite-arm event after exposure is not counted in the wrong arm.
+    await insertEvent(
+      "onboarding_method_clicked",
+      "c3",
+      { ...experiment("credits"), method_id: "builder_create_account" },
+      { at: `${eventDay}T13:00:00.000Z` },
+    );
+    await insertEvent(
+      "onboarding_method_outcome",
+      "v3",
+      {
+        ...experiment("control"),
+        method_id: "builder_create_account",
+        outcome: "connected",
+      },
+      { at: `${eventDay}T13:00:00.000Z` },
+    );
+    // Event before the first exposure is ignored.
+    await insertEvent("onboarding_step_skipped", "v2", experiment("credits"), {
+      at: `${eventDay}T11:00:00.000Z`,
+    });
+
+    const comparison = buildPanel("onboarding-ab-comparison")!;
+    expect(() => validateFirstPartyAnalyticsSql(comparison.sql)).not.toThrow();
+    expect(() =>
+      assertFirstPartyAnalyticsBigQuerySql(comparison.sql),
+    ).not.toThrow();
+    const result = (await client.query(
+      interpolate(comparison.sql, FILTERS),
+    )) as { rows: Array<Record<string, unknown>> };
+    expect(result.rows.map((row) => row.variant)).toEqual([
+      "control",
+      "credits",
+    ]);
+    expect(result.rows[0]).toMatchObject({
+      exposed_users: 3,
+      activated_users: 1,
+      connected_users: 1,
+      custom_keys_users: 1,
+      skipped_users: 1,
+      more_info_users: null,
+    });
+    expect(result.rows[1]).toMatchObject({
+      exposed_users: 3,
+      activated_users: 1,
+      connected_users: 1,
+      custom_keys_users: 0,
+      skipped_users: 0,
+      more_info_users: 2,
+    });
+    expect(Number(result.rows[1]!.more_info_rate)).toBeCloseTo(2 / 3);
+
+    const trend = buildPanel("onboarding-ab-connected-trend")!;
+    expect(() => validateFirstPartyAnalyticsSql(trend.sql)).not.toThrow();
+    expect(() => assertFirstPartyAnalyticsBigQuerySql(trend.sql)).not.toThrow();
+    const trendResult = (await client.query(
+      interpolate(trend.sql, FILTERS),
+    )) as { rows: Array<Record<string, unknown>> };
+    expect(trendResult.rows).toEqual([
+      expect.objectContaining({ date: eventDay, variant: "control" }),
+      expect.objectContaining({ date: eventDay, variant: "credits" }),
+    ]);
+    expect(Number(trendResult.rows[0]!.rate)).toBeCloseTo(1 / 3);
+  }, 20_000);
+});

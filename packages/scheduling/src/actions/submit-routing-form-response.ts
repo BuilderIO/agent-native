@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -17,15 +17,21 @@ export default defineAction({
   }),
   run: async (args) => {
     const { getDb, schema } = getSchedulingContext();
+    // guard:allow-unscoped — anonymous submissions may resolve only a published enabled form by its public form ID
     const [form] = await getDb()
       .select({
         id: schema.routingForms.id,
-        disabled: schema.routingForms.disabled,
       })
       .from(schema.routingForms)
-      .where(eq(schema.routingForms.id, args.formId))
+      .where(
+        and(
+          eq(schema.routingForms.id, args.formId),
+          eq(schema.routingForms.visibility, "public"),
+          eq(schema.routingForms.disabled, false),
+        ),
+      )
       .limit(1);
-    if (!form || form.disabled) {
+    if (!form) {
       throw new Error(`Routing form not found: ${args.formId}`);
     }
 

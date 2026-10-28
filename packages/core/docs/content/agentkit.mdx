@@ -32,36 +32,37 @@ alternate renderer that imports the root or `/protocol` never pulls in React.
 
 ## Package layout {#package-layout}
 
-| Import                                                                                | Contents                                                                                                       | Loads React |
-| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------- |
-| `@agent-native/agentkit`                                                              | Headless client and protocol types: reduction, optimistic sends, reconnect, replay, approvals, actions, queues | No          |
-| `@agent-native/agentkit/protocol`                                                     | Wire contract only: versioned types, runtime validators, lifecycle semantics                                   | No          |
-| `@agent-native/agentkit/http`                                                         | Fetch-compatible HTTP transport and server handler with resumable server-sent events                           | No          |
-| `@agent-native/agentkit/conformance`                                                  | Executable transport invariants for custom and remote transports                                               | No          |
-| `@agent-native/agentkit/react`                                                        | Provider, hooks, control API, slots, registries, composer integration                                          | Yes         |
-| `@agent-native/agentkit/react/{root,chat,components,context,headless,streaming-text}` | Focused React entries                                                                                          | Yes         |
-| `@agent-native/agentkit/react/styles.css`                                             | Standalone stylesheet                                                                                          | No          |
+| Import                                                                                            | Contents                                                                                                       | Loads React |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------- |
+| `@agent-native/agentkit`                                                                          | Headless client and protocol types: reduction, optimistic sends, reconnect, replay, approvals, actions, queues | No          |
+| `@agent-native/agentkit/protocol`                                                                 | Wire contract only: versioned types, runtime validators, lifecycle semantics                                   | No          |
+| `@agent-native/agentkit/http`                                                                     | Fetch-compatible HTTP transport and server handler with resumable server-sent events                           | No          |
+| `@agent-native/agentkit/conformance`                                                              | Executable transport invariants for custom and remote transports                                               | No          |
+| `@agent-native/agentkit/client`                                                                   | Headless client state and subscriptions                                                                        | No          |
+| `@agent-native/toolkit/app/agentkit/react`                                                        | Provider, hooks, control API, slots, registries, composer integration                                          | Yes         |
+| `@agent-native/toolkit/app/agentkit/react/{root,chat,components,context,headless,streaming-text}` | Focused React entries                                                                                          | Yes         |
+| `@agent-native/toolkit/app/agentkit/react/styles.css`                                             | AgentKit React stylesheet                                                                                      | No          |
 
 `/protocol` is dependency-free and reserved for code that must not pull in the
-client. The root re-exports the protocol as well, so most application code only
-needs the root import and `/react`.
+client. The root re-exports the protocol as well. React bindings and composer
+integration are part of Toolkit's app surface.
 
 ## Install and mount a React chat {#install-and-mount}
 
 ```bash
-pnpm add @agent-native/agentkit @agent-native/core
+pnpm add @agent-native/agentkit @agent-native/core @agent-native/toolkit
 ```
 
-`react` and `react-dom` 19 are optional peer dependencies required only by the
-`/react` entries. Generated Chat apps already include a compatible version, and
-Core is needed only when you use the first-party Agent-Native transport.
+Generated Chat apps already include compatible versions of AgentKit and
+Toolkit. Core is needed only when you use the first-party Agent-Native
+transport. React is provided by the app when it uses Toolkit's React surfaces.
 
 `AgentChat` owns one AgentKit client, loads the thread, reconnects active work,
 and disposes the client when it unmounts:
 
 ```tsx
-import { AgentChat } from "@agent-native/agentkit/react";
-import "@agent-native/agentkit/react/styles.css";
+import { AgentChat } from "@agent-native/toolkit/app/agentkit/react";
+import "@agent-native/toolkit/app/agentkit/react/styles.css";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agent-chat";
 import { useMemo } from "react";
 
@@ -86,7 +87,8 @@ export function Conversation({ threadId }: { threadId: string }) {
 `client` — and an application must have exactly one behavioral owner per
 conversation. Never open a second client, SSE connection, or queue reducer for
 the same live thread. For a composed surface with custom slots, registries, and
-dependency injection, use `AgentKitRoot` from `@agent-native/agentkit/react/headless`
+dependency injection, use `AgentKitRoot` from
+`@agent-native/toolkit/app/agentkit/react/headless`
 instead of `AgentChat`; see the README's "Compose an advanced product" section
 for the full controller and registry shape.
 
@@ -163,7 +165,7 @@ of booleans. A descriptor's `state` is one of `available`, `degraded`,
 built on it) turns a descriptor into `{ state, visible, enabled, reason }`:
 
 ```tsx
-import { useAgentCapability } from "@agent-native/agentkit/react";
+import { useAgentCapability } from "@agent-native/toolkit/app/agentkit/react";
 
 function UploadButton() {
   const uploads = useAgentCapability("uploads");

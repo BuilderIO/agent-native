@@ -1,21 +1,16 @@
-/**
- * `@agent-native/core/blocks/server` — the React-free subset of the block
- * registry for server / agent code (MDX serialize/parse, the registry, schema
- * introspection, the `markdown()` helper, agent schema export). Importing this
- * entry never pulls React into the server bundle.
- *
- * A `BlockSpec` carries React (`Read`/`Edit`) and pure (`schema`/`mdx`) parts in
- * the same object; the server path only touches `spec.schema` / `spec.mdx`. The
- * app's registry module is shared by browser and server, but the server only
- * ever calls these React-free functions on it.
- */
-
 export {
   defineBlock,
   type BlockSpec,
   type BlockPlacement,
   type BlockMdxConfig,
   type BlockAttrReader,
+  type BlockRenderContext,
+  type BlockReadProps,
+  type BlockEditProps,
+  type BlockAiFieldActionProps,
+  type BlockContainerRegion,
+  type BlockContainerSpec,
+  type BlockDataChangeMeta,
   type MdxAttrValue,
   type NestedBlock,
 } from "./types.js";
@@ -52,19 +47,12 @@ export {
   type BlockAgentDoc,
 } from "./agent.js";
 
-// Standard library registration (React-free). Server / shared registries call
-// `registerLibraryBlockConfigs(registry)` to register the whole standard library
-// as `Read: () => null` config stubs in one place, then add their app-specific
-// block configs on top. `libraryBlockConfigs` is the underlying ordered array.
 export {
   libraryBlockConfigs,
   registerLibraryBlockConfigs,
   type LibraryBlockConfigOverrides,
 } from "./library/server-specs.js";
 
-// Standard block library — React-free schema + MDX config only. The React
-// `Read`/`Edit` live in `./library/checklist.tsx` (imported from the full
-// `@agent-native/core/blocks` entry), never from here.
 export {
   checklistSchema,
   checklistMdx,
@@ -108,9 +96,48 @@ export {
   type CalloutTone,
 } from "./library/callout.config.js";
 
-// Dev-doc block library — React-free schema + MDX config only. The React
-// `Read`/`Edit` live in the matching `./library/<Name>Block.tsx` (imported from
-// the full `@agent-native/core/blocks` entry), never from here.
+export { codeSchema, codeMdx, type CodeData } from "./library/code.config.js";
+export {
+  diagramSchema,
+  diagramMdx,
+  type DiagramData,
+  type DiagramNode,
+  type DiagramEdge,
+  type DiagramNote,
+} from "./library/diagram.config.js";
+export {
+  questionFormSchema,
+  questionFormMdx,
+  visualQuestionsSchema,
+  visualQuestionsMdx,
+  type QuestionFormData,
+  type QuestionFormOption,
+  type QuestionFormQuestion,
+  type QuestionMode,
+  type VisualQuestionsData,
+} from "./library/question-form.config.js";
+export {
+  wireframeSchema,
+  wireframeMdx,
+  createStableWireframeNodeId,
+  WIREFRAME_SURFACES,
+  WIREFRAME_EL_NAMES,
+  type WireframeData,
+  type WireframeNode,
+  type WireframeElName,
+  type WireframeTone,
+  type WireframeSurface,
+  type WireframeRenderMode,
+} from "./library/wireframe.config.js";
+export {
+  DATA_MODEL_CHANGES,
+  type DataModelChange,
+} from "./library/data-model.config.js";
+export {
+  JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
+  JSON_EXPLORER_MAX_COLLAPSED_DEPTH,
+} from "./library/json-explorer.config.js";
+
 export {
   mermaidSchema,
   mermaidMdx,

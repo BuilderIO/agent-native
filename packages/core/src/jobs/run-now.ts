@@ -3,6 +3,7 @@ import {
   dispatchPathTargetsNetlifyBackgroundFunction,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
+import { resolveAutomationAccess } from "../automations/access.js";
 import {
   canQueueAutomationRunNow,
   type AutomationScope,
@@ -14,6 +15,7 @@ import {
 } from "../resources/store.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { parseJobResource } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   listUnclaimedAutomationRuns,
   startAutomationRun,
@@ -22,18 +24,14 @@ import {
 export interface RunAutomationNowInput {
   userEmail: string;
   orgId?: string | null;
+  resourceId?: string;
   appId?: string | null;
-  scope: AutomationScope;
-  /** Inbound request headers used to dispatch back to this exact local host. */
+  scope?: AutomationScope;
   requestHeaders?: Headers;
-  /** Flat automation name, resolved as `jobs/<name>.md`. */
   name?: string;
-  /**
-   * Full resource path for an automation the caller already resolved. Required
-   * for automations nested under `jobs/` (e.g. per-factory jobs), whose names
-   * contain a slash and cannot round-trip through `name`.
-   */
   path?: string;
+  /** Job `appId` values the caller's app runs besides `appId`; see `SchedulerDeps`. */
+  additionalJobAppIds?: readonly string[];
 }
 
 export interface QueuedAutomationRun {
@@ -70,7 +68,14 @@ function automationName(path: string): string {
 }
 
 function ownerForScope(input: RunAutomationNowInput): string {
-  if (input.scope === "personal") return input.userEmail.trim().toLowerCase();
+  const scope = input.scope ?? "personal";
+  if (scope === "personal") return input.userEmail.trim().toLowerCase();
+  if (scope !== "organization") {
+    throw Object.assign(
+      new Error("Automation resource id or name and scope is required."),
+      { statusCode: 400 },
+    );
+  }
   if (!input.orgId) {
     throw Object.assign(
       new Error("An organization is required for organization automations."),
@@ -80,16 +85,16 @@ function ownerForScope(input: RunAutomationNowInput): string {
   return organizationResourceOwner(input.orgId);
 }
 
-/**
- * One place decides which resource a run-now request means. Callers that
- * already hold the resource pass `path`; callers that only know a flat slug
- * pass `name`. Accepting both at once would let two disagreeing identifiers
- * silently pick a winner.
- */
 function resolveAutomationTarget(input: RunAutomationNowInput): {
   path: string;
   name: string;
 } {
+  if (input.resourceId?.trim()) {
+    throw Object.assign(
+      new Error("Specify either a resourceId or an automation name/path."),
+      { statusCode: 400 },
+    );
+  }
   const path = input.path?.trim();
   const name = input.name?.trim();
   if (path && name) {
@@ -123,25 +128,66 @@ function resolveAutomationTarget(input: RunAutomationNowInput): {
   return { path: `jobs/${name}.md`, name };
 }
 
+async function resolveRunAutomation(input: RunAutomationNowInput) {
+  if (input.resourceId?.trim()) {
+    if (input.name || input.path) {
+      throw Object.assign(
+        new Error("Specify either a resourceId or an automation name/path."),
+        { statusCode: 400 },
+      );
+    }
+    const access = await resolveAutomationAccess(
+      { userEmail: input.userEmail },
+      input.resourceId.trim(),
+    );
+    if (!access) return null;
+    return {
+      resource: access.resource,
+      name: access.name,
+      scope: access.owningOrganizationId ? "organization" : "personal",
+      orgId: access.owningOrganizationId,
+    };
+  }
+
+  const { path } = resolveAutomationTarget(input);
+  const resource = await resourceGetByPath(ownerForScope(input), path);
+  if (!resource) return null;
+  const ownership = automationRunOwnership(
+    resource.owner,
+    input.userEmail,
+    input.orgId,
+  );
+  return {
+    resource,
+    name: automationName(resource.path),
+    scope: ownership.scope,
+    orgId: ownership.orgId,
+  };
+}
+
 export async function queueAutomationRunNow(
   input: RunAutomationNowInput,
 ): Promise<QueuedAutomationRun> {
-  const { path, name } = resolveAutomationTarget(input);
-  const owner = ownerForScope(input);
-  const resource = await resourceGetByPath(owner, path);
-  if (!resource) {
-    throw Object.assign(new Error(`Automation "${name}" not found.`), {
+  const access = await resolveRunAutomation(input);
+  if (!access) {
+    throw Object.assign(new Error("Automation not found."), {
       statusCode: 404,
     });
   }
-  if (!(await canQueueAutomationRunNow(input, resource, input.scope))) {
+  if (
+    !(await canQueueAutomationRunNow(
+      input,
+      access.resource,
+      access.scope as AutomationScope,
+      input.additionalJobAppIds,
+    ))
+  ) {
     throw Object.assign(
-      new Error(
-        "Only the automation's creator or an organization admin can run it.",
-      ),
+      new Error("Collaborate access is required to run this automation."),
       { statusCode: 403 },
     );
   }
+  const { resource, name } = access;
   const { body } = parseJobResource(resource.content);
   if (!body.trim()) {
     throw Object.assign(
@@ -152,8 +198,6 @@ export async function queueAutomationRunNow(
     );
   }
 
-  // A manual-run request is a guaranteed app request even on hosts without a
-  // durable timer. Use it to recover older rows before adding the new one.
   await redispatchUnclaimedAutomationRuns({
     appId: input.appId,
     requestHeaders: input.requestHeaders,
@@ -165,12 +209,17 @@ export async function queueAutomationRunNow(
   });
 
   const historyId = await startAutomationRun({
-    owner: resource.owner,
+    ...automationRunOwnership(
+      resource.owner,
+      input.userEmail,
+      access.orgId ?? input.orgId,
+    ),
     automation: name,
     path: resource.path,
-    scope: input.scope,
-    orgId: input.scope === "organization" ? input.orgId : null,
     appId: input.appId,
+    // The person who asked for the run, already authorized above; a stored
+    // `createdBy` may have left the organization.
+    notificationEmail: input.userEmail,
     dispatchPending: true,
   });
   try {
@@ -188,11 +237,6 @@ export async function queueAutomationRunNow(
   return { queued: true, runId: historyId, automationRunId: historyId };
 }
 
-/**
- * Recover manual rows whose first serverless handoff never reached a worker.
- * This is intentionally a redelivery, not a second execution: the worker's
- * claim CAS decides which request owns the run.
- */
 export async function redispatchUnclaimedAutomationRuns(options?: {
   appId?: string | null;
   requestHeaders?: Headers;

@@ -1,7 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-
 import type { RefObject } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +8,16 @@ vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => toastError(...args) },
 }));
 
-import { runEditorPaste, type EditorPasteArgs } from "./editor-paste";
+import { getDesignClipboardTrustToken } from "@/lib/design-clipboard";
+import { serializeDesignClipboardPayload } from "@/lib/design-import";
+
+import {
+  adoptDesignClipboardPayloadIntoRefs,
+  runCanvasClipboardRelayPaste,
+  runEditorPaste,
+  type EditorPasteArgs,
+} from "./editor-paste";
+import { parsePastedSvg } from "./pasted-svg";
 
 const FIGMA_HTML =
   '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
@@ -23,13 +30,16 @@ interface Harness {
   args: EditorPasteArgs;
   imported: string[];
   pasted: number;
+  svgs: string[];
 }
 
 function harness(): Harness {
   const imported: string[] = [];
+  const svgs: string[] = [];
   const state = { pasted: 0 };
   return {
     imported,
+    svgs,
     get pasted() {
       return state.pasted;
     },
@@ -39,7 +49,11 @@ function harness(): Harness {
       handlePasteSelection: async () => {
         state.pasted += 1;
       },
-      handlePastedImageFiles: () => false,
+      handlePastedFiles: () => {},
+      handlePastedSvg: (source) => {
+        svgs.push(source);
+        return true;
+      },
       hasCanvasClipboard: false,
       importFigmaClipboardIntoDesign: async (content) => {
         imported.push(content);
@@ -117,9 +131,9 @@ describe("runEditorPaste", () => {
 
   it("routes image files to the immediate image insertion path", () => {
     const file = new File(["image"], "pasted.png", { type: "image/png" });
-    const handlePastedImageFiles = vi.fn(() => true);
+    const handlePastedFiles = vi.fn();
     const h = harness();
-    h.args.handlePastedImageFiles = handlePastedImageFiles;
+    h.args.handlePastedFiles = handlePastedFiles;
     const event = pasteEvent({}, document.body, [
       {
         kind: "file",
@@ -130,8 +144,172 @@ describe("runEditorPaste", () => {
 
     runEditorPaste(h.args, event);
 
-    expect(handlePastedImageFiles).toHaveBeenCalledWith([file]);
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("inserts SVG code copied as text instead of dropping the paste", async () => {
+    const h = harness();
+    const handlePastedSvg = vi.fn(() => true);
+    h.args.handlePastedSvg = handlePastedSvg;
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0H1"/></svg>';
+    const event = pasteEvent({ "text/plain": `\n${svg}\n` });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(`\n${svg}\n`);
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.pasted).toBe(0);
+  });
+
+  it("routes video files to the immediate media insertion path", () => {
+    const file = new File(["video"], "pasted.mp4", { type: "video/mp4" });
+    const handlePastedFiles = vi.fn();
+    const h = harness();
+    h.args.handlePastedFiles = handlePastedFiles;
+    const event = pasteEvent({}, document.body, [
+      {
+        kind: "file",
+        type: "video/mp4",
+        getAsFile: () => file,
+      } as unknown as DataTransferItem,
+    ]);
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("consumes SVG file paste while the host validates it asynchronously", () => {
+    const file = new File(
+      ['<svg width="17" height="9"><path d="M0 0h17"/></svg>'],
+      "pasted.svg",
+      { type: "image/svg+xml" },
+    );
+    const handlePastedFiles = vi.fn();
+    const h = harness();
+    h.args.handlePastedFiles = handlePastedFiles;
+    const event = pasteEvent({}, document.body, [
+      {
+        kind: "file",
+        type: "image/svg+xml",
+        getAsFile: () => file,
+      } as unknown as DataTransferItem,
+    ]);
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedFiles).toHaveBeenCalledWith([file]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("routes ordinary SVG clipboard markup to editable-layer insertion", () => {
+    const h = harness();
+    const source = '<svg width="17" height="9"><path d="M0 0h17"/></svg>';
+    const event = pasteEvent({ "text/plain": source });
+
+    runEditorPaste(h.args, event);
+
+    expect(h.svgs).toEqual([source]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("prefers external SVG HTML over an empty in-memory Design clipboard value", () => {
+    const h = harness();
+    h.args.hasCanvasClipboard = true;
+    h.args.lastWrittenClipboardPlainTextRef.current = "";
+    const handlePastedSvg = vi.fn(() => true);
+    h.args.handlePastedSvg = handlePastedSvg;
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0H1"/></svg>';
+    const event = pasteEvent({ "text/html": svg, "text/plain": "" });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(svg);
+    expect(h.pasted).toBe(0);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("consumes rejected SVG HTML instead of letting the browser insert it", () => {
+    const h = harness();
+    const malformedSvg = '<svg width="17" height="9"><path d="M0 0"></svg>';
+    const handlePastedSvg = vi.fn(
+      (source: string) => parsePastedSvg(source) !== null,
+    );
+    h.args.handlePastedSvg = handlePastedSvg;
+    const event = pasteEvent({ "text/html": malformedSvg });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(malformedSvg);
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.pasted).toBe(0);
+    expect(toastError).toHaveBeenCalledWith("common.genericError");
+  });
+
+  it("pastes a trusted Design SVG layer payload before importing raw SVG markup", () => {
+    const h = harness();
+    const trustToken = "design-clipboard-test-token";
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: { getItem: () => trustToken, setItem: () => {} },
+    });
+    let markerText = "";
+    const payload = {
+      version: 1 as const,
+      entries: [
+        {
+          html: '<svg width="17" height="9"><text x="1" y="8">kept as a Design layer</text></svg>',
+          rootNodeId: "vector-1",
+          sourceFileId: "screen-1",
+        },
+      ],
+    };
+    const adoptDesignClipboardPayload = vi.fn();
+    const handlePastedSvg = vi.fn(() => false);
+    h.args.adoptDesignClipboardPayload = adoptDesignClipboardPayload;
+    h.args.handlePastedSvg = handlePastedSvg;
+    const event = pasteEvent({
+      "text/plain": "kept as a Design layer",
+    });
+
+    try {
+      markerText = serializeDesignClipboardPayload(
+        payload.entries[0]!.html,
+        payload,
+        getDesignClipboardTrustToken() ?? undefined,
+      );
+      Object.assign(event.clipboardData!, {
+        getData: (type: string) =>
+          type === "text/html"
+            ? markerText
+            : type === "text/plain"
+              ? "kept as a Design layer"
+              : "",
+      });
+      runEditorPaste(h.args, event);
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(window, "localStorage", localStorageDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "localStorage");
+      }
+    }
+
+    expect(adoptDesignClipboardPayload).toHaveBeenCalledWith(
+      payload,
+      markerText,
+      "kept as a Design layer",
+    );
+    expect(handlePastedSvg).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.pasted).toBe(1);
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("says why a Figma link paste produced no screen", () => {
@@ -157,18 +335,137 @@ describe("runEditorPaste", () => {
 
     expect(toastError).not.toHaveBeenCalled();
   });
+
+  it("skips the async clipboard read for a Design payload the paste event carried", () => {
+    const h = harness();
+    const handlePasteSelection = vi.fn(async () => {});
+    h.args.handlePasteSelection = handlePasteSelection;
+    const markerText = withTrustToken("paste-event-token", () =>
+      serializeDesignClipboardPayload(
+        "<p>Card</p>",
+        designPayload,
+        "paste-event-token",
+      ),
+    );
+    const event = pasteEvent({ "text/html": markerText, "text/plain": "Card" });
+
+    withTrustToken("paste-event-token", () => runEditorPaste(h.args, event));
+
+    expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
+      payloadFromPasteEvent: true,
+    });
+  });
+
+  it("says why a Design copy from another origin cannot paste instead of pasting its lone SVG", () => {
+    const h = harness();
+    const handlePastedSvg = vi.fn(() => true);
+    h.args.handlePastedSvg = handlePastedSvg;
+    const markerText = serializeDesignClipboardPayload(
+      '<div><svg width="16" height="16"></svg>Icon row</div>',
+      designPayload,
+      "another-origin-token",
+    );
+    const event = pasteEvent({
+      "text/html": markerText,
+      "text/plain": "Icon row",
+    });
+
+    withTrustToken("this-origin-token", () => runEditorPaste(h.args, event));
+
+    expect(handlePastedSvg).not.toHaveBeenCalled();
+    expect(h.pasted).toBe(0);
+    expect(event.defaultPrevented).toBe(true);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.pasteClipboardUntrusted",
+      expect.anything(),
+    );
+  });
 });
 
-describe("the editor paste listener gate", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+const designPayload = {
+  version: 1 as const,
+  entries: [
+    { html: "<p>Card</p>", rootNodeId: "card", sourceFileId: "screen-1" },
+  ],
+};
 
-  it("stays attached when embedded and during the question flow", () => {
-    const effect = editorSource.slice(
-      editorSource.indexOf('document.addEventListener("paste"') - 400,
-      editorSource.indexOf('document.removeEventListener("paste"'),
+function withTrustToken<T>(token: string, run: () => T): T {
+  const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: { getItem: () => token, setItem: () => {} },
+  });
+  try {
+    return run();
+  } finally {
+    if (descriptor) Object.defineProperty(window, "localStorage", descriptor);
+    else Reflect.deleteProperty(window, "localStorage");
+  }
+}
+
+describe("runCanvasClipboardRelayPaste", () => {
+  it("pastes a Design copy relayed from a focused screen iframe instead of dropping it", () => {
+    const h = harness();
+    const adopt = vi.fn();
+    const handlePasteSelection = vi.fn(async () => {});
+    const handlePastedSvg = vi.fn(() => true);
+    Object.assign(h.args, {
+      adoptDesignClipboardPayload: adopt,
+      handlePasteSelection,
+      handlePastedSvg,
+    });
+    const markerText = serializeDesignClipboardPayload(
+      '<div><svg width="16" height="16"></svg>Icon row</div>',
+      designPayload,
+      "relay-token",
     );
-    expect(effect).toContain("if (hostOwnsChrome) return;");
-    expect(effect).not.toContain("embedded ||");
-    expect(effect).not.toContain("pendingQuestions");
+
+    const handled = withTrustToken("relay-token", () =>
+      runCanvasClipboardRelayPaste(h.args, {
+        html: markerText,
+        text: "Icon row",
+      }),
+    );
+
+    expect(handled).toBe(true);
+    expect(adopt).toHaveBeenCalledWith(designPayload, markerText, "Icon row");
+    expect(handlePasteSelection).toHaveBeenCalledWith(undefined, {
+      payloadFromPasteEvent: true,
+    });
+    expect(handlePastedSvg).not.toHaveBeenCalled();
+  });
+
+  it("leaves a relayed paste with no Design marker to the other handlers", () => {
+    const h = harness();
+    expect(
+      runCanvasClipboardRelayPaste(h.args, { html: "<p>x</p>", text: "x" }),
+    ).toBe(false);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+});
+
+describe("adoptDesignClipboardPayloadIntoRefs", () => {
+  it("restarts the paste cascade for a newly adopted copy", () => {
+    const refs = {
+      copiedLayerEntriesRef: ref<typeof designPayload.entries>([]),
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef: ref<[] | undefined>([]),
+      lastWrittenClipboardMarkerRef: ref<string | null>("older-marker"),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      pasteCascadeRef: ref(3),
+    };
+
+    const hasClipboard = adoptDesignClipboardPayloadIntoRefs(
+      refs,
+      designPayload,
+      "new-marker",
+      "Card",
+    );
+
+    expect(hasClipboard).toBe(true);
+    expect(refs.pasteCascadeRef.current).toBe(0);
+    expect(refs.copiedLayerEntriesRef.current).toBe(designPayload.entries);
+    expect(refs.lastWrittenClipboardMarkerRef.current).toBe("new-marker");
+    expect(refs.lastWrittenClipboardPlainTextRef.current).toBe("Card");
   });
 });

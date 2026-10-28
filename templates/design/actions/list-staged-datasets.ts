@@ -1,6 +1,3 @@
-/**
- * Thin Design re-export of staged dataset listing, pre-bound to appId="design".
- */
 import { createListStagedDatasetsAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";

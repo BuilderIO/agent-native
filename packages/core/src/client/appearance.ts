@@ -96,17 +96,6 @@ export function useAppearance(): AppearancePresetId {
   );
 }
 
-/**
- * Reads `application_state.appearance` and applies the server-side preset on
- * the client. The shared DB-sync transport advances the key-specific version
- * after a write, so this performs one initial read and then only refetches when
- * appearance actually changes.
- *
- * The agent's `change-appearance` action writes to `application_state.appearance`
- * server-side; this hook surfaces that write into the DOM `data-appearance`
- * attribute and localStorage so the user sees the change immediately and the
- * choice persists across reloads.
- */
 export function useAppearanceSync(): void {
   const appearanceVersion = useChangeVersion("app-state:appearance");
   const { data } = useQuery({

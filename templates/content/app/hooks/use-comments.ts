@@ -2,12 +2,16 @@ import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
-import { useQueryClient } from "@tanstack/react-query";
+import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
+import {
+  parseCommentMentions,
+  type CommentMention,
+} from "@shared/comment-mentions";
+import { useQueryClient, type Query } from "@tanstack/react-query";
 
-export interface CommentMention {
-  email: string;
-  name: string;
-}
+import { useContentActionMutation } from "./use-content-action-mutation";
+
+export type { CommentMention };
 
 export interface CommentMutationState {
   operationId: string;
@@ -15,6 +19,12 @@ export interface CommentMutationState {
   status: "pending" | "error";
   error?: Error;
   ambiguous?: boolean;
+}
+
+export interface CommentReaction {
+  reaction: string;
+  count: number;
+  reactedByMe: boolean;
 }
 
 export interface Comment {
@@ -27,6 +37,26 @@ export interface Comment {
   anchor_prefix: string | null;
   anchor_suffix: string | null;
   anchor_start_offset: number | null;
+  /** Set on the root of a thread about one Property value. */
+  property_id?: string | null;
+  /** The Property's name and value when the thread started. */
+  property_name?: string | null;
+  property_value?: string | null;
+  /**
+   * The Collection that owns property_id, on a comment not yet saved, so
+   * retrying it targets the same Collection's Property. Saved rows omit it.
+   */
+  property_database_id?: string | null;
+  /**
+   * The Blocks field tab the thread sits in; null or absent is the page body.
+   * Replies carry their root's field.
+   */
+  field_id?: string | null;
+  /** The field's name when the thread started. */
+  field_name?: string | null;
+  /** Set on the root of a thread about a whole block, such as a video. */
+  block_id?: string | null;
+  block_type?: string | null;
   mentions: CommentMention[];
   author_email: string;
   author_name: string | null;
@@ -37,16 +67,47 @@ export interface Comment {
   notion_comment_id: string | null;
   submission_source?: string | null;
   submission_run_id?: string | null;
+  /** The agent conversation whose run wrote this comment. */
+  submission_thread_id?: string | null;
+  /** Emoji reactions in first-reacted order. */
+  reactions?: CommentReaction[];
+  author_model?: string | null;
+  /** The thinking effort the writing run resolved, when one was recorded. */
+  author_effort?: string | null;
   mutation?: CommentMutationState;
+}
+
+/** What a Property thread targets, as it was when the thread started. */
+export interface CommentThreadProperty {
+  propertyId: string;
+  propertyName: string | null;
+  propertyValue: string | null;
+}
+
+/** The Blocks field tab a thread sits in, when it isn't the page body. */
+export interface CommentThreadField {
+  fieldId: string;
+  /** The field's name when the thread started; null until the save lands. */
+  fieldName: string | null;
+}
+
+/** The block a thread is about as a whole, in place of quoted text. */
+export interface CommentThreadBlock {
+  blockId: string;
+  blockType: string;
 }
 
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
-  /** Robust anchor context, captured from the root comment. */
   prefix: string | null;
   suffix: string | null;
   startOffset: number | null;
+  /** Set when the thread is about one Property value, not body text. */
+  property?: CommentThreadProperty | null;
+  /** Set when the thread is in a Blocks field tab other than the body. */
+  field?: CommentThreadField | null;
+  block?: CommentThreadBlock | null;
   resolved: boolean;
   comments: Comment[];
 }
@@ -81,6 +142,15 @@ export interface CreateCommentVariables {
   anchorPrefix?: string;
   anchorSuffix?: string;
   anchorStartOffset?: number;
+  /** Starts a thread on this Property instead of on quoted text. */
+  propertyId?: string;
+  /** The Collection that owns propertyId. */
+  databaseId?: string;
+  /** Starts a thread in this Blocks field's tab instead of the body. */
+  fieldId?: string;
+  /** Starts a thread on this whole block instead of on quoted text. */
+  blockId?: string;
+  blockType?: CommentAnchorBlockType;
   mentions?: string;
 }
 
@@ -292,32 +362,6 @@ function updateComments(
   return withComments(response, update(commentsFrom(response)));
 }
 
-function parsedMentions(value: string): CommentMention[] {
-  if (!value.trim()) return [];
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      throw new Error("Comment mentions metadata must be an array");
-    }
-    return parsed.map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        throw new Error("Comment mentions metadata contains an invalid entry");
-      }
-      const email = (entry as Record<string, unknown>).email;
-      const name = (entry as Record<string, unknown>).name;
-      if (typeof email !== "string" || !email) {
-        throw new Error("Comment mention email is required");
-      }
-      return { email, name: typeof name === "string" ? name : "" };
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Comment mention")) {
-      throw error;
-    }
-    throw new Error("Comment mentions metadata is not valid JSON");
-  }
-}
-
 function authorName(author: CommentAuthor): string | null {
   const explicit = author.name?.trim();
   if (explicit) return explicit;
@@ -352,6 +396,44 @@ function invalidateDocumentComments(
   });
 }
 
+/**
+ * Collection reads whose loaded rows include this Page, so a change to its
+ * Comments can refresh the row's comment count.
+ */
+export function collectionRowsShowingDocumentFilter(documentId: string) {
+  return {
+    queryKey: ["action"],
+    predicate: (query: Query) => {
+      const name = query.queryKey[1];
+      if (
+        name !== "get-content-database" &&
+        name !== "query-content-database-items"
+      ) {
+        return false;
+      }
+      const items = (query.state.data as { items?: unknown } | undefined)
+        ?.items;
+      return (
+        Array.isArray(items) &&
+        items.some(
+          (item: { document?: { id?: unknown } } | null) =>
+            item?.document?.id === documentId,
+        )
+      );
+    },
+  };
+}
+
+function invalidateCollectionRowsShowingDocument(
+  queryClient: ReturnType<typeof useQueryClient>,
+  documentId: string,
+) {
+  return queryClient.invalidateQueries({
+    ...collectionRowsShowingDocumentFilter(documentId),
+    refetchType: "active",
+  });
+}
+
 function groupCommentThreads(data: unknown): CommentThread[] {
   const raw =
     data && typeof data === "object" && "comments" in data
@@ -378,6 +460,22 @@ function groupCommentThreads(data: unknown): CommentThread[] {
           typeof comment.anchor_start_offset === "number"
             ? comment.anchor_start_offset
             : null,
+        property: comment.property_id
+          ? {
+              propertyId: comment.property_id,
+              propertyName: comment.property_name ?? null,
+              propertyValue: comment.property_value ?? null,
+            }
+          : null,
+        field: comment.field_id
+          ? {
+              fieldId: comment.field_id,
+              fieldName: comment.field_name ?? null,
+            }
+          : null,
+        block: comment.block_id
+          ? { blockId: comment.block_id, blockType: comment.block_type ?? "" }
+          : null,
         resolved: !!comment.resolved,
         comments: [],
       });
@@ -433,10 +531,18 @@ export function useCreateComment(author: CommentAuthor = {}) {
         anchor_prefix: variables.anchorPrefix ?? null,
         anchor_suffix: variables.anchorSuffix ?? null,
         anchor_start_offset: variables.anchorStartOffset ?? null,
+        property_id: variables.propertyId ?? null,
+        property_name: null,
+        property_value: null,
+        property_database_id: variables.databaseId ?? null,
+        field_id: variables.fieldId ?? null,
+        field_name: null,
+        block_id: variables.blockId ?? null,
+        block_type: variables.blockType ?? null,
         mentions:
           variables.mentions === undefined
             ? []
-            : parsedMentions(variables.mentions),
+            : parseCommentMentions(variables.mentions),
         author_email: author.email?.trim() ?? "",
         author_name: authorName(author),
         actorKind: "human",
@@ -456,7 +562,10 @@ export function useCreateComment(author: CommentAuthor = {}) {
         comment: optimistic,
       });
       queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
-        updateComments(response, (comments) => [...comments, optimistic]),
+        updateComments(response, (comments) => [
+          ...comments.filter(({ id }) => id !== temporaryId),
+          optimistic,
+        ]),
       );
       return {
         operationId,
@@ -464,7 +573,7 @@ export function useCreateComment(author: CommentAuthor = {}) {
         temporaryId,
       } satisfies CreateMutationContext;
     },
-    onSuccess: (result, _variables, rawContext) => {
+    onSuccess: (result, variables, rawContext) => {
       const context = rawContext as CreateMutationContext | undefined;
       if (!context) return;
       const operations = documentOperations(
@@ -499,6 +608,12 @@ export function useCreateComment(author: CommentAuthor = {}) {
           }),
       );
       void invalidateDocumentComments(queryClient, context.queryKey);
+      if (!variables.parentId) {
+        void invalidateCollectionRowsShowingDocument(
+          queryClient,
+          context.queryKey[2].documentId,
+        );
+      }
     },
     onError: (error, _variables, rawContext) => {
       const context = rawContext as CreateMutationContext | undefined;
@@ -651,7 +766,7 @@ function useOptimisticCommentUpdate<
             mentions:
               editVariables.mentions === undefined
                 ? undefined
-                : parsedMentions(editVariables.mentions),
+                : parseCommentMentions(editVariables.mentions),
           });
         } else {
           const resolveVariables = variables as ResolveCommentVariables;
@@ -728,6 +843,12 @@ function useOptimisticCommentUpdate<
             ),
         );
         void invalidateDocumentComments(queryClient, context.queryKey);
+        if (kind === "resolve") {
+          void invalidateCollectionRowsShowingDocument(
+            queryClient,
+            context.queryKey[2].documentId,
+          );
+        }
       },
       onError: (error, _variables, rawContext) => {
         const context = rawContext as UpdateMutationContext | undefined;
@@ -805,7 +926,7 @@ export function useEditComment() {
       mentions:
         variables.mentions === undefined
           ? comment.mentions
-          : parsedMentions(variables.mentions),
+          : parseCommentMentions(variables.mentions),
       updated_at: new Date().toISOString(),
     }),
   );
@@ -826,7 +947,96 @@ export function useResolveComment() {
 }
 
 export function useDeleteComment() {
-  return useActionMutation<{ ok: boolean }, { id: string; documentId: string }>(
-    "delete-comment",
-  );
+  return useContentActionMutation<
+    { ok: boolean },
+    { id: string; documentId: string }
+  >("delete-comment", {
+    invalidates: (_data, { documentId }) => [
+      commentQueryKey(documentId),
+      ["action", "list-comment-ai-requests", { documentId }],
+      collectionRowsShowingDocumentFilter(documentId),
+    ],
+  });
+}
+
+export interface ReactToCommentVariables {
+  documentId: string;
+  commentId: string;
+  reaction: string;
+  active: boolean;
+}
+
+/** Apply one person's reaction toggle to a comment's reaction summary. */
+export function toggleCommentReaction(
+  reactions: CommentReaction[] | undefined,
+  reaction: string,
+  active: boolean,
+): CommentReaction[] {
+  const current = reactions ?? [];
+  const existing = current.find((entry) => entry.reaction === reaction);
+  if (active) {
+    if (existing?.reactedByMe) return current;
+    return existing
+      ? current.map((entry) =>
+          entry.reaction === reaction
+            ? { ...entry, count: entry.count + 1, reactedByMe: true }
+            : entry,
+        )
+      : [...current, { reaction, count: 1, reactedByMe: true }];
+  }
+  if (!existing?.reactedByMe) return current;
+  return current
+    .map((entry) =>
+      entry.reaction === reaction
+        ? { ...entry, count: entry.count - 1, reactedByMe: false }
+        : entry,
+    )
+    .filter((entry) => entry.count > 0);
+}
+
+export function useReactToComment() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { commentId: string; reaction: string; active: boolean },
+    ReactToCommentVariables
+  >("react-to-comment", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      const queryKey = commentQueryKey(variables.documentId);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const previous = queryClient.getQueryData<CommentListResponse>(queryKey);
+      queryClient.setQueryData<CommentListResponse>(queryKey, (response) =>
+        updateComments(response, (comments) =>
+          comments.map((comment) =>
+            comment.id === variables.commentId
+              ? {
+                  ...comment,
+                  reactions: toggleCommentReaction(
+                    comment.reactions,
+                    variables.reaction,
+                    variables.active,
+                  ),
+                }
+              : comment,
+          ),
+        ),
+      );
+      return { previous };
+    },
+    onError: (_error, variables, context) => {
+      const previous = (
+        context as { previous?: CommentListResponse } | undefined
+      )?.previous;
+      if (previous !== undefined)
+        queryClient.setQueryData(
+          commentQueryKey(variables.documentId),
+          previous,
+        );
+    },
+    onSettled: (_data, _error, variables) =>
+      queryClient.invalidateQueries({
+        queryKey: commentQueryKey(variables.documentId),
+        exact: true,
+      }),
+  });
 }

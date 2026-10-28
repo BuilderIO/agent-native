@@ -7,9 +7,25 @@ export {
 export {
   appendAgentChatContextToMessage,
   splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
+export {
+  AGENT_SELECTION_CONTEXT_KEY_PREFIX,
+  AGENT_SELECTION_STATE_KEY,
+  agentSelectionContextKey,
+  formatAgentSelectionPreamble,
+  isAgentSelectionContextKey,
+  parseAgentSelectionContextKey,
+  type AgentSelectionReference,
+  type AgentSelectionState,
+  type AgentSelectionStateItem,
+} from "./agent-selection.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
+export {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "./action-browser-persist.js";
 export {
   APP_STATUS,
   DEFAULT_APP_STATUS,
@@ -36,6 +52,15 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export { backgroundAgentTurnIdForReceipt } from "./background-agent-session.js";
+export {
+  composerSourceRequestSchema,
+  composerSourceListSchema,
+  composerSourceReferenceSchema,
+  composerSourceResultSchema,
+  type ComposerSourceRequest,
+  type ComposerSourceResult,
+} from "./composer-source.js";
 export {
   MAX_USER_REGEX_INPUT_LENGTH,
   MAX_USER_REGEX_LENGTH,
@@ -50,6 +75,33 @@ export {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "./document-title.js";
+export {
+  parseBase64DataUrl,
+  parseDataUrl,
+  type ParsedBase64DataUrl,
+  type ParsedDataUrl,
+} from "./data-url.js";
+export { stripInlineAttachmentPayloads } from "./attachments.js";
+export {
+  assignFirstRunBuilderCreditsV2,
+  FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
+  FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS,
+  type FirstRunBuilderCreditsV2Assignment,
+  type FirstRunBuilderCreditsV2RequestAssignment,
+  type FirstRunBuilderCreditsV2Variant,
+} from "./first-run-builder-credits-experiment.js";
+export { stripInlineBytes, type InlineBytesPolicy } from "./inline-bytes.js";
+export {
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+  getReasoningEffortOptionsForModel,
+  isReasoningEffort,
+  isUnsetReasoningEffort,
+  reasoningEffortLabel,
+  resolveReasoningEffortSelection,
+  type ReasoningEffort,
+} from "./reasoning-effort.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export {
   formatAgentDesignSystemContext,
@@ -57,6 +109,7 @@ export {
   type AgentDesignSystemContext,
   type AgentDesignSystemContextAvailable,
   type AgentDesignSystemContextUnavailable,
+  type AgentDesignSystemPurpose,
 } from "./design-system-agent-context.js";
 export {
   formatHtmlStyleSummary,
@@ -124,6 +177,8 @@ export {
 export {
   AGENT_NATIVE_ACTION_EVENTS,
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  LEGACY_TRACKING_EVENT_NAME_ALIASES,
+  canonicalTrackingEvent,
   normalizeTrackingDimension,
   withCanonicalTrackingProperties,
   type AgentNativeActionEventName,
@@ -175,7 +230,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
-export { isAutozQaEmail, isQaTestEmail } from "./qa-test-email.js";
+export {
+  isAutozQaEmail,
+  isQaTestEmail,
+  isTestIdentityEmail,
+  testIdentityEmailSql,
+} from "./qa-test-email.js";
 export {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
@@ -200,6 +260,7 @@ export {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  buildResourceSocialMeta,
   defaultSocialImageMeta,
   withAgentNativeSocialImageCacheBuster,
   withDefaultSocialImage,
@@ -251,3 +312,10 @@ export {
   stripDiagnosticSnippets,
   wrapDiagnosticSnippet,
 } from "./diagnostic-snippet.js";
+export {
+  AGENT_PROFILE_DESCRIPTION_MAX_LENGTH,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH,
+  parseAgentProfileMetadata,
+  type AgentProfileMetadata,
+} from "./agent-profile.js";

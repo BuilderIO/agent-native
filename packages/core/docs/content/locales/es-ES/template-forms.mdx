@@ -135,3 +135,9 @@ Si ejecutas Formularios junto con otras apps en [Dispatch](/docs/template-dispat
 - [**Acciones**](/docs/actions-overview) — el sistema de acciones que impulsa el creador
 - [**Mensajería**](/docs/messaging) — Slack y otros destinos de envío
 - [**Uso compartido**](/docs/sharing) — el modelo de concesión de acceso compartido sobre el que se construyen los formularios
+
+Forms aplica los roles de la página Equipo mediante las comprobaciones de permisos compartidas. Reviewer puede revisar envíos y exportar o analizar respuestas, pero no crear, editar, publicar, archivar, eliminar ni restaurar formularios. Editor puede editar y revisar. La revisión sigue requiriendo acceso de editor al recurso compartido; el rol de la aplicación no da acceso a formularios privados. Los propietarios de formularios y los propietarios y administradores de la organización están exentos de la restricción del rol de aplicación, pero se mantienen las comprobaciones de acceso a los recursos. Los miembros sin rol asignado conservan los permisos de Editor por compatibilidad; asignar Reviewer elimina los permisos de edición. Las instalaciones personales autenticadas sin organización conservan su acceso actual a los recursos. Forms utiliza `defineAppRoles(descriptor, { unassignedRole: "editor", allowOrgAdmins: true })`; `defaultRole` sigue siendo solo visual y las demás aplicaciones mantienen comprobaciones estrictas salvo que activen estas opciones.
+
+Los formularios de una organización siempre usan su política de roles, aunque se seleccione el ámbito personal u otra organización. Cambiar la visibilidad de un formulario también requiere permiso de edición.
+
+En los formularios de una organización, editar y revisar envíos requiere pertenecer activamente a esa organización, salvo que el sistema de permisos compartidos reconozca a la persona como propietaria del formulario. Una invitación directa a compartir no basta para superar esta comprobación de permisos de aplicación.

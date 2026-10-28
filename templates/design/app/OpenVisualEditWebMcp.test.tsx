@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   createRegistration: vi.fn(),
+  locationPathname: "/visual-edit/design-1",
+  clearProxy: vi.fn(),
+  installProxy: vi.fn(),
+  persistTransport: vi.fn(),
+  readPersistedTransport: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -20,6 +25,17 @@ vi.mock("@agent-native/core/client/host", () => ({
 
 vi.mock("@agent-native/core/client/webmcp", () => ({
   createAgentNativeWebMcpRegistration: mocks.createRegistration,
+}));
+
+vi.mock("react-router", () => ({
+  useLocation: () => ({ pathname: mocks.locationPathname }),
+}));
+
+vi.mock("./localhost-bridge-proxy.js", () => ({
+  clearLocalhostBridgeFetchProxy: mocks.clearProxy,
+  installLocalhostBridgeFetchProxy: mocks.installProxy,
+  persistLocalhostBridgeTransport: mocks.persistTransport,
+  readPersistedLocalhostBridgeTransport: mocks.readPersistedTransport,
 }));
 
 vi.mock("@/components/ui/alert-dialog", () => {
@@ -40,7 +56,6 @@ vi.mock("@/components/ui/alert-dialog", () => {
 
 import {
   createOpenVisualEditWebMcpActions,
-  normalizeBrowserBridgeUrl,
   OpenVisualEditWebMcp,
 } from "./OpenVisualEditWebMcp";
 
@@ -56,6 +71,11 @@ describe("OpenVisualEditWebMcp", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.callAction.mockReset();
+    mocks.locationPathname = "/visual-edit/design-1";
+    mocks.clearProxy.mockReset();
+    mocks.installProxy.mockReset();
+    mocks.persistTransport.mockReset();
+    mocks.readPersistedTransport.mockReset();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -99,11 +119,45 @@ describe("OpenVisualEditWebMcp", () => {
     expect(registrations[0].stop).toHaveBeenCalledTimes(1);
   });
 
+  it("clears a stale relay when same-tab navigation changes the design", async () => {
+    mocks.readPersistedTransport.mockReturnValue({
+      designId: "design-1",
+      connectionId: "connection-1",
+      bridgeUrl: "http://127.0.0.1:7331",
+    });
+
+    act(() => root.render(<OpenVisualEditWebMcp />));
+    expect(mocks.readPersistedTransport).toHaveBeenCalled();
+    expect(mocks.installProxy).toHaveBeenCalledTimes(1);
+    expect(mocks.createRegistration).toHaveBeenCalledTimes(1);
+
+    mocks.locationPathname = "/visual-edit/design-2";
+    act(() => root.render(<OpenVisualEditWebMcp />));
+
+    expect(mocks.clearProxy).toHaveBeenCalled();
+    expect(mocks.installProxy).toHaveBeenCalledTimes(1);
+    expect(mocks.createRegistration).toHaveBeenCalledTimes(2);
+    expect(registrations[0].stop).toHaveBeenCalledTimes(1);
+  });
+
   it("publishes a signed-out-compatible bootstrap contract", () => {
     const [action] = createOpenVisualEditWebMcpActions() as Array<{
-      schema: { required?: string[] };
+      schema: {
+        required?: string[];
+        properties?: Record<string, unknown>;
+      };
     }>;
     expect(action.schema.required).toEqual(["devServerUrl"]);
+    expect(action.schema.properties).not.toHaveProperty("bridgeToken");
+    expect(action.schema.properties).not.toHaveProperty("previewToken");
+    expect(action.schema.properties).not.toHaveProperty("bridgeAttestation");
+  });
+
+  it("offers an explicit new-project option", () => {
+    const [action] = createOpenVisualEditWebMcpActions() as Array<{
+      schema: { properties?: Record<string, { type?: string }> };
+    }>;
+    expect(action.schema.properties?.newDesign?.type).toBe("boolean");
   });
 
   it("uses the authenticated action path without issuing a bootstrap capability", async () => {
@@ -135,31 +189,48 @@ describe("OpenVisualEditWebMcp", () => {
     );
   });
 
-  it("accepts only loopback bridge origins in the browser", () => {
-    expect(normalizeBrowserBridgeUrl("http://127.0.0.1:7331")).toBe(
-      "http://127.0.0.1:7331",
-    );
-    expect(() => normalizeBrowserBridgeUrl("https://example.com")).toThrow(
-      /localhost or loopback/,
-    );
-    expect(() =>
-      normalizeBrowserBridgeUrl("http://127.0.0.1:7331/manifest.json"),
-    ).toThrow(/localhost or loopback/);
-  });
-
-  it("redeems and opens the private editor handoff after bootstrap", async () => {
-    const [action] = createOpenVisualEditWebMcpActions() as unknown as Array<{
+  it("forwards the explicit new-project request to the action", async () => {
+    const [action] = createOpenVisualEditWebMcpActions({
+      isAuthenticated: true,
+    }) as unknown as Array<{
       run: (
         input: Record<string, unknown>,
         runtime: unknown,
       ) => Promise<unknown>;
     }>;
-    mocks.callAction
-      .mockResolvedValueOnce({
-        token: "bootstrap-capability",
-        challenge: "a".repeat(32),
-      })
-      .mockResolvedValue({
+    mocks.callAction.mockResolvedValue({ designId: "design_new" });
+
+    await action.run(
+      { devServerUrl: "http://localhost:5173", newDesign: true },
+      { signal: undefined },
+    );
+
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "open-visual-edit",
+      { devServerUrl: "http://localhost:5173", newDesign: true },
+      { signal: undefined },
+    );
+  });
+
+  it.each([true, false])(
+    "omits bridge credentials from %s WebMCP callAction payloads and results",
+    async (isAuthenticated) => {
+      const [action] = createOpenVisualEditWebMcpActions({
+        isAuthenticated,
+      }) as unknown as Array<{
+        run: (
+          input: Record<string, unknown>,
+          runtime: unknown,
+        ) => Promise<unknown>;
+      }>;
+      const callActionResults = isAuthenticated
+        ? []
+        : [{ token: "bootstrap-capability", challenge: "a".repeat(32) }];
+      mocks.callAction.mockReset();
+      for (const result of callActionResults) {
+        mocks.callAction.mockResolvedValueOnce(result);
+      }
+      mocks.callAction.mockResolvedValueOnce({
         designId: "design-1",
         connectionId: "connection-1",
         createdDesign: true,
@@ -175,75 +246,110 @@ describe("OpenVisualEditWebMcp", () => {
         previewToken: "preview-secret",
         embedStartUrl: "/_agent-native/embed/start?ticket=one-time-ticket",
       });
+
+      const input = {
+        devServerUrl: "http://localhost:5173",
+        bridgeToken: "bridge-secret",
+        previewToken: "preview-secret",
+        bridgeAttestation: { previewToken: "preview-secret" },
+        routeManifest: {
+          routes: [
+            {
+              path: "/",
+              metadata: {
+                title: "Home",
+                bridgeToken: "nested-bridge-secret",
+                previewToken: "nested-preview-secret",
+              },
+            },
+          ],
+        },
+        navigate: false,
+      };
+      const safeResult = await action.run(input, { signal: undefined });
+      const openCall = mocks.callAction.mock.calls.find(
+        ([name]) => name === "open-visual-edit",
+      );
+
+      expect(openCall?.[1]).toEqual({
+        devServerUrl: "http://localhost:5173",
+        routeManifest: {
+          routes: [{ path: "/", metadata: { title: "Home" } }],
+        },
+        navigate: false,
+      });
+      expect(JSON.stringify(openCall?.[1])).not.toContain("bridge-secret");
+      expect(JSON.stringify(openCall?.[1])).not.toContain("preview-secret");
+      expect(JSON.stringify(openCall?.[1])).not.toContain(
+        "nested-bridge-secret",
+      );
+      expect(JSON.stringify(openCall?.[1])).not.toContain(
+        "nested-preview-secret",
+      );
+      expect(safeResult).not.toHaveProperty("bridgeToken");
+      expect(safeResult).not.toHaveProperty("previewToken");
+    },
+  );
+
+  it("persists only the scoped bridge transport, never its bridge token", async () => {
+    const [action] = createOpenVisualEditWebMcpActions() as unknown as Array<{
+      run: (
+        input: Record<string, unknown>,
+        runtime: unknown,
+      ) => Promise<unknown>;
+    }>;
+    const result = {
+      designId: "design-1",
+      connectionId: "connection-1",
+      createdDesign: false,
+      publicReadOnly: true,
+      devServerUrl: "http://localhost:5173",
+      bridgeUrl: "http://127.0.0.1:7331",
+      screenCount: 1,
+      overview: true,
+      urlPath: "/visual-edit/design-1",
+      openUrl: "agent-native://open/visual-edit/design-1",
+    };
+    mocks.callAction
+      .mockResolvedValueOnce({
+        token: "bootstrap-capability",
+        challenge: "a".repeat(32),
+      })
+      .mockResolvedValueOnce(result);
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(() =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify({
-              source: "agent-native-design-connect",
-              sourceType: "localhost",
-              localOnly: true,
-              devServerUrl: "http://localhost:5173",
-              bridgeUrl: "http://127.0.0.1:7331",
-              rootPath: "/tmp/app",
-              attestation: {
-                challenge: "a".repeat(32),
-                signature: "a".repeat(64),
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            attestation: {
+              challenge: "a".repeat(32),
+              signature: "a".repeat(64),
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
         ),
       ),
     );
-    const replace = vi
-      .spyOn(window.location, "replace")
-      .mockImplementation(() => {});
 
     await action.run(
       {
         devServerUrl: "http://localhost:5173",
-        bridgeToken: "locally-generated-bridge-token",
+        bridgeToken: "stale-bridge-token",
+        navigate: false,
       },
       { signal: undefined },
     );
-
-    expect(mocks.callAction).toHaveBeenCalledWith(
-      "open-visual-edit",
-      expect.objectContaining({
-        devServerUrl: "http://localhost:5173",
-        bridgeToken: "locally-generated-bridge-token",
-        bridgeAttestation: expect.objectContaining({
-          previewToken: expect.stringMatching(/^[a-f0-9]{64}$/),
-          challenge: "a".repeat(32),
-          signature: "a".repeat(64),
-          manifest: expect.objectContaining({
-            bridgeUrl: "http://127.0.0.1:7331",
-          }),
-        }),
-      }),
-      {
-        signal: undefined,
-        headers: {
-          Authorization: "Bearer bootstrap-capability",
-          "X-Agent-Native-Embed-Target": "/visual-edit",
-        },
-      },
+    expect(mocks.persistTransport).toHaveBeenCalledWith({
+      designId: "design-1",
+      connectionId: "connection-1",
+      bridgeUrl: "http://127.0.0.1:7331",
+    });
+    expect(mocks.persistTransport.mock.calls[0]?.[0]).not.toHaveProperty(
+      "bridgeToken",
     );
-    const safeResult = await action.run(
-      { devServerUrl: "http://localhost:5173", navigate: false },
-      { signal: undefined },
+    expect(mocks.installProxy.mock.calls[0]?.[0]).not.toHaveProperty(
+      "bridgeToken",
     );
-    expect(safeResult).not.toHaveProperty("bridgeToken");
-    expect(safeResult).not.toHaveProperty("previewToken");
-    expect(replace).toHaveBeenCalledWith(
-      new URL(
-        "/_agent-native/embed/start?ticket=one-time-ticket",
-        window.location.href,
-      ).toString(),
-    );
-    replace.mockRestore();
   });
 
   it("refreshes the bootstrap capability after its cache expires", async () => {

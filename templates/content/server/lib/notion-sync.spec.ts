@@ -2,13 +2,15 @@ import crypto from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { canonicalizeNfm } from "../../shared/nfm.js";
+import { canonicalizeNotionNfm } from "../../shared/nfm.js";
+
+/** A baseline as main hashed it: no prefix, over its own canonical form. */
+function legacyHashForTest(canonical: string): string {
+  return crypto.createHash("sha256").update(canonical).digest("hex");
+}
 
 function hashContentForTest(content: string | null | undefined): string {
-  return crypto
-    .createHash("sha256")
-    .update(canonicalizeNfm(content ?? ""))
-    .digest("hex");
+  return `v2:${legacyHashForTest(canonicalizeNotionNfm(content ?? ""))}`;
 }
 
 const testState = vi.hoisted(() => ({
@@ -25,10 +27,9 @@ const testState = vi.hoisted(() => ({
   versions: [] as Array<Record<string, unknown>>,
 }));
 
+const liveCopyPages = vi.hoisted(() => new Set<string>());
+
 const notionMocks = vi.hoisted(() => {
-  // Minimal stand-in for the real NotionApiError class (server/lib/notion.ts)
-  // so `instanceof NotionApiError` checks in notion-sync.ts work against the
-  // mocked ./notion.js module.
   class MockNotionApiError extends Error {
     status: number;
     code: string | null;
@@ -53,8 +54,6 @@ const notionMocks = vi.hoisted(() => {
     createNotionPageWithMarkdown: vi.fn(),
     fetchNotionPage: vi.fn(),
     getNotionConnectionForOwner,
-    // Mirrors the real helper: same lookup, but throws the connection-specific
-    // error instead of answering null.
     requireNotionConnectionForOwner: vi.fn(
       async (owner: string, intent: string) => {
         const connection = await getNotionConnectionForOwner(owner);
@@ -72,9 +71,6 @@ const notionMocks = vi.hoisted(() => {
   };
 });
 
-// Real `and`/`eq`/`or`/`isNull`/`lt` so the mock DB below can actually
-// evaluate WHERE conditions instead of matching unconditionally — required
-// to exercise the compare-and-swap (CAS) and claim guards under test.
 type EqCondition = { __eq: string; value: unknown };
 type IsNullCondition = { __isNull: string };
 type LtCondition = { __lt: string; value: unknown };
@@ -108,7 +104,8 @@ vi.mock("@agent-native/core/collab", () => ({
   releaseDoc: vi.fn(),
 }));
 
-vi.mock("../db/index.js", () => {
+vi.mock("../db/index.js", async () => {
+  const { getTableName } = await import("drizzle-orm");
   const schema = {
     documents: {
       id: "documents.id",
@@ -119,6 +116,8 @@ vi.mock("../db/index.js", () => {
     documentSyncLinks: {
       documentId: "documentSyncLinks.documentId",
       ownerEmail: "documentSyncLinks.ownerEmail",
+      remotePageId: "documentSyncLinks.remotePageId",
+      updatedAt: "documentSyncLinks.updatedAt",
       syncClaimedAt: "documentSyncLinks.syncClaimedAt",
     },
     documentVersions: {
@@ -169,16 +168,28 @@ vi.mock("../db/index.js", () => {
   const db: any = {
     select: () => ({
       from: (table: unknown) => ({
-        where: async (where: unknown) => {
-          if (table === schema.documents)
-            return matches(testState.document, where)
-              ? [testState.document]
-              : [];
-          if (table === schema.documentSyncLinks) {
-            return testState.link ? [testState.link] : [];
-          }
-          if (table === schema.documentComments) return testState.comments;
-          return [];
+        where: (where: unknown) => {
+          const rows = async () => {
+            // The body-write lock reads the page through the real table, from
+            // a schema module `vi.resetModules()` may have loaded again.
+            if (
+              table === schema.documents ||
+              getTableName(table as never) === "documents"
+            )
+              return matches(testState.document, where)
+                ? [testState.document]
+                : [];
+            if (table === schema.documentSyncLinks) {
+              return testState.link ? [testState.link] : [];
+            }
+            if (table === schema.documentComments) return testState.comments;
+            return [];
+          };
+          return {
+            then: (...args: Parameters<Promise<unknown>["then"]>) =>
+              rows().then(...args),
+            orderBy: () => ({ for: rows }),
+          };
         },
       }),
     }),
@@ -240,7 +251,11 @@ vi.mock("../db/index.js", () => {
             (row) => !matches(row, where),
           );
         }
-        if (table === schema.documentSyncLinks) {
+        if (
+          table === schema.documentSyncLinks &&
+          testState.link &&
+          matches(testState.link, where)
+        ) {
           testState.link = null;
         }
       },
@@ -256,6 +271,18 @@ vi.mock("./documents.js", () => ({
 }));
 
 vi.mock("./notion.js", () => notionMocks);
+
+vi.mock("./live-body-writer.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./live-body-writer.js")>()),
+  isLiveBodyWriterPage: async (documentId: string) =>
+    liveCopyPages.has(documentId),
+  liveBodyWriterGatesForRows: async (rows: Array<{ id: string }>) =>
+    rows.map((row) =>
+      liveCopyPages.has(row.id)
+        ? { writePath: "live_copy" }
+        : { writePath: "legacy", reason: "not_switched" },
+    ),
+}));
 
 describe("createAndLinkNotionPage", () => {
   beforeEach(() => {
@@ -361,8 +388,6 @@ describe("createAndLinkNotionPage", () => {
     expect(notionMocks.createNotionPageWithMarkdown).toHaveBeenCalledTimes(1);
     expect(status.pageId).toBe("new-page");
 
-    // A retry after the failure must not create a second page — the link
-    // established by the first call makes the retry idempotent.
     await createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page");
     expect(notionMocks.createNotionPageWithMarkdown).toHaveBeenCalledTimes(1);
   });
@@ -403,9 +428,7 @@ describe("unlinkDocumentFromNotion", () => {
     await unlinkDocumentFromNotion("alice@example.com", "doc-1");
 
     expect(testState.link).toBeNull();
-    // The Notion-origin comment (pulled) is removed — it belongs to the old page.
     expect(testState.comments.find((c) => c.id === "c-notion")).toBeUndefined();
-    // The local comment survives but becomes re-pushable to a new link.
     const local = testState.comments.find((c) => c.id === "c-local");
     expect(local).toBeDefined();
     expect(local?.notionCommentId).toBeNull();
@@ -502,9 +525,6 @@ describe("pullDocumentFromNotion", () => {
   it("does not overwrite a local save that races the Notion fetch, and marks conflict", async () => {
     const { pullDocumentFromNotion } = await import("./notion-sync.js");
 
-    // Simulate the multi-second Notion round-trip: by the time
-    // readNotionPageAsDocument resolves, a concurrent local save has already
-    // landed in the "documents" row.
     notionMocks.readNotionPageAsDocument.mockImplementation(async () => {
       testState.document = {
         ...testState.document,
@@ -527,13 +547,9 @@ describe("pullDocumentFromNotion", () => {
       false,
     );
 
-    // The concurrent local save must survive — never overwritten by the pull.
     expect(testState.document.content).toBe("Concurrent local edit");
-    // The link must reflect a conflict, not a silent success.
     expect(testState.link?.state).toBe("conflict");
     expect(Boolean(status.hasConflict)).toBe(true);
-    // The hash baseline must NOT be advanced to the remote content — otherwise
-    // the lost edit would be undetectable as localChanged on the next check.
     expect(testState.link?.lastSyncedContentHash).toBe(
       hashContentForTest("Local body"),
     );
@@ -596,13 +612,33 @@ describe("pullDocumentFromNotion", () => {
     );
     expect(status.hasConflict).toBe(false);
   });
+
+  it("keeps the ids comments use on videos Notion sends back without them", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    const video = '<video src="https://example.com/demo.mp4"';
+    testState.document.content = `Local body\n${video} id="video-local1"></video>`;
+    testState.link.lastSyncedContentHash = hashContentForTest(
+      testState.document.content,
+    );
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: `Remote edit from Notion\n${video}></video>`,
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    await pullDocumentFromNotion("alice@example.com", "doc-1", true);
+
+    expect(testState.document.content).toBe(
+      `Remote edit from Notion\n${video} id="video-local1"></video>`,
+    );
+  });
 });
 
 describe("refreshDocumentSyncStatus", () => {
   beforeEach(() => {
-    // refreshDocumentSyncStatus throttles via a module-level Map keyed by
-    // documentId; reset modules so each test gets a fresh throttle map
-    // instead of being short-circuited by a previous test's call.
     vi.resetModules();
     vi.clearAllMocks();
     testState.document = {
@@ -682,8 +718,6 @@ describe("refreshDocumentSyncStatus", () => {
   it("skips the pull instead of racing when another instance already holds the sync claim", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
-    // Simulate another tab/serverless instance already mid-sync for this
-    // document: the claim column is set to "now".
     testState.link.syncClaimedAt = new Date().toISOString();
 
     notionMocks.fetchNotionPage.mockResolvedValue({
@@ -707,9 +741,6 @@ describe("refreshDocumentSyncStatus", () => {
   it("does not flash a conflict while a save-triggered push holds the sync claim", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
-    // The local save has landed and its push owns the claim. Notion's remote
-    // timestamp can advance before that push updates the stored hash baseline,
-    // briefly making both sides look changed to a concurrent status poll.
     testState.document = {
       ...testState.document,
       content: "Local edit being pushed",
@@ -746,9 +777,6 @@ describe("refreshDocumentSyncStatus", () => {
     };
     testState.link.syncClaimedAt = new Date().toISOString();
     notionMocks.fetchNotionPage.mockImplementation(async () => {
-      // getDocumentSyncStatus already captured the old link snapshot. Finish
-      // the competing push before refresh tries to claim, including advancing
-      // the baseline and releasing its claim.
       testState.link = {
         ...testState.link,
         state: "linked",
@@ -793,8 +821,6 @@ describe("refreshDocumentSyncStatus", () => {
       id: "notion-page",
       last_edited_time: "2026-06-01T10:30:00.000Z",
     });
-    // The newer timestamp is not a remote content edit: Notion still holds
-    // the baseline body, so auto-sync should push the local edit.
     notionMocks.readNotionPageAsDocument.mockResolvedValue({
       pageId: "notion-page",
       title: "Local title",
@@ -825,6 +851,31 @@ describe("refreshDocumentSyncStatus", () => {
     expect(status.localChanged).toBe(false);
     expect(status.remoteChanged).toBe(false);
     expect(testState.link?.state).toBe("linked");
+  });
+
+  it("preserves a Content-only Tabler icon when pulling newer Notion content", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    const icon = JSON.stringify({
+      version: 1,
+      kind: "library",
+      library: "tabler",
+      name: "book",
+      color: "blue",
+    });
+    testState.document.icon = icon;
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Remote edit from Notion",
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    await pullDocumentFromNotion("alice@example.com", "doc-1", true);
+
+    expect(testState.document.content).toBe("Remote edit from Notion");
+    expect(testState.document.icon).toBe(icon);
   });
 
   it("reports hash-verified change flags without pushing when auto-sync is off", async () => {
@@ -898,11 +949,66 @@ describe("refreshDocumentSyncStatus", () => {
     expect(Boolean(testState.link?.hasConflict)).toBe(true);
   });
 
+  it("lets timestamps decide when a baseline from the earlier canonical form no longer matches", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    // Main stored Notion's `a\_b` as `a\\_b`, and its baseline matches
+    // neither side now. Neither side has changed since.
+    testState.document = {
+      ...testState.document,
+      content: "a\\\\_b",
+      updatedAt: "2026-06-01T09:00:00.000Z",
+    };
+    testState.link.lastSyncedContentHash = legacyHashForTest("a\\\\\\_b");
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "a\\_b",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      { autoSync: true },
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(status.localChanged).toBe(false);
+    expect(status.remoteChanged).toBe(false);
+    expect(status.hasConflict).toBe(false);
+    expect(testState.document.content).toBe("a\\\\_b");
+  });
+
+  it("still lets a baseline from the earlier canonical form that matches decide", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.link.lastSyncedContentHash = legacyHashForTest("Local body");
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      { autoSync: true },
+    );
+
+    // The document's timestamp is past the last push, but its hash matches.
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(status.localChanged).toBe(false);
+  });
+
   it("proceeds with the pull when a stale claim (older than the staleness window) is held", async () => {
     const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
 
-    // A claim from over a minute ago — treated as abandoned (e.g. a crashed
-    // request) rather than an active concurrent sync.
     testState.link.syncClaimedAt = new Date(Date.now() - 60_000).toISOString();
 
     notionMocks.fetchNotionPage.mockResolvedValue({
@@ -924,7 +1030,6 @@ describe("refreshDocumentSyncStatus", () => {
 
     expect(notionMocks.readNotionPageAsDocument).toHaveBeenCalled();
     expect(testState.document.content).toBe("Remote edit from Notion");
-    // The claim must be released after the pull completes.
     expect(testState.link?.syncClaimedAt).toBeNull();
   });
 
@@ -1000,8 +1105,6 @@ describe("pushDocumentToNotion", () => {
 
     testState.document.content = "Local edit typed just now";
 
-    // Same last_edited_time as the last sync — the timestamp alone would say
-    // "no remote change" even though the content differs.
     notionMocks.fetchNotionPage.mockResolvedValue({
       id: "notion-page",
       last_edited_time: "2026-06-01T09:00:00.000Z",
@@ -1063,6 +1166,38 @@ describe("pushDocumentToNotion", () => {
     expect(testState.document.content).toBe("Local edit typed just now");
   });
 
+  it("keeps the ids comments use on videos when Notion reads the push back", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    const local =
+      'Local edit\n<video src="https://example.com/demo.mp4" id="video-local1"></video>';
+    testState.document.content = local;
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: canonicalizeNotionNfm(local),
+      lastEditedTime: "2026-06-01T10:05:00.000Z",
+      warnings: [],
+    });
+
+    await pushDocumentToNotion("alice@example.com", "doc-1", false);
+
+    expect(canonicalizeNotionNfm(local)).not.toContain("video-local1");
+    expect(testState.document.content).toBe(local);
+  });
+
   it("does not overwrite a newer local save with post-push normalized content", async () => {
     const { pushDocumentToNotion } = await import("./notion-sync.js");
 
@@ -1071,7 +1206,6 @@ describe("pushDocumentToNotion", () => {
       last_edited_time: "2026-06-01T09:00:00.000Z",
     });
     notionMocks.pushDocumentToNotionPage.mockImplementation(async () => {
-      // A newer local save lands in between the PATCH and the readback.
       testState.document = {
         ...testState.document,
         content: "Newer local save mid-push",
@@ -1089,10 +1223,7 @@ describe("pushDocumentToNotion", () => {
 
     await pushDocumentToNotion("alice@example.com", "doc-1", true);
 
-    // The concurrent save must survive; normalized old content must not land.
     expect(testState.document.content).toBe("Newer local save mid-push");
-    // A lost replacement CAS must not create a history entry for a
-    // replacement that never happened.
     expect(testState.versions).toHaveLength(0);
   });
 
@@ -1113,9 +1244,6 @@ describe("pushDocumentToNotion", () => {
       lastEditedTime: "2026-06-01T09:00:00.000Z",
       warnings: [],
     });
-    // Notion normalizes the pushed markdown into something byte-different —
-    // the row must adopt exactly this readback, and the baseline hash must
-    // match it, not the pre-push document.content that was sent.
     notionMocks.pushDocumentToNotionPage.mockResolvedValue({
       pageId: "notion-page",
       title: "Local title",
@@ -1150,11 +1278,6 @@ describe("pushDocumentToNotion", () => {
   it("converges the baseline instead of flagging a phantom conflict when content already matches", async () => {
     const { pushDocumentToNotion } = await import("./notion-sync.js");
 
-    // Local content has moved on from the stored baseline (e.g. a previous
-    // push's title-PATCH step failed after replace_content already
-    // succeeded), but Notion's content already matches the new local content
-    // byte-for-byte — both sides agree even though the stored baseline
-    // metadata is stale.
     testState.document.content = "Content already applied both sides";
 
     notionMocks.fetchNotionPage.mockResolvedValue({
@@ -1187,9 +1310,6 @@ describe("pushDocumentToNotion", () => {
 
 describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () => {
   beforeEach(() => {
-    // refreshDocumentSyncStatus throttles via a module-level Map keyed by
-    // documentId; reset modules so the last test's throttle timestamp for
-    // "doc-1" doesn't short-circuit this describe's refresh test.
     vi.resetModules();
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -1232,18 +1352,14 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
   it("rejects a push while another instance holds the claim, without calling Notion (n-B)", async () => {
     const { pushDocumentToNotion } = await import("./notion-sync.js");
 
-    // Another tab/instance is already mid-sync for this document.
     testState.link.syncClaimedAt = new Date().toISOString();
     testState.document.content = "A local edit typed just now";
 
     const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(450);
     const status = await promise;
 
-    // Never proceeded to touch Notion — the claim was held the whole time
-    // (retries also see it held, since nothing here ever releases it).
     expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
-    // Reports the current non-mutating status rather than racing the holder.
     expect(status.documentId).toBe("doc-1");
     expect(testState.document.content).toBe("A local edit typed just now");
   });
@@ -1254,12 +1370,11 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     testState.link.syncClaimedAt = new Date().toISOString();
 
     const promise = pullDocumentFromNotion("alice@example.com", "doc-1", true);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(450);
     const status = await promise;
 
     expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
     expect(status.documentId).toBe("doc-1");
-    // The document row must be untouched.
     expect(testState.document.content).toBe("Local body");
   });
 
@@ -1277,14 +1392,39 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     });
 
     const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
-    // Free the claim before the retry window elapses, simulating the other
-    // holder finishing mid-retry.
     testState.link.syncClaimedAt = null;
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(450);
     const status = await promise;
 
     expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();
     expect(status.hasConflict).toBe(false);
+  });
+
+  it("preserves a Content-only Tabler icon after pushing and reading back from Notion", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    const icon = JSON.stringify({
+      version: 1,
+      kind: "library",
+      library: "tabler",
+      name: "book",
+      color: "blue",
+    });
+    testState.document.icon = icon;
+    notionMocks.pushDocumentToNotionPage.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T10:05:00.000Z",
+      warnings: [],
+    });
+
+    const promise = pushDocumentToNotion("alice@example.com", "doc-1", false);
+    await vi.advanceTimersByTimeAsync(450);
+    await promise;
+
+    expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalled();
+    expect(testState.document.icon).toBe(icon);
   });
 
   it("releases the claim after a push error so a subsequent push is not permanently blocked", async () => {
@@ -1299,7 +1439,6 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     ).rejects.toThrow("Notion is down");
     expect(testState.link?.syncClaimedAt).toBeNull();
 
-    // A follow-up push must be able to claim and proceed normally.
     notionMocks.pushDocumentToNotionPage.mockResolvedValue({
       pageId: "notion-page",
       title: "Local title",
@@ -1370,11 +1509,6 @@ describe("pullDocumentFromNotion / pushDocumentToNotion sync claim (n-B)", () =>
     );
 
     expect(testState.document.content).toBe("Remote edit from Notion");
-    // The claim taken by refreshDocumentSyncStatus itself must be released
-    // exactly once — not left set (double-claim without matching release)
-    // nor released twice (which would be a harmless no-op here, but the
-    // absence of an error/hang confirms skipClaim prevented a second
-    // claim attempt inside pullDocumentFromNotion from ever running).
     expect(testState.link?.syncClaimedAt).toBeNull();
     expect(status.hasConflict).toBe(false);
   });
@@ -1396,5 +1530,447 @@ describe("resolveDocumentSyncConflict", () => {
       ),
     ).rejects.toThrow(/pull.*push/i);
     expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("a page that takes body writes through its live copy", () => {
+  const page = {
+    id: "doc-1",
+    ownerEmail: "alice@example.com",
+    title: "Local title",
+    content: "Local body",
+    icon: null as string | null,
+    updatedAt: "2026-06-01T10:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    testState.document = { ...page };
+    testState.link = {
+      documentId: "doc-1",
+      ownerEmail: "alice@example.com",
+      remotePageId: "notion-page",
+      state: "linked",
+      lastSyncedAt: "2026-06-01T09:00:00.000Z",
+      lastPulledRemoteUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastPushedLocalUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastKnownRemoteUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastSyncedContentHash: hashContentForTest("Local body"),
+      hasConflict: false,
+      warningsJson: "[]",
+      syncClaimedAt: null as string | null,
+    };
+    testState.versions = [];
+    liveCopyPages.add("doc-1");
+
+    notionMocks.getNotionConnectionForOwner.mockResolvedValue({
+      accessToken: "notion-token",
+    });
+  });
+
+  afterEach(() => {
+    liveCopyPages.clear();
+  });
+
+  it("refuses a pull that changes the body and leaves the page as it was", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Remote edit from Notion",
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    await expect(
+      pullDocumentFromNotion("alice@example.com", "doc-1", true),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "doc-1", operation: "Notion sync" },
+    });
+
+    expect(testState.document).toEqual(page);
+    expect(testState.versions).toEqual([]);
+    expect(testState.link?.lastSyncedContentHash).toBe(
+      hashContentForTest("Local body"),
+    );
+    expect(testState.link?.syncClaimedAt).toBeNull();
+  });
+
+  it("applies a pull that changes only the title", async () => {
+    const { pullDocumentFromNotion } = await import("./notion-sync.js");
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Remote title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T10:00:10.000Z",
+      warnings: [],
+    });
+
+    const status = await pullDocumentFromNotion(
+      "alice@example.com",
+      "doc-1",
+      true,
+    );
+
+    expect(testState.document.title).toBe("Remote title");
+    expect(testState.document.content).toBe("Local body");
+    expect(testState.link?.state).toBe("linked");
+    expect(status.hasConflict).toBe(false);
+  });
+
+  it("refuses a push before it writes to Notion", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    testState.document.content = "Local edit typed just now";
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+
+    await expect(
+      pushDocumentToNotion("alice@example.com", "doc-1", false),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "doc-1", operation: "Notion push" },
+    });
+
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(notionMocks.createNotionPageWithMarkdown).not.toHaveBeenCalled();
+    expect(notionMocks.notionFetch).not.toHaveBeenCalled();
+    expect(testState.document).toEqual({
+      ...page,
+      content: "Local edit typed just now",
+    });
+    expect(testState.versions).toEqual([]);
+    expect(testState.link?.syncClaimedAt).toBeNull();
+  });
+
+  it("records a push that Notion took while the page took its live copy, keeps the page's body, and shows Notion's changed copy as a remote change", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    testState.document.content = "Local edit typed just now";
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockImplementationOnce(async () => {
+      liveCopyPages.add("doc-1");
+      return {
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: "Notion's copy of the local edit",
+        lastEditedTime: "2026-06-01T10:05:00.000Z",
+        warnings: [],
+      };
+    });
+
+    const status = await pushDocumentToNotion(
+      "alice@example.com",
+      "doc-1",
+      false,
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalledTimes(1);
+    expect(testState.document).toEqual({
+      ...page,
+      content: "Local edit typed just now",
+    });
+    expect(testState.link).toMatchObject({
+      state: "linked",
+      lastPulledRemoteUpdatedAt: "2026-06-01T09:00:00.000Z",
+      lastKnownRemoteUpdatedAt: "2026-06-01T10:05:00.000Z",
+      lastSyncedContentHash: hashContentForTest("Local edit typed just now"),
+    });
+    expect(status).toMatchObject({
+      hasConflict: false,
+      remoteChanged: true,
+      localChanged: false,
+    });
+  });
+
+  it("records a push that Notion took unchanged as pulled when the page took its live copy and a later edit", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    testState.document.content = "Local edit typed just now";
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockImplementationOnce(async () => {
+      liveCopyPages.add("doc-1");
+      testState.document = {
+        ...testState.document,
+        content: "A tab's edit after the push",
+      };
+      return {
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: "Local edit typed just now",
+        lastEditedTime: "2026-06-01T10:05:00.000Z",
+        warnings: [],
+      };
+    });
+
+    const status = await pushDocumentToNotion(
+      "alice@example.com",
+      "doc-1",
+      false,
+    );
+
+    expect(testState.document.content).toBe("A tab's edit after the push");
+    expect(testState.link).toMatchObject({
+      lastPulledRemoteUpdatedAt: "2026-06-01T10:05:00.000Z",
+      lastSyncedContentHash: hashContentForTest("Local edit typed just now"),
+    });
+    expect(status).toMatchObject({
+      hasConflict: false,
+      remoteChanged: false,
+      localChanged: true,
+    });
+  });
+
+  it("refuses to link the page before it makes any Notion request", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    testState.link = null;
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId: "doc-1", operation: "Notion link" },
+    });
+
+    expect(notionMocks.fetchNotionPage).not.toHaveBeenCalled();
+    expect(notionMocks.notionFetch).not.toHaveBeenCalled();
+    expect(notionMocks.createNotionPageWithMarkdown).not.toHaveBeenCalled();
+    expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
+    expect(testState.link).toBeNull();
+    expect(testState.document).toEqual(page);
+  });
+
+  it("refuses to relink an already linked page instead of answering with its link", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    const link = testState.link;
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "doc-1", operation: "Notion link" },
+    });
+
+    expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
+    expect(testState.link).toEqual(link);
+    expect(testState.document).toEqual(page);
+  });
+
+  it("refuses to link the page to a Notion page before it reads or links one", async () => {
+    const { linkDocumentToNotionPage } = await import("./notion-sync.js");
+    const link = testState.link;
+
+    await expect(
+      linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "doc-1", operation: "Notion link" },
+    });
+
+    expect(notionMocks.fetchNotionPage).not.toHaveBeenCalled();
+    expect(testState.link).toEqual(link);
+    expect(testState.document).toEqual(page);
+  });
+
+  it.each([
+    ["keeps the link it had", true],
+    ["leaves it unlinked", false],
+  ])(
+    "when the page takes its live copy while it links to a Notion page, refuses before it links and %s",
+    async (_name, linked) => {
+      const { linkDocumentToNotionPage } = await import("./notion-sync.js");
+      liveCopyPages.delete("doc-1");
+      if (!linked) testState.link = null;
+      const link = testState.link;
+      notionMocks.fetchNotionPage.mockImplementationOnce(async () => {
+        liveCopyPages.add("doc-1");
+        return {
+          id: "other-page",
+          last_edited_time: "2026-06-01T10:30:00.000Z",
+        };
+      });
+      notionMocks.readNotionPageAsDocument.mockResolvedValue({
+        pageId: "other-page",
+        title: "Other title",
+        icon: null,
+        content: "The other page's body",
+        lastEditedTime: "2026-06-01T10:30:00.000Z",
+        warnings: [],
+      });
+
+      await expect(
+        linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        details: { documentId: "doc-1", operation: "Notion link" },
+      });
+
+      expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
+      expect(testState.document).toEqual(page);
+      if (link) {
+        expect(testState.link).toMatchObject({
+          remotePageId: link.remotePageId,
+          state: link.state,
+          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+          lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+          lastSyncedContentHash: link.lastSyncedContentHash,
+        });
+      } else {
+        expect(testState.link).toBeNull();
+      }
+    },
+  );
+
+  it.each([
+    ["had a link", true],
+    ["had none", false],
+  ])(
+    "keeps a link another operation wrote while a refused link was pulling, when the page %s",
+    async (_name, linked) => {
+      const { linkDocumentToNotionPage } = await import("./notion-sync.js");
+      liveCopyPages.delete("doc-1");
+      if (!linked) testState.link = null;
+      notionMocks.fetchNotionPage.mockResolvedValueOnce({
+        id: "other-page",
+        last_edited_time: "2026-06-01T10:30:00.000Z",
+      });
+      const newerLink = {
+        documentId: "doc-1",
+        ownerEmail: "alice@example.com",
+        remotePageId: "third-page",
+        state: "linked",
+        lastSyncedContentHash: hashContentForTest("Third body"),
+        updatedAt: "2026-06-01T11:00:00.000Z",
+      };
+      // The page switches after the link went in, so the pull refuses.
+      notionMocks.readNotionPageAsDocument.mockImplementationOnce(async () => {
+        liveCopyPages.add("doc-1");
+        testState.link = { ...testState.link, ...newerLink };
+        return {
+          pageId: "other-page",
+          title: "Other title",
+          icon: null,
+          content: "The other page's body",
+          lastEditedTime: "2026-06-01T10:30:00.000Z",
+          warnings: [],
+        };
+      });
+
+      await expect(
+        linkDocumentToNotionPage("alice@example.com", "doc-1", "other-page"),
+      ).rejects.toMatchObject({
+        errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+        details: { documentId: "doc-1", operation: "Notion sync" },
+      });
+
+      expect(notionMocks.readNotionPageAsDocument).toHaveBeenCalledTimes(1);
+      expect(testState.document).toEqual(page);
+      expect(testState.link).toMatchObject(newerLink);
+    },
+  );
+
+  it("refuses, instead of answering with the link, when the page takes its live copy while it relinks", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    notionMocks.readNotionPageAsDocument.mockImplementationOnce(async () => {
+      liveCopyPages.add("doc-1");
+      return {
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: "Remote edit from Notion",
+        lastEditedTime: "2026-06-01T10:30:00.000Z",
+        warnings: [],
+      };
+    });
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      details: { documentId: "doc-1", operation: "Notion sync" },
+    });
+    expect(testState.document).toEqual(page);
+  });
+
+  it("keeps the link to a Notion page it created when the page takes its live copy before the page takes Notion's copy, and says so", async () => {
+    const { createAndLinkNotionPage } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    testState.link = null;
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "parent-page",
+      last_edited_time: "2026-06-01T10:30:00.000Z",
+    });
+    notionMocks.createNotionPageWithMarkdown.mockImplementationOnce(
+      async () => {
+        liveCopyPages.add("doc-1");
+        return { id: "new-page", url: "https://notion.so/new-page" };
+      },
+    );
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "new-page",
+      title: "Local title",
+      icon: null,
+      content: "Notion's copy of the local body",
+      lastEditedTime: "2026-06-01T10:30:00.000Z",
+      warnings: [],
+    });
+
+    await expect(
+      createAndLinkNotionPage("alice@example.com", "doc-1", "parent-page"),
+    ).rejects.toMatchObject({
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: {
+        documentId: "doc-1",
+        operation: "Notion link",
+        remotePageId: "new-page",
+      },
+      message: expect.stringContaining("Created Notion page new-page"),
+    });
+    expect(testState.document).toEqual(page);
+    expect(testState.link).toMatchObject({
+      remotePageId: "new-page",
+      lastSyncedContentHash: hashContentForTest("Local body"),
+    });
   });
 });

@@ -7,6 +7,7 @@ import type {
   DocumentHistoryCheckpointDetail,
   DocumentHistoryGroup,
 } from "@shared/document-history";
+import { IMPORT_CONTENT_OPERATION } from "@shared/import/types";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -776,8 +777,16 @@ function historyGroupTitle(
   if (group.kind === "human_session") return t("editor.historyGroupHuman");
   if (group.kind === "agent_run") return t("editor.historyGroupAgent");
   if (group.kind === "operation") {
+    if (group.origin === "github") return t("editor.historyGroupGitHub");
     if (group.operation === "restore-document-version") {
       return t("editor.historyGroupRestore");
+    }
+    if (group.operation === IMPORT_CONTENT_OPERATION) {
+      return group.importSourceName
+        ? t("contentImport.historyGroupFrom", {
+            name: group.importSourceName,
+          })
+        : t("contentImport.historyGroup");
     }
     return t("editor.historyGroupOperation");
   }

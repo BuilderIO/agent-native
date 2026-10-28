@@ -144,6 +144,7 @@ const databaseRowMutationTools = new Set([
   "add-database-item",
   "update-database-item",
   "upsert-database-item-by-key",
+  "patch-database-items",
   "duplicate-database-items",
   "remove-database-items",
 ]);

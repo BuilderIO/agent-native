@@ -129,6 +129,8 @@ Speicher (AWS S3, Cloudflare R2, MinIO und ähnliche). Verbinden Sie ihn über
 Umgebungsvariablen oder über die Onboarding-Checkliste in der Seitenleiste.
 Dafür ist kein Code erforderlich. Siehe [Onboarding](/docs/onboarding).
 
+Die Einstellungen, die Onboarding-Checkliste und Video storage in Clips zeigen alle dasselbe Speicherformular. Es speichert die `S3_*`-Werte als Workspace-Secrets, und nur Inhaber und Admins der Organisation können sie speichern oder löschen. Die Public URL ist erforderlich, außer der registrierte `s3`-Anbieter setzt `publicBaseUrlOptional: true` (Clips tut das, weil es Aufnahmen über signierte Anfragen zurückliest). **Clear credentials** fragt zuerst nach und löscht dann jeden gespeicherten Speicherschlüssel. Vorhandene Dateien bleiben im Bucket. Der Agent macht dasselbe über die Aktionen `get-file-storage` und `manage-file-storage`.
+
 Registrieren Sie einen benutzerdefinierten Anbieter nur für eine andere Art
 von Backend. Dieses Beispiel lädt über eine generische HTTP-API mit
 `fetch()` hoch:

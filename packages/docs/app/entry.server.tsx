@@ -4,6 +4,8 @@ import { ServerRouter } from "react-router";
 const { renderToReadableStream } = ReactDOMServer;
 import { isbot } from "isbot";
 
+import { wrapWithAnalytics } from "../../core/src/server/analytics";
+
 export const streamTimeout = 5_000;
 
 function isDocsRequest(request: Request): boolean {
@@ -58,7 +60,10 @@ export default async function handleRequest(
     }
 
     responseHeaders.set("Content-Type", "text/html");
-    return new Response(body, {
+    // Prerendering calls this handler directly, never the Nitro page route,
+    // so the analytics tags must be injected here or every static page ships
+    // without them.
+    return new Response(wrapWithAnalytics(body), {
       headers: responseHeaders,
       status: responseStatusCode,
     });

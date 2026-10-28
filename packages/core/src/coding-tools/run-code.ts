@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 /**
  * Sandboxed JavaScript execution tool for the agent.
  *
@@ -28,17 +29,20 @@
  * changing this file. The bridge, env scrub, module building, and output
  * formatting stay here in the parent regardless of adapter.
  */
-
-import crypto from "node:crypto";
 import http from "node:http";
 
-import { createRunner, RunError, type HostFunctions } from "run";
+import type { HostFunctions, RunError, Runner } from "run";
 
+import { runActionInvocation } from "../action-invocation.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
+  getRequestContext,
   getRequestRunContext,
   getRequestUserEmail,
+  runWithRequestContext,
 } from "../server/request-context.js";
 import {
   failExpiredSandboxExecution,
@@ -64,30 +68,46 @@ const MAX_OUTPUT_CHARS = 200_000;
 const TOOL_ORCHESTRATION_DEFAULT_MAX_CALLS = 32;
 const TOOL_ORCHESTRATION_MAX_CALLS = 128;
 const TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES = 20;
-/** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
 const RUN_MAX_CONSOLE_OUTPUT_BYTES = 512 * 1024;
 const RUN_MAX_RESULT_BYTES = 2 * 1024 * 1024;
 const RUN_MAX_SOURCE_BYTES = 256 * 1024;
 
-const runEvaluator = createRunner({
-  limits: {
-    memoryLimitBytes: 64 * 1024 * 1024,
-    maxStackSizeBytes: 2 * 1024 * 1024,
-    maxResultBytes: RUN_MAX_RESULT_BYTES,
-    maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
-    maxSourceBytes: RUN_MAX_SOURCE_BYTES,
-    maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
-    maxHostFunctionOutputBytes: 4 * 1024 * 1024,
-    maxBridgeRequests: 256,
-    maxInFlightBridgeRequests: 32,
-  },
-});
+// QuickJS is megabytes of code to compile, and registering these tools runs
+// on a cold instance's first framework request, so it loads on the first run.
+// A failed start isn't kept, so the next run tries again. That recovers a
+// runner that failed to start, not a module whose evaluation threw: Node keeps
+// that error for the life of the process.
+let runRuntime:
+  | Promise<{ runEvaluator: Runner; RunError: typeof RunError }>
+  | undefined;
+function loadRunRuntime() {
+  return (runRuntime ??= import("run")
+    .then(({ createRunner, RunError }) => ({
+      RunError,
+      runEvaluator: createRunner({
+        limits: {
+          memoryLimitBytes: 64 * 1024 * 1024,
+          maxStackSizeBytes: 2 * 1024 * 1024,
+          maxResultBytes: RUN_MAX_RESULT_BYTES,
+          maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
+          maxSourceBytes: RUN_MAX_SOURCE_BYTES,
+          maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
+          maxHostFunctionOutputBytes: 4 * 1024 * 1024,
+          maxBridgeRequests: 256,
+          maxInFlightBridgeRequests: 32,
+        },
+      }),
+    }))
+    .catch((error: unknown) => {
+      runRuntime = undefined;
+      throw error;
+    }));
+}
 
 export type SandboxCodeMode = "run-code" | "tool-orchestration";
 export type SandboxCodeEvaluator = "node" | "run";
 
-/** Tools callable via the sandbox bridge by default. */
 const DEFAULT_BRIDGE_TOOLS = new Set([
   "provider-api-request",
   "provider-api-docs",
@@ -97,22 +117,10 @@ const DEFAULT_BRIDGE_TOOLS = new Set([
 ]);
 
 export interface RunCodeOptions {
-  /**
-   * Extra tool names (beyond the default set) that the sandbox bridge will
-   * forward to the registered action registry.
-   */
   bridgeTools?: string[];
-  /** Evaluator used by this action surface. Production uses the hardened Run runtime. */
   evaluator?: SandboxCodeEvaluator;
 }
 
-/**
- * Create a `run-code` ActionEntry.
- *
- * @param getActions  Supplier that returns the current action registry (called
- *                    at invocation time so updates are reflected).
- * @param opts        Optional configuration.
- */
 export function createRunCodeEntry(
   getActions: () => Record<string, ActionEntry>,
   opts: RunCodeOptions = {},
@@ -120,11 +128,6 @@ export function createRunCodeEntry(
   const extraBridgeTools = new Set(opts.bridgeTools ?? []);
   const evaluator = opts.evaluator ?? "node";
 
-  // Make this entry's action surface available to the durable background
-  // executor (first registration wins — the host builds the full-surface
-  // production entry first). The executor re-runs `executeSandboxCode` with
-  // the same bridge allowlist under the enqueueing owner's request context,
-  // so background executions see the same tools as foreground ones.
   registerSandboxExecutionRunner({
     execute: ({ code, timeoutMs, context }) =>
       executeSandboxCode({
@@ -146,11 +149,16 @@ export function createRunCodeEntry(
       ? "JavaScript source to execute. Top-level await and return are allowed; Node ESM imports are not available. Required unless polling with executionId."
       : "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.";
 
-  return {
+  return frameworkMcpTool({
     readOnly: true,
     allowInPlanMode: false,
-    // Allow a generous per-call timeout so large data-processing jobs don't hit
-    // the agent-loop's default 60 s cap.
+    // The bridge can write workspace files and send provider and web writes, so
+    // over MCP this is a write that a read-only token cannot reach.
+    mcpAnnotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    },
     timeoutMs: MAX_TIMEOUT_MS,
     maxResultChars: MAX_OUTPUT_CHARS,
     tool: {
@@ -168,8 +176,8 @@ export function createRunCodeEntry(
         "    Supports stageAs/saveToFile/fetchAllPages; use cursorBodyPath for POST-body pagination.",
         "    Example: `const data = await providerFetch('<provider-id>', '/records', { query: { limit: 100 } });`",
         "  - `providerRequest(provider, path, init?)` — same authenticated call, but returns the full provider-api envelope with request, response status/headers, truncation, and body metadata.",
-        "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs. Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
-        "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when searching many provider records for terms/phrases/regexes or proving absence. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
+        "  - `providerFetchAll(provider, path, init?)` — generic pagination helper for cursor, page, and offset APIs, for a cohort already narrowed by a server-side filter (not for finding one entity or topic). Pass `pagination: { itemsPath, cursorPath or nextCursorPath, cursorParam or cursorBodyPath, pageParam, offsetParam, pageSize, maxPages }`. Returns `{ items, pages, pageCount, itemCount, hasMore, lastCursor, stoppedReason }`.",
+        "  - `providerSearchAll(provider, path, init?, options?)` — streaming search helper for broad provider corpora such as transcripts, messages, tickets, issues, notes, events, or documents. Use this before hand-written loops when a bounded cohort must be searched for terms/phrases/regexes or an absence claim needs proof; if the provider has a search or semantic tool for the question, use that first. Pass the same `pagination` config as `providerFetchAll`, plus options like `{ query, queries, terms, regex, textPaths, idPaths, metadataPaths, maxHits }`. Returns structured hits with item ids, paths, snippets, page/item indexes, and coverage fields (`pageCount`, `itemCount`, `hasMore`, `stoppedReason`).",
         "  - `webFetch(url, init?)` — outbound HTTP request via the web-request action.",
         "    Returns `{ status, body }` where body is the response text. Supports responseMode, extract, includeLinks, search, maxChars, and saveToFile.",
         "    Example: `const { body } = await webFetch('https://api.example.com/data', { responseMode: 'raw' });`",
@@ -214,8 +222,6 @@ export function createRunCodeEntry(
       },
     },
     run: async (args: Record<string, string>, context?: ActionRunContext) => {
-      // Poll path: status/result lookup for a previously queued background
-      // execution. Takes precedence so a poll call never needs `code`.
       const requestedExecutionId =
         typeof args.executionId === "string" ? args.executionId.trim() : "";
       if (requestedExecutionId) {
@@ -231,8 +237,6 @@ export function createRunCodeEntry(
           ? Math.min(requestedMaxOutput, MAX_OUTPUT_CHARS)
           : DEFAULT_MAX_OUTPUT_CHARS;
 
-      // Background path: opt-in per call, or forced when the active sandbox
-      // adapter is the queued backend (AGENT_NATIVE_SANDBOX=background).
       const backgroundRequested =
         (args.background as unknown) === true ||
         (typeof args.background === "string" &&
@@ -283,29 +287,17 @@ export function createRunCodeEntry(
       }
       return full;
     },
-  };
+  });
 }
 
-// ---------------------------------------------------------------------------
-// Core execution (shared by the foreground path and the background executor)
-// ---------------------------------------------------------------------------
-
 export interface ExecuteSandboxCodeOptions {
-  /** Raw user JavaScript (ESM for Node, function-body source for Run). */
   code: string;
-  /** Hard wall-clock timeout enforced by the adapter. */
   timeoutMs: number;
-  /** Supplier for the action registry the loopback bridge exposes. */
   getActions: () => Record<string, ActionEntry>;
-  /** Extra bridge tool names beyond the defaults. */
   extraBridgeTools?: Set<string>;
-  /** Host policy and helper surface to use inside the sandbox. */
   mode?: SandboxCodeMode;
-  /** Maximum number of bridged child-tool calls for orchestration mode. */
   maxToolCalls?: number;
-  /** Request context (owner/org) applied to bridged tool calls. */
   context?: ActionRunContext;
-  /** Evaluator used for this execution. Defaults to the existing Node adapter. */
   evaluator?: SandboxCodeEvaluator;
 }
 
@@ -317,14 +309,6 @@ export interface ExecuteSandboxCodeResult {
   bridgeToolsUsed: string[];
 }
 
-/**
- * Run one piece of sandbox code end-to-end: start the loopback bridge, build
- * the scrubbed env and wrapped module, execute through the active NON-QUEUED
- * sandbox adapter, and return the raw outputs. This is the exact machinery the
- * foreground `run-code` path always used, factored out so the durable
- * background executor reuses it verbatim (with the enqueueing owner's context)
- * instead of forking it.
- */
 export async function executeSandboxCode(
   options: ExecuteSandboxCodeOptions,
 ): Promise<ExecuteSandboxCodeResult> {
@@ -351,7 +335,6 @@ export async function executeSandboxCode(
 
   const bridgeToken = crypto.randomBytes(32).toString("hex");
 
-  // Start bridge server — resolves once the server is listening.
   const {
     bridgePort,
     getUsedTools,
@@ -367,8 +350,6 @@ export async function executeSandboxCode(
   );
 
   try {
-    // Build scrubbed env — only safe POSIX vars, no secrets. The adapter
-    // points TMPDIR/TEMP/TMP at the sandbox's own temp dir.
     const safeEnv: Record<string, string> = {};
     for (const key of [
       "PATH",
@@ -382,12 +363,6 @@ export async function executeSandboxCode(
       if (process.env[key]) safeEnv[key] = process.env[key]!;
     }
 
-    // Delegate execution to the active sandbox adapter (local child process
-    // by default; remote adapters can be registered via ./sandbox). A queued
-    // (background) adapter is never used here — `resolveExecutionSandboxAdapter`
-    // falls back to local so execution can't recurse into the queue. The
-    // bridge, env scrub, module, and output formatting stay in the parent
-    // regardless of adapter.
     const { stdout, stderr, exitCode, timedOut } =
       await resolveExecutionSandboxAdapter().run({
         moduleSource: buildSandboxModule(
@@ -410,15 +385,9 @@ export async function executeSandboxCode(
       bridgeToolsUsed: getUsedTools(),
     };
   } finally {
-    // The active sandbox adapter owns its own temp-file cleanup; the parent
-    // only tears down the bridge server here.
     cleanupBridge();
   }
 }
-
-// ---------------------------------------------------------------------------
-// Durable background executions
-// ---------------------------------------------------------------------------
 
 function structuredRunCodeError(payload: {
   code: string;
@@ -499,12 +468,6 @@ async function enqueueBackgroundRunCode(input: {
   );
 }
 
-/**
- * Owner-scoped status/result lookup for a background execution, with
- * opportunistic recovery: a stale queued row (lost dispatch) or a running row
- * whose lease expired (dead executor) is re-driven; an expired row that
- * exhausted its attempts is reaped to `failed` so it never hangs forever.
- */
 async function describeSandboxExecutionForOwner(
   executionId: string,
   context?: ActionRunContext,
@@ -538,7 +501,6 @@ async function describeSandboxExecutionForOwner(
     `${pollHintFor(executionId, false)}.`;
 
   if (row.status === "queued") {
-    // Lost-dispatch recovery: re-drive a row that has sat unclaimed.
     if (now - row.updatedAt >= SANDBOX_EXECUTION_REDRIVE_AFTER_MS) {
       try {
         await driveSandboxExecution(row.id);
@@ -593,7 +555,6 @@ async function describeSandboxExecutionForOwner(
         2,
       );
     }
-    // Attempts exhausted — reap to a terminal failure and report that below.
     await failExpiredSandboxExecution(
       row.id,
       `Executor lease expired after ${row.attemptCount} attempt(s); the execution environment was likely terminated before the code finished. Split the computation into smaller chunks or persist intermediate results (e.g. workspaceWrite) and run again.`,
@@ -657,20 +618,9 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
   return full;
 }
 
-/**
- * Standalone, access-scoped poll tool for background executions. Behaviorally
- * identical to calling `run-code` with only `executionId`; hosts that register
- * it as `get-code-execution` give the model a dedicated volatile read tool (and
- * the enqueue guidance automatically points at it when present in the
- * registry). Keep the opt-out here rather than on `run-code`: repeated normal
- * run-code calls may execute writes or outbound requests and must retain the
- * agent loop's default duplicate-call protection.
- */
 export function createGetCodeExecutionEntry(): ActionEntry {
-  return {
+  return frameworkMcpTool({
     readOnly: true,
-    // Polling with an identical executionId is the intended usage — the
-    // status changes over time, so this must not be deduped.
     dedupe: false,
     tool: {
       description:
@@ -700,12 +650,8 @@ export function createGetCodeExecutionEntry(): ActionEntry {
       }
       return describeSandboxExecutionForOwner(executionId, context);
     },
-  };
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Bridge server
-// ---------------------------------------------------------------------------
 
 interface BridgeResult {
   server: http.Server;
@@ -811,9 +757,53 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
 
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
+    let servicePrincipalRefusedError:
+      | typeof import("../org/service-principal-guard.js").ServicePrincipalRefusedError
+      | undefined;
     try {
-      return formatBridgeResult(await entry.run(childArgs, options.context));
+      const context = options.context;
+      if (context && parseServiceIdentityEmail(context.userEmail)) {
+        const guard = await import("../org/service-principal-guard.js");
+        servicePrincipalRefusedError = guard.ServicePrincipalRefusedError;
+        await guard.enforceServicePrincipalActionGrant({
+          email: context.userEmail,
+          orgId: context.orgId,
+          actionName: toolName,
+          caller: context.caller,
+        });
+      }
+      // Name the child, not `run-code`: a service principal's grant is checked
+      // against the action actually being run. Its own frame, so a raw child
+      // records none of the caller's approval.
+      const run = () =>
+        runActionInvocation(
+          entry,
+          childArgs,
+          options.context && { ...options.context, actionName: toolName },
+        );
+      const result =
+        options.context?.credentialScope === "org"
+          ? await runWithRequestContext(
+              {
+                ...getRequestContext(),
+                ...(options.context.userEmail
+                  ? { userEmail: options.context.userEmail }
+                  : {}),
+                orgId: options.context.orgId ?? undefined,
+                credentialScope: "org",
+              },
+              run,
+            )
+          : await run();
+      return formatBridgeResult(result);
     } catch (error) {
+      if (error instanceof BridgeInvocationError) throw error;
+      if (
+        servicePrincipalRefusedError &&
+        error instanceof servicePrincipalRefusedError
+      ) {
+        throw new BridgeInvocationError(error.statusCode, error.message);
+      }
       throw new BridgeInvocationError(
         500,
         error instanceof Error ? error.message : String(error),
@@ -1014,6 +1004,7 @@ async function executeRunSandboxCode(input: {
     },
   } as HostFunctions;
 
+  const { runEvaluator, RunError } = await loadRunRuntime();
   try {
     const result = await runEvaluator.run({
       source: buildSandboxModule(input.code, 0, "", input.mode, "run"),
@@ -1052,7 +1043,7 @@ async function executeRunSandboxCode(input: {
     const timedOut = RunError.isInstance(error) && error.code === "RUN_TIMEOUT";
     return {
       stdout: "",
-      stderr: formatRunError(error),
+      stderr: formatRunError(RunError, error),
       exitCode: 1,
       timedOut,
       bridgeToolsUsed: input.bridge.getUsedTools(),
@@ -1060,8 +1051,8 @@ async function executeRunSandboxCode(input: {
   }
 }
 
-function formatRunError(error: unknown): string {
-  if (RunError.isInstance(error)) return `${error.code}: ${error.message}`;
+function formatRunError(runError: typeof RunError, error: unknown): string {
+  if (runError.isInstance(error)) return `${error.code}: ${error.message}`;
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -1078,9 +1069,6 @@ function isAllowedToolOrchestrationCall(
   entry: ActionEntry,
 ): boolean {
   if (toolName === "workspace-files") {
-    // This is an internal bridge action by design, so agentTool/toolCallable
-    // are intentionally not required here. Its operation enum is the policy
-    // boundary for the read-only workspace surface.
     return isCallableWithoutApproval(entry) && isReadOnlyWorkspaceRequest(args);
   }
   if (toolName === "provider-api-request") {
@@ -1090,9 +1078,6 @@ function isAllowedToolOrchestrationCall(
 }
 
 function isCallableWithoutApproval(entry: ActionEntry): boolean {
-  // The bridge calls ActionEntry.run directly for child reads. A predicate
-  // approval gate must therefore fail closed rather than being silently
-  // bypassed by this bounded path.
   return entry.needsApproval === undefined || entry.needsApproval === false;
 }
 
@@ -1216,16 +1201,6 @@ function boundToolOrchestrationArgs(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Sandbox module template
-// ---------------------------------------------------------------------------
-
-/**
- * Wrap the user's code in an ESM module that:
- *  1. Defines `providerFetch`, `providerRequest`, `providerFetchAll`,
- *     `providerSearchAll`, and `webFetch` helpers via the bridge.
- *  2. Runs the user's code as top-level await in an async IIFE.
- */
 function buildSandboxModule(
   userCode: string,
   bridgePort: number,
@@ -1457,6 +1432,9 @@ async function providerFetch(provider, apiPath, init = {}) {
     if (typeof r.status === "number" && r.status >= 400) {
       const detail = typeof r.text === "string" ? r.text : JSON.stringify(r.json ?? "");
       throw new Error(\`Provider request failed (\${r.status}): \${String(detail).slice(0, 500)}\`);
+    }
+    if (r.truncated === true) {
+      throw new Error("Provider response was cut at the response size limit, so its body is incomplete. Request smaller pages or add a server-side filter; use providerRequest() to inspect the partial body.");
     }
     return r.json !== undefined ? r.json : r.text;
   }

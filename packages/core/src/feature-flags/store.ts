@@ -1,6 +1,16 @@
 import { getDbExec, type DbExec } from "../db/client.js";
-import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
-import { getSetting, mutateSetting } from "../settings/store.js";
+import {
+  getOrgSetting,
+  getOrgSettingEntry,
+  mutateOrgSetting,
+} from "../settings/org-settings.js";
+import {
+  getSetting,
+  getSettingEntry,
+  getSettings,
+  mutateSetting,
+  type SettingEntry,
+} from "../settings/store.js";
 import {
   getFeatureFlagDefinition,
   type FeatureFlagDefinition,
@@ -21,7 +31,6 @@ export interface FeatureFlagRules {
 export interface FeatureFlagScope {
   transaction?: DbExec;
   userEmail?: string;
-  /** Canonical authenticated identity. V1 callers use normalized email. */
   userKey?: string;
   orgId?: string | null;
 }
@@ -169,25 +178,140 @@ export function normalizeFeatureFlagRules(value: unknown): FeatureFlagRules {
   };
 }
 
+async function readStoredFeatureFlagRules(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<Record<string, unknown> | null> {
+  const orgId = scope.orgId?.trim();
+  if (!orgId)
+    return getSetting(settingKey(key), { transaction: scope.transaction });
+  const [orgStored, globalStored] = await Promise.all([
+    getOrgSetting(orgId, settingKey(key), { transaction: scope.transaction }),
+    getSetting(settingKey(key), { transaction: scope.transaction }),
+  ]);
+  return orgStored ?? globalStored;
+}
+
 export async function getFeatureFlagRules(
   key: string,
   scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
 ): Promise<FeatureFlagRules> {
   if (!getFeatureFlagDefinition(key)) return defaultFeatureFlagRules();
-  // An organization-specific rule overrides the global rule. The fallback is
-  // what makes global exact-org targeting meaningful for callers in an org.
-  // Most flags have no org override, so `??` made the common path two serial
-  // round trips; both settings rows are independent, so read them together.
+  return normalizeFeatureFlagRules(
+    await readStoredFeatureFlagRules(key, scope),
+  );
+}
+
+export class FeatureFlagRulesError extends Error {
+  constructor(
+    readonly code: "unregistered" | "malformed",
+    readonly key: string,
+    detail: string,
+  ) {
+    super(`Feature flag ${key}: ${detail}`);
+    this.name = "FeatureFlagRulesError";
+  }
+}
+
+async function readStoredFeatureFlagRulesEntry(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<SettingEntry> {
   const orgId = scope.orgId?.trim();
-  if (!orgId)
-    return normalizeFeatureFlagRules(
-      await getSetting(settingKey(key), { transaction: scope.transaction }),
-    );
-  const [orgStored, globalStored] = await Promise.all([
-    getOrgSetting(orgId, settingKey(key), { transaction: scope.transaction }),
-    getSetting(settingKey(key), { transaction: scope.transaction }),
+  const options = { transaction: scope.transaction };
+  if (!orgId) return getSettingEntry(settingKey(key), options);
+  const [orgEntry, globalEntry] = await Promise.all([
+    getOrgSettingEntry(orgId, settingKey(key), options),
+    getSettingEntry(settingKey(key), options),
   ]);
-  return normalizeFeatureFlagRules(orgStored ?? globalStored);
+  return orgEntry.found ? orgEntry : globalEntry;
+}
+
+function storedRulesProblem(stored: unknown): string | null {
+  if (!stored || typeof stored !== "object" || Array.isArray(stored))
+    return `stored rules are ${stored === null ? "null" : Array.isArray(stored) ? "a list" : typeof stored}, not an object`;
+  const value = stored as Record<string, unknown>;
+  if (value.version !== 1)
+    return `stored version ${JSON.stringify(value.version) ?? "undefined"} is not 1`;
+  if (value.mode !== "off" && value.mode !== "on" && value.mode !== "rules")
+    return `stored mode ${JSON.stringify(value.mode)} is not off, on, or rules`;
+  for (const field of ["emails", "orgIds"] as const) {
+    const list = value[field];
+    if (
+      list !== undefined &&
+      !(Array.isArray(list) && list.every((item) => typeof item === "string"))
+    )
+      return `stored ${field} is not a list of strings`;
+  }
+  const percentage = value.percentage;
+  if (
+    percentage !== undefined &&
+    !(
+      typeof percentage === "number" &&
+      Number.isInteger(percentage) &&
+      percentage >= 0 &&
+      percentage <= 100
+    )
+  )
+    return "stored percentage is not a whole number from 0 to 100";
+  return null;
+}
+
+/**
+ * Reads a flag's rules for callers that route data on it. Unconfigured reads
+ * as off, like `getFeatureFlagRules`, but an unregistered key or malformed
+ * stored rules throw `FeatureFlagRulesError` instead of normalizing to off:
+ * for a routing flag, "off" and "unreadable" choose different write paths.
+ */
+export async function getFeatureFlagRulesStrict(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<FeatureFlagRules> {
+  if (!getFeatureFlagDefinition(key))
+    throw new FeatureFlagRulesError("unregistered", key, "not registered");
+  let stored: SettingEntry;
+  try {
+    stored = await readStoredFeatureFlagRulesEntry(key, scope);
+  } catch (error) {
+    if (error instanceof SyntaxError)
+      throw new FeatureFlagRulesError(
+        "malformed",
+        key,
+        "stored rules are not JSON",
+      );
+    throw error;
+  }
+  if (!stored.found) return defaultFeatureFlagRules();
+  const problem = storedRulesProblem(stored.value);
+  if (problem) throw new FeatureFlagRulesError("malformed", key, problem);
+  return normalizeFeatureFlagRules(stored.value);
+}
+
+export async function getFeatureFlagRulesForKeys(
+  keys: readonly string[],
+  scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
+): Promise<Map<string, FeatureFlagRules>> {
+  const uniqueKeys = [...new Set(keys)].filter((key) =>
+    getFeatureFlagDefinition(key),
+  );
+  const result = new Map<string, FeatureFlagRules>();
+  if (uniqueKeys.length === 0) return result;
+
+  const orgId = scope.orgId?.trim();
+  const orgSettingKey = (key: string) => `o:${orgId}:${settingKey(key)}`;
+  const requestedKeys = orgId
+    ? uniqueKeys.flatMap((key) => [settingKey(key), orgSettingKey(key)])
+    : uniqueKeys.map((key) => settingKey(key));
+  const stored = await getSettings(requestedKeys, {
+    transaction: scope.transaction,
+  });
+
+  for (const key of uniqueKeys) {
+    const globalStored = stored.get(settingKey(key)) ?? null;
+    const orgStored = orgId ? (stored.get(orgSettingKey(key)) ?? null) : null;
+    result.set(key, normalizeFeatureFlagRules(orgStored ?? globalStored));
+  }
+  return result;
 }
 
 /**
@@ -241,10 +365,6 @@ export async function hasActiveFeatureFlagRollout(
   return orgIds.length > 0;
 }
 
-/**
- * Atomically derive one flag's scoped rules. An org's first override starts
- * from the global fallback, then becomes independently CAS-protected.
- */
 export async function mutateFeatureFlagRules(
   key: string,
   scope: Pick<FeatureFlagScope, "orgId">,
@@ -273,7 +393,6 @@ export async function mutateFeatureFlagRules(
 }
 
 function rolloutBucket(input: string): number {
-  // FNV-1a is deliberately tiny, deterministic, and independent of runtime.
   let hash = 0x811c9dc5;
   for (let index = 0; index < input.length; index += 1) {
     hash ^= input.charCodeAt(index);
@@ -314,7 +433,6 @@ export async function evaluateFeatureFlag(
   }
 }
 
-/** Evaluate a security-sensitive flag without converting store failures to off. */
 export async function evaluateFeatureFlagStrict(
   key: string,
   scope: FeatureFlagScope = {},
@@ -327,7 +445,6 @@ export async function evaluateFeatureFlagStrict(
   );
 }
 
-/** Ergonomic app-action guard. Accepts either a registered definition or its key. */
 export async function isFeatureFlagEnabled(
   flag: string | FeatureFlagDefinition,
   scope: FeatureFlagScope = {},

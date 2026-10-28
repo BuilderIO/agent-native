@@ -86,6 +86,10 @@ description: "프레임워크에 내장된 익숙하고 일관된 공유 기능�
 
 `admin`는 NOT의 소유권을 변경합니다. 공유 부여와는 별도로 리소스당 소유자는 여전히 정확히 한 명입니다.
 
+### 그룹 공유 {#group-grants}
+
+일부 리소스는 그룹 공유를 지원합니다. 그룹은 리소스와 같은 조직에 속해야 하며, 현재 각 구성원에게 해당 리소스에서 선택한 공유 역할이 적용됩니다. 그룹의 범위와 한계는 [조직, 팀 및 권한 → 사용자 그룹](/docs/organizations-teams-permissions#user-groups)에서 확인하세요.
+
 ## 다루는 내용 {#covered}
 
 사용자가 작성한 작업을 저장하는 모든 템플릿은 이 모델을 사용합니다. 구체적으로:
@@ -120,10 +124,12 @@ description: "프레임워크에 내장된 익숙하고 일관된 공유 기능�
 - 역할 선택기와 제거 컨트롤이 포함된 현재 부여 목록입니다.
 - 현재 표시 여부를 고려하는 링크 복사 버튼입니다.
 
+리소스를 `Private`에서 `Organization`으로 바꾸면 먼저 확인을 요청합니다. 확인하기 전에는 아무것도 바뀌지 않습니다. 취소 또는 Escape를 누르면 현재 액세스가 유지됩니다. 저장에 실패하면 대화 상자에 오류가 표시되고 다시 시도할 수 있습니다. 그 외의 가시성 변경은 바로 저장됩니다. 확인은 공유 UI에만 있습니다. `set-resource-visibility`는 바뀌지 않으므로 에이전트와 다른 호출자는 계속 가시성을 직접 변경할 수 있고, 무엇이 허용되는지는 여전히 리소스의 공유 정책이 결정합니다.
+
 공유 버튼은 단일 가져오기입니다:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -132,6 +138,42 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 ```
 
 목록의 경우 각 행 옆에 `<VisibilityBadge visibility={row.visibility} />`를 배치하면 사용자가 무엇이 비공개인지 공유인지 한눈에 확인할 수 있습니다.
+
+## 공유된 채팅 {#shared-chats}
+
+에이전트 채팅 스레드도 같은 모델을 사용합니다. 새 채팅이나 분기한 채팅은 소유자에게만 비공개이며, 채팅 공유는 위의 규칙을 따릅니다.
+
+기록 목록의 각 채팅에는 두 개의 필드가 있어서 행에 누구의 채팅인지와 내가 볼 수 있는 이유를 표시할 수 있습니다.
+
+| 필드          | 값                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | 채팅의 소유자입니다.                                                                                                             |
+| `accessBasis` | `owner`, `direct`(이름으로 직접 부여된 권한) 또는 `organization`입니다. 둘 다 해당하면 `direct`가 `organization`보다 우선합니다. |
+
+기록 목록과 검색은 `ownership` 필터를 받습니다.
+
+- `all`(기본값)은 액세스할 수 있는 모든 채팅을 나열합니다.
+- `mine`은 조직과 공유된 경우를 포함해 내가 소유한 채팅을 나열합니다.
+- `shared`는 액세스할 수 있고 다른 사람이 소유한 채팅을 나열합니다.
+
+서버는 페이지 매김 전에 `ownership`을 적용하므로 `limit`, `offset`, `hasMore`는 필터링된 목록을 설명합니다. 검색도 같은 필터를 받습니다. 알 수 없는 값은 `all`로 대체되지 않고 400으로 거부됩니다. 액세스 규칙은 바뀌지 않으며 목록을 불러올 때 대화 내용은 로드되지 않습니다.
+
+마이그레이션: 기록 목록과 검색을 직접 호출할 때는 `limit`에 양의 정수, `offset`에 음이 아닌 정수를 보내거나 기본값을 사용하도록 생략해야 합니다. 잘못된 형식의 값은 이제 자동 변환되지 않고 HTTP 400을 반환합니다. 200을 초과하는 유효한 제한값은 200으로 제한됩니다.
+
+클라이언트 코드에서 `@agent-native/core/client`의 `useChatThreadList()`는 한 번에 하나의 목록을 페이지 단위로 가져옵니다.
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+`refreshOnThreadUpdates`의 기본값은 `true`입니다. `false`로 설정하면 `notifyChatThreadsUpdated()`로 인한 새로 고침을 건너뜁니다. 최초 로드, 수동 `refresh()`, 페이지 탐색, Activity 재개 후 다시 로드는 계속 작동합니다. 이 옵션을 변경해도 로드된 행은 유지되며 변경 자체로 요청이 발생하지 않습니다.
+
+요청이 실패하면 `error`가 설정되고 이미 로드된 행은 유지됩니다. 빈 목록처럼 보이지 않습니다. `<ShareButton>`과 `<ShareDialog>`는 저장 후 마운트된 채팅 목록을 새로 고칩니다. 다른 방법으로 채팅의 공유를 변경했다면 `notifyChatThreadsUpdated()`를 호출하여 마운트된 목록이 다시 불러오게 하세요.
+
+고정 상태는 개인별입니다. 공유 채팅의 `pinnedAt`도 호출자의 고정 상태이며 목록과 검색은 이 값으로 정렬됩니다. `useChatThreads().pinThread(id, pinned)`는 그대로 유지됩니다. 두 훅은 공유 채팅용 `hideThread(id, hidden)`를 제공합니다. 숨긴 채팅은 `includeHidden: true`일 때만 표시되며 목록과 개별 조회에 호출자의 `hiddenAt`이 포함됩니다. ID나 링크로 여전히 열 수 있습니다. 소유자는 숨기기 대신 보관해야 하며 이름 변경과 보관은 소유자만 가능합니다. 숨기기 거부 시 `ChatThreadMutationError`(`status`: 소유자 403, 접근 권한 없음 404)가 발생하고 성공하면 `true`를 반환합니다. HTTP는 `POST /_agent-native/agent-chat/threads/:id/hide`에 `{ hidden: boolean }`을 전달하며 목록과 검색은 `includeHidden=1`을 사용합니다. `chat-history`는 `pin`, `unpin`, `hide`, `unhide` 및 `includeHidden: true` 검색을 지원합니다. 접근 취소 후 기존 상태는 표시되지 않으며 채팅 삭제 시 상태도 삭제됩니다.
 
 ## 동일 모델, 에이전트 및 UI {#agent-and-ui}
 
@@ -321,3 +363,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**인증**](/docs/authentication) — 세션, 조직, 요청 컨텍스트로 ID가 전달되는 방식
 - [**Extensions**](/docs/extensions#sharing) — 샌드박스 미니 앱 표면에서의 공유
 - [**템플릿 만들기**](/docs/creating-templates) — 새 템플릿 스키마에 `ownableColumns` 연결하기
+
+## 공유 채팅 기록
+
+`@agent-native/toolkit/app/chat/ownership-history`는 내 채팅과 공유된 채팅을 별도 섹션으로 표시하는 사이드바용 `useOwnershipChatHistory()`와 `OwnershipChatHistoryRail`을 제공합니다. 공유 행에는 소유자와 접근 근거가 표시됩니다. 각 섹션은 독립적으로 페이지를 불러오며 새로고침이 실패해도 로드된 행과 로컬 변경을 유지합니다.
+
+활성 상태인 빈 초안은 첫 저장을 기다리는 동안에도 선택하고 실행할 수 있습니다. 저장이 확인될 때까지 고정, 이름 변경, 보관 작업을 숨기고, 어댑터는 해당 콜백을 강제로 호출해도 거부합니다. `ownDraftRows`는 소유한 초안의 저장 출처 정보를 제공하며, 서버 목록에서 소유가 확인된 행은 일반 작업을 계속 사용할 수 있습니다. 사용자 지정 `OwnDraftRow` 값에서는 서버에 저장되었고 현재 사용자가 소유한다는 점이 확인된 행에만 선택 필드 `persisted?: boolean`를 `true`로 설정합니다. 메시지 수나 활성 ID로 저장 여부를 추론하지 마세요. 역할, 개인정보 보호, 활성 초안이 비어 있다는 점은 각각 별개의 정보입니다.

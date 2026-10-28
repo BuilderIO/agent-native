@@ -1,4 +1,5 @@
 import {
+  cdnSafeOriginStatus,
   FeatureNotConfiguredError,
   fetchBuilderDesignSystemDecodeJobStatus,
 } from "@agent-native/core/server";
@@ -9,11 +10,6 @@ import {
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
-/**
- * Reads a Builder design-system decode job's status. The UI polls this after
- * `/api/index-design-system-sources` returns a jobId, until the `.fig` decode
- * job leaves `pending` and exposes a `branchUrl` (or reports an `error`).
- */
 export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -47,7 +43,7 @@ export const designSystemDecodeJobStatus = defineEventHandler(async (event) => {
           err.builderConnectUrl ?? "/_agent-native/builder/connect",
       };
     }
-    setResponseStatus(event, 502);
+    setResponseStatus(event, cdnSafeOriginStatus(502));
     return {
       error:
         err instanceof Error

@@ -1,14 +1,87 @@
 ---
 title: "앱 배포"
-description: "Agent-Native 앱을 Nitro 대상으로 빌드하고 배포합니다."
+description: "독립 실행형 Agent-Native 앱을 배포할 때 공통으로 따르는 단계와 호스트별 가이드를 찾는 방법을 설명합니다."
 ---
 
 # 앱 배포
 
-단계와 공급자 명령은 [영문 앱 배포 전체 가이드](/docs/deploy-an-app)를 참고하세요.
+독립 실행형 Agent-Native 앱을 배포하면 실제 데이터베이스와 함께 인터넷에 공개되어 다른 사람이 가입하고 사용할 수 있습니다. 모든 호스팅 가이드는 같은 다섯 단계를 따릅니다. 이 페이지에서는 각 단계가 하는 일을 설명하고 호스트를 고르는 데 도움을 드립니다. 정확한 명령은 각 호스트의 가이드에서 안내합니다.
 
-[시작하기](/docs/getting-started)에서 시작하세요. 빌드 또는 배포 전에 로컬 `.env`뿐 아니라 호스팅 제공업체의 환경 설정에 `DATABASE_URL`을 저장하세요. `openssl rand -hex 32`로 안정적인 `BETTER_AUTH_SECRET`을 생성해 같은 곳에 저장합니다. **Continue as local dev**는 로컬 전용이며, 배포된 앱은 가입과 로그인을 사용합니다. [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb), [Render](/docs/render) 중에서 선택할 수 있습니다.
+<Callout tone="info">
 
-`pnpm`이 `PATH`에 없다면 생성된 앱에서 `corepack enable`을 실행하세요.
+Node.js `22.22+`가 필요합니다.
 
-여러 앱을 하나의 오리진에서 실행하려면 [워크스페이스 배포](/docs/workspace-deployment)를 사용하세요.
+</Callout>
+
+## 호스트 선택하기 {#choose-a-host}
+
+| 호스트                                                    | 앱이 실행되는 곳                                |
+| --------------------------------------------------------- | ----------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | 가상 머신처럼 직접 관리하는 서버                |
+| [Docker](/docs/docker)                                    | 직접 관리하는 서버나 컨테이너 호스트의 컨테이너 |
+| [Vercel](/docs/vercel)                                    | 관리할 서버가 없는 Vercel 호스팅                |
+| [Netlify](/docs/netlify)                                  | 관리할 서버가 없는 Netlify 호스팅               |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | 관리할 서버가 없는 Cloudflare 네트워크          |
+
+앱이 실행되는 머신을 완전히 제어하고 싶다면 Node.js나 Docker를 선택하세요. 호스트가 앱을 대신 실행하고 HTTPS가 적용된 공개 주소를 제공하기를 원한다면 Vercel, Netlify, Cloudflare Workers를 선택하세요.
+
+## 모든 배포가 따르는 단계 {#the-steps-every-deployment-follows}
+
+### 1단계: 앱 만들기 {#step-1-create-the-app}
+
+독립 실행형 앱을 만들고 의존성을 설치합니다. 가이드에서는 Chat 템플릿을 예시로 사용하지만, 어떤 템플릿으로든 시작하거나 이미 가진 앱을 사용할 수 있습니다. 앱을 로컬에서 만들고 실행하는 방법은 [시작하기](/docs/getting-started)에서 설명합니다.
+
+### 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
+
+앱은 프로덕션 설정을 환경 변수에서 읽습니다.
+
+| 변수                 | 필수   | 용도                                          |
+| -------------------- | ------ | --------------------------------------------- |
+| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
+| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
+| `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
+
+이 변수들은 앱의 로컬 `.env` 파일뿐 아니라 호스트의 환경 설정에도 저장하세요. 각 가이드에서 해당 호스트에서 저장하는 방법을 보여 줍니다.
+
+`DATABASE_URL`은 Neon, Supabase, Amazon RDS 같은 영구적인 PostgreSQL 데이터베이스를 가리켜야 합니다. [데이터베이스 프로바이더 가이드](/docs/neon)에서 연결 문자열을 찾는 위치를 확인할 수 있습니다. `BETTER_AUTH_SECRET`은 배포할 때마다 같은 값을 유지해야 합니다. 이 값을 바꾸면 모든 사용자가 로그아웃되기 때문입니다. 사용자 지정 도메인이나 리버스 프록시를 사용한다면 `BETTER_AUTH_URL`을 설정하세요.
+
+그 밖의 모든 프로덕션 설정은 [배포 환경 변수 레퍼런스](/docs/deployment-environment-variables)에 나와 있습니다.
+
+### 3단계: 마이그레이션 {#step-3-migrate}
+
+마이그레이션은 앱에 필요한 테이블을 데이터베이스에 만들고 업데이트합니다. 첫 방문 전에 프로덕션 데이터베이스를 대상으로 이 명령을 실행하고, 업그레이드할 때마다 다시 실행하세요.
+
+```bash
+pnpm migrate:production
+```
+
+이 단계를 건너뛰지 마세요. 프로덕션 환경, 특히 서버리스 호스트에서는 앱이 누락된 테이블을 항상 스스로 만들지는 않습니다. 테이블이 누락되어 있으면 첫 번째 실제 쿼리가 실패합니다.
+
+### 4단계: 빌드 {#step-4-build}
+
+호스트에 맞게 앱을 빌드합니다. 각 가이드는 `NITRO_PRESET`을 설정해 `node`, `vercel`, `netlify`, `cloudflare_module`처럼 해당 호스트가 기대하는 형식으로 빌드가 만들어지도록 합니다.
+
+### 5단계: 배포 {#step-5-deploy}
+
+빌드를 시작하거나 업로드합니다. Node.js와 Docker에서는 서버나 컨테이너를 직접 시작합니다. Vercel, Netlify, Cloudflare Workers에서는 명령줄 도구가 빌드를 업로드하고 앱의 공개 주소를 출력합니다.
+
+<Callout tone="warning">
+
+로컬 개발용 데이터베이스를 프로덕션에서 사용하지 마세요. 이 데이터베이스는 앱을 실행하는 머신에 데이터를 저장하므로 대부분의 호스트에서 데이터가 사라집니다. **Continue as local dev** 바로 가기도 로컬 개발 중에만 동작합니다. 배포된 앱은 프로덕션 데이터베이스와 인증 시크릿을 기반으로 하는 가입 및 로그인 흐름을 사용합니다.
+
+</Callout>
+
+## 배포 확인하기 {#check-the-deployment}
+
+첫 배포 후 앱의 공개 주소를 열고 다음을 확인하세요.
+
+- 계정을 만들고 로그인할 수 있습니다.
+- 만든 데이터가 페이지를 새로 고친 뒤에도 남아 있습니다.
+- 앱에서 사용하는 OAuth 로그인이나 webhook이 공개 주소를 가리킵니다.
+
+## 다음 단계 {#whats-next}
+
+- [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록
+- [**데이터베이스**](/docs/server-database#production) - 프로덕션 데이터베이스 연결
+- [**보안**](/docs/security) - 프로덕션 보안 체크리스트
+- [**배포**](/docs/deployment) - 호스팅 대상과 사전 요구 사항을 비교합니다

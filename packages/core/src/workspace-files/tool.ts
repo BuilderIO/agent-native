@@ -1,3 +1,4 @@
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 function stringifyValue(value: unknown): string {
   if (
     typeof value === "string" ||
@@ -7,18 +8,6 @@ function stringifyValue(value: unknown): string {
     return String(value);
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
-
-/**
- * `workspace-files` bridge tool.
- *
- * A single tool with an `action` discriminator covering write, append, read,
- * list, delete, and grep. It is kept for `run-code` workspaceRead/workspaceWrite
- * compatibility and delegates storage to the Resources table.
- *
- * Scope is automatically resolved from the active request context:
- *  - org scope when a request orgId is present (shared across users in the org)
- *  - user scope otherwise (personal to the requesting user's email)
- */
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -38,7 +27,6 @@ import {
 const MAX_READ_CHARS = 100_000;
 const DEFAULT_READ_CHARS = 40_000;
 
-/** Resolve scope from the current request context (org-preferred). */
 function resolveScope(): WorkspaceFilesScope | null {
   const orgId = getRequestOrgId();
   if (orgId) return { scope: "org", scopeId: orgId };
@@ -48,7 +36,7 @@ function resolveScope(): WorkspaceFilesScope | null {
 }
 
 export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "workspace-files": {
       agentTool: false,
       readOnly: false,
@@ -194,7 +182,6 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
                   ? Math.min(Math.max(1, Math.floor(rawMax)), MAX_READ_CHARS)
                   : DEFAULT_READ_CHARS;
 
-              // The sentinel character distinguishes an exact page from a truncated one.
               const file = await readWorkspaceFile(scope, path, {
                 offset,
                 maxChars: maxChars + 1,
@@ -292,5 +279,5 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
         }
       },
     },
-  };
+  });
 }

@@ -1,0 +1,591 @@
+// @vitest-environment happy-dom
+
+import type { ResourceSuggestion } from "@agent-native/core/review";
+import { docToNfm, nfmToDoc } from "@shared/nfm";
+import { Editor } from "@tiptap/core";
+import { describe, expect, it } from "vitest";
+
+import {
+  documentEditorSuggestionPresentations,
+  createDocumentSuggestionDraftSession,
+  observedSuggestionDecisionTransition,
+  sessionEditsDrawnAsSaved,
+  suggestionDecisionPreviewContent,
+  suggestionDraftHasChanges,
+  visibleSavedSuggestionsDuringDraftMaterialization,
+} from "./DocumentEditor";
+import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
+import {
+  createSuggestionDraftSession,
+  draftSuggestionsForSession,
+  suggestionOperationKey,
+  suggestionSessionVisuals,
+  unpersistedDraftSuggestions,
+  previewSuggestionDraft,
+  type DraftSuggestion,
+} from "./suggestions/draft-session";
+import { markdownSuggestionOperation } from "./suggestions/markdown-operation";
+import { createObservedSuggestionPresentationTransition } from "./suggestions/presentation-rebase";
+import {
+  createVisualEditorExtensions,
+  suggestionHighlightSpec,
+} from "./VisualEditor";
+
+function materializedSession(before: string, after: string) {
+  const session = createSuggestionDraftSession({
+    id: "session",
+    baseContent: before,
+    baseRevision: "revision",
+    startedAt: "2026-10-01T00:00:00.000Z",
+  });
+  const drafts = draftSuggestionsForSession(session, after, null);
+  const operation = drafts[0]!.operations[0]!;
+  const saved = {
+    id: "saved",
+    threadId: "saved-thread",
+    status: "pending",
+    operations: [operation],
+  } as ResourceSuggestion;
+  const entries = new Map([
+    [
+      suggestionOperationKey(operation),
+      { idempotencyKey: "materialize", operation, suggestion: saved },
+    ],
+  ]);
+  return {
+    saved,
+    drafts: suggestionSessionVisuals(drafts, entries),
+    sidebarSaved: visibleSavedSuggestionsDuringDraftMaterialization(
+      [saved],
+      unpersistedDraftSuggestions(drafts, entries),
+      false,
+      new Set([saved.id]),
+    ),
+  };
+}
+
+describe("document suggestion presentation ownership", () => {
+  it.each([
+    "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.",
+    "First accepted.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.",
+    "First accepted.\n\nSecond accepted.\n\nThird.\n\nFourth.\n\nFifth.",
+  ])(
+    "starts an unchanged ordinary draft without separator operations: %s",
+    (baseContent) => {
+      const initial = createDocumentSuggestionDraftSession({
+        id: "session",
+        baseContent,
+        baseRevision: "revision",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      });
+      const native = docToNfm(nfmToDoc(baseContent));
+      expect(initial.content).toBe(native);
+      expect(initial.session.initialContent).toBe(native);
+      expect(initial.session.baseContent).toBe(baseContent);
+      expect(initial.session.baseRevision).toBe("revision");
+      expect(suggestionDraftHasChanges(initial.session, initial.content)).toBe(
+        false,
+      );
+      expect(
+        suggestionDraftHasChanges(initial.session, `${initial.content} Typed.`),
+      ).toBe(true);
+      expect(suggestionDraftHasChanges(initial.session, initial.content)).toBe(
+        false,
+      );
+      expect(
+        previewSuggestionDraft(initial.session, initial.content, null),
+      ).toEqual({ status: "ready", suggestions: [] });
+      expect(previewSuggestionDraft(initial.session, native, null)).toEqual({
+        status: "ready",
+        suggestions: [],
+      });
+    },
+  );
+
+  it("keeps an amendment's exact initial proposal as its dirty baseline", () => {
+    const amendment = {
+      baseContent: "Before.",
+      initialContent: "Before proposed.",
+    };
+    expect(suggestionDraftHasChanges(amendment, amendment.initialContent)).toBe(
+      false,
+    );
+    expect(suggestionDraftHasChanges(amendment, "Before amended.")).toBe(true);
+    expect(suggestionDraftHasChanges(amendment, amendment.initialContent)).toBe(
+      false,
+    );
+    expect(
+      suggestionDraftHasChanges(
+        { baseContent: "First.\n\nSecond." },
+        "First.\nSecond.",
+      ),
+    ).toBe(false);
+  });
+
+  it("preserves a supported typed insertion and marks while rejecting unsupported formatting", () => {
+    const baseContent = "**First.**\nSecond.\nThird.\nFourth.\nFifth.";
+    const initial = createDocumentSuggestionDraftSession({
+      id: "marked",
+      baseContent,
+      baseRevision: "revision",
+      startedAt: "2026-10-01T00:00:00.000Z",
+    });
+    const typed = `Note. ${initial.content}`;
+    const preview = previewSuggestionDraft(initial.session, typed, null);
+    expect(preview.status).toBe("ready");
+    if (preview.status !== "ready")
+      throw new Error("Expected supported insertion");
+    expect(preview.suggestions).toHaveLength(1);
+    expect(preview.suggestions[0]!.operations[0]).toMatchObject({
+      kind: "insert_text",
+      before: { markdown: baseContent, changedText: "" },
+      after: { markdown: typed, changedText: "Note. " },
+      anchor: { from: 0, to: 0 },
+    });
+    expect(
+      nfmToDoc(typed).content?.[0]?.content?.some((node) =>
+        node.marks?.some((mark) => mark.type === "bold"),
+      ),
+    ).toBe(true);
+    expect(initial.session.baseContent).toBe(baseContent);
+    expect(() =>
+      createDocumentSuggestionDraftSession({
+        id: "unsupported",
+        baseContent: "<span underline=true color=red>Echo</span>",
+        baseRevision: "revision",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      }),
+    ).toThrow("cannot be mapped faithfully");
+    expect(
+      previewSuggestionDraft(
+        initial.session,
+        "<span underline=true color=red>Unsupported</span>",
+        null,
+      ).status,
+    ).toBe("unsupported-formatting");
+  });
+
+  it.each(["single", "proposal"] as const)(
+    "keeps unrelated saved widgets during an optimistic %s acceptance in Suggesting mode",
+    (owner) => {
+      const source = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
+      const records = ["First", "Second", "Third", "Fourth", "Fifth"].map(
+        (word) =>
+          ({
+            id: word,
+            status: "pending",
+            operations: [
+              markdownSuggestionOperation(
+                source,
+                source.replace(`${word}.`, `${word} accepted.`),
+              )!,
+            ],
+          }) as ResourceSuggestion,
+      );
+      const first = records[0]!;
+      const current = first.operations[0]!.after as { markdown: string };
+      const observed = observedSuggestionDecisionTransition(
+        owner === "single"
+          ? {
+              decision: "accepted",
+              optimistic: true,
+              continueSuggesting: true,
+              suggestion: first,
+            }
+          : null,
+        owner === "proposal"
+          ? { accepted: true, continueSuggesting: true, members: [first] }
+          : null,
+      );
+      const editor = new Editor({
+        extensions: createVisualEditorExtensions(),
+        content: nfmToDoc(current.markdown),
+      });
+      try {
+        const canonical = editor.getJSON();
+        const presentations = documentEditorSuggestionPresentations({
+          savedSuggestions: [
+            { ...first, status: "accepted" },
+            ...records.slice(1),
+          ],
+          drafts: [],
+          currentMarkdown: docToNfm(canonical as any),
+          editingSuggestionId: null,
+          pendingSuggestionId: first.id,
+          transitions: new Map(),
+          observedTransition: observed,
+        });
+        const specs = presentations.map((presentation) =>
+          suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        expect(specs.every((spec) => spec !== null)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.map((spec) => spec!),
+        });
+        expect(
+          [...editor.view.dom.querySelectorAll("[data-suggestion-id]")].map(
+            (node) => node.getAttribute("data-suggestion-id"),
+          ),
+        ).toEqual(["Second", "Third", "Fourth", "Fifth"]);
+        expect(editor.view.dom.textContent).toBe(
+          "First accepted.Second accepted.Third accepted.Fourth accepted.Fifth accepted.",
+        );
+        expect(editor.getJSON()).toEqual(canonical);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    {
+      kind: "insert_text",
+      before: "BeforexAdded",
+      after: "BeforexAddedq",
+      rendered: "BeforexAddedq",
+    },
+    {
+      kind: "delete_text",
+      before: "BeforexAddedq",
+      after: "BeforexAdded",
+      rendered: "BeforexAddedq",
+    },
+  ])(
+    "restores one materialized $kind draft and its saved card after a rejected decision fails",
+    ({ kind, before, after, rendered }) => {
+      const { saved, drafts, sidebarSaved } = materializedSession(
+        before,
+        after,
+      );
+      const assembling = {
+        savedSuggestions: sidebarSaved,
+        drafts,
+        currentMarkdown: after,
+        editingSuggestionId: null,
+        pendingSuggestionId: null,
+        transitions: new Map(),
+      };
+      expect(
+        documentEditorSuggestionPresentations({
+          ...assembling,
+          savedSuggestions: [{ ...saved, status: "rejected" }],
+          currentMarkdown: before,
+          pendingSuggestionId: saved.id,
+        }),
+      ).toEqual([]);
+
+      const editor = new Editor({
+        extensions: createVisualEditorExtensions(),
+        content: nfmToDoc(after),
+      });
+      try {
+        const beforeProjection = editor.getJSON();
+        const presentations = documentEditorSuggestionPresentations(assembling);
+        const specs = presentations.map((presentation) =>
+          suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        expect(specs.every((spec) => spec !== null)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.map((spec) => spec!),
+        });
+
+        expect(editor.view.dom.textContent).toBe(rendered);
+        expect(presentations).toHaveLength(1);
+        expect(presentations[0]).toMatchObject({
+          id: saved.id,
+          kind,
+          presentation: "draft",
+        });
+        expect(editor.getJSON()).toEqual(beforeProjection);
+        expect(docToNfm(editor.getJSON() as any)).toBe(after);
+        expect(sidebarSaved).toEqual([saved]);
+        expect(specs.map((spec) => spec!.suggestionId)).toEqual([saved.id]);
+        expect(
+          editor.view.dom.querySelectorAll('[data-suggestion-id="saved"]'),
+        ).toHaveLength(1);
+        if (kind === "insert_text") {
+          expect(
+            editor.view.dom.querySelector(".suggestion-insert"),
+          ).toBeNull();
+        } else {
+          expect(
+            editor.view.dom.querySelectorAll(".suggestion-delete-widget"),
+          ).toHaveLength(1);
+        }
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    "First paragraph here.\nSecond paragraph here.",
+    "First paragraph here.\n\nSecond paragraph here.",
+    "| A | B |\n|---|---|\n| one | two |\n\nFirst paragraph here.\n\nSecond paragraph here.",
+  ])(
+    "keeps a saved insertion after text typed at its spot in a new draft: %j",
+    (baseContent) => {
+      const at = baseContent.indexOf("here.") + "here.".length;
+      const saved = {
+        id: "saved",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(
+            baseContent,
+            `${baseContent.slice(0, at)} Saved${baseContent.slice(at)}`,
+          )!,
+        ],
+      } as ResourceSuggestion;
+      const { session, content } = createDocumentSuggestionDraftSession({
+        id: "session",
+        baseContent,
+        baseRevision: "revision",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      });
+      const assemble = (typedAt: number) => {
+        const draft = `${content.slice(0, typedAt)} Typed${content.slice(typedAt)}`;
+        return {
+          draft,
+          presentations: documentEditorSuggestionPresentations({
+            savedSuggestions: [saved],
+            drafts: draftSuggestionsForSession(session, draft, null),
+            currentMarkdown: draft,
+            editingSuggestionId: null,
+            pendingSuggestionId: null,
+            transitions: new Map(),
+          }),
+        };
+      };
+      const spot = content.indexOf("here.") + "here.".length;
+
+      const elsewhere = assemble(content.indexOf("Second"));
+      expect(
+        elsewhere.presentations.find(({ id }) => id === saved.id),
+      ).toMatchObject({
+        canonicalOperation: saved.operations[0],
+        anchor: { from: spot },
+      });
+
+      const { draft, presentations } = assemble(spot);
+      expect(presentations.find(({ id }) => id === saved.id)).toMatchObject({
+        afterText: " Saved",
+        anchor: { from: spot + " Typed".length },
+        presentation: "canonical",
+      });
+      const editor = new Editor({
+        extensions: createVisualEditorExtensions(),
+        content: nfmToDoc(draft),
+      });
+      try {
+        const specs = presentations.map((presentation) =>
+          suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        expect(specs.every((spec) => spec !== null)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.map((spec) => spec!),
+        });
+        expect(editor.view.dom.textContent).toContain(
+          "First paragraph here. Typed SavedSecond paragraph here.",
+        );
+        expect(docToNfm(editor.getJSON() as any)).toBe(draft);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps every precise span of a broad materialized draft and an unrelated gap suggestion", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const operation = markdownSuggestionOperation(before, after)!;
+    const saved = {
+      id: "broad",
+      status: "pending",
+      operations: [operation],
+    } as ResourceSuggestion;
+    const unrelated = {
+      id: "gap",
+      status: "pending",
+      operations: [
+        markdownSuggestionOperation(
+          before,
+          before.replace("results", "findings"),
+        )!,
+      ],
+    } as ResourceSuggestion;
+    const draft: DraftSuggestion = {
+      durability: "draft",
+      id: saved.id,
+      threadId: "broad-thread",
+      authorEmail: null,
+      createdAt: "2026-10-01T00:00:00.000Z",
+      operations: [operation],
+      anchor: {
+        from: operation.anchor.from,
+        to: operation.anchor.from + operation.after.changedText.length,
+        prefix: operation.anchor.prefix,
+        suffix: operation.anchor.suffix,
+      },
+    };
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(after),
+    });
+    try {
+      const presentations = documentEditorSuggestionPresentations({
+        savedSuggestions: [saved, unrelated],
+        drafts: [draft],
+        currentMarkdown: after,
+        editingSuggestionId: null,
+        pendingSuggestionId: null,
+        transitions: new Map(),
+        observedTransition:
+          createObservedSuggestionPresentationTransition([saved]) ?? undefined,
+      });
+      const broad = presentations.filter(
+        (presentation) => presentation.id === saved.id,
+      );
+      expect(broad).toHaveLength(2);
+      expect(broad.map((presentation) => presentation.presentation)).toEqual([
+        "draft",
+        "draft",
+      ]);
+      expect(broad.map((presentation) => presentation.beforeText)).toEqual([
+        ",",
+        "good",
+      ]);
+      const specs = presentations.map((presentation) =>
+        suggestionHighlightSpec(editor.state.doc, presentation),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.map((spec) => spec!),
+      });
+      expect(
+        editor.view.dom.querySelector(
+          '[data-suggestion-id="gap"][data-suggestion-widget="true"]',
+        )?.textContent,
+      ).toBe("finding");
+      expect(
+        [
+          ...editor.view.dom.querySelectorAll('[data-suggestion-id="broad"]'),
+        ].every((node) => !node.textContent?.includes("results")),
+      ).toBe(true);
+      expect(docToNfm(editor.getJSON() as any)).toBe(after);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["accepted", "rejected"] as const)(
+    "keeps the session's other edit drawn while a just-typed suggestion is %s",
+    (decision) => {
+      const base = "First.\n\nSecond.";
+      const { session } = createDocumentSuggestionDraftSession({
+        id: "session",
+        baseContent: base,
+        baseRevision: "revision",
+        startedAt: "2026-10-01T00:00:00.000Z",
+      });
+      const drafts = draftSuggestionsForSession(
+        session,
+        docToNfm(nfmToDoc("First edited.\n\nSecond edited.")),
+        null,
+      );
+      expect(drafts).toHaveLength(2);
+      const [earlier, typed] = drafts as [DraftSuggestion, DraftSuggestion];
+      const earlierSaved = {
+        id: "earlier",
+        threadId: "earlier-thread",
+        status: "pending",
+        operations: earlier.operations,
+      } as ResourceSuggestion;
+      const typedSaved = {
+        id: "typed",
+        threadId: "typed-thread",
+        status: decision,
+        operations: typed.operations,
+      } as ResourceSuggestion;
+      const entries = (...suggestions: ResourceSuggestion[]) =>
+        new Map(
+          suggestions.flatMap((suggestion) =>
+            suggestion.operations
+              .slice(0, 1)
+              .map(
+                (operation) =>
+                  [
+                    suggestionOperationKey(operation),
+                    { idempotencyKey: suggestion.id, operation, suggestion },
+                  ] as const,
+              ),
+          ),
+        );
+      const page = suggestionDecisionPreviewContent(typed, decision, base);
+      const observedTransition = observedSuggestionDecisionTransition(
+        {
+          decision,
+          optimistic: true,
+          continueSuggesting: true,
+          suggestion: typed,
+        },
+        null,
+      );
+      const editor = new Editor({
+        extensions: createVisualEditorExtensions(),
+        content: nfmToDoc(page),
+      });
+      try {
+        const canonical = editor.getJSON();
+        // The decision shows before the typed suggestion saves, and stays
+        // once the save gives it a saved copy.
+        for (const stage of [
+          {
+            saved: [earlierSaved],
+            entries: entries(earlierSaved),
+            deciding: new Set([typed.id]),
+          },
+          {
+            saved: [earlierSaved, typedSaved],
+            entries: entries(earlierSaved, typedSaved),
+            deciding: new Set([typed.id, typedSaved.id]),
+          },
+        ]) {
+          const visuals = suggestionSessionVisuals(drafts, stage.entries);
+          const presentations = documentEditorSuggestionPresentations({
+            savedSuggestions: sessionEditsDrawnAsSaved(
+              stage.saved,
+              visuals,
+              stage.deciding,
+            ),
+            drafts: [],
+            currentMarkdown: docToNfm(nfmToDoc(page)),
+            editingSuggestionId: null,
+            pendingSuggestionId: typed.id,
+            transitions: new Map(),
+            ...(observedTransition ? { observedTransition } : {}),
+          });
+          const specs = presentations.flatMap((presentation) => {
+            const spec = suggestionHighlightSpec(
+              editor.state.doc,
+              presentation,
+            );
+            return spec ? [spec] : [];
+          });
+          expect(specs).toHaveLength(presentations.length);
+          setSuggestionHighlights(editor.view, { specs });
+          expect(
+            new Set(
+              [...editor.view.dom.querySelectorAll("[data-suggestion-id]")].map(
+                (node) => node.getAttribute("data-suggestion-id"),
+              ),
+            ),
+          ).toEqual(new Set(["earlier"]));
+          expect(editor.view.dom.textContent).toContain("First edited.");
+          expect(editor.getJSON()).toEqual(canonical);
+        }
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+});

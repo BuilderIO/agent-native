@@ -1,11 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "{{name}} を削除",
+    removeReference: "{{name}} の参照を削除",
+  },
   settings: {
     title: "設定",
-    description: "このアプリの言語とワークスペース設定。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     workspaceTitle: "ワークスペース",
     workspaceDescription:
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
@@ -18,9 +17,9 @@ const messages = {
   },
   chat: {
     archiveChat: "チャットをアーカイブ",
-    archiveFailed: "アーカイブに失敗しました",
+    archiveFailed: "チャットをアーカイブできませんでした。",
     chats: "チャット",
-    composerPlaceholder: "エージェントに質問...",
+    composerPlaceholder: "何でも聞いてください",
     emptyState: "何でも聞いてください",
     heroDescription: "このアプリの確認、説明、変更をエージェントに依頼します。",
     heroTitle: "どのようにお手伝いできますか？",
@@ -29,18 +28,35 @@ const messages = {
     inspectSuggestionCapabilities: "このアプリで何ができますか？",
     inspectSuggestionHello: "使い始めを手伝って",
     newChat: "新しいチャット",
-    optionsFor: "オプション:",
+    optionsFor: "{{title}} のチャットオプション",
     pinChat: "チャットをピン留め",
     pinned: "ピン留め",
     recents: "最近",
+    retryPreviousRequest:
+      "モデルプロバイダーに接続できたので、前のリクエストを再試行してください。",
+    invalidHandoffOptions:
+      "プロンプトは下書きとして保存されましたが、チャット設定を復元できませんでした。再送信する前に、プロンプト、コンテキスト、モデルを確認してください。",
+    recoveryDraftUnsaved:
+      "下書きの変更は保存されていません。このチャットを再読み込みすると失われる可能性があります。",
+    retryAttachmentUnavailable:
+      "Chat ではこの添付ファイルを再試行のために開けません。アクセス可能なファイル URL を追加して、もう一度お試しください。",
     renameChat: "チャット名を変更",
-    renameFailed: "名前の変更に失敗しました",
-    renameThread: "スレッド名を変更",
+    renameFailed: "チャット名を変更できませんでした。",
+    renameThread: "{{title}} の名前を変更",
     suggestionActions: "利用可能なアクションを表示して",
     suggestionCapabilities: "このアプリで何ができますか？",
     suggestionCustomize: "このアプリのカスタマイズを手伝って",
     unpinChat: "チャットのピン留めを解除",
     untitledChat: "無題のチャット",
+  },
+  home: {
+    communityTitle: "コミュニティ",
+    docsAddAction: "アクションを追加",
+    docsAddPage: "ページを追加",
+    docsGettingStarted: "はじめに",
+    docsKeyConcepts: "主要な概念",
+    docsTitle: "ドキュメント",
+    title: "はじめに",
   },
   navigation: {
     chat: "チャット",
@@ -48,6 +64,7 @@ const messages = {
     database: "データベース",
     expandSidebar: "サイドバーを展開",
     extensions: "拡張機能",
+    home: "ホーム",
     navigation: "ナビゲーション",
     navigationDescription: "メインナビゲーション",
     observability: "可観測性",

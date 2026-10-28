@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const useActionQuery = vi.hoisted(() => vi.fn());
 const useLoaderData = vi.hoisted(() => vi.fn());
 const loadCommunityAppCatalog = vi.hoisted(() => vi.fn());
+const seedApps = vi.hoisted(() => [
+  { slug: "seed", name: "Seed app", description: "Built with the docs." },
+]);
+const communityAppsVisible = vi.hoisted(() => ({ value: false }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: vi.fn(),
@@ -13,6 +17,12 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({ useActionQuery }));
 vi.mock("../../server/lib/community-apps.server", () => ({
   loadCommunityAppCatalog,
+}));
+vi.mock("../components/community-apps", () => ({
+  communityApps: seedApps,
+  get SHOW_COMMUNITY_APPS() {
+    return communityAppsVisible.value;
+  },
 }));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -53,20 +63,35 @@ vi.mock("../components/website-redesign/page-grid", () => ({
   ),
 }));
 
-import TemplatesPage, { loader } from "./templates._index";
-
-const seedApps = [
-  { slug: "seed", name: "Seed app", description: "Built with the docs." },
-];
+import TemplatesPage, { loader, meta } from "./templates._index";
 
 describe("templates index", () => {
   beforeEach(() => {
+    communityAppsVisible.value = false;
     useLoaderData.mockReturnValue({ apps: seedApps });
     useActionQuery.mockReturnValue({ data: undefined });
     loadCommunityAppCatalog.mockReturnValue(new Promise(() => {}));
   });
 
-  it("prerenders the seed catalog before refreshing it through the public action", async () => {
+  it("hides the community catalog and disables its fetch", async () => {
+    await expect(loader()).resolves.toEqual({ apps: expect.any(Array) });
+    expect(loadCommunityAppCatalog).not.toHaveBeenCalled();
+
+    render(<TemplatesPage />);
+    expect(screen.queryByText("Seed app")).toBeNull();
+    expect(screen.queryByText("templatesPage.communityTitle")).toBeNull();
+    expect(
+      screen.queryByText("templatesPage.communitySubmissionTitle"),
+    ).toBeNull();
+    expect(useActionQuery).toHaveBeenCalledWith(
+      "list-community-apps",
+      {},
+      expect.objectContaining({ enabled: false }),
+    );
+  });
+
+  it("renders and refreshes the community catalog when enabled", async () => {
+    communityAppsVisible.value = true;
     await expect(loader()).resolves.toEqual({ apps: expect.any(Array) });
     expect(loadCommunityAppCatalog).not.toHaveBeenCalled();
 
@@ -93,5 +118,18 @@ describe("templates index", () => {
 
     expect(screen.getByText("Published app")).toBeTruthy();
     expect(screen.queryByText("Seed app")).toBeNull();
+  });
+
+  it("gives the apps index its own title and description", () => {
+    const descriptors = meta();
+
+    expect(descriptors).toContainEqual({
+      title: "Agent-Native Apps - Open-source agentic apps you own",
+    });
+    expect(descriptors).toContainEqual({
+      name: "description",
+      content:
+        "Start from a working app and let the agent evolve it. You can customize everything.",
+    });
   });
 });

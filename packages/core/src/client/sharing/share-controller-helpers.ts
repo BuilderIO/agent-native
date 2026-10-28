@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import { notifyChatThreadsUpdated } from "../use-chat-threads.js";
 
 export interface ShareQueryParams {
   resourceType: string;
@@ -55,6 +56,8 @@ export function createShareQueryKey(params: ShareQueryParams): ShareQueryKey {
 export function useShareQuery<TResponse>(
   resourceType: string,
   resourceId: string,
+  enabled = true,
+  staleTime?: number,
 ): {
   params: ShareQueryParams;
   queryKey: ShareQueryKey;
@@ -67,7 +70,10 @@ export function useShareQuery<TResponse>(
     [resourceId, resourceType],
   );
   const queryKey = useMemo(() => createShareQueryKey(params), [params]);
-  const query = useActionQuery<TResponse>("list-resource-shares", params);
+  const query = useActionQuery<TResponse>("list-resource-shares", params, {
+    enabled,
+    ...(staleTime === undefined ? {} : { staleTime }),
+  });
   return { params, queryKey, query, queryClient };
 }
 
@@ -80,10 +86,14 @@ export function useShareMutations() {
 }
 
 /**
- * Apply an optimistic change and return the exact cache value to restore if
- * the action fails. Keeping this snapshot at the mutation boundary prevents a
- * stale request from restoring a newer optimistic result.
+ * Chat history lists are cached outside the share query, so a saved grant or
+ * visibility change must tell them to refetch. Other resource types have no
+ * such list to refresh.
  */
+export function notifyShareChanged(resourceType: string): void {
+  if (resourceType === "chat_thread") notifyChatThreadsUpdated();
+}
+
 export function optimisticallyUpdateShareCache<TData>(
   queryClient: QueryClient,
   queryKey: ShareQueryKey,
@@ -111,8 +121,55 @@ export function rollbackShareCache<TData>(
   queryClient.setQueryData(queryKey, previous);
 }
 
-export function useShareMutationGuard() {
+// Ownership follows the cache entry, not the mounted surface. Weak keys also
+// retire it when a query is removed, without retaining resource ids forever.
+const visibilityCacheOwners = new WeakMap<object, object>();
+
+export function optimisticallyUpdateShareVisibility<
+  TData extends { visibility: string | null },
+>(
+  queryClient: QueryClient,
+  queryKey: ShareQueryKey,
+  visibility: TData["visibility"],
+) {
+  const cacheKey: readonly unknown[] = queryKey;
+  const query = queryClient
+    .getQueryCache()
+    .build(queryClient, { queryKey: cacheKey });
+  const previous = queryClient.getQueryData<TData>(queryKey);
+  const owner = {};
+  visibilityCacheOwners.set(query, owner);
+  const isCurrent = () =>
+    queryClient.getQueryCache().find({ queryKey, exact: true }) === query &&
+    visibilityCacheOwners.get(query) === owner;
+  const commit = (next: TData["visibility"]) => {
+    if (!isCurrent()) return;
+    queryClient.setQueryData<TData>(queryKey, (cached) =>
+      cached ? { ...cached, visibility: next } : cached,
+    );
+  };
+  commit(visibility);
+  return {
+    isCurrent,
+    commit,
+    rollback: () => {
+      if (
+        previous &&
+        queryClient.getQueryData<TData>(queryKey)?.visibility === visibility
+      ) {
+        commit(previous.visibility);
+      }
+    },
+  };
+}
+
+export function useShareMutationGuard(scope?: string) {
   const latestRequest = useRef(0);
+  const currentScope = useRef(scope);
+  if (currentScope.current !== scope) {
+    currentScope.current = scope;
+    latestRequest.current += 1;
+  }
   const begin = useCallback(() => {
     latestRequest.current += 1;
     return latestRequest.current;
@@ -237,6 +294,16 @@ export function useShareOrgMemberSearch(
       setError(false);
       return;
     }
+    // Drop the previous query's results now, not when the debounced fetch
+    // starts: until then they no longer match what was typed, and a picker
+    // that doesn't filter client-side would still offer them.
+    requestIdRef.current += 1;
+    abortRef.current?.abort();
+    setMembers([]);
+    setNextOffset(null);
+    setHasMore(false);
+    setError(false);
+    setIsLoading(true);
     const delay = search ? debounceMs : 0;
     if (delay === 0) {
       fetchPage(0, false);

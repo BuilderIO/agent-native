@@ -2,11 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { getEmbeddedFrameDocumentContent } from "./embedded-frame";
 
-/**
- * A screen document with no height rule ends where its content ends, so the
- * screen's fill and any border stop short of the frame's edge while the frame
- * itself keeps the board's size.
- */
 describe("getEmbeddedFrameDocumentContent fitBodyToFrame", () => {
   const doc = (head = "") =>
     `<!DOCTYPE html><html><head>${head}</head><body><div>x</div></body></html>`;

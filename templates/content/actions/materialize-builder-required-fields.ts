@@ -19,12 +19,16 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   builderReferenceIdSourceValueKey,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { createAppendPositionAllocator } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 import {
@@ -102,12 +106,6 @@ export function propertyTypeForRequiredBuilderField(
   return propertyTypeForSourceField(field.sourceFieldType, metadata);
 }
 
-/**
- * Builder's model schema is authoritative for provider-native value shape.
- * The projected source field type can be `select` because Content renders
- * references with a select editor, including on sources created before raw
- * reference metadata was available.
- */
 export function isBuilderReferenceModelField(
   field: BuilderCmsModelFieldSummary,
 ) {
@@ -183,10 +181,6 @@ export async function readBuilderReferenceSnapshot(args: {
         `Builder reference field ${args.field.label ?? args.field.name} has no target model. No fields were added.`,
       );
     }
-    // The raw reference read is authoritative for the Builder-native id, but
-    // its projected display value can be absent or reduced to `model:id`.
-    // Prefer the already-synced row label so the local select option and the
-    // source baseline normalize to the same id immediately after setup.
     const storedVisible = args.visibleValueBySourceRowId?.get(entry.id);
     const visible =
       typeof storedVisible === "string" && storedVisible.trim()
@@ -266,7 +260,7 @@ export default defineAction({
     documentId: z.string().optional(),
     sourceId: z.string().optional(),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -316,9 +310,6 @@ export default defineAction({
       fieldRows.map((field) => [field.sourceFieldKey, field]),
     );
     const referenceSnapshots = new Map<string, ReferenceSnapshot>();
-    // Reference snapshots also repair already-materialized mappings. Existing
-    // property values are canonical Builder ids and must never be overwritten;
-    // reruns only correct option labels and seed rows that still have no value.
     for (const metadata of requiredModelFields) {
       const field = fieldByKey.get(requiredFieldKey(metadata));
       if (!field || !isBuilderReferenceModelField(metadata)) continue;
@@ -343,6 +334,13 @@ export default defineAction({
         : field;
     });
     await db.transaction(async (tx) => {
+      // Like every other value writer, before it reads which values are
+      // missing, so a guarded write can't fill one between that read and
+      // the insert.
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
       const currentFields = await tx
         .select()
         .from(schema.contentDatabaseSourceFields)
@@ -585,6 +583,9 @@ export default defineAction({
       );
     });
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

@@ -1,9 +1,17 @@
 /**
- * Haiku-based natural-language condition evaluator.
+ * Condition evaluator for event-triggered automations.
  *
- * Given an event payload and a natural-language condition string, asks
- * Haiku whether the condition is satisfied. Results are memoized to
- * avoid redundant API calls for identical (condition, payload) pairs.
+ * Given an event payload and a natural-language condition string, asks a
+ * fast model whether the condition is satisfied. Results are memoized by
+ * condition, payload, execution identity, resolved engine, and model.
+ *
+ * This goes through the same engine-resolution path as interactive chat and
+ * the automation's own agentic run (`resolveEngine`), instead of calling a
+ * single hardcoded provider directly. An owner whose only usable credential
+ * is Builder Gateway or a non-Anthropic provider key has no Anthropic secret
+ * to hand a raw `x-api-key` call — resolving through the engine registry is
+ * what makes the condition check work for every provider the rest of the
+ * app already supports.
  *
  * SECURITY: the payload is treated as untrusted attacker-supplied text
  * (an event may originate from a webhook, an integration, or fire-test).
@@ -16,71 +24,192 @@
 
 import { createHash } from "node:crypto";
 
+import {
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import { createTtlCache } from "../shared/ttl-cache.js";
 
-/**
- * Bumped whenever the prompt template, model, or hardening logic changes.
- * Included in the cache key so cached "yes" answers from a previous
- * (potentially weaker) prompt don't satisfy conditions in the new prompt.
- */
-const CONDITION_EVAL_VERSION = "v2";
+const CONDITION_EVAL_VERSION = "v4";
+const CONDITION_EVALUATION_TIMEOUT_MS = 15_000;
 
-// Bounded TTL cache: hash → classifier result. Uses the shared primitive so
-// there is one implementation of "expire and cap an in-memory map" rather than
-// one per call site; see `shared/ttl-cache.ts` for which pattern to use where.
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_SIZE = 500;
 const _cache = createTtlCache<boolean>({
   ttlMs: CACHE_TTL_MS,
   maxEntries: MAX_CACHE_SIZE,
 });
 
-function cacheKey(condition: string, payload: unknown): string {
-  // Salt the cache key with the prompt version + a separate hash of the
-  // payload so two callers can't cross-pollute each other's cache via
-  // colliding JSON encodings, and a prompt change wipes the cache.
-  let payloadHash: string;
+export interface ConditionEvaluatorIdentity {
+  userEmail: string;
+  orgId?: string;
+  appId?: string;
+}
+
+function cacheKey(
+  condition: string,
+  payload: unknown,
+  identity: ConditionEvaluatorIdentity,
+  engineName: string,
+  model: string,
+): string | null {
+  // Include the resolved classifier scope so owners, apps, engines, and models
+  // cannot reuse one another's yes/no result.
+  let serializedPayload: string | undefined;
   try {
-    payloadHash = createHash("sha256")
-      .update(JSON.stringify(payload) ?? "")
-      .digest("hex")
-      .slice(0, 16);
+    serializedPayload = JSON.stringify(payload);
   } catch {
-    payloadHash = "unstringifiable";
+    // coercion-ok: null marks this payload uncacheable; evaluation continues.
+    return null;
   }
-  const raw = `${CONDITION_EVAL_VERSION}|${condition}|${payloadHash}`;
+  const payloadHash = createHash("sha256")
+    .update(serializedPayload ?? "")
+    .digest("hex")
+    .slice(0, 16);
+  const scope = JSON.stringify([
+    identity.userEmail.trim().toLowerCase(),
+    identity.orgId ?? null,
+    identity.appId ?? null,
+    engineName,
+    model,
+  ]);
+  const raw = `${CONDITION_EVAL_VERSION}|${scope}|${condition}|${payloadHash}`;
   return createHash("sha256").update(raw).digest("hex").slice(0, 32);
 }
 
-/**
- * Evaluate whether a natural-language condition matches an event payload.
- * Returns true if the condition is empty/undefined (unconditional trigger).
- *
- * Throws when the classifier is unevaluable (network/HTTP/exception). Callers
- * must not treat that as a condition non-match, and failures are never cached
- * as `false` — a transient outage must not suppress the trigger for the TTL.
- */
 export async function evaluateCondition(
   condition: string | undefined,
   payload: unknown,
-  apiKey: string,
+  identity: ConditionEvaluatorIdentity,
+  options: {
+    deadlineAt?: number;
+    signal?: AbortSignal;
+    engine?: AgentEngine;
+    resolvedModel?: string;
+  } = {},
 ): Promise<boolean> {
   if (!condition || !condition.trim()) return true;
 
-  const key = cacheKey(condition, payload);
-  const cached = _cache.get(key);
-  if (cached !== undefined) return cached;
+  const remainingMs =
+    options.deadlineAt === undefined
+      ? CONDITION_EVALUATION_TIMEOUT_MS
+      : Math.min(
+          CONDITION_EVALUATION_TIMEOUT_MS,
+          options.deadlineAt - Date.now(),
+        );
+  if (remainingMs <= 0) {
+    throw new Error("Condition evaluation deadline elapsed.");
+  }
+  if (options.signal?.aborted) {
+    throw new Error("Condition evaluation aborted.");
+  }
 
-  const result = await callHaikuClassifier(condition, payload, apiKey);
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let removeAbortListener: (() => void) | undefined;
+  const evaluate = async () => {
+    let engine: AgentEngine;
+    let model: string;
+    try {
+      engine =
+        options.engine ??
+        (await resolveEngine({
+          credentialIdentity: {
+            userEmail: identity.userEmail,
+            orgId: identity.orgId,
+          },
+          appId: identity.appId,
+        }));
+      if (options.resolvedModel !== undefined) {
+        model = options.resolvedModel;
+      } else {
+        const modelCandidate =
+          (await getStoredModelForEngine(engine, { appId: identity.appId })) ??
+          engine.defaultModel;
+        model = normalizeModelForEngine(engine, modelCandidate);
+      }
+    } catch (err) {
+      if (controller.signal.aborted) throw err;
+      console.error("[triggers] Condition eval error:", err);
+      throw new Error(
+        err instanceof Error
+          ? `Condition evaluation failed: ${err.message}`
+          : "Condition evaluation failed: unknown error",
+      );
+    }
 
-  _cache.set(key, result);
+    if (controller.signal.aborted) {
+      throw new Error(
+        options.signal?.aborted
+          ? "Condition evaluation aborted."
+          : "Condition evaluation timed out.",
+      );
+    }
+
+    const key = cacheKey(condition, payload, identity, engine.name, model);
+    if (key !== null) {
+      const cached = _cache.get(key);
+      if (cached !== undefined) return cached;
+    }
+
+    const result = await callClassifier(
+      condition,
+      payload,
+      engine,
+      model,
+      controller.signal,
+    );
+    if (controller.signal.aborted) {
+      throw new Error(
+        options.signal?.aborted
+          ? "Condition evaluation aborted."
+          : "Condition evaluation timed out.",
+      );
+    }
+    if (key !== null) _cache.set(key, result);
+    return result;
+  };
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error("Condition evaluation timed out."));
+      controller.abort();
+    }, remainingMs);
+  });
+  const aborted = options.signal
+    ? new Promise<never>((_resolve, reject) => {
+        const onAbort = () => {
+          reject(new Error("Condition evaluation aborted."));
+          controller.abort();
+        };
+        options.signal!.addEventListener("abort", onAbort, { once: true });
+        removeAbortListener = () =>
+          options.signal!.removeEventListener("abort", onAbort);
+      })
+    : null;
+
+  let result: boolean;
+  try {
+    result = await Promise.race([
+      evaluate(),
+      timeout,
+      ...(aborted ? [aborted] : []),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    removeAbortListener?.();
+  }
+
   return result;
 }
 
-async function callHaikuClassifier(
+async function callClassifier(
   condition: string,
   payload: unknown,
-  apiKey: string,
+  engine: AgentEngine,
+  model: string,
+  signal: AbortSignal,
 ): Promise<boolean> {
   let payloadStr: string;
   try {
@@ -92,10 +221,6 @@ async function callHaikuClassifier(
     payloadStr = String(payload);
   }
 
-  // Defuse any "</event_payload>" tag in the payload itself so an attacker
-  // can't close the wrapper early and append their own instructions outside
-  // the tagged block. The escape is reversible-looking (still readable) but
-  // breaks the literal closing tag the model uses to bound the data.
   const safePayload = payloadStr.replace(/<\/event_payload>/gi, "</_payload>");
 
   const prompt = `You are a condition evaluator. Given an event payload and a natural-language condition, determine if the condition is satisfied.
@@ -110,67 +235,50 @@ Condition: "${condition}"
 
 Does the event payload satisfy the condition above? Respond with ONLY "yes" or "no".`;
 
-  let res: Response;
+  let text = "";
+  let streamErrorMessage: string | undefined;
   try {
-    res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 10,
-        messages: [{ role: "user", content: prompt }],
-      }),
+    const stream = engine.stream({
+      model,
+      systemPrompt:
+        'You are a condition evaluator. Respond with ONLY "yes" or "no", nothing else.',
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+      tools: [],
+      abortSignal: signal,
+      maxOutputTokens: 10,
+      temperature: 0,
+      reasoningEffort: "low",
     });
+    for await (const event of stream) {
+      if (event.type === "text-delta") {
+        text += event.text;
+      } else if (event.type === "stop" && event.reason === "error") {
+        streamErrorMessage = event.error ?? "model error";
+      }
+    }
   } catch (err) {
+    if (signal.aborted) throw err;
     console.error("[triggers] Condition eval error:", err);
     throw new Error(
       err instanceof Error
         ? `Condition evaluation failed: ${err.message}`
-        : "Condition evaluation failed: network error",
+        : "Condition evaluation failed: unknown error",
     );
   }
 
-  if (!res.ok) {
-    console.error(
-      `[triggers] Condition eval failed: ${res.status} ${res.statusText}`,
-    );
-    throw new Error(
-      `Condition evaluation failed: ${res.status} ${res.statusText}`,
-    );
+  if (streamErrorMessage) {
+    throw new Error(`Condition evaluation failed: ${streamErrorMessage}`);
   }
 
-  let data: { content: Array<{ type: string; text?: string }> };
-  try {
-    data = (await res.json()) as {
-      content: Array<{ type: string; text?: string }>;
-    };
-  } catch (err) {
-    console.error("[triggers] Condition eval error:", err);
+  const normalized = text.trim().toLowerCase();
+  if (!normalized.startsWith("yes") && !normalized.startsWith("no")) {
     throw new Error(
-      err instanceof Error
-        ? `Condition evaluation failed: ${err.message}`
-        : "Condition evaluation failed: invalid response",
+      `Condition evaluation failed: unexpected classifier response "${normalized}"`,
     );
   }
-
-  const text =
-    data.content
-      ?.find((b) => b.type === "text")
-      ?.text?.trim()
-      .toLowerCase() ?? "";
-  if (!text.startsWith("yes") && !text.startsWith("no")) {
-    throw new Error(
-      `Condition evaluation failed: unexpected classifier response "${text}"`,
-    );
-  }
-  return text.startsWith("yes");
+  return normalized.startsWith("yes");
 }
 
-/** Clear the condition cache (for testing). */
 export function __clearConditionCache(): void {
   _cache.clear();
 }

@@ -120,9 +120,6 @@ export default defineAction({
       .orderBy(desc(schema.crmListEntries.position))
       .limit(1);
 
-    // The entry's first values, copied once from the record. A value the caller
-    // supplied is left alone — including an explicit null, which is the caller
-    // saying "start this one empty".
     const initial = await initialCrmEntryValues({
       db,
       connectionId: record.connectionId,
@@ -136,8 +133,6 @@ export default defineAction({
     const actor = crmActorFrom(ctx);
     const now = new Date().toISOString();
 
-    // One transaction so a rejected value (an unknown status option, say) can
-    // never leave a half-populated entry behind.
     const writes = await db.transaction(async (tx) => {
       await tx.insert(schema.crmListEntries).values({
         id: entryId,
@@ -166,17 +161,7 @@ export default defineAction({
       entryId,
       listId: list.id,
       recordId: record.id,
-      /**
-       * What the entry's values were initialized from. An `applied: false` row
-       * is a value the record held that this list cannot represent — reported,
-       * never dropped silently, because an unexplained empty card is exactly
-       * how a board looks broken.
-       */
       initialValues: initial.initialValues,
-      /**
-       * Entries this record already had in this list. Non-empty is normal, not
-       * an error — the caller decides whether a second entry was intended.
-       */
       existingEntryIds: existing.map((entry) => entry.id),
       values: writes,
       ...ownership,

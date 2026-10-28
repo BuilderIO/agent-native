@@ -27,6 +27,7 @@ type QueueFileContentSave = (
 
 type HarnessProps = {
   canEditDesign: boolean;
+  canPersistDesignSource: boolean;
   serverFiles: Array<{ id: string; content: string; fileType: string }>;
   baselineScheduling?: boolean;
   onPermissionSync: (canEditDesign: boolean) => void;
@@ -38,6 +39,7 @@ type HarnessProps = {
 
 function PublicationHarness({
   canEditDesign,
+  canPersistDesignSource,
   serverFiles,
   baselineScheduling = false,
   onPermissionSync,
@@ -45,6 +47,7 @@ function PublicationHarness({
   pendingLocalFileContentsRef,
 }: HarnessProps) {
   const canEditDesignRef = useRef(canEditDesign);
+  const canPersistDesignSourceRef = useRef(canPersistDesignSource);
   const cancelIdentityMigration = useCallback(
     (fileId: string) => {
       pendingLocalFileContentsRef.current.delete(fileId);
@@ -56,6 +59,7 @@ function PublicationHarness({
       runPublishCanonicalContent(
         {
           canEditDesignRef,
+          canPersistDesignSourceRef,
           pendingLocalFileContentsRef,
           cancelIdentityMigration,
           queueFileContentSave,
@@ -74,13 +78,25 @@ function PublicationHarness({
   useLayoutEffect(() => {
     if (baselineScheduling) return;
     canEditDesignRef.current = canEditDesign;
+    canPersistDesignSourceRef.current = canPersistDesignSource;
     onPermissionSync(canEditDesign);
-  }, [baselineScheduling, canEditDesign, onPermissionSync]);
+  }, [
+    baselineScheduling,
+    canEditDesign,
+    canPersistDesignSource,
+    onPermissionSync,
+  ]);
   useEffect(() => {
     if (!baselineScheduling) return;
     canEditDesignRef.current = canEditDesign;
+    canPersistDesignSourceRef.current = canPersistDesignSource;
     onPermissionSync(canEditDesign);
-  }, [baselineScheduling, canEditDesign, onPermissionSync]);
+  }, [
+    baselineScheduling,
+    canEditDesign,
+    canPersistDesignSource,
+    onPermissionSync,
+  ]);
 
   useLayoutEffect(
     () => {
@@ -91,7 +107,12 @@ function PublicationHarness({
     },
     baselineScheduling
       ? [serverFiles, publishCanonicalContent]
-      : [serverFiles, publishCanonicalContent, canEditDesign],
+      : [
+          serverFiles,
+          publishCanonicalContent,
+          canEditDesign,
+          canPersistDesignSource,
+        ],
   );
 
   return null;
@@ -156,11 +177,15 @@ describe("canonical source publication across editor permission changes", () => 
       events.push(`permission:${canEditDesign}`);
     });
 
-    const render = async (canEditDesign: boolean) => {
+    const render = async (
+      canEditDesign: boolean,
+      canPersistDesignSource = canEditDesign,
+    ) => {
       await act(async () =>
         root.render(
           <PublicationHarness
             canEditDesign={canEditDesign}
+            canPersistDesignSource={canPersistDesignSource}
             onPermissionSync={onPermissionSync}
             pendingLocalFileContentsRef={pendingLocalFileContentsRef}
             queueFileContentSave={queueFileContentSave}
@@ -173,7 +198,10 @@ describe("canonical source publication across editor permission changes", () => 
     await render(false);
     expect(queueFileContentSave).not.toHaveBeenCalled();
 
-    await render(true);
+    await render(true, false);
+    expect(queueFileContentSave).not.toHaveBeenCalled();
+
+    await render(true, true);
     expect(queueFileContentSave).toHaveBeenCalledTimes(1);
     expect(queueFileContentSave).toHaveBeenCalledWith(
       nonactiveFileId,
@@ -189,7 +217,7 @@ describe("canonical source publication across editor permission changes", () => 
     );
 
     sourceContent = rawReplacementContent;
-    await render(false);
+    await render(false, false);
     expect(queueFileContentSave).toHaveBeenCalledTimes(1);
     expect(pendingLocalFileContentsRef.current.has(nonactiveFileId)).toBe(
       false,
@@ -208,6 +236,7 @@ describe("canonical source publication across editor permission changes", () => 
         <PublicationHarness
           baselineScheduling
           canEditDesign={false}
+          canPersistDesignSource={false}
           onPermissionSync={vi.fn()}
           pendingLocalFileContentsRef={pendingLocalFileContentsRef}
           queueFileContentSave={queueFileContentSave}
@@ -220,6 +249,7 @@ describe("canonical source publication across editor permission changes", () => 
         <PublicationHarness
           baselineScheduling
           canEditDesign
+          canPersistDesignSource
           onPermissionSync={vi.fn()}
           pendingLocalFileContentsRef={pendingLocalFileContentsRef}
           queueFileContentSave={queueFileContentSave}

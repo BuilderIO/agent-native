@@ -28,7 +28,6 @@ import {
 } from "./migrations.js";
 import { repairLegacyChatThreadMessageCounts } from "./store.js";
 
-/** Exec double that reports which migration names are already recorded. */
 function makeExec(appliedNames: string[]) {
   const insertedNames: string[] = [];
   return {

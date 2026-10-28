@@ -9,7 +9,7 @@ Les packages Agent-Native sont antérieurs à la version 1.0. Le processus fourn
 
 ## Canaux de publication
 
-Les fusions dans `main` publient des snapshots nightly sous le tag npm `nightly`, sans déplacer `latest`. Les versions stables sont coordonnées avec Changesets. Les exécutions planifiées préparent des versions patch du lundi au jeudi à midi, heure du Pacifique. Chaque exécution ne garantit pas une publication.
+Toutes les trois heures, une exécution planifiée publie un snapshot nightly de `main` sous le tag npm `nightly` si le code source des packages a changé depuis le nightly précédent, sans déplacer `latest`. Les versions stables sont coordonnées avec Changesets. Les exécutions planifiées préparent des versions patch du lundi au jeudi à midi, heure du Pacifique. Chaque exécution ne garantit pas une publication.
 
 ## Compatibilité avant 1.0
 

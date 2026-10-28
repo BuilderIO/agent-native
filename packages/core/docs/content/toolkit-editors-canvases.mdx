@@ -17,12 +17,23 @@ Choose the smallest reusable layer that matches the interaction your app owns.
   />
 </WireframeBlock>
 
+A canvas app can compose Toolkit interaction helpers and annotation UI around its own model. This mock is illustrative; Toolkit does not provide the canvas document, rendering model, or persistence.
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>Select</span><span class='wf-pill'>Draw</span><span class='wf-pill'>Comment</span><div style='flex:1'></div><span class='wf-muted'>Canvas controls</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>Campaign page</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>Draw note</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>Feedback</strong><div class='wf-box'>1 &nbsp; Move this headline above the image.</div><div class='wf-box'>2 &nbsp; Increase contrast on this label.</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> Send feedback</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
 ## Ownership today
 
 | Surface             | Current owner and maturity                     | Use it when                                                                                                      |
 | ------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Rich editor         | Toolkit-owned                                  | You need portable rich editing, markdown, slash commands, images, drag handles, or collaboration reconciliation. |
-| Blocks              | Core in this phase                             | You need registered, structured blocks and their runtime contract.                                               |
+| Blocks              | Core runtime plus Toolkit UI                   | Core owns the schema and runtime contract; Toolkit exports the reusable client UI.                               |
 | Design              | Template pattern plus reusable `design-tweaks` | You are building a Design-like workflow and can own its domain behavior.                                         |
 | Canvas presentation | Toolkit or app composition                     | You need reusable UI around an app-specific canvas model.                                                        |
 
@@ -98,12 +109,18 @@ pattern; `design-tweaks` are reusable presentation adjustments within that
 pattern. Reuse them when they fit, but do not assume they supply a complete
 canvas data model, collaboration model, or workflow.
 
-Blocks remain Core-owned because the browser and server contracts share one
-implementation. They are documented here alongside editors and canvases
-because Toolkit docs are the discovery catalog for reusable UI, regardless of
-which package currently owns the implementation. Register and render blocks
-through the Core contract so the agent and UI share the same structured
-vocabulary.
+Core owns the Blocks schema, registration, and server/runtime contract. The reusable client UI is exported by `@agent-native/toolkit/app/blocks`, including `BlockView`, `SchemaBlockEditor`, and `BlockRegistryProvider`. Keep app-specific block types and persistence on the app side while the agent and UI share Core's structured contract.
+
+## Canvas interactions and annotations {#canvas-interactions}
+
+Toolkit provides reusable interaction logic and annotation UI for apps that own a canvas:
+
+| Export                                      | What it provides                                                                                                                                    |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@agent-native/toolkit/canvas-interactions` | Headless gesture and shortcut registries, pointer-to-canvas coordinates, drag thresholds, movement constraints, nudge policies, and resize helpers. |
+| `@agent-native/toolkit/canvas-annotations`  | `DrawOverlay` for drawing/text instructions and `CanvasCommentPins` for anchored feedback that can be sent to the agent.                            |
+
+These exports do not define a canvas document model, renderer, selection model, or persistence layer. The app adapts gestures to its own canvas, stores annotations through its own actions, and decides which context the agent receives. For a complete product pattern, see the [Design template](/docs/template-design).
 
 ## What's next
 

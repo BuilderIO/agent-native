@@ -79,9 +79,11 @@ vi.mock("h3", () => ({
   getHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   getMethod: (event: any) => event.method ?? "GET",
-  setCookie: (event: any, name: string, value: string) => {
+  setCookie: (event: any, name: string, value: string, options?: any) => {
     event.cookies ??= {};
     event.cookies[name] = value;
+    event.cookieOptions ??= {};
+    event.cookieOptions[name] = options;
   },
 }));
 
@@ -145,6 +147,11 @@ vi.mock("./better-auth-instance.js", () => ({
     linkAccount: (...args: any[]) => linkAccountMock(...args),
     updateUser: (...args: any[]) => updateUserMock(...args),
   }),
+}));
+const provisionFederatedOrganizationMock = vi.fn(async () => "linked");
+vi.mock("../org/federation.js", () => ({
+  provisionFederatedOrganization: (...args: any[]) =>
+    provisionFederatedOrganizationMock(...args),
 }));
 vi.mock("../org/accept-pending.js", () => ({
   acceptPendingInvitationsForEmail: (...args: any[]) =>
@@ -303,8 +310,6 @@ beforeEach(() => {
   acceptPendingInvitationsForEmailMock.mockClear();
   process.env.A2A_SECRET = SECRET;
   process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
-  // Stands in for the package layer: outside a template checkout package.json
-  // is core's own, which the first-party table does not match.
   defineAppConfig({ app: { name: "mail" } });
   vi.stubGlobal(
     "fetch",
@@ -437,6 +442,29 @@ describe("identity SSO browser contract", () => {
     expect(location.searchParams.has("id_token")).toBe(false);
   });
 
+  it("keeps the mounted public prefix on the PKCE cookie and callback", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/mail");
+    vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+
+    const query = new URLSearchParams({ return: "/inbox" });
+    const loginEvent = event(`/mail/_agent-native/identity/login?${query}`);
+    const response = await handleIdentitySso(loginEvent, "/login");
+    const location = new URL(response.headers.get("Location")!);
+    const verifierCookie = Object.keys(loginEvent.cookies).find((name) =>
+      name.startsWith("agent_native_sso_verifier_"),
+    )!;
+
+    expect(location.searchParams.get("redirect_uri")).toBe(
+      "https://mail.agent-native.com/mail/_platform/identity/callback",
+    );
+    expect(loginEvent.cookieOptions[verifierCookie].path).toBe(
+      "/mail/_platform/identity/callback",
+    );
+  });
+
   it("uses a source-origin bridge when the configured hub is on another site", async () => {
     vi.stubEnv(
       "AGENT_NATIVE_IDENTITY_HUB_URL",
@@ -534,6 +562,43 @@ describe("identity SSO browser contract", () => {
       expect.anything(),
       "alice@example.test",
       expect.objectContaining({ hasProductionSession: false }),
+    );
+  });
+
+  it("hands the callback request to the organization it activates from a signed org context", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                jti: "jti-org-context",
+                org_id: "dispatch-org-1",
+                org_name: "Example Org",
+                org_role: "member",
+              }),
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin("/welcome");
+    const callbackEvent = event(
+      `/_agent-native/identity/callback?code=${"o".repeat(43)}&state=${state}`,
+      { cookies: { ...loginEvent.cookies } },
+    );
+
+    const response = await handleIdentitySso(callbackEvent, "/callback");
+
+    expect(response.status).toBe(302);
+    expect(provisionFederatedOrganizationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "dispatch-org-1",
+        role: "member",
+        email: "alice@example.test",
+      }),
+      { event: callbackEvent },
     );
   });
 
@@ -766,7 +831,6 @@ describe("additive JIT linking", () => {
       "created-alice@example.test",
       expect.objectContaining({ emailVerified: true }),
     );
-    // The user-create hook skipped these while the row was still unverified.
     expect(acceptPendingInvitationsForEmailMock).toHaveBeenCalledWith(
       "alice@example.test",
     );
@@ -799,11 +863,8 @@ describe("additive JIT linking", () => {
       "/callback",
     );
 
-    // Sign-in still succeeds; the caller owns the session.
     expect(response.status).toBe(302);
     expect(createOAuthSessionMock).toHaveBeenCalled();
-    // Recording verification here would make the dropped invitations permanent,
-    // because the next login would skip the reconciliation branch entirely.
     expect(updateUserMock).not.toHaveBeenCalled();
     expect(
       adapterUsers.find((user) => user.email === "alice@example.test")

@@ -44,16 +44,26 @@ vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ __and: conditions }),
   asc: (column: unknown) => ({ __asc: column }),
   eq: (column: unknown, value: unknown) => ({ __eq: [column, value] }),
+  gt: (column: unknown, value: unknown) => ({ __gt: [column, value] }),
+  or: (...conditions: unknown[]) => ({ __or: conditions }),
 }));
 
 function matches(row: Row, condition: any): boolean {
   if (condition.__and) {
     return condition.__and.every((child: any) => matches(row, child));
   }
+  if (condition.__or) {
+    return condition.__or.some((child: any) => matches(row, child));
+  }
   if (condition.__eq) {
     const [column, value] = condition.__eq;
     const key = String(column).split(".").pop() as keyof Row;
     return row[key] === value;
+  }
+  if (condition.__gt) {
+    const [column, value] = condition.__gt;
+    const key = String(column).split(".").pop() as keyof Row;
+    return String(row[key]) > String(value);
   }
   return true;
 }
@@ -278,6 +288,30 @@ describe("list-slide-comments", () => {
     ]);
     expect(secondPage.comments.map((comment: any) => comment.id)).toEqual([
       "comment-b",
+    ]);
+  });
+
+  it("does not skip later comments when an earlier page comment is deleted", async () => {
+    state.rows = ["comment-a", "comment-b", "comment-c"].map((id) => ({
+      ...state.rows[0]!,
+      id,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }));
+
+    const firstPage = await (action as any).run({ deckId: "deck-1", limit: 2 });
+    state.rows = state.rows.filter((row) => row.id !== "comment-a");
+    const secondPage = await (action as any).run({
+      deckId: "deck-1",
+      limit: 2,
+      cursor: firstPage.next_cursor,
+    });
+
+    expect(firstPage.comments.map((comment: any) => comment.id)).toEqual([
+      "comment-a",
+      "comment-b",
+    ]);
+    expect(secondPage.comments.map((comment: any) => comment.id)).toEqual([
+      "comment-c",
     ]);
   });
 });

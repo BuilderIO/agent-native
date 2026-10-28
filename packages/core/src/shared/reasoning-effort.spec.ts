@@ -7,22 +7,47 @@ import {
   normalizeReasoningEffortForModel,
   normalizeReasoningEffortForRequest,
   reasoningEffortLabel,
+  isUnsetReasoningEffort,
   resolveReasoningEffortSelection,
   stepDownReasoningEffort,
+  supportsClaudeAdaptiveThinking,
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
-  it("uses High as the default and never exposes legacy Auto", () => {
-    expect(DEFAULT_REASONING_EFFORT).toBe("high");
+  it("leaves effort unset by default and never offers Auto as a level", () => {
+    expect(DEFAULT_REASONING_EFFORT).toBe("auto");
+    expect(isUnsetReasoningEffort(DEFAULT_REASONING_EFFORT)).toBe(true);
+    expect(isUnsetReasoningEffort("high")).toBe(false);
     expect(getReasoningEffortOptionsForModel("claude-sonnet-5")).not.toContain(
       "auto",
     );
-    expect(reasoningEffortLabel("auto")).toBe("High");
+    expect(reasoningEffortLabel("auto")).toBe("Auto");
   });
 
   it("includes xhigh for claude-opus-4-7", () => {
     const opts = getReasoningEffortOptionsForModel("claude-opus-4-7");
     expect(opts).toContain("xhigh");
+  });
+
+  it("supports direct GPT-6 and Opus 5.5 reasoning", () => {
+    expect(getReasoningEffortOptionsForModel("gpt-6-sol")).toContain("xhigh");
+    expect(getReasoningEffortOptionsForModel("openai/gpt-6-luna")).toContain(
+      "xhigh",
+    );
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-opus-5.5"),
+    ).toContain("xhigh");
+    expect(supportsClaudeAdaptiveThinking("claude-opus-5-5")).toBe(true);
+  });
+
+  it("supports adaptive xhigh reasoning for Claude Haiku 5.5", () => {
+    expect(getReasoningEffortOptionsForModel("claude-haiku-5-5")).toContain(
+      "xhigh",
+    );
+    expect(supportsClaudeAdaptiveThinking("claude-haiku-5-5")).toBe(true);
+    expect(
+      getReasoningEffortOptionsForModel("anthropic/claude-haiku-5.5"),
+    ).toContain("xhigh");
   });
 
   it("includes xhigh for claude-opus-4-8", () => {
@@ -88,17 +113,19 @@ describe("normalizeReasoningEffortForModel", () => {
     );
   });
 
-  it("normalizes legacy auto and missing effort to high", () => {
-    expect(normalizeReasoningEffortForModel("claude-opus-4-8", "auto")).toBe(
-      "high",
-    );
-    expect(normalizeReasoningEffortForModel("claude-opus-4-8", undefined)).toBe(
+  it("sends no effort for auto or a missing effort", () => {
+    expect(
+      normalizeReasoningEffortForModel("claude-opus-4-8", "auto"),
+    ).toBeUndefined();
+    expect(
+      normalizeReasoningEffortForModel("claude-opus-4-8", undefined),
+    ).toBeUndefined();
+    expect(normalizeReasoningEffortForModel("claude-opus-4-8", "high")).toBe(
       "high",
     );
   });
 
   it("returns undefined for models that do not support reasoning", () => {
-    // Groq models have no reasoning effort options
     expect(
       normalizeReasoningEffortForModel("llama-3.3-70b-versatile", "high"),
     ).toBeUndefined();
@@ -109,12 +136,12 @@ describe("normalizeReasoningEffortForModel", () => {
 });
 
 describe("resolveReasoningEffortSelection", () => {
-  it("migrates legacy auto and missing selections to high", () => {
+  it("keeps auto and missing selections unset", () => {
     expect(resolveReasoningEffortSelection("claude-sonnet-5", "auto")).toBe(
-      "high",
+      "auto",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-5", undefined)).toBe(
-      "high",
+      "auto",
     );
   });
 
@@ -123,7 +150,7 @@ describe("resolveReasoningEffortSelection", () => {
       "high",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-4-6", "xhigh")).toBe(
-      "high",
+      "auto",
     );
   });
 });
@@ -138,10 +165,13 @@ describe("normalizeReasoningEffortForRequest", () => {
     ).toBe("minimal");
   });
 
-  it("uses High when the request omits an effort", () => {
+  it("sends no effort when the request omits one", () => {
     expect(
       normalizeReasoningEffortForRequest("claude-sonnet-5", undefined),
-    ).toBe("high");
+    ).toBeUndefined();
+    expect(
+      normalizeReasoningEffortForRequest("claude-sonnet-5", "auto"),
+    ).toBeUndefined();
   });
 });
 
@@ -178,9 +208,11 @@ describe("allowsSamplingParams", () => {
   it("blocks sampling on the Claude families that removed it", () => {
     for (const model of [
       "claude-sonnet-5",
+      "claude-haiku-5-5",
       "claude-opus-4-7",
       "claude-opus-4-8",
       "claude-opus-5",
+      "claude-opus-5-5",
       "claude-fable-5",
       "anthropic/claude-sonnet-5",
     ]) {
@@ -196,6 +228,7 @@ describe("allowsSamplingParams", () => {
       "claude-opus-4-6",
       "claude-sonnet-4-6",
       "gpt-5.6-sol",
+      "gpt-6-sol",
       "gemini-3-1-pro",
     ]) {
       expect(allowsSamplingParams({ model, thinkingEnabled: false })).toBe(

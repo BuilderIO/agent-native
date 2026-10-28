@@ -1,6 +1,13 @@
+import { isDeepStrictEqual } from "node:util";
+
 import { defineAction } from "@agent-native/core/action";
 import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
+import {
   getWorkspaceConnection,
+  getWorkspaceConnectionGrant,
   revokeWorkspaceConnectionGrant,
   upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant,
@@ -32,8 +39,18 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Grant or revoke one workspace app's access to a shared workspace integration connection.",
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
   schema: z.object({
     connectionId: z.string().describe("Workspace connection ID."),
     appId: z
@@ -56,6 +73,10 @@ export default defineAction({
         "Known workspace app IDs. Used when converting an all-app connection into selected-app grants.",
       ),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     const connection = await getWorkspaceConnection(args.connectionId);
     if (!connection) {
@@ -70,6 +91,7 @@ export default defineAction({
     );
 
     let allowedApps = connection.allowedApps;
+    let explicitGrantChanged = false;
     if (args.accessMode === "all-apps") {
       allowedApps = [];
     } else {
@@ -96,17 +118,33 @@ export default defineAction({
           nextAllowedApps.length > 0
             ? nextAllowedApps
             : knownAppIds.filter((id) => id !== appId);
-        await revokeWorkspaceConnectionGrant(connection.id, appId);
+        explicitGrantChanged = await revokeWorkspaceConnectionGrant(
+          connection.id,
+          appId,
+        );
       } else if (connection.allowedApps.length > 0 && args.granted) {
         allowedApps = connection.allowedApps;
-        await upsertWorkspaceConnectionGrant({
+        const beforeGrant = await getWorkspaceConnectionGrant(
+          connection.id,
+          appId,
+        );
+        const afterGrant = await upsertWorkspaceConnectionGrant({
           connectionId: connection.id,
           appId,
         });
+        explicitGrantChanged =
+          !beforeGrant ||
+          beforeGrant.provider !== afterGrant.provider ||
+          !isDeepStrictEqual(beforeGrant.scopes, afterGrant.scopes) ||
+          !isDeepStrictEqual(beforeGrant.config, afterGrant.config) ||
+          !isDeepStrictEqual(
+            beforeGrant.credentialRefs,
+            afterGrant.credentialRefs,
+          );
       }
     }
 
-    return upsertWorkspaceConnection({
+    const result = await upsertWorkspaceConnection({
       id: connection.id,
       provider: connection.provider,
       label: connection.label,
@@ -122,5 +160,24 @@ export default defineAction({
       lastCheckedAt: connection.lastCheckedAt,
       lastError: connection.lastError,
     });
+    const connectionAccessChanged =
+      JSON.stringify(connection.allowedApps) !==
+      JSON.stringify(result.allowedApps);
+    if (!connectionAccessChanged && !explicitGrantChanged) return result;
+
+    return {
+      ...result,
+      change: {
+        verb: "updated",
+        kind: "workspace-connection",
+        title: connection.label.slice(0, 180),
+        detail: (
+          args.appId?.trim() ||
+          args.accessMode ||
+          connection.provider
+        ).slice(0, 500),
+        url: "/settings/integrations",
+      },
+    };
   },
 });

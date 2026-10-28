@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FigmaFileUrlUsedAsTokenError } from "@/lib/figma-connection";
 import { extractFigmaLink } from "@/lib/figma-url";
 
 import { FigmaLinkComposerBubble } from "./FigmaLinkComposerBubble";
@@ -21,7 +22,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       options ? `${key}:${JSON.stringify(options)}` : key,
 }));
 
-vi.mock("@/lib/figma-connection", () => ({
+vi.mock("@/lib/figma-connection", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/figma-connection")>(
+    "@/lib/figma-connection",
+  )),
   getFigmaConnectionStatus: (...args: unknown[]) =>
     connectionMocks.get(...args),
   saveFigmaAccessToken: (...args: unknown[]) => connectionMocks.save(...args),
@@ -58,21 +62,54 @@ afterEach(async () => {
 async function renderBubble(designId?: string) {
   container = document.createElement("div");
   document.body.append(container);
-  root = createRoot(container);
+  const mountedRoot = createRoot(container);
+  root = mountedRoot;
   await act(async () => {
-    root!.render(
+    mountedRoot.render(
       <FigmaLinkComposerBubble link={frameLink} designId={designId} />,
     );
     await Promise.resolve();
   });
 }
 
+function getContainer(): HTMLDivElement {
+  if (!container) throw new Error("Figma link bubble is not mounted");
+  return container;
+}
+
+function passwordInput(): HTMLInputElement {
+  const input = getContainer().querySelector<HTMLInputElement>(
+    'input[type="password"]',
+  );
+  if (!input) throw new Error("Missing Figma token input");
+  return input;
+}
+
 function button(label: string): HTMLButtonElement {
-  const match = [...container!.querySelectorAll("button")].find(
-    (candidate) => candidate.textContent?.trim() === label,
+  const match = [...getContainer().querySelectorAll("button")].find(
+    (candidate) => candidate.textContent.trim() === label,
   );
   if (!match) throw new Error(`Missing button: ${label}`);
   return match;
+}
+
+async function openActionsMenu(): Promise<void> {
+  const trigger = getContainer().querySelector<HTMLButtonElement>(
+    '[aria-label="chat.figmaLink.moreActions"]',
+  );
+  if (!trigger) throw new Error("Missing Figma link actions menu");
+  await act(async () => {
+    trigger.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+    await Promise.resolve();
+  });
+}
+
+function menuItem(label: string): HTMLElement | undefined {
+  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (candidate) => candidate.textContent.trim() === label,
+  );
 }
 
 describe("FigmaLinkComposerBubble", () => {
@@ -92,9 +129,7 @@ describe("FigmaLinkComposerBubble", () => {
     });
     await renderBubble("design-1");
 
-    const input = container!.querySelector<HTMLInputElement>(
-      'input[type="password"]',
-    )!;
+    const input = passwordInput();
     await act(async () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
@@ -109,8 +144,8 @@ describe("FigmaLinkComposerBubble", () => {
 
     expect(connectionMocks.save).toHaveBeenCalledWith("figma-token-example");
     expect(sendToDesignAgentChat).not.toHaveBeenCalled();
-    expect(container!.querySelector('input[type="password"]')).toBeNull();
-    expect(container!.textContent).toContain("chat.figmaLink.importFrame");
+    expect(getContainer().querySelector('input[type="password"]')).toBeNull();
+    expect(getContainer().textContent).toContain("home.import");
   });
 
   it("clears a rejected token from the password field", async () => {
@@ -125,9 +160,7 @@ describe("FigmaLinkComposerBubble", () => {
     );
     await renderBubble("design-1");
 
-    const input = container!.querySelector<HTMLInputElement>(
-      'input[type="password"]',
-    )!;
+    const input = passwordInput();
     await act(async () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
@@ -141,7 +174,7 @@ describe("FigmaLinkComposerBubble", () => {
     });
 
     expect(input.value).toBe("");
-    expect(container!.textContent).toContain(
+    expect(getContainer().textContent).toContain(
       "Figma rejected this token (401).",
     );
   });
@@ -156,11 +189,62 @@ describe("FigmaLinkComposerBubble", () => {
     });
     await renderBubble("design-42");
 
-    await act(async () => button("chat.figmaLink.importFrame").click());
+    await act(async () => button("home.import").click());
 
     expect(sendToDesignAgentChat).toHaveBeenCalledWith({
       message:
-        "Import this Figma frame into the current Design and report any fidelity differences: https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
+        'chat.figmaLink.importFramePrompt:{"destination":"chat.figmaLink.currentDesign","url":"https://www.figma.com/design/FileKey1/Checkout?node-id=1-2"}',
+      submit: false,
+      openSidebar: false,
+    });
+  });
+
+  it("shows a compact file title and hides the pasted URL", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: true,
+      status: "set",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+      last4: "5678",
+    });
+    await renderBubble("design-42");
+
+    expect(getContainer().textContent).toContain("Checkout");
+    expect(getContainer().querySelector('[title="Checkout"]')).not.toBeNull();
+    expect(getContainer().textContent).not.toContain(frameLink.url);
+    expect(getContainer().textContent).toContain("chat.figmaLink.connected");
+    expect(getContainer().textContent).not.toContain("5678");
+    expect(button("home.import")).toBeTruthy();
+    expect(
+      getContainer().querySelector(
+        'button[aria-label="chat.figmaLink.moreActions"]',
+      ),
+    ).not.toBeNull();
+    expect(getContainer().textContent).not.toContain(
+      "chat.figmaLink.actionsPrefill",
+    );
+  });
+
+  it("prefills an Ask about this file request from the overflow menu", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: true,
+      status: "set",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+    });
+    await renderBubble("design-42");
+    await openActionsMenu();
+
+    const askItem = menuItem("chat.figmaLink.askAboutFile");
+    if (!askItem) throw new Error("Missing Ask about this file menu item");
+    await act(async () => {
+      askItem.click();
+      await Promise.resolve();
+    });
+
+    expect(sendToDesignAgentChat).toHaveBeenCalledWith({
+      message:
+        'chat.figmaLink.askAboutFilePrompt:{"url":"https://www.figma.com/design/FileKey1/Checkout?node-id=1-2"}',
       submit: false,
       openSidebar: false,
     });
@@ -206,8 +290,46 @@ describe("FigmaLinkComposerBubble", () => {
       await Promise.resolve();
     });
 
-    expect(container!.textContent).toContain("chat.figmaLink.importFrame");
-    expect(container!.querySelector('input[type="password"]')).toBeNull();
+    expect(getContainer().textContent).toContain("home.import");
+    expect(getContainer().querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("localizes a Figma file URL pasted into the token field", async () => {
+    connectionMocks.get.mockResolvedValue({
+      connected: false,
+      status: "unset",
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+    });
+    connectionMocks.save.mockRejectedValue(new FigmaFileUrlUsedAsTokenError());
+    await renderBubble("design-1");
+
+    const input = passwordInput();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(
+        input,
+        "https://www.figma.com/design/FileKey1/Checkout?node-id=1-2",
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      button("chat.figmaLink.connect").click();
+      await Promise.resolve();
+    });
+
+    expect(getContainer().textContent).toContain(
+      "designEditor.import.errors.figmaTokenMustBeToken",
+    );
+    expect(getContainer().textContent).not.toContain(
+      "FigmaFileUrlUsedAsTokenError",
+    );
+    expect(
+      getContainer().querySelector<HTMLInputElement>('input[type="password"]')
+        ?.value,
+    ).toBe("");
   });
 
   it("does not ask for a token when connection status is unknown", async () => {
@@ -228,6 +350,9 @@ describe("FigmaLinkComposerBubble", () => {
     });
     await renderBubble();
 
-    expect(button("chat.figmaLink.exportSvg").disabled).toBe(true);
+    await openActionsMenu();
+    expect(
+      menuItem("chat.figmaLink.exportSvg")?.getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 });

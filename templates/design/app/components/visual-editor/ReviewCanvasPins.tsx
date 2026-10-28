@@ -1,10 +1,7 @@
 import { callAction } from "@agent-native/core/client/hooks";
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
 import {
-  buildReviewThreads,
-  ReviewCommentComposer,
   useCreateReviewComment,
   useDeleteReviewComment,
   useReactToReviewComment,
@@ -13,8 +10,6 @@ import {
   useReviewComments,
   useSetReviewThreadUnread,
   useUpdateReviewComment,
-  isTrustedReviewAttachmentUrl,
-  type ReviewThread,
 } from "@agent-native/core/client/review";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
 import type {
@@ -23,29 +18,39 @@ import type {
   ReviewDiscussionState,
   ReviewMention,
 } from "@agent-native/core/review";
+import {
+  buildReviewThreads,
+  resolveReviewAgent,
+  ReviewAuthorAvatar,
+  ReviewCommentComposer,
+  ReviewCommentItem,
+  ReviewThreadCardFrame,
+  ReviewThreadMenu,
+  type ReviewMentionOption,
+  type ReviewThread,
+} from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
-  IconChevronDown,
-  IconCircleCheck,
-  IconDots,
-  IconLink,
-  IconMail,
-  IconMessageCircle,
-  IconMoodSmile,
-  IconPaperclip,
-  IconSend,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react";
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+  buildSourceEquivalentSelector,
+  isSourceLocationMatch,
+  resolveSourceEquivalentSelector,
+  resolveSourceEquivalentSelectorResult,
+  type SourceEquivalentSelectorStatus,
+} from "@shared/source-equivalent-selector";
+import { IconMessageCircle, IconPhoto, IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -60,27 +65,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
-  formatNodeSelectionQuestion,
   formatNodeRepromptSubmission,
-  inferNodeRepromptSendMode,
+  NODE_REPROMPT_PREVIEW_FAILED_EVENT,
   NODE_REPROMPT_PRESENTED_EVENT,
   NODE_REPROMPT_RESOLVED_EVENT,
-  type NodeRepromptSendMode,
 } from "@/lib/node-reprompt";
+import {
+  useReviewAgent,
+  useReviewAgentSurface,
+} from "@/lib/review-agent/review-agent-context";
+import { firstAgentMention } from "@/lib/review-agent/review-agent-models";
+import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
+import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import { cn } from "@/lib/utils";
 
 import { resolveLayerNameAttribute } from "../../../shared/layer-name";
@@ -93,22 +93,43 @@ import {
   type ReviewBoardGeometry,
   type ReviewAnchorRegion,
   type ReviewAnchorPoint,
+  type ReviewAnchorSelectorResolution,
   type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
+import { forwardReviewOverlayWheel } from "../design/canvas-interactions/review-overlay-interaction";
 import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
+import type { ReviewActiveThreadReporter } from "./review-active-thread-reporter";
 import {
   getReviewPinPosition,
+  getReviewPopoverBox,
   getReviewPopoverPlacement,
+  isReviewPointVisible,
   placeReviewDraftPin,
+  reviewRegionClipPath,
   type ReviewDraftPin,
   type ReviewPinPosition,
+  type ReviewPopoverPlacement,
+  type ReviewVisibleRegion,
 } from "./review-canvas-state";
+import {
+  registerReviewOverlayTarget,
+  useReviewOverlayTargets,
+} from "./review-overlay-targets";
+import { ReviewAgentRequestStatus } from "./ReviewAgentRequestStatus";
+import {
+  type ReviewPinAuthor,
+  ReviewPinBadge,
+  uniqueReviewPinAuthors,
+} from "./ReviewPinBadge";
 
 export interface RepromptDraftRequest {
   nonce: number;
   fileId: string;
   target: NodeRewriteTarget;
   point?: ReviewAnchorPoint;
+  /** Preset instruction; with `submit` it is sent without opening the composer for typing. */
+  instruction?: string;
+  submit?: boolean;
 }
 
 export interface ReviewFocusRequest {
@@ -116,6 +137,8 @@ export interface ReviewFocusRequest {
   anchor: unknown;
   targetId?: string | null;
   threadId?: string;
+  /** Called once an overlay has acted on the request, so its owner can retire it. */
+  onConsumed?: () => void;
 }
 
 export interface ReviewCanvasPinRequest {
@@ -141,8 +164,15 @@ interface ReviewCanvasPinsProps {
   canResolve: boolean;
   focusRequest?: ReviewFocusRequest | null;
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
-  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  /** Backs the card menu's agent items; only editors get them. */
+  onSendThreadToAgent?: (
+    thread: ReviewThread,
+    action: ReviewThreadAgentAction,
+  ) => void;
+  /** The thread whose hand-off to the agent is still in flight. */
   sendingThreadId?: string | null;
+  /** The open thread's id, or null when no thread card is open. */
+  onActiveThreadChange?: ReviewActiveThreadReporter;
   sourceType?: "inline" | "localhost" | "fusion";
   sourceVersionHash?: string;
   repromptDraftRequest?: RepromptDraftRequest | null;
@@ -153,6 +183,11 @@ interface ReviewFrameNodeGeometry {
   rect: { left: number; top: number; width: number; height: number };
   viewportWidth: number;
   viewportHeight: number;
+}
+
+interface ReviewSelectorBoxReply {
+  box: ReviewFrameNodeGeometry | null;
+  selectorStatus: SourceEquivalentSelectorStatus;
 }
 
 interface ReviewImageAttachment {
@@ -169,11 +204,14 @@ interface PendingReviewReaction {
 }
 
 const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
-const QUICK_REACTIONS = ["👍", "❤️", "🎉", "👀"];
 const REVIEW_IDENTITY_SELECTOR =
-  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]";
+  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]";
 
-type ReviewPopoverPlacement = ReturnType<typeof getReviewPopoverPlacement>;
+interface ReviewPopoverAnchor {
+  clientPoint: ReviewCanvasPoint;
+  region: ReviewVisibleRegion;
+  preferred: ReviewPopoverPlacement;
+}
 
 interface CanvasCameraSnapshot {
   camera: { x: number; y: number; zoom: number };
@@ -262,29 +300,41 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
     const document = iframe?.contentDocument;
     if (!document) return null;
     const escape = globalThis.CSS?.escape;
-    if (escape) {
-      return document.querySelector(
-        `[data-agent-native-node-id="${escape(nodeId)}"],` +
-          `[data-code-layer-id="${escape(nodeId)}"],` +
-          `[data-layer-id="${escape(nodeId)}"],` +
-          `[data-builder-id="${escape(nodeId)}"],#${escape(nodeId)}`,
-      );
-    }
-    return (
-      Array.from(
-        document.querySelectorAll(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
-        ),
-      ).find((element) =>
-        [
-          "data-agent-native-node-id",
-          "data-code-layer-id",
-          "data-layer-id",
-          "data-builder-id",
-          "id",
-        ].some((attribute) => element.getAttribute(attribute) === nodeId),
-      ) ?? null
+    const matches = escape
+      ? Array.from(
+          document.querySelectorAll(
+            `[data-agent-native-node-id="${escape(nodeId)}"],` +
+              `[data-code-layer-id="${escape(nodeId)}"],` +
+              `[data-layer-id="${escape(nodeId)}"],` +
+              `[data-builder-id="${escape(nodeId)}"],` +
+              `[data-loc="${escape(nodeId)}"],#${escape(nodeId)}`,
+          ),
+        )
+      : Array.from(
+          document.querySelectorAll(
+            "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]",
+          ),
+        ).filter((element) =>
+          [
+            "data-agent-native-node-id",
+            "data-code-layer-id",
+            "data-layer-id",
+            "data-builder-id",
+            "data-loc",
+            "id",
+          ].some((attribute) => element.getAttribute(attribute) === nodeId),
+        );
+    // Repeated identities are ambiguous; returning null lets the click-specific selector
+    // keep the pin on the instance the bridge actually hit.
+    const sourceMatches = matches.filter((element) =>
+      isSourceLocationMatch(element, nodeId),
     );
+    if (sourceMatches.length > 1) return null;
+    if (sourceMatches.length > 0 && matches.length > sourceMatches.length) {
+      return null;
+    }
+    if (matches.length > 1) return null;
+    return sourceMatches[0] ?? matches[0] ?? null;
   } catch {
     return null;
   }
@@ -336,49 +386,213 @@ function nodePoint(
   return elementPoint(canvas, findNodeElement(canvas, nodeId), frameGeometry);
 }
 
-function selectorPoint(
+interface ReviewClientRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * What the pointer is over: the node id, the selector that finds the element
+ * again, and the box it had when the bridge reported it.
+ */
+interface ReviewHoverTarget {
+  nodeId: string | null;
+  selector: string | null;
+  box: ReviewFrameNodeGeometry | null;
+  selectorStatus?: SourceEquivalentSelectorStatus;
+}
+
+function sameHoverTarget(
+  left: ReviewHoverTarget | null,
+  right: ReviewHoverTarget | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.nodeId !== right.nodeId) return false;
+  if (left.selector !== right.selector) return false;
+  if (left.selectorStatus !== right.selectorStatus) return false;
+  if (!left.box || !right.box) return left.box === right.box;
+  return (
+    left.box.viewportWidth === right.box.viewportWidth &&
+    left.box.viewportHeight === right.box.viewportHeight &&
+    left.box.rect.left === right.box.rect.left &&
+    left.box.rect.top === right.box.rect.top &&
+    left.box.rect.width === right.box.rect.width &&
+    left.box.rect.height === right.box.rect.height
+  );
+}
+
+/** The box a bridge reply carries, or null when the element was not found. */
+function frameBoxFromPayload(
+  payload: Record<string, unknown>,
+): ReviewFrameNodeGeometry | null {
+  const rect = payload.rect as Record<string, unknown> | undefined;
+  if (!rect || typeof rect !== "object") return null;
+  const box = {
+    left: Number(rect.left),
+    top: Number(rect.top),
+    width: Number(rect.width),
+    height: Number(rect.height),
+  };
+  const viewportWidth = Number(payload.viewportWidth);
+  const viewportHeight = Number(payload.viewportHeight);
+  if (
+    ![...Object.values(box), viewportWidth, viewportHeight].every(
+      Number.isFinite,
+    )
+  ) {
+    return null;
+  }
+  return { rect: box, viewportWidth, viewportHeight };
+}
+
+function hoverTargetFromPayload(
+  payload: Record<string, unknown>,
+): ReviewHoverTarget | null {
+  const nodeId = typeof payload.nodeId === "string" ? payload.nodeId : null;
+  const box = frameBoxFromPayload(payload);
+  if (!nodeId && !box) return null;
+  return {
+    nodeId,
+    selector:
+      typeof payload.hitSelector === "string" ? payload.hitSelector : null,
+    box,
+  };
+}
+
+/** A frame-viewport rect in client coordinates, mapped the same way as elementPoint. */
+function frameRectToClient(
   canvas: HTMLElement,
-  selector: string,
-): ReviewAnchorPoint | null {
+  frameRect: ReviewClientRect,
+  viewport?: { width: number; height: number },
+): ReviewClientRect | null {
   const iframe = canvas.querySelector<HTMLIFrameElement>(
     "iframe[data-design-preview-iframe]",
   );
+  if (!iframe) return null;
+  const iframeRect = iframe.getBoundingClientRect();
+  const scaleX =
+    iframeRect.width / Math.max(1, viewport?.width ?? iframe.clientWidth);
+  const scaleY =
+    iframeRect.height / Math.max(1, viewport?.height ?? iframe.clientHeight);
+  return {
+    left: iframeRect.left + frameRect.left * scaleX,
+    top: iframeRect.top + frameRect.top * scaleY,
+    width: frameRect.width * scaleX,
+    height: frameRect.height * scaleY,
+  };
+}
+
+/** A node's box in client coordinates, from its live element or the last reported frame rect. */
+function nodeClientRect(
+  canvas: HTMLElement,
+  nodeId: string,
+  frameGeometry?: ReviewFrameNodeGeometry,
+): ReviewClientRect | null {
+  const elementRect =
+    findNodeElement(canvas, nodeId)?.getBoundingClientRect() ??
+    frameGeometry?.rect;
+  if (!elementRect) return null;
+  return frameRectToClient(
+    canvas,
+    elementRect,
+    frameGeometry
+      ? {
+          width: frameGeometry.viewportWidth,
+          height: frameGeometry.viewportHeight,
+        }
+      : undefined,
+  );
+}
+
+/**
+ * Where a hover target is drawn. The box is the element the bridge actually hit, so it
+ * wins: a node-id lookup returns the first of any repeated clones. The node lookup covers
+ * a target that has no box.
+ */
+function hoverTargetClientRect(
+  canvas: HTMLElement,
+  target: ReviewHoverTarget,
+  nodeGeometry: Record<string, ReviewFrameNodeGeometry>,
+): ReviewClientRect | null {
+  if (target.box) {
+    return frameRectToClient(canvas, target.box.rect, {
+      width: target.box.viewportWidth,
+      height: target.box.viewportHeight,
+    });
+  }
+  return target.nodeId
+    ? nodeClientRect(canvas, target.nodeId, nodeGeometry[target.nodeId])
+    : null;
+}
+
+/**
+ * The overlay portals to body but is a React child of the design frame, so its
+ * mouse-down and click would bubble into the frame's select handlers. Only
+ * those two: stopping native propagation for mouse move or up would starve the
+ * window listeners that finish a canvas pan started over the plane.
+ */
+function stopReviewOverlayEvent(event: { stopPropagation: () => void }) {
+  event.stopPropagation();
+}
+
+/**
+ * Preview-frame elements belong to another realm, so instanceof against this window's
+ * HTMLElement or SVGElement is false for them. Check the shape instead.
+ */
+function isRenderedElement(value: unknown): value is HTMLElement | SVGElement {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Element).nodeType === 1 &&
+    typeof (value as HTMLElement).style === "object"
+  );
+}
+
+/**
+ * Resolves versioned source paths with their matching sibling rules and leaves
+ * unversioned persisted selectors on their original native CSS semantics.
+ */
+function selectorElement(
+  canvas: HTMLElement,
+  selector: string,
+): Element | null {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  if (!doc) return null;
   try {
-    return elementPoint(
-      canvas,
-      iframe?.contentDocument?.querySelector(selector) ?? null,
-    );
-  } catch {
-    return null;
+    return resolveSourceEquivalentSelector(doc, selector);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "SyntaxError"
+    ) {
+      return null;
+    }
+    throw error;
   }
 }
 
-function structuralSelector(element: Element, document: Document): string {
-  if (element === document.body || element === document.documentElement) {
-    return "";
+function selectorPoint(
+  canvas: HTMLElement,
+  selector: string,
+): ReviewAnchorSelectorResolution {
+  const iframe = canvas.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  const doc = iframe?.contentDocument;
+  if (!doc) return { status: "unavailable" };
+  const resolution = resolveSourceEquivalentSelectorResult(doc, selector);
+  if (resolution.status !== "matched") {
+    return { status: resolution.status };
   }
-  const parts: string[] = [];
-  let current: Element | null = element;
-  while (
-    current &&
-    current !== document.body &&
-    current !== document.documentElement
-  ) {
-    const tag = current.tagName.toLowerCase();
-    const siblings = current.parentElement
-      ? Array.from(current.parentElement.children).filter(
-          (candidate) => candidate.tagName === current?.tagName,
-        )
-      : [];
-    const index = siblings.indexOf(current);
-    parts.unshift(
-      siblings.length > 1 && index >= 0
-        ? `${tag}:nth-of-type(${index + 1})`
-        : tag,
-    );
-    current = current.parentElement;
-  }
-  return parts.length > 0 ? `body > ${parts.join(" > ")}` : "";
+  const point = elementPoint(canvas, resolution.element);
+  return point ? { status: "matched", point } : { status: "unavailable" };
 }
 
 function elementAnchorAtPoint(
@@ -401,10 +615,15 @@ function elementAnchorAtPoint(
     if (!document || !iframe || !iframeRect) return {};
     const scaleX = iframe.clientWidth / Math.max(1, iframeRect.width);
     const scaleY = iframe.clientHeight / Math.max(1, iframeRect.height);
-    const element = document.elementFromPoint(
-      (clientX - iframeRect.left) * scaleX,
-      (clientY - iframeRect.top) * scaleY,
-    );
+    const element =
+      document
+        .elementsFromPoint(
+          (clientX - iframeRect.left) * scaleX,
+          (clientY - iframeRect.top) * scaleY,
+        )
+        .find(
+          (candidate) => !candidate.closest("[data-agent-native-edit-overlay]"),
+        ) ?? null;
     let identifiedAncestor: Element | null = null;
     for (
       let current = element;
@@ -436,6 +655,7 @@ function elementAnchorAtPoint(
       anchor.getAttribute("data-code-layer-id") ??
       anchor.getAttribute("data-layer-id") ??
       anchor.getAttribute("data-builder-id") ??
+      anchor.getAttribute("data-loc") ??
       anchor.getAttribute("id") ??
       undefined;
     const layerName =
@@ -443,7 +663,7 @@ function elementAnchorAtPoint(
         ?.value ?? undefined;
     const targetSelector = nodeId
       ? undefined
-      : structuralSelector(anchor, document) || undefined;
+      : buildSourceEquivalentSelector(anchor) || undefined;
     return {
       ...(nodeId ? { nodeId } : {}),
       ...(targetSelector ? { targetSelector } : {}),
@@ -697,84 +917,117 @@ function reviewAgentAttachments(attachments: readonly ReviewImageAttachment[]) {
   }));
 }
 
-function reviewCommentAttachments(
-  comment: ReviewComment,
-): ReviewCommentAttachment[] {
-  const raw = comment.metadata?.attachments;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .flatMap((value) => {
-      if (!value || typeof value !== "object") return [];
-      const attachment = value as Record<string, unknown>;
-      const url = typeof attachment.url === "string" ? attachment.url : "";
-      const contentType =
-        typeof attachment.contentType === "string"
-          ? attachment.contentType
-          : undefined;
-      if (
-        !url ||
-        (contentType && !contentType.startsWith("image/")) ||
-        !isTrustedReviewAttachmentUrl(url)
-      ) {
-        return [];
-      }
-      return [
-        {
-          url,
-          name:
-            typeof attachment.name === "string" && attachment.name.trim()
-              ? attachment.name
-              : "image",
-        },
-      ];
-    })
-    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
+// Everything here is portaled to <body> above the editor's stacking context,
+// so sidebars, the top bar and the bottom toolbar that overlap the canvas
+// would otherwise be painted over.
+const WORKING_AREA_CHROME_SELECTOR =
+  '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
+const BOTTOM_TOOLBAR_SELECTOR = "[data-design-bottom-toolbar]";
+// The Pin comment tool, which the label cannot find: it is translated.
+const COMMENT_TOOL_SELECTOR = `${BOTTOM_TOOLBAR_SELECTOR} [data-design-toolbar-group="comment"] button`;
+const MAIN_SURFACE_SELECTOR =
+  ".agent-sidebar-main-surface, .agent-layout-main-surface";
+const OPEN_REVIEW_OVERLAY_SELECTOR =
+  '[data-review-popover][role="menu"][data-state="open"], [role="alertdialog"][data-state="open"]';
+// Shared by every mounted surface, which all hear the same keydown.
+const overlayEscapes = new WeakSet<Event>();
+const ownedEscapes = new WeakSet<Event>();
+
+// Where focus goes once the card or draft that held it is gone.
+interface ReviewFocusReturn {
+  // The pin the card belongs to; null for a draft, which has no pin yet.
+  threadId: string | null;
+  // The overlay's pins in DOM order when the card closed. A deleted thread's
+  // pin is already unmounted by the time focus moves, so its neighbors are
+  // read from here.
+  pinOrder: readonly string[];
 }
 
-interface ReviewCommentAttachment {
-  url: string;
-  name: string;
+function pinThreadIdsInDomOrder(
+  pins: ReadonlyMap<string, HTMLElement>,
+): string[] {
+  return [...pins]
+    .sort(([, a], [, b]) =>
+      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+    )
+    .map(([threadId]) => threadId);
 }
 
-function ReviewCommentAttachmentStrip({
-  comment,
-  compact = false,
-}: {
-  comment: ReviewComment;
-  compact?: boolean;
-}) {
-  const attachments = reviewCommentAttachments(comment);
-  if (!attachments.length) return null;
+// The next pin after the dismissed one, else the previous. A draft sits after
+// every pin, so it lands on the last.
+function nearestPin(
+  { threadId, pinOrder }: ReviewFocusReturn,
+  pins: ReadonlyMap<string, HTMLElement>,
+): HTMLElement | null {
+  const at = threadId === null ? -1 : pinOrder.indexOf(threadId);
+  const after = at === -1 ? [] : pinOrder.slice(at + 1);
+  const before = (at === -1 ? [...pinOrder] : pinOrder.slice(0, at)).reverse();
+  for (const id of [...after, ...before]) {
+    const pin = pins.get(id);
+    if (pin) return pin;
+  }
+  return null;
+}
+
+// Focus that the dismissed card or its confirmation dialog left on a control
+// about to unmount is lost; focus anywhere else is the user's own.
+function focusIsLost(active: Element | null): boolean {
   return (
-    <div
-      className={cn(
-        "mt-2 flex flex-wrap gap-1.5",
-        compact ? "max-w-56" : "max-w-64",
-      )}
-      data-review-comment-attachments
-    >
-      {attachments.map((attachment) => (
-        <a
-          key={attachment.url}
-          href={attachment.url}
-          target="_blank"
-          rel="noreferrer"
-          className="block size-16 overflow-hidden rounded-md border border-border bg-muted"
-        >
-          <img
-            src={attachment.url}
-            alt={attachment.name}
-            loading="lazy"
-            className="size-full object-cover"
-          />
-        </a>
-      ))}
-    </div>
+    active === null ||
+    active === document.body ||
+    active.closest('[role="alertdialog"]') !== null
   );
 }
 
-function displayReviewCommentBody(body: string): string {
-  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
+function workingAreaRect(
+  bounds: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
+): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+  let left = bounds.left;
+  let top = bounds.top;
+  let right = bounds.right;
+  const bottom = bounds.bottom;
+  document.querySelectorAll(WORKING_AREA_CHROME_SELECTOR).forEach((el) => {
+    // Popovers tagged as inspector content float beside the panel, not in it.
+    if (el.closest("[data-radix-popper-content-wrapper]")) return;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    const region = el.getAttribute("data-design-chrome-region");
+    if (region === "top-bar") top = Math.max(top, r.bottom);
+    else if (region === "left-shell") left = Math.max(left, r.right);
+    else if (region === "right-panel") right = Math.min(right, r.left);
+  });
+  return {
+    left,
+    top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
+// The canvas element can be a single screen frame, so the region is bounded by
+// the app's main surface (which excludes the agent sidebar), not the canvas.
+function reviewVisibleRegion(canvas: HTMLElement): ReviewVisibleRegion {
+  const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
+  const area = workingAreaRect(
+    surface
+      ? surface.getBoundingClientRect()
+      : {
+          left: 0,
+          top: 0,
+          right: window.innerWidth,
+          bottom: window.innerHeight,
+        },
+  );
+  const toolbar = document
+    .querySelector(BOTTOM_TOOLBAR_SELECTOR)
+    ?.getBoundingClientRect();
+  return {
+    ...area,
+    bottomNotch:
+      toolbar && toolbar.width > 0 && toolbar.height > 0
+        ? { left: toolbar.left, right: toolbar.right, top: toolbar.top }
+        : null,
+  };
 }
 
 export function ReviewCanvasPins({
@@ -797,6 +1050,7 @@ export function ReviewCanvasPins({
   onDispatchCommentToAgent,
   onSendThreadToAgent,
   sendingThreadId,
+  onActiveThreadChange,
   sourceType = "inline",
   sourceVersionHash,
   repromptDraftRequest,
@@ -819,7 +1073,11 @@ export function ReviewCanvasPins({
     },
   );
   const { data: organizationMembers } = useOrgMembers();
-  const mentionOptions = useMemo<ReviewMention[]>(
+  const reviewAgentController = useReviewAgent();
+  // Only editors get agent features; the server refuses everyone else too.
+  const reviewAgent =
+    canResolve && reviewAgentController?.enabled ? reviewAgentController : null;
+  const peopleMentionOptions = useMemo<ReviewMention[]>(
     () =>
       (organizationMembers?.members ?? []).map((member) => ({
         label:
@@ -827,6 +1085,10 @@ export function ReviewCanvasPins({
         email: member.email,
       })),
     [organizationMembers?.members],
+  );
+  const mentionOptions = useMemo<readonly ReviewMentionOption[]>(
+    () => [...peopleMentionOptions, ...(reviewAgent?.mentionOptions ?? [])],
+    [peopleMentionOptions, reviewAgent?.mentionOptions],
   );
   const createComment = useCreateReviewComment();
   const deleteComment = useDeleteReviewComment();
@@ -836,6 +1098,8 @@ export function ReviewCanvasPins({
   const setUnread = useSetReviewThreadUnread();
   const updateComment = useUpdateReviewComment();
   const [canvas, setCanvas] = useState<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [layoutTick, setLayoutTick] = useState(0);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<
@@ -843,6 +1107,20 @@ export function ReviewCanvasPins({
   >([]);
   const [draftComposerOpen, setDraftComposerOpen] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const onActiveThreadChangeRef = useRef(onActiveThreadChange);
+  onActiveThreadChangeRef.current = onActiveThreadChange;
+  const emittedThreadIdRef = useRef<string | null>(null);
+  useReviewAgentSurface(
+    Boolean(reviewAgent) &&
+      !hidden &&
+      (active || draftComposerOpen || activeThreadId !== null),
+  );
+  const reporterId = useId();
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
+  const pinElementsRef = useRef(new Map<string, HTMLButtonElement>());
+  const focusFallbackRef = useRef<HTMLSpanElement | null>(null);
+  const focusReturnRef = useRef<ReviewFocusReturn | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<ReviewMention[]>([]);
   const [replyAttachments, setReplyAttachments] = useState<
@@ -877,11 +1155,20 @@ export function ReviewCanvasPins({
   const [frameNodeGeometry, setFrameNodeGeometry] = useState<
     Record<string, ReviewFrameNodeGeometry>
   >({});
+  const [hoverTarget, setHoverTarget] = useState<ReviewHoverTarget | null>(
+    null,
+  );
+  const hoverTargetRef = useRef<ReviewHoverTarget | null>(null);
+  const hoverPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const hoverFrameRef = useRef<number | null>(null);
+  const hoverRequestRef = useRef(0);
+  const selectorRequestRef = useRef(0);
   const lastFocusNonceRef = useRef<number | null>(null);
   const pendingFocusNonceRef = useRef<number | null>(null);
   const migratedBoardAnchorIdsRef = useRef<Set<string>>(new Set());
   const migrationInFlightRef = useRef(false);
   const lastRepromptDraftNonceRef = useRef<number | null>(null);
+  const autoSubmitRepromptPinIdRef = useRef<string | null>(null);
   const lastPinRequestNonceRef = useRef<number | null>(null);
   const frameCallbacksRef = useRef<
     Map<string, (payload: Record<string, unknown>) => void>
@@ -913,6 +1200,33 @@ export function ReviewCanvasPins({
     };
     window.addEventListener(NODE_REPROMPT_PRESENTED_EVENT, onRepromptSettled);
     window.addEventListener(NODE_REPROMPT_RESOLVED_EVENT, onRepromptSettled);
+    const onRepromptPreviewFailed = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          fileId?: string;
+          reason?: string;
+          repromptId?: string;
+        }>
+      ).detail;
+      if (
+        detail?.repromptId !== pendingRepromptId ||
+        detail.fileId !== targetId
+      ) {
+        return;
+      }
+      setPendingRepromptId(null);
+      toast.error(
+        t(
+          detail.reason === "target-unresolved"
+            ? "designEditor.nodeRewrite.previewTargetUnavailable"
+            : "designEditor.nodeRewrite.previewFailed",
+        ),
+      );
+    };
+    window.addEventListener(
+      NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+      onRepromptPreviewFailed,
+    );
     return () => {
       window.removeEventListener(
         NODE_REPROMPT_PRESENTED_EVENT,
@@ -922,12 +1236,31 @@ export function ReviewCanvasPins({
         NODE_REPROMPT_RESOLVED_EVENT,
         onRepromptSettled,
       );
+      window.removeEventListener(
+        NODE_REPROMPT_PREVIEW_FAILED_EVENT,
+        onRepromptPreviewFailed,
+      );
     };
-  }, [cancelDraft, onClose, pendingRepromptId]);
+  }, [cancelDraft, onClose, pendingRepromptId, t, targetId]);
 
+  const coveredTargets = useReviewOverlayTargets();
+  useEffect(() => {
+    if (targetId === null || hidden || !canvas) return;
+    return registerReviewOverlayTarget(targetId);
+  }, [canvas, hidden, targetId]);
+  // A null `targetId` is dropped from the GET query, so the board's list arrives
+  // with every screen's threads. A screen with its own overlay draws its own
+  // threads; the board draws only the rest, or each pin would show twice.
   const threads = useMemo(
-    () => buildReviewThreads(comments.data?.comments ?? []),
-    [comments.data?.comments],
+    () =>
+      buildReviewThreads(
+        (comments.data?.comments ?? []).filter((comment) =>
+          targetId === null
+            ? comment.targetId === null || !coveredTargets.has(comment.targetId)
+            : comment.targetId === targetId,
+        ),
+      ),
+    [comments.data?.comments, coveredTargets, targetId],
   );
   const discussion = comments.data?.discussion;
   const normalizedCurrentUserEmail =
@@ -948,34 +1281,22 @@ export function ReviewCanvasPins({
           ? materializeBoardReviewAnchor(effectiveAnchor, boardGeometry)
           : parseReviewAnchor(effectiveAnchor);
       if (parsed?.relativePoint && canvas) {
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : parsed.selector
-            ? (() => {
-                const iframe = canvas.querySelector<HTMLIFrameElement>(
-                  "iframe[data-design-preview-iframe]",
-                );
-                try {
-                  return (
-                    iframe?.contentDocument?.querySelector(parsed.selector) ??
-                    null
-                  );
-                  // coercion-ok: cross-origin preview frames make selector lookup unavailable.
-                } catch {
-                  return null;
-                }
-              })()
-            : null;
+        const nodeId = parsed.nodeId;
+        const nodeElement = nodeId ? findNodeElement(canvas, nodeId) : null;
+        // A repeated data-loc resolves to no node element; the saved selector names this instance.
+        const element =
+          nodeElement ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const point = relativeElementCanvasPoint(
           canvas,
           element,
           parsed.relativePoint,
-          parsed.nodeId ? frameNodeGeometry[parsed.nodeId] : undefined,
+          nodeElement && nodeId ? frameNodeGeometry[nodeId] : undefined,
         );
         if (point) {
           return {
             point,
-            source: parsed.nodeId ? ("node" as const) : ("selector" as const),
+            source: nodeElement ? ("node" as const) : ("selector" as const),
           };
         }
       }
@@ -1013,6 +1334,22 @@ export function ReviewCanvasPins({
     },
     [discussion?.canReact, reactToComment, resourceId, resourceType, t],
   );
+  // Several overlays can be mounted at once and share one callback, so every
+  // report carries this overlay's id: closing or unmounting here withdraws only
+  // this overlay's thread, never one another overlay has open.
+  useEffect(() => {
+    if (emittedThreadIdRef.current === activeThreadId) return;
+    emittedThreadIdRef.current = activeThreadId;
+    onActiveThreadChangeRef.current?.(activeThreadId, reporterId);
+  }, [activeThreadId, reporterId]);
+  useEffect(
+    () => () => {
+      if (emittedThreadIdRef.current === null) return;
+      emittedThreadIdRef.current = null;
+      onActiveThreadChangeRef.current?.(null, reporterId);
+    },
+    [reporterId],
+  );
   const closeActiveThread = useCallback(() => {
     setActiveThreadId(null);
     setReplyDraft("");
@@ -1022,10 +1359,53 @@ export function ReviewCanvasPins({
     setEditDraft("");
     setEditMentions([]);
   }, []);
+  const focusReturnTo = useCallback(
+    (threadId: string | null): ReviewFocusReturn => ({
+      threadId,
+      pinOrder: pinThreadIdsInDomOrder(pinElementsRef.current),
+    }),
+    [],
+  );
+  // Closing from the card itself (close button, Escape, delete, resolve) hands
+  // focus back to the pin it belongs to; clicking elsewhere leaves focus there.
+  const dismissActiveThread = useCallback(() => {
+    if (activeThreadIdRef.current !== null) {
+      focusReturnRef.current = focusReturnTo(activeThreadIdRef.current);
+    }
+    closeActiveThread();
+  }, [closeActiveThread, focusReturnTo]);
+  const dismissDraft = useCallback(() => {
+    focusReturnRef.current = focusReturnTo(null);
+    cancelDraft();
+  }, [cancelDraft, focusReturnTo]);
+  // The card or draft is unmounted by the time this runs, so focus is not
+  // dropped to <body>. A deleted thread has no pin left and a draft never had
+  // one: focus moves to the nearest pin, else the overlay's fallback target,
+  // else the Pin comment tool once the overlay has unmounted with its last pin,
+  // unless the user already put focus somewhere else.
+  useEffect(() => {
+    if (activeThreadId !== null || draftComposerOpen) return;
+    const target = focusReturnRef.current;
+    focusReturnRef.current = null;
+    if (!target) return;
+    const pins = pinElementsRef.current;
+    const pin =
+      target.threadId === null ? undefined : pins.get(target.threadId);
+    if (pin) {
+      pin.focus({ preventScroll: true });
+      return;
+    }
+    if (!focusIsLost(document.activeElement)) return;
+    (
+      nearestPin(target, pins) ??
+      focusFallbackRef.current ??
+      document.querySelector<HTMLElement>(COMMENT_TOOL_SELECTOR)
+    )?.focus({ preventScroll: true });
+  }, [activeThreadId, draftComposerOpen]);
   const copyThreadLink = useCallback(
     async (thread: ReviewThread) => {
       if (!navigator.clipboard) {
-        toast.error(t("review.postFailed"));
+        toast.error(t("review.copyLinkFailed"));
         return;
       }
       const link = new URL(window.location.href);
@@ -1034,7 +1414,7 @@ export function ReviewCanvasPins({
         await navigator.clipboard.writeText(link.toString());
         toast.success(t("review.linkCopied"));
       } catch {
-        toast.error(t("review.postFailed"));
+        toast.error(t("review.copyLinkFailed"));
       }
     },
     [t],
@@ -1144,14 +1524,25 @@ export function ReviewCanvasPins({
   useEffect(() => {
     if (!canvas) return;
     let animationFrame = 0;
+    const resizeObserver = new ResizeObserver(() => bump());
+    // Chrome that mounted after the last pass is picked up on the next bump.
+    const observeChrome = () => {
+      document
+        .querySelectorAll(
+          `${WORKING_AREA_CHROME_SELECTOR}, ${BOTTOM_TOOLBAR_SELECTOR}`,
+        )
+        .forEach((region) => resizeObserver.observe(region));
+      const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
+      if (surface) resizeObserver.observe(surface);
+    };
     const bump = () => {
       if (animationFrame) return;
       animationFrame = window.requestAnimationFrame(() => {
         animationFrame = 0;
+        observeChrome();
         setLayoutTick((current) => current + 1);
       });
     };
-    const resizeObserver = new ResizeObserver(bump);
     resizeObserver.observe(canvas);
     const iframe = canvas.querySelector<HTMLIFrameElement>(
       "iframe[data-design-preview-iframe]",
@@ -1159,6 +1550,7 @@ export function ReviewCanvasPins({
     if (iframe) resizeObserver.observe(iframe);
     const frameShell = canvas.closest<HTMLElement>("[data-frame-shell]");
     if (frameShell) resizeObserver.observe(frameShell);
+    observeChrome();
     const layoutOwners = new Set<HTMLElement>();
     for (const owner of [
       canvas.querySelector<HTMLElement>("[data-multi-screen-canvas-world]"),
@@ -1241,6 +1633,87 @@ export function ReviewCanvasPins({
     return () => window.removeEventListener("message", handleMessage);
   }, [canvas]);
 
+  // An open composer or thread keeps its element highlighted; otherwise the highlight follows the pointer.
+  const popoverNodeId = useMemo(() => {
+    if (draftPin) {
+      return (
+        resolveReviewAnchor(draftPin.anchor, () => null)?.anchor.nodeId ?? null
+      );
+    }
+    const thread = threads.find(
+      (candidate) => candidate.root.threadId === activeThreadId,
+    );
+    return thread
+      ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor.nodeId ??
+          null)
+      : null;
+  }, [activeThreadId, draftPin, threads]);
+  const popoverKey = draftPin
+    ? `draft:${draftPin.id}`
+    : activeThreadId
+      ? `thread:${activeThreadId}`
+      : null;
+  const popoverOpen = popoverKey !== null;
+  // The pointer moves onto the popover, which clears the hover; keep what it was over when this popover opened.
+  const [popoverHover, setPopoverHover] = useState<{
+    key: string;
+    target: ReviewHoverTarget | null;
+  } | null>(null);
+  // The popover is about its anchor, so a stored selector wins over the pointer; the
+  // hover is the fallback for a draft that has not saved one yet.
+  const popoverAnchorSelector = draftPin
+    ? (draftPin.anchor.selector ?? null)
+    : (() => {
+        const thread = threads.find(
+          (candidate) => candidate.root.threadId === activeThreadId,
+        );
+        return thread
+          ? (resolveReviewAnchor(thread.root.anchor, () => null)?.anchor
+              .selector ?? null)
+          : null;
+      })();
+  useEffect(() => {
+    // Closing drops the snapshot, so reopening the same thread takes a fresh one.
+    if (!popoverKey) {
+      setPopoverHover(null);
+      return;
+    }
+    // A bridge-corrected anchor selector replaces the snapshot's, so the highlight re-measures from it.
+    setPopoverHover((current) =>
+      current?.key === popoverKey &&
+      (!popoverAnchorSelector ||
+        current.target?.selector === popoverAnchorSelector)
+        ? current
+        : {
+            key: popoverKey,
+            target: popoverAnchorSelector
+              ? { nodeId: null, selector: popoverAnchorSelector, box: null }
+              : hoverTargetRef.current,
+          },
+    );
+  }, [popoverAnchorSelector, popoverKey]);
+  const popoverSnapshot =
+    popoverHover?.key === popoverKey ? popoverHover.target : null;
+  // A layout change re-measures the snapshot's box from this selector.
+  const snapshotSelector = popoverSnapshot?.selector ?? null;
+  const highlightTarget: ReviewHoverTarget | null = popoverOpen
+    ? popoverNodeId
+      ? {
+          nodeId: popoverNodeId,
+          selector: snapshotSelector,
+          // Node IDs can be shared by repeated instances, so only a selector identifies this box's instance.
+          box:
+            popoverSnapshot &&
+            popoverAnchorSelector !== null &&
+            popoverSnapshot.selector === popoverAnchorSelector
+              ? popoverSnapshot.box
+              : null,
+        }
+      : popoverSnapshot
+    : hoverTarget;
+  const highlightNodeId = highlightTarget?.nodeId ?? null;
+  const highlightHasBox = Boolean(highlightTarget?.box);
+
   const anchoredNodeIds = useMemo(() => {
     const nodeIds = new Set<string>();
     for (const thread of threads) {
@@ -1251,8 +1724,10 @@ export function ReviewCanvasPins({
       ? resolveReviewAnchor(draftPin.anchor, () => null)
       : null;
     if (draft?.anchor.nodeId) nodeIds.add(draft.anchor.nodeId);
+    // A box already measured for the highlight needs no node rect, and asking for one re-renders on every hover.
+    if (highlightNodeId && !highlightHasBox) nodeIds.add(highlightNodeId);
     return [...nodeIds].sort();
-  }, [draftPin, threads]);
+  }, [draftPin, highlightHasBox, highlightNodeId, threads]);
 
   useEffect(() => {
     if (!canvas || anchoredNodeIds.length === 0) {
@@ -1335,8 +1810,6 @@ export function ReviewCanvasPins({
             });
             successfulThreadIds.push(migration.threadId);
           } catch {
-            // Keep the local anchor for stable rendering, but allow a later
-            // review refresh to retry persistence after a transient failure.
             migratedBoardAnchorIdsRef.current.delete(migration.threadId);
           }
         }
@@ -1349,7 +1822,6 @@ export function ReviewCanvasPins({
               return next;
             });
           } catch (error) {
-            // Keep the local anchor until a later refresh can reconcile it.
             console.warn(
               "[ReviewCanvasPins] board-anchor refresh failed",
               error,
@@ -1372,7 +1844,11 @@ export function ReviewCanvasPins({
   ]);
 
   const focusAnchor = useCallback(
-    (anchor: unknown, nonce: number): boolean => {
+    (
+      anchor: unknown,
+      nonce: number,
+      onConsumed: (() => void) | undefined,
+    ): boolean => {
       if (!canvas) return false;
       const resolved = resolveReviewAnchor(
         anchor,
@@ -1390,23 +1866,15 @@ export function ReviewCanvasPins({
         }
       }
       if (resolved.anchor.nodeId || resolved.anchor.selector) {
-        const element = resolved.anchor.nodeId
-          ? findNodeElement(canvas, resolved.anchor.nodeId)
-          : (() => {
-              const iframe = canvas.querySelector<HTMLIFrameElement>(
-                "iframe[data-design-preview-iframe]",
-              );
-              try {
-                return (
-                  iframe?.contentDocument?.querySelector(
-                    resolved.anchor.selector!,
-                  ) ?? null
-                );
-              } catch {
-                return null;
-              }
-            })();
-        if (element instanceof HTMLElement || element instanceof SVGElement) {
+        // A repeated data-loc resolves to no node; the saved selector names the instance.
+        const element =
+          (resolved.anchor.nodeId
+            ? findNodeElement(canvas, resolved.anchor.nodeId)
+            : null) ??
+          (resolved.anchor.selector
+            ? selectorElement(canvas, resolved.anchor.selector)
+            : null);
+        if (isRenderedElement(element)) {
           element.scrollIntoView({ block: "center", inline: "center" });
           const previousBoxShadow = element.style.boxShadow;
           element.style.boxShadow =
@@ -1428,6 +1896,7 @@ export function ReviewCanvasPins({
           pendingFocusNonceRef.current = null;
           if (payload.focused === true) {
             lastFocusNonceRef.current = nonce;
+            onConsumed?.();
             setLayoutTick((current) => current + 1);
           }
         });
@@ -1461,11 +1930,20 @@ export function ReviewCanvasPins({
         focusRequest.targetId !== targetId)
     )
       return;
-    if (focusAnchor(focusRequest.anchor, focusRequest.nonce)) {
+    if (
+      focusAnchor(
+        focusRequest.anchor,
+        focusRequest.nonce,
+        focusRequest.onConsumed,
+      )
+    ) {
       lastFocusNonceRef.current = focusRequest.nonce;
-      if (focusRequest.threadId) {
+      // A thread without an anchor has no pin to hold its card, and opening it
+      // would report a thread nobody can see.
+      if (focusRequest.threadId && parseReviewAnchor(focusRequest.anchor)) {
         setActiveThreadId(focusRequest.threadId);
       }
+      focusRequest.onConsumed?.();
     }
   }, [focusAnchor, focusRequest, layoutTick, targetId]);
 
@@ -1498,13 +1976,17 @@ export function ReviewCanvasPins({
     setDraftMentions([]);
     setPendingRepromptId(null);
     setDraftMode("reprompt");
+    const draftPinId = crypto.randomUUID();
+    autoSubmitRepromptPinIdRef.current = repromptDraftRequest.submit
+      ? draftPinId
+      : null;
     setDraftPin({
-      id: crypto.randomUUID(),
+      id: draftPinId,
       anchor: {
         ...(nodeId ? { nodeId } : {}),
         point,
       },
-      draft: "",
+      draft: repromptDraftRequest.instruction ?? "",
       resolutionTarget: "agent",
       metadata: {
         mode: "reprompt",
@@ -1525,15 +2007,20 @@ export function ReviewCanvasPins({
     targetId,
   ]);
 
-  useEffect(() => {
-    if (!active && !activeThreadId && !draftComposerOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+  // The listeners below subscribe once and read the latest state through this
+  // ref. Other Escape handlers (Design's hotkeys, a Radix menu closing)
+  // re-render this component between the two phases of one keydown, and a
+  // listener re-subscribed in that gap is skipped or loses what capture saw.
+  const escapeRef = useRef({ owns: false, close: () => {} });
+  escapeRef.current = {
+    owns: Boolean(draftComposerOpen && draftPin) || Boolean(activeThreadId),
+    close: () => {
       if (draftComposerOpen && draftPin) {
-        cancelDraft();
+        dismissDraft();
         return;
       }
       if (activeThreadId) {
+        focusReturnRef.current = focusReturnTo(activeThreadId);
         setActiveThreadId(null);
         setReplyDraft("");
         setReplyAttachments([]);
@@ -1541,17 +2028,38 @@ export function ReviewCanvasPins({
         return;
       }
       if (active) onClose();
+    },
+  };
+  useEffect(() => {
+    // Capture runs before Radix closes an open menu or dialog, and before any
+    // review surface acts, so it records whose Escape this is: an overlay's, or
+    // the draft or thread of whichever surface owns one. Design's hotkeys call
+    // preventDefault() on every Escape, so defaultPrevented cannot tell.
+    const onKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector(OPEN_REVIEW_OVERLAY_SELECTOR)) {
+        overlayEscapes.add(event);
+      } else if (escapeRef.current.owns) {
+        ownedEscapes.add(event);
+      }
     };
+    // Bubble, so the composer's own Escape (which stops propagation) is
+    // handled by the composer alone. The board and overview surfaces are both
+    // mounted in comment mode: one that owns nothing leaves comment mode only
+    // when no other surface used this Escape to close its draft or thread.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || overlayEscapes.has(event)) return;
+      const { owns, close } = escapeRef.current;
+      if (!owns && ownedEscapes.has(event)) return;
+      close();
+    };
+    window.addEventListener("keydown", onKeyDownCapture, true);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    active,
-    activeThreadId,
-    cancelDraft,
-    draftComposerOpen,
-    draftPin,
-    onClose,
-  ]);
+    return () => {
+      window.removeEventListener("keydown", onKeyDownCapture, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     cancelDraft();
@@ -1576,8 +2084,8 @@ export function ReviewCanvasPins({
     setReplyAttachments([]);
     setReplyMentions([]);
     setExpandedClusterKey(null);
-    if (active) onClose();
-  }, [active, cancelDraft, hidden, onClose]);
+    if (active) onCloseRef.current();
+  }, [active, cancelDraft, hidden]);
 
   const dropCanvasPin = useCallback(
     (canvasPoint: ReviewCanvasPoint) => {
@@ -1671,7 +2179,27 @@ export function ReviewCanvasPins({
           typeof payload.layerName === "string" ? payload.layerName : undefined;
         const tagName =
           typeof payload.tagName === "string" ? payload.tagName : undefined;
-        if (!nodeId && !targetSelector && !layerName && !tagName) return;
+        // The bridge's hit selector is the one that re-finds this element, so it replaces
+        // the parent's structural guess made when the pin was dropped.
+        const hitSelector =
+          typeof payload.hitSelector === "string"
+            ? payload.hitSelector
+            : undefined;
+        const bridgeSelector = hitSelector ?? targetSelector;
+        // Source-location IDs can become repeated after a render, so retain the hit path as their
+        // instance discriminator. Plain IDs remain anchored by their unique identity.
+        const nodeElement =
+          canvas && nodeId ? findNodeElement(canvas, nodeId) : null;
+        const nodeFoundById = Boolean(nodeElement);
+        const anchorSelector = nodeFoundById
+          ? nodeElement &&
+            nodeId &&
+            isSourceLocationMatch(nodeElement, nodeId) &&
+            bridgeSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)
+            ? bridgeSelector
+            : undefined
+          : (hitSelector ?? targetSelector);
+        if (!nodeId && !anchorSelector && !layerName && !tagName) return;
         setDraftPin((current) => {
           if (
             !current ||
@@ -1680,19 +2208,44 @@ export function ReviewCanvasPins({
           ) {
             return current;
           }
+          const anchor = { ...current.anchor, point: current.anchor.point };
+          const cannotResolveNodeIdentity = Boolean(
+            nodeId && !nodeFoundById && !anchorSelector,
+          );
+          const sourceSelectorKeepsIdentity = Boolean(
+            nodeId === current.anchor.nodeId &&
+            anchorSelector?.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX),
+          );
+          if (nodeFoundById && nodeId) {
+            anchor.nodeId = nodeId;
+            if (anchorSelector) anchor.selector = anchorSelector;
+            else delete anchor.selector;
+          } else if (anchorSelector) {
+            if (nodeId) anchor.nodeId = nodeId;
+            else delete anchor.nodeId;
+            anchor.selector = anchorSelector;
+          } else if (cannotResolveNodeIdentity && nodeId) {
+            anchor.nodeId = nodeId;
+            delete anchor.selector;
+            delete anchor.relativePoint;
+          }
+          if (
+            anchor.nodeId !== current.anchor.nodeId ||
+            anchor.selector !== current.anchor.selector
+          ) {
+            if (!sourceSelectorKeepsIdentity) delete anchor.relativePoint;
+          }
+          const metadata = { ...current.metadata };
+          if (nodeFoundById) delete metadata.targetSelector;
+          else if (anchorSelector) metadata.targetSelector = anchorSelector;
+          else if (cannotResolveNodeIdentity) delete metadata.targetSelector;
           return {
             ...current,
-            anchor: {
-              ...current.anchor,
-              ...(nodeId ? { nodeId } : {}),
-              ...(targetSelector ? { selector: targetSelector } : {}),
-              point: current.anchor.point,
-            },
+            anchor,
             metadata: {
-              ...current.metadata,
+              ...metadata,
               ...(layerName ? { layerName } : {}),
               ...(tagName ? { tagName } : {}),
-              ...(targetSelector ? { targetSelector } : {}),
             },
           };
         });
@@ -1733,6 +2286,140 @@ export function ReviewCanvasPins({
     [canvas],
   );
 
+  const clearHoverNode = useCallback(() => {
+    hoverRequestRef.current += 1;
+    if (hoverFrameRef.current !== null) {
+      window.cancelAnimationFrame(hoverFrameRef.current);
+      hoverFrameRef.current = null;
+    }
+    hoverPointerRef.current = null;
+    hoverTargetRef.current = null;
+    setHoverTarget(null);
+  }, []);
+
+  // The click plane covers the frame, so the frame never gets hover of its own;
+  // ask the bridge which node is under the pointer instead.
+  const scheduleHoverNode = useCallback(
+    (clientX: number, clientY: number) => {
+      hoverPointerRef.current = { x: clientX, y: clientY };
+      if (hoverFrameRef.current !== null) return;
+      hoverFrameRef.current = window.requestAnimationFrame(() => {
+        hoverFrameRef.current = null;
+        const point = hoverPointerRef.current;
+        const iframe = canvas?.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        const iframeRect = iframe?.getBoundingClientRect();
+        if (!point || !iframe?.contentWindow || !iframeRect?.width) return;
+        const correlationId = crypto.randomUUID();
+        const request = ++hoverRequestRef.current;
+        frameCallbacksRef.current.set(correlationId, (payload) => {
+          // A newer move or a leave has superseded this reply.
+          if (request !== hoverRequestRef.current) return;
+          const target = hoverTargetFromPayload(payload);
+          const unchanged = sameHoverTarget(hoverTargetRef.current, target);
+          hoverTargetRef.current = target;
+          if (unchanged) return;
+          setHoverTarget(target);
+        });
+        window.setTimeout(
+          () => frameCallbacksRef.current.delete(correlationId),
+          2_000,
+        );
+        iframe.contentWindow.postMessage(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId,
+            x:
+              (point.x - iframeRect.left) *
+              (iframe.clientWidth / iframeRect.width),
+            y:
+              (point.y - iframeRect.top) *
+              (iframe.clientHeight / iframeRect.height),
+          },
+          "*",
+        );
+      });
+    },
+    [canvas],
+  );
+
+  const requestSelectorBox = useCallback(
+    (selector: string, onBox: (reply: ReviewSelectorBoxReply) => void) => {
+      const iframe = canvas?.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      if (!iframe?.contentWindow) return;
+      const correlationId = crypto.randomUUID();
+      const request = ++selectorRequestRef.current;
+      frameCallbacksRef.current.set(correlationId, (payload) => {
+        // A newer layout change has re-measured since this request went out.
+        if (request !== selectorRequestRef.current) return;
+        const rawStatus = payload.selectorStatus;
+        const selectorStatus: SourceEquivalentSelectorStatus =
+          rawStatus === "matched" ||
+          rawStatus === "not-found" ||
+          rawStatus === "invalid-selector"
+            ? rawStatus
+            : payload.rect
+              ? "matched"
+              : "not-found";
+        onBox({ box: frameBoxFromPayload(payload), selectorStatus });
+      });
+      window.setTimeout(
+        () => frameCallbacksRef.current.delete(correlationId),
+        2_000,
+      );
+      iframe.contentWindow.postMessage(
+        { type: "agent-native:review-selector-rects", correlationId, selector },
+        "*",
+      );
+    },
+    [canvas],
+  );
+
+  // Panning or zooming moves what sits under a still pointer, and moves the boxes
+  // already reported: re-measure both on every layout change.
+  const layoutTickRef = useRef(layoutTick);
+  useEffect(() => {
+    const layoutMoved = layoutTickRef.current !== layoutTick;
+    layoutTickRef.current = layoutTick;
+    const point = hoverPointerRef.current;
+    if (point) scheduleHoverNode(point.x, point.y);
+    if (!popoverKey) return;
+    if (!snapshotSelector) {
+      // A box with no selector cannot be measured again. Once the layout has moved, drop it
+      // rather than draw it where the element used to be.
+      if (layoutMoved) {
+        setPopoverHover((current) =>
+          current?.key === popoverKey && current.target?.box
+            ? { key: popoverKey, target: { ...current.target, box: null } }
+            : current,
+        );
+      }
+      return;
+    }
+    requestSelectorBox(snapshotSelector, (reply) => {
+      setPopoverHover((current) => {
+        if (current?.key !== popoverKey || !current.target) return current;
+        const target = {
+          ...current.target,
+          box: reply.box,
+          selectorStatus: reply.selectorStatus,
+        };
+        return sameHoverTarget(current.target, target)
+          ? current
+          : { key: popoverKey, target };
+      });
+    });
+  }, [
+    layoutTick,
+    popoverKey,
+    requestSelectorBox,
+    scheduleHoverNode,
+    snapshotSelector,
+  ]);
+
   const handlePlacementPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (event.button !== 0 || !canvas || !canPost) return;
@@ -1752,24 +2439,32 @@ export function ReviewCanvasPins({
       if (!start || !canvas) return;
       placementDragRef.current = null;
       suppressPlacementClickRef.current = true;
+      const area = workingAreaRect(canvas.getBoundingClientRect());
+      const endX = Math.min(
+        Math.max(event.clientX, area.left),
+        area.left + area.width,
+      );
+      const endY = Math.min(
+        Math.max(event.clientY, area.top),
+        area.top + area.height,
+      );
       const isRegion =
-        Math.abs(event.clientX - start.startX) > 6 ||
-        Math.abs(event.clientY - start.startY) > 6;
+        Math.abs(endX - start.startX) > 6 || Math.abs(endY - start.startY) > 6;
       const region = isRegion
         ? regionBetween(
             canvas.getBoundingClientRect(),
             { x: start.startX, y: start.startY },
-            { x: event.clientX, y: event.clientY },
+            { x: endX, y: endY },
           )
         : null;
       if (region) {
         dropPin(
-          start.startX + (event.clientX - start.startX) / 2,
-          start.startY + (event.clientY - start.startY) / 2,
+          start.startX + (endX - start.startX) / 2,
+          start.startY + (endY - start.startY) / 2,
           region,
         );
       } else {
-        dropPin(event.clientX, event.clientY);
+        dropPin(endX, endY);
       }
       setRegionPreview(null);
       event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -1790,6 +2485,26 @@ export function ReviewCanvasPins({
     lastPinRequestNonceRef.current = pinRequest.nonce;
     dropCanvasPin(pinRequest.canvasPoint);
   }, [active, canPost, canvas, dropCanvasPin, hidden, pinRequest]);
+
+  // Runs after the comment is saved, so a failed start never loses it.
+  const startAgentFromComment = useCallback(
+    (comment: ReviewComment, mentions: readonly ReviewMention[]) => {
+      const chip = firstAgentMention(mentions);
+      if (!chip || !reviewAgent) return;
+      const selection = reviewAgent.resolveMention(chip);
+      if (!selection) {
+        toast.error(t("review.agent.startFailed"));
+        return;
+      }
+      void reviewAgent.start({
+        threadId: comment.threadId,
+        mode: "auto",
+        triggerCommentId: comment.id,
+        selection,
+      });
+    },
+    [reviewAgent, t],
+  );
 
   const postDraft = useCallback(
     (
@@ -1822,6 +2537,7 @@ export function ReviewCanvasPins({
             if (pin.resolutionTarget === "agent") {
               onDispatchCommentToAgent?.(comment);
             }
+            startAgentFromComment(comment, mentions);
           },
           onError: () => toast.error(t("review.postFailed")),
         },
@@ -1833,6 +2549,7 @@ export function ReviewCanvasPins({
       onDispatchCommentToAgent,
       resourceId,
       resourceType,
+      startAgentFromComment,
       t,
       targetId,
     ],
@@ -1849,7 +2566,7 @@ export function ReviewCanvasPins({
       const targetSelector =
         typeof pin.metadata.targetSelector === "string"
           ? pin.metadata.targetSelector
-          : undefined;
+          : resolved?.anchor.selector;
       if (
         !instruction.trim() ||
         (!nodeId && !targetSelector) ||
@@ -1876,26 +2593,19 @@ export function ReviewCanvasPins({
         createdAt: new Date().toISOString(),
       };
       let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
+      if (!element && targetSelector && canvas) {
+        element = selectorElement(canvas, targetSelector);
       }
       setAgentSubmitting(true);
       try {
         await callAction("begin-node-rewrite-request", pending);
+        setDraftMode("reprompt");
+        setPendingRepromptId(repromptId);
         const submission = formatNodeRepromptSubmission({
           ...pending,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
+          subtreeHtml: isRenderedElement(element)
+            ? element.outerHTML
+            : undefined,
         });
         const delivery = await sendToDesignAgentChatAndConfirm(
           {
@@ -1911,11 +2621,11 @@ export function ReviewCanvasPins({
         if (!delivery.delivered) {
           throw new Error(delivery.reason ?? "Reprompt was not delivered.");
         }
-        setDraftMode("reprompt");
-        setPendingRepromptId(repromptId);
         setDraftComposerOpen(false);
         toast.success(t("designEditor.nodeRewrite.sent"));
       } catch (error) {
+        setPendingRepromptId(null);
+        setDraftMode("comment");
         await callAction("cancel-node-rewrite-request", {
           designId: resourceId,
           fileId: targetId,
@@ -1941,82 +2651,13 @@ export function ReviewCanvasPins({
     ],
   );
 
-  const submitSelectionQuestion = useCallback(
-    async (
-      pin: ReviewDraftPin,
-      attachments: readonly ReviewImageAttachment[],
-    ) => {
-      const instruction = pin.draft;
-      const resolved = resolveReviewAnchor(pin.anchor, () => null);
-      const nodeId = resolved?.anchor.nodeId;
-      const targetSelector =
-        typeof pin.metadata.targetSelector === "string"
-          ? pin.metadata.targetSelector
-          : undefined;
-      if (
-        !instruction.trim() ||
-        (!nodeId && !targetSelector) ||
-        !targetId ||
-        sourceType !== "inline" ||
-        agentSubmitting
-      ) {
-        return;
-      }
-      const target: NodeRewriteTarget = {
-        ...(nodeId ? { nodeId } : {}),
-        ...(targetSelector ? { selector: targetSelector } : {}),
-      };
-      let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector) {
-        const iframe = canvas?.querySelector<HTMLIFrameElement>(
-          "iframe[data-design-preview-iframe]",
-        );
-        try {
-          element =
-            iframe?.contentDocument?.querySelector(targetSelector) ?? null;
-        } catch {
-          element = null;
-        }
-      }
-      setAgentSubmitting(true);
-      try {
-        const submission = formatNodeSelectionQuestion({
-          designId: resourceId,
-          fileId: targetId,
-          target,
-          instruction,
-          subtreeHtml:
-            element instanceof HTMLElement || element instanceof SVGElement
-              ? element.outerHTML
-              : undefined,
-        });
-        const delivery = await sendToDesignAgentChatAndConfirm(
-          {
-            ...submission,
-            submit: true,
-            openSidebar: true,
-            ...(attachments.length
-              ? { attachments: reviewAgentAttachments(attachments) }
-              : {}),
-          },
-          { timeoutMs: 10_000 },
-        );
-        if (!delivery.delivered) {
-          throw new Error(delivery.reason ?? "Question was not delivered.");
-        }
-        cancelDraft();
-      } catch (error) {
-        toast.error(
-          error instanceof Error && error.message
-            ? error.message
-            : t("designEditor.nodeRewrite.sendFailed"),
-        );
-      } finally {
-        setAgentSubmitting(false);
-      }
-    },
-    [agentSubmitting, cancelDraft, canvas, resourceId, sourceType, t, targetId],
-  );
+  // A preset that cannot submit (stale source, busy agent) leaves its
+  // instruction in the open composer for the user to send.
+  useEffect(() => {
+    if (!draftPin || autoSubmitRepromptPinIdRef.current !== draftPin.id) return;
+    autoSubmitRepromptPinIdRef.current = null;
+    void submitReprompt(draftPin, []);
+  }, [draftPin, submitReprompt]);
 
   const moveThread = useCallback(
     (thread: ReviewThread, point: ReviewAnchorPoint) => {
@@ -2057,9 +2698,10 @@ export function ReviewCanvasPins({
         const canvasRect = canvas.getBoundingClientRect();
         const clientX = canvasRect.left + (point.xPct / 100) * canvasRect.width;
         const clientY = canvasRect.top + (point.yPct / 100) * canvasRect.height;
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : null;
+        // A repeated source location has no node element; the saved selector still names the instance.
+        const element =
+          (parsed.nodeId ? findNodeElement(canvas, parsed.nodeId) : null) ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const relativePoint = element
           ? elementRelativePoint(canvas, element, clientX, clientY)
           : null;
@@ -2113,13 +2755,64 @@ export function ReviewCanvasPins({
     ],
   );
 
+  // Native, not onWheel: React attaches wheel passively, which cannot cancel a pinch.
+  const overlayRootRef = useCallback(
+    (root: HTMLDivElement | null) => {
+      if (!root) return;
+      const handleWheel = (event: WheelEvent) =>
+        forwardReviewOverlayWheel(event, canvas);
+      root.addEventListener("wheel", handleWheel, { passive: false });
+      return () => root.removeEventListener("wheel", handleWheel);
+    },
+    [canvas],
+  );
+
+  // Unmounting the plane fires no pointerleave, so a hover from before would survive toggling pin mode back on.
+  const planeMounted =
+    Boolean(canvas) &&
+    !hidden &&
+    active &&
+    canPost &&
+    !pendingRepromptId &&
+    showPlacementPlane;
+  useEffect(() => {
+    if (!planeMounted) clearHoverNode();
+  }, [clearHoverNode, planeMounted]);
+
   if (hidden || !canvas) return null;
+  if (
+    !active &&
+    !draftPin &&
+    !deleteCandidate &&
+    !threads.some((thread) => thread.root.anchor)
+  ) {
+    return null;
+  }
   const rect = canvas.getBoundingClientRect();
-  const viewport = {
-    width: window.innerWidth,
-    height: window.innerHeight,
-  };
+  const region = reviewVisibleRegion(canvas);
   void layoutTick;
+
+  const positionClientPoint = (
+    position: ReviewPinPosition,
+  ): ReviewCanvasPoint =>
+    (position.canvasPoint
+      ? canvasPointToClientPoint(canvas, position.canvasPoint)
+      : null) ?? {
+      x: rect.left + (position.point.xPct / 100) * rect.width,
+      y: rect.top + (position.point.yPct / 100) * rect.height,
+    };
+  const popoverAnchorFor = (
+    point: ReviewAnchorPoint,
+    clientPoint: ReviewCanvasPoint,
+  ): ReviewPopoverAnchor => ({
+    clientPoint,
+    region,
+    preferred: getReviewPopoverPlacement(
+      point,
+      { x: clientPoint.x - region.left, y: clientPoint.y - region.top },
+      { width: region.width, height: region.height },
+    ),
+  });
 
   const visibleThreads = threads.filter((thread) => thread.root.anchor);
   const positionedThreads = visibleThreads
@@ -2127,7 +2820,11 @@ export function ReviewCanvasPins({
       const position = pinPositionFor(thread.root.threadId, thread.root.anchor);
       return position ? [{ thread, position }] : [];
     })
-    .map((entry, index) => ({ ...entry, index }));
+    .map((entry) => ({
+      ...entry,
+      clientPoint: positionClientPoint(entry.position),
+    }))
+    .filter((entry) => isReviewPointVisible(region, entry.clientPoint));
   // ponytail: bounded review lists make this simple O(n²) cluster scan preferable to a spatial index.
   const pinGroups: Array<{
     key: string;
@@ -2165,16 +2862,39 @@ export function ReviewCanvasPins({
   const draftPinPosition = draftPin
     ? pinPositionFor(null, draftPin.anchor)
     : null;
+  const draftClientPoint = draftPinPosition
+    ? positionClientPoint(draftPinPosition)
+    : null;
   const pinPlacementEnabled = active && canPost && !pendingRepromptId;
   const placementPlaneVisible = pinPlacementEnabled && showPlacementPlane;
+  const placementRect = placementPlaneVisible ? workingAreaRect(rect) : rect;
   const placementHintVisible =
     placementPlaneVisible &&
     !draftComposerOpen &&
     !activeThreadId &&
     !repromptDraftRequest;
+  const highlightRect =
+    placementPlaneVisible && canvas && highlightTarget
+      ? hoverTargetClientRect(canvas, highlightTarget, frameNodeGeometry)
+      : null;
 
   return createPortal(
-    <>
+    <div
+      ref={overlayRootRef}
+      data-review-overlay-root
+      className="contents"
+      onMouseDown={stopReviewOverlayEvent}
+      onClick={stopReviewOverlayEvent}
+    >
+      {/* Focus lands here when the pin it was on is gone. The root is
+          `display: contents`, which cannot take focus, and this empty span
+          needs the real box `sr-only` gives it. */}
+      <span
+        ref={focusFallbackRef}
+        tabIndex={-1}
+        data-review-focus-fallback
+        className="sr-only"
+      />
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
@@ -2183,15 +2903,17 @@ export function ReviewCanvasPins({
           }
           className="fixed z-40 cursor-crosshair"
           style={{
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
+            left: placementRect.left,
+            top: placementRect.top,
+            width: placementRect.width,
+            height: placementRect.height,
           }}
           onPointerDown={handlePlacementPointerDown}
-          onPointerMove={(event) =>
-            updateRegionPreview(event.clientX, event.clientY)
-          }
+          onPointerMove={(event) => {
+            updateRegionPreview(event.clientX, event.clientY);
+            scheduleHoverNode(event.clientX, event.clientY);
+          }}
+          onPointerLeave={clearHoverNode}
           onPointerUp={handlePlacementPointerUp}
           onPointerCancel={handlePlacementPointerUp}
           onClick={(event) => {
@@ -2205,61 +2927,81 @@ export function ReviewCanvasPins({
           }}
         />
       ) : null}
-      {pinPlacementEnabled && regionPreview ? (
-        <div
-          data-review-region-preview
-          className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
-          style={{
-            left: rect.left + (regionPreview.xPct / 100) * rect.width,
-            top: rect.top + (regionPreview.yPct / 100) * rect.height,
-            width: (regionPreview.widthPct / 100) * rect.width,
-            height: (regionPreview.heightPct / 100) * rect.height,
-          }}
-        />
-      ) : null}
-      {placementHintVisible ? (
-        <div className="pointer-events-none fixed left-1/2 top-16 z-[45] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs shadow-lg">
-          <IconMessageCircle className="size-3.5 text-primary" />
-          {t("review.clickToPin")}
-          <span className="text-[10px] text-muted-foreground">
-            {t("review.escToExit")}
-          </span>
-        </div>
-      ) : null}
-      {pinGroups.map((group) => {
-        if (group.entries.length > 1 && expandedClusterKey !== group.key) {
-          return (
-            <ReviewPinCluster
-              key={group.key}
-              count={group.entries.length}
-              canvasRect={rect}
-              point={group.point}
-              onClick={() => {
-                setExpandedClusterKey(group.key);
-                const thread = group.entries[0]!.thread;
-                if (threadIsUnread(thread.root.threadId)) {
-                  setThreadUnread(thread, false);
-                }
-                setActiveThreadId(thread.root.threadId);
-              }}
-            />
-          );
-        }
-        return group.entries.map(({ thread, index, position }) => {
-          const clientPoint = position.canvasPoint
-            ? canvasPointToClientPoint(canvas, position.canvasPoint)
-            : null;
-          const popoverPoint = clientPoint ?? {
-            x: rect.left + (position.point.xPct / 100) * rect.width,
-            y: rect.top + (position.point.yPct / 100) * rect.height,
-          };
-          return (
+      <div
+        data-review-layer
+        className="pointer-events-none fixed inset-0 z-[45]"
+        style={{ clipPath: reviewRegionClipPath(region) }}
+      >
+        {highlightRect ? (
+          <div
+            data-review-hover-highlight
+            className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
+            style={{
+              left: highlightRect.left,
+              top: highlightRect.top,
+              width: highlightRect.width,
+              height: highlightRect.height,
+            }}
+          />
+        ) : null}
+        {pinPlacementEnabled && regionPreview ? (
+          <div
+            data-review-region-preview
+            className="pointer-events-none fixed z-[41] border-2 border-primary bg-primary/10"
+            style={{
+              left: rect.left + (regionPreview.xPct / 100) * rect.width,
+              top: rect.top + (regionPreview.yPct / 100) * rect.height,
+              width: (regionPreview.widthPct / 100) * rect.width,
+              height: (regionPreview.heightPct / 100) * rect.height,
+            }}
+          />
+        ) : null}
+        {placementHintVisible ? (
+          <div
+            className="pointer-events-none fixed top-16 z-[45] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs shadow-lg"
+            style={{ left: region.left + region.width / 2 }}
+          >
+            <IconMessageCircle className="size-3.5 text-primary" />
+            {t("review.clickToPin")}
+            <span className="text-[10px] text-muted-foreground">
+              {t("review.escToExit")}
+            </span>
+          </div>
+        ) : null}
+        {pinGroups.map((group) => {
+          if (group.entries.length > 1 && expandedClusterKey !== group.key) {
+            return (
+              <ReviewPinCluster
+                key={group.key}
+                threads={group.entries.map(({ thread }) => thread)}
+                canvasRect={rect}
+                point={group.point}
+                onClick={() => {
+                  setExpandedClusterKey(group.key);
+                  const thread = group.entries[0]!.thread;
+                  if (threadIsUnread(thread.root.threadId)) {
+                    setThreadUnread(thread, false);
+                  }
+                  setActiveThreadId(thread.root.threadId);
+                }}
+              />
+            );
+          }
+          return group.entries.map(({ thread, position, clientPoint }) => (
             <ReviewPin
               key={thread.root.threadId}
-              index={index}
               canvasRect={rect}
               point={position.point}
               clientPoint={clientPoint}
+              authors={threadPinAuthors(thread)}
+              commentCount={thread.replies.length + 1}
+              pinRef={(element) => {
+                if (element) {
+                  pinElementsRef.current.set(thread.root.threadId, element);
+                } else {
+                  pinElementsRef.current.delete(thread.root.threadId);
+                }
+              }}
               onClick={() => {
                 if (!draftPin?.draft.trim()) setDraftPin(null);
                 setDraftComposerOpen(false);
@@ -2302,11 +3044,9 @@ export function ReviewCanvasPins({
                   discussion={discussion}
                   onReact={react}
                   pendingReaction={
-                    reactToComment.isPending && reactToComment.variables
-                      ? reactToComment.variables
-                      : null
+                    reactToComment.isPending ? reactToComment.variables : null
                   }
-                  sending={sendingThreadId === thread.root.threadId}
+                  currentUserEmail={currentUserEmail}
                   canReply={canPost && thread.root.status === "open"}
                   canEdit={Boolean(
                     canPost &&
@@ -2336,22 +3076,42 @@ export function ReviewCanvasPins({
                   onSetUnread={(unread) => setThreadUnread(thread, unread)}
                   onDelete={() => setDeleteCandidate(thread.root)}
                   canDelete={canPost && (thread.root.canDelete ?? false)}
-                  placement={getReviewPopoverPlacement(
-                    position.point,
-                    popoverPoint,
-                    viewport,
-                  )}
+                  onAgentAction={
+                    onSendThreadToAgent &&
+                    canResolve &&
+                    thread.root.status === "open"
+                      ? (action) => onSendThreadToAgent(thread, action)
+                      : undefined
+                  }
+                  agentItems={{
+                    suggest: Boolean(reviewAgent),
+                    reply: Boolean(reviewAgent),
+                    // The server re-checks; this hides the item for a board
+                    // thread or a screen an agent cannot edit.
+                    apply:
+                      Boolean(reviewAgent) &&
+                      thread.root.targetId != null &&
+                      sourceType === "inline",
+                  }}
+                  agentActionsDisabled={
+                    Boolean(sendingThreadId) ||
+                    Boolean(reviewAgent?.isThreadBusy(thread.root.threadId))
+                  }
+                  reviewAgent={reviewAgent}
+                  anchor={popoverAnchorFor(position.point, clientPoint)}
                   replyDraft={replyDraft}
                   replyMentions={replyMentions}
                   mentionOptions={mentionOptions}
+                  editMentionOptions={peopleMentionOptions}
                   replyAttachments={replyAttachments}
                   onReplyAttachmentsChange={setReplyAttachments}
                   onReplyDraftChange={setReplyDraft}
                   onReplyMentionsChange={setReplyMentions}
-                  onClose={closeActiveThread}
+                  onClose={dismissActiveThread}
                   onReply={() => {
                     const body = replyDraft.trim();
                     if (!body) return;
+                    const sentMentions = replyMentions;
                     replyComment.mutate(
                       {
                         resourceType,
@@ -2371,10 +3131,11 @@ export function ReviewCanvasPins({
                           : {}),
                       },
                       {
-                        onSuccess: () => {
+                        onSuccess: (comment) => {
                           setReplyDraft("");
                           setReplyAttachments([]);
                           setReplyMentions([]);
+                          startAgentFromComment(comment, sentMentions);
                         },
                         onError: () => toast.error(t("review.replyFailed")),
                       },
@@ -2391,7 +3152,16 @@ export function ReviewCanvasPins({
                       },
                       {
                         onSuccess: () => {
-                          setActiveThreadId(null);
+                          // The user may have opened another thread while this
+                          // request was in flight; that one stays open.
+                          if (
+                            activeThreadIdRef.current === thread.root.threadId
+                          ) {
+                            focusReturnRef.current = focusReturnTo(
+                              thread.root.threadId,
+                            );
+                            setActiveThreadId(null);
+                          }
                           if (thread.root.status === "open") {
                             toast.success(t("review.resolved"), {
                               action: {
@@ -2413,119 +3183,99 @@ export function ReviewCanvasPins({
                       },
                     )
                   }
-                  onSendToAgent={
-                    onSendThreadToAgent &&
-                    (thread.root.resolutionTarget === "human" ||
-                      Boolean(thread.root.consumedAt))
-                      ? () => onSendThreadToAgent(thread)
-                      : undefined
-                  }
                   replying={replyComment.isPending}
                   resolving={resolveThread.isPending}
                 />
               ) : null}
             </ReviewPin>
-          );
-        });
-      })}
-      {draftPin && draftPinPosition ? (
-        <ReviewPin
-          key={draftPin.id}
-          index={visibleThreads.length}
-          canvasRect={rect}
-          point={draftPinPosition.point}
-          clientPoint={
-            draftPinPosition.canvasPoint
-              ? canvasPointToClientPoint(canvas, draftPinPosition.canvasPoint)
-              : null
-          }
-          draft
-          pending={Boolean(pendingRepromptId)}
-          onClick={() => {
-            if (pendingRepromptId) return;
-            setActiveThreadId(null);
-            setReplyDraft("");
-            setReplyAttachments([]);
-            setDraftComposerOpen(true);
-          }}
-          active={draftComposerOpen}
-        >
-          {draftComposerOpen ? (
-            <DraftComposer
-              value={draftPin.draft}
-              mentions={draftMentions}
-              mentionOptions={mentionOptions}
-              onMentionsChange={setDraftMentions}
-              attachments={draftAttachments}
-              onAttachmentsChange={setDraftAttachments}
-              onChange={(value) => {
-                setDraftPin((current) =>
-                  current ? { ...current, draft: value } : current,
-                );
-                setDraftMentions((current) =>
-                  current.filter((mention) =>
-                    value.includes(`@${mention.label}`),
-                  ),
-                );
-              }}
-              onCancel={cancelDraft}
-              onSubmit={(resolutionTarget) => {
-                setDraftPin((current) =>
-                  current ? { ...current, resolutionTarget } : current,
-                );
-                postDraft(
-                  { ...draftPin, resolutionTarget },
-                  draftAttachments,
-                  draftMentions,
-                );
-              }}
-              onSmartSubmit={(mode) => {
-                if (mode === "preview")
-                  void submitReprompt(draftPin, draftAttachments);
-                else void submitSelectionQuestion(draftPin, draftAttachments);
-              }}
-              resolutionTarget={draftPin.resolutionTarget}
-              showAgentAction={
-                Boolean(onDispatchCommentToAgent) || draftMode === "reprompt"
-              }
-              smartAgentAvailable={
-                sourceType === "inline" &&
-                Boolean(
-                  resolveReviewAnchor(draftPin.anchor, () => null)?.anchor
-                    .nodeId || draftPin.metadata.targetSelector,
-                )
-              }
-              initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
-              placement={getReviewPopoverPlacement(
-                draftPinPosition.point,
-                draftPinPosition.canvasPoint
-                  ? canvasPointToClientPoint(
-                      canvas,
-                      draftPinPosition.canvasPoint,
-                    )
-                  : {
-                      x:
-                        rect.left +
-                        (draftPinPosition.point.xPct / 100) * rect.width,
-                      y:
-                        rect.top +
-                        (draftPinPosition.point.yPct / 100) * rect.height,
-                    },
-                viewport,
-              )}
-              commentSubmitting={createComment.isPending}
-              agentSubmitting={agentSubmitting}
-            />
-          ) : null}
-        </ReviewPin>
-      ) : null}
+          ));
+        })}
+        {draftPin &&
+        draftPinPosition &&
+        draftClientPoint &&
+        isReviewPointVisible(region, draftClientPoint) ? (
+          <ReviewPin
+            key={draftPin.id}
+            canvasRect={rect}
+            point={draftPinPosition.point}
+            clientPoint={draftClientPoint}
+            authors={[
+              currentUserEmail !== undefined ? { email: currentUserEmail } : {},
+            ]}
+            draft
+            pending={Boolean(pendingRepromptId)}
+            onClick={() => {
+              if (pendingRepromptId) return;
+              setActiveThreadId(null);
+              setReplyDraft("");
+              setReplyAttachments([]);
+              setDraftComposerOpen(true);
+            }}
+            active={draftComposerOpen}
+          >
+            {draftComposerOpen ? (
+              <DraftComposer
+                value={draftPin.draft}
+                mentions={draftMentions}
+                mentionOptions={
+                  draftMode === "reprompt"
+                    ? peopleMentionOptions
+                    : mentionOptions
+                }
+                onMentionsChange={setDraftMentions}
+                attachments={draftAttachments}
+                onAttachmentsChange={setDraftAttachments}
+                onChange={(value) => {
+                  setDraftPin((current) =>
+                    current ? { ...current, draft: value } : current,
+                  );
+                  setDraftMentions((current) =>
+                    current.filter((mention) =>
+                      value.includes(`@${mention.label}`),
+                    ),
+                  );
+                }}
+                onCancel={dismissDraft}
+                onSubmit={() => {
+                  if (draftMode === "reprompt") {
+                    if (sourceType !== "inline") {
+                      toast.error(t("designEditor.nodeRewrite.sendFailed"));
+                      return;
+                    }
+                    void submitReprompt(draftPin, draftAttachments);
+                    return;
+                  }
+                  postDraft(
+                    { ...draftPin, resolutionTarget: "human" },
+                    draftAttachments,
+                    draftMentions,
+                  );
+                }}
+                reprompt={draftMode === "reprompt"}
+                currentUserEmail={currentUserEmail}
+                anchor={popoverAnchorFor(
+                  draftPinPosition.point,
+                  draftClientPoint,
+                )}
+                submitting={createComment.isPending || agentSubmitting}
+              />
+            ) : null}
+          </ReviewPin>
+        ) : null}
+      </div>
       <AlertDialog
         open={Boolean(deleteCandidate)}
         onOpenChange={(open) => {
           if (!open && !deleteComment.isPending) setDeleteCandidate(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          data-review-popover
+          overlayProps={{
+            "data-review-popover": "",
+            "data-review-confirmation-overlay": "",
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("review.deleteCommentTitle")}
@@ -2544,12 +3294,17 @@ export function ReviewCanvasPins({
                 event.preventDefault();
                 const candidate = deleteCandidate;
                 if (!candidate) return;
+                // The optimistic delete unmounts the pin before this succeeds.
+                const returnTo = focusReturnTo(candidate.threadId);
                 deleteComment.mutate(
                   { resourceType, resourceId, commentId: candidate.id },
                   {
                     onSuccess: () => {
                       setDeleteCandidate(null);
-                      closeActiveThread();
+                      if (activeThreadIdRef.current === candidate.threadId) {
+                        focusReturnRef.current = returnTo;
+                        closeActiveThread();
+                      }
                     },
                     onError: () => toast.error(t("review.postFailed")),
                   },
@@ -2561,17 +3316,74 @@ export function ReviewCanvasPins({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>,
+    </div>,
     document.body,
   );
 }
 
+function reviewPinAuthor(comment: ReviewComment): ReviewPinAuthor {
+  return {
+    name: comment.authorName,
+    email: comment.authorEmail,
+    agent: resolveReviewAgent({
+      createdBy: comment.createdBy,
+      authorName: comment.authorName,
+    }),
+  };
+}
+
+function threadPinAuthors(thread: ReviewThread): ReviewPinAuthor[] {
+  return [thread.root, ...thread.replies].map(reviewPinAuthor);
+}
+
+const MAX_NAMED_PIN_AUTHORS = 2;
+
+// What the pin shows: who is in the thread, how many comments, and its state.
+function reviewThreadPinLabel({
+  t,
+  formatList,
+  authors,
+  count,
+  unread,
+  resolved,
+}: {
+  t: ReturnType<typeof useT>;
+  formatList: ReturnType<typeof useFormatters>["formatList"];
+  authors: ReviewPinAuthor[];
+  count: number;
+  unread: boolean;
+  resolved: boolean;
+}): string {
+  const names = uniqueReviewPinAuthors(authors).map((author) =>
+    author.agent
+      ? author.name?.trim() || t("review.agentBadge")
+      : author.name?.trim() || author.email?.trim() || t("review.reviewer"),
+  );
+  const named = names.slice(0, MAX_NAMED_PIN_AUTHORS);
+  const others = names.length - named.length;
+  const summary = t("review.pin.thread", {
+    authors: formatList(
+      others > 0
+        ? [...named, t("review.pin.authorsOther", { count: others })]
+        : named,
+    ),
+    count,
+  });
+  const states: string[] = [];
+  if (unread) states.push(t("review.pin.unread"));
+  if (resolved) states.push(t("review.pin.resolved"));
+  return states.length
+    ? formatList([summary, formatList(states)], { type: "unit" })
+    : summary;
+}
+
 function ReviewPin({
-  index,
   point,
   canvasRect,
   clientPoint,
   active,
+  authors,
+  commentCount,
   draft = false,
   pending = false,
   resolved = false,
@@ -2580,24 +3392,30 @@ function ReviewPin({
   canMove = false,
   onMove,
   onClick,
+  pinRef,
   children,
 }: {
-  index: number;
   point: ReviewAnchorPoint;
   canvasRect: DOMRect;
-  clientPoint?: ReviewCanvasPoint | null;
+  clientPoint?: ReviewCanvasPoint | null | undefined;
+  /** This pin's card is open. */
   active: boolean;
+  authors: ReviewPinAuthor[];
+  commentCount?: number;
+  /** The pin of a comment that is not posted yet; it reads as "Draft comment". */
   draft?: boolean;
   pending?: boolean;
   resolved?: boolean;
   unread?: boolean;
-  region?: ReviewAnchorRegion;
+  region?: ReviewAnchorRegion | undefined;
   canMove?: boolean;
   onMove?: (point: ReviewAnchorPoint) => void;
   onClick: () => void;
+  pinRef?: Ref<HTMLButtonElement> | undefined;
   children?: ReactNode;
 }) {
   const t = useT();
+  const { formatList } = useFormatters();
   const movedRef = useRef(false);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragPointRef = useRef<ReviewAnchorPoint | null>(null);
@@ -2666,7 +3484,7 @@ function ReviewPin({
   return (
     <div
       data-review-popover
-      className="fixed z-[45]"
+      className="pointer-events-auto fixed z-[45]"
       style={{
         left:
           clientPoint?.x ??
@@ -2688,19 +3506,19 @@ function ReviewPin({
           }}
         />
       ) : null}
-      <button
-        type="button"
+      <ReviewPinBadge
         data-review-pin
         data-review-unread={unread ? "true" : undefined}
+        authors={authors}
+        {...(commentCount !== undefined ? { count: commentCount } : {})}
+        ref={pinRef}
+        selected={active}
+        resolved={resolved}
+        unread={unread}
+        pending={pending}
         className={cn(
-          "flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full rounded-bl-none border text-[10px] font-semibold shadow-md transition-transform hover:scale-110",
-          draft
-            ? "border-primary bg-primary text-primary-foreground"
-            : resolved
-              ? "border-muted-foreground/50 bg-muted text-muted-foreground"
-              : "border-amber-200 bg-amber-400 text-amber-950",
-          active && "ring-2 ring-primary/40",
-          unread && "ring-2 ring-foreground/70",
+          "-translate-x-1/2 -translate-y-1/2 hover:scale-110",
+          unread && !active && "ring-2 ring-foreground/70",
           canMove && "cursor-grab active:cursor-grabbing",
         )}
         onClick={(event) => {
@@ -2731,62 +3549,68 @@ function ReviewPin({
             yPct: clampPercent(point.yPct + delta.yPct),
           });
         }}
-        aria-label={t("review.commentNumber", { count: index + 1 })}
+        ariaLabel={
+          draft
+            ? t("review.pin.draft")
+            : reviewThreadPinLabel({
+                t,
+                formatList,
+                authors,
+                count: commentCount ?? 1,
+                unread,
+                resolved,
+              })
+        }
+        aria-expanded={active}
+        aria-haspopup="dialog"
         aria-keyshortcuts={
           canMove ? "ArrowUp ArrowDown ArrowLeft ArrowRight" : undefined
         }
-      >
-        {pending ? <Spinner className="size-3" /> : index + 1}
-      </button>
+      />
       {children}
     </div>
   );
 }
 
 function ReviewPinCluster({
-  count,
+  threads,
   point,
   canvasRect,
   onClick,
 }: {
-  count: number;
+  threads: ReviewThread[];
   point: ReviewAnchorPoint;
   canvasRect: DOMRect;
   onClick: () => void;
 }) {
   const t = useT();
   return (
-    <button
-      type="button"
+    <ReviewPinBadge
       data-review-pin-cluster
-      className="fixed z-[45] flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-primary bg-primary text-xs font-semibold text-primary-foreground shadow-lg hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      authors={threads.map(({ root }) => reviewPinAuthor(root))}
+      count={threads.length}
+      className="pointer-events-auto fixed z-[45] -translate-x-1/2 -translate-y-1/2 hover:scale-110"
       style={{
         left: canvasRect.left + (point.xPct / 100) * canvasRect.width,
         top: canvasRect.top + (point.yPct / 100) * canvasRect.height,
       }}
-      aria-label={t("review.commentsInCluster", { count })}
+      ariaLabel={t("review.commentsInCluster", { count: threads.length })}
       onClick={(event) => {
         event.stopPropagation();
         onClick();
       }}
-    >
-      {count}
-    </button>
+    />
   );
 }
 
-function ReviewImageAttachments({
+function useReviewImageAttachments({
   attachments,
   disabled = false,
   onChange,
-  onUploadingChange,
-  className,
 }: {
   attachments: ReviewImageAttachment[];
   disabled?: boolean;
   onChange: (attachments: ReviewImageAttachment[]) => void;
-  onUploadingChange?: (uploading: boolean) => void;
-  className?: string;
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -2811,7 +3635,6 @@ function ReviewImageAttachments({
     if (!selected.length) return;
 
     setUploading(true);
-    onUploadingChange?.(true);
     const results = await Promise.allSettled(
       selected.map(async (file) => {
         const uploaded = await uploadEditorImage(file);
@@ -2843,14 +3666,50 @@ function ReviewImageAttachments({
       toast.error(t("review.postFailed"));
     }
     setUploading(false);
-    onUploadingChange?.(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  return (
+  const toolsEnd = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        data-review-attachment-button
+        className="size-7 rounded-full text-muted-foreground"
+        disabled={
+          disabled ||
+          uploading ||
+          attachments.length >= MAX_REVIEW_IMAGE_ATTACHMENTS
+        }
+        onClick={() => inputRef.current?.click()}
+        aria-label={t("review.attachImage")}
+      >
+        {uploading ? (
+          <Spinner className="size-4" />
+        ) : (
+          <IconPhoto className="size-4" />
+        )}
+      </Button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        data-review-attachment-input
+        // Out of the accessibility tree: the image button above is the one
+        // named, tabbable control, and it clicks this input.
+        tabIndex={-1}
+        className="hidden"
+        onChange={(event) => void handleFiles(event.currentTarget.files)}
+      />
+    </>
+  );
+
+  const strip = attachments.length ? (
     <div
       data-review-attachments
-      className={cn("flex flex-wrap items-center gap-1.5 px-3 pb-2", className)}
+      className="flex flex-wrap items-center gap-1.5"
     >
       {attachments.map((attachment, index) => (
         <div
@@ -2882,35 +3741,59 @@ function ReviewImageAttachments({
           </Button>
         </div>
       ))}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        data-review-attachment-button
-        className="size-8 text-muted-foreground"
-        disabled={
-          disabled ||
-          uploading ||
-          attachments.length >= MAX_REVIEW_IMAGE_ATTACHMENTS
-        }
-        onClick={() => inputRef.current?.click()}
-        aria-label={t("review.attachImage")}
-      >
-        {uploading ? (
-          <Spinner className="size-3.5" />
-        ) : (
-          <IconPaperclip className="size-3.5" />
-        )}
-      </Button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        data-review-attachment-input
-        className="sr-only"
-        onChange={(event) => void handleFiles(event.currentTarget.files)}
-      />
+    </div>
+  ) : undefined;
+
+  return { uploading, toolsEnd, strip };
+}
+
+// Placement depends on the popover's own height, which is only known once its
+// content has rendered, so the frame measures itself before the first paint.
+function ReviewPopoverFrame({
+  anchor,
+  children,
+}: {
+  anchor: ReviewPopoverAnchor;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  const measure = useCallback(() => {
+    const element = ref.current;
+    if (!element) return;
+    // scrollHeight is the full content height even while maxHeight scrolls it.
+    setHeight(
+      element.scrollHeight + element.offsetHeight - element.clientHeight,
+    );
+  }, []);
+  useLayoutEffect(measure);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measure]);
+  const box = getReviewPopoverBox(
+    anchor.clientPoint,
+    anchor.region,
+    anchor.preferred,
+    height,
+  );
+  return (
+    <div
+      ref={ref}
+      data-review-popover
+      className="absolute z-[260] overflow-y-auto overflow-x-hidden rounded-xl shadow-xl"
+      style={{
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        maxHeight: box.maxHeight,
+      }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
     </div>
   );
 }
@@ -2925,304 +3808,110 @@ function DraftComposer({
   onChange,
   onCancel,
   onSubmit,
-  onSmartSubmit,
-  resolutionTarget,
-  showAgentAction,
-  smartAgentAvailable,
-  initialAgentMode,
-  placement,
-  commentSubmitting,
-  agentSubmitting,
+  reprompt,
+  currentUserEmail,
+  anchor,
+  submitting,
 }: {
   value: string;
   mentions: readonly ReviewMention[];
-  mentionOptions: readonly ReviewMention[];
+  mentionOptions: readonly ReviewMentionOption[];
   onMentionsChange: (mentions: ReviewMention[]) => void;
   attachments: ReviewImageAttachment[];
   onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onChange: (value: string) => void;
   onCancel: () => void;
-  onSubmit: (target: "agent" | "human") => void;
-  onSmartSubmit: (mode: NodeRepromptSendMode) => void;
-  resolutionTarget: "agent" | "human";
-  showAgentAction: boolean;
-  smartAgentAvailable: boolean;
-  initialAgentMode: "auto" | NodeRepromptSendMode;
-  placement: ReviewPopoverPlacement;
-  commentSubmitting: boolean;
-  agentSubmitting: boolean;
+  onSubmit: () => void;
+  reprompt: boolean;
+  currentUserEmail?: string | null;
+  anchor: ReviewPopoverAnchor;
+  submitting: boolean;
 }) {
   const t = useT();
-  const [engaged, setEngaged] = useState(false);
-  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
-  const [modeOverride, setModeOverride] = useState<
-    "auto" | NodeRepromptSendMode
-  >(initialAgentMode);
-  const inferredMode = inferNodeRepromptSendMode(value, {
-    hasEditableTarget: smartAgentAvailable,
+  const images = useReviewImageAttachments({
+    attachments,
+    disabled: submitting,
+    onChange: onAttachmentsChange,
   });
-  const sendMode = modeOverride === "auto" ? inferredMode : modeOverride;
-  const submitting = commentSubmitting || agentSubmitting;
-  const busy = submitting || attachmentsUploading;
-  const revealTools =
-    engaged || Boolean(value.trim()) || attachments.length > 0;
-  const agentLabel =
-    modeOverride === "auto"
-      ? t("review.sendToAgent")
-      : sendMode === "preview"
-        ? t("designEditor.nodeRewrite.modeRegenerate")
-        : t("designEditor.nodeRewrite.modeAsk");
-  const agentAction = smartAgentAvailable ? (
-    <div className="flex w-full min-w-0 @2xs/review:flex-1">
-      <Button
-        type="button"
-        size="sm"
-        variant={initialAgentMode === "preview" ? "default" : "outline"}
-        className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none"
-        disabled={busy || !value.trim()}
-        onClick={() => onSmartSubmit(sendMode)}
-      >
-        {agentSubmitting ? (
-          <Spinner className="size-3.5" />
-        ) : (
-          <IconSend className="size-3.5" />
-        )}
-        <span className="truncate">{agentLabel}</span>
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="sm"
-            variant={initialAgentMode === "preview" ? "default" : "outline"}
-            className="h-8 shrink-0 rounded-s-none border-s-0 px-2"
-            disabled={busy}
-            aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
-          >
-            <IconChevronDown className="size-3" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          data-review-popover
-          data-review-mode-menu
-          align="end"
-          className="w-56"
-        >
-          <DropdownMenuRadioGroup
-            value={modeOverride}
-            onValueChange={(nextMode) =>
-              setModeOverride(nextMode as "auto" | NodeRepromptSendMode)
-            }
-          >
-            <DropdownMenuRadioItem value="auto">
-              {t("designEditor.nodeRewrite.modeAuto")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="ask">
-              {t("designEditor.nodeRewrite.modeAsk")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="preview">
-              {t("designEditor.nodeRewrite.modeRegenerate")}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  ) : undefined;
+  const busy = submitting || images.uploading;
   return (
-    <div
-      data-review-popover
-      className={cn(
-        "absolute z-[260] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.horizontal === "end" ? "right-3" : "left-3",
-        placement.vertical === "above" ? "bottom-3" : "top-1",
-      )}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div className="flex items-center justify-between px-3 pb-2 pt-3">
-        <span className="text-sm font-medium">
-          {initialAgentMode === "preview"
+    <ReviewPopoverFrame anchor={anchor}>
+      <ReviewThreadCardFrame
+        className="w-full"
+        title={
+          reprompt
             ? t("designEditor.nodeRewrite.composerTitle")
-            : t("review.newComment")}
-        </span>
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            disabled={submitting}
-            onClick={onCancel}
-            aria-label={t("designEditor.close")}
-          >
-            <IconX className="size-3.5" />
-          </Button>
+            : t("review.threadTitle")
+        }
+        closeLabel={t("designEditor.close")}
+        onClose={() => {
+          if (!submitting) onCancel();
+        }}
+      >
+        <div className="flex items-start gap-2 px-3 py-4">
+          <ReviewAuthorAvatar
+            className="mt-0.5"
+            name={reviewUserLabel(currentUserEmail, t("review.reviewer"))}
+            email={currentUserEmail}
+            size={24}
+          />
+          <ReviewCommentComposer
+            className="min-w-0 flex-1"
+            autoFocus
+            value={value}
+            mentions={mentions}
+            onMentionsChange={onMentionsChange}
+            mentionOptions={mentionOptions}
+            agentsLabel={t("review.agent.sectionLabel")}
+            showCommentTools
+            emojiLabel={t("review.addEmoji")}
+            mentionLabel={t("review.mention")}
+            noMentionsLabel={t("review.noMentions")}
+            commentToolsEnd={images.toolsEnd}
+            attachments={images.strip}
+            disabled={busy}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            submittingTarget={submitting ? "human" : null}
+            placeholder={t("review.placeholder")}
+            commentLabel={t("review.commentMode")}
+            contextLabel={
+              reprompt ? t("designEditor.nodeRewrite.willPreview") : undefined
+            }
+            submitOnEnter
+            onEscape={onCancel}
+          />
         </div>
-      </div>
-      <ReviewCommentComposer
-        className="px-3 pb-3"
-        autoFocus
-        value={value}
-        mentions={mentions}
-        onMentionsChange={onMentionsChange}
-        mentionOptions={mentionOptions}
-        showCommentTools={revealTools}
-        emojiLabel={t("review.addEmoji")}
-        mentionLabel={t("review.mention")}
-        noMentionsLabel={t("review.noMentions")}
-        commentToolsEnd={
-          revealTools ? (
-            <ReviewImageAttachments
-              attachments={attachments}
-              disabled={busy}
-              onUploadingChange={setAttachmentsUploading}
-              onChange={(next) => {
-                setEngaged(true);
-                onAttachmentsChange(next);
-              }}
-              className="flex-nowrap p-0"
-            />
-          ) : undefined
-        }
-        disabled={busy}
-        onChange={(next) => {
-          setEngaged(true);
-          onChange(next);
-        }}
-        onSubmit={(target) => {
-          if (target === "agent" && smartAgentAvailable) {
-            onSmartSubmit(sendMode);
-            return;
-          }
-          onSubmit(target);
-        }}
-        submittingTarget={commentSubmitting ? resolutionTarget : null}
-        showCommentAction={initialAgentMode !== "preview"}
-        showAgentAction={showAgentAction}
-        agentAction={agentAction}
-        placeholder={t("review.placeholder")}
-        commentLabel={t("review.commentMode")}
-        agentLabel={t("review.sendToAgent")}
-        contextLabel={
-          smartAgentAvailable && (modeOverride !== "auto" || value.trim())
-            ? sendMode === "preview"
-              ? t("designEditor.nodeRewrite.willPreview")
-              : t("designEditor.nodeRewrite.willAsk")
-            : undefined
-        }
-        submitOnEnter
-        enterSubmitTarget={initialAgentMode === "preview" ? "agent" : "human"}
-        onEscape={onCancel}
-      />
-    </div>
+      </ReviewThreadCardFrame>
+    </ReviewPopoverFrame>
   );
 }
 
-function ReviewReactionControls({
-  commentId,
-  reactions,
-  canReact,
-  onReact,
-  pendingReaction,
-}: {
-  commentId: string;
-  reactions: ReviewCommentReaction[];
-  canReact: boolean;
-  onReact: (commentId: string, reaction: string, active: boolean) => void;
-  pendingReaction: PendingReviewReaction | null;
-}) {
-  const t = useT();
-  const pendingForComment =
-    pendingReaction?.commentId === commentId ? pendingReaction : null;
-  const displayedReactions = [
+// A reaction in flight shows on the chip before the server confirms it.
+function reactionsWithPending(
+  reactions: readonly ReviewCommentReaction[],
+  commentId: string,
+  pending: PendingReviewReaction | null,
+): ReviewCommentReaction[] {
+  if (pending?.commentId !== commentId) return [...reactions];
+  const known = reactions.some((entry) => entry.reaction === pending.reaction);
+  return [
     ...reactions,
-    ...(pendingForComment?.active &&
-    !reactions.some((entry) => entry.reaction === pendingForComment.reaction)
-      ? [
-          {
-            reaction: pendingForComment.reaction,
-            count: 0,
-            reactedByMe: false,
-          },
-        ]
+    ...(!known && pending.active
+      ? [{ reaction: pending.reaction, count: 0, reactedByMe: false }]
       : []),
-  ];
-  if (!displayedReactions.length && !canReact) return null;
-
-  return (
-    <div
-      data-review-reactions
-      className="mt-1 flex flex-wrap items-center gap-1"
-      onClick={(event) => event.stopPropagation()}
-    >
-      {displayedReactions.map((entry) => {
-        const active =
-          pendingForComment?.reaction === entry.reaction
-            ? pendingForComment.active
-            : entry.reactedByMe;
-        const count =
-          entry.count +
-          (pendingForComment?.reaction === entry.reaction
-            ? Number(pendingForComment.active) - Number(entry.reactedByMe)
-            : 0);
-        return (
-          <button
-            key={entry.reaction}
-            type="button"
-            data-review-reaction={entry.reaction}
-            aria-pressed={active}
-            disabled={!canReact || Boolean(pendingReaction)}
-            className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent aria-pressed:bg-accent aria-pressed:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-            onClick={() => onReact(commentId, entry.reaction, !active)}
-          >
-            {entry.reaction} {Math.max(0, count)}
-          </button>
-        );
-      })}
-      {canReact ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              data-review-reaction-picker
-              className="size-7 text-muted-foreground"
-              disabled={Boolean(pendingReaction)}
-              aria-label={t("review.addReaction")}
-            >
-              <IconMoodSmile className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            data-review-reaction-menu
-            align="end"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {QUICK_REACTIONS.map((reaction) => {
-              const current = displayedReactions.find(
-                (entry) => entry.reaction === reaction,
-              );
-              const active =
-                pendingForComment?.reaction === reaction
-                  ? pendingForComment.active
-                  : (current?.reactedByMe ?? false);
-              return (
-                <DropdownMenuCheckboxItem
-                  key={reaction}
-                  checked={active}
-                  disabled={Boolean(pendingReaction)}
-                  onCheckedChange={(checked) =>
-                    onReact(commentId, reaction, checked)
-                  }
-                >
-                  {reaction}
-                </DropdownMenuCheckboxItem>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-    </div>
-  );
+  ]
+    .map((entry) =>
+      entry.reaction === pending.reaction
+        ? {
+            ...entry,
+            count:
+              entry.count + Number(pending.active) - Number(entry.reactedByMe),
+            reactedByMe: pending.active,
+          }
+        : entry,
+    )
+    .filter((entry) => entry.count > 0);
 }
 
 function ReviewThreadPopover({
@@ -3231,7 +3920,6 @@ function ReviewThreadPopover({
   discussion,
   onReact,
   pendingReaction,
-  sending,
   replying,
   resolving,
   canReply,
@@ -3250,10 +3938,16 @@ function ReviewThreadPopover({
   onSetUnread,
   onDelete,
   canDelete,
-  placement,
+  onAgentAction,
+  agentItems,
+  agentActionsDisabled,
+  reviewAgent,
+  anchor,
+  currentUserEmail,
   replyDraft,
   replyMentions,
   mentionOptions,
+  editMentionOptions,
   replyAttachments,
   onReplyAttachmentsChange,
   onReplyDraftChange,
@@ -3261,14 +3955,12 @@ function ReviewThreadPopover({
   onClose,
   onReply,
   onStatusChange,
-  onSendToAgent,
 }: {
   thread: ReviewThread;
   canResolve: boolean;
-  discussion?: ReviewDiscussionState;
+  discussion?: ReviewDiscussionState | undefined;
   onReact: (commentId: string, reaction: string, active: boolean) => void;
   pendingReaction: PendingReviewReaction | null;
-  sending: boolean;
   replying: boolean;
   resolving: boolean;
   canReply: boolean;
@@ -3287,10 +3979,19 @@ function ReviewThreadPopover({
   onSetUnread: (unread: boolean) => void;
   onDelete: () => void;
   canDelete: boolean;
-  placement: ReviewPopoverPlacement;
+  /** Set only for editors on an open thread; it backs the agent menu items. */
+  onAgentAction: ((action: ReviewThreadAgentAction) => void) | undefined;
+  /** Send to agent always shows; the review-agent items need a connected controller. */
+  agentItems: { suggest: boolean; reply: boolean; apply: boolean };
+  agentActionsDisabled: boolean;
+  reviewAgent: ReviewAgentController | null;
+  anchor: ReviewPopoverAnchor;
+  currentUserEmail?: string | null | undefined;
   replyDraft: string;
   replyMentions: readonly ReviewMention[];
-  mentionOptions: readonly ReviewMention[];
+  mentionOptions: readonly ReviewMentionOption[];
+  /** A comment edit never starts a run, so it offers people only. */
+  editMentionOptions: readonly ReviewMention[];
   replyAttachments: ReviewImageAttachment[];
   onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onReplyDraftChange: (value: string) => void;
@@ -3298,278 +3999,197 @@ function ReviewThreadPopover({
   onClose: () => void;
   onReply: () => void;
   onStatusChange: () => void;
-  onSendToAgent?: () => void;
 }) {
   const t = useT();
-  const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
-  const avatarUrl = useAvatarUrl(thread.root.authorEmail);
-  const [replyUploading, setReplyUploading] = useState(false);
-  return (
-    <div
-      data-review-popover
-      className={cn(
-        "absolute z-[260] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
-        placement.horizontal === "end" ? "right-3" : "left-3",
-        placement.vertical === "above" ? "bottom-3" : "top-1",
+  const cardRef = useRef<HTMLDivElement>(null);
+  // The card takes focus when it opens, and again once an edit ends. The reply
+  // field stays collapsed until the user goes there, and an edit focuses its own editor.
+  useEffect(() => {
+    if (!editing) cardRef.current?.focus({ preventScroll: true });
+  }, [editing]);
+  const replyImages = useReviewImageAttachments({
+    attachments: replyAttachments,
+    disabled: replying || resolving,
+    onChange: onReplyAttachmentsChange,
+  });
+  const resolvedStatus = thread.root.status === "resolved";
+  const canToggleResolution =
+    canResolve && (thread.root.status === "open" || resolvedStatus);
+  const agentRequest = reviewAgent?.requestForThread(thread.root.threadId);
+  const itemLabels = {
+    reviewerLabel: t("review.reviewer"),
+    agentBadgeLabel: t("review.agentBadge"),
+    resolvedLabel: t("review.resolved"),
+    unreadLabel: t("review.unread"),
+    addReactionLabel: t("review.addReaction"),
+    reactionLabel: ({
+      emoji,
+      count,
+      includesYou,
+    }: {
+      emoji: string;
+      count: number;
+      includesYou: boolean;
+    }) =>
+      t(includesYou ? "review.reaction.labelMine" : "review.reaction.label", {
+        emoji,
+        count,
+      }),
+  };
+  const commentItem = (comment: ReviewComment, variant: "root" | "reply") => (
+    <ReviewCommentItem
+      key={comment.id}
+      comment={comment}
+      variant={variant}
+      {...itemLabels}
+      unread={variant === "root" && unread}
+      showReactions
+      reactions={reactionsWithPending(
+        discussion?.reactions[comment.id] ?? [],
+        comment.id,
+        pendingReaction,
       )}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div className="flex items-start gap-2.5 p-3">
-        <Avatar className="size-7 shrink-0">
-          {avatarUrl ? <AvatarImage src={avatarUrl} alt={rootAuthor} /> : null}
-          <AvatarFallback className="text-[10px] font-semibold text-muted-foreground">
-            {reviewAuthorInitials(rootAuthor)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <div className="truncate text-xs font-medium text-muted-foreground">
-              {rootAuthor}
+      canReact={discussion?.canReact ?? false}
+      onReact={(target, reaction, active) =>
+        onReact(target.id, reaction, active)
+      }
+      editor={
+        variant === "root" && editing ? (
+          <ReviewCommentComposer
+            value={editDraft}
+            mentions={editMentions}
+            onMentionsChange={onEditMentionsChange}
+            mentionOptions={editMentionOptions}
+            showCommentTools
+            emojiLabel={t("review.addEmoji")}
+            mentionLabel={t("review.mention")}
+            noMentionsLabel={t("review.noMentions")}
+            textareaProps={{ "aria-label": t("review.editComment") }}
+            autoFocus
+            disabled={updating}
+            onChange={onEditDraftChange}
+            onSubmit={() => onEditSubmit()}
+            commentLabel={t("review.save")}
+            placeholder={t("review.editComment")}
+            submitOnEnter
+            onEscape={onEditCancel}
+          />
+        ) : undefined
+      }
+    />
+  );
+  return (
+    <ReviewPopoverFrame anchor={anchor}>
+      <ReviewThreadCardFrame
+        ref={cardRef}
+        className="w-full"
+        title={t("review.threadTitle")}
+        menu={
+          <ReviewThreadMenu
+            moreActionsLabel={t("review.moreActions")}
+            sendToAgentLabel={t("review.sendToAgent")}
+            suggestChangesLabel={t("review.suggestChanges")}
+            replyInThreadLabel={t("review.replyInThread")}
+            applyAndResolveLabel={t("review.applyChangesAndResolve")}
+            copyLinkLabel={t("review.copyLink")}
+            linkCopiedLabel={t("review.linkCopied")}
+            copyLinkFailedLabel={t("review.copyLinkFailed")}
+            editLabel={t("review.editComment")}
+            deleteLabel={t("review.deleteComment")}
+            onSendToAgent={onAgentAction && (() => onAgentAction("send"))}
+            onSuggestChanges={
+              onAgentAction && agentItems.suggest
+                ? () => onAgentAction("suggest")
+                : undefined
+            }
+            onReplyInThread={
+              onAgentAction && agentItems.reply
+                ? () => onAgentAction("reply")
+                : undefined
+            }
+            onApplyAndResolve={
+              onAgentAction && agentItems.apply
+                ? () => onAgentAction("apply")
+                : undefined
+            }
+            agentActionsDisabled={agentActionsDisabled}
+            canEdit={canEdit}
+            onEdit={onEdit}
+            onCopyLink={onCopyLink}
+            onDelete={canDelete ? onDelete : undefined}
+          />
+        }
+        resolved={resolvedStatus}
+        onResolve={canToggleResolution ? onStatusChange : undefined}
+        onReopen={canToggleResolution ? onStatusChange : undefined}
+        resolving={resolving}
+        resolveLabel={t("review.resolve")}
+        reopenLabel={t("review.reopen")}
+        onClose={onClose}
+        closeLabel={t("review.closeThread")}
+      >
+        <div className={cn("flex flex-col", !canReply && "pb-3")}>
+          {commentItem(thread.root, "root")}
+          {thread.replies.map((reply) => commentItem(reply, "reply"))}
+        </div>
+        {reviewAgent ? (
+          <ReviewAgentRequestStatus
+            className={cn(!canReply && "pb-3")}
+            request={agentRequest}
+            thread={thread}
+            starting={reviewAgent.startingThreadIds.has(thread.root.threadId)}
+            startingAgentName={reviewAgent.startingAgentName(
+              thread.root.threadId,
+            )}
+            stopping={
+              agentRequest !== undefined &&
+              reviewAgent.stoppingRequestIds.has(agentRequest.requestId)
+            }
+            onStop={(request) => void reviewAgent.stop(request)}
+            onOpen={reviewAgent.open}
+            onRetry={(request) => void reviewAgent.retry(request)}
+          />
+        ) : null}
+        {canReply ? (
+          <div className="group/reply flex items-start gap-2 px-3 py-4">
+            <div className="mt-2 shrink-0 group-has-data-expanded/reply:mt-0.5">
+              <ReviewAuthorAvatar
+                name={reviewUserLabel(currentUserEmail, t("review.reviewer"))}
+                email={currentUserEmail}
+                size={24}
+              />
             </div>
-            {unread ? (
-              <span
-                data-review-unread
-                className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-              >
-                {t("review.markUnread")}
-              </span>
-            ) : null}
-          </div>
-          {editing ? (
             <ReviewCommentComposer
-              className="mt-2 p-0"
-              value={editDraft}
-              mentions={editMentions}
-              onMentionsChange={onEditMentionsChange}
+              className="min-w-0 flex-1"
+              variant="reply"
+              value={replyDraft}
+              mentions={replyMentions}
+              onMentionsChange={onReplyMentionsChange}
               mentionOptions={mentionOptions}
+              agentsLabel={t("review.agent.sectionLabel")}
               showCommentTools
+              commentToolsEnd={replyImages.toolsEnd}
+              attachments={replyImages.strip}
               emojiLabel={t("review.addEmoji")}
               mentionLabel={t("review.mention")}
               noMentionsLabel={t("review.noMentions")}
-              textareaProps={{ "aria-label": t("review.editComment") }}
-              disabled={updating}
-              onChange={onEditDraftChange}
-              onSubmit={() => onEditSubmit()}
-              commentLabel={t("review.save")}
-              placeholder={t("review.editComment")}
+              textareaProps={{ "data-review-reply-input": true }}
+              disabled={replying || resolving || replyImages.uploading}
+              onChange={onReplyDraftChange}
+              onSubmit={() => onReply()}
+              submittingTarget={replying ? "human" : null}
+              commentLabel={t("review.reply")}
+              placeholder={t("review.reply")}
               submitOnEnter
-              onEscape={onEditCancel}
+              onEscape={onClose}
             />
-          ) : (
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
-              {displayReviewCommentBody(thread.root.body)}
-            </p>
-          )}
-          <ReviewCommentAttachmentStrip comment={thread.root} />
-          {thread.root.status === "resolved" &&
-          reviewResolutionNote(thread.root) ? (
-            <div
-              data-review-resolution-note
-              className="mt-2 rounded-md bg-muted/60 px-2 py-1.5 text-xs text-muted-foreground"
-            >
-              {reviewResolutionNote(thread.root)}
-            </div>
-          ) : null}
-          <ReviewReactionControls
-            commentId={thread.root.id}
-            reactions={discussion?.reactions[thread.root.id] ?? []}
-            canReact={discussion?.canReact ?? false}
-            onReact={onReact}
-            pendingReaction={pendingReaction}
-          />
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="-mt-1 size-7 shrink-0 text-muted-foreground"
-              aria-label={t("review.moreActions")}
-            >
-              <IconDots className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent data-review-popover align="end" className="w-44">
-            {canEdit ? (
-              <DropdownMenuItem onSelect={onEdit}>
-                {t("review.editComment")}
-              </DropdownMenuItem>
-            ) : null}
-            {discussion?.canSetThreadPreferences ? (
-              <DropdownMenuItem onSelect={() => onSetUnread(!unread)}>
-                <IconMail className="size-4" />
-                {t(unread ? "review.markRead" : "review.markUnread")}
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem onSelect={onCopyLink}>
-              <IconLink className="size-4" />
-              {t("review.copyLink")}
-            </DropdownMenuItem>
-            {canDelete ? (
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onSelect={onDelete}
-              >
-                <IconTrash className="size-4" />
-                {t("review.deleteComment")}
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="-me-1 -mt-1 size-7 shrink-0 text-muted-foreground"
-          onClick={onClose}
-          aria-label={t("designEditor.close")}
-        >
-          <IconX className="size-3.5" />
-        </Button>
-      </div>
-      {thread.replies.length ? (
-        <div className="ms-12 me-3 mb-3 flex flex-col gap-2 border-s border-border ps-3">
-          {thread.replies.map((reply) => (
-            <div key={reply.id} className="min-w-0">
-              <div className="truncate text-[10px] font-medium text-muted-foreground">
-                {reviewAuthorLabel(reply, t("review.reviewer"))}
-              </div>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-5 text-foreground/90">
-                {displayReviewCommentBody(reply.body)}
-              </p>
-              <ReviewCommentAttachmentStrip comment={reply} compact />
-              <ReviewReactionControls
-                commentId={reply.id}
-                reactions={discussion?.reactions[reply.id] ?? []}
-                canReact={discussion?.canReact ?? false}
-                onReact={onReact}
-                pendingReaction={pendingReaction}
-              />
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {canReply ||
-      (canResolve &&
-        (thread.root.status === "open" ||
-          thread.root.status === "resolved")) ? (
-        <div className="border-t border-border bg-muted/25 p-2.5">
-          {canReply ? (
-            <>
-              <ReviewCommentComposer
-                className="p-0"
-                value={replyDraft}
-                mentions={replyMentions}
-                onMentionsChange={onReplyMentionsChange}
-                mentionOptions={mentionOptions}
-                showCommentTools
-                commentToolsEnd={
-                  <ReviewImageAttachments
-                    attachments={replyAttachments}
-                    disabled={replying || resolving || replyUploading}
-                    onChange={onReplyAttachmentsChange}
-                    onUploadingChange={setReplyUploading}
-                    className="flex-nowrap p-0"
-                  />
-                }
-                emojiLabel={t("review.addEmoji")}
-                mentionLabel={t("review.mention")}
-                noMentionsLabel={t("review.noMentions")}
-                textareaProps={{ "data-review-reply-input": true }}
-                disabled={replying || resolving || replyUploading}
-                onChange={onReplyDraftChange}
-                onSubmit={() => onReply()}
-                commentLabel={t("review.reply")}
-                placeholder={t("review.replyPlaceholder")}
-                submitOnEnter
-                onEscape={onClose}
-              />
-            </>
-          ) : null}
-          {canResolve &&
-          (thread.root.status === "open" ||
-            thread.root.status === "resolved") ? (
-            <div className="mt-2 flex items-center gap-1">
-              {thread.root.status === "open" && onSendToAgent ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 px-2 text-xs text-primary hover:text-primary"
-                  disabled={sending || resolving || replyUploading}
-                  onClick={onSendToAgent}
-                >
-                  {sending ? (
-                    <Spinner className="size-3.5" />
-                  ) : (
-                    <IconSend className="size-3.5" />
-                  )}
-                  {sending
-                    ? t("review.sendingToAgent")
-                    : t("review.sendToAgent")}
-                </Button>
-              ) : null}
-              <div className="min-w-0 flex-1" />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
-                disabled={resolving || sending || replyUploading}
-                onClick={onStatusChange}
-                aria-label={
-                  thread.root.status === "open"
-                    ? t("review.resolve")
-                    : t("review.reopen")
-                }
-              >
-                {resolving ? (
-                  <Spinner className="size-3.5" />
-                ) : (
-                  <IconCircleCheck className="size-3.5" />
-                )}
-                {resolving
-                  ? t("review.resolving")
-                  : thread.root.status === "open"
-                    ? t("review.resolve")
-                    : t("review.reopen")}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+          </div>
+        ) : null}
+      </ReviewThreadCardFrame>
+    </ReviewPopoverFrame>
   );
 }
 
-function reviewAuthorLabel(comment: ReviewComment, fallback: string): string {
-  return comment.authorName ?? comment.authorEmail ?? fallback;
-}
-
-function reviewAuthorInitials(value: string): string {
-  const localPart = value.split("@")[0]?.trim() ?? "";
-  const initials = localPart
-    .split(/[\s._+-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-  return initials || "R";
-}
-
-function reviewResolutionNote(comment: ReviewComment): string | null {
-  const direct = comment.resolutionNote;
-  const metadata = comment.metadata;
-  const metadataNote =
-    typeof direct === "string"
-      ? direct
-      : typeof metadata?.resolutionNote === "string"
-        ? metadata.resolutionNote
-        : typeof metadata?.resolvedNote === "string"
-          ? metadata.resolvedNote
-          : typeof metadata?.note === "string"
-            ? metadata.note
-            : null;
-  const note = metadataNote?.trim();
-  return note || null;
+function reviewUserLabel(email: string | null | undefined, fallback: string) {
+  return email?.trim() || fallback;
 }

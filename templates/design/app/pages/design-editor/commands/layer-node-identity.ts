@@ -5,6 +5,40 @@ import {
   type CodeLayerProjection,
 } from "@shared/code-layer";
 
+interface LayerNodeIdentityIndex {
+  authoredIdCounts: Map<string, number>;
+  nodeIds: Set<string>;
+}
+
+const identityIndexes = new WeakMap<
+  CodeLayerProjection,
+  LayerNodeIdentityIndex
+>();
+
+function identityIndex(
+  projection: CodeLayerProjection,
+): LayerNodeIdentityIndex {
+  const cached = identityIndexes.get(projection);
+  if (cached) return cached;
+
+  const authoredIdCounts = new Map<string, number>();
+  const nodeIds = new Set<string>();
+  for (const node of projection.nodes) {
+    nodeIds.add(node.id);
+    const authoredId = node.dataAttributes["data-agent-native-node-id"];
+    if (authoredId) {
+      authoredIdCounts.set(
+        authoredId,
+        (authoredIdCounts.get(authoredId) ?? 0) + 1,
+      );
+    }
+  }
+
+  const index = { authoredIdCounts, nodeIds };
+  identityIndexes.set(projection, index);
+  return index;
+}
+
 export function prepareLayerNodeIdentities(args: {
   content: string;
   nodes: readonly CodeLayerNode[];
@@ -12,13 +46,8 @@ export function prepareLayerNodeIdentities(args: {
 }) {
   const source = args.renderedProjection.source;
   const currentProjection = buildCodeLayerProjection(args.content, { source });
-  const countAuthoredId = (
-    projection: CodeLayerProjection,
-    authoredId: string,
-  ) =>
-    projection.nodes.filter(
-      (node) => node.dataAttributes["data-agent-native-node-id"] === authoredId,
-    ).length;
+  const renderedIndex = identityIndex(args.renderedProjection);
+  const currentIndex = identityIndex(currentProjection);
   const nodeIds = new Map<string, string>();
   let content = args.content;
 
@@ -26,19 +55,13 @@ export function prepareLayerNodeIdentities(args: {
     const authoredId = node.dataAttributes["data-agent-native-node-id"];
     if (
       authoredId &&
-      countAuthoredId(args.renderedProjection, authoredId) === 1 &&
-      countAuthoredId(currentProjection, authoredId) === 1
+      renderedIndex.authoredIdCounts.get(authoredId) === 1 &&
+      currentIndex.authoredIdCounts.get(authoredId) === 1
     ) {
       nodeIds.set(node.id, authoredId);
       continue;
     }
-    if (
-      !args.renderedProjection.nodes.some(
-        (candidate) => candidate.id === node.id,
-      )
-    ) {
-      continue;
-    }
+    if (!renderedIndex.nodeIds.has(node.id)) continue;
     if (
       currentProjection.projectionId !== args.renderedProjection.projectionId
     ) {

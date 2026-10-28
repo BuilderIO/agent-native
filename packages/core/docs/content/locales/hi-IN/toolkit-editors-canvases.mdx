@@ -15,3 +15,18 @@ description: "Core compatibility, template pattern और Toolkit primitives क
 | Canvas presentation | Toolkit या app composition।                                       |
 
 Editor को `@agent-native/toolkit/editor` से import करें। पुराने Core paths compatibility re-exports बने रहेंगे। Schema, commands और persistence app में रखें। Blocks Core में रहते हैं, लेकिन Toolkit section reusable UI का catalog है, इसलिए उनकी docs यहाँ colocated हैं।
+
+Core, Blocks का schema और runtime contract संभालता है; Toolkit पुन: उपयोग योग्य client UI देता है। Context X-Ray engine और actions Core के हैं; Toolkit UI app/context-xray से export होती है।.
+
+## कैनवस इंटरैक्शन और annotations
+
+Toolkit gesture और shortcut के headless helpers देता है, साथ ही drawing/text instructions के लिए DrawOverlay और agent को भेजे जा सकने वाले anchored feedback के लिए CanvasCommentPins देता है। Canvas model, rendering, persistence और agent context ऐप के पास रहते हैं।
+
+<WireframeBlock id="doc-block-toolkit-canvas-interactions">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:500px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 250px;gap:14px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill accent'>चुनें</span><span class='wf-pill'>ड्रॉ करें</span><span class='wf-pill'>टिप्पणी</span><div style='flex:1'></div><span class='wf-muted'>कैनवस कंट्रोल</span></div><div class='wf-box' style='position:relative;flex:1;min-height:330px;display:flex;align-items:center;justify-content:center'><div style='width:72%;height:76%;border:1px solid var(--wf-line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px'><strong>कैंपेन पेज</strong><div style='position:relative;height:70px;border-radius:8px;background:var(--wf-accent-soft);overflow:hidden'><span class='wf-pill accent' style='position:absolute;top:42%;left:38%'>ड्रॉ नोट</span></div><div style='height:10px;width:85%;background:var(--wf-line);border-radius:4px'></div><div style='height:10px;width:65%;background:var(--wf-line);border-radius:4px'></div></div><span class='wf-pill accent' style='position:absolute;top:34%;left:61%'>1</span><span class='wf-pill accent' style='position:absolute;bottom:28%;left:41%'>2</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px;padding-top:26px'><strong>फ़ीडबैक</strong><div class='wf-box'>1 &nbsp; इस शीर्षक को चित्र के ऊपर ले जाएं।</div><div class='wf-box'>2 &nbsp; इस लेबल का contrast बढ़ाएं।</div><div style='flex:1'></div><button class='primary'><span data-icon='send'></span> फ़ीडबैक भेजें</button></aside></div>"
+    }
+  />
+</WireframeBlock>

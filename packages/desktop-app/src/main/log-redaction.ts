@@ -4,11 +4,6 @@ const MAX_STRING_LENGTH = 20_000;
 const MAX_COLLECTION_ITEMS = 50;
 const MAX_DEPTH = 4;
 
-// Substrings checked against a normalized (letters/digits only, lowercased)
-// key name. Matching on substrings — instead of an exact-name allow-list —
-// catches compound and snake_case/camelCase variants like access_token,
-// clientSecret, secretAccessKey, and credentials without listing every
-// spelling individually.
 const SENSITIVE_KEY_TERMS = [
   "authorization",
   "cookie",

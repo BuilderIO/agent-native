@@ -10,9 +10,11 @@ export { hasChatThreadDeepLink } from "./chat-thread-url.js";
 export const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 export const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 export const SIDEBAR_URL_CHANGE_EVENT = "agent-panel:url-change";
-export const AGENT_SIDEBAR_MIN_WIDTH = 280;
-export const AGENT_SIDEBAR_DEFAULT_MAX_WIDTH = 700;
+export const AGENT_SIDEBAR_MIN_WIDTH = 320;
+export const AGENT_SIDEBAR_DEFAULT_MAX_WIDTH = 704;
 export const AGENT_SIDEBAR_WIDE_WIDTH_RATIO = 0.75;
+/** Panel widths land on the 8px layout grid. */
+export const AGENT_SIDEBAR_WIDTH_STEP = 8;
 
 const HISTORY_PATCHED_KEY = "__agentNativeSidebarHistoryPatched";
 
@@ -20,11 +22,8 @@ export type AgentSidebarStateSource = "app" | "frame";
 export type AgentSidebarStateMode = "app" | "code";
 
 export interface AgentSidebarStateChangeDetail {
-  /** Whether the user-visible agent panel is open. */
   open: boolean;
-  /** Which surface owns the visible agent panel. */
   source: AgentSidebarStateSource;
-  /** Frame protocol mode: "code" is parent-owned, "app" is app-owned. */
   mode: AgentSidebarStateMode;
 }
 
@@ -40,12 +39,19 @@ function resolveViewportWidth(viewportWidth?: number): number {
   return Math.max(0, resolved);
 }
 
+export function snapAgentSidebarWidth(width: number): number {
+  return (
+    Math.round(width / AGENT_SIDEBAR_WIDTH_STEP) * AGENT_SIDEBAR_WIDTH_STEP
+  );
+}
+
 export function getAgentSidebarWideWidth(viewportWidth?: number): number {
   return Math.max(
     AGENT_SIDEBAR_MIN_WIDTH,
-    Math.round(
-      resolveViewportWidth(viewportWidth) * AGENT_SIDEBAR_WIDE_WIDTH_RATIO,
-    ),
+    Math.floor(
+      (resolveViewportWidth(viewportWidth) * AGENT_SIDEBAR_WIDE_WIDTH_RATIO) /
+        AGENT_SIDEBAR_WIDTH_STEP,
+    ) * AGENT_SIDEBAR_WIDTH_STEP,
   );
 }
 
@@ -76,10 +82,103 @@ export function getAgentSidebarOpenPreferenceKey(
   return suffix ? `agent-native.${suffix}.sidebar-open` : SIDEBAR_OPEN_KEY;
 }
 
+function getExplicitUrlOpenSessionKey(storageKey?: string | null): string {
+  return `${getAgentSidebarOpenPreferenceKey(storageKey)}.explicit-url-open`;
+}
+
+function getExplicitUrlOpenSessionIntent(
+  storageKey?: string | null,
+): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      window.sessionStorage.getItem(
+        getExplicitUrlOpenSessionKey(storageKey),
+      ) === "true"
+    );
+  } catch {
+    // coercion-ok: null distinguishes unreadable storage from a missing false intent.
+    return null;
+  }
+}
+
+function setExplicitUrlOpenSessionIntent(
+  open: boolean,
+  storageKey?: string | null,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const key = getExplicitUrlOpenSessionKey(storageKey);
+    if (open) {
+      window.sessionStorage.setItem(key, "true");
+    } else {
+      window.sessionStorage.removeItem(key);
+    }
+    return true;
+  } catch {
+    // coercion-ok: false keeps the explicit URL intent available when the session write fails.
+    return false;
+  }
+}
+
+function writeAgentSidebarOpenPreference(
+  open: boolean,
+  storageKey?: string | null,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(
+      getAgentSidebarOpenPreferenceKey(storageKey),
+      String(open),
+    );
+    return true;
+  } catch {
+    // coercion-ok: false keeps the URL override retryable when preference persistence fails.
+    return false;
+  }
+}
+
+function replaceAgentSidebarUrlOpenOverride(open: boolean | null): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const url = new URL(window.location.href);
+    if (open === null) {
+      url.searchParams.delete(AGENT_SIDEBAR_QUERY_PARAM);
+    } else {
+      url.searchParams.set(
+        AGENT_SIDEBAR_QUERY_PARAM,
+        open
+          ? AGENT_SIDEBAR_QUERY_VALUE_OPEN
+          : AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+      );
+    }
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl === currentUrl) return true;
+    window.history.replaceState(window.history.state, "", nextUrl);
+    return true;
+  } catch {
+    // coercion-ok: false tells the caller the URL intent could not be updated.
+    return false;
+  }
+}
+
+let lastAgentSidebarState: AgentSidebarStateChangeDetail | null = null;
+
+/**
+ * The state the panel last announced, or `null` before any panel has. A
+ * control that mounts after the panel opened reads this instead of waiting
+ * for the next change.
+ */
+export function getAgentSidebarState(): AgentSidebarStateChangeDetail | null {
+  return lastAgentSidebarState;
+}
+
 export function dispatchAgentSidebarStateChange(
   detail: AgentSidebarStateChangeDetail,
 ): void {
   if (typeof window === "undefined") return;
+  lastAgentSidebarState = detail;
   window.dispatchEvent(
     new CustomEvent<AgentSidebarStateChangeDetail>(SIDEBAR_STATE_CHANGE_EVENT, {
       detail,
@@ -90,14 +189,25 @@ export function dispatchAgentSidebarStateChange(
 export function setAgentSidebarOpenPreference(
   open: boolean,
   storageKey?: string | null,
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(
-      getAgentSidebarOpenPreferenceKey(storageKey),
-      String(open),
+): boolean {
+  if (typeof window === "undefined") return false;
+  const urlOverride = getAgentSidebarUrlOpenOverride();
+  const sessionIntentSaved =
+    urlOverride !== null || !open
+      ? setExplicitUrlOpenSessionIntent(open, storageKey)
+      : true;
+  const preferenceSaved = writeAgentSidebarOpenPreference(open, storageKey);
+  const storageSaved = sessionIntentSaved && preferenceSaved;
+  if (urlOverride !== null || !storageSaved) {
+    let urlOverrideSaved = replaceAgentSidebarUrlOpenOverride(
+      storageSaved ? null : open,
     );
-  } catch {}
+    if (storageSaved && !urlOverrideSaved) {
+      urlOverrideSaved = replaceAgentSidebarUrlOpenOverride(open);
+    }
+    return storageSaved && urlOverrideSaved;
+  }
+  return storageSaved;
 }
 
 export function requestAgentSidebarOpen(): void {
@@ -122,7 +232,12 @@ export function consumeAgentSidebarUrlOpenOverride(
   const override = getAgentSidebarUrlOpenOverride();
   if (override === null || typeof window === "undefined") return override;
 
-  setAgentSidebarOpenPreference(override, storageKey);
+  const preferenceSaved = writeAgentSidebarOpenPreference(override, storageKey);
+  const sessionIntentSaved = setExplicitUrlOpenSessionIntent(
+    override,
+    storageKey,
+  );
+  if (!preferenceSaved || !sessionIntentSaved) return override;
 
   try {
     const url = new URL(window.location.href);
@@ -185,13 +300,27 @@ export function subscribeAgentSidebarUrlChanges(
 export function getInitialAgentSidebarOpen(
   defaultOpen: boolean,
   storageKey?: string | null,
+  { ignoreUrlOverride = false }: { ignoreUrlOverride?: boolean } = {},
 ): boolean {
-  const urlOverride = getAgentSidebarUrlOpenOverride();
-  if (urlOverride !== null) return urlOverride;
+  if (!ignoreUrlOverride) {
+    const urlOverride = getAgentSidebarUrlOpenOverride();
+    if (urlOverride !== null) return urlOverride;
+  }
+  if (getExplicitUrlOpenSessionIntent(storageKey) === true) {
+    try {
+      if (
+        window.localStorage.getItem(
+          getAgentSidebarOpenPreferenceKey(storageKey),
+        ) !== "false"
+      ) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }
   if (hasChatThreadDeepLink()) return true;
 
-  // On mobile viewports the sidebar would cover most of the screen, so
-  // always start closed regardless of any persisted desktop preference.
   if (
     typeof window !== "undefined" &&
     window.matchMedia("(max-width: 767px)").matches
@@ -204,8 +333,6 @@ export function getInitialAgentSidebarOpen(
       getAgentSidebarOpenPreferenceKey(storageKey),
     );
     if (saved === "false") return false;
-    // Never let durable storage turn on a sidebar that is default-closed.
-    // Programmatic chat handoffs open the current sidebar transiently instead.
     if (defaultOpen && saved === "true") return true;
   } catch {}
   return defaultOpen;

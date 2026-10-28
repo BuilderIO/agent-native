@@ -50,10 +50,6 @@ function makeDeps(overrides: Partial<PeerProbeDeps> = {}): PeerProbeDeps {
 }
 
 describe("probePeerAgent", () => {
-  // Reachability and auth are independent questions. An unreachable peer
-  // can't tell us anything about whether our calls would authenticate, so
-  // `authorized` must stay ABSENT — not coerced to `false` — or the settings
-  // UI reports a peer as "auth rejected" when it never even answered.
   it("leaves authorized undefined when the peer is unreachable", async () => {
     const deps = makeDeps({
       loadCapabilities: async () => ({
@@ -121,10 +117,6 @@ describe("probePeerAgent", () => {
     expect(result.authError).toBeUndefined();
   });
 
-  // A timeout on the auth-only call proves nothing about auth — the card
-  // fetch already proved reachability. Collapsing a timeout into
-  // `authorized: false` would tell a correctly-configured caller that its
-  // credentials are rejected, when the real cause is an unrelated network hiccup.
   it("never reports a timeout on the no-op call as authorized:false", async () => {
     const deps = makeDeps({
       createClient: () => ({
@@ -142,6 +134,86 @@ describe("probePeerAgent", () => {
     expect(result.authorized).toBeUndefined();
     expect("authorized" in result).toBe(false);
     expect(result.authError).toBe("This operation was aborted");
+  });
+
+  it("leaves authorized undefined, with the reason, when the no-op call fails for a non-auth reason", async () => {
+    const deps = makeDeps({
+      createClient: () => ({
+        getTask: async () => {
+          throw new Error("A2A request failed (503): upstream unavailable");
+        },
+      }),
+    });
+
+    const result = await probePeerAgent(agent, deps);
+
+    expect(result.reachable).toBe(true);
+    expect("authorized" in result).toBe(false);
+    expect(result.authError).toBe(
+      "A2A request failed (503): upstream unavailable",
+    );
+  });
+
+  it("keeps a caller-auth lookup failure local to the peer probe", async () => {
+    const deps = makeDeps({
+      resolveCallerAuth: async () => {
+        throw new Error("organization lookup unavailable");
+      },
+    });
+
+    const result = await probePeerAgent(agent, deps);
+
+    expect(result).toMatchObject({
+      reachable: true,
+      authError: "organization lookup unavailable",
+    });
+    expect(result.authorized).toBeUndefined();
+    expect("authorized" in result).toBe(false);
+  });
+
+  it("returns an error row when one peer probe throws without rejecting its batch", async () => {
+    const goodCapabilities = await makeDeps().loadCapabilities(agent);
+    const peers = [
+      { ...agent, id: "broken" },
+      { ...agent, id: "healthy" },
+    ];
+    const deps = makeDeps({
+      loadCapabilities: async (candidate) => {
+        if (candidate.id === "broken") {
+          throw new Error("peer card probe failed unexpectedly");
+        }
+        return { ...goodCapabilities, agent: candidate };
+      },
+    });
+
+    await expect(probeAllPeerAgents(peers, deps)).resolves.toMatchObject([
+      {
+        id: "broken",
+        url: agent.url,
+        reachable: false,
+        error: "peer card probe failed unexpectedly",
+      },
+      { id: "healthy", reachable: true, authorized: true },
+    ]);
+  });
+
+  it("leaves authorized undefined, with no reason, for a card that has no JSON-RPC endpoint", async () => {
+    const base = await makeDeps().loadCapabilities(agent);
+    const deps = makeDeps({
+      loadCapabilities: async () => ({ ...base, cardStatus: "no-json-rpc" }),
+      createClient: () => ({
+        getTask: async () => {
+          throw new Error("should never be called without a JSON-RPC endpoint");
+        },
+      }),
+    });
+
+    const result = await probePeerAgent(agent, deps);
+
+    expect(result.reachable).toBe(true);
+    expect(result.cardStatus).toBe("no-json-rpc");
+    expect("authorized" in result).toBe(false);
+    expect(result.authError).toBeUndefined();
   });
 
   it("probes native provider agents by ID without creating a session", async () => {

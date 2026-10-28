@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
+import { runBeforeSignOutCleanups } from "../client/use-session.js";
 import {
   useCollaborativeDoc,
   _collabDocRegistrySizeForTests,
@@ -28,11 +29,6 @@ import {
   type UseCollaborativeDocResult,
 } from "./client.js";
 
-/**
- * Minimal EventSource stand-in so the shared transport never opens a real
- * SSE connection. Tracks every constructed instance so tests can push
- * synthetic push events without going through a real EventSource.
- */
 class FakeEventSource {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -51,9 +47,15 @@ class FakeEventSource {
 }
 
 function emptyStateResponse(): Response {
-  // A valid Yjs update for a document whose `content` text is "seed".
   return new Response(
-    JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+    JSON.stringify({
+      state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA",
+      activityBaseline: {
+        status: "ready",
+        version: 1,
+        cursor: "1.baseline",
+      },
+    }),
   );
 }
 
@@ -70,10 +72,9 @@ function deferredResponse(): {
   };
 }
 
-/** Routes collab/poll endpoints to canned JSON and counts state fetches. */
 function makeFetchMock() {
   const stateFetches: string[] = [];
-  const mock = vi.fn(async (input: RequestInfo | URL) => {
+  const mock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     if (/\/collab\/[^/]+\/state/.test(url)) {
       stateFetches.push(url);
@@ -165,6 +166,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           }
@@ -243,6 +249,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -329,6 +340,11 @@ describe("useCollaborativeDoc connection registry", () => {
                 state: Buffer.from(Y.encodeStateAsUpdate(server)).toString(
                   "base64",
                 ),
+                activityBaseline: {
+                  status: "ready",
+                  version: 1,
+                  cursor: "1.baseline",
+                },
               }),
             );
           if (!url.endsWith("/update")) return fallback(input);
@@ -413,9 +429,686 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(a?.awareness).toBe(b?.awareness);
     expect(stateFetches).toHaveLength(1);
     expect(_collabDocRegistrySizeForTests()).toBe(1);
-    // Both subscribers converge on the same synced state.
     expect(a?.isSynced).toBe(true);
     expect(b?.isSynced).toBe(true);
+  });
+
+  it("keeps the cold-load connection when the authenticated user resolves", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe docId="cold-load-identity" onResult={(next) => (result = next)} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    const initialYdoc = result?.ydoc;
+    expect(initialYdoc).toBeTruthy();
+    expect(stateFetches).toHaveLength(1);
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="cold-load-identity"
+          user={{
+            name: "Ada",
+            email: "ada@example.test",
+            color: "blue",
+          }}
+          onResult={(next) => (result = next)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    expect(result?.ydoc).toBe(initialYdoc);
+    expect(stateFetches).toHaveLength(1);
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  it("reuses a cold-load connection after identity resolution", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "Ada",
+      email: "ada@example.test",
+      color: "blue",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const firstRoot = mount(
+      <Probe
+        docId="resolved-registry-identity"
+        onResult={(r) => (first = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+    const coldLoadYdoc = first?.ydoc;
+
+    act(() => {
+      firstRoot.render(
+        <Probe
+          docId="resolved-registry-identity"
+          user={user}
+          onResult={(r) => (first = r)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="resolved-registry-identity"
+        user={user}
+        onResult={(r) => (second = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+
+    expect(first?.ydoc).toBe(coldLoadYdoc);
+    expect(second?.ydoc).toBe(coldLoadYdoc);
+    expect(stateFetches).toHaveLength(1);
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  function awarenessPosts(mock: ReturnType<typeof makeFetchMock>["mock"]) {
+    return mock.mock.calls
+      .filter(([input]) => String(input).endsWith("/awareness"))
+      .map(([, init]) => ({
+        ...JSON.parse(String(init?.body)),
+        keepalive: init?.keepalive,
+      }));
+  }
+
+  async function mountPresence() {
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="page-lifecycle"
+        user={{ name: "Ada", email: "ada@example.test", color: "blue" }}
+        onResult={(next) => (result = next)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(result?.isSynced).toBe(true);
+    return { root, result: result! };
+  }
+
+  it.each([false, true])(
+    "clears pagehide presence (persisted=%s) and cancels queued posts",
+    async (persisted) => {
+      const { mock } = makeFetchMock();
+      vi.stubGlobal("fetch", mock);
+      const { result } = await mountPresence();
+      const before = awarenessPosts(mock);
+      result.awareness!.setLocalStateField("cursor", { x: 1 });
+      const pagehide = new Event("pagehide");
+      Object.defineProperty(pagehide, "persisted", { value: persisted });
+      expect((pagehide as PageTransitionEvent).persisted).toBe(persisted);
+      window.dispatchEvent(pagehide);
+      const clear = awarenessPosts(mock).at(-1)!;
+      expect(clear).toMatchObject({
+        clientId: result.ydoc!.clientID,
+        state: null,
+        keepalive: true,
+        clearToken: before.at(-1)!.clearToken,
+      });
+      expect(clear.clientSequence).toBeGreaterThan(
+        before.at(-1)!.clientSequence,
+      );
+      expect(result.ydoc!.isDestroyed).toBe(false);
+      expect(result.awareness!.getLocalState()?.user.email).toBe(
+        "ada@example.test",
+      );
+
+      result.awareness!.setLocalStateField("cursor", { x: 2 });
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      expect(awarenessPosts(mock)).toHaveLength(before.length + 1);
+    },
+  );
+
+  it("keeps ordinary hidden-tab presence without a clear", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    await mountPresence();
+    const before = awarenessPosts(mock).length;
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      const posts = awarenessPosts(mock).slice(before);
+      expect(posts.length).toBeGreaterThan(0);
+      expect(
+        posts.every(
+          ({ state }) => state !== null && JSON.parse(state).visible === false,
+        ),
+      ).toBe(true);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("resumes the same BFCache document with later presence sequences across repeated restores", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    const { result } = await mountPresence();
+    const ydoc = result.ydoc!;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      window.dispatchEvent(
+        new PageTransitionEvent("pagehide", { persisted: true }),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const clear = awarenessPosts(mock).at(-1)!;
+      expect(clear.state).toBeNull();
+      window.dispatchEvent(
+        new PageTransitionEvent("pageshow", { persisted: true }),
+      );
+      const resumed = awarenessPosts(mock).at(-1)!;
+      expect(JSON.parse(resumed.state).visible).toBe(true);
+      expect(resumed.clientSequence).toBeGreaterThan(clear.clientSequence);
+      expect(resumed.clearToken).toBe(clear.clearToken);
+      expect(resumed.clientId).toBe(ydoc.clientID);
+      expect(ydoc.isDestroyed).toBe(false);
+    }
+    expect(stateFetches).toHaveLength(1);
+  });
+
+  it("does not publish presence when an in-flight poll completes after pagehide", async () => {
+    const { mock } = makeFetchMock();
+    const heldPoll = deferredResponse();
+    mock.mockImplementationOnce(async () => emptyStateResponse());
+    const fallback = mock.getMockImplementation()!;
+    mock.mockImplementation(async (input, init) =>
+      String(input).includes("/_agent-native/poll")
+        ? heldPoll.promise
+        : fallback(input, init),
+    );
+    vi.stubGlobal("fetch", mock);
+    await mountPresence();
+    window.dispatchEvent(new PageTransitionEvent("pagehide"));
+    const count = awarenessPosts(mock).length;
+    expect(awarenessPosts(mock).at(-1)).toMatchObject({ state: null });
+    await act(async () => {
+      heldPoll.resolve(
+        new Response(JSON.stringify({ version: 1, events: [] })),
+      );
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(awarenessPosts(mock)).toHaveLength(count);
+  });
+
+  it("orders a clear and BFCache resume after an older in-flight presence post", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    const { result } = await mountPresence();
+    const heldPost = deferredResponse();
+    const fallback = mock.getMockImplementation()!;
+    mock.mockImplementation((input, init) =>
+      String(input).endsWith("/awareness")
+        ? heldPost.promise
+        : fallback(input, init),
+    );
+    result.awareness!.setLocalStateField("cursor", { x: 1 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    const older = awarenessPosts(mock).at(-1)!;
+    window.dispatchEvent(
+      new PageTransitionEvent("pagehide", { persisted: true }),
+    );
+    const clear = awarenessPosts(mock).at(-1)!;
+    expect(clear.state).toBeNull();
+    expect(clear.clientSequence).toBeGreaterThan(older.clientSequence);
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true }),
+    );
+    const resumed = awarenessPosts(mock).at(-1)!;
+    expect(resumed.clientSequence).toBeGreaterThan(clear.clientSequence);
+    expect(resumed.clearToken).toBe(older.clearToken);
+    await act(async () => {
+      heldPost.resolve(new Response(null, { status: 204 }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(awarenessPosts(mock).at(-1)!.clientSequence).toBeGreaterThan(
+      resumed.clientSequence,
+    );
+  });
+
+  it.each(["dispose", "sign-out"])(
+    "does not double-clear or resume after pagehide then %s",
+    async (ending) => {
+      const { mock } = makeFetchMock();
+      vi.stubGlobal("fetch", mock);
+      const { root, result } = await mountPresence();
+      window.dispatchEvent(
+        new PageTransitionEvent("pagehide", { persisted: true }),
+      );
+      if (ending === "dispose") {
+        act(() => root.unmount());
+        roots = roots.filter((candidate) => candidate !== root);
+      } else {
+        await act(async () => {
+          await runBeforeSignOutCleanups();
+        });
+      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      const posts = awarenessPosts(mock);
+      expect(posts.filter(({ state }) => state === null)).toHaveLength(1);
+      window.dispatchEvent(
+        new PageTransitionEvent("pageshow", { persisted: true }),
+      );
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(awarenessPosts(mock)).toHaveLength(posts.length);
+      expect(
+        ending === "dispose"
+          ? result.ydoc!.isDestroyed
+          : result.awareness!.getLocalState() === null,
+      ).toBe(true);
+    },
+  );
+
+  it("captures edits while sign-out cleanup is pending and the editor remains mounted", async () => {
+    const { mock } = makeFetchMock();
+    const originalFetch = mock.getMockImplementation()!;
+    let finishClear!: (response: Response) => void;
+    mock.mockImplementation((input, init) => {
+      if (
+        String(input).endsWith("/awareness") &&
+        init?.body &&
+        JSON.parse(String(init.body)).state === null
+      )
+        return new Promise<Response>((resolve) => {
+          finishClear = resolve;
+        });
+      return originalFetch(input, init);
+    });
+    vi.stubGlobal("fetch", mock);
+    const { result } = await mountPresence();
+    const cleanup = runBeforeSignOutCleanups();
+    expect(result.ydoc!.isDestroyed).toBe(false);
+    result.ydoc!.getText("logout-edit").insert(0, "still mounted");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    const requests = mock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/update"),
+    );
+    expect(requests.length).toBeGreaterThan(0);
+    const received = new Y.Doc();
+    try {
+      for (const [, init] of requests) {
+        const { update } = JSON.parse(String(init?.body));
+        Y.applyUpdate(received, new Uint8Array(Buffer.from(update, "base64")));
+      }
+      expect(received.getText("logout-edit").toString()).toBe("still mounted");
+    } finally {
+      received.destroy();
+    }
+    finishClear(new Response("{}"));
+    await cleanup;
+  });
+
+  it("clears local presence and stops polling before sign-out", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    mount(
+      <Probe
+        docId="sign-out-presence"
+        user={{
+          name: "Ada",
+          email: "ada@example.test",
+          color: "blue",
+        }}
+        onResult={() => {}}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const awarenessRequests = () =>
+      mock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).endsWith("/sign-out-presence/awareness") &&
+          (init as RequestInit | undefined)?.method === "POST",
+      );
+    expect(awarenessRequests()).toHaveLength(1);
+    await act(async () => {
+      await runBeforeSignOutCleanups();
+    });
+
+    expect(awarenessRequests()).toHaveLength(2);
+    expect(JSON.parse(String(awarenessRequests()[1]![1]?.body)).state).toBe(
+      null,
+    );
+    const pollCount = mock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/poll"),
+    ).length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(pollCount);
+  });
+
+  it("retires the authenticated connection when its user signs out", async () => {
+    const { mock, stateFetches } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="signed-out-presence"
+        user={{
+          name: "Ada",
+          email: "ada@example.test",
+          color: "blue",
+        }}
+        onResult={(r) => (result = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result?.ydoc).toBeTruthy();
+    expect(stateFetches).toHaveLength(1);
+
+    const pollCount = mock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/poll"),
+    ).length;
+    act(() => {
+      root.render(
+        <Probe docId="signed-out-presence" onResult={(r) => (result = r)} />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const clearPosts = mock.mock.calls.filter(([input, init]) => {
+      if (
+        !String(input).endsWith("/signed-out-presence/awareness") ||
+        (init as RequestInit | undefined)?.method !== "POST"
+      ) {
+        return false;
+      }
+      return JSON.parse(String(init?.body)).state === null;
+    });
+    expect(clearPosts).toHaveLength(1);
+    expect(result?.ydoc).toBeNull();
+    expect(stateFetches).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(pollCount);
+    expect(_collabDocRegistrySizeForTests()).toBe(0);
+  });
+
+  it.each([200, 503])(
+    "publishes presence after same-page reauthentication before an old clear settles with %s",
+    async (status) => {
+      const { mock } = makeFetchMock();
+      const originalFetch = mock.getMockImplementation()!;
+      let finishClear!: (response: Response) => void;
+      const pendingUpdates: Array<(response: Response) => void> = [];
+      mock.mockImplementation((input, init) => {
+        if (String(input).endsWith("/update"))
+          return new Promise<Response>((resolve) => {
+            pendingUpdates.push(resolve);
+          });
+        if (
+          String(input).endsWith("/awareness") &&
+          init?.body &&
+          JSON.parse(String(init.body)).state === null
+        )
+          return new Promise<Response>((resolve) => {
+            finishClear = resolve;
+          });
+        return originalFetch(input, init);
+      });
+      vi.stubGlobal("fetch", mock);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { root, result } = await mountPresence();
+      const originalClient = result.ydoc!.clientID;
+      result.ydoc!.getText("pending-return").insert(0, "kept edit");
+      act(() =>
+        root.render(<Probe docId="page-lifecycle" onResult={() => {}} />),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const before = awarenessPosts(mock).length;
+      let restored: UseCollaborativeDocResult | undefined;
+      act(() =>
+        root.render(
+          <Probe
+            docId="page-lifecycle"
+            user={{ name: "Ada", email: "ada@example.test", color: "blue" }}
+            onResult={(next) => {
+              restored = next;
+            }}
+          />,
+        ),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      const returned = awarenessPosts(mock)
+        .slice(before)
+        .filter((post) => post.state !== null);
+      expect(returned.length).toBeGreaterThan(0);
+      expect(returned.at(-1)!.clientId).not.toBe(originalClient);
+      expect(JSON.parse(returned.at(-1)!.state).user.email).toBe(
+        "ada@example.test",
+      );
+      expect(restored?.ydoc?.getText("pending-return").toString()).toBe(
+        "kept edit",
+      );
+      await act(async () => {
+        for (const resolve of pendingUpdates)
+          resolve(new Response("{}", { status: 200 }));
+        finishClear(new Response("{}", { status }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(error.mock.calls.length).toBe(status === 503 ? 1 : 0);
+    },
+  );
+
+  it("creates a new awareness client identity when the authenticated user changes", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+
+    const firstUser = {
+      name: "First editor",
+      email: "first@example.test",
+      color: "blue",
+    };
+    const secondUser = {
+      name: "Second editor",
+      email: "second@example.test",
+      color: "green",
+    };
+    let result: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="account-switch"
+        user={firstUser}
+        onResult={(next) => (result = next)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const firstClientId = result!.ydoc!.clientID;
+    const awarenessPosts = () =>
+      mock.mock.calls
+        .filter(
+          ([input, init]) =>
+            String(input).includes("/account-switch/awareness") &&
+            (init as RequestInit | undefined)?.method === "POST",
+        )
+        .map(
+          ([, init]) =>
+            JSON.parse(String(init?.body)) as {
+              clientId: number;
+              clearToken: string;
+              state: string | null;
+            },
+        );
+    expect(awarenessPosts()).toHaveLength(1);
+    expect(awarenessPosts()[0]).toMatchObject({ clientId: firstClientId });
+    expect(JSON.parse(awarenessPosts()[0]!.state!).user.email).toBe(
+      firstUser.email,
+    );
+
+    act(() => {
+      root.render(
+        <Probe
+          docId="account-switch"
+          user={secondUser}
+          onResult={(next) => (result = next)}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+
+    const secondClientId = result!.ydoc!.clientID;
+    expect(secondClientId).not.toBe(firstClientId);
+    expect(awarenessPosts()).toHaveLength(2);
+    expect(awarenessPosts()[1]).toMatchObject({ clientId: secondClientId });
+    expect(JSON.parse(awarenessPosts()[1]!.state!).user.email).toBe(
+      secondUser.email,
+    );
+    expect(awarenessPosts()[0]!.clearToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(awarenessPosts()[1]!.clearToken).not.toBe(
+      awarenessPosts()[0]!.clearToken,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(awarenessPosts()).toHaveLength(3);
+    expect(awarenessPosts()[2]).toMatchObject({
+      clientId: firstClientId,
+      clearToken: awarenessPosts()[0]!.clearToken,
+      state: null,
+    });
+    expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  it("reconciles state before accepting the first poll watermark without a baseline", async () => {
+    const server = new Y.Doc();
+    server.getText("content").insert(0, "seed");
+    const initialState = Buffer.from(Y.encodeStateAsUpdate(server)).toString(
+      "base64",
+    );
+    let stateVectorFetches = 0;
+    const pollUrls: string[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) {
+        return new Response(
+          JSON.stringify({
+            state: initialState,
+            activityBaseline: { status: "unavailable" },
+          }),
+        );
+      }
+      if (/\/collab\/[^/]+\/state\?/.test(url)) {
+        stateVectorFetches++;
+        server.getText("content").insert(4, " updated");
+        const stateVector = Buffer.from(
+          new URL(url, window.location.href).searchParams.get("stateVector")!,
+          "base64",
+        );
+        const update = Y.encodeStateAsUpdate(server, stateVector);
+        return new Response(
+          JSON.stringify({ state: Buffer.from(update).toString("base64") }),
+        );
+      }
+      if (url.includes("/_agent-native/poll")) {
+        pollUrls.push(url);
+        return new Response(JSON.stringify({ version: 100, events: [] }));
+      }
+      if (url.includes("/awareness")) {
+        return new Response(JSON.stringify({ states: [] }));
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="unavailable-baseline"
+        onResult={(next) => {
+          result = next;
+        }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pollUrls[0]).toContain("since=0");
+    expect(stateVectorFetches).toBe(1);
+    expect(result?.ydoc?.getText("content").toString()).toBe("seed updated");
+
+    server.destroy();
   });
 
   it("returns a fresh sync receipt after an older transport fetch completes", async () => {
@@ -434,8 +1127,6 @@ describe("useCollaborativeDoc connection registry", () => {
       }
       if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
       if (url.includes("/_agent-native/poll")) {
-        // Force the transport's ring-gap recovery path to have an older
-        // state-vector request in flight when requestSync is called.
         return new Response(JSON.stringify({ version: 2_000, events: [] }));
       }
       return new Response(JSON.stringify({ states: [] }));
@@ -459,8 +1150,6 @@ describe("useCollaborativeDoc connection registry", () => {
     act(() => {
       receipt = result!.requestSync();
     });
-    // The receipt starts a fresh request immediately instead of waiting for
-    // the older transport recovery, which may never settle.
     expect(stateVectorFetches).toBe(2);
     expect(stateVectorRequests[1]?.cache).toBe("no-store");
 
@@ -667,8 +1356,6 @@ describe("useCollaborativeDoc connection registry", () => {
       if (/\/collab\/[^/]+\/state/.test(url)) {
         attempts++;
         if (attempts === 1) {
-          // Truncated update: this version of Yjs applies "poison" before
-          // throwing, which proves validation must happen off the live doc.
           return new Response(
             JSON.stringify({
               state: "AQGp2K6eCgAEAQdjb250ZW50BnBvaXNvbg==",
@@ -740,9 +1427,7 @@ describe("useCollaborativeDoc connection registry", () => {
 
     act(() => root.unmount());
     roots = roots.filter((r) => r !== root);
-    // Still registered during the linger window…
     expect(_collabDocRegistrySizeForTests()).toBe(1);
-    // …and evicted (doc destroyed) once it elapses.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500);
     });
@@ -756,6 +1441,87 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(second?.ydoc).toBeTruthy();
     expect(second?.ydoc).not.toBe(firstYdoc);
     expect(stateFetches).toHaveLength(2);
+  });
+
+  it("removes a departed editor from the awareness snapshot", async () => {
+    const awarenessByClient = new Map<number, string>();
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
+      if (url.includes("/_agent-native/poll")) {
+        return new Response(JSON.stringify({ version: 1, events: [] }));
+      }
+      if (url.endsWith("/awareness")) {
+        const body = JSON.parse(String(init?.body)) as {
+          clientId: number;
+          state: string | null;
+        };
+        if (body.state === null) {
+          awarenessByClient.delete(body.clientId);
+        } else {
+          awarenessByClient.set(body.clientId, body.state);
+        }
+        return new Response(
+          JSON.stringify({
+            states: Array.from(awarenessByClient, ([clientId, state]) => ({
+              clientId,
+              state,
+            })).filter(({ clientId }) => clientId !== body.clientId),
+          }),
+        );
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "First editor",
+      email: "first@example.test",
+      color: "#111",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const root = mount(
+      <Probe
+        docId="awareness-unmount"
+        user={user}
+        onResult={(r) => (first = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(awarenessByClient.size).toBe(1);
+
+    act(() => root.unmount());
+    roots = roots.filter((candidate) => candidate !== root);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(awarenessByClient.size).toBe(0);
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="awareness-unmount"
+        user={{
+          name: "Second editor",
+          email: "second@example.test",
+          color: "#222",
+        }}
+        onResult={(r) => (second = r)}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(second?.activeUsers).not.toContainEqual(
+      expect.objectContaining({ email: "first@example.test" }),
+    );
+    expect(first?.ydoc?.isDestroyed).toBe(true);
   });
 
   it("survives unmount→remount within the linger window without teardown or refetch", async () => {
@@ -773,7 +1539,7 @@ describe("useCollaborativeDoc connection registry", () => {
     act(() => root.unmount());
     roots = roots.filter((r) => r !== root);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(100); // < DISPOSE_LINGER_MS
+      await vi.advanceTimersByTimeAsync(100);
     });
 
     let second: UseCollaborativeDocResult | undefined;
@@ -784,11 +1550,69 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(second?.ydoc).toBe(firstYdoc);
     expect(stateFetches).toHaveLength(1);
 
-    // With a live subscriber the linger must not fire later either.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(_collabDocRegistrySizeForTests()).toBe(1);
+  });
+
+  it("sends nothing for a document whose last subscriber left before its state arrived", async () => {
+    const state = deferredResponse();
+    const requests: string[] = [];
+    const { mock: fallback } = makeFetchMock();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        requests.push(url);
+        if (url.endsWith("/collab/deleted-screen/state")) return state.promise;
+        return fallback(input);
+      }),
+    );
+
+    const root = mount(
+      <Probe
+        docId="deleted-screen"
+        onResult={() => {}}
+        user={{ name: "Ada", email: "ada@example.com", color: "#000" }}
+      />,
+    );
+    act(() => root.unmount());
+    roots = roots.filter((r) => r !== root);
+    await act(async () => {
+      state.resolve(emptyStateResponse());
+      await vi.advanceTimersByTimeAsync(900);
+    });
+
+    expect(
+      requests.filter((url) => url.includes("/collab/deleted-screen/")),
+    ).toEqual(["/_agent-native/collab/deleted-screen/state"]);
+  });
+
+  it("resumes polling when a subscriber returns within the linger window", async () => {
+    const { mock } = makeFetchMock();
+    vi.stubGlobal("fetch", mock);
+    const polls = () =>
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ).length;
+
+    const root = mount(<Probe docId="doc-1" onResult={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => root.unmount());
+    roots = roots.filter((r) => r !== root);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const pollsBeforeRemount = polls();
+    mount(<Probe docId="doc-1" onResult={() => {}} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    expect(polls()).toBeGreaterThan(pollsBeforeRemount);
   });
 
   it("keeps one shared connection under StrictMode double-mounting", async () => {
@@ -809,7 +1633,6 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(stateFetches).toHaveLength(1);
     expect(_collabDocRegistrySizeForTests()).toBe(1);
 
-    // The StrictMode remount cancelled the linger — no delayed teardown.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
@@ -879,8 +1702,6 @@ describe("useCollaborativeDoc connection registry", () => {
         user={{ name: "Local", email: "local@example.com", color: "#111" }}
       />,
     );
-    // Flush the initial state fetch + first poll cycle, then let the local
-    // `setUser` awareness push (origin "local") land.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(200);
@@ -896,9 +1717,6 @@ describe("useCollaborativeDoc connection registry", () => {
         (init as RequestInit | undefined)?.method === "POST",
     ).length;
 
-    // Simulate a REMOTE peer's cursor move arriving over the shared SSE
-    // transport — this is what `applyAwarenessEvent` receives, and it emits
-    // `awareness.emit("change", [changes, "remote"])` after reconciling.
     await act(async () => {
       source!.onmessage?.({
         data: JSON.stringify({
@@ -920,7 +1738,6 @@ describe("useCollaborativeDoc connection registry", () => {
           ],
         }),
       });
-      // Past the 150ms fast-awareness-push throttle window.
       await vi.advanceTimersByTimeAsync(200);
     });
 
@@ -930,10 +1747,6 @@ describe("useCollaborativeDoc connection registry", () => {
         (init as RequestInit | undefined)?.method === "POST",
     ).length;
 
-    // A remote-originated awareness change must not cause THIS client to
-    // re-broadcast its own (unchanged) state — otherwise every peer's cursor
-    // move would fan out into an extra POST from every other connected
-    // client (an awareness storm that gets worse as more people join).
     expect(awarenessPostsAfter).toBe(awarenessPostsBefore);
   });
 
@@ -972,5 +1785,172 @@ describe("useCollaborativeDoc connection registry", () => {
         (init as RequestInit | undefined)?.method === "POST",
     ).length;
     expect(awarenessPostsAfterDispose).toBe(awarenessPostsBeforeDispose);
+  });
+
+  it("does not post awareness after the last subscriber leaves during a poll, and resumes on remount", async () => {
+    const pollResponses: ReturnType<typeof deferredResponse>[] = [];
+    const awarenessPosts: string[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) {
+        return emptyStateResponse();
+      }
+      if (url.includes("/_agent-native/poll")) {
+        const response = deferredResponse();
+        pollResponses.push(response);
+        return response.promise;
+      }
+      if (url.endsWith("/awareness")) {
+        awarenessPosts.push(url);
+        return new Response("missing", { status: 404 });
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    const user = {
+      name: "Local",
+      email: "local@example.com",
+      color: "#111",
+    };
+    let first: UseCollaborativeDocResult | undefined;
+    const firstRoot = mount(
+      <Probe
+        docId="doc-poll-unmount"
+        onResult={(next) => (first = next)}
+        user={user}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(pollResponses.length).toBeGreaterThan(0);
+    const initialPollCount = pollResponses.length;
+    expect(first?.awareness?.getLocalState()?.user).toMatchObject(user);
+    act(() => firstRoot.unmount());
+    roots = roots.filter((candidate) => candidate !== firstRoot);
+    await act(async () => {
+      for (const response of pollResponses.slice(0, initialPollCount)) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 1, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(awarenessPosts).toEqual([]);
+
+    let second: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId="doc-poll-unmount"
+        onResult={(next) => (second = next)}
+        user={user}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(second?.ydoc).toBe(first?.ydoc);
+    const resumedPolls = pollResponses.slice(initialPollCount);
+    expect(resumedPolls.length).toBeGreaterThan(0);
+    await act(async () => {
+      for (const response of resumedPolls) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 2, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(awarenessPosts.length).toBeGreaterThan(0);
+    expect(
+      awarenessPosts.every((url) => url.endsWith("doc-poll-unmount/awareness")),
+    ).toBe(true);
+  });
+
+  it("does not let an old in-flight poll schedule another chain after remount", async () => {
+    const pollResponses: ReturnType<typeof deferredResponse>[] = [];
+    const mock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (/\/collab\/[^/]+\/state$/.test(url)) return emptyStateResponse();
+      if (url.includes("/_agent-native/poll")) {
+        const response = deferredResponse();
+        pollResponses.push(response);
+        return response.promise;
+      }
+      if (url.endsWith("/awareness")) {
+        return new Response(JSON.stringify({ states: [] }));
+      }
+      return new Response(JSON.stringify({}));
+    });
+    vi.stubGlobal("fetch", mock);
+
+    const firstRoot = mount(
+      <Probe docId="doc-poll-remount" onResult={() => {}} />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const initialPollCount = pollResponses.length;
+    expect(initialPollCount).toBeGreaterThan(0);
+
+    act(() => firstRoot.unmount());
+    roots = roots.filter((candidate) => candidate !== firstRoot);
+
+    const secondRoot = mount(
+      <Probe docId="doc-poll-remount" onResult={() => {}} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const remountedPollCount = pollResponses.length;
+    expect(remountedPollCount).toBeGreaterThan(initialPollCount);
+
+    await act(async () => {
+      for (const response of pollResponses.slice(0, initialPollCount)) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 2, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(
+      mock.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/poll"),
+      ),
+    ).toHaveLength(remountedPollCount);
+
+    act(() => secondRoot.unmount());
+    roots = roots.filter((candidate) => candidate !== secondRoot);
+    await act(async () => {
+      for (const response of pollResponses.slice(initialPollCount)) {
+        response.resolve(
+          new Response(JSON.stringify({ version: 3, events: [] })),
+        );
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   });
 });

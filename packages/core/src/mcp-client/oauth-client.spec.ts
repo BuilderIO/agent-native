@@ -1,6 +1,8 @@
+import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.hoisted(() => vi.fn());
+const discoverOAuthServerInfoMock = vi.hoisted(() => vi.fn());
 const refreshAuthorizationMock = vi.hoisted(() => vi.fn());
 const validateAuthorizationResponseIssuerMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
@@ -11,8 +13,10 @@ const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 const getAppConfigMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@modelcontextprotocol/client", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@modelcontextprotocol/client")>()),
   auth: authMock,
+  discoverOAuthServerInfo: discoverOAuthServerInfoMock,
   refreshAuthorization: refreshAuthorizationMock,
   validateAuthorizationResponseIssuer: validateAuthorizationResponseIssuerMock,
 }));
@@ -44,7 +48,8 @@ vi.mock("../app-config/index.js", () => ({
   getAppConfig: getAppConfigMock,
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   mutateSetting: vi.fn(
     async (
       _key: string,
@@ -64,6 +69,7 @@ import {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
   McpOAuthClientProvider,
+  McpOAuthRefreshUnavailableError,
   readMcpOAuthCredentials,
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
@@ -107,6 +113,16 @@ beforeEach(() => {
   vi.restoreAllMocks();
   getAppConfigMock.mockReset().mockReturnValue({ app: {} });
   authMock.mockReset();
+  discoverOAuthServerInfoMock.mockReset().mockResolvedValue({
+    authorizationServerUrl: "https://auth.example.com",
+    authorizationServerMetadata: {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      registration_endpoint: "https://auth.example.com/register",
+      response_types_supported: ["code"],
+    },
+  });
   refreshAuthorizationMock.mockReset();
   deleteOAuthTokensMock.mockReset();
   getOAuthTokensMock.mockReset();
@@ -796,6 +812,55 @@ describe("MCP OAuth client", () => {
     ).resolves.toBeNull();
   });
 
+  it("keeps an expired Builder grant retryable and reports transient refresh failure", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure: (error) =>
+          error instanceof OAuthError &&
+          error.code === OAuthErrorCode.InvalidGrant,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+
+    expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a forced transient refresh failure as unavailable while the saved token remains connected", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() + 3_600_000,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+        forceRefresh: true,
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure: () => false,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+
+    expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
+  });
+
   it("keeps a still-valid token when an early refresh fails", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,
@@ -1062,11 +1127,6 @@ describe("MCP OAuth client", () => {
   });
 });
 
-/**
- * Mirrors the SDK's ordering: discovery state is persisted before the SDK picks
- * a resource, resolves scope, or registers a client, and `saveDiscoveryState`
- * is not wrapped in a catch there.
- */
 function authSavingDiscovery(
   authorizationServerMetadata: Record<string, unknown>,
   afterDiscovery?: () => never,
@@ -1130,8 +1190,6 @@ describe("MCP OAuth start failures that no retry can fix", () => {
     expect(authMock).not.toHaveBeenCalled();
   });
 
-  // The metadata only proves registration is unavailable. It must not be read
-  // as proof that registration is what failed.
   it("does not blame registration for a failure raised after discovery", async () => {
     const cause = new Error("authorization endpoint unreachable");
     authMock.mockImplementation(
@@ -1149,9 +1207,6 @@ describe("MCP OAuth start failures that no retry can fix", () => {
     await expect(start()).rejects.toBe(cause);
   });
 
-  // The SDK needs a provider clientMetadataUrl as well as the server flag to
-  // skip registration, and this provider supplies none, so the flag alone is
-  // not an escape from dynamic registration.
   it("still refuses when only the server advertises CIMD", async () => {
     authMock.mockImplementation(
       authSavingDiscovery({

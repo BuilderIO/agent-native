@@ -2,9 +2,10 @@
 
 ## Direction
 
-Dispatch's opt-in mode is a sparse control plane for conversations: New chat,
-Integrations, and Scheduled sit above a compact six-app workspace shelf, with
-the existing chat history beneath it. Selecting an app opens an authenticated,
+Dispatch's chat home pairs the centered composer with a searchable two-column
+workspace app directory. Suggestions stay below the composer, followed by app
+cards with colored icons, descriptions, and Open actions. The shell keeps its
+compact app rail and chat history; selecting an app opens an authenticated,
 chrome-less contextual iframe beside the chat.
 
 ## Layout contract
@@ -64,9 +65,9 @@ the first viewport to the three destinations people use to orient themselves -
 Overview, Chat, and Apps - plus quiet account and management access at the
 bottom. Workspace apps belong in the Apps destination; they must not be repeated
 as a long label list beside the global navigation. The chat-first route may show
-a compact pinned-app shelf because app switching is part of that workflow, with
-the rest behind its existing disclosure. Prefer a short, stable rail over a
-context dump that competes with the page the user opened.
+a compact pinned-app shelf and searchable app directory because app discovery
+is part of that workflow. Keep the app list below the centered composer; the
+Apps destination remains the full management surface.
 
 ## Usage investigation
 

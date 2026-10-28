@@ -16,13 +16,13 @@ Em uma implantação de produção padrão com [execução de código em produç
 
 ## Builder.io: Edição Visual em Produção {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) é um fluxo de trabalho gerenciado separado, com capacidade de código, no qual um agente pode modificar a UI do seu app em produção. Conecte seu repositório ao Builder.io (nível gratuito disponível) e peça alterações de UI diretamente. Nenhuma reimplantação é necessária.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) é um fluxo de trabalho gerenciado separado, com capacidade de código, no qual um agente pode modificar a UI do seu app em produção. Use o Builder.io com seu repositório (nível gratuito disponível) e peça alterações de UI diretamente. Nenhuma reimplantação é necessária.
 
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+A ação **Use o Builder.io** em Configurações inicia o Builder OAuth (`builder:ai:invoke`) com um callback HTTPS da mesma origem em `/_agent-native/builder/callback`. Assim, domínios hospedados como o Railway funcionam sem uma lista de permissões. As chaves privadas `BUILDER_*` antigas continuam como alternativa em tempo de execução para conexões existentes.
 
 **Como funciona:**
 
-1. Conecte seu repositório nativo do agente ao Builder.io (nível gratuito disponível)
+1. Use o Builder.io com seu repositório agent-native (nível gratuito disponível)
 2. O Builder.io fornece um quadro de nuvem com o agente, edição visual e colaboração em tempo real
 3. Peça ao agente para fazer alterações na UI. Ele edita seus componentes, rotas e estilos ao vivo
 4. As alterações são commitadas de volta ao seu repositório

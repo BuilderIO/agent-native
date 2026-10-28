@@ -12,12 +12,6 @@ import { describe, expect, it } from "vitest";
 
 import { createVisualEditorExtensions } from "./VisualEditor";
 
-/**
- * End-to-end fidelity: load canonical NFM into a REAL TipTap editor (full
- * extension set, the same schema the app runs) and serialize it back. If the
- * result differs from the input, opening a synced document and saving it with
- * no edits would mutate it — exactly the drift this rewrite eliminates.
- */
 function editorRoundTrip(nfm: string): string {
   const editor = new Editor({
     extensions: createVisualEditorExtensions(),
@@ -244,9 +238,6 @@ const HARD_CASES: Array<{ name: string; nfm: string }> = [
     ),
   },
   {
-    // n1 regression: unrecognized raw containers (parsed to a notionBlockAtom
-    // with the source preserved in __raw) must survive a full editor
-    // load/save cycle byte-exact, not collapse to the bare tag name.
     name: "raw container (meeting-notes) preserves body through the editor",
     nfm: L(
       "<meeting-notes>",
@@ -258,14 +249,6 @@ const HARD_CASES: Array<{ name: string; nfm: string }> = [
   },
 ];
 
-/**
- * Registry-block cases (T6): a registered structured block lives inline in the
- * NFM string as an MDX element. The live editor schema must include core's
- * `registryBlock` atom node so it parses to a `registryBlock`, preserves the
- * verbatim source in `__raw`, and serializes back byte-exact with no edit —
- * exactly like every other block above. An untouched block never needs the
- * side-map: `docToNfm` emits `__raw` verbatim.
- */
 const REGISTRY_CASES: Array<{ name: string; nfm: string }> = [
   {
     name: "self-closing endpoint",
@@ -302,11 +285,6 @@ const REGISTRY_CASES: Array<{ name: string; nfm: string }> = [
       "Below the block.",
     ),
   },
-  // The remaining dev-doc blocks from the unification, seeded byte-exact from
-  // each spec's `empty()` via `seedRegistryBlockRaw` (the slash-insert path).
-  // These exercise multi-line JSON-expression `__raw` attributes (embedded
-  // newlines in mermaid `source`, pretty-printed `entities`/`spec`) through the
-  // FULL live TipTap schema — the strongest round-trip guarantee.
   {
     name: "mermaid block (multi-line source expr)",
     nfm: '<Mermaid id="mermaid-seed" source={"flowchart TD\\n  A[Start] --> B{Decision}\\n  B -->|Yes| C[Do it]\\n  B -->|No| D[Skip]"} />',
@@ -407,23 +385,15 @@ describe("NFM ⇄ real TipTap editor round-trip", () => {
     expect(result.endsWith("Trailing content.")).toBe(true);
   });
 
-  it("keeps an unresolved aligned table byte-exact through the live editor", () => {
+  it("keeps aligned table cells editable through the live editor", () => {
     const source = "| Left | Right |\n| :--- | ---: |\n| A | B |";
-    expect(editorRoundTrip(source)).toBe(source);
+    const result = editorRoundTrip(source);
+    expect(result).toContain('<td align="left">Left</td>');
+    expect(result).toContain('<td align="right">Right</td>');
+    expect(result).toContain('<td align="right">B</td>');
   });
 });
 
-/**
- * The toggle heading's `summary` node attr is raw NFM source (round-tripped
- * verbatim for Notion fixtures — see the CASES "toggle heading" case above),
- * but the `notion-toggle__summary` <input> in NotionExtensions.tsx writes
- * plain editor-typed text into that same attr with no escaping. These cases
- * start from a doc JSON (as the editor would actually produce it after a
- * user types into that input) rather than from an NFM string, and confirm a
- * save/reload cycle through the live schema preserves the exact summary text
- * and toggle structure instead of degrading into a plain heading containing
- * literal attrs.
- */
 describe("NFM ⇄ real TipTap editor round-trip: editor-typed toggle summaries", () => {
   const docRoundTrip = (docJson: any): any => {
     const editor = new Editor({
@@ -480,5 +450,81 @@ describe("NFM ⇄ real TipTap editor round-trip: editor-typed toggle summaries",
     const nfm2 = docToNfm(editor2.getJSON() as any);
     editor2.destroy();
     expect(nfm2).toBe(nfm);
+  });
+});
+
+describe("NFM ⇄ real TipTap editor round-trip: table header edits", () => {
+  const headerRowTable = L(
+    '<table header-row="true">',
+    "<tr>",
+    "<td>H1</td>",
+    "<td>H2</td>",
+    "</tr>",
+    "<tr>",
+    "<td>a</td>",
+    "<td>b</td>",
+    "</tr>",
+    "</table>",
+  );
+
+  function saveAfterEdit(nfm: string, edit: (editor: Editor) => void) {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(nfm),
+    });
+    edit(editor);
+    const out = docToNfm(editor.getJSON() as any);
+    editor.destroy();
+    return out;
+  }
+
+  function setCellTypes(
+    editor: Editor,
+    pick: (rowIndex: number, columnIndex: number) => string | null,
+  ) {
+    const { state } = editor;
+    const tr = state.tr;
+    state.doc.descendants((node, pos, parent) => {
+      if (node.type.name !== "tableRow") return true;
+      let rowIndex = 0;
+      parent?.forEach((row, _offset, i) => {
+        if (row === node) rowIndex = i;
+      });
+      node.forEach((cell, offset, columnIndex) => {
+        const typeName = pick(rowIndex, columnIndex);
+        if (typeName && typeName !== cell.type.name) {
+          tr.setNodeMarkup(pos + 1 + offset, state.schema.nodes[typeName]);
+        }
+      });
+      return false;
+    });
+    editor.view.dispatch(tr);
+  }
+
+  it("saves turning the header row off", () => {
+    const out = saveAfterEdit(headerRowTable, (editor) =>
+      setCellTypes(editor, () => "tableCell"),
+    );
+    expect(out).toContain("<table>");
+    expect(out).not.toContain("header-row");
+  });
+
+  it("saves turning the header column on", () => {
+    const out = saveAfterEdit(headerRowTable, (editor) =>
+      setCellTypes(editor, (_rowIndex, columnIndex) =>
+        columnIndex === 0 ? "tableHeader" : null,
+      ),
+    );
+    expect(out).toContain('<table header-row="true" header-column="true">');
+  });
+
+  it("doesn't turn the next row into headers after the header row is deleted", () => {
+    const out = saveAfterEdit(headerRowTable, (editor) => {
+      editor.commands.setTextSelection(4);
+      editor.commands.deleteRow();
+    });
+    expect(out).toContain("<td>a</td>");
+    expect(out).not.toContain("H1");
+    expect(out).not.toContain("header-row");
   });
 });

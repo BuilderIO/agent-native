@@ -13,8 +13,9 @@ import {
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
 import {
-  lockDatabasesForTrash,
+  lockLifecycleGroup,
   trashDocumentSubtree,
+  type LifecycleGroupLocks,
 } from "./delete-document.js";
 
 export default defineAction({
@@ -22,12 +23,24 @@ export default defineAction({
     "Move one exact ordinary collection to recoverable Trash using its fresh configuration revision and an idempotency key; preserve records for restoration and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   agentInputSchema: setupLifecycleSchema,
   schema: z.union([
     setupLifecycleSchema,
     z
       .object({
         databaseId: z.string().describe("Content collection ID"),
+        activeDocumentId: z
+          .string()
+          .optional()
+          .describe(
+            "Currently open document, used only to return an explicit navigation outcome.",
+          ),
       })
       .strict(),
   ]),
@@ -48,7 +61,7 @@ export default defineAction({
       const { database } = await assertContentDatabaseLifecycleAccess(
         input.target.databaseId,
       );
-      let lockedIds: ReadonlySet<string> | undefined;
+      let locks: LifecycleGroupLocks | undefined;
       const result = await runDatabaseSetupMutation({
         operation: "delete-content-database",
         input,
@@ -56,11 +69,13 @@ export default defineAction({
         role: "admin",
         includeDeleted: true,
         lock: async (tx) => {
-          lockedIds = await lockDatabasesForTrash(
-            tx,
-            database.documentId,
-            database.ownerEmail,
-          );
+          locks = await lockLifecycleGroup(tx, {
+            operation: "trash",
+            roots: [
+              { id: database.documentId, ownerEmail: database.ownerEmail },
+            ],
+            alsoLockDatabaseIds: [database.id],
+          });
         },
         apply: async (tx, context) => {
           if (context.database.ownerDocumentId)
@@ -78,7 +93,7 @@ export default defineAction({
                 context.database.documentId,
                 context.database.ownerEmail,
                 deletedAt,
-                lockedIds,
+                locks!,
               );
           return {
             outcome: context.database.deletedAt
@@ -98,7 +113,7 @@ export default defineAction({
       await refreshAfterSetup(result.receipt);
       return { success: true, ...result.value, receipt: result.receipt };
     }
-    const { databaseId } = args;
+    const { databaseId, activeDocumentId } = args;
     const { database } = await assertContentDatabaseLifecycleAccess(databaseId);
     if (database.systemRole) {
       throw new Error("System Content databases cannot be deleted");
@@ -106,19 +121,19 @@ export default defineAction({
     await assertAccess("document", database.documentId, "admin");
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
-    await db.transaction(async (tx) => {
+    const deletedDocumentIds = await db.transaction(async (tx) => {
       const transactionDb = tx as unknown as ReturnType<typeof getDb>;
-      const lockedDatabaseIds = await lockDatabasesForTrash(
-        transactionDb,
-        database.documentId,
-        database.ownerEmail,
-      );
+      const locks = await lockLifecycleGroup(transactionDb, {
+        operation: "trash",
+        roots: [{ id: database.documentId, ownerEmail: database.ownerEmail }],
+        alsoLockDatabaseIds: [database.id],
+      });
       return trashDocumentSubtree(
         transactionDb,
         database.documentId,
         database.ownerEmail,
         deletedAt,
-        lockedDatabaseIds,
+        locks,
       );
     });
 
@@ -129,6 +144,13 @@ export default defineAction({
       databaseId,
       documentId: database.documentId,
       deletedAt,
+      activeTargetDeleted: activeDocumentId
+        ? deletedDocumentIds.includes(activeDocumentId)
+        : false,
+      navigationPath:
+        activeDocumentId && deletedDocumentIds.includes(activeDocumentId)
+          ? "/home"
+          : null,
     };
   },
 });

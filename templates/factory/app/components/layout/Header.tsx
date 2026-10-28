@@ -1,9 +1,9 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useHeaderTitle,
   useHeaderActions,
 } from "@agent-native/toolkit/app-shell";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
 
@@ -19,7 +19,8 @@ const pageTitleKeys: Record<string, string> = {
 };
 
 function resolveTitle(pathname: string, t: (key: string) => string): string {
-  if (pageTitleKeys[pathname]) return t(pageTitleKeys[pathname]);
+  const titlePath = pathname.startsWith("/chat/") ? "/chat" : pathname;
+  if (pageTitleKeys[titlePath]) return t(pageTitleKeys[titlePath]);
   if (pathname.startsWith("/extensions")) return t("navigation.extensions");
   return APP_TITLE;
 }

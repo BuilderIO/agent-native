@@ -2,30 +2,25 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { ExportSettingsValue } from "@/components/design/inspector";
-import type { ElementInfo } from "@/components/design/types";
+import {
+  browserDesignExportErrorType,
+  trackBrowserDesignExported,
+  type BrowserDesignExportContext,
+} from "@/lib/design-export-tracking";
 import {
   PDF_MIN_PRINT_RASTER_SCALE,
   createSinglePageRasterPdf,
 } from "@/pages/design-editor/export-capture";
 import type { PngCaptureScope } from "@/pages/design-editor/png-export-render";
-import {
-  resolveBoardExportCropRect,
-  resolveExportCropRect,
-} from "@/pages/design-editor/png-export-render";
+
+import type { PngCaptureResult, PngRenderOptions } from "./render-png-blob";
 
 export interface DownloadPdfArgs {
+  /** Join keys for the `design_exported` this command reports. */
+  exportTracking?: BrowserDesignExportContext;
   fallbackExportName: (extension: string, suffix?: string) => string;
   pngExportingRef: RefObject<boolean>;
-  renderPngBlob: (arg0: {
-    scope: PngCaptureScope;
-    settings?: Partial<ExportSettingsValue>;
-    format?: "png" | "jpg" | "webp";
-  }) => Promise<Blob>;
-  resolvePngCaptureTarget: (scope: PngCaptureScope) => {
-    cropSelection: ElementInfo | readonly ElementInfo[] | null;
-    doc: Document;
-    iframe: HTMLIFrameElement;
-  };
+  renderPngCapture: (options: PngRenderOptions) => Promise<PngCaptureResult>;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
   showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -34,53 +29,28 @@ export interface DownloadPdfArgs {
 
 export async function runDownloadPdf(
   {
+    exportTracking,
     fallbackExportName,
     pngExportingRef,
-    renderPngBlob,
-    resolvePngCaptureTarget,
+    renderPngCapture,
     setPngExporting,
     showRasterCaptureError,
     t,
     triggerBlobDownload,
   }: DownloadPdfArgs,
   settings?: Partial<ExportSettingsValue>,
+  scope: PngCaptureScope = "document",
 ) {
   if (pngExportingRef.current) return;
   pngExportingRef.current = true;
   setPngExporting(true);
   try {
-    const { cropSelection, doc, iframe } = resolvePngCaptureTarget("document");
-    const crop = resolveExportCropRect(doc, cropSelection);
-    const pageCrop = crop ?? resolveBoardExportCropRect(doc, iframe);
-    const pageWidth = Math.max(
-      1,
-      pageCrop?.width ??
-        Math.max(
-          doc.documentElement.scrollWidth,
-          doc.body?.scrollWidth ?? 0,
-          iframe.clientWidth,
-        ),
-    );
-    const pageHeight = Math.max(
-      1,
-      pageCrop?.height ??
-        Math.max(
-          doc.documentElement.scrollHeight,
-          doc.body?.scrollHeight ?? 0,
-          iframe.clientHeight,
-        ),
-    );
-    // Force a print-quality raster floor: the PDF page renders at a fixed
-    // physical size (see createSinglePageRasterPdf), so a 1x capture —
-    // the export panel's ordinary default — embeds only ~96 DPI, which
-    // looks visibly soft once printed. Still honor an explicit higher
-    // user-selected scale (3x/4x).
     const pdfScale = Math.max(
       PDF_MIN_PRINT_RASTER_SCALE,
       settings?.scale ?? PDF_MIN_PRINT_RASTER_SCALE,
     );
-    const png = await renderPngBlob({
-      scope: "document",
+    const capture = await renderPngCapture({
+      scope,
       settings: { ...settings, scale: pdfScale },
       format: "png",
     });
@@ -90,16 +60,25 @@ export async function runDownloadPdf(
         reject(reader.error ?? new Error("PDF read failed"));
       reader.onload = () =>
         resolve(typeof reader.result === "string" ? reader.result : "");
-      reader.readAsDataURL(png);
+      reader.readAsDataURL(capture.blob);
     });
     const pdf = await createSinglePageRasterPdf({
       dataUrl,
-      width: pageWidth,
-      height: pageHeight,
+      width: capture.width,
+      height: capture.height,
     });
     triggerBlobDownload(pdf, fallbackExportName("pdf", settings?.suffix));
     toast.success(t("designEditor.toasts.pdfDownloaded"));
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "completed",
+    });
   } catch (error) {
+    trackBrowserDesignExported("pdf", {
+      ...exportTracking,
+      status: "failed",
+      errorType: browserDesignExportErrorType(error),
+    });
     showRasterCaptureError(error, "pdf");
   } finally {
     pngExportingRef.current = false;

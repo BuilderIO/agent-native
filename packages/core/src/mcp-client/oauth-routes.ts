@@ -12,14 +12,15 @@ import {
   type H3Event,
 } from "h3";
 
-import { getOrgContext } from "../org/context.js";
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
-import { getSession, safeReturnPath } from "../server/auth.js";
 import {
   CredentialStoreUnavailableError,
   resolveSecretPairs,
 } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { canonicalFrameworkPathname } from "../server/framework-route-prefix.js";
 import {
   getAppBasePath,
   getAppUrl,
@@ -27,9 +28,11 @@ import {
   oauthErrorPage,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
+import { queryEchoSafeRedirect } from "../server/query-echo-safe-redirect.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
 import { MCP_OAUTH_FLOW_TTL_SECONDS } from "../shared/mcp-oauth-flow-ttl.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
@@ -48,6 +51,7 @@ import {
   MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
   readMcpOAuthFlowCookiePayload,
 } from "./oauth-flow-cookie.js";
+import { normalizeMcpPrincipal, type McpPrincipal } from "./principal.js";
 import {
   addOAuthRemoteServer,
   listRemoteServers,
@@ -58,7 +62,22 @@ import {
   type RemoteMcpScope,
 } from "./remote-store.js";
 
-const MCP_TRACKING_INTEGRATION_ID_PATTERN = /^[a-z0-9-]{1,64}$/u;
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
+
+function safeReturnPath(raw: string | null | undefined): string {
+  const basePath = getAppBasePath();
+  return normalizeAppPath(raw, basePath) ?? (basePath || "/");
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("../server/auth.js");
+  return getSession(event);
+}
 
 export function resolveTrustedMcpOAuthAuthorizationScope(
   serverUrl: URL,
@@ -75,11 +94,6 @@ function isBuilderPublishMcpServer(serverUrl: URL): boolean {
   return resolveTrustedMcpOAuthAuthorizationScope(serverUrl) !== undefined;
 }
 
-/**
- * Which side of the scope contract the request broke. Builder Publish shares one
- * workspace grant with Content database sources, so it is org-only; managed
- * OAuth clients authorize one human at a time, so they are personal-only.
- */
 export type McpOAuthScopeViolation =
   | "organization-scope-required"
   | "personal-scope-required";
@@ -94,9 +108,12 @@ const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
   serverOrigins: ReadonlyArray<string>;
   credentialPairs: ReadonlyArray<readonly [string, string]>;
+  allowOrganizationScope?: boolean;
+  requireClientCredentials?: boolean;
 }> = [
   {
     serverOrigins: ["https://mcp.hubspot.com"],
+    requireClientCredentials: true,
     credentialPairs: [
       ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
       ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
@@ -114,11 +131,18 @@ const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
       "https://chatmcp.googleapis.com",
       "https://people.googleapis.com",
     ],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
   },
   {
     serverOrigins: ["https://workspacemcp.googleapis.com"],
+    requireClientCredentials: true,
     credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+  {
+    serverOrigins: ["https://mcp.gong.io"],
+    allowOrganizationScope: true,
+    credentialPairs: [["GONG_MCP_CLIENT_ID", "GONG_MCP_CLIENT_SECRET"]],
   },
 ];
 
@@ -137,8 +161,6 @@ export interface McpOAuthFlow {
   discoveryState?: McpOAuthDiscoveryState;
   authorizationScope?: string;
   returnUrl?: string;
-  trackingFlow?: "first_run";
-  trackingIntegrationId?: string;
   replaceServerId?: string;
   expiresAt: number;
 }
@@ -148,6 +170,7 @@ export interface McpOAuthRoutesOptions {
     scope: RemoteMcpScope;
     scopeId: string;
     server: StoredRemoteMcpServer;
+    principal: McpPrincipal;
   }) => Promise<boolean>;
 }
 
@@ -156,10 +179,22 @@ export function resolveMcpOAuthReturnPath(
   flow: Pick<McpOAuthFlow, "name" | "returnUrl">,
 ): string {
   if (!connected) return "/settings/integrations";
-  return (
-    flow.returnUrl ??
-    `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`
-  );
+
+  // Popup callers opt in to the completion page; same-window flows need their
+  // original return route after authorization.
+  if (flow.returnUrl) {
+    const returnUrl = new URL(flow.returnUrl, "https://agent-native.invalid");
+    if (
+      canonicalFrameworkPathname(returnUrl.pathname) ===
+        "/_agent-native/oauth/popup" &&
+      returnUrl.searchParams.get("complete") === "workspace-connection"
+    ) {
+      return `${returnUrl.pathname}${returnUrl.search}`;
+    }
+    return flow.returnUrl;
+  }
+
+  return `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
 }
 
 export function bindMcpOAuthAuthorizationScope(
@@ -174,12 +209,6 @@ export function bindMcpOAuthAuthorizationScope(
     : credentials;
 }
 
-/**
- * h3 hands a returned web `Response` straight back without merging the
- * `Set-Cookie` headers staged earlier on `event.res`. The callback stages the
- * flow-cookie deletion before it validates anything, so a `Response` that drops
- * those headers leaves the encrypted PKCE/state cookie in the browser.
- */
 export function withStagedCookies(
   event: H3Event,
   response: Response,
@@ -245,8 +274,11 @@ export function mountMcpOAuthRoutes(
 async function handleMcpOAuthStart(
   event: H3Event,
 ): Promise<Response | Record<string, unknown>> {
-  const session = await getSession(event).catch(() => null);
+  // coercion-ok: OAuth requests fail closed when session resolution is unavailable.
+  const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const principal = normalizeMcpPrincipal({ userEmail: session?.email });
+  if (!principal) return unauthorized(event);
 
   const query = getQuery(event);
   const reconnectServerId = text(query.serverId);
@@ -289,43 +321,11 @@ async function handleMcpOAuthStart(
   const rawUrl = reconnectServer?.url ?? text(query.url);
   const rawName = reconnectServer?.name ?? text(query.name);
   const returnUrl = text(query.return);
-  const trackingFlow =
-    query.tracking_flow === "first_run" ? "first_run" : undefined;
-  const rawTrackingIntegrationId = trackingFlow
-    ? text(query.tracking_integration_id)
-    : undefined;
-  const trackingIntegrationId =
-    rawTrackingIntegrationId &&
-    MCP_TRACKING_INTEGRATION_ID_PATTERN.test(rawTrackingIntegrationId)
-      ? rawTrackingIntegrationId
-      : undefined;
-  const trackingName =
-    normalizeServerName(rawName ?? "") || trackingIntegrationId || "unknown";
-  const trackingScope: RemoteMcpScope = query.scope === "org" ? "org" : "user";
-  const trackStartFailure = async (
-    errorType: string,
-    scope: RemoteMcpScope = trackingScope,
-  ): Promise<void> => {
-    if (!trackingFlow) return;
-    await trackFirstRunMcpOAuthEvent(
-      {
-        trackingFlow,
-        ...(trackingIntegrationId ? { trackingIntegrationId } : {}),
-        name: trackingName,
-        scope,
-      },
-      "integration_connect_failed",
-      { error_type: errorType },
-      session.email,
-    );
-  };
   if (!rawUrl || !rawName) {
-    await trackStartFailure("invalid_request");
     return refuse(event, 400, "MCP OAuth requires a server name and URL.");
   }
   const urlCheck = validateRemoteUrl(rawUrl);
   if (!urlCheck.ok) {
-    await trackStartFailure("url_not_allowed");
     return refuse(
       event,
       400,
@@ -334,7 +334,6 @@ async function handleMcpOAuthStart(
   }
   const name = normalizeServerName(rawName);
   if (!name) {
-    await trackStartFailure("invalid_name");
     return refuse(event, 400, "MCP server name is invalid.");
   }
 
@@ -343,7 +342,6 @@ async function handleMcpOAuthStart(
       reconnectScope === "org" && Boolean(reconnectServer),
   });
   if (!resolvedScope.ok) {
-    await trackStartFailure("invalid_scope");
     return refuse(
       event,
       400,
@@ -359,7 +357,6 @@ async function handleMcpOAuthStart(
   const scope: RemoteMcpScope = requestedScope;
   const scopeId = scope === "user" ? session.email : (org?.orgId ?? "");
   if (scope === "org" && requestedOrgId && requestedOrgId !== scopeId) {
-    await trackStartFailure("organization_mismatch", scope);
     return refuse(
       event,
       403,
@@ -367,7 +364,6 @@ async function handleMcpOAuthStart(
     );
   }
   if (scope === "org" && (!scopeId || !isOrgAdmin(org?.role))) {
-    await trackStartFailure("authorization_denied", scope);
     return refuse(
       event,
       scopeId ? 403 : 400,
@@ -384,25 +380,64 @@ async function handleMcpOAuthStart(
     ? getWorkspaceOAuthAppId()
     : undefined;
   if (useRootGoogleCallback && !workspaceAppId) {
-    await trackStartFailure("invalid_callback", scope);
     return refuse(
       event,
       400,
       "Workspace MCP OAuth is missing its app callback id.",
     );
   }
+  const requestContext = {
+    userEmail: session.email,
+    orgId: org?.orgId ?? undefined,
+  };
+  let clientInformation: StoredOAuthClientInformation | undefined;
+  try {
+    clientInformation = await runWithRequestContext(requestContext, () =>
+      resolveManagedMcpOAuthClient(urlCheck.url!),
+    );
+  } catch (error) {
+    return mcpOAuthStartFailureResponse(
+      event,
+      resolveMcpOAuthStartError(error),
+    );
+  }
+  if (
+    managedMcpOAuthClientFor(urlCheck.url!)?.requireClientCredentials &&
+    !clientInformation
+  ) {
+    return mcpOAuthStartFailureResponse(
+      event,
+      {
+        status: 400,
+        body: { error: MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE },
+      },
+      {
+        backHref: safeReturnPath(
+          returnUrl || `${getAppBasePath()}/settings/integrations`,
+        ),
+        backLabel: mcpSettingsMessagesForLocale(
+          resolveLocaleFromRequest({
+            acceptLanguage: getRequestHeader(event, "accept-language"),
+          }).locale,
+        ).mcpOAuthBackToApp,
+      },
+    );
+  }
+  // A pre-registered client has a fixed redirect URI on the shared workspace
+  // callback. A dynamically registered client registers whatever URI this
+  // flow sends, so keep it on this app's mount: the provider then returns the
+  // user straight to the app that owns the flow cookie.
   const redirectUri = resolveOAuthRedirectUri(
     event,
     useRootGoogleCallback
       ? "/_agent-native/google/callback"
       : "/_agent-native/mcp/servers/oauth/callback",
+    { appScopedCallback: !useRootGoogleCallback && !clientInformation },
   );
   if (!redirectUri) {
-    await trackStartFailure("invalid_callback", scope);
     return refuse(event, 400, "Invalid MCP OAuth redirect URI.");
   }
   if (useRootGoogleCallback && !isRootGoogleCallback(redirectUri)) {
-    await trackStartFailure("invalid_callback", scope);
     return refuse(
       event,
       400,
@@ -418,18 +453,8 @@ async function handleMcpOAuthStart(
       })
     : crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
-  const requestContext = {
-    userEmail: session.email,
-    orgId: org?.orgId ?? undefined,
-  };
   try {
     const started = await runWithRequestContext(requestContext, async () => {
-      const clientInformation = await resolveManagedMcpOAuthClient(
-        urlCheck.url!,
-      );
-      if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
-        return null;
-      }
       const storedCredentials =
         reconnectServer?.oauthSecretKey && reconnectScopeId
           ? await readMcpOAuthCredentials({
@@ -464,10 +489,6 @@ async function handleMcpOAuthStart(
           : {}),
       });
     });
-    if (!started) {
-      await trackStartFailure("managed_client_unconfigured", scope);
-      return refuse(event, 400, MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE);
-    }
     const flow: McpOAuthFlow = {
       name,
       url: urlCheck.url!.toString(),
@@ -491,8 +512,6 @@ async function handleMcpOAuthStart(
           }
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
-      ...(trackingFlow ? { trackingFlow } : {}),
-      ...(trackingIntegrationId ? { trackingIntegrationId } : {}),
       ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
       expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
     };
@@ -500,12 +519,6 @@ async function handleMcpOAuthStart(
     return redirectWithStagedCookies(event, started.authorizationUrl.href);
   } catch (error) {
     const failure = resolveMcpOAuthStartError(error);
-    await trackStartFailure(
-      failure.body.errorCode === "credential_store_unavailable"
-        ? "credential_store_unavailable"
-        : "oauth_start_failed",
-      scope,
-    );
     return mcpOAuthStartFailureResponse(event, failure);
   }
 }
@@ -513,12 +526,6 @@ async function handleMcpOAuthStart(
 export const MCP_OAUTH_MANAGED_CLIENT_MISSING_MESSAGE =
   "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.";
 
-/**
- * Why a start failed, in the terms a person can act on. The two specific cases
- * are the ones a retry can never fix, so collapsing them into the generic
- * message is what left users re-clicking Connect against a provider that was
- * never going to work.
- */
 export type McpOAuthStartErrorBody = {
   error: string;
   errorCode?: string;
@@ -584,14 +591,10 @@ function authorizationServerLabel(
   }
 }
 
-/**
- * The start route is only ever reached by a browser navigation (a popup or a
- * Desktop OAuth window), so a failure has to render as a page. Returning the
- * JSON body painted the raw error object across the popup.
- */
 export function mcpOAuthStartFailureResponse(
   event: H3Event,
   failure: { status: number; body: McpOAuthStartErrorBody },
+  htmlOptions?: { backHref?: string; backLabel?: string },
 ): Response | Record<string, unknown> {
   if (!wantsHtmlResponse(event)) {
     setResponseStatus(event, failure.status);
@@ -599,11 +602,10 @@ export function mcpOAuthStartFailureResponse(
   }
   return withStagedCookies(
     event,
-    oauthErrorPage(failure.body.error, failure.status),
+    oauthErrorPage(failure.body.error, failure.status, htmlOptions),
   );
 }
 
-/** Shorthand for the single-message refusals in the browser-facing routes. */
 function refuse(
   event: H3Event,
   status: number,
@@ -617,7 +619,12 @@ export function wantsHtmlResponse(event: H3Event): boolean {
 }
 
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
-  return MANAGED_MCP_OAUTH_CLIENTS.some((client) =>
+  const client = managedMcpOAuthClientFor(serverUrl);
+  return Boolean(client && !client.allowOrganizationScope);
+}
+
+function managedMcpOAuthClientFor(serverUrl: URL) {
+  return MANAGED_MCP_OAUTH_CLIENTS.find((client) =>
     client.serverOrigins.includes(serverUrl.origin),
   );
 }
@@ -692,8 +699,13 @@ async function handleMcpOAuthCallback(
   event: H3Event,
   options: McpOAuthRoutesOptions,
 ): Promise<Response | Record<string, unknown>> {
-  const session = await getSession(event).catch(() => null);
+  // coercion-ok: OAuth callbacks fail closed when session resolution is unavailable.
+  const session = await getSessionForEvent(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const authenticatedPrincipal = normalizeMcpPrincipal({
+    userEmail: session?.email,
+  });
+  if (!authenticatedPrincipal) return unauthorized(event);
 
   const query = getQuery(event);
   const code = text(query.code);
@@ -704,29 +716,16 @@ async function handleMcpOAuthCallback(
   clearMcpOAuthFlowCookies(event);
   const org =
     flow?.scope === "org" ? await getOrgContext(event).catch(() => null) : null;
-  const canTrackFirstRunFailure =
-    flow?.trackingFlow === "first_run" && flow.owner === session.email;
-  const trackCallbackFailure = async (errorType: string): Promise<void> => {
-    if (!canTrackFirstRunFailure || !flow) return;
-    await trackFirstRunMcpOAuthEvent(
-      flow,
-      "integration_connect_failed",
-      { error_type: errorType },
-      session.email,
-    );
-  };
   if (
     !state ||
     !flow ||
     !isValidMcpOAuthFlow(flow, session.email, org?.orgId ?? undefined, state)
   ) {
-    await trackCallbackFailure("state_invalid");
     return refuse(event, 400, "MCP OAuth state is invalid or expired.");
   }
   try {
     validateMcpOAuthCallbackIssuer(flow.discoveryState, iss);
   } catch {
-    await trackCallbackFailure("issuer_invalid");
     return refuse(
       event,
       400,
@@ -734,11 +733,9 @@ async function handleMcpOAuthCallback(
     );
   }
   if (providerError || !code) {
-    await trackCallbackFailure("authorization_denied");
     return refuse(event, 400, "MCP OAuth authorization was not completed.");
   }
   if (flow.scope === "org" && !isOrgAdmin(org?.role)) {
-    await trackCallbackFailure("authorization_denied");
     return refuse(
       event,
       403,
@@ -780,12 +777,10 @@ async function handleMcpOAuthCallback(
           credentials,
         });
     if (!result.ok) {
-      await trackCallbackFailure("connection_rejected");
       return refuse(event, 400, result.error);
     }
     persistedServer = result.server;
   } catch {
-    await trackCallbackFailure("oauth_callback_error");
     return refuse(
       event,
       400,
@@ -799,54 +794,22 @@ async function handleMcpOAuthCallback(
       scope: flow.scope,
       scopeId: flow.scopeId,
       server: persistedServer,
-    });
-  } catch {
-    // coercion-ok: the persisted remote is durable; false records reload failure.
-  }
-  await trackFirstRunMcpOAuthEvent(
-    flow,
-    "integration_connect_completed",
-    { reconfigured: connected },
-    session.email,
-  );
-  const returnPath = resolveMcpOAuthReturnPath(connected, flow);
-  return redirectWithStagedCookies(
-    event,
-    getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
-  );
-}
-
-export async function trackFirstRunMcpOAuthEvent(
-  flow: Pick<
-    McpOAuthFlow,
-    "trackingFlow" | "trackingIntegrationId" | "name" | "scope"
-  >,
-  eventName: "integration_connect_completed" | "integration_connect_failed",
-  properties: Record<string, unknown>,
-  userId: string,
-): Promise<void> {
-  if (flow.trackingFlow !== "first_run") return;
-  try {
-    const { track } = await import("../tracking/registry.js");
-    track(
-      eventName,
-      {
-        flow: "first_run",
-        step_id: "tools",
-        integration_name: flow.name,
-        connection_mode: "oauth",
-        auth_mode: "oauth",
-        scope: flow.scope,
-        ...(flow.trackingIntegrationId
-          ? { integration_id: flow.trackingIntegrationId }
-          : {}),
-        ...properties,
+      principal: {
+        userEmail: authenticatedPrincipal.userEmail,
+        orgId: org?.orgId ?? null,
       },
-      { userId },
-    );
+    });
   } catch (error) {
-    console.warn("[mcp-oauth] first-run telemetry failed", error);
+    console.warn("[mcp-client/oauth] saved server did not reconnect:", error);
   }
+  const returnPath = resolveMcpOAuthReturnPath(connected, flow);
+  return queryEchoSafeRedirect(
+    event,
+    redirectWithStagedCookies(
+      event,
+      getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
+    ),
+  );
 }
 
 export function setMcpOAuthFlowCookie(
@@ -913,7 +876,8 @@ function isRootGoogleCallback(value: string): boolean {
   try {
     const url = new URL(value);
     return (
-      url.pathname === "/_agent-native/google/callback" &&
+      canonicalFrameworkPathname(url.pathname) ===
+        "/_agent-native/google/callback" &&
       !url.search &&
       !url.hash
     );
@@ -925,7 +889,7 @@ function isRootGoogleCallback(value: string): boolean {
 
 function isMcpOAuthRedirectUri(value: string): boolean {
   try {
-    const pathname = new URL(value).pathname;
+    const pathname = canonicalFrameworkPathname(new URL(value).pathname);
     return (
       pathname.endsWith("/_agent-native/mcp/servers/oauth/callback") ||
       pathname.endsWith("/_agent-native/google/callback")

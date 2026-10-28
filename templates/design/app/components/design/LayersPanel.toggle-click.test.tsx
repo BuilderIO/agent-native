@@ -1,32 +1,43 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
-import { layerRowIndentCount, LayersPanel } from "./LayersPanel";
+import {
+  layerRowIndentCount,
+  LayersPanel,
+  type LayersPanelHandle,
+  type LayersPanelNode,
+} from "./LayersPanel";
+
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-// A row carries the lock/hide icon button AND the row context menu's
-// Lock/Hide item, and the row itself sits inside a ContextMenuTrigger. Each
-// pointer path has to stay wired to exactly one invocation: the toggles take
-// an absolute next state, so a second invocation off the same click is
-// silently destructive rather than merely redundant once anything downstream
-// (source write, undo entry, agent handoff) is no longer idempotent.
-function renderPanel() {
+function renderPanel({
+  layers: initialLayers = [{ id: "n1", name: "Box", type: "element" }],
+  onMoveLayer,
+}: {
+  layers?: LayersPanelNode[];
+  onMoveLayer?: () => void;
+} = {}) {
   const onToggleLocked = vi.fn();
   const onToggleHidden = vi.fn();
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const mount = async () => {
+  let layers = initialLayers;
+  const mount = async (nextLayers = layers) => {
+    layers = nextLayers;
     await act(async () => {
       root.render(
         <LayersPanel
-          layers={[{ id: "n1", name: "Box", type: "element" }]}
+          layers={layers}
           selectedIds={[]}
           expandedIds={[]}
           searchQuery=""
@@ -35,6 +46,7 @@ function renderPanel() {
           onSelectionChange={() => {}}
           onToggleLocked={onToggleLocked}
           onToggleHidden={onToggleHidden}
+          onMoveLayer={onMoveLayer}
         />,
       );
     });
@@ -44,12 +56,6 @@ function renderPanel() {
       (candidate) => candidate.getAttribute("aria-label") === label,
     );
     if (!button) throw new Error(`no button labelled ${label}`);
-    // A real pointer click fires mousedown before click — the toggle now
-    // lives on mousedown (see LayersPanel.tsx) so a click-drag onto a
-    // DIFFERENT row's icon, which never fires "click" on this one at all
-    // (mouseup lands elsewhere), still toggles it exactly once. click's own
-    // handler is a keyboard-only (detail===0) fallback, so it must stay
-    // silent here or this would count two invocations for one real click.
     await act(async () => {
       button.dispatchEvent(
         new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
@@ -63,6 +69,54 @@ function renderPanel() {
     });
   };
   return { onToggleLocked, onToggleHidden, host, root, mount, click };
+}
+
+function layerTreeitem(host: HTMLElement, id: string) {
+  const rowButton = host.querySelector<HTMLElement>(
+    `[data-layer-node-id="${id}"]`,
+  );
+  const row = rowButton?.closest<HTMLElement>('[role="treeitem"]');
+  if (!row) throw new Error(`no row for layer ${id}`);
+  return row;
+}
+
+function layerToggleButton(
+  host: HTMLElement,
+  id: string,
+  kind: "hidden" | "locked",
+) {
+  const label = kind === "hidden" ? "layersPanel.hide" : "layersPanel.lock";
+  return Array.from(layerTreeitem(host, id).querySelectorAll("button")).find(
+    (button) => button.getAttribute("aria-label") === label,
+  );
+}
+
+function setHorizontalBounds(
+  element: HTMLElement,
+  left: number,
+  right: number,
+) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    x: left,
+    y: 0,
+    left,
+    top: 0,
+    right,
+    bottom: 20,
+    width: right - left,
+    height: 20,
+    toJSON: () => ({}),
+  });
+}
+
+function mouseOver(row: HTMLElement, clientX: number) {
+  row.dispatchEvent(
+    new MouseEvent("mouseover", {
+      bubbles: true,
+      clientX,
+      relatedTarget: null,
+    }),
+  );
 }
 
 describe("LayersPanel lock/hide toggles", () => {
@@ -84,9 +138,6 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
-  // Keyboard activation (Enter/Space on a focused button) fires "click"
-  // with no preceding mousedown — the icon's own toggle must still work
-  // through that path, not just through the mousedown a pointer click adds.
   it("invokes onToggleHidden exactly once for a keyboard (detail 0) activation", async () => {
     const panel = renderPanel();
     await panel.mount();
@@ -103,10 +154,93 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
-  // The click-drag-across-a-run gesture (see beginIconToggleDrag in
-  // LayersPanel.tsx) only self-clears on mouseup: if the pointer leaves the
-  // browser window before release, mouseup never fires on this window, so a
-  // later unrelated hover must not still apply the armed toggle.
+  it.each(["locked", "hidden"] as const)(
+    "does not change %s state on a secondary-button press",
+    async (kind) => {
+      const panel = renderPanel({
+        layers: [
+          { id: "n1", name: "Box", type: "element" },
+          { id: "n2", name: "Circle", type: "element" },
+        ],
+      });
+      await panel.mount();
+      const button = layerToggleButton(panel.host, "n1", kind);
+      if (!button) throw new Error(`no ${kind} toggle`);
+
+      const event = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        detail: 1,
+      });
+      await act(async () => {
+        button.dispatchEvent(event);
+      });
+
+      const targetRow = layerTreeitem(panel.host, "n2");
+      const targetButton = layerToggleButton(panel.host, "n2", kind);
+      if (!targetButton) throw new Error(`no target ${kind} toggle`);
+      setHorizontalBounds(targetButton, 10, 30);
+      await act(async () => {
+        mouseOver(targetRow, 20);
+      });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(panel.onToggleLocked).not.toHaveBeenCalled();
+      expect(panel.onToggleHidden).not.toHaveBeenCalled();
+      panel.root.unmount();
+      panel.host.remove();
+    },
+  );
+
+  it("a drag that starts on a row's eye toggle never starts a row drag", async () => {
+    const onMoveLayer = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          layers={[
+            { id: "n1", name: "Box", type: "element" },
+            { id: "n2", name: "Circle", type: "element" },
+          ]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+          onToggleHidden={() => {}}
+          onMoveLayer={onMoveLayer}
+        />,
+      );
+    });
+    const hide = Array.from(host.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.getAttribute("aria-label") === "layersPanel.hide",
+    )!;
+    expect(hide.closest('[draggable="true"]')).not.toBeNull();
+
+    await act(async () => {
+      hide.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
+      );
+    });
+    const dragStart = new Event("dragstart", {
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      hide.dispatchEvent(dragStart);
+    });
+    expect(dragStart.defaultPrevented).toBe(true);
+
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    root.unmount();
+    host.remove();
+  });
+
   it("clears the click-drag toggle gesture on window blur instead of applying it to a later hover", async () => {
     const onToggleHidden = vi.fn();
     const host = document.createElement("div");
@@ -152,16 +286,341 @@ describe("LayersPanel lock/hide toggles", () => {
         new MouseEvent("mouseenter", { bubbles: true }),
       );
     });
-    // Only the first button's own mousedown toggle — the blur ended the
-    // gesture, so hovering the other row's icon never re-applied a stale
-    // "hidden: true" to it.
     expect(onToggleHidden.mock.calls).toEqual([[toggledId, true]]);
     root.unmount();
     host.remove();
   });
+
+  it.each(["hidden", "locked"] as const)(
+    "uses each target row's %s control slot and skips rows without it",
+    async (kind) => {
+      const absent: LayersPanelNode = {
+        id: "absent",
+        name: "No toggle",
+        type: "element",
+      };
+      if (kind === "hidden") absent.hideable = false;
+      else absent.lockable = false;
+
+      const panel = renderPanel({
+        layers: [
+          { id: "source", name: "Source", type: "element" },
+          { id: "target", name: "Target", type: "element" },
+          absent,
+        ],
+        onMoveLayer: () => {},
+      });
+      try {
+        await panel.mount();
+        const sourceButton = layerToggleButton(panel.host, "source", kind);
+        const targetButton = layerToggleButton(panel.host, "target", kind);
+        expect(sourceButton).toBeDefined();
+        expect(targetButton).toBeDefined();
+        expect(layerToggleButton(panel.host, "absent", kind)).toBeUndefined();
+
+        setHorizontalBounds(sourceButton!, 10, 30);
+        setHorizontalBounds(targetButton!, 100, 120);
+        const sourceRow = layerTreeitem(panel.host, "source");
+        const targetRow = layerTreeitem(panel.host, "target");
+        const absentRow = layerTreeitem(panel.host, "absent");
+        const onToggle =
+          kind === "hidden" ? panel.onToggleHidden : panel.onToggleLocked;
+
+        await act(async () => {
+          sourceButton!.dispatchEvent(
+            new MouseEvent("mousedown", {
+              bubbles: true,
+              cancelable: true,
+              detail: 1,
+              clientX: 20,
+            }),
+          );
+        });
+        expect(sourceRow.draggable).toBe(false);
+        expect(onToggle.mock.calls).toEqual([["source", true]]);
+
+        await act(async () => {
+          mouseOver(targetRow, 20);
+          mouseOver(absentRow, 20);
+        });
+        expect(onToggle.mock.calls).toEqual([["source", true]]);
+
+        await act(async () => {
+          mouseOver(targetRow, 110);
+        });
+        expect(onToggle.mock.calls).toEqual([
+          ["source", true],
+          ["target", true],
+        ]);
+
+        await act(async () => {
+          window.dispatchEvent(new Event("mouseup"));
+        });
+        expect(sourceRow.draggable).toBe(true);
+      } finally {
+        await act(async () => panel.root.unmount());
+        panel.host.remove();
+      }
+    },
+  );
+
+  it.each([
+    "mouseup",
+    "pointerup",
+    "pointercancel",
+    "lostpointercapture",
+    "blur",
+  ] as const)(
+    "clears the toggle drag and restores row dragging on %s",
+    async (endEvent) => {
+      const panel = renderPanel({
+        layers: [
+          { id: "source", name: "Source", type: "element" },
+          { id: "target", name: "Target", type: "element" },
+        ],
+        onMoveLayer: () => {},
+      });
+      try {
+        await panel.mount();
+        const sourceButton = layerToggleButton(panel.host, "source", "hidden");
+        const targetButton = layerToggleButton(panel.host, "target", "hidden");
+        expect(sourceButton).toBeDefined();
+        expect(targetButton).toBeDefined();
+        setHorizontalBounds(sourceButton!, 10, 30);
+        setHorizontalBounds(targetButton!, 10, 30);
+        const sourceRow = layerTreeitem(panel.host, "source");
+        const targetRow = layerTreeitem(panel.host, "target");
+
+        await act(async () => {
+          sourceButton!.dispatchEvent(
+            new MouseEvent("mousedown", {
+              bubbles: true,
+              cancelable: true,
+              detail: 1,
+              clientX: 20,
+            }),
+          );
+        });
+        expect(sourceRow.draggable).toBe(false);
+
+        await act(async () => {
+          window.dispatchEvent(new Event(endEvent));
+        });
+        expect(sourceRow.draggable).toBe(true);
+
+        await act(async () => {
+          mouseOver(targetRow, 20);
+        });
+        expect(panel.onToggleHidden.mock.calls).toEqual([["source", true]]);
+      } finally {
+        await act(async () => panel.root.unmount());
+        panel.host.remove();
+      }
+    },
+  );
+
+  it("clears the toggle drag and restores row dragging when its source row unmounts", async () => {
+    const target: LayersPanelNode = {
+      id: "target",
+      name: "Target",
+      type: "element",
+    };
+    const panel = renderPanel({
+      layers: [{ id: "source", name: "Source", type: "element" }, target],
+      onMoveLayer: () => {},
+    });
+    try {
+      await panel.mount();
+      const sourceButton = layerToggleButton(panel.host, "source", "hidden");
+      expect(sourceButton).toBeDefined();
+      setHorizontalBounds(sourceButton!, 10, 30);
+      const sourceRow = layerTreeitem(panel.host, "source");
+      await act(async () => {
+        sourceButton!.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            cancelable: true,
+            detail: 1,
+            clientX: 20,
+          }),
+        );
+      });
+      expect(sourceRow.draggable).toBe(false);
+
+      await panel.mount([target]);
+      expect(sourceRow.draggable).toBe(true);
+      const targetRow = layerTreeitem(panel.host, "target");
+      const targetButton = layerToggleButton(panel.host, "target", "hidden");
+      expect(targetButton).toBeDefined();
+      setHorizontalBounds(targetButton!, 10, 30);
+      await act(async () => {
+        mouseOver(targetRow, 20);
+      });
+      expect(panel.onToggleHidden.mock.calls).toEqual([["source", true]]);
+    } finally {
+      await act(async () => panel.root.unmount());
+      panel.host.remove();
+    }
+  });
+});
+
+describe("LayersPanel selection scrolling", () => {
+  it("uses the layer icon for selection and rename scrolling", async () => {
+    let scrollTarget: HTMLElement | null = null;
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrollTarget = this;
+    });
+    const ref = createRef<LayersPanelHandle>();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            ref={ref}
+            layers={[
+              {
+                id: "root",
+                name: "Root",
+                type: "frame",
+                children: [
+                  {
+                    id: "child",
+                    name: "Child",
+                    type: "group",
+                    children: [
+                      { id: "leaf", name: "Deep layer name", type: "text" },
+                    ],
+                  },
+                ],
+              },
+            ]}
+            selectedIds={["leaf"]}
+            expandedIds={["root", "child"]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={() => {}}
+          />,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(scrollTarget).toBe(
+          host.querySelector(
+            '[data-layer-node-id="leaf"] [data-layer-row-icon]',
+          ),
+        );
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
+
+      scrollTarget = null;
+      scrollIntoView.mockClear();
+      await act(async () => {
+        expect(ref.current?.beginRename("leaf")).toBe(true);
+      });
+      await vi.waitFor(() => {
+        expect(scrollTarget).toBe(
+          host.querySelector(
+            '[data-layer-node-id="leaf"] [data-layer-row-icon]',
+          ),
+        );
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
+    } finally {
+      root.unmount();
+      host.remove();
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+});
+
+describe("LayersPanel rename field", () => {
+  it("focuses the rename field without scrolling the tree", async () => {
+    const ref = createRef<LayersPanelHandle>();
+    const focus = vi.spyOn(HTMLInputElement.prototype, "focus");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            ref={ref}
+            layers={[{ id: "leaf", name: "Leaf", type: "text" }]}
+            selectedIds={["leaf"]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={() => {}}
+          />,
+        );
+      });
+      await act(async () => {
+        expect(ref.current?.beginRename("leaf")).toBe(true);
+      });
+      await vi.waitFor(() => {
+        expect(focus).toHaveBeenCalled();
+      });
+      for (const call of focus.mock.calls) {
+        expect(call).toEqual([{ preventScroll: true }]);
+      }
+    } finally {
+      focus.mockRestore();
+      root.unmount();
+      host.remove();
+    }
+  });
 });
 
 describe("LayersPanel search affordance", () => {
+  it("opens and closes layer search when the search button is clicked", async () => {
+    const panel = renderPanel();
+    await panel.mount();
+
+    expect(
+      panel.host.querySelector(
+        'input[placeholder="layersPanel.searchPlaceholder"]',
+      ),
+    ).toBeNull();
+
+    await panel.click("layersPanel.searchPlaceholder");
+    expect(
+      panel.host.querySelector(
+        'input[placeholder="layersPanel.searchPlaceholder"]',
+      ),
+    ).not.toBeNull();
+
+    await panel.click("layersPanel.searchPlaceholder");
+    expect(
+      panel.host.querySelector(
+        'input[placeholder="layersPanel.searchPlaceholder"]',
+      ),
+    ).toBeNull();
+
+    panel.root.unmount();
+    panel.host.remove();
+  });
+
   it("places the layer search button beside the Layers heading", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -360,6 +819,103 @@ describe("LayersPanel search affordance", () => {
   });
 });
 
+describe("LayersPanel row identity", () => {
+  it("keeps existing rows and an in-progress rename mounted when a top layer is added", async () => {
+    const ref = createRef<LayersPanelHandle>();
+    const onRename = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    let layers: LayersPanelNode[] = Array.from({ length: 200 }, (_, index) => ({
+      id: `layer-${index}`,
+      name: `Layer ${index}`,
+      type: "element",
+    }));
+    const render = async () => {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            ref={ref}
+            layers={layers}
+            selectedIds={[]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={onRename}
+          />,
+        );
+      });
+    };
+
+    try {
+      await render();
+      const existingRows = new Map(
+        Array.from(host.querySelectorAll<HTMLElement>('[role="treeitem"]')).map(
+          (row) => {
+            const id = row.querySelector<HTMLElement>("[data-layer-row-button]")
+              ?.dataset.layerNodeId;
+            if (!id) throw new Error("Layer row is missing its node id");
+            return [id, row] as const;
+          },
+        ),
+      );
+      expect(existingRows).toHaveProperty("size", 200);
+
+      await act(async () => {
+        expect(ref.current?.beginRename("layer-100")).toBe(true);
+      });
+      const renameInput = host.querySelector<HTMLInputElement>(
+        "input[data-layer-row-name]",
+      );
+      if (!renameInput) throw new Error("Rename input did not open");
+      await vi.waitFor(() => expect(document.activeElement).toBe(renameInput));
+
+      await act(async () => {
+        const setValue = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        if (!setValue) throw new Error("Input value setter is unavailable");
+        setValue.call(renameInput, "Unsaved layer name");
+        renameInput.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(renameInput.value).toBe("Unsaved layer name");
+
+      layers = [
+        ...layers,
+        { id: "new-layer", name: "New layer", type: "element" },
+      ];
+      await render();
+
+      const updatedRows = Array.from(
+        host.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+      );
+      expect(updatedRows).toHaveLength(201);
+      expect(
+        updatedRows[0]?.querySelector<HTMLElement>("[data-layer-row-button]")
+          ?.dataset.layerNodeId,
+      ).toBe("new-layer");
+      for (const [id, previousRow] of existingRows) {
+        expect(
+          previousRow.querySelector<HTMLElement>("[data-layer-row-button]")
+            ?.dataset.layerNodeId,
+        ).toBe(id);
+        expect(updatedRows).toContain(previousRow);
+      }
+      expect(host.querySelector("input[data-layer-row-name]")).toBe(
+        renameInput,
+      );
+      expect(document.activeElement).toBe(renameInput);
+      expect(renameInput.value).toBe("Unsaved layer name");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("LayersPanel collapse layers", () => {
   it.each([
     { selectedIds: ["group"], expected: ["frame"] },
@@ -409,7 +965,7 @@ describe("LayersPanel collapse layers", () => {
         });
         onExpandedIdsChange.mockClear();
         const button = host.querySelector<HTMLButtonElement>(
-          'button[aria-label="layersPanel.collapse"]',
+          'button[aria-label="layersPanel.collapseAll"]',
         );
         expect(button?.disabled).toBe(false);
         await act(async () => button!.click());
@@ -423,7 +979,7 @@ describe("LayersPanel collapse layers", () => {
 });
 
 describe("LayersPanel row hierarchy", () => {
-  it("renders compact Figma-like density with one flex indent per level", async () => {
+  it("renders 32px rows with one 24px flex indent per level", async () => {
     expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);
 
     const host = document.createElement("div");
@@ -437,12 +993,12 @@ describe("LayersPanel row hierarchy", () => {
             {
               id: "root",
               name: "Root",
-              type: "frame",
+              type: "component",
               children: [
                 {
                   id: "child",
                   name: "Child",
-                  type: "group",
+                  type: "component",
                   children: [{ id: "leaf", name: "Leaf", type: "element" }],
                 },
               ],
@@ -461,7 +1017,7 @@ describe("LayersPanel row hierarchy", () => {
     const panel = host.querySelector<HTMLElement>("[data-layers-panel]");
     expect(panel).not.toBeNull();
     expect(panel?.className).toContain("[--design-icon-size:12px]");
-    expect(panel?.className).toContain("[--design-row-height:24px]");
+    expect(panel?.className).not.toContain("--design-row-height");
     expect(panel?.className).toContain("text-[11px]");
 
     const rows = Array.from(
@@ -497,6 +1053,24 @@ describe("LayersPanel row hierarchy", () => {
       "descendant",
       "descendant",
     ]);
+    expect(
+      rows[0]?.classList.contains("bg-[var(--design-editor-selection-color)]"),
+    ).toBe(true);
+    expect(
+      rows[0]?.classList.contains(
+        "bg-[var(--design-editor-component-selection-color)]",
+      ),
+    ).toBe(false);
+    expect(
+      rows[1]?.classList.contains(
+        "bg-[var(--design-editor-selected-subtree-color)]",
+      ),
+    ).toBe(true);
+    expect(
+      rows[1]?.classList.contains(
+        "bg-[var(--design-editor-component-selected-subtree-color)]",
+      ),
+    ).toBe(false);
     expect(rows[0]?.classList.contains("rounded-t-[4px]")).toBe(true);
     expect(rows[1]?.classList.contains("rounded-t-[4px]")).toBe(false);
     expect(rows[1]?.classList.contains("rounded-b-[4px]")).toBe(false);
@@ -506,13 +1080,31 @@ describe("LayersPanel row hierarchy", () => {
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
-      nestedIndents[0]?.classList.contains("mr-[var(--design-baseline-unit)]"),
-    ).toBe(false);
+      Array.from(nestedIndents, (indent) => indent.classList.contains("w-6")),
+    ).toEqual([true, true, true]);
     expect(
-      nestedIndents[1]?.classList.contains("mr-[var(--design-baseline-unit)]"),
+      Array.from(nestedIndents, (indent) =>
+        indent.classList.contains("shrink"),
+      ),
+    ).toEqual([true, true, true]);
+    expect(nestedIndents[0]?.classList.contains("min-w-0")).toBe(true);
+    expect(nestedIndents[1]?.classList.contains("min-w-0")).toBe(true);
+    expect(nestedIndents[2]?.classList.contains("min-w-4")).toBe(true);
+    expect(
+      Array.from(nestedIndents, (indent) =>
+        indent.classList.contains("justify-start"),
+      ),
+    ).toEqual([false, false, true]);
+    expect(rows.every((row) => row.classList.contains("pl-2.5"))).toBe(true);
+    expect(
+      rows.every((row) => row.classList.contains("[--design-icon-size:16px]")),
     ).toBe(true);
     expect(
-      nestedIndents[2]?.classList.contains("mr-[var(--design-baseline-unit)]"),
+      rows.every((row) =>
+        row
+          .querySelector<HTMLElement>("[data-layer-row-button]")
+          ?.classList.contains("min-w-[44px]"),
+      ),
     ).toBe(true);
 
     expect(
@@ -523,5 +1115,56 @@ describe("LayersPanel row hierarchy", () => {
 
     root.unmount();
     host.remove();
+  });
+});
+
+describe("LayersPanel row selection", () => {
+  it("selects a layer when clicking the row background outside its name button", async () => {
+    const onSelectionChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            layers={[
+              { id: "first", name: "First", type: "element" },
+              { id: "second", name: "Second", type: "element" },
+            ]}
+            selectedIds={["first"]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={onSelectionChange}
+          />,
+        );
+      });
+
+      const secondRow = Array.from(
+        host.querySelectorAll<HTMLElement>("[data-layer-row-content]"),
+      ).find(
+        (row) =>
+          row
+            .querySelector("[data-layer-row-button]")
+            ?.getAttribute("data-layer-node-id") === "second",
+      );
+      expect(secondRow).toBeTruthy();
+      await act(async () => {
+        secondRow!.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 1 }),
+        );
+      });
+
+      expect(onSelectionChange).toHaveBeenCalledWith(
+        ["second"],
+        expect.objectContaining({ id: "second", source: "pointer" }),
+      );
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 });

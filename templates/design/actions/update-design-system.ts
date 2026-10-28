@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 
 export default defineAction({
   description:
@@ -40,7 +40,6 @@ export default defineAction({
     { id, title, description, data, assets, customInstructions },
     ctx,
   ) => {
-    // Validate that data/assets are valid JSON when provided
     if (data !== undefined) {
       try {
         const parsed = JSON.parse(data);
@@ -77,11 +76,9 @@ export default defineAction({
       .set(updates)
       .where(eq(schema.designSystems.id, id));
 
-    track(
+    trackDesign(
       "design_system_saved",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: id,
         output_type: "design_system",
         design_system_id: id,

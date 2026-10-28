@@ -1,15 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 
-/**
- * Whether workspace OAuth callbacks use the root framework relay.
- *
- * Workspace deploy wrappers normally provide the runtime flags, but mounted
- * app bundles can retain only their workspace app id or build-time Vite env.
- * Redirect construction and callback handling must use this exact same
- * predicate so a callback sent to the root relay is always forwarded back to
- * the mounted app that initiated it.
- */
 export function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
   const workspace = getAppConfig().workspace;
   const metaEnv = (

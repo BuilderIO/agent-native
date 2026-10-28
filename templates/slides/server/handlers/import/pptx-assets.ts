@@ -1,5 +1,7 @@
+import { fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 
+import { SOURCE_IMPORT_NO_WRITE_ERROR_CODE } from "../../../shared/source-import-errors.js";
 import { storeLocalImportedAsset } from "../../lib/import-asset-storage.js";
 import type { ParsedElement, ParsedSlide } from "./pptx-parser.js";
 
@@ -12,11 +14,6 @@ const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
   "image/bmp",
 ]);
 
-/**
- * Validate every image before any upload starts. PPTX imports reject partial
- * fidelity, so an unsupported image must not leave earlier slide uploads
- * orphaned when the action eventually throws.
- */
 export function assertPptxImagesRenderable(
   slides: readonly ParsedSlide[],
 ): void {
@@ -30,8 +27,9 @@ export function assertPptxImagesRenderable(
     }
   }
   if (unsupported.size > 0) {
-    throw new Error(
+    fail(
       `Source-faithful PPTX import cannot preserve unsupported image type(s): ${[...unsupported].join(", ")}. No images were uploaded. Re-export the deck with browser-renderable images or use a PDF export for page-faithful preservation.`,
+      { errorCode: SOURCE_IMPORT_NO_WRITE_ERROR_CODE },
     );
   }
 }

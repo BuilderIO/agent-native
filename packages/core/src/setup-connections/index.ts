@@ -47,6 +47,7 @@ export {
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,
   type WorkspaceConnectionCapability,
+  type WorkspaceConnectionConfigurationField,
   type WorkspaceConnectionCredentialKey,
   type WorkspaceConnectionProvider,
   type WorkspaceConnectionProviderId,

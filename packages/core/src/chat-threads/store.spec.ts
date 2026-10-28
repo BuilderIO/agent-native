@@ -1,10 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+import { ForbiddenError } from "../sharing/access.js";
+
 const executeMock = vi.hoisted(() => vi.fn());
 const emitChatThreadChangeMock = vi.hoisted(() => vi.fn());
+const lockThreadRunSlotMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: executeMock }),
+  getDbExec: () => ({
+    execute: executeMock,
+    transaction: async (
+      work: (tx: { execute: typeof executeMock }) => unknown,
+    ) => work({ execute: executeMock }),
+  }),
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -13,25 +22,68 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../agent/run-slot-lock.js", () => ({
+  lockThreadRunSlot: lockThreadRunSlotMock,
+}));
+
+// The store's widen-bigint migration reads the catalog; a recorded migration
+// surfaces that read's failure instead of swallowing it.
+function storeBootstrapResult(sql: string) {
+  if (/CREATE TABLE IF NOT EXISTS chat_thread_viewer_state/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
+  if (/FROM information_schema\.columns/i.test(sql)) {
+    return { rows: [], rowsAffected: 0 };
+  }
+  return storeLedgerResult(sql);
+}
+
 vi.mock("./emitter.js", () => ({
   emitChatThreadChange: emitChatThreadChangeMock,
 }));
 
 import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
+
+import {
+  applySubmittedUserMessage,
+  buildUserMessage,
+} from "../agent/thread-data-builder.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
+import {
   adoptThreadScopeIfUnscoped,
+  blockQueuedSubmissionReceipt,
+  claimSteeredQueuedMessages,
+  createThread,
+  deferSteeredQueuedMessages,
+  hasPrioritizedQueuedSubmission,
   createThreadShareLink,
+  deleteThread,
   forkThread,
+  getQueuedSubmissionReceipt,
+  getQueuedSubmissionReceiptStatus,
+  hasPendingQueuedSubmissionReceipt,
   getThreadByShareToken,
+  hashQueuedSubmissionPayload,
   grantThreadUserShare,
+  listQueuedSubmissionReceipts,
   listThreads,
+  markQueuedSubmissionSubmitted,
+  QueuedSubmissionAdmissionError,
   renameThread,
+  retryQueuedSubmissionReceipt,
+  recordQueuedSubmissionInterruptRun,
+  renewQueuedSubmissionInterruptClaim,
   resolveRunThreadScope,
   revokeThreadShareLink,
   searchThreads,
   setThreadArchived,
   threadScopeMismatch,
   setThreadPinned,
-  setThreadQueuedMessages,
+  mutateThreadQueuedMessages,
   updateThreadData,
 } from "./store.js";
 
@@ -55,6 +107,7 @@ type ChatThreadRow = {
   source_url?: string | null;
   org_id?: string | null;
   visibility?: "private" | "org" | "public";
+  access_basis?: "owner" | "direct" | "organization";
 };
 
 const userMessage = {
@@ -73,9 +126,11 @@ const assistantMessage = {
 
 describe("chat thread store", () => {
   let row: ChatThreadRow | null;
+  let submissionRows: Record<string, unknown>[];
   let conflictOnce: (() => void) | null;
   let conflictEveryThreadDataUpdate: boolean;
   let transientThreadDataUpdateFailures: number;
+  let submissionUpdateRaceOnce: string | null;
   let shareRows: Array<{
     id: string;
     resource_id: string;
@@ -85,6 +140,7 @@ describe("chat thread store", () => {
   }>;
 
   beforeEach(() => {
+    submissionRows = [];
     row = {
       id: "thread-1",
       owner_email: "user@example.com",
@@ -98,17 +154,305 @@ describe("chat thread store", () => {
     conflictOnce = null;
     conflictEveryThreadDataUpdate = false;
     transientThreadDataUpdateFailures = 0;
+    submissionUpdateRaceOnce = null;
     shareRows = [];
     executeMock.mockReset();
+    lockThreadRunSlotMock.mockReset();
+    lockThreadRunSlotMock.mockResolvedValue(undefined);
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      if (/SELECT id, thread_data, message_count/i.test(sql)) {
-        // Legacy message_count backfill probe — no legacy rows in these tests.
+      if (/DELETE FROM chat_threads/i.test(sql)) {
+        if (
+          !row ||
+          row.id !== args[0] ||
+          row.owner_email.toLowerCase() !== String(args[1]).toLowerCase()
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row = null;
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/DELETE FROM agent_chat_submission_inbox/i.test(sql)) {
+        const before = submissionRows.length;
+        submissionRows = submissionRows.filter(
+          (submission) => submission.thread_id !== args[0],
+        );
+        return { rows: [], rowsAffected: before - submissionRows.length };
+      }
+      if (/DELETE FROM chat_thread_shares/i.test(sql)) {
+        const before = shareRows.length;
+        shareRows = shareRows.filter((share) => share.resource_id !== args[0]);
+        return { rows: [], rowsAffected: before - shareRows.length };
+      }
+      if (
+        /FROM agent_chat_submission_inbox/i.test(sql) &&
+        /WHERE thread_id = \? AND message_id = \?/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[0] && candidate.message_id === args[1],
+        );
+        return { rows: submission ? [submission] : [], rowsAffected: 0 };
+      }
+      if (
+        /FROM agent_chat_submission_inbox/i.test(sql) &&
+        /state = 'queued' AND move_to_top_at IS NOT NULL/i.test(sql)
+      ) {
+        const prioritized = submissionRows.filter(
+          (candidate) =>
+            candidate.thread_id === args[0] &&
+            candidate.state === "queued" &&
+            candidate.move_to_top_at != null,
+        );
+        return { rows: prioritized.slice(0, 1), rowsAffected: 0 };
+      }
+      if (/FROM agent_chat_submission_inbox/i.test(sql)) {
+        const interruptPoll = /interrupt_active_run = TRUE/i.test(sql);
+        const retryFilter =
+          /\(current\.retry_after IS NULL OR current\.retry_after <= \?\)/i.test(
+            sql,
+          );
+        const isQueueList = /ORDER BY current\.interrupt_active_run/i.test(sql);
+        const threadIdIndex = retryFilter ? 2 : 0;
+        const threadId = /thread_id = \?/i.test(sql)
+          ? args[threadIdIndex]
+          : undefined;
+        const pending = submissionRows.filter(
+          (candidate) =>
+            candidate.state === "queued" &&
+            (threadId === undefined || candidate.thread_id === threadId),
+        );
+        pending.sort((left, right) => {
+          const interruptOrder =
+            Number(right.interrupt_active_run) -
+            Number(left.interrupt_active_run);
+          if (interruptOrder !== 0) return interruptOrder;
+          const leftMove =
+            left.move_to_top_at == null ? null : Number(left.move_to_top_at);
+          const rightMove =
+            right.move_to_top_at == null ? null : Number(right.move_to_top_at);
+          if (
+            leftMove !== null &&
+            rightMove !== null &&
+            leftMove !== rightMove
+          ) {
+            return rightMove - leftMove;
+          }
+          if (leftMove === null && rightMove !== null) return 1;
+          if (leftMove !== null && rightMove === null) return -1;
+          return Number(left.queue_order) - Number(right.queue_order);
+        });
+        const deferredThreads = new Set<string>();
+        const ready = pending.filter((candidate) => {
+          const retryAfter =
+            candidate.retry_after == null
+              ? undefined
+              : Number(candidate.retry_after);
+          if (
+            isQueueList &&
+            retryFilter &&
+            retryAfter !== undefined &&
+            retryAfter > Number(args[0])
+          ) {
+            deferredThreads.add(candidate.thread_id);
+            return false;
+          }
+          if (isQueueList && deferredThreads.has(candidate.thread_id)) {
+            return false;
+          }
+          return !interruptPoll || candidate.interrupt_active_run === true;
+        });
+        return {
+          rows: ready.slice(0, Number(args.at(-1))),
+          rowsAffected: 0,
+        };
+      }
+      if (/INSERT INTO agent_chat_submission_inbox/i.test(sql)) {
+        const submitted = /submitted_run_id/i.test(sql);
+        const submission = {
+          thread_id: args[0],
+          message_id: args[1],
+          state: submitted ? "submitted" : "queued",
+          actor_email: args[2],
+          actor_auth_user_id: args[3],
+          actor_identity_authenticated_at_ms: args[4],
+          actor_name: args[5],
+          actor_org_id: args[6],
+          actor_org_scope: args[7],
+          actor_anonymous: args[8],
+          payload_hash: args[9],
+          payload_json: args[10],
+          interrupt_active_run: args[11],
+          submitted_run_id: submitted ? args[12] : null,
+          retry_after: null,
+          retry_count: 0,
+          move_to_top_at: null,
+          queue_order: submissionRows.length + 1,
+          created_at: args[submitted ? 13 : 12],
+          updated_at: args[submitted ? 14 : 13],
+        };
+        submissionRows.push(submission);
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox SET state = 'submitted'/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[2] &&
+            candidate.message_id === args[3] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        if (submissionUpdateRaceOnce) {
+          Object.assign(submission, {
+            state: "submitted",
+            submitted_run_id: submissionUpdateRaceOnce,
+            retry_after: null,
+            updated_at: args[1],
+          });
+          submissionUpdateRaceOnce = null;
+          return { rows: [], rowsAffected: 0 };
+        }
+        Object.assign(submission, {
+          state: "submitted",
+          submitted_run_id: args[0],
+          retry_after: null,
+          updated_at: args[1],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox\s+SET state = 'removed'/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[1] &&
+            candidate.message_id === args[2] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          state: "removed",
+          retry_after: null,
+          interrupt_run_id: null,
+          updated_at: args[0],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/UPDATE agent_chat_submission_inbox SET state = \?/i.test(sql)) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[2] &&
+            candidate.message_id === args[3] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          state: args[0],
+          retry_after: null,
+          updated_at: args[1],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox SET state = 'blocked'/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[1] &&
+            candidate.message_id === args[2] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          state: "blocked",
+          retry_after: null,
+          updated_at: args[0],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox SET state = 'expired'/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[1] &&
+            candidate.message_id === args[2] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          state: "expired",
+          retry_after: null,
+          updated_at: args[0],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox SET retry_after = \?/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[2] &&
+            candidate.message_id === args[3] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          retry_after: args[0],
+          ...(sql.includes("retry_count = retry_count + 1")
+            ? { retry_count: Number(submission.retry_count ?? 0) + 1 }
+            : {}),
+          updated_at: args[1],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox SET move_to_top_at = \?/i.test(sql)
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[2] &&
+            candidate.message_id === args[3] &&
+            candidate.state === "queued",
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          move_to_top_at: args[0],
+          retry_after: null,
+          updated_at: args[1],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        /UPDATE agent_chat_submission_inbox\s+SET interrupt_run_id = \?/i.test(
+          sql,
+        )
+      ) {
+        const submission = submissionRows.find(
+          (candidate) =>
+            candidate.thread_id === args[2] &&
+            candidate.message_id === args[3] &&
+            candidate.state === "queued" &&
+            (candidate.interrupt_run_id == null ||
+              candidate.interrupt_run_id === args[4]),
+        );
+        if (!submission) return { rows: [], rowsAffected: 0 };
+        Object.assign(submission, {
+          interrupt_run_id: args[0],
+          updated_at: args[1],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT id, owner_email, thread_data, message_count/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
       if (/WHERE thread_data LIKE \?/i.test(sql)) {
@@ -160,7 +504,7 @@ describe("chat thread store", () => {
           thread_data: args[0],
           title: args[1],
           preview: args[2],
-          message_count: args[3],
+          message_count: args[3] === null ? row.message_count : args[3],
           updated_at: args[4],
         };
         return { rows: [], rowsAffected: 1 };
@@ -213,6 +557,110 @@ describe("chat thread store", () => {
       }
       throw new Error(`Unexpected SQL: ${sql}`);
     });
+  });
+
+  it("creates a child thread with its initial prompt in one insert", async () => {
+    let insertedArgs: unknown[] | undefined;
+    const execute = executeMock.getMockImplementation()!;
+    executeMock.mockImplementation(async (query: any) => {
+      if (/INSERT INTO chat_threads/i.test(query.sql)) {
+        insertedArgs = query.args;
+        return { rows: [], rowsAffected: 1 };
+      }
+      return execute(query);
+    });
+    const initialThreadData = JSON.stringify({
+      headId: "msg-child-user",
+      messages: [
+        {
+          message: {
+            id: "msg-child-user",
+            role: "user",
+            content: [{ type: "text", text: "Investigate the issue" }],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    const thread = await createThread("user@example.com", {
+      id: "child-thread",
+      title: "Investigate the issue",
+      initialData: {
+        threadData: initialThreadData,
+        preview: "Investigate the issue",
+        messageCount: 1,
+      },
+    });
+
+    expect(thread).toMatchObject({
+      id: "child-thread",
+      threadData: initialThreadData,
+      preview: "Investigate the issue",
+      messageCount: 1,
+    });
+    expect(insertedArgs).toEqual([
+      "child-thread",
+      "user@example.com",
+      "Investigate the issue",
+      "Investigate the issue",
+      initialThreadData,
+      1,
+      expect.any(Number),
+      expect.any(Number),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("deletes queued submission payloads and shares with their thread", async () => {
+    submissionRows.push({
+      thread_id: "thread-1",
+      message_id: "queued-1",
+      state: "queued",
+      payload_json: JSON.stringify({ id: "queued-1", text: "Private prompt" }),
+    });
+    shareRows.push({
+      id: "share-1",
+      resource_id: "thread-1",
+      principal_id: "reader@example.com",
+      role: "viewer",
+      created_by: "user@example.com",
+    });
+
+    await expect(deleteThread("thread-1", "other@example.com")).resolves.toBe(
+      false,
+    );
+    expect(submissionRows).toHaveLength(1);
+    expect(shareRows).toHaveLength(1);
+
+    await expect(deleteThread("thread-1", "user@example.com")).resolves.toBe(
+      true,
+    );
+
+    expect(row).toBeNull();
+    expect(submissionRows).toEqual([]);
+    expect(shareRows).toEqual([]);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+    expect(
+      executeMock.mock.calls
+        .map(([query]) => (typeof query === "string" ? query : query.sql))
+        .filter((sql) =>
+          /^DELETE FROM (chat_threads|agent_chat_submission_inbox|chat_thread_shares)/i.test(
+            sql,
+          ),
+        ),
+    ).toEqual([
+      expect.stringMatching(/^DELETE FROM chat_threads/i),
+      expect.stringMatching(/^DELETE FROM chat_threads/i),
+      expect.stringMatching(/^DELETE FROM agent_chat_submission_inbox/i),
+      expect.stringMatching(/^DELETE FROM chat_thread_shares/i),
+    ]);
   });
 
   it("grants a non-owner an explicit share so integration deep links resolve", async () => {
@@ -269,6 +717,136 @@ describe("chat thread store", () => {
     expect(shareRows[0].role).toBe("editor");
   });
 
+  it("replaces inline image payloads with visible placeholders before persistence", async () => {
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "inline-image-save",
+            role: "user",
+            content: [{ type: "text", text: "Inspect this" }],
+            attachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                data: "A".repeat(128),
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await updateThreadData("thread-1", incoming, "Thread", "Inspect this", 1);
+
+    assertNoInlineImageBytes(row!.thread_data, "thread_data");
+    expect(row!.thread_data).toContain('"id":"inline-image-save"');
+    expect(row!.thread_data).toContain('"omitted":"inline-bytes"');
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("allows ordinary assistant and tool text containing image examples", async () => {
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "assistant-example",
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: `Example data URL: data:image/png;base64,${"A".repeat(128)}`,
+              },
+              {
+                type: "tool-call",
+                toolCallId: "tool-example",
+                toolName: "render_preview",
+                argsText: `data:image/png;base64,${"A".repeat(128)}`,
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await expect(
+      updateThreadData("thread-1", incoming, "Thread", "Example", 1),
+    ).resolves.toBe(true);
+    expect(row!.thread_data).toContain("Example data URL");
+  });
+
+  it("cleans legacy inline image bodies before saving a later chat turn", async () => {
+    const legacyImageUrl = "data:image/png;base64,LEGACY_INLINE_IMAGE_BYTES";
+    const legacyMessage = {
+      id: "legacy-image-user",
+      role: "user",
+      content: [
+        { type: "text", text: "Describe the older image" },
+        {
+          type: "image",
+          name: "reference.png",
+          data: legacyImageUrl,
+          url: legacyImageUrl,
+        },
+      ],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: legacyMessage, parentId: null }],
+    });
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            ...legacyMessage,
+            content: [
+              { type: "text", text: "Describe the older image" },
+              { type: "image", name: "reference.png" },
+            ],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "new-user-turn",
+            role: "user",
+            content: [{ type: "text", text: "Continue the design" }],
+          },
+          parentId: "legacy-image-user",
+        },
+      ],
+    });
+
+    await updateThreadData(
+      "thread-1",
+      incoming,
+      "Thread",
+      "Continue the design",
+      2,
+    );
+
+    const persisted = JSON.parse(row!.thread_data);
+    expect(JSON.stringify(persisted)).not.toContain("data:image/");
+    expect(JSON.stringify(persisted)).not.toContain(
+      "LEGACY_INLINE_IMAGE_BYTES",
+    );
+    expect(persisted.messages.map((entry: any) => entry.message.id)).toEqual([
+      "legacy-image-user",
+      "new-user-turn",
+    ]);
+    expect(persisted.messages[0].message.content).toContainEqual({
+      type: "text",
+      text: "Describe the older image",
+    });
+  });
+
   it("retries cross-process thread-data conflicts and preserves server-only messages", async () => {
     conflictOnce = () => {
       row = {
@@ -283,7 +861,6 @@ describe("chat thread store", () => {
         updated_at: 2,
       };
     };
-
     await updateThreadData(
       "thread-1",
       JSON.stringify({ messages: [userMessage] }),
@@ -301,6 +878,1704 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("preserves an owner's latest title and override across a shared save CAS retry", async () => {
+    row!.title = "Original title";
+    row!.thread_data = JSON.stringify({
+      _titleOverride: "Original title",
+      messages: [],
+    });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        title: "Owner renamed title",
+        thread_data: JSON.stringify({
+          _titleOverride: "Owner renamed title",
+          messages: [],
+        }),
+        updated_at: 2,
+      };
+    };
+    await expect(
+      updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          _titleOverride: "Original title",
+          messages: [userMessage],
+        }),
+        "Original title",
+        "Shared reply",
+        1,
+        { preserveCurrentTitle: true },
+      ),
+    ).resolves.toBe(true);
+    expect(row!.title).toBe("Owner renamed title");
+    const repo = JSON.parse(row!.thread_data);
+    expect(repo._titleOverride).toBe("Owner renamed title");
+    expect(repo.messages[0].message.id).toBe(userMessage.id);
+    expect(row!.message_count).toBe(1);
+  });
+
+  it.each([
+    { preserveCurrentTitle: true },
+    { preserveCurrentTitle: true, preserveCurrentTitleAndPreview: true },
+  ])(
+    "fills a blank title from the first visible prompt on a shared save: %j",
+    async (options) => {
+      row!.title = "";
+      row!.thread_data = JSON.stringify({ messages: [] });
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          _titleOverride: "Editor title",
+          messages: [
+            {
+              message: {
+                id: "shared-first-prompt",
+                role: "user",
+                content: [{ type: "text", text: "Plan the launch review" }],
+              },
+              parentId: null,
+            },
+          ],
+        }),
+        "Editor title",
+        "Plan the launch review",
+        1,
+        options,
+      );
+      expect(row!.title).toBe("Plan the launch review");
+      expect(JSON.parse(row!.thread_data)._titleOverride).toBeUndefined();
+    },
+  );
+
+  describe("inline attachment bytes", () => {
+    const pixels = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+    const uploaded =
+      "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fkept";
+    const imageMessage = {
+      id: "user-2",
+      role: "user",
+      content: [
+        { type: "text", text: `compare with ${pixels}` },
+        { type: "image", image: pixels },
+      ],
+      attachments: [
+        {
+          id: "a1",
+          type: "image",
+          name: "local.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+        },
+        {
+          id: "a2",
+          type: "image",
+          name: "kept.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+          metadata: { uploadUrl: uploaded },
+        },
+        {
+          id: "a3",
+          type: "file",
+          name: "spec.pdf",
+          content: [
+            {
+              type: "file",
+              data: "JVBERi0xLjQ=",
+              mimeType: "application/pdf",
+              filename: "spec.pdf",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("stores a client snapshot with upload URLs and visible placeholders, never bytes", async () => {
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [
+            { message: userMessage, parentId: null },
+            { message: imageMessage, parentId: "user-1" },
+          ],
+        }),
+        "Thread",
+        "make this slide better",
+        2,
+      );
+
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+      const stored = JSON.parse(row!.thread_data).messages[1].message;
+      expect(stored.content).toEqual([
+        { type: "text", text: "compare with [inline image/png data omitted]" },
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+      ]);
+      expect(stored.attachments.map((att: any) => att.content[0])).toEqual([
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+        { type: "image", image: uploaded },
+        {
+          type: "file",
+          mimeType: "application/pdf",
+          filename: "spec.pdf",
+          name: "spec.pdf",
+          mediaType: "application/pdf",
+          omitted: "inline-bytes",
+        },
+      ]);
+    });
+
+    it("scrubs bytes a legacy row already holds on its next write", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+        }),
+        "Thread",
+        "make this slide better",
+        1,
+      );
+
+      expect(row!.thread_data).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+    });
+
+    it("forks without copying the source's inline bytes", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+      let inserted: string | undefined;
+      const execute = executeMock.getMockImplementation()!;
+      executeMock.mockImplementation(async (query: any) => {
+        if (/INSERT INTO chat_threads/i.test(query.sql)) {
+          inserted = query.args[4];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return execute(query);
+      });
+
+      await forkThread("thread-1", "user@example.com", { id: "thread-fork" });
+
+      expect(inserted).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(inserted, "forked thread_data");
+    });
+  });
+
+  it("recounts delta history against the latest row after a CAS conflict", async () => {
+    const agentKitUser = { id: "agentkit-user", role: "user", parts: [] };
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [agentKitUser] },
+    });
+    row!.message_count = 2;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [agentKitUser, concurrentAssistant] },
+        }),
+        message_count: 3,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    const repository = JSON.parse(row!.thread_data);
+    expect(
+      repository.agentKit.messages.map((message: any) => message.id),
+    ).toEqual(["agentkit-user", "concurrent-assistant", "incoming-assistant"]);
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("preserves the latest title and preview while recounting a snapshot delta after CAS", async () => {
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 1;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        title: "Generated title",
+        preview: "Latest preview",
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [concurrentAssistant] },
+        }),
+        message_count: 2,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Stale title",
+      "Stale preview",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Generated title");
+    expect(row!.preview).toBe("Latest preview");
+    expect(row!.message_count).toBe(3);
+    expect(JSON.parse(row!.thread_data).agentKit.messages).toEqual([
+      concurrentAssistant,
+      incomingAssistant,
+    ]);
+  });
+
+  it("seeds blank snapshot metadata from the first visible merged prompt", async () => {
+    row!.title = "";
+    row!.preview = "  Saved   preview  ";
+    const contextOnlyMessage = {
+      message: {
+        id: "context-only-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<context>Private instructions only</context>",
+          },
+        ],
+      },
+      parentId: null,
+    };
+    const visiblePrompt = {
+      message: {
+        id: "visible-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Find flights to <context>private note</context>Tokyo",
+          },
+        ],
+      },
+      parentId: "context-only-prompt",
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [contextOnlyMessage],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [visiblePrompt],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "",
+      "",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Find flights to Tokyo");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it("preserves exact nonblank snapshot title and preview strings", async () => {
+    row!.title = "  Manual   title  ";
+    row!.preview = "  Saved   preview  ";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("  Manual   title  ");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it.each([
+    { title: "", preview: "", expectedTitle: "Find flights to Tokyo" },
+    { title: "", preview: "   ", expectedTitle: "Find flights to Tokyo" },
+    {
+      title: "  Manual   title  ",
+      preview: "",
+      expectedTitle: "  Manual   title  ",
+    },
+  ])(
+    "fills only blank snapshot metadata from merged visible prompts: %j",
+    async ({ title, preview, expectedTitle }) => {
+      row!.title = title;
+      row!.preview = preview;
+      const contextOnlyMessage = {
+        message: {
+          id: "context-only-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<context>Private instructions only</context>",
+            },
+          ],
+        },
+        parentId: null,
+      };
+      const firstVisiblePrompt = {
+        message: {
+          id: "first-visible-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Find flights to <context>private note</context>Tokyo",
+            },
+          ],
+        },
+        parentId: "context-only-prompt",
+      };
+      const latestVisiblePrompt = {
+        message: {
+          id: "latest-visible-prompt",
+          role: "user",
+          content: [{ type: "text", text: "Book a return flight" }],
+        },
+        parentId: "first-visible-prompt",
+      };
+      row!.thread_data = JSON.stringify({
+        messages: [contextOnlyMessage],
+        agentKit: { messages: [] },
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [firstVisiblePrompt, latestVisiblePrompt],
+          agentKit: { _snapshotDelta: true, messages: [] },
+        }),
+        "Stale title",
+        "Stale preview",
+        3,
+        { preserveCurrentTitleAndPreview: true },
+      );
+
+      expect(row!.title).toBe(expectedTitle);
+      expect(row!.preview).toBe("Book a return flight");
+    },
+  );
+
+  it("keeps blank snapshot metadata blank when merged history has no visible prompt", async () => {
+    row!.title = "";
+    row!.preview = "";
+    row!.thread_data = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "context-only-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions only</context>",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Stale title",
+      "Stale preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+  });
+
+  it("lets explicit metadata preservation win over snapshot title seeding", async () => {
+    row!.title = "";
+    row!.preview = "";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      2,
+      {
+        preserveCurrentMetadata: true,
+        preserveCurrentTitleAndPreview: true,
+      },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("seeds a blank title from the first prompt without replacing it on later saves", async () => {
+    row!.title = "";
+    row!.thread_data = "{}";
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "first-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions</context>\nPlan   next week",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    };
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await updateThreadData("thread-1", "{}", "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await renameThread("thread-1", "My renamed thread", {
+      ownerEmail: "user@example.com",
+    });
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("My renamed thread");
+  });
+
+  it("reports when the thread disappeared before a save", async () => {
+    row = null;
+
+    await expect(updateThreadData("thread-1", "{}", "", "", 0)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("rechecks annotation delta baselines after a cross-process CAS conflict", async () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const snapshotEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { annotations: [baseline] },
+    });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [],
+          agentKit: { annotations: [concurrentEdit] },
+        }),
+        updated_at: 2,
+      };
+    };
+    const annotationConflicts: Array<{
+      messageId: string;
+      annotationId?: string;
+      operation: "upsert" | "remove";
+    }> = [];
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          annotations: [],
+          annotationUpserts: [{ entry: snapshotEdit, baseline }],
+        },
+      }),
+      "Thread",
+      "",
+      0,
+      {
+        onAnnotationConflict: (conflict) => annotationConflicts.push(conflict),
+      },
+    );
+
+    expect(JSON.parse(row!.thread_data).agentKit.annotations).toEqual([
+      concurrentEdit,
+    ]);
+    expect(JSON.parse(row!.thread_data).agentKit).not.toHaveProperty(
+      "annotationUpserts",
+    );
+    expect(annotationConflicts).toEqual([
+      {
+        messageId: "assistant-1",
+        annotationId: "source-1",
+        operation: "upsert",
+      },
+    ]);
+  });
+
+  it("counts AgentKit-only messages when saving thread history", async () => {
+    const agentKitMessages = [
+      { id: "user-1", role: "user", parts: [] },
+      { id: "assistant-1", role: "assistant", parts: [] },
+    ];
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { messages: agentKitMessages },
+    });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { messages: agentKitMessages },
+      }),
+      "Thread",
+      "Done.",
+      0,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a root user mirror once when its AgentKit ID differs", async () => {
+    const rootMessage = buildUserMessage({
+      text: "Make this change",
+      runId: "run-user-mirror",
+      agentKitMessageId: "client-user-mirror",
+    });
+    const repository = {
+      messages: [{ message: rootMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "client-user-mirror", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make this change",
+      2,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const identicalMessage = buildUserMessage({
+      text: "Same client ID",
+      runId: "run-user-identical",
+      agentKitMessageId: "shared-user-id",
+    });
+    identicalMessage.id = "shared-user-id";
+    const identicalRepository = {
+      messages: [{ message: identicalMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "shared-user-id", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(identicalRepository),
+      "Thread",
+      "Same client ID",
+      1,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const unmatchedRepository = {
+      messages: [
+        {
+          message: buildUserMessage({
+            text: "Another request",
+            runId: "run-user-unmatched",
+          }),
+          parentId: null,
+        },
+      ],
+      agentKit: {
+        messages: [{ id: "unmatched-client-user", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(unmatchedRepository),
+      "Thread",
+      "Another request",
+      2,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts unique messages across merged legacy and AgentKit history", async () => {
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: legacyMessage, parentId: null }],
+      agentKit: { _mergeRootMessages: true, messages: [] },
+    });
+    row!.message_count = 1;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          _mergeRootMessages: true,
+          messages: [{ id: "new-assistant", role: "assistant", parts: [] }],
+        },
+      }),
+      "Thread",
+      "Done.",
+      2,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a folded AgentKit reply once when the root stores its continuation", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "message-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "First half." }],
+          },
+        ],
+        events: [
+          {
+            id: "event-run-1",
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "message-1", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts one durable reply when folded runs share an assistant message", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "assistant-shared",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "First half." }],
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+          {
+            id: "run-2",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts one durable reply when a continuation inherited the reply but never wrote to it", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "All forty lines." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "assistant-shared",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "All forty lines." }],
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+          {
+            id: "run-2",
+            status: "completed",
+            inheritedMessageId: "assistant-shared",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a fully projected folded reply once across its runs", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "message-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "message-2",
+            role: "assistant",
+            parts: [{ type: "text", text: " Second half." }],
+            metadata: { runId: "run-2" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("keeps a folded root reply when event mapping cannot identify its run messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "partial-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+          },
+          {
+            id: "partial-2",
+            role: "assistant",
+            parts: [{ type: "text", text: "Additional tool response." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-1", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-2", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("keeps a distinct final assistant reply when a run has multiple messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Here is the complete result." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Here is the complete" }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "unrelated-final",
+            role: "assistant",
+            parts: [{ type: "text", text: "The tool returned a value." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+        _mergeRootMessages: true,
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make the report",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("counts a raw tool-call mirror once when its result is in AgentKit", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: {
+                  details: { name: "AgentKit Browser", browser: true },
+                },
+                result: {
+                  message: "Hello, AgentKit Browser!",
+                  ok: true,
+                },
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: {
+              details: { browser: true, name: "AgentKit Browser" },
+            },
+            output: { ok: true, message: "Hello, AgentKit Browser!" },
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts a raw tool-call mirror once when its stored result is model-facing text and the AgentKit output is structured", async () => {
+    const output = {
+      ok: true,
+      message: "Hello, AgentKit Browser!",
+      ui: { kind: "greeting", name: "AgentKit Browser" },
+    };
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: { details: { name: "AgentKit Browser" } },
+                result: JSON.stringify(
+                  { ok: true, message: "Hello, AgentKit Browser!" },
+                  null,
+                  2,
+                ),
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: { details: { name: "AgentKit Browser" } },
+            output,
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts a mirrored reply once when only the durable copy has reasoning", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              { type: "reasoning", text: "The stored reasoning." },
+              { type: "text", text: "Done." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("excludes a duplicated assistant snapshot beside its durable reply", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-duplicate",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done.\nDone." }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-duplicate-with-trailing-whitespace",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done.\nDone.\n" }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-extended",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nHere is the full diff: ..." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-unmatched-reasoning",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nDone." },
+              { type: "reasoning", text: "extra reasoning" },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-unmatched-tool-call",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nDone." },
+              {
+                type: "tool-call",
+                toolCallId: "tool-unmatched",
+                toolName: "search",
+                args: { query: "extra content" },
+                result: { ok: true },
+              },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-canonical",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(5);
+  });
+
+  it("counts an identical root and AgentKit assistant mirror once", async () => {
+    const repository = {
+      messages: [
+        {
+          message: { ...userMessage },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "reply-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("excludes failed run notices hidden during hydration from message counts", async () => {
+    const runId = "failed-before-start";
+    const repository = {
+      messages: [
+        { message: { ...userMessage } },
+        {
+          message: {
+            id: "not-started-notice",
+            role: "assistant",
+            content: [{ type: "text", text: "The run could not start." }],
+            metadata: {
+              runId,
+              custom: { [RUN_NOT_STARTED_METADATA_KEY]: true },
+            },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [],
+        runs: [
+          { id: runId, status: "failed", error: { message: "Unavailable" } },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("counts a mirrored reply when the completed run no longer has message events", async () => {
+    const runId = "run-without-message-events";
+    const input = { lookup: "account-1" };
+    const output = { answer: "Done." };
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: runId,
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-answer",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-lookup",
+                toolName: "lookup",
+                args: input,
+                result: output,
+              },
+              { type: "text", text: output.answer },
+            ],
+            metadata: { runId },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: output.answer }],
+          },
+        ],
+        events: [],
+        runs: [{ id: runId, status: "completed" }],
+        toolCalls: [
+          {
+            id: "call-lookup",
+            name: "lookup",
+            input,
+            output,
+            status: "completed",
+            runId,
+            messageId: "client-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("keeps a tool-call root when a text snapshot omits the unsaved tool call", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: "run-1",
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "lookup",
+              },
+              { type: "text", text: "Done." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts many root assistant mirrors once each", async () => {
+    const messageCount = 256;
+    const rootMessages = Array.from({ length: messageCount }, (_, index) => {
+      const runId = `run-${index}`;
+      const text = `Answer ${index}`;
+      return {
+        message: {
+          id: `server-${index}`,
+          role: "assistant",
+          content: [{ type: "text", text }],
+          metadata: { runId },
+        },
+        parentId: index > 0 ? `server-${index - 1}` : null,
+      };
+    });
+    const agentKitMessages = Array.from(
+      { length: messageCount },
+      (_, index) => ({
+        id: `client-${index}`,
+        role: "assistant",
+        parts: [{ type: "text", text: `Answer ${index}` }],
+        metadata: { runId: `run-${index}` },
+      }),
+    );
+    const repository = {
+      messages: rootMessages,
+      agentKit: { _mergeRootMessages: true, messages: agentKitMessages },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Answer 255",
+      0,
+    );
+
+    expect(row!.message_count).toBe(messageCount);
+  });
+
+  it("counts disjoint mixed legacy history without the merge marker", async () => {
+    const sharedMessage = {
+      id: "shared-message",
+      role: "assistant",
+      parts: [],
+    };
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { message: legacyMessage, parentId: null },
+        { message: sharedMessage, parentId: "legacy-user" },
+      ],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [
+            sharedMessage,
+            { id: "new-agentkit-message", role: "assistant", parts: [] },
+          ],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
   it("preserves a title committed while message persistence was stale", async () => {
     row!.title = "Generated chat title";
 
@@ -313,6 +2588,62 @@ describe("chat thread store", () => {
     );
 
     expect(row!.title).toBe("Generated chat title");
+  });
+
+  it("does not replace full thread data when snapshot validation fails", async () => {
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [{ id: "queued-1", text: "Keep this" }],
+      customData: { marker: "preserved" },
+      agentKit: {
+        events: [
+          {
+            id: "existing-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+        _eventRunWatermarks: { "run-1": 1 },
+      },
+    });
+    row!.message_count = 1;
+    const existingThreadData = row!.thread_data;
+    const incompleteSnapshot = JSON.stringify({
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [
+          {
+            runId: "run-1",
+            snapshotId: "incomplete-snapshot",
+            lastSequence: 2,
+            expectedEventCount: 2,
+            complete: true,
+          },
+        ],
+        events: [
+          {
+            id: "new-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    await expect(
+      updateThreadData("thread-1", incompleteSnapshot, "Thread", "Done", 2, {
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow(
+      "Agent chat event snapshot ended before all events arrived.",
+    );
+
+    expect(row!.thread_data).toBe(existingThreadData);
+    expect(row!.message_count).toBe(1);
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
   it("throws after exhausted thread-data conflicts by default", async () => {
@@ -362,7 +2693,7 @@ describe("chat thread store", () => {
         1,
         { maxAttempts: 1, ignoreConflicts: true },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
@@ -403,62 +2734,2037 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
-  it("lets queued-message clears win while preserving concurrent assistant messages", async () => {
-    row!.thread_data = JSON.stringify({
-      queuedMessages: [{ id: "queued-1", text: "next" }],
-      messages: [{ message: userMessage, parentId: null }],
+  it("reapplies queued-message appends after a cross-process CAS conflict", async () => {
+    const first = { id: "queued-1", text: "First" };
+    const concurrent = { id: "queued-2", text: "Second" };
+    const appended = { id: "queued-3", text: "Third", threadId: "thread-1" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [first] });
+
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [first, concurrent] }),
+        updated_at: 2,
+      };
+    };
+
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: appended,
     });
+
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      first,
+      concurrent,
+      appended,
+    ]);
+    expect(row!.preview).toBe("make this slide better");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("rejects data URLs before directly persisting a queued attachment", async () => {
+    const originalThreadData = row!.thread_data;
+
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-inline-image",
+          text: "Use this image",
+          requestAttachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              url: "data:image/png;base64,aGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("queuedMessage.requestAttachments[0].url");
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a data URL in a queued file part before any SQL update", async () => {
+    const originalThreadData = row!.thread_data;
+
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-inline-file-url",
+          text: "Use this image",
+          attachments: [
+            {
+              type: "file",
+              name: "screen.png",
+              url: "data:image/png;base64,aGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("queuedMessage.attachments[0].url");
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["a data URL", { image: "data:image/png;base64,aGVsbG8=" }],
+    [
+      "raw base64 image bytes",
+      {
+        image: {
+          type: "image",
+          source: { type: "base64", data: "aGVsbG8=" },
+        },
+      },
+    ],
+  ])(
+    "rejects queued message metadata containing %s before SQL",
+    async (_label, metadata) => {
+      const originalThreadData = row!.thread_data;
+
+      await expect(
+        mutateThreadQueuedMessages("thread-1", {
+          type: "append",
+          message: {
+            id: "queued-inline-metadata",
+            text: "Use this image",
+            metadata,
+          },
+        }),
+      ).rejects.toThrow("queuedMessage.metadata");
+
+      expect(row!.thread_data).toBe(originalThreadData);
+      expect(
+        executeMock.mock.calls.some(([query]) =>
+          /UPDATE chat_threads SET thread_data/i.test(
+            typeof query === "string" ? query : query.sql,
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("stores durable submission receipts and preserves drain priority", async () => {
+    const actor = {
+      email: "user@example.com",
+      authUserId: "auth-user-1",
+      anonymous: false,
+    };
+    const makeSubmission = (id: string, interruptActiveRun = false) => {
+      const submissionPayload = {
+        threadId: "thread-1",
+        id,
+        text: `Prompt ${id}`,
+        attachments: [
+          {
+            type: "file" as const,
+            name: "report.pdf",
+            mediaType: "application/pdf",
+            fingerprint: "a".repeat(64),
+          },
+        ],
+        options: { model: "test-model" },
+        ...(interruptActiveRun ? { interruptActiveRun: true } : {}),
+      };
+      const message = {
+        id,
+        threadId: "thread-1",
+        text: submissionPayload.text,
+        attachments: [
+          {
+            type: "file",
+            name: "report.pdf",
+            mediaType: "application/pdf",
+            url: "https://files.example.test/report.pdf",
+          },
+        ],
+        options: submissionPayload.options,
+        ...(interruptActiveRun ? { interruptActiveRun: true } : {}),
+      };
+      return { submissionPayload, message };
+    };
+    const append = async (id: string, interruptActiveRun = false) => {
+      const submission = makeSubmission(id, interruptActiveRun);
+      return mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: submission.message,
+          hashInput: submission.submissionPayload,
+        },
+        { actor },
+      );
+    };
+
+    await append("queued-first");
+    expect(lockThreadRunSlotMock).toHaveBeenCalledOnce();
+    expect(lockThreadRunSlotMock.mock.calls[0]?.[0]).toMatchObject({
+      execute: executeMock,
+    });
+    expect(lockThreadRunSlotMock.mock.calls[0]?.[1]).toBe("thread-1");
+    const slotLockOrder = lockThreadRunSlotMock.mock.invocationCallOrder[0]!;
+    const calls = executeMock.mock.calls;
+    const callOrder = executeMock.mock.invocationCallOrder;
+    const sqlCalls = calls.map(([query]) =>
+      typeof query === "string" ? query : query.sql,
+    );
+    const threadDataWriteIndex = sqlCalls.findIndex((sql) =>
+      /UPDATE chat_threads SET thread_data/i.test(sql),
+    );
+    const receiptWriteIndex = sqlCalls.findIndex((sql) =>
+      /INSERT INTO agent_chat_submission_inbox/i.test(sql),
+    );
+    expect(threadDataWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(receiptWriteIndex).toBeGreaterThanOrEqual(0);
+    expect(slotLockOrder).toBeLessThan(callOrder[threadDataWriteIndex]!);
+    expect(callOrder[threadDataWriteIndex]).toBeLessThan(
+      callOrder[receiptWriteIndex]!,
+    );
+    await append("queued-steered");
+    await append("queued-interrupt", true);
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "moveToTop",
+      messageId: "queued-steered",
+    });
+
+    const receipt = await getQueuedSubmissionReceipt(
+      "thread-1",
+      "queued-first",
+    );
+    expect(receipt).toMatchObject({
+      state: "queued",
+      actor,
+      message: makeSubmission("queued-first").message,
+      payloadHash: hashQueuedSubmissionPayload(
+        "thread-1",
+        makeSubmission("queued-first").submissionPayload,
+      ),
+    });
+    expect(String(submissionRows[0]?.payload_json)).not.toContain(
+      "fingerprint",
+    );
+    expect(String(submissionRows[0]?.payload_json)).toContain(
+      "https://files.example.test/report.pdf",
+    );
+
+    const ordered = await listQueuedSubmissionReceipts();
+    expect(ordered.map((submission) => submission.messageId)).toEqual([
+      "queued-interrupt",
+      "queued-steered",
+      "queued-first",
+    ]);
+  });
+
+  describe("Send now delivery into a running turn", () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const append = (id: string) =>
+      mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: { id, threadId: "thread-1", text: `Prompt ${id}` },
+        },
+        { actor },
+      );
+    const queuedIds = () =>
+      (JSON.parse(row!.thread_data).queuedMessages ?? []).map(
+        (message: { id: string }) => message.id,
+      );
+
+    it("flags the message, moves it to the head, and stamps the inbox", async () => {
+      await append("queued-a");
+      await append("queued-b");
+
+      const steered = await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-b",
+      });
+
+      expect(steered?.message).toMatchObject({
+        id: "queued-b",
+        delivery: "steering",
+      });
+      expect(queuedIds()).toEqual(["queued-b", "queued-a"]);
+      expect(
+        submissionRows.find((r) => r.message_id === "queued-b")?.move_to_top_at,
+      ).toEqual(expect.any(Number));
+      expect(await hasPrioritizedQueuedSubmission("thread-1")).toBe(true);
+      const receipt = await getQueuedSubmissionReceipt("thread-1", "queued-b");
+      // The delivery flag is thread state, never part of the admitted payload.
+      expect(receipt?.message).not.toHaveProperty("delivery");
+    });
+
+    it("hands a flagged message to the run exactly once and closes its receipt", async () => {
+      await append("queued-a");
+      await append("queued-b");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-b",
+      });
+      const receiptBeforeClaim = await getQueuedSubmissionReceipt(
+        "thread-1",
+        "queued-b",
+      );
+
+      const delivered = await claimSteeredQueuedMessages("thread-1", "run-1");
+
+      expect(delivered).toHaveLength(1);
+      expect(delivered[0]!.queued).toMatchObject({
+        id: "queued-b",
+        text: "Prompt queued-b",
+      });
+      expect(delivered[0]!.queued).not.toHaveProperty("delivery");
+      expect(delivered[0]!.record).toMatchObject({
+        runId: "run-1",
+        message: { id: "queued-b", text: "Prompt queued-b" },
+        continuationMessageId: "server-run-1:after:queued-b",
+      });
+      const data = JSON.parse(row!.thread_data);
+      expect(queuedIds()).toEqual(["queued-a"]);
+      expect(data._claimedQueuedMessageIds).toContain("queued-b");
+      expect(data._steeredQueuedMessages).toEqual([delivered[0]!.record]);
+      expect(
+        submissionRows.find((r) => r.message_id === "queued-b"),
+      ).toMatchObject({ state: "submitted", submitted_run_id: "run-1" });
+
+      expect(await claimSteeredQueuedMessages("thread-1", "run-2")).toEqual([]);
+      // The inbox cannot start it as a new turn afterwards.
+      const drained = await mutateThreadQueuedMessages("thread-1", {
+        type: "claimFromInbox",
+        receipt: receiptBeforeClaim!,
+        claimId: "claim-after-steer",
+      });
+      expect(drained?.receiptUnavailable).toBe(true);
+      expect(queuedIds()).toEqual(["queued-a"]);
+    });
+
+    it("leaves a message alone when its receipt was already delivered", async () => {
+      await append("queued-a");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-a",
+      });
+      const receipt = submissionRows.find((r) => r.message_id === "queued-a")!;
+      receipt.state = "submitted";
+      receipt.submitted_run_id = "run-inbox";
+      // Another path's prioritized row keeps the boundary check reading.
+      await append("queued-b");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "moveToTop",
+        messageId: "queued-b",
+      });
+
+      expect(await claimSteeredQueuedMessages("thread-1", "run-1")).toEqual([]);
+      expect(queuedIds()).toContain("queued-a");
+      expect(receipt.submitted_run_id).toBe("run-inbox");
+    });
+
+    it("marks waiting messages for after the reply, and a later boundary still takes them", async () => {
+      await append("queued-a");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-a",
+      });
+
+      await deferSteeredQueuedMessages("thread-1");
+
+      expect(JSON.parse(row!.thread_data).queuedMessages[0]).toMatchObject({
+        id: "queued-a",
+        delivery: "after_reply",
+      });
+      const delivered = await claimSteeredQueuedMessages("thread-1", "run-1");
+      expect(delivered.map(({ queued }) => queued.id)).toEqual(["queued-a"]);
+    });
+
+    it("skips the boundary check when nothing was sent now", async () => {
+      await append("queued-a");
+      executeMock.mockClear();
+
+      expect(await claimSteeredQueuedMessages("thread-1", "run-1")).toEqual([]);
+
+      expect(
+        executeMock.mock.calls.some(([query]) =>
+          /\bFROM chat_threads\b/i.test(
+            typeof query === "string" ? query : query.sql,
+          ),
+        ),
+      ).toBe(false);
+    });
+
+    it("keeps a delivered message out of a stale client save", async () => {
+      await append("queued-a");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "steer",
+        messageId: "queued-a",
+      });
+      const stale = row!.thread_data;
+      await claimSteeredQueuedMessages("thread-1", "run-1");
+
+      await updateThreadData("thread-1", stale, "Thread", "", 1, {
+        preserveExistingQueuedMessages: false,
+      });
+
+      expect(queuedIds()).toEqual([]);
+    });
+  });
+
+  it("reorders the whole queue in thread data and drain priority", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    for (const id of ["queued-a", "queued-b", "queued-c"]) {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        { type: "append", message: { id, threadId: "thread-1", text: id } },
+        { actor },
+      );
+    }
+
+    const result = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-c", "queued-a", "queued-b"],
+    });
+    expect(result?.queueOrderStale).toBeUndefined();
+    expect(result?.queuedMessages.map((message) => message.id)).toEqual([
+      "queued-c",
+      "queued-a",
+      "queued-b",
+    ]);
+    const ordered = await listQueuedSubmissionReceipts();
+    expect(ordered.map((submission) => submission.messageId)).toEqual([
+      "queued-c",
+      "queued-a",
+      "queued-b",
+    ]);
+
+    const stale = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-a", "queued-b"],
+    });
+    expect(stale?.queueOrderStale).toBe(true);
+    expect(stale?.queuedMessages.map((message) => message.id)).toEqual([
+      "queued-c",
+      "queued-a",
+      "queued-b",
+    ]);
+    const unknown = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-a", "queued-b", "queued-gone"],
+    });
+    expect(unknown?.queueOrderStale).toBe(true);
+  });
+
+  it("refuses to reorder a message that is being promoted", async () => {
+    for (const id of ["queued-a", "queued-b"]) {
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: { id, threadId: "thread-1", text: id },
+      });
+    }
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: "queued-a",
+      claimId: "claim-1",
+    });
+    expect(claim?.claimedMessage?.id).toBe("queued-a");
+
+    const result = await mutateThreadQueuedMessages("thread-1", {
+      type: "reorder",
+      messageIds: ["queued-b", "queued-a"],
+    });
+    expect(result?.promotionBusy).toBe(true);
+    expect(result?.queuedMessages.map((message) => message.id)).toEqual([
+      "queued-a",
+      "queued-b",
+    ]);
+  });
+
+  it("honors the retry delay for interrupt receipts", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const interrupt = {
+      id: "queued-interrupt-retry",
+      threadId: "thread-1",
+      text: "Stop after the active action",
+      interruptActiveRun: true,
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message: interrupt },
+      { actor },
+    );
+    const retryAfter = Date.now() + 60_000;
+    expect(
+      await retryQueuedSubmissionReceipt("thread-1", interrupt.id, retryAfter),
+    ).toBe(true);
+    await expect(
+      getQueuedSubmissionReceipt("thread-1", interrupt.id),
+    ).resolves.toMatchObject({ retryCount: 0 });
+
+    await expect(
+      listQueuedSubmissionReceipts({ threadId: "thread-1", now: Date.now() }),
+    ).resolves.toEqual([]);
+    await expect(
+      listQueuedSubmissionReceipts({
+        threadId: "thread-1",
+        interruptActiveRun: true,
+        now: Date.now(),
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      listQueuedSubmissionReceipts({
+        threadId: "thread-1",
+        interruptActiveRun: true,
+        now: retryAfter,
+      }),
+    ).resolves.toMatchObject([
+      {
+        messageId: interrupt.id,
+        message: { interruptActiveRun: true },
+      },
+    ]);
+  });
+
+  it("returns a bounded batch of queued receipts for one thread", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    for (const id of ["queued-one", "queued-two", "queued-three"]) {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: { id, threadId: "thread-1", text: `Prompt ${id}` },
+        },
+        { actor },
+      );
+    }
+
+    await expect(
+      listQueuedSubmissionReceipts({ threadId: "thread-1", limit: 25 }),
+    ).resolves.toMatchObject([
+      { messageId: "queued-one" },
+      { messageId: "queued-two" },
+      { messageId: "queued-three" },
+    ]);
+  });
+
+  it("rejects a reused legacy queue id when its attachment identity is unknown", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const existingMessage = {
+      id: "legacy-queued-file",
+      threadId: "thread-1",
+      text: "Inspect the report",
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/old-report.pdf",
+        },
+      ],
+    };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: existingMessage.id,
+      text: existingMessage.text,
+      attachments: [
+        {
+          type: "file" as const,
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "c".repeat(64),
+        },
+      ],
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [existingMessage] });
+
+    await expect(
+      mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: {
+            ...existingMessage,
+            attachments: [
+              {
+                ...existingMessage.attachments[0],
+                url: "https://files.example.test/new-report.pdf",
+              },
+            ],
+          },
+          hashInput: submissionPayload,
+        },
+        { actor },
+      ),
+    ).rejects.toMatchObject({ code: "queued_message_id_conflict" });
+
+    await expect(
+      mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: existingMessage,
+          hashInput: submissionPayload,
+        },
+        { actor },
+      ),
+    ).rejects.toMatchObject({ code: "queued_message_id_conflict" });
+
+    expect(submissionRows).toHaveLength(0);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      existingMessage,
+    ]);
+  });
+
+  it("reuses the persisted upload for a matching queued attachment retry", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "queued-upload-retry",
+      text: "Inspect the report",
+      attachments: [
+        {
+          type: "file" as const,
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "d".repeat(64),
+        },
+      ],
+    };
+    const originalMessage = {
+      id: submissionPayload.id,
+      threadId: "thread-1",
+      text: submissionPayload.text,
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/first-upload.pdf",
+        },
+      ],
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      {
+        type: "append",
+        message: originalMessage,
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+
+    const retried = await mutateThreadQueuedMessages(
+      "thread-1",
+      {
+        type: "append",
+        message: {
+          ...originalMessage,
+          attachments: [
+            {
+              ...originalMessage.attachments[0],
+              url: "https://files.example.test/retry-upload.pdf",
+            },
+          ],
+        },
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+
+    expect(retried?.message).toEqual(originalMessage);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      originalMessage,
+    ]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", submissionPayload.id),
+    ).toMatchObject({
+      state: "queued",
+      payloadHash: hashQueuedSubmissionPayload("thread-1", submissionPayload),
+    });
+  });
+
+  it("restores a missing queue mirror from its receipt and preserves the original payload hash", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "queued-restored",
+      text: "Use the uploaded report",
+      attachments: [
+        {
+          type: "file" as const,
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "b".repeat(64),
+        },
+      ],
+    };
+    const message = {
+      id: submissionPayload.id,
+      threadId: "thread-1",
+      text: submissionPayload.text,
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/report.pdf",
+        },
+      ],
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      {
+        type: "append",
+        message,
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+
+    const receipt = await getQueuedSubmissionReceipt(
+      "thread-1",
+      submissionPayload.id,
+    );
+    expect(receipt).not.toBeNull();
+    const originalPayloadHash = submissionRows[0]!.payload_hash;
+    expect(originalPayloadHash).toBe(
+      hashQueuedSubmissionPayload("thread-1", submissionPayload),
+    );
+    expect(originalPayloadHash).not.toBe(
+      hashQueuedSubmissionPayload("thread-1", receipt!.message!),
+    );
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [],
+    });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-restored",
+    });
+
+    expect(claimed?.claimedMessage).toMatchObject({
+      ...message,
+      promotionClaim: {
+        id: "claim-restored",
+        expiresAt: expect.any(Number),
+      },
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      claimed!.claimedMessage,
+    ]);
+    expect(submissionRows[0]!.payload_hash).toBe(originalPayloadHash);
+  });
+
+  it("does not let expired queued receipts block fresh run admission", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const expiresAt = Date.now() + 60_000;
+    const expiredMessage = {
+      id: "queued-expired-admission-barrier",
+      threadId: "thread-1",
+      text: "This request expired",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: expiresAt,
+        },
+      },
+    };
+    const liveMessage = {
+      id: "queued-live-admission-barrier",
+      threadId: "thread-1",
+      text: "This request is still live",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: expiresAt + 1,
+        },
+      },
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message: expiredMessage },
+      { actor },
+    );
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message: liveMessage },
+      { actor },
+    );
+
+    expect(
+      await hasPendingQueuedSubmissionReceipt(
+        { execute: executeMock } as any,
+        "thread-1",
+      ),
+    ).toBe(true);
+
+    const now = vi.spyOn(Date, "now").mockReturnValue(expiresAt);
+    try {
+      expect(
+        await hasPendingQueuedSubmissionReceipt(
+          { execute: executeMock } as any,
+          "thread-1",
+        ),
+      ).toBe(true);
+
+      const liveReceiptMessage = JSON.parse(
+        String(submissionRows[1]!.payload_json),
+      ) as Record<string, unknown>;
+      const metadata = liveReceiptMessage.metadata as {
+        custom: Record<string, unknown>;
+      };
+      metadata.custom[AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY] =
+        expiresAt;
+      submissionRows[1]!.payload_json = JSON.stringify(liveReceiptMessage);
+      expect(
+        await hasPendingQueuedSubmissionReceipt(
+          { execute: executeMock } as any,
+          "thread-1",
+        ),
+      ).toBe(false);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("expires a missing queue mirror without restoring it", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-expired-mirror",
+      threadId: "thread-1",
+      text: "This request expired",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+            Date.now() + 60_000,
+        },
+      },
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const storedMessage = JSON.parse(String(submissionRows[0]!.payload_json));
+    storedMessage.metadata.custom[
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
+    ] = Date.now() - 1;
+    submissionRows[0]!.payload_json = JSON.stringify(storedMessage);
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [],
+    });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-expired",
+    });
+
+    expect(claimed?.submissionExpired).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    expect(submissionRows[0]!.state).toBe("expired");
+  });
+
+  it.each(["submitted", "removed", "expired", "blocked"] as const)(
+    "does not restore a missing queue mirror for a %s receipt",
+    async (state) => {
+      const actor = { email: "user@example.com", anonymous: false };
+      const message = {
+        id: `queued-terminal-${state}`,
+        threadId: "thread-1",
+        text: "Keep terminal submissions terminal",
+      };
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        { type: "append", message },
+        { actor },
+      );
+      const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+      row!.thread_data = JSON.stringify({
+        messages: [userMessage],
+        queuedMessages: [],
+      });
+      submissionRows[0]!.state = state;
+      executeMock.mockClear();
+
+      const claimed = await mutateThreadQueuedMessages("thread-1", {
+        type: "claimFromInbox",
+        receipt: receipt!,
+        claimId: "claim-terminal",
+      });
+
+      expect(claimed?.receiptUnavailable).toBe(true);
+      expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+      expect(submissionRows[0]!.state).toBe(state);
+      expect(
+        executeMock.mock.calls.some(([query]) =>
+          /UPDATE chat_threads SET thread_data/i.test(
+            typeof query === "string" ? query : query.sql,
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("claims an existing queue mirror that matches its receipt", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-current-copy",
+      threadId: "thread-1",
+      text: "Original prompt",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    row!.thread_data = JSON.stringify({ queuedMessages: [message] });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-current-copy",
+    });
+
+    expect(claimed?.claimedMessage).toMatchObject({
+      ...message,
+      promotionClaim: {
+        id: "claim-current-copy",
+        expiresAt: expect.any(Number),
+      },
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+  });
+
+  it("blocks a queue mirror whose payload conflicts with its receipt", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-conflicting-copy",
+      threadId: "thread-1",
+      text: "Original prompt",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    const conflictingMessage = { ...message, text: "Changed prompt" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [conflictingMessage] });
+    executeMock.mockClear();
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-conflicting-copy",
+    });
+
+    expect(claimed?.receiptConflict).toBe(true);
+    expect(claimed?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      conflictingMessage,
+    ]);
+    expect(submissionRows[0]!.state).toBe("blocked");
+  });
+
+  it("returns the winner's run id when a queued receipt loses its admission CAS", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "queued-race",
+      text: "Run once",
+    };
+    const message = { ...submissionPayload };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message, hashInput: submissionPayload },
+      { actor },
+    );
+    submissionUpdateRaceOnce = "run-winner";
+
+    await expect(
+      markQueuedSubmissionSubmitted({ execute: executeMock } as any, {
+        threadId: "thread-1",
+        messageId: "queued-race",
+        runId: "run-loser",
+        actor,
+        message,
+        hashInput: submissionPayload,
+      }),
+    ).rejects.toMatchObject({
+      code: "queued_message_already_submitted",
+      submittedRunId: "run-winner",
+    });
+  });
+
+  it("rechecks a queue claim after a cross-process CAS conflict", async () => {
+    const queued = {
+      id: "queued-claim-cas",
+      text: "Run once",
+      promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [] }),
+        updated_at: 2,
+      };
+    };
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-queue-cas",
+      queuedMessageId: queued.id,
+    });
+    let failure: string | undefined;
+
+    await updateThreadData("thread-1", "{}", "", "", 0, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+          { id: queued.id, claimId: "tab-1" },
+        );
+        if (result.status === "claim_expired") {
+          failure = result.status;
+          return threadData;
+        }
+        if (result.status === "already_claimed") {
+          failure = result.status;
+          return threadData;
+        }
+        failure = undefined;
+        return JSON.stringify(result.repo);
+      },
+    });
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(failure).toBe("claim_expired");
+    expect(repo.queuedMessages).toEqual([]);
+    expect(repo.messages ?? []).toEqual([]);
+  });
+
+  it("removes only the requested queue item after a concurrent append", async () => {
+    const removed = { id: "queued-1", text: "Remove this" };
+    const remaining = { id: "queued-2", text: "Keep this" };
+    const concurrent = { id: "queued-3", text: "Added in another tab" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [removed, remaining] });
 
     conflictOnce = () => {
       row = {
         ...row!,
         thread_data: JSON.stringify({
-          queuedMessages: [{ id: "queued-1", text: "next" }],
-          messages: [
-            { message: userMessage, parentId: null },
-            { message: assistantMessage, parentId: "user-1" },
-          ],
+          queuedMessages: [removed, remaining, concurrent],
         }),
-        message_count: 2,
         updated_at: 2,
       };
     };
 
-    await setThreadQueuedMessages("thread-1", []);
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: removed.id,
+    });
 
-    const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toEqual([]);
-    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
-      "user-1",
-      "assistant-1",
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      remaining,
+      concurrent,
     ]);
   });
 
+  it("leases queue promotion without deleting the item and releases only its owner", async () => {
+    const queued = {
+      id: "queued-lease",
+      text: "Keep this until the run starts",
+      options: { model: "test-model" },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+
+    const first = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-one",
+    });
+    expect(first?.claimedMessage).toMatchObject({
+      ...queued,
+      promotionClaim: { id: "tab-one", expiresAt: expect.any(Number) },
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+
+    const competingClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-two",
+    });
+    expect(competingClaim?.claimBusy).toBe(true);
+
+    const blockedRemove = await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: queued.id,
+    });
+    expect(blockedRemove?.promotionBusy).toBe(true);
+
+    const wrongOwnerRelease = await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: queued.id,
+      claimId: "tab-two",
+    });
+    expect(wrongOwnerRelease?.released).toBe(false);
+
+    const released = await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: queued.id,
+      claimId: "tab-one",
+    });
+    expect(released?.released).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
+  });
+
+  it("keeps a queued receipt when cancellation races an active promotion claim", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-cancel-during-promotion",
+      threadId: "thread-1",
+      text: "Cancel while promotion is claimed",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    if (!receipt) throw new Error("Queued receipt disappeared before claim");
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt,
+      claimId: "active-promoter",
+    });
+
+    const blockedCancel = await mutateThreadQueuedMessages("thread-1", {
+      type: "cancel",
+      messageId: message.id,
+    });
+
+    expect(blockedCancel?.promotionBusy).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      expect.objectContaining({
+        id: message.id,
+        promotionClaim: {
+          id: "active-promoter",
+          expiresAt: expect.any(Number),
+        },
+      }),
+    ]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", message.id),
+    ).toMatchObject({ state: "queued" });
+
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "release",
+      messageId: message.id,
+      claimId: "active-promoter",
+    });
+    const cancelled = await mutateThreadQueuedMessages("thread-1", {
+      type: "cancel",
+      messageId: message.id,
+    });
+
+    expect(cancelled?.promotionBusy).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", message.id),
+    ).toMatchObject({ state: "removed" });
+  });
+
+  it("reserves receipt-backed promotion for the inbox drain", async () => {
+    const message = {
+      id: "queued-inbox-only-promotion",
+      threadId: "thread-1",
+      text: "Retry through the durable inbox",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor: { email: "user@example.com", anonymous: false } },
+    );
+
+    const directClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: message.id,
+      claimId: "client-promoter",
+    });
+
+    expect(directClaim?.receiptManaged).toBe(true);
+    expect(directClaim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([message]);
+    expect(
+      await getQueuedSubmissionReceipt("thread-1", message.id),
+    ).toMatchObject({ state: "queued" });
+
+    const [receipt] = await listQueuedSubmissionReceipts({
+      threadId: "thread-1",
+    });
+    if (!receipt)
+      throw new Error("Queued receipt disappeared before inbox claim");
+    const inboxClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt,
+      claimId: "inbox-promoter",
+    });
+
+    expect(inboxClaim?.claimedMessage).toMatchObject({
+      id: message.id,
+      promotionClaim: {
+        id: "inbox-promoter",
+        expiresAt: expect.any(Number),
+      },
+    });
+
+    const concurrentClientClaim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: message.id,
+      claimId: "concurrent-client-promoter",
+    });
+
+    expect(concurrentClientClaim?.receiptManaged).toBe(true);
+    expect(concurrentClientClaim?.claimBusy).toBeUndefined();
+    expect(concurrentClientClaim?.claimedMessage).toBeUndefined();
+  });
+
+  it("does not claim an inbox receipt whose retry time advanced after the scan", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-retry-after-scan",
+      threadId: "thread-1",
+      text: "Wait for the retry window",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const scannedReceipt = await getQueuedSubmissionReceipt(
+      "thread-1",
+      message.id,
+    );
+    if (!scannedReceipt)
+      throw new Error("Queued receipt disappeared before claim");
+    const retryAfter = Date.now() + 60_000;
+    submissionRows[0]!.retry_after = retryAfter;
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    executeMock.mockClear();
+
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: scannedReceipt,
+      claimId: "stale-inbox-scan",
+    });
+
+    expect(claim?.retryDeferred).toBe(true);
+    expect(claim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    expect(submissionRows[0]!.retry_after).toBe(retryAfter);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /FROM agent_chat_submission_inbox[\s\S]*FOR UPDATE/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("renews only a live interruption claim before its recorded run aborts", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const message = {
+      id: "queued-interrupt-claim-renewal",
+      threadId: "thread-1",
+      text: "Steer the current turn",
+      interruptActiveRun: true,
+    };
+    const actor = { email: "user@example.com", anonymous: false };
+
+    try {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        { type: "append", message },
+        { actor },
+      );
+      const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+      if (!receipt) throw new Error("Queued receipt disappeared before claim");
+      await mutateThreadQueuedMessages("thread-1", {
+        type: "claimFromInbox",
+        receipt,
+        claimId: "stalled-promoter",
+      });
+      expect(
+        await recordQueuedSubmissionInterruptRun({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(true);
+
+      now.mockReturnValue(69_999);
+      expect(
+        await renewQueuedSubmissionInterruptClaim({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(true);
+      expect(JSON.parse(row!.thread_data).queuedMessages[0]).toMatchObject({
+        promotionClaim: { id: "stalled-promoter", expiresAt: 129_999 },
+      });
+
+      const submission = submissionRows[0];
+      const threadRow = row;
+      if (!submission || !threadRow)
+        throw new Error("Queued interruption receipt disappeared");
+      submission.interrupt_run_id = "different-run";
+      now.mockReturnValue(70_001);
+      expect(
+        await renewQueuedSubmissionInterruptClaim({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(false);
+      expect(JSON.parse(threadRow.thread_data).queuedMessages[0]).toMatchObject(
+        {
+          promotionClaim: { id: "stalled-promoter", expiresAt: 129_999 },
+        },
+      );
+      submission.interrupt_run_id = "run-being-interrupted";
+
+      const blockedRemove = await mutateThreadQueuedMessages("thread-1", {
+        type: "remove",
+        messageId: message.id,
+      });
+      expect(blockedRemove?.promotionBusy).toBe(true);
+
+      now.mockReturnValue(130_000);
+      expect(
+        await renewQueuedSubmissionInterruptClaim({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(false);
+      const removed = await mutateThreadQueuedMessages("thread-1", {
+        type: "remove",
+        messageId: message.id,
+      });
+      expect(removed?.promotionBusy).toBeUndefined();
+      expect(
+        await getQueuedSubmissionReceipt("thread-1", message.id),
+      ).toMatchObject({
+        state: "removed",
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("drops an expired retry before it can be appended or promoted", async () => {
+    const submissionExpiresAt = Date.now() - 1;
+    const metadata = {
+      custom: {
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: submissionExpiresAt,
+      },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+
+    const appended = await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: {
+        id: "queued-expired-retry",
+        text: "Retry the original prompt",
+        metadata,
+      },
+    });
+    expect(appended?.submissionExpired).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata,
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+    const claim = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: "queued-expired-retry",
+      claimId: "tab-new",
+    });
+    expect(claim?.submissionExpired).toBe(true);
+    expect(claim?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
+  it("reports an expired queued receipt without waiting for the inbox sweep", async () => {
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const messageId = "queued-receipt-status-expiry";
+    try {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: {
+            id: messageId,
+            threadId: "thread-1",
+            text: "Retry the prompt",
+            metadata: {
+              custom: {
+                [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_000,
+              },
+            },
+          },
+        },
+        { actor: { email: "user@example.com", anonymous: false } },
+      );
+
+      await expect(
+        getQueuedSubmissionReceiptStatus("thread-1", messageId),
+      ).resolves.toEqual({ state: "queued" });
+      now.mockReturnValue(11_000);
+      await expect(
+        getQueuedSubmissionReceiptStatus("thread-1", messageId),
+      ).resolves.toEqual({ state: "expired" });
+      await expect(
+        getQueuedSubmissionReceipt("thread-1", messageId),
+      ).resolves.toMatchObject({ state: "queued" });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("anchors a queued retry lifetime to server time before persisting it", async () => {
+    row!.thread_data = JSON.stringify({ queuedMessages: [] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const appended = await mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-retry-with-ttl",
+          text: "Retry the prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+              [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+            },
+          },
+        },
+      });
+
+      expect(appended?.message?.metadata?.custom).toEqual({
+        [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+      });
+      expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("allows cleanup of an expired queue item with a live promotion claim", async () => {
+    row!.thread_data = JSON.stringify({
+      queuedMessages: [
+        {
+          id: "queued-expired-retry",
+          text: "Retry the original prompt",
+          metadata: {
+            custom: {
+              [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: Date.now() - 1,
+            },
+          },
+          promotionClaim: { id: "tab-old", expiresAt: Date.now() + 60_000 },
+        },
+      ],
+    });
+
+    const removed = await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: "queued-expired-retry",
+    });
+
+    expect(removed?.promotionBusy).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+  });
+
+  it("keeps a promotion claim taken while a full-thread save was in flight", async () => {
+    const queued = { id: "queued-in-flight-save", text: "Answer me next" };
+    const messages = [
+      { id: "user-1", role: "user", content: [{ type: "text", text: "Go" }] },
+    ];
+    row!.thread_data = JSON.stringify({ messages, queuedMessages: [queued] });
+    // A thread save (PUT pre-merge or run completion) read this copy...
+    const staleSave = JSON.stringify({
+      messages,
+      queuedMessages: [queued],
+      title: "stale",
+    });
+    // ...then the queue promotion claimed the item before the save landed.
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-1",
+    });
+
+    await updateThreadData("thread-1", staleSave, "", "", 1);
+
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-promoted",
+      queuedMessageId: queued.id,
+    });
+    expect(
+      applySubmittedUserMessage(JSON.parse(row!.thread_data), userMessage, {
+        id: queued.id,
+        claimId: "tab-1",
+      }).status,
+    ).toBe("submitted");
+  });
+
+  it("drops the promoted item from the queue when the run-start save accepts it", async () => {
+    const queued = { id: "queued-promoted", text: "Answer me next" };
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { id: "user-1", role: "user", content: [{ type: "text", text: "Go" }] },
+      ],
+      queuedMessages: [queued],
+    });
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-1",
+    });
+
+    // What the run start does: derive the submission from the current data.
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-promoted",
+      queuedMessageId: queued.id,
+    });
+    await updateThreadData("thread-1", "{}", "", "", 1, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+          { id: queued.id, claimId: "tab-1" },
+        );
+        if (!("repo" in result)) throw new Error(result.status);
+        return JSON.stringify(result.repo);
+      },
+    });
+
+    const stored = JSON.parse(row!.thread_data);
+    expect(
+      (stored.queuedMessages ?? []).map((item: { id: string }) => item.id),
+    ).not.toContain(queued.id);
+  });
+
+  it("reconciles a same-ID retry queued before a direct run is persisted", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "message-direct-race",
+      text: "Run once",
+    };
+    const queued = {
+      id: submissionPayload.id,
+      threadId: submissionPayload.threadId,
+      text: submissionPayload.text,
+    };
+
+    // Model the retry arriving after the direct run was admitted but before
+    // its onRunPrepared callback persisted the user message.
+    await mutateThreadQueuedMessages(
+      submissionPayload.threadId,
+      {
+        type: "append",
+        message: queued,
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+    expect(
+      await getQueuedSubmissionReceipt(
+        submissionPayload.threadId,
+        submissionPayload.id,
+      ),
+    ).toMatchObject({ state: "queued" });
+
+    const userMessage = buildUserMessage({
+      text: submissionPayload.text,
+      runId: "run-direct-race",
+      agentKitMessageId: submissionPayload.id,
+    });
+    await updateThreadData("thread-1", "{}", "", "", 0, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+        );
+        if (!("repo" in result)) throw new Error(result.status);
+        return JSON.stringify(result.repo);
+      },
+      afterUpdate: (tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: submissionPayload.threadId,
+          messageId: submissionPayload.id,
+          runId: "run-direct-race",
+          actor,
+          message: queued,
+          hashInput: submissionPayload,
+        }),
+    });
+
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    await expect(
+      getQueuedSubmissionReceipt(
+        submissionPayload.threadId,
+        submissionPayload.id,
+      ),
+    ).resolves.toMatchObject({
+      state: "submitted",
+      submittedRunId: "run-direct-race",
+    });
+  });
+
+  it("lets a new tab take over an expired queue promotion lease", async () => {
+    const queued = {
+      id: "queued-expired-lease",
+      text: "Promote after the old tab stopped",
+      promotionClaim: { id: "tab-gone", expiresAt: Date.now() - 1 },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-new",
+    });
+
+    expect(claimed?.claimBusy).toBeUndefined();
+    expect(claimed?.claimedMessage?.promotionClaim).toMatchObject({
+      id: "tab-new",
+      expiresAt: expect.any(Number),
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+  });
+
+  it("rejects a stale promoter after the 60-second lease transfers to a new tab", async () => {
+    const queued = {
+      id: "queued-promotion-ttl-race",
+      text: "Promote once after the first tab stalls",
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const firstClaim = await mutateThreadQueuedMessages("thread-1", {
+        type: "claim",
+        messageId: queued.id,
+        claimId: "tab-stalled",
+      });
+      expect(firstClaim?.claimedMessage?.promotionClaim).toMatchObject({
+        id: "tab-stalled",
+        expiresAt: 70_000,
+      });
+
+      now.mockReturnValue(70_001);
+      const replacementClaim = await mutateThreadQueuedMessages("thread-1", {
+        type: "claim",
+        messageId: queued.id,
+        claimId: "tab-replacement",
+      });
+      expect(replacementClaim?.claimedMessage?.promotionClaim).toMatchObject({
+        id: "tab-replacement",
+        expiresAt: 130_001,
+      });
+
+      const staleAttempt = applySubmittedUserMessage(
+        JSON.parse(row!.thread_data),
+        buildUserMessage({
+          text: queued.text,
+          runId: "run-stale-promotion",
+          queuedMessageId: queued.id,
+        }),
+        { id: queued.id, claimId: "tab-stalled", now: 70_001 },
+      );
+      expect(staleAttempt.status).toBe("claim_expired");
+      expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+
+      const winningAttempt = applySubmittedUserMessage(
+        JSON.parse(row!.thread_data),
+        buildUserMessage({
+          text: queued.text,
+          runId: "run-replacement-promotion",
+          queuedMessageId: queued.id,
+        }),
+        { id: queued.id, claimId: "tab-replacement", now: 70_001 },
+      );
+      expect(winningAttempt.status).toBe("submitted");
+      if (winningAttempt.status !== "submitted") {
+        throw new Error("Current queue promoter was not accepted");
+      }
+      expect(winningAttempt.repo.queuedMessages).toEqual([]);
+      expect(
+        winningAttempt.repo.messages.filter(
+          (entry: any) =>
+            (entry.message ?? entry).metadata?.custom
+              ?.agentNativeQueuedMessageId === queued.id,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it.each(["retry", "block"] as const)(
+    "does not let a stale queue receipt %s override its replacement claim",
+    async (operation) => {
+      const actor = { email: "user@example.com", anonymous: false };
+      const message = {
+        id: `queued-receipt-claim-${operation}`,
+        threadId: "thread-1",
+        text: "Promote once",
+      };
+      const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+      try {
+        await mutateThreadQueuedMessages(
+          "thread-1",
+          { type: "append", message },
+          { actor },
+        );
+        const receipt = await getQueuedSubmissionReceipt(
+          "thread-1",
+          message.id,
+        );
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before claim");
+        const firstClaim = await mutateThreadQueuedMessages("thread-1", {
+          type: "claimFromInbox",
+          receipt,
+          claimId: "tab-stalled",
+        });
+        expect(firstClaim?.claimedMessage?.promotionClaim).toEqual({
+          id: "tab-stalled",
+          expiresAt: 70_000,
+        });
+
+        now.mockReturnValue(70_001);
+        const replacementClaim = await mutateThreadQueuedMessages("thread-1", {
+          type: "claimFromInbox",
+          receipt,
+          claimId: "tab-replacement",
+        });
+        expect(replacementClaim?.claimedMessage?.promotionClaim).toEqual({
+          id: "tab-replacement",
+          expiresAt: 130_001,
+        });
+
+        const applyMutation = (claimId: string) =>
+          operation === "retry"
+            ? retryQueuedSubmissionReceipt("thread-1", message.id, 90_001, {
+                claimId,
+              })
+            : blockQueuedSubmissionReceipt("thread-1", message.id, {
+                claimId,
+              });
+
+        await expect(applyMutation("tab-stalled")).resolves.toBe(false);
+        expect(submissionRows[0]!.state).toBe("queued");
+        expect(submissionRows[0]!.retry_after).toBeNull();
+
+        await expect(applyMutation("tab-replacement")).resolves.toBe(true);
+        expect(submissionRows[0]!.state).toBe(
+          operation === "block" ? "blocked" : "queued",
+        );
+        expect(submissionRows[0]!.retry_after).toBe(
+          operation === "retry" ? 90_001 : null,
+        );
+      } finally {
+        now.mockRestore();
+      }
+    },
+  );
+
+  it("keeps pre-claim receipt updates from overriding an active promotion claim", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-preclaim-receipt-update",
+      threadId: "thread-1",
+      text: "Promote once",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    if (!receipt) throw new Error("Queued receipt disappeared before claim");
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt,
+      claimId: "tab-active",
+    });
+
+    await expect(
+      retryQueuedSubmissionReceipt("thread-1", message.id, Date.now() + 10_000),
+    ).resolves.toBe(false);
+    await expect(
+      blockQueuedSubmissionReceipt("thread-1", message.id),
+    ).resolves.toBe(false);
+    expect(submissionRows[0]!.state).toBe("queued");
+    expect(submissionRows[0]!.retry_after).toBeNull();
+  });
+
+  it.each(["retry", "block"] as const)(
+    "rechecks a receipt %s after a replacement claim wins the thread-data CAS",
+    async (operation) => {
+      const actor = { email: "user@example.com", anonymous: false };
+      const message = {
+        id: `queued-receipt-cas-${operation}`,
+        threadId: "thread-1",
+        text: "Promote once",
+      };
+      const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+      try {
+        await mutateThreadQueuedMessages(
+          "thread-1",
+          { type: "append", message },
+          { actor },
+        );
+        const receipt = await getQueuedSubmissionReceipt(
+          "thread-1",
+          message.id,
+        );
+        if (!receipt)
+          throw new Error("Queued receipt disappeared before claim");
+        await mutateThreadQueuedMessages("thread-1", {
+          type: "claimFromInbox",
+          receipt,
+          claimId: "tab-stalled",
+        });
+
+        now.mockReturnValue(69_999);
+        conflictOnce = () => {
+          now.mockReturnValue(70_001);
+          const threadData = JSON.parse(row!.thread_data);
+          threadData.queuedMessages = threadData.queuedMessages.map(
+            (queued: any) =>
+              queued.id === message.id
+                ? {
+                    ...queued,
+                    promotionClaim: {
+                      id: "tab-replacement",
+                      expiresAt: 130_001,
+                    },
+                  }
+                : queued,
+          );
+          row = {
+            ...row!,
+            thread_data: JSON.stringify(threadData),
+            updated_at: row!.updated_at + 1,
+          };
+        };
+
+        const result =
+          operation === "retry"
+            ? await retryQueuedSubmissionReceipt(
+                "thread-1",
+                message.id,
+                90_001,
+                { claimId: "tab-stalled" },
+              )
+            : await blockQueuedSubmissionReceipt("thread-1", message.id, {
+                claimId: "tab-stalled",
+              });
+
+        expect(result).toBe(false);
+        expect(submissionRows[0]!.state).toBe("queued");
+        expect(submissionRows[0]!.retry_after).toBeNull();
+        expect(
+          JSON.parse(row!.thread_data).queuedMessages[0].promotionClaim.id,
+        ).toBe("tab-replacement");
+      } finally {
+        now.mockRestore();
+      }
+    },
+  );
+
+  it("deduplicates queued delivery when a stalled promotion returns after the 60-second claim", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const queued = {
+      id: "queued-promotion-double-delivery",
+      threadId: "thread-1",
+      text: "Promote this message once",
+    };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: queued.id,
+      text: queued.text,
+    };
+    row!.thread_data = JSON.stringify({ messages: [], queuedMessages: [] });
+    row!.message_count = 0;
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: queued,
+          hashInput: submissionPayload,
+        },
+        { actor },
+      );
+      const receipt = await getQueuedSubmissionReceipt("thread-1", queued.id);
+      if (!receipt) throw new Error("Queued receipt disappeared before claim");
+      const firstClaim = await mutateThreadQueuedMessages("thread-1", {
+        type: "claimFromInbox",
+        receipt,
+        claimId: "tab-stalled",
+      });
+      expect(firstClaim?.claimedMessage?.promotionClaim).toEqual({
+        id: "tab-stalled",
+        expiresAt: 70_000,
+      });
+
+      now.mockReturnValue(70_001);
+      const replacementClaim = await mutateThreadQueuedMessages("thread-1", {
+        type: "claimFromInbox",
+        receipt,
+        claimId: "tab-replacement",
+      });
+      expect(replacementClaim?.claimedMessage?.promotionClaim).toEqual({
+        id: "tab-replacement",
+        expiresAt: 130_001,
+      });
+
+      const winnerMessage = buildUserMessage({
+        text: queued.text,
+        runId: "run-replacement-promotion",
+        queuedMessageId: queued.id,
+      });
+      const winningAttempt = applySubmittedUserMessage(
+        JSON.parse(row!.thread_data),
+        winnerMessage,
+        { id: queued.id, claimId: "tab-replacement", now: 70_001 },
+      );
+      expect(winningAttempt.status).toBe("submitted");
+      if (winningAttempt.status !== "submitted") {
+        throw new Error("Current queue promoter was not accepted");
+      }
+      row!.thread_data = JSON.stringify(winningAttempt.repo);
+      await markQueuedSubmissionSubmitted({ execute: executeMock } as any, {
+        threadId: "thread-1",
+        messageId: queued.id,
+        runId: "run-replacement-promotion",
+        actor,
+        message: queued,
+        hashInput: submissionPayload,
+      });
+
+      const staleMessage = buildUserMessage({
+        text: queued.text,
+        runId: "run-stalled-promotion",
+        queuedMessageId: queued.id,
+      });
+      expect(
+        applySubmittedUserMessage(winningAttempt.repo, staleMessage, {
+          id: queued.id,
+          claimId: "tab-stalled",
+          now: 70_001,
+        }).status,
+      ).toBe("already_claimed");
+      await expect(
+        markQueuedSubmissionSubmitted({ execute: executeMock } as any, {
+          threadId: "thread-1",
+          messageId: queued.id,
+          runId: "run-stalled-promotion",
+          actor,
+          message: queued,
+          hashInput: submissionPayload,
+        }),
+      ).rejects.toMatchObject({
+        code: "queued_message_already_submitted",
+        submittedRunId: "run-replacement-promotion",
+      });
+
+      await expect(
+        getQueuedSubmissionReceipt("thread-1", queued.id),
+      ).resolves.toMatchObject({
+        state: "submitted",
+        submittedRunId: "run-replacement-promotion",
+      });
+      expect(
+        winningAttempt.repo.messages.filter(
+          (entry: any) =>
+            (entry.message ?? entry).metadata?.custom
+              ?.agentNativeQueuedMessageId === queued.id,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("pins and archives threads as lightweight metadata", async () => {
-    await setThreadPinned("thread-1", true);
+    await setThreadPinned("thread-1", true, { ownerEmail: "user@example.com" });
     expect(row!.pinned_at).toEqual(expect.any(Number));
     expect(row!.updated_at).toBe(1);
 
-    await setThreadPinned("thread-1", false);
+    await setThreadPinned("thread-1", false, {
+      ownerEmail: "user@example.com",
+    });
     expect(row!.pinned_at).toBeNull();
     expect(row!.updated_at).toBe(1);
 
-    await setThreadArchived("thread-1", true);
+    await setThreadArchived("thread-1", true, {
+      ownerEmail: "user@example.com",
+    });
     expect(row!.archived_at).toEqual(expect.any(Number));
     expect(row!.updated_at).toBe(1);
     expect(emitChatThreadChangeMock).toHaveBeenCalledTimes(3);
   });
 
-  it("refuses to pin or archive a thread for a different owner", async () => {
-    const pinned = await setThreadPinned("thread-1", true, {
-      ownerEmail: "other@example.com",
-    });
-    const archived = await setThreadArchived("thread-1", true, {
-      ownerEmail: "other@example.com",
-    });
+  it("refuses to archive a thread for a different owner", async () => {
+    await expect(
+      setThreadArchived("thread-1", true, {
+        ownerEmail: "other@example.com",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
 
-    expect(pinned).toBe(false);
-    expect(archived).toBe(false);
     expect(row!.pinned_at).toBeUndefined();
     expect(row!.archived_at).toBeUndefined();
     expect(row!.updated_at).toBe(1);
@@ -489,6 +4795,8 @@ describe("chat thread store", () => {
   it("searches thread text with literal LIKE metacharacters", async () => {
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -500,8 +4808,6 @@ describe("chat thread store", () => {
 
     await searchThreads("user@example.com", "100%_done");
 
-    // Match the search query specifically (its WHERE has the ESCAPE clause),
-    // not the legacy-count backfill probe that also reads from chat_threads.
     const searchCall = executeMock.mock.calls.find(([query]) => {
       const sql = typeof query === "string" ? query : query.sql;
       return (
@@ -511,16 +4817,20 @@ describe("chat thread store", () => {
     expect(searchCall).toBeTruthy();
     const query = searchCall![0] as { sql: string; args: unknown[] };
     expect(query.sql).toContain("LIKE ? ESCAPE '!'");
-    expect(query.args.slice(2, 5)).toEqual([
+    const firstPattern = query.args.indexOf("%100!%!_done%");
+    expect(query.args.slice(firstPattern, firstPattern + 3)).toEqual([
       "%100!%!_done%",
       "%100!%!_done%",
       "%100!%!_done%",
     ]);
+    expect(query.args.slice(-2)).toEqual([50, 0]);
   });
 
   it("lists threads without loading the thread_data blob and filters on message_count", async () => {
     const summaryRow = {
       id: "thread-1",
+      owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Thread",
       preview: "make this slide better",
       message_count: 1,
@@ -534,6 +4844,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
@@ -556,9 +4868,7 @@ describe("chat thread store", () => {
     });
     expect(listCall).toBeTruthy();
     const sql = (listCall![0] as { sql: string }).sql;
-    // The list SELECT must NOT pull the heavy thread_data blob...
     expect(sql).not.toContain("thread_data");
-    // ...and the "has messages" filter is the maintained column, no LIKE scan.
     expect(sql).toContain("message_count > 0");
     expect(sql).not.toMatch(/thread_data LIKE/i);
     expect(sql).toContain("chat_thread_shares");
@@ -569,6 +4879,8 @@ describe("chat thread store", () => {
   it("keeps the local history view app-scoped and excludes connected chats", async () => {
     const summaryRow = {
       id: "thread-local",
+      owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Local thread",
       preview: "hello there",
       message_count: 1,
@@ -585,6 +4897,8 @@ describe("chat thread store", () => {
     };
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
         return { rows: [summaryRow], rowsAffected: 0 };
       }
@@ -622,6 +4936,7 @@ describe("chat thread store", () => {
     const activeRow: ChatThreadRow = {
       id: "thread-active",
       owner_email: "user@example.com",
+      access_basis: "owner",
       title: "Active Thread",
       preview: "hello there",
       thread_data: "{}",
@@ -647,6 +4962,8 @@ describe("chat thread store", () => {
 
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -670,11 +4987,9 @@ describe("chat thread store", () => {
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
-    // Default: archived thread is hidden from listThreads.
     const defaultList = await listThreads("user@example.com", { limit: 10 });
     expect(defaultList.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it again.
     const listWithArchived = await listThreads("user@example.com", {
       limit: 10,
       includeArchived: true,
@@ -684,11 +4999,9 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Default: archived thread is hidden from searchThreads.
     const defaultSearch = await searchThreads("user@example.com", "Thread");
     expect(defaultSearch.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it in search too.
     const searchWithArchived = await searchThreads(
       "user@example.com",
       "Thread",
@@ -700,8 +5013,9 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Unarchiving restores the thread to the default list.
-    const unarchived = await setThreadArchived("thread-archived", false);
+    const unarchived = await setThreadArchived("thread-archived", false, {
+      ownerEmail: "user@example.com",
+    });
     expect(unarchived).toBe(true);
     expect(archivedRow.archived_at).toBeNull();
     const afterUnarchive = await listThreads("user@example.com", {
@@ -714,24 +5028,25 @@ describe("chat thread store", () => {
   });
 
   it("keeps the legacy message_count repair out of table bootstrap", async () => {
-    // ensureTable caches its bootstrap promise at module scope, so reset the
-    // module registry to exercise a fresh bootstrap.
     vi.resetModules();
-    const updates: Array<{ count: number; id: string }> = [];
+    const updates: Array<{ count: number; id: string; ownerEmail: string }> =
+      [];
     let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      // The legacy backfill probe: a row that has messages but count = 0.
-      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+      if (/SELECT id, owner_email, thread_data, message_count/i.test(sql)) {
         repairScans++;
         return {
           rows: [
             {
               id: "legacy-1",
+              owner_email: "user@example.com",
               thread_data: JSON.stringify({
                 messages: [
                   { message: userMessage, parentId: null },
@@ -745,9 +5060,11 @@ describe("chat thread store", () => {
         };
       }
       if (
-        /UPDATE chat_threads SET message_count = \? WHERE id = \?/i.test(sql)
+        /UPDATE chat_threads SET message_count = \? WHERE id = \? AND message_count = 0 AND LOWER\(owner_email\)/i.test(
+          sql,
+        )
       ) {
-        updates.push({ count: args[0], id: args[1] });
+        updates.push({ count: args[0], id: args[1], ownerEmail: args[2] });
         return { rows: [], rowsAffected: 1 };
       }
       if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
@@ -765,12 +5082,16 @@ describe("chat thread store", () => {
     const result = await freshStore.repairLegacyChatThreadMessageCounts();
 
     expect(repairScans).toBe(1);
-    expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
+    expect(updates).toEqual([
+      { count: 2, id: "legacy-1", ownerEmail: "user@example.com" },
+    ]);
     expect(result).toEqual({ scanned: 1, updated: 1 });
   });
 
   it("renames threads with a durable title override", async () => {
-    await renameThread("thread-1", "  Better   title  ");
+    await renameThread("thread-1", "  Better   title  ", {
+      ownerEmail: "user@example.com",
+    });
 
     expect(row!.title).toBe("Better title");
     expect(JSON.parse(row!.thread_data)._titleOverride).toBe("Better title");
@@ -778,20 +5099,23 @@ describe("chat thread store", () => {
   });
 
   it("refuses to rename a thread for a different owner", async () => {
-    const renamed = await renameThread("thread-1", "Other title", {
-      ownerEmail: "other@example.com",
-    });
+    await expect(
+      renameThread("thread-1", "Other title", {
+        ownerEmail: "other@example.com",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
 
-    expect(renamed).toBe(false);
     expect(row!.title).toBe("Thread");
     expect(JSON.parse(row!.thread_data)._titleOverride).toBeUndefined();
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
-  it("forks from a client snapshot when the source thread is not persisted yet", async () => {
+  it("limits forked AgentKit history to retained messages and clears active runs", async () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -881,11 +5205,172 @@ describe("chat thread store", () => {
     });
 
     const sourceRepo = {
+      messages: [],
+      agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          { id: "assistant-1", role: "assistant", parts: [] },
+          { id: "user-2", role: "user", parts: [] },
+          { id: "assistant-2", role: "assistant", parts: [] },
+        ],
+        events: [
+          {
+            id: "event-source-started",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:01.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-source-activity",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:02.000Z",
+            type: "activity.started",
+            activity: {
+              id: "activity-source",
+              kind: "tool",
+              label: "Create release",
+              status: "running",
+              runId: "run-source",
+            },
+          },
+          {
+            id: "event-source-message",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 3,
+            occurredAt: "2026-09-26T00:00:03.000Z",
+            type: "message.completed",
+            message: { id: "assistant-1", role: "assistant", parts: [] },
+          },
+          {
+            id: "event-later-started",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:04.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-later-message",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:05.000Z",
+            type: "message.completed",
+            message: { id: "assistant-2", role: "assistant", parts: [] },
+          },
+        ],
+        runs: [
+          {
+            id: "run-source",
+            threadId: "thread-unflushed",
+            status: "running",
+            activeMessageId: "assistant-1",
+            lastSequence: 3,
+          },
+          {
+            id: "run-later",
+            threadId: "thread-unflushed",
+            status: "completed",
+            activeMessageId: "assistant-2",
+            lastSequence: 2,
+          },
+        ],
+        activeRunIds: ["run-source", "run-later"],
+        toolCalls: [
+          {
+            id: "tool-retained-message",
+            name: "publish",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-1",
+          },
+          {
+            id: "tool-retained-run",
+            name: "read",
+            status: "completed",
+            runId: "run-source",
+          },
+          {
+            id: "tool-later-message",
+            name: "publish-later",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-2",
+          },
+          {
+            id: "tool-later-run",
+            name: "read-later",
+            status: "completed",
+            runId: "run-later",
+          },
+          {
+            id: "tool-unscoped",
+            name: "unscoped",
+            status: "completed",
+          },
+        ],
+        suggestions: [
+          {
+            id: "suggestion-later",
+            label: "Later suggestion",
+            runId: "run-later",
+          },
+          { id: "suggestion-unscoped", label: "Unscoped suggestion" },
+        ],
+        widgets: [
+          {
+            messageId: "assistant-1",
+            widget: { id: "kept", kind: "test", data: {} },
+          },
+          {
+            messageId: "assistant-2",
+            widget: { id: "dropped", kind: "test", data: {} },
+          },
+        ],
+      },
+    };
+    const fullSourceRepo = {
+      ...sourceRepo,
       messages: [
         { message: userMessage, parentId: null },
         { message: assistantMessage, parentId: "user-1" },
+        {
+          message: {
+            id: "user-2",
+            role: "user",
+            content: [{ type: "text", text: "Later question" }],
+          },
+          parentId: "assistant-1",
+        },
+        {
+          message: {
+            id: "assistant-2",
+            role: "assistant",
+            content: [{ type: "text", text: "Later answer" }],
+            metadata: { runId: "run-later" },
+          },
+          parentId: "user-2",
+        },
       ],
     };
+    rows.set("thread-unflushed", {
+      id: "thread-unflushed",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "Later answer",
+      thread_data: JSON.stringify(fullSourceRepo),
+      message_count: 4,
+      created_at: 0,
+      updated_at: 0,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+    });
 
     const forked = await forkThread("thread-unflushed", "user@example.com", {
       id: "thread-forked",
@@ -894,26 +5379,96 @@ describe("chat thread store", () => {
         title: "Thread",
         preview: "make this slide better",
         messageCount: 2,
+        fromMessageId: "assistant-1",
         scope: { type: "dashboard", id: "dash-1", label: "Pipeline" },
       },
     });
 
     expect(forked?.id).toBe("thread-forked");
-    expect(rows.get("thread-unflushed")?.message_count).toBe(2);
-    expect(rows.get("thread-unflushed")?.scope_type).toBe("dashboard");
+    expect(rows.get("thread-unflushed")?.message_count).toBe(4);
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
-    ).toHaveLength(2);
+    ).toHaveLength(0);
+    const forkedAgentKit = JSON.parse(
+      rows.get("thread-forked")!.thread_data,
+    ).agentKit;
+    expect(
+      forkedAgentKit.messages.map((message: { id: string }) => message.id),
+    ).toEqual(["user-1", "assistant-1"]);
+    expect(
+      forkedAgentKit.events.map((event: { id: string }) => event.id),
+    ).toEqual([
+      "event-source-started",
+      "event-source-activity",
+      "event-source-message",
+    ]);
+    expect(forkedAgentKit.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ threadId: "thread-forked" }),
+        expect.objectContaining({
+          type: "activity.completed",
+          activity: expect.objectContaining({ status: "cancelled" }),
+        }),
+      ]),
+    );
+    expect(forkedAgentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "run-source",
+        threadId: "thread-forked",
+        status: "cancelled",
+      }),
+    ]);
+    expect(forkedAgentKit.widgets).toEqual([
+      expect.objectContaining({ messageId: "assistant-1" }),
+    ]);
+    expect(
+      forkedAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual(["tool-retained-message", "tool-retained-run"]);
+    expect(forkedAgentKit.suggestions).toEqual([]);
+    expect(forkedAgentKit.activeRunIds).toEqual([]);
+
+    const fullFork = await forkThread("thread-unflushed", "user@example.com", {
+      id: "thread-forked-full",
+    });
+    expect(fullFork?.id).toBe("thread-forked-full");
+    const fullForkAgentKit = JSON.parse(
+      rows.get("thread-forked-full")!.thread_data,
+    ).agentKit;
+    expect(
+      fullForkAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual([
+      "tool-retained-message",
+      "tool-retained-run",
+      "tool-later-message",
+      "tool-later-run",
+      "tool-unscoped",
+    ]);
+    expect(fullForkAgentKit.suggestions).toHaveLength(2);
   });
 
   it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {
     const staleRepo = {
       messages: [{ message: userMessage, parentId: null }],
     };
+    const legacyImageUrl = "data:image/png;base64,LEGACY_SNAPSHOT_IMAGE_BYTES";
+    const legacyImageMessage = {
+      id: "snapshot-user-image",
+      role: "user",
+      content: [
+        { type: "text", text: "Use this old image" },
+        {
+          type: "image",
+          name: "reference.png",
+          data: legacyImageUrl,
+          base64: "A".repeat(128),
+          url: legacyImageUrl,
+        },
+      ],
+    };
     const freshRepo = {
       messages: [
-        { message: userMessage, parentId: null },
-        { message: assistantMessage, parentId: "user-1" },
+        { message: legacyImageMessage, parentId: null },
+        { message: assistantMessage, parentId: "snapshot-user-image" },
       ],
     };
     const rows = new Map<string, ChatThreadRow>([
@@ -936,6 +5491,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -988,9 +5545,32 @@ describe("chat thread store", () => {
     expect(forked?.id).toBe("thread-forked");
     expect(forked?.messageCount).toBe(2);
     expect(forked?.preview).toBe("fresher preview");
+    const forkedThreadData = rows.get("thread-forked")!.thread_data;
+    expect(JSON.parse(forkedThreadData).messages).toHaveLength(2);
+    assertNoInlineImageBytes(forkedThreadData, "forked thread_data");
+    expect(forkedThreadData).not.toContain("LEGACY_SNAPSHOT_IMAGE_BYTES");
     expect(
-      JSON.parse(rows.get("thread-forked")!.thread_data).messages,
-    ).toHaveLength(2);
+      JSON.parse(forkedThreadData).messages[0].message.content,
+    ).toContainEqual({
+      type: "file",
+      name: "reference.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
+
+    const scopedFork = await forkThread("thread-stale", "user@example.com", {
+      id: "thread-forked-scoped",
+      source: {
+        threadData: JSON.stringify(freshRepo),
+        title: "Old title",
+        preview: "",
+        messageCount: 2,
+        fromMessageId: "assistant-1",
+      },
+    });
+
+    expect(scopedFork?.preview).toBe("");
+    expect(rows.get("thread-forked-scoped")?.preview).toBe("");
   });
 
   it("ignores stale snapshots when the persisted row is fresher", async () => {
@@ -1020,6 +5600,8 @@ describe("chat thread store", () => {
     ]);
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (
         /CREATE TABLE/i.test(sql) ||
@@ -1072,11 +5654,128 @@ describe("chat thread store", () => {
       },
     });
 
-    // Fresh persisted data wins.
     expect(forked?.messageCount).toBe(2);
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
     ).toHaveLength(2);
+  });
+
+  it("strips legacy inline image bytes before inserting a fork", async () => {
+    const inlineImageUrl = "data:image/png;base64,LEGACY_FORK_IMAGE_BYTES";
+    const inlineImageBase64 = "A".repeat(128);
+    const sourceRow: ChatThreadRow = {
+      id: "thread-with-legacy-image",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "Describe this image",
+      thread_data: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "legacy-image-user",
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this image" },
+                {
+                  type: "image",
+                  name: "reference.png",
+                  data: inlineImageUrl,
+                  base64: inlineImageBase64,
+                  url: inlineImageUrl,
+                },
+              ],
+            },
+            parentId: null,
+          },
+        ],
+      }),
+      message_count: 1,
+      created_at: 1,
+      updated_at: 1,
+    };
+    let insertedThreadData: string | undefined;
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        return {
+          rows: args[0] === sourceRow.id ? [sourceRow] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        insertedThreadData = args[4];
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const forked = await forkThread(sourceRow.id, "user@example.com", {
+      id: "thread-forked-legacy-image",
+    });
+
+    expect(forked?.id).toBe("thread-forked-legacy-image");
+    expect(insertedThreadData).toBeDefined();
+    expect(insertedThreadData).not.toContain("data:image/");
+    expect(insertedThreadData).not.toContain("LEGACY_FORK_IMAGE_BYTES");
+    expect(insertedThreadData).not.toContain(inlineImageBase64);
+    expect(JSON.parse(insertedThreadData!).messages[0].message.content).toEqual(
+      [
+        { type: "text", text: "Describe this image" },
+        {
+          type: "file",
+          name: "reference.png",
+          mediaType: "image/png",
+          omitted: "inline-bytes",
+        },
+      ],
+    );
+  });
+
+  it("does not expose a later receipt past a delayed thread head", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const delayedHead = {
+      id: "queued-delayed-head",
+      threadId: "thread-1",
+      text: "Retry me first",
+    };
+    for (const message of [
+      delayedHead,
+      {
+        id: "queued-after-delayed-head",
+        threadId: "thread-1",
+        text: "Do not overtake",
+      },
+    ]) {
+      await mutateThreadQueuedMessages(
+        message.threadId,
+        { type: "append", message },
+        { actor },
+      );
+    }
+    const retryAfter = 20_000;
+    expect(
+      await retryQueuedSubmissionReceipt(
+        delayedHead.threadId,
+        delayedHead.id,
+        retryAfter,
+      ),
+    ).toBe(true);
+
+    await expect(
+      listQueuedSubmissionReceipts({ now: retryAfter - 1 }),
+    ).resolves.toEqual([]);
+    await expect(
+      listQueuedSubmissionReceipts({ now: retryAfter }),
+    ).resolves.toMatchObject([
+      { messageId: delayedHead.id },
+      { messageId: "queued-after-delayed-head" },
+    ]);
   });
 });
 
@@ -1152,6 +5851,8 @@ describe("adoptThreadScopeIfUnscoped", () => {
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
+      const ledger = storeBootstrapResult(sql);
+      if (ledger) return ledger;
       const args = typeof query === "string" ? [] : query.args;
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
@@ -1160,7 +5861,6 @@ describe("adoptThreadScopeIfUnscoped", () => {
         return { rows: [], rowsAffected: 0 };
       }
       if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
-        // Honour the compare-and-set guard the real statement carries.
         if (/AND scope_type IS NULL/i.test(sql) && row.scope_type !== null) {
           return { rows: [], rowsAffected: 0 };
         }
@@ -1180,19 +5880,18 @@ describe("adoptThreadScopeIfUnscoped", () => {
   it("claims an unscoped thread and reports the scope it won", async () => {
     const row = mockRow(null, null);
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designA)).toEqual(
-      designA,
-    );
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designA),
+    ).toEqual(designA);
     expect(row.scope_id).toBe("design-a");
   });
 
   it("reports the winner's scope instead of retagging when another worker won", async () => {
     const row = mockRow("design", "design-a");
 
-    expect(await adoptThreadScopeIfUnscoped("thread-1", designB)).toEqual({
-      type: "design",
-      id: "design-a",
-    });
+    expect(
+      await adoptThreadScopeIfUnscoped("thread-1", "user@example.com", designB),
+    ).toEqual({ type: "design", id: "design-a" });
     expect(row.scope_id).toBe("design-a");
   });
 });

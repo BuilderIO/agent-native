@@ -2,11 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   deleteCredential: vi.fn(),
-  getScopedSettingRecord: vi.fn(),
+  deleteResolvedCredential: vi.fn(),
   hasCredential: vi.fn(),
-  loadDashboardSeed: vi.fn(),
-  putScopedSettingRecord: vi.fn(),
-  resolveRequestScope: vi.fn(),
+  installBuiltinDashboardOnce: vi.fn(),
+  resolveOrgRole: vi.fn(),
   saveCredential: vi.fn(),
   tryRequestCredentialContext: vi.fn(),
 }));
@@ -16,12 +15,17 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 
+vi.mock("../server/lib/db-admin-connections", () => ({
+  resolveOrgRole: mocks.resolveOrgRole,
+}));
+
 vi.mock("@agent-native/core/tracking", () => ({
   track: mockTrack,
 }));
 
 vi.mock("../server/lib/credentials", () => ({
   deleteCredential: mocks.deleteCredential,
+  deleteResolvedCredential: mocks.deleteResolvedCredential,
   hasCredential: mocks.hasCredential,
   saveCredential: mocks.saveCredential,
 }));
@@ -30,14 +34,8 @@ vi.mock("../server/lib/credentials-context", () => ({
   tryRequestCredentialContext: mocks.tryRequestCredentialContext,
 }));
 
-vi.mock("../server/lib/dashboard-seeds", () => ({
-  loadDashboardSeed: mocks.loadDashboardSeed,
-}));
-
-vi.mock("../server/lib/scoped-settings", () => ({
-  getScopedSettingRecord: mocks.getScopedSettingRecord,
-  putScopedSettingRecord: mocks.putScopedSettingRecord,
-  resolveRequestScope: mocks.resolveRequestScope,
+vi.mock("../server/lib/builtin-dashboards", () => ({
+  installBuiltinDashboardOnce: mocks.installBuiltinDashboardOnce,
 }));
 
 const { default: deleteDataSourceCredentials } =
@@ -48,11 +46,10 @@ const { default: updateDataSourceCredentials } =
 describe("data source credential actions", () => {
   beforeEach(() => {
     mocks.deleteCredential.mockReset();
-    mocks.getScopedSettingRecord.mockReset();
+    mocks.deleteResolvedCredential.mockReset();
     mocks.hasCredential.mockReset();
-    mocks.loadDashboardSeed.mockReset();
-    mocks.putScopedSettingRecord.mockReset();
-    mocks.resolveRequestScope.mockReset();
+    mocks.installBuiltinDashboardOnce.mockReset();
+    mocks.resolveOrgRole.mockReset();
     mocks.saveCredential.mockReset();
     mocks.tryRequestCredentialContext.mockReset();
     mockTrack.mockReset();
@@ -61,16 +58,11 @@ describe("data source credential actions", () => {
       userEmail: "ada@example.com",
       orgId: "org-1",
     });
-    mocks.resolveRequestScope.mockReturnValue({
-      email: "ada@example.com",
-      orgId: "org-1",
-    });
-    mocks.getScopedSettingRecord.mockResolvedValue(null);
     mocks.hasCredential.mockResolvedValue(false);
-    mocks.loadDashboardSeed.mockReturnValue({ panels: [] });
+    mocks.resolveOrgRole.mockResolvedValue("member");
   });
 
-  it("saves recognized credentials and seeds the GA dashboard through action scope", async () => {
+  it("saves recognized credentials and installs the GA built-in in the personal credential scope", async () => {
     const serviceAccountJson = JSON.stringify({
       type: "service_account",
       private_key: "private-key",
@@ -98,6 +90,7 @@ describe("data source credential actions", () => {
       {
         userEmail: "ada@example.com",
         orgId: "org-1",
+        scope: "user",
       },
     );
     expect(mocks.saveCredential).toHaveBeenCalledWith(
@@ -106,12 +99,12 @@ describe("data source credential actions", () => {
       {
         userEmail: "ada@example.com",
         orgId: "org-1",
+        scope: "user",
       },
     );
-    expect(mocks.putScopedSettingRecord).toHaveBeenCalledWith(
-      { email: "ada@example.com", orgId: "org-1" },
-      "sql-dashboard-google-analytics",
-      { panels: [] },
+    expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+      { email: "ada@example.com", orgId: null },
+      "google-analytics",
     );
   });
 
@@ -175,10 +168,139 @@ describe("data source credential actions", () => {
     })) as Record<string, unknown>;
 
     expect(result).toEqual({ deleted: ["GA4_PROPERTY_ID"] });
-    expect(mocks.deleteCredential).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteCredential).toHaveBeenCalledWith("GA4_PROPERTY_ID", {
-      userEmail: "ada@example.com",
-      orgId: "org-1",
+    expect(mocks.deleteResolvedCredential).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteResolvedCredential).toHaveBeenCalledWith(
+      "GA4_PROPERTY_ID",
+      {
+        userEmail: "ada@example.com",
+        orgId: "org-1",
+      },
+    );
+  });
+  describe("where a saved credential lands", () => {
+    const vars = [{ key: "GA4_PROPERTY_ID", value: "1234" }];
+    const savedScopes = () =>
+      mocks.saveCredential.mock.calls.map(([, , ctx]) => ctx.scope);
+
+    it.each(["owner", "admin"])(
+      "saves an %s's credential for the organization by default",
+      async (role) => {
+        mocks.resolveOrgRole.mockResolvedValue(role);
+        await updateDataSourceCredentials.run({ vars });
+        expect(mocks.saveCredential).toHaveBeenCalledWith(
+          "GA4_PROPERTY_ID",
+          "1234",
+          { userEmail: "ada@example.com", orgId: "org-1", scope: "org" },
+        );
+        expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+          { email: "ada@example.com", orgId: "org-1" },
+          "google-analytics",
+        );
+      },
+    );
+
+    it("saves an admin's credential personally when they choose Personal", async () => {
+      mocks.resolveOrgRole.mockResolvedValue("admin");
+      await updateDataSourceCredentials.run({ vars, scope: "user" });
+      expect(savedScopes()).toEqual(["user"]);
+      expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+        { email: "ada@example.com", orgId: null },
+        "google-analytics",
+      );
+    });
+
+    it("saves a member's credential personally by default", async () => {
+      await updateDataSourceCredentials.run({ vars });
+      expect(savedScopes()).toEqual(["user"]);
+      expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+        { email: "ada@example.com", orgId: null },
+        "google-analytics",
+      );
+    });
+
+    it("saves personally without an organization", async () => {
+      mocks.tryRequestCredentialContext.mockReturnValue({
+        userEmail: "ada@example.com",
+        orgId: null,
+      });
+      await updateDataSourceCredentials.run({ vars });
+      expect(savedScopes()).toEqual(["user"]);
+      expect(mocks.resolveOrgRole).not.toHaveBeenCalled();
+      expect(mocks.installBuiltinDashboardOnce).toHaveBeenCalledWith(
+        { email: "ada@example.com", orgId: null },
+        "google-analytics",
+      );
+    });
+
+    it("refuses a member's organization save with a 403 and writes nothing", async () => {
+      await expect(
+        updateDataSourceCredentials.run({ vars, scope: "org" }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mocks.saveCredential).not.toHaveBeenCalled();
+      expect(mocks.installBuiltinDashboardOnce).not.toHaveBeenCalled();
+    });
+
+    it("fails instead of saving personally when the role cannot be read", async () => {
+      mocks.resolveOrgRole.mockRejectedValue(new Error("role read failed"));
+      await expect(updateDataSourceCredentials.run({ vars })).rejects.toThrow(
+        "role read failed",
+      );
+      expect(mocks.saveCredential).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("clearing an optional key on save", () => {
+    const vars = [
+      { key: "BIGQUERY_PROJECT_ID", value: "example-project" },
+      { key: "ANALYTICS_BIGQUERY_EVENTS_TABLE", value: "" },
+    ];
+
+    it("clears an owner's Personal value, never the organization's", async () => {
+      mocks.resolveOrgRole.mockResolvedValue("owner");
+      await updateDataSourceCredentials.run({ vars, scope: "user" });
+      expect(mocks.deleteCredential).toHaveBeenCalledWith(
+        "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+        { userEmail: "ada@example.com", orgId: "org-1", scope: "user" },
+      );
+      expect(mocks.deleteResolvedCredential).not.toHaveBeenCalled();
+    });
+
+    it("clears the organization's value when an admin saves for it", async () => {
+      mocks.resolveOrgRole.mockResolvedValue("admin");
+      await updateDataSourceCredentials.run({ vars });
+      expect(mocks.deleteCredential).toHaveBeenCalledWith(
+        "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+        { userEmail: "ada@example.com", orgId: "org-1", scope: "org" },
+      );
+    });
+
+    it("refuses a member's organization clear and deletes nothing", async () => {
+      await expect(
+        updateDataSourceCredentials.run({ vars, scope: "org" }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mocks.deleteCredential).not.toHaveBeenCalled();
+      expect(mocks.deleteResolvedCredential).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("disconnect removes the credential the reader uses", () => {
+    it("removes each key through the resolver's own delete", async () => {
+      await deleteDataSourceCredentials.run({ keys: ["GA4_PROPERTY_ID"] });
+      expect(mocks.deleteResolvedCredential).toHaveBeenCalledWith(
+        "GA4_PROPERTY_ID",
+        { userEmail: "ada@example.com", orgId: "org-1" },
+      );
+    });
+
+    it("refuses a member's removal of the organization's credential", async () => {
+      mocks.deleteResolvedCredential.mockRejectedValue(
+        Object.assign(new Error("owners and admins only"), {
+          statusCode: 403,
+        }),
+      );
+      await expect(
+        deleteDataSourceCredentials.run({ keys: ["GA4_PROPERTY_ID"] }),
+      ).rejects.toMatchObject({ statusCode: 403 });
     });
   });
 });

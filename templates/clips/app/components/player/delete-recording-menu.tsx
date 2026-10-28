@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconDotsVertical, IconDownload, IconTrash } from "@tabler/icons-react";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { IconDotsVertical } from "@tabler/icons-react";
+import { useCallback, useRef, useState, type ReactNode, type Ref } from "react";
 import { toast } from "sonner";
 
 import {
@@ -36,6 +36,8 @@ interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
   downloadLabel?: string;
   downloadingLabel?: string;
   onDownload?: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
+  triggerRef?: Ref<HTMLButtonElement>;
 }
 
 export function RecordingOptionsMenu({
@@ -48,6 +50,8 @@ export function RecordingOptionsMenu({
   downloadLabel,
   downloadingLabel,
   onDownload,
+  onCloseAutoFocus,
+  triggerRef,
 }: RecordingOptionsMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -62,9 +66,6 @@ export function RecordingOptionsMenu({
     {
       onSuccess: () => {
         toast.success(t("deleteRecordingMenu.movedToTrash"));
-        // Keep the route mounted until Radix has finished removing the
-        // dialog portal. Navigating in the mutation callback can leave its
-        // body lock behind, which makes the destination look unclickable.
         deletedWhileOpenRef.current = true;
         setOpen(false);
       },
@@ -95,9 +96,10 @@ export function RecordingOptionsMenu({
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
+            ref={triggerRef}
             variant="ghost"
-            size="icon"
-            className="order-last h-8 w-8 shrink-0"
+            size="icon-sm"
+            className="order-last shrink-0"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDotsVertical className="h-4 w-4" />
@@ -105,17 +107,18 @@ export function RecordingOptionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className={showCustomItems ? "w-64" : "w-44"}
+          className={
+            showCustomItems
+              ? "w-64 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto"
+              : "w-44"
+          }
           onCloseAutoFocus={(event) => {
-            // Opening the AlertDialog while this menu is still tearing down
-            // leaves `pointer-events: none` stuck on <body>: two dismissable
-            // layers overlap and the survivor never restores the style. Wait
-            // for the menu to finish closing, and keep focus off the trigger
-            // so the dialog owns it.
             if (pendingDeleteConfirmRef.current) {
               event.preventDefault();
               pendingDeleteConfirmRef.current = false;
               setOpen(true);
+            } else {
+              onCloseAutoFocus?.(event);
             }
           }}
         >
@@ -128,7 +131,6 @@ export function RecordingOptionsMenu({
               onSelect={handleDownload}
               disabled={downloadPending}
             >
-              <IconDownload className="me-2 h-4 w-4" />
               {downloadPending
                 ? (downloadingLabel ?? t("sharePage.downloading"))
                 : (downloadLabel ?? t("recordRoute.downloadRecording"))}
@@ -144,7 +146,6 @@ export function RecordingOptionsMenu({
               }}
               className="text-destructive focus:text-destructive"
             >
-              <IconTrash className="me-2 h-4 w-4" />
               {t("deleteRecordingMenu.delete")}
             </DropdownMenuItem>
           ) : null}

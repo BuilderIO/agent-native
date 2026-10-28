@@ -1,18 +1,28 @@
 export const BRAIN_SEARCH_INDEX_VERSION = "1";
-export const BRAIN_SENSITIVITY_POLICY_VERSION = "1";
+export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";
+
+export const BRAIN_SENSITIVITY_CATEGORIES = [
+  "performance",
+  "discipline",
+  "termination",
+  "layoff-reorg",
+  "compensation",
+  "recruiting",
+  "health-accommodation",
+  "investigation",
+  "privileged-legal",
+  "secret-credential",
+  "personal",
+] as const;
 
 export type BrainSensitivityCategory =
-  | "performance"
-  | "discipline"
-  | "termination"
-  | "layoff-reorg"
-  | "compensation"
-  | "recruiting"
-  | "health-accommodation"
-  | "investigation"
-  | "privileged-legal"
-  | "secret-credential"
-  | "personal";
+  (typeof BRAIN_SENSITIVITY_CATEGORIES)[number];
+
+export const BRAIN_WORKSPACE_RULE_SCORE_KEY = "workspace-rule";
+
+export type BrainSensitivityScoreKey =
+  | BrainSensitivityCategory
+  | typeof BRAIN_WORKSPACE_RULE_SCORE_KEY;
 
 export type BrainSensitivityDisposition =
   | "allowed"
@@ -35,7 +45,8 @@ export interface BrainSensitivityDecision {
   policyVersion: string;
   safeSegments: BrainSafeSegment[];
   safeContent: string;
-  classifier: "deterministic" | "approved-model";
+  classifier: "deterministic" | "approved-model" | "jev";
+  categoryScores?: Partial<Record<BrainSensitivityScoreKey, number>>;
 }
 
 export interface BrainAudienceAssignment {

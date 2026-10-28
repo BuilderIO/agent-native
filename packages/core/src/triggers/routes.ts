@@ -13,12 +13,12 @@ import {
   readBoundedRequestBody,
 } from "../automation/index.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
-import { getDbExec } from "../db/client.js";
 import { dispatchPendingIntegrationTask } from "../integrations/integration-durable-dispatch.js";
 import {
   insertPendingTask,
   isDuplicateEventError,
 } from "../integrations/pending-tasks-store.js";
+import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import {
   nextOccurrence,
   describeCron,
@@ -31,6 +31,7 @@ import {
   type JobFrontmatter,
   type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
+import { automationRunOwnership } from "../jobs/run-history-ownership.js";
 import { getOrgContext } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -43,6 +44,7 @@ import {
 } from "../resources/store.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 import type { TriggerFrontmatter } from "./types.js";
 import {
@@ -147,9 +149,10 @@ function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
     meta.schedule &&
     isValidCron(meta.schedule),
   );
+  if (!scheduled) return undefined;
   if (meta.nextRun) {
     const stored = new Date(meta.nextRun).getTime();
-    if (!scheduled || !Number.isFinite(stored) || stored > Date.now()) {
+    if (!Number.isFinite(stored) || stored > Date.now()) {
       return meta.nextRun;
     }
   }
@@ -215,14 +218,7 @@ async function currentUserCanUpdateAutomation(
   if (!orgId) return false;
 
   try {
-    const { rows } = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, userEmail.toLowerCase()],
-    });
-    const role = String((rows[0] as any)?.role ?? "").toLowerCase();
+    const role = await readOrgMemberRole(orgId, userEmail);
     return role === "owner" || role === "admin";
   } catch {
     return false;
@@ -236,6 +232,7 @@ async function resourceToAutomationItem(
 ): Promise<AutomationRouteItem> {
   const parsed = parseJobResource(resource.content);
   const meta = asTriggerFrontmatter(parsed.meta);
+  const nextRun = nextRunForMeta(meta);
   const canUpdate = await currentUserCanUpdateAutomation(
     event,
     userEmail,
@@ -249,29 +246,39 @@ async function resourceToAutomationItem(
     owner: resource.owner,
     appId: meta.appId,
     orgId: meta.orgId,
-    scope:
-      resource.owner === userEmail && !meta.orgId ? "personal" : "organization",
+    scope: automationRunOwnership(resource.owner, userEmail, meta.orgId).scope,
     canUpdate,
     triggerType: meta.triggerType,
-    event: meta.event,
-    // The path is a bearer credential; read-only organization members can see
-    // the trigger without receiving permission to invoke it.
+    ...(meta.triggerType === "event" && meta.event
+      ? { event: meta.event }
+      : {}),
+    ...(meta.triggerType === "schedule" && meta.schedule
+      ? {
+          schedule: meta.schedule,
+          scheduleDescription: scheduleDescription(
+            meta.schedule,
+            meta.timezone,
+          ),
+        }
+      : {}),
+    ...(meta.triggerType !== "manual" && meta.condition
+      ? { condition: meta.condition }
+      : {}),
     webhookPath:
       canUpdate && meta.triggerType === "webhook"
         ? await readAutomationWebhookPath(resource, meta)
         : undefined,
-    schedule: meta.schedule || undefined,
-    scheduleDescription: scheduleDescription(meta.schedule, meta.timezone),
-    condition: meta.condition,
     mode: meta.mode,
     domain: meta.domain,
     enabled: meta.enabled,
-    timezone: meta.timezone,
+    ...(meta.triggerType === "schedule" && meta.timezone
+      ? { timezone: meta.timezone }
+      : {}),
     lastStatus: meta.lastStatus,
     lastRun: meta.lastRun,
     lastCheck: meta.lastCheck,
     lastError: meta.lastError,
-    nextRun: nextRunForMeta(meta),
+    ...(nextRun ? { nextRun } : {}),
     createdBy: meta.createdBy,
     body: parsed.body,
     model: meta.model,
@@ -365,6 +372,13 @@ export async function setAutomationEnabledForOwner(
 
   parsed.meta.enabled = input.enabled;
   const fields: JobFrontmatterPatch = { enabled: input.enabled };
+  if (
+    input.enabled &&
+    (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+  ) {
+    // Enabling lifts a framework pause and starts a clean failure streak.
+    Object.assign(fields, RESUME_AUTOMATION_PATCH);
+  }
   if (
     parsed.meta.enabled &&
     meta.triggerType === "schedule" &&

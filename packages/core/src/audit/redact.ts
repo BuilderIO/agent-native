@@ -15,28 +15,26 @@ const SENSITIVE_KEY =
   /(?:pass(?:word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(?:id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(?:url|secret))/i;
 
 const REDACTED = "[redacted]";
+// What a cut leaves behind. `redactedArgsWereCut` reads these back.
+const DEPTH_CUT = "[…]";
+const KEYS_CUT_KEY = "…";
+const KEYS_CUT = "(truncated)";
+const STRING_CUT = /…\(\d+ more chars\)$/;
+const ARRAY_CUT = /^…\(\d+ more\)$/;
 const MAX_STRING = 2000;
 const MAX_DEPTH = 6;
 const MAX_KEYS = 100;
 const MAX_ARRAY = 100;
 const MAX_JSON = 8000;
-/**
- * Head room reserved for the `…(N more chars)` marker so a truncated summary
- * still fits its caller's cap. Callers below this cannot carry a marker at all.
- */
 const MARKER_SLACK = 32;
+const GOOGLE_API_KEY = /AIzaSy[A-Za-z0-9_-]{20,}/g;
 
-/** Heuristic: does a bare string value look like a secret? */
-function looksSecret(value: string): boolean {
+function looksCredential(value: string): boolean {
   if (/^bearer\s+\S/i.test(value)) return true;
-  // Long, unbroken, high-entropy-ish opaque token (hex/base64url, no spaces).
-  if (value.length >= 32 && /^[A-Za-z0-9_\-+/=.]+$/.test(value)) return true;
-  // Common secret prefixes (Stripe, GitHub, OpenAI, Slack, AWS, …).
+  if (/^AIzaSy[A-Za-z0-9_-]{20,}$/i.test(value)) return true;
   if (/^(sk|pk|rk|ghp|gho|xox[baprs]|AKIA|AIza|ya29)[-_]/i.test(value)) {
     return true;
   }
-  // Webhook URLs carry their secret in the path — redact regardless of the key
-  // they arrive under (e.g. a generic `value` field holding a Slack webhook).
   if (
     /^https?:\/\/(hooks\.slack\.com\/|[^/]*\.webhook\.office\.com\/|(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\/|hooks\.zapier\.com\/|maker\.ifttt\.com\/|discord\.com\/api\/webhooks\/)/i.test(
       value,
@@ -47,88 +45,179 @@ function looksSecret(value: string): boolean {
   return false;
 }
 
-function redactString(value: string, maxString: number): string {
-  if (looksSecret(value)) return REDACTED;
-  if (value.length > maxString) {
-    return `${value.slice(0, maxString)}…(${value.length - maxString} more chars)`;
+function looksSecret(value: string): boolean {
+  return (
+    looksCredential(value) ||
+    (value.length >= 32 && /^[A-Za-z0-9_\-+/=.]+$/.test(value))
+  );
+}
+
+function redactString(
+  value: string,
+  limits: Required<Pick<RedactLimits, "maxString" | "overflow">> &
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">,
+): string {
+  if (
+    limits.redactGenericOpaqueStrings === false
+      ? looksCredential(value)
+      : looksSecret(value)
+  ) {
+    return REDACTED;
   }
-  return value;
+  if (value.length > limits.maxString && limits.overflow === "throw") {
+    throw new Error("Redacted value exceeds the configured string limit.");
+  }
+  // A credential can sit inside ordinary text: `Authorization: Bearer …`.
+  const scrubbed =
+    limits.redactEmbeddedSecrets === false
+      ? value
+      : redactEmbeddedSecrets(value);
+  if (scrubbed.length > limits.maxString) {
+    return `${scrubbed.slice(0, limits.maxString)}…(${scrubbed.length - limits.maxString} more chars)`;
+  }
+  return scrubbed;
+}
+
+const QUOTED_CREDENTIAL = String.raw`"(?:\\[\s\S]|[^"\\])*(?:"|\\?$)|'(?:\\[\s\S]|[^'\\])*(?:'|\\?$)`;
+const EMBEDDED_BEARER = new RegExp(
+  String.raw`\b(bearer\s+)(${QUOTED_CREDENTIAL}|[^\s"',}]+)`,
+  "gi",
+);
+// A line that opens another field, such as `Body: visible`.
+const FIELD_LINE = String.raw`[ \t]*["']?[\w-]+["']?[ \t]*:(?:\s|$)`;
+// A field left empty takes its value from the next line, unless that line
+// opens another field. Whitespace alone is never a value.
+const VALUE_START = String.raw`(?:[ \t]*\r?\n\s*(?!${FIELD_LINE}))?[ \t]*(?=\S)`;
+// What can follow a scheme as its credentials (RFC 7235): one token alone on
+// its line, quoted or not, or `name=value` parameters.
+const CREDENTIAL_LINE = String.raw`[ \t]*(?:["']?[^\s"']+["']?[ \t]*(?:\r?\n|$)|[\w!#$%&*+.^|~-]+[ \t]*=)`;
+// A word alone on its line (`Bearer`, `"Api-Key"`) takes the credential on
+// the next one. It can be a scheme no list names, and stopping at the newline
+// would leave the credential bare. A next line of prose, or one that opens
+// another field, is content a reviewer must still see. Only that one line is
+// taken, so a quote it leaves open can't carry the match into later fields.
+const EMBEDDED_AUTHORIZATION = new RegExp(
+  String.raw`(["']?\b(?:proxy-)?authorization\b["']?\s*[:=]${VALUE_START})(["']?[^\s"']+["']?[ \t]*\r?\n\s*(?!${FIELD_LINE})(?=${CREDENTIAL_LINE})[^\r\n]+|${QUOTED_CREDENTIAL}|[^\r\n]+)`,
+  "gi",
+);
+const EMBEDDED_CREDENTIAL_FIELD = new RegExp(
+  String.raw`(["']?\b${SENSITIVE_KEY.source}\b["']?\s*[:=]${VALUE_START})((?:bearer\s+)?(?:${QUOTED_CREDENTIAL}|[^"'\s,}]+))`,
+  "gi",
+);
+
+function redactEmbeddedField(
+  _match: string,
+  prefix: string,
+  value: string,
+): string {
+  const quote = value[0] === '"' || value[0] === "'" ? value[0] : "";
+  return `${prefix}${quote}${REDACTED}${quote}`;
 }
 
 function redactEmbeddedSecrets(value: string): string {
-  const bearer = value.replace(/\b(bearer\s+)([^\s"',}]+)/gi, `$1${REDACTED}`);
-  const credentialField = new RegExp(
-    `(["']?\\b${SENSITIVE_KEY.source}\\b["']?\\s*[:=]\\s*)(["']?)(?!bearer\\b)([^"'\\s,}]+)\\2`,
-    "gi",
-  );
-  return bearer.replace(credentialField, `$1$2${REDACTED}$2`);
+  // Token matching can consume an escape that belongs to a quoted field,
+  // so complete field values must be redacted first.
+  return value
+    .replace(EMBEDDED_AUTHORIZATION, redactEmbeddedField)
+    .replace(EMBEDDED_CREDENTIAL_FIELD, redactEmbeddedField)
+    .replace(EMBEDDED_BEARER, `$1${REDACTED}`)
+    .replace(GOOGLE_API_KEY, REDACTED);
 }
 
-function redact(value: unknown, depth: number, maxString: number): unknown {
+function redact(
+  value: unknown,
+  depth: number,
+  limits: Required<
+    Pick<
+      RedactLimits,
+      "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
+    >
+  > &
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">,
+): unknown {
   if (value == null) return value;
-  if (typeof value === "string") return redactString(value, maxString);
+  if (typeof value === "string") return redactString(value, limits);
   if (typeof value === "number" || typeof value === "boolean") return value;
-  if (depth >= MAX_DEPTH) return "[…]";
+  if (depth >= limits.maxDepth) {
+    if (limits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured depth limit.");
+    }
+    return DEPTH_CUT;
+  }
   if (Array.isArray(value)) {
+    if (value.length > limits.maxArray && limits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured array limit.");
+    }
     const out = value
-      .slice(0, MAX_ARRAY)
-      .map((v) => redact(v, depth + 1, maxString));
-    if (value.length > MAX_ARRAY)
-      out.push(`…(${value.length - MAX_ARRAY} more)`);
+      .slice(0, limits.maxArray)
+      .map((v) => redact(v, depth + 1, limits));
+    if (value.length > limits.maxArray)
+      out.push(`…(${value.length - limits.maxArray} more)`);
     return out;
   }
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     let n = 0;
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (n >= MAX_KEYS) {
-        out["…"] = "(truncated)";
+      if (n >= limits.maxKeys) {
+        if (limits.overflow === "throw") {
+          throw new Error("Redacted value exceeds the configured key limit.");
+        }
+        out[KEYS_CUT_KEY] = KEYS_CUT;
         break;
       }
       n += 1;
-      out[k] = SENSITIVE_KEY.test(k)
-        ? REDACTED
-        : redact(v, depth + 1, maxString);
+      out[k] = SENSITIVE_KEY.test(k) ? REDACTED : redact(v, depth + 1, limits);
     }
     return out;
   }
-  // Functions, symbols, bigint, etc. — not serializable / not interesting.
+  if (limits.overflow === "throw") {
+    throw new Error("Redacted value contains a non-JSON value.");
+  }
   return undefined;
 }
 
 export interface RedactLimits {
-  /**
-   * Hard cap on the serialized output, INCLUDING the truncation envelope.
-   * Surfaces with their own wire budget (the A2A activity snapshot) pass a
-   * tighter cap than the audit-log default.
-   */
   maxJson?: number;
-  /** Cap on any single string value before it gets a truncation marker. */
   maxString?: number;
+  maxDepth?: number;
+  maxKeys?: number;
+  maxArray?: number;
+  overflow?: "truncate" | "throw";
+  redactEmbeddedSecrets?: boolean;
+  redactGenericOpaqueStrings?: boolean;
 }
 
-/**
- * Redact and serialize call arguments to a capped JSON string, or `null` when
- * there is nothing to record. Never throws.
- */
 export function redactArgsToJson(
   args: unknown,
   limits?: RedactLimits,
 ): string | null {
   const maxJson = Math.max(MARKER_SLACK * 4, limits?.maxJson ?? MAX_JSON);
-  const maxString = limits?.maxString ?? MAX_STRING;
+  const normalizedLimits = {
+    maxString: limits?.maxString ?? MAX_STRING,
+    maxDepth: limits?.maxDepth ?? MAX_DEPTH,
+    maxKeys: limits?.maxKeys ?? MAX_KEYS,
+    maxArray: limits?.maxArray ?? MAX_ARRAY,
+    overflow: limits?.overflow ?? "truncate",
+    redactEmbeddedSecrets: limits?.redactEmbeddedSecrets,
+    redactGenericOpaqueStrings: limits?.redactGenericOpaqueStrings,
+  } satisfies Required<
+    Pick<
+      RedactLimits,
+      "maxString" | "maxDepth" | "maxKeys" | "maxArray" | "overflow"
+    >
+  > &
+    Pick<RedactLimits, "redactEmbeddedSecrets" | "redactGenericOpaqueStrings">;
   try {
     if (args == null) return null;
-    const redacted = redact(args, 0, maxString);
+    const redacted = redact(args, 0, normalizedLimits);
     if (redacted === undefined) return null;
     const json = JSON.stringify(redacted);
     if (json == null) return null;
     if (json.length <= maxJson) return json;
-    // Slicing the serialized JSON would yield an unparseable string. Wrap a
-    // preview in a valid envelope so `get-audit-event` can always JSON.parse
-    // the stored `input`. JSON escaping makes the envelope overhead
-    // content-dependent, so shrink the preview until the whole thing measures
-    // under the cap rather than guessing at the overhead.
+    if (normalizedLimits.overflow === "throw") {
+      throw new Error("Redacted value exceeds the configured JSON limit.");
+    }
     const envelope = (preview: string) =>
       JSON.stringify({
         _auditTruncated: true,
@@ -142,15 +231,41 @@ export function redactArgsToJson(
       out = envelope(json.slice(0, take));
     }
     return out;
-  } catch {
+  } catch (error) {
+    if (normalizedLimits.overflow === "throw") throw error;
     return null;
   }
 }
 
 /**
- * Same bounds as `redactArgsToJson`, returned as a structural value for
- * surfaces whose consumers expect an object (transcript `metadata.input`).
+ * Whether `value`, parsed from `redactArgsToJson`, lost part of the
+ * arguments to its limits: a shortened string or array, dropped keys, depth,
+ * or the whole payload replaced by its `_auditTruncated` preview. A redacted
+ * secret is not a cut. Text that only looks like a marker reads as cut,
+ * which errs toward telling a reader something is missing.
  */
+export function redactedArgsWereCut(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value === DEPTH_CUT || STRING_CUT.test(value);
+  }
+  if (Array.isArray(value)) {
+    const last = value[value.length - 1];
+    return (
+      (typeof last === "string" && ARRAY_CUT.test(last)) ||
+      value.some(redactedArgsWereCut)
+    );
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      record._auditTruncated === true ||
+      record[KEYS_CUT_KEY] === KEYS_CUT ||
+      Object.values(record).some(redactedArgsWereCut)
+    );
+  }
+  return false;
+}
+
 export function redactArgsToValue(
   args: unknown,
   limits?: RedactLimits,
@@ -164,18 +279,11 @@ export function redactArgsToValue(
   }
 }
 
-/**
- * Bounded, redacted plain-text summary of a tool result. Oversized text keeps
- * its head and gains an explicit `…(N more chars)` marker, so a reader can
- * always tell a short result from a clipped one.
- */
 export function redactTextToSummary(
   text: string,
   maxChars = MAX_STRING,
 ): string | null {
   if (!text) return null;
-  // Only ever walk a bounded head: a multi-megabyte tool result must not be
-  // scanned in full just to produce a preview of it.
   const head = text.slice(0, maxChars + MARKER_SLACK);
   const redactedHead = redactEmbeddedSecrets(head);
   if (looksSecret(redactedHead.trim())) return REDACTED;
@@ -186,7 +294,6 @@ export function redactTextToSummary(
   return `${redactedHead.slice(0, keep)}…(${text.length - keep} more chars)`;
 }
 
-/** Exposed for tests. */
 export const __test = {
   looksSecret,
   redact,

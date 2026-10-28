@@ -136,6 +136,13 @@ beforeEach(() => {
 });
 
 describe("add-slide-comment", () => {
+  it("announces its change to every collaborator on the deck", () => {
+    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
+  });
+
   it("keeps the authenticated profile name for frontend comments", async () => {
     await run({ deckId: "deck-1", slideId: "slide-1", content: "Looks good" });
 

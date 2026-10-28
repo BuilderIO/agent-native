@@ -38,6 +38,7 @@ describe("MCP integration catalog", () => {
       open,
       location: {
         href: "https://content.example.test/settings",
+        origin: "https://content.example.test",
         pathname: "/settings",
       },
     });
@@ -46,8 +47,12 @@ describe("MCP integration catalog", () => {
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
     ).toBe(true);
 
+    const popupUrl = new URL(open.mock.calls[0]![0] as string);
+    expect(popupUrl.href).toBe(
+      "https://content.example.test/_agent-native/mcp/servers/oauth/start?return=%2F_agent-native%2Foauth%2Fpopup%3Fcomplete%3Dworkspace-connection",
+    );
     expect(open).toHaveBeenCalledWith(
-      "https://content.example.test/_agent-native/mcp/servers/oauth/start",
+      popupUrl.href,
       "_blank",
       "width=640,height=760",
     );
@@ -64,6 +69,29 @@ describe("MCP integration catalog", () => {
     expect(
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
     ).toBe(false);
+  });
+
+  it("keeps an existing MCP OAuth completion return URL for agent resume", () => {
+    const popup = {} as Window;
+    const open = vi.fn(() => popup);
+    vi.stubGlobal("window", {
+      open,
+      location: {
+        href: "https://content.example.test/settings",
+        origin: "https://content.example.test",
+      },
+    });
+
+    const startUrl = new URL(
+      "/_agent-native/mcp/servers/oauth/start?return=%2F_agent-native%2Foauth%2Fpopup%3Fcomplete%3Dworkspace-connection%26resume%3D8d1bd7cf-419e-4ff0-8545-19dedb819154",
+      "https://content.example.test",
+    );
+    expect(navigateToMcpOAuthStart(startUrl.href)).toBe(true);
+    expect(
+      new URL(open.mock.calls[0]![0] as string).searchParams.get("return"),
+    ).toBe(
+      "/_agent-native/oauth/popup?complete=workspace-connection&resume=8d1bd7cf-419e-4ff0-8545-19dedb819154",
+    );
   });
 
   it("includes direct-connect defaults that do not need headers", () => {
@@ -275,8 +303,6 @@ describe("MCP integration catalog", () => {
         integration.verification,
       );
     }
-    // GitHub's authorization server publishes no registration_endpoint, so an
-    // OAuth entry here would render a Connect button that can only ever fail.
     expect(
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
     ).toMatchObject({
@@ -377,7 +403,6 @@ describe("MCP integration catalog", () => {
     expect(findMcpIntegrationForToolName("mcp__chrome-devtools__click")).toBe(
       null,
     );
-    // The tool half of the name must never drive the icon.
     expect(
       findMcpIntegrationForToolName("mcp__zapier__send_slack_message")?.id,
     ).toBe("zapier");
@@ -467,6 +492,11 @@ describe("MCP integration catalog", () => {
     expect(isMcpConnectionSuggestionText("HubSpot requires access")).toBe(true);
     expect(
       isMcpConnectionSuggestionText(
+        "HubSpot needs to be connected before I can search your leads.",
+      ),
+    ).toBe(true);
+    expect(
+      isMcpConnectionSuggestionText(
         "The Dispatch connection requires authentication.",
       ),
     ).toBe(true);
@@ -552,8 +582,6 @@ describe("MCP integration catalog", () => {
       description: "Read and write issues",
       scope: "org",
       returnUrl: "/settings/integrations",
-      trackingFlow: "first_run",
-      trackingIntegrationId: "linear",
     });
     const params = new URL(url, "https://example.com").searchParams;
 
@@ -567,8 +595,6 @@ describe("MCP integration catalog", () => {
     expect(params.get("description")).toBe("Read and write issues");
     expect(params.get("scope")).toBe("org");
     expect(params.get("return")).toBe("/settings/integrations");
-    expect(params.get("tracking_flow")).toBe("first_run");
-    expect(params.get("tracking_integration_id")).toBe("linear");
   });
 
   it("builds the OAuth start URL under a configured app mount", () => {

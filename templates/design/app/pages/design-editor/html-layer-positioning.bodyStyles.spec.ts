@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  getBodyInlineStyles,
   removeAbsolutePositioningFromNodeInHtml,
   rawAbsoluteContainerOffsetFromDrop,
   setAbsolutePositioningForNodeInHtml,
@@ -97,8 +98,6 @@ describe("setBodyInlineStyles", () => {
   });
 
   it("clears a value the inspector read out of a shorthand", () => {
-    // Fill shows #0f1115 from `background`; clearing it must not leave the
-    // shorthand behind, or the edit looks like it did nothing.
     const next = setBodyInlineStyles(
       doc(`<body style="background:#0f1115"></body>`),
       { backgroundColor: "" },
@@ -222,10 +221,10 @@ describe("flow-insert positioning for code-backed Frames", () => {
     )!;
 
     expect(frame.style.position).toBe("relative");
-    expect(frame.style.left).toBe("auto");
-    expect(frame.style.top).toBe("auto");
-    expect(frame.style.right).toBe("auto");
-    expect(frame.style.bottom).toBe("auto");
+    expect(frame.getAttribute("style")).toContain("inset: auto");
+    expect(frame.getAttribute("style")).not.toMatch(
+      /(^|;)\s*(left|top|right|bottom):/,
+    );
     expect(
       frame.querySelector('[data-agent-native-node-id="badge"]'),
     ).not.toBeNull();
@@ -245,10 +244,10 @@ describe("flow-insert positioning for code-backed Frames", () => {
     )!;
     expect(frame.style.getPropertyValue("position")).toBe("relative");
     expect(frame.style.getPropertyPriority("position")).toBe("important");
-    for (const prop of ["left", "top", "right", "bottom"] as const) {
-      expect(frame.style.getPropertyValue(prop)).toBe("auto");
-      expect(frame.style.getPropertyPriority(prop)).toBe("important");
-    }
+    expect(frame.getAttribute("style")).toContain("inset: auto !important");
+    expect(frame.getAttribute("style")).not.toMatch(
+      /(^|;)\s*(left|top|right|bottom):/,
+    );
 
     const authored = removeAbsolutePositioningFromNodeInHtml(
       '<!DOCTYPE html><html><head></head><body><div data-agent-native-node-id="plain" style="position:absolute;inset:20px"></div></body></html>',
@@ -261,6 +260,7 @@ describe("flow-insert positioning for code-backed Frames", () => {
     expect(plain.style.position).toBe("");
     expect(plain.style.left).toBe("");
     expect(plain.style.top).toBe("");
+    expect(plain.style.getPropertyValue("inset")).toBe("");
 
     const forcedPlain = setFlowPositioningOverrideForNodeInHtml(
       authored,
@@ -277,6 +277,7 @@ describe("flow-insert positioning for code-backed Frames", () => {
     expect(forcedPlainElement.style.getPropertyPriority("position")).toBe(
       "important",
     );
+    expect(forcedPlainElement.style.getPropertyValue("inset")).toBe("");
   });
 });
 
@@ -306,6 +307,128 @@ describe("node positioning source shape", () => {
         y: 47,
       }),
   ];
+
+  it("preserves authored paint declarations when changing positioning", () => {
+    const content =
+      '<div data-agent-native-node-id="moving-node" style="background:#f97316;color:white;position:absolute;left:40px;top:50px"></div>';
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+
+    expect(next).toContain(
+      'style="background:#f97316;color:white;position: absolute;left: 100px;top: 90px"',
+    );
+  });
+
+  it("adds positioning declarations without a leading empty segment", () => {
+    const content = '<div data-agent-native-node-id="moving-node"></div>';
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+
+    expect(next).toContain('style="position: absolute;left: 100px;top: 90px"');
+    expect(next).not.toContain('style=";');
+  });
+
+  it("clears inset constraints when assigning a new absolute position", () => {
+    const content =
+      '<div data-agent-native-node-id="moving-node" style="position:absolute;inset:12px 13px 14px 15px;width:80px;height:40px"></div>';
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+    const element = new DOMParser()
+      .parseFromString(next, "text/html")
+      .querySelector<HTMLElement>("[data-agent-native-node-id='moving-node']")!;
+
+    expect(element.style.position).toBe("absolute");
+    expect(element.style.left).toBe("100px");
+    expect(element.style.top).toBe("90px");
+    expect(element.style.getPropertyValue("inset")).toBe("");
+    expect(element.style.right).toBe("");
+    expect(element.style.bottom).toBe("");
+    expect([element.style.width, element.style.height]).toEqual([
+      "80px",
+      "40px",
+    ]);
+  });
+
+  it("writes destination coordinates after clearing CSSOM inset longhands", () => {
+    const originalRemoveProperty = CSSStyleDeclaration.prototype.removeProperty;
+    const removePropertySpy = vi
+      .spyOn(CSSStyleDeclaration.prototype, "removeProperty")
+      .mockImplementation(function (this: CSSStyleDeclaration, property) {
+        const removed = originalRemoveProperty.call(this, property);
+        if (property === "inset") {
+          for (const longhand of ["top", "right", "bottom", "left"]) {
+            originalRemoveProperty.call(this, longhand);
+          }
+        }
+        return removed;
+      });
+
+    try {
+      const next = setAbsolutePositioningForNodeInHtml(
+        '<div data-agent-native-node-id="moving-node" style="position:absolute;inset:12px 13px 14px 15px;width:80px;height:40px"></div>',
+        "moving-node",
+        { x: 100, y: 90 },
+      );
+      const element = new DOMParser()
+        .parseFromString(next, "text/html")
+        .querySelector<HTMLElement>(
+          "[data-agent-native-node-id='moving-node']",
+        )!;
+
+      expect(element.style.left).toBe("100px");
+      expect(element.style.top).toBe("90px");
+      expect(element.style.getPropertyValue("inset")).toBe("");
+    } finally {
+      removePropertySpy.mockRestore();
+    }
+  });
+
+  it("preserves escaped quotes, comments, and escaped semicolons in raw CSS", () => {
+    const content = String.raw`<div data-agent-native-node-id="moving-node" style='content: "quoted\"; left: 999px"; /* ; left: 888px */ left: 20px; --raw: token\; left: 777px; top: 30px'></div>`;
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+    const style = new DOMParser()
+      .parseFromString(next, "text/html")
+      .querySelector<HTMLElement>("[data-agent-native-node-id='moving-node']")!
+      .getAttribute("style")!;
+
+    expect(style).toContain(String.raw`content: "quoted\"; left: 999px"`);
+    expect(style).toContain(String.raw`/* ; left: 888px */ left: 100px`);
+    expect(style).toContain(String.raw`--raw: token\; left: 777px`);
+    expect(style).toContain("left: 100px");
+    expect(style).toContain("top: 90px");
+  });
+
+  it("keeps trailing comments attached to declarations whose values change", () => {
+    const content = String.raw`<div data-agent-native-node-id="moving-node" style='position: relative; /* left prefix */ left: 7px /* keep ; left */; top: 9px /* keep top */; color: red'></div>`;
+
+    const next = setAbsolutePositioningForNodeInHtml(content, "moving-node", {
+      x: 100,
+      y: 90,
+    });
+    const style = new DOMParser()
+      .parseFromString(next, "text/html")
+      .querySelector<HTMLElement>("[data-agent-native-node-id='moving-node']")!
+      .getAttribute("style")!;
+
+    expect(style).toContain("left: 100px /* keep ; left */");
+    expect(style).toContain("top: 90px /* keep top */");
+    expect(style.match(/\/\* keep ; left/g)).toHaveLength(1);
+    expect(style.match(/\/\* left prefix \*\//g)).toHaveLength(1);
+    expect(style).toContain("color: red");
+  });
 
   it("changes only the target style attribute in fragments and documents", () => {
     const fragment =
@@ -397,5 +520,66 @@ describe("rawAbsoluteContainerOffsetFromDrop", () => {
         anchorSelector: "html > body",
       }),
     ).toEqual({ x: 260, y: 80 });
+  });
+});
+
+describe("getBodyInlineStyles", () => {
+  it("reads what setBodyInlineStyles wrote by parsing only the body tag", () => {
+    const written = setBodyInlineStyles(
+      `<!DOCTYPE html><html><head></head><body><main>${"<p>x</p>".repeat(500)}</main></body></html>`,
+      { backgroundColor: "rgb(1, 2, 3)", fontSize: "18px" },
+    )!;
+    const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
+    try {
+      expect(getBodyInlineStyles(written)).toMatchObject({
+        backgroundColor: "rgb(1, 2, 3)",
+        fontSize: "18px",
+        backgroundImage: "",
+      });
+      expect(parse).toHaveBeenCalledOnce();
+      expect(parse.mock.calls[0]![0]).toBe(
+        '<body style="background-color: rgb(1, 2, 3); font-size: 18px">',
+      );
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("reports empty styles for content without a body tag", () => {
+    expect(getBodyInlineStyles("<main>x</main>").backgroundColor).toBe("");
+  });
+});
+
+describe("the body tag inside head scripts and comments", () => {
+  const decoys = `<!DOCTYPE html><html><head>
+    <!-- <body style="color: green"> -->
+    <script>document.write('<body style="color: red">');</script>
+    <style>/* <body style="color: purple"> */</style>
+    <meta name="example" content='<body style="color: orange">'>
+    <noframes><body style="color: teal"></noframes>
+    <noembed><body style="color: navy"></noembed>
+  </head><xmp><body style="color: gray"></xmp><body style="background-color: blue"><p>x</p></body></html>`;
+
+  it("reads the real body's styles", () => {
+    expect(getBodyInlineStyles(decoys).backgroundColor).toBe("blue");
+  });
+
+  it("writes to the real body", () => {
+    const next = setBodyInlineStyles(decoys, { backgroundColor: "red" })!;
+    expect(next).toContain('<body style="background-color: red">');
+    expect(next).toContain(`'<body style="color: red">'`);
+    expect(next).toContain('<!-- <body style="color: green"> -->');
+  });
+});
+
+describe("text that runs to the end of the document", () => {
+  const unclosedScript = `<!DOCTYPE html><html><head><script>let x = '<body style="color: red">';</head><body style="background-color: blue"></body></html>`;
+  const plaintext = `<!DOCTYPE html><html><head></head><plaintext><body style="color: red">`;
+
+  it("finds no body inside an unclosed script or plaintext", () => {
+    for (const content of [unclosedScript, plaintext]) {
+      expect(getBodyInlineStyles(content).color ?? "").toBe("");
+      expect(setBodyInlineStyles(content, { color: "green" })).toBeNull();
+    }
   });
 });

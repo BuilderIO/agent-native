@@ -11,6 +11,13 @@ describe("Clips shared navigation", () => {
     expect(pathFromCommand({ view: "shared" })).toBe("/shared");
   });
 
+  it("describes and maps the From Content list", () => {
+    expect(stateFromLocation("/from-content", "")).toEqual({
+      view: "from-content",
+    });
+    expect(pathFromCommand({ view: "from-content" })).toBe("/from-content");
+  });
+
   it("describes the focused viewer panel and requested timestamp", () => {
     expect(
       stateFromLocation("/r/recording-1", "?panel=transcript&at=42000"),
@@ -30,11 +37,21 @@ describe("Clips shared navigation", () => {
         panel: "agent",
         atMs: 12_345.6,
       }),
-    ).toBe("/r/recording-1?agentSidebar=open&at=12.346");
+    ).toBe("/r/recording-1?panel=agent&at=12.346");
     expect(stateFromLocation("/r/recording-1", "?agentSidebar=open")).toEqual({
       view: "recording",
       recordingId: "recording-1",
       panel: "agent",
+    });
+  });
+
+  it("prefers an explicit recording panel over the legacy Agent sidebar query", () => {
+    expect(
+      stateFromLocation("/r/recording-1", "?panel=comments&agentSidebar=open"),
+    ).toEqual({
+      view: "recording",
+      recordingId: "recording-1",
+      panel: "comments",
     });
   });
 

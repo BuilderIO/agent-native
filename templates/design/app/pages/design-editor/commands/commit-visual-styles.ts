@@ -1,10 +1,16 @@
+import { roundGeometryStylesPx } from "@shared/canvas-math";
 import type { CodeLayerProjection } from "@shared/code-layer";
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  pinFixedFlexSiblingsOfNode,
+} from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import { LINE_SEGMENT_PROPERTY } from "@shared/line-segment";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
+import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -17,8 +23,13 @@ import {
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
-} from "@/components/design/inspector/GlslShaderPanel";
+} from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
+import {
+  runCanvasOperation,
+  type CanvasOperationHandle,
+} from "@/lib/canvas-outcome-tracking";
+import { canvasStyleKind } from "@/lib/canvas-style-kind";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerPatchMessage,
@@ -40,6 +51,7 @@ import type {
   PatchProofState,
   ResponsiveEditScope,
 } from "@/pages/design-editor/command-types";
+import { commitAfterPaint } from "@/pages/design-editor/commit-after-paint";
 import { clearAutoTextColorMarkerOnExplicitColorCommit } from "@/pages/design-editor/cross-screen-text-color";
 import {
   LOCAL_EDIT_ORIGIN,
@@ -59,12 +71,14 @@ import {
   applyScopedVisualStyleEdit,
   replayPendingVisualStyleRuntimePatch,
   resolveVisualStyleCommitContent,
+  runtimeStyleTarget,
 } from "@/pages/design-editor/pending-edits";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { prepareCanonicalSourceContent } from "../source-publication";
+import type { FileContentSaveCompletion } from "./save-file-content";
 
 export interface CommitVisualStylesArgs {
   activeBreakpointUpperBoundPx: number | null;
@@ -72,9 +86,12 @@ export interface CommitVisualStylesArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeCodeLayerProjection: CodeLayerProjection;
   activeFile: DesignFile;
+  activeFileIdRef?: RefObject<string | null>;
+  currentYDocRef?: RefObject<Y.Doc | null>;
   activeProjectionContent: string;
   canEditDesign: boolean;
   canApplyContentEdit: (fileId: string) => boolean;
+  onNoRenderedBox?: () => void;
   applyLinkedComponentEdit?: (
     fileId: string,
     nodeId: string,
@@ -89,6 +106,8 @@ export interface CommitVisualStylesArgs {
       originalStyles?: Record<string, string>;
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
+      routePath?: string;
+      requirePersistedSourceAcceptance?: boolean;
     },
   ) => void;
   isSynced: boolean;
@@ -108,8 +127,10 @@ export interface CommitVisualStylesArgs {
       expectedVersionHash: string;
       syncCollab?: boolean;
       immediate?: boolean;
+      deferCollabReconcile?: boolean;
+      onPersistedContent?: (acceptedContent: string) => void;
     },
-  ) => void;
+  ) => Promise<FileContentSaveCompletion | false> | void;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryChangeFallback: (
     change: ContentHistoryChange,
@@ -125,6 +146,7 @@ export interface CommitVisualStylesArgs {
       interactionState?: InteractionState;
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
+      routePath?: string;
     },
   ) => void;
   replacePreviewContent: (
@@ -134,6 +156,7 @@ export interface CommitVisualStylesArgs {
   ) => PreviewContentReplaceResult;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
   selectedElement: ElementInfo | null;
+  selectedElementRef: RefObject<ElementInfo | null>;
   setCollabContent: Dispatch<SetStateAction<string | null>>;
   setCollabContentFileId: Dispatch<SetStateAction<string | null>>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
@@ -157,13 +180,6 @@ export interface CommitVisualStylesArgs {
   ydoc: Y.Doc | null;
 }
 
-/**
- * A selector different from the selection's own means the caller deliberately
- * retargeted the write — a repeat's template body, or the child that paints
- * the text. Resolving from the selection then sends it back to the element the
- * caller ruled out, and a clone's positional selector resolves to nothing in
- * source, so the write silently vanishes.
- */
 export function styleWriteIsRetargeted(
   selector: unknown,
   selectedElement: ElementInfo | null | undefined,
@@ -177,7 +193,29 @@ export function styleWriteIsRetargeted(
   );
 }
 
+export type CommitVisualStylesOptions = {
+  runtimeApplied?: boolean;
+  elementInfo?: ElementInfo;
+  originalStyles?: Record<string, string>;
+  pendingUndoGestureId?: string;
+  preserveSelection?: boolean;
+  routePath?: string;
+  requirePersistedSourceAcceptance?: boolean;
+};
+
 export function runCommitVisualStyles(
+  args: CommitVisualStylesArgs,
+  selector: string,
+  styles: Record<string, string>,
+  options: CommitVisualStylesOptions = {},
+): void {
+  runCanvasOperation("style_commit", (op) =>
+    commitVisualStylesWithOutcome(op, args, selector, styles, options),
+  );
+}
+
+function commitVisualStylesWithOutcome(
+  op: CanvasOperationHandle,
   {
     activeBreakpointUpperBoundPx,
     activeBreakpointWidthStateRef,
@@ -194,7 +232,10 @@ export function runCommitVisualStyles(
     lastDuplicateTransformRef,
     lastLocalContentRef,
     latestActiveContentRef,
+    activeFileIdRef,
+    currentYDocRef,
     liveScreenSnapshotsById,
+    onNoRenderedBox,
     queueFileContentSave,
     recordContentHistoryEntry,
     recordLocalContentHistoryChangeFallback,
@@ -203,6 +244,7 @@ export function runCommitVisualStyles(
     replacePreviewContent,
     responsiveEditScopeRef,
     selectedElement,
+    selectedElementRef,
     setCollabContent,
     setCollabContentFileId,
     setContentRenderRevision,
@@ -218,26 +260,17 @@ export function runCommitVisualStyles(
     ydoc,
   }: CommitVisualStylesArgs,
   selector: string,
-  styles: Record<string, string>,
-  options: {
-    runtimeApplied?: boolean;
-    elementInfo?: ElementInfo;
-    /** Pre-gesture values, for the pending-edit revert stack. */
-    originalStyles?: Record<string, string>;
-    pendingUndoGestureId?: string;
-    /** The write is a side effect of a gesture on another element, so it must
-     *  not move the selection onto the element it touched. */
-    preserveSelection?: boolean;
-  } = {},
-) {
+  requestedStyles: Record<string, string>,
+  options: CommitVisualStylesOptions,
+): void {
   trace("persist", "commit-styles", {
     selector: typeof selector === "string" ? selector : null,
-    props: Object.keys(styles ?? {}),
+    props: Object.keys(requestedStyles ?? {}),
   });
-  if (!activeFile || !canEditDesign) return;
-  if (!canApplyContentEdit(activeFile.id)) return;
-  // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
-  // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
+  op.setStyleKind(canvasStyleKind(Object.keys(requestedStyles ?? {})));
+  if (!activeFile || !canEditDesign) return op.skip("no_edit_rights");
+  if (!canApplyContentEdit(activeFile.id)) return op.skip("edit_blocked");
+  // Cross-pipeline write race guard (see shader-source-coordination.ts): a shader
   // apply/remove/knob-commit for this same file goes through a completely
   // separate round trip (read-source-file -> apply-source-edit) than this
   // function's own commit, and both eventually rewrite the SAME Y.Doc —
@@ -249,33 +282,76 @@ export function runCommitVisualStyles(
   // microtask tick to the hot path or breaks the same-tick multi-property
   // composition the baseContent comment below depends on.
   if (isShaderWriteInFlight(activeFile.id)) {
-    void waitForShaderWriteToSettle(activeFile.id).then(() => {
-      commitVisualStyles(selector, styles, options);
-    });
+    // The re-run joins this operation, so the edit counts once, by its result.
+    const resumeAfterShaderWrite = op.continueLater();
+    void waitForShaderWriteToSettle(activeFile.id).then(
+      () =>
+        resumeAfterShaderWrite(() =>
+          commitVisualStyles(selector, requestedStyles, options),
+        ),
+      () =>
+        resumeAfterShaderWrite((shaderOp) =>
+          shaderOp.fail("shader_write_failed"),
+        ),
+    );
     return;
   }
+  const styles = roundGeometryStylesPx(requestedStyles, {
+    containingBlockTransform: (options.elementInfo ?? selectedElement)
+      ?.positionContainingBlockTransform,
+  });
+  // The canvas already shows the sub-pixel value the gesture produced; it has
+  // to be resent or the preview disagrees with the persisted source.
+  const runtimePreviewStale =
+    Boolean(options.runtimeApplied) && styles !== requestedStyles;
   const entries = Object.entries(styles).filter(
     ([, value]) => value !== undefined,
   );
-  if (entries.length === 0) return;
+  if (entries.length === 0) return op.skip("empty_styles");
+  const liveTargetInfo = isRunningAppSourceType(activeCanvasSourceType)
+    ? (options.elementInfo ?? selectedElement ?? undefined)
+    : undefined;
+  if (
+    liveTargetInfo &&
+    (liveTargetInfo.boundingRect.width <= 0 ||
+      liveTargetInfo.boundingRect.height <= 0)
+  ) {
+    if (options.runtimeApplied && options.originalStyles) {
+      const runtimePatch = {
+        screenId: activeFile.id,
+        selector,
+        sourceId: liveTargetInfo.sourceId,
+        runtimeSelector: liveTargetInfo.runtimeSelector,
+        runtimeSourceId: liveTargetInfo.runtimeSourceId,
+        ...(options.routePath ? { routePath: options.routePath } : {}),
+        styles: options.originalStyles,
+      };
+      const sendStyleChangeForScreen = (window as any)
+        .__designCanvasSendStyleForScreen;
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      if (typeof sendStyleChangeForScreen === "function") {
+        replayPendingVisualStyleRuntimePatch(
+          runtimePatch,
+          sendStyleChangeForScreen,
+        );
+      } else if (typeof sendStyleChange === "function") {
+        const target = runtimeStyleTarget(runtimePatch);
+        Object.entries(runtimePatch.styles).forEach(([property, value]) => {
+          sendStyleChange(target.selector, property, value, {
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId,
+          });
+        });
+      }
+    }
+    onNoRenderedBox?.();
+    return op.fail("no_rendered_box");
+  }
   upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
-  // §gesture-persistence — a localhost screen's source of truth is the
-  // running app's own files, which this client cannot write. Everything
-  // below patches the design's STORED html, which for such a screen is
-  // only the bridged route URL, so an inspector commit updated the model
-  // and the undo stack while the running app kept rendering the old value
-  // and no pending edit was ever queued for the Apply pass. Push the value
-  // into the live DOM and queue it, exactly like a canvas gesture
-  // (handleVisualStyleChange delegates here with runtimeApplied set
-  // because its gesture already moved the live DOM).
   if (isRunningAppSourceType(activeCanvasSourceType)) {
-    const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
-    // Breakpoint-scoped writes are excluded for the same reason as the
-    // base path below (Item 5, edit-flash): the agent persists them as a
-    // width-scoped class or an `@media` rule, which an inline style would
-    // preview wrong.
+    const targetInfo = liveTargetInfo;
     if (
-      !options.runtimeApplied &&
+      (!options.runtimeApplied || runtimePreviewStale) &&
       activeBreakpointUpperBoundPx == null &&
       typeof (window as any).__designCanvasSendStyleForScreen === "function"
     ) {
@@ -284,6 +360,7 @@ export function runCommitVisualStyles(
           screenId: activeFile.id,
           selector,
           sourceId: targetInfo?.runtimeSourceId ?? targetInfo?.sourceId ?? null,
+          routePath: options.routePath,
           styles: Object.fromEntries(entries),
         },
         (window as any).__designCanvasSendStyleForScreen,
@@ -293,40 +370,31 @@ export function runCommitVisualStyles(
       originalStyles: options.originalStyles,
       pendingUndoGestureId: options.pendingUndoGestureId,
       preserveSelection: options.preserveSelection,
+      routePath: options.routePath,
     });
-    return;
+    return op.defer("runtime_pending");
   }
   // Read through the editor's source boundary so pending linked projections
   // and synchronous local writes compose before this full-document commit.
-  const activeLiveSnapshot = activeFile
-    ? liveScreenSnapshotsById[activeFile.id]
+  const activeLiveSnapshot = isRunningAppSourceType(activeCanvasSourceType)
+    ? activeFile
+      ? liveScreenSnapshotsById[activeFile.id]
+      : undefined
     : undefined;
   const baseContent = getScreenContent(activeFile.id);
-  // A localhost screen's stored content IS its route URL, so with no
-  // snapshot yet the chain above yields that URL string. Projecting it gives
-  // a 3-node document where nothing resolves: a snapshot that has not
-  // arrived is not an empty document.
   if (isStandaloneHttpUrl(baseContent)) {
     toast.error(t("designEditor.patchProof.snapshotNotLoaded"), {
       duration: 4000,
     });
-    return;
+    return op.fail("snapshot_not_loaded");
   }
   const [firstProperty, firstValue] = entries[0];
-  // PF12: reuse the already-built activeCodeLayerProjection when its
-  // source content is exactly the content this commit is about to patch
-  // (the common case — no pending live snapshot/local-edit divergence).
-  // Style commits fire on every slider/color-picker drag tick, so
-  // skipping a redundant full-document reparse here matters.
   const projection =
     baseContent === activeProjectionContent
       ? activeCodeLayerProjection
       : buildCodeLayerProjection(baseContent, {
           source: activeCodeLayerProjection.source,
         });
-  // An explicitly retargeted selector wins over the payload too: the canvas
-  // gesture path passes both, and resolving from the payload would send the
-  // write back to the one clone the gesture happened to move.
   const carriedInfo = options.elementInfo ?? selectedElement;
   const targetInfo = styleWriteIsRetargeted(selector, carriedInfo)
     ? null
@@ -337,32 +405,26 @@ export function runCommitVisualStyles(
   const targetNode =
     targetResolution.status === "resolved" ? targetResolution.node : null;
   const sendStyleChange = (window as any).__designCanvasSendStyle;
-  // Item 5 (edit-flash): a breakpoint-scoped commit
-  // (activeBreakpointUpperBoundPx set) never persists as a plain inline
-  // style — planBreakpointStyleWrite below turns it into a width-scoped
-  // Tailwind class or an `@media` rule in the managed breakpoints <style>
-  // block. sendStyleChange only knows how to patch the live element's
-  // INLINE style, which unconditionally beats any `@media` rule's
-  // specificity. Applying it here would preview the wrong
-  // (inline-style-overridden) value immediately, then visibly flash to the
-  // correct cascaded value once the next full document patch/reload catches
-  // up — so skip the runtime shortcut entirely for breakpoint-scoped writes
-  // and fall through to the full content patch path below, which reflects
-  // the actual persisted class/`@media` result.
-  // This property rebuilds SVG defs/use markup, so preview it through the
-  // committed document replacement below instead of layering a runtime copy.
+  const targetIsSvg =
+    (targetNode?.tag ?? targetInfo?.tagName)?.toLowerCase() === "svg";
   const runtimeStyleApplied =
-    !entries.some(([property]) => property === "--an-vector-stroke-position") &&
-    !options.runtimeApplied &&
+    !entries.some(
+      ([property]) =>
+        property === "--an-vector-stroke-position" ||
+        isVectorEndpointProperty(property) ||
+        property === LINE_SEGMENT_PROPERTY ||
+        (targetIsSvg &&
+          /^border(-[a-z]+)*-radius$|^border\w*Radius$/.test(property)) ||
+        (targetIsSvg &&
+          (property === "width" || property === "height") &&
+          targetNode?.dataAttributes["data-figma-node-id"] !== undefined &&
+          targetNode.attributes["preserveaspectratio"] === undefined),
+    ) &&
+    (!options.runtimeApplied || runtimePreviewStale) &&
     activeBreakpointUpperBoundPx == null &&
     typeof sendStyleChange === "function";
-  // Shared by both terminal paths below so neither drifts into previewing a
-  // different element than the other.
   const sendRuntimeStylePreview = (): void => {
     if (!runtimeStyleApplied) return;
-    // A stamped id goes stale the moment React re-creates the node, so send
-    // the bridge-minted identities as fallbacks (see
-    // canonicalElementInfoForCodeLayerNode).
     const selectorCandidates = targetNode
       ? codeLayerSelectorAliases(targetNode)
       : Array.from(
@@ -397,32 +459,31 @@ export function runCommitVisualStyles(
         t("designEditor.componentInstances.linkedEditScopeUnsupported"),
         { duration: 4000 },
       );
-      return;
+      return op.fail("linked_scope_unsupported");
     }
     if (!durableNodeId) {
       toast.error(t("designEditor.patchProof.selectorMissing"), {
         duration: 4000,
       });
-      return;
+      return op.fail("selector_missing");
     }
     if (!applyLinkedComponentEdit) {
       toast.error(
         t("designEditor.componentInstances.linkedEditSourceUnsupported"),
         { duration: 4000 },
       );
-      return;
+      return op.fail("linked_source_unsupported");
     }
-    sendRuntimeStylePreview();
+    if (!options.requirePersistedSourceAcceptance) sendRuntimeStylePreview();
     applyLinkedComponentEdit(activeFile.id, durableNodeId, {
       kind: "styleBatch",
       values: Object.fromEntries(entries),
     });
-    return;
+    // The linked edit is a queued server mutation whose failure is not
+    // reported back here, so this commit never counts as a success.
+    return op.defer("linked_edit_queued");
   }
 
-  // U7: if this style commit repositions (left/top) the node(s) most
-  // recently created by Cmd+D, record the delta so the next Cmd+D on that
-  // same selection can replay it instead of landing back in place.
   if (targetNode && lastDuplicateTransformRef.current) {
     const nodeId =
       targetNode.dataAttributes["data-agent-native-node-id"] ?? targetNode.id;
@@ -453,14 +514,24 @@ export function runCommitVisualStyles(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const canUpdateCurrentFilePatchProof = () =>
+    !options.requirePersistedSourceAcceptance ||
+    activeFileIdRef === undefined ||
+    activeFileIdRef.current === activeFile.id;
+  const setPatchProofForCurrentFile = (
+    next: SetStateAction<PatchProofState | null>,
+  ) => {
+    if (!canUpdateCurrentFilePatchProof()) return;
+    if (!options.requirePersistedSourceAcceptance) {
+      setPatchProof(next);
+      return;
+    }
+    setPatchProof((previous) => {
+      if (!canUpdateCurrentFilePatchProof()) return previous;
+      return typeof next === "function" ? next(previous) : next;
+    });
+  };
   if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {
-    // Fail LOUD (same contract as the resolveVisualStyleCommitContent
-    // error branch below): patch-proof state alone is too quiet for a
-    // user-initiated edit that will never persist.
-    //
-    // Three facts, three remedies: ambiguous needs scoping, a mount shell
-    // has no app markup at ANY selector, and only an authored document that
-    // lost the node is actually "missing".
     const resolutionFailure =
       targetResolution.status === "ambiguous"
         ? t("designEditor.patchProof.selectorAmbiguous", {
@@ -472,7 +543,7 @@ export function runCommitVisualStyles(
     toast.error(resolutionFailure, {
       duration: 4000,
     });
-    setPatchProof({
+    setPatchProofForCurrentFile({
       id: proofId,
       fileId: activeFile.id,
       filename: activeFile.filename,
@@ -496,9 +567,15 @@ export function runCommitVisualStyles(
       error: resolutionFailure,
       createdAt: Date.now(),
     });
-    return;
+    return op.fail(
+      targetResolution.status === "ambiguous"
+        ? "selector_ambiguous"
+        : isClientRenderedMountShell(projection)
+          ? "client_rendered_shell"
+          : "node_unresolved",
+    );
   }
-  setPatchProof({
+  setPatchProofForCurrentFile({
     id: proofId,
     fileId: activeFile.id,
     filename: activeFile.filename,
@@ -521,317 +598,436 @@ export function runCommitVisualStyles(
     status: "runtime",
     createdAt: Date.now(),
   });
-  sendRuntimeStylePreview();
+  if (!options.requirePersistedSourceAcceptance) sendRuntimeStylePreview();
+  const committedSelection = selectedElementRef.current;
+  const resumeAfterPaint = op.continueLater();
+  commitAfterPaint(() => resumeAfterPaint(commitStylesAfterPaint));
+  function commitStylesAfterPaint(op: CanvasOperationHandle): void {
+    const latestContent = getScreenContent(activeFile.id);
 
-  const nextContent = applyInlineStylesToHtml(baseContent, selector, {
-    ...Object.fromEntries(entries),
-  });
-  // §6.4 — Breakpoint-scoped editing (Framer cascade). Reuses the
-  // `projection` and `targetNode` resolved above for the patch-proof
-  // block (same baseContent). When a non-base breakpoint frame is
-  // active, EVERY property routes through the single class-vs-media
-  // decision (planBreakpointStyleWrite):
-  //
-  // - Tailwind-utility values become width-scoped responsive classes
-  //   (`max-[<bound>px]:text-lg`), replacing any same-stem token at the
-  //   same bound.
-  // guard:allow-raw-color - prose naming CSS value kinds, not a color literal
-  // - Raw CSS values (exact px from drags, rgb()/calc(), …) become
-  //   managed `@media (max-width: <bound>px)` rules in the
-  //   `<style data-agent-native-breakpoints>` block, targeting the
-  //   element's stable node id.
-  //
-  // Base edits (no active breakpoint, or the active frame is the widest
-  // context) keep the plain inline-style path and cascade down to every
-  // narrower breakpoint unless overridden there.
-  const stylePatch = entries.reduce<{
-    content: string;
-    failed: string | null;
-  }>(
-    (current, [property, value]) => {
-      if (current.failed) return current;
-      const patch = applyScopedVisualStyleEdit({
-        content: current.content,
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
-        property,
-        value,
-        source: projection.source,
-        upperBoundPx: activeBreakpointUpperBoundPx,
-        lowerBoundPx:
-          responsiveEditScopeRef.current === "only"
-            ? activeBreakpointWidthStateRef.current
-            : null,
-      });
-      if (patch.result.status !== "applied") {
-        return {
+    // §6.4 — Breakpoint-scoped editing (Framer cascade). Reuses the
+    // `projection` and `targetNode` resolved above for the patch-proof
+    // block; the patch targets the node id, so it holds on the latest
+    // content even if a commit landed in between. When a non-base breakpoint frame is
+    // active, EVERY property routes through the single class-vs-media
+    // decision (planBreakpointStyleWrite):
+    //
+    // - Tailwind-utility values become width-scoped responsive classes
+    //   (`max-[<bound>px]:text-lg`), replacing any same-stem token at the
+    //   same bound.
+    // guard:allow-raw-color - prose naming CSS value kinds, not a color literal
+    // - Raw CSS values (exact px from drags, rgb()/calc(), …) become
+    //   managed `@media (max-width: <bound>px)` rules in the
+    //   `<style data-agent-native-breakpoints>` block, targeting the
+    //   element's stable node id.
+    //
+    // Base edits (no active breakpoint, or the active frame is the widest
+    // context) keep the plain inline-style path and cascade down to every
+    // narrower breakpoint unless overridden there.
+    // `selector` was resolved against `baseContent`; on a newer document it
+    // can match a different element, so only a node id may carry the write.
+    const selectorIsCurrent = latestContent === baseContent;
+    const stylePatch = entries.reduce<{
+      content: string;
+      failed: string | null;
+    }>(
+      (current, [property, value]) => {
+        if (current.failed) return current;
+        const patch = applyScopedVisualStyleEdit({
           content: current.content,
-          failed: codeLayerPatchMessage(
-            patch.result.message,
-            t("designEditor.patchProof.selectorMissing"),
+          target: targetNode ? { nodeId: targetNode.id } : { selector },
+          property,
+          value,
+          source: projection.source,
+          upperBoundPx: activeBreakpointUpperBoundPx,
+          lowerBoundPx:
+            responsiveEditScopeRef.current === "only"
+              ? activeBreakpointWidthStateRef.current
+              : null,
+        });
+        if (patch.result.status !== "applied") {
+          return {
+            content: current.content,
+            failed: codeLayerPatchMessage(
+              patch.result.message,
+              t("designEditor.patchProof.selectorMissing"),
+            ),
+          };
+        }
+        return { content: patch.content, failed: null };
+      },
+      {
+        content: latestContent,
+        failed:
+          targetNode || selectorIsCurrent
+            ? null
+            : t("designEditor.patchProof.selectorMissing"),
+      },
+    );
+    const legacyFallbackContent =
+      stylePatch.failed &&
+      activeBreakpointUpperBoundPx == null &&
+      selectorIsCurrent
+        ? applyInlineStylesToHtml(latestContent, selector, {
+            ...Object.fromEntries(entries),
+          })
+        : null;
+    const resizedNodeId =
+      activeBreakpointUpperBoundPx == null &&
+      entries.some(
+        ([property]) => property === "width" || property === "height",
+      )
+        ? targetNode?.dataAttributes["data-agent-native-node-id"]
+        : undefined;
+    const scopedContent =
+      resizedNodeId && !stylePatch.failed
+        ? pinFixedFlexSiblingsOfNode(stylePatch.content, resizedNodeId)
+        : stylePatch.content;
+    const siblingsPinned = scopedContent !== stylePatch.content;
+    const commitResolution = resolveVisualStyleCommitContent({
+      scopedContent,
+      scopedFailure: stylePatch.failed,
+      legacyFallbackContent,
+      breakpointScoped: activeBreakpointUpperBoundPx != null,
+    });
+    if ("error" in commitResolution) {
+      const failureMessage = codeLayerPatchMessage(
+        commitResolution.error,
+        t("designEditor.patchProof.selectorMissing"),
+      );
+      toast.error(failureMessage, { duration: 4000 });
+      setPatchProofForCurrentFile((prev) =>
+        prev?.id === proofId
+          ? { ...prev, status: "failed", error: failureMessage }
+          : prev,
+      );
+      return op.fail("patch_failed");
+    }
+    const resolvedNextContentBeforeFontLink = commitResolution.content;
+
+    const fontFamilyValue = Object.fromEntries(entries).fontFamily;
+    const resolvedNextContentAfterFontLink = fontFamilyValue
+      ? ensureGoogleFontLinkInHtml(
+          resolvedNextContentBeforeFontLink,
+          fontFamilyValue,
+        )
+      : resolvedNextContentBeforeFontLink;
+
+    const committedNodeId =
+      targetNode?.dataAttributes["data-agent-native-node-id"];
+    const unpreparedNextContent =
+      "color" in Object.fromEntries(entries) && committedNodeId
+        ? clearAutoTextColorMarkerOnExplicitColorCommit(
+            resolvedNextContentAfterFontLink,
+            committedNodeId,
+          )
+        : resolvedNextContentAfterFontLink;
+    const resolvedNextContent = prepareCanonicalSourceContent(
+      unpreparedNextContent,
+      {
+        fileId: activeFile.id,
+        fileType: activeFile.fileType,
+      },
+    ).content;
+
+    try {
+      assertDesignHtmlEditIntegrity({
+        previousContent: latestContent,
+        nextContent: resolvedNextContent,
+        fileType: activeFile.fileType,
+      });
+    } catch (error) {
+      const message = designSaveErrorMessage(error) ?? t("common.genericError");
+      toast.error(message, {
+        id: `design-source-integrity:${activeFile.id}`,
+      });
+      setPatchProofForCurrentFile((previous) =>
+        previous?.id === proofId
+          ? { ...previous, status: "failed", error: message }
+          : previous,
+      );
+      return op.fail("integrity_failed");
+    }
+
+    const nextProjection = buildCodeLayerProjection(resolvedNextContent, {
+      source: projection.source,
+    });
+    const resolvedNode = selectedElement
+      ? nextProjection.nodes.find((node) => {
+          const aliases = codeLayerSelectorAliases(node);
+          return (
+            (selectedElement.sourceId &&
+              (node.id === selectedElement.sourceId ||
+                node.dataAttributes["data-agent-native-node-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-code-layer-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-layer-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-builder-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-loc"] === selectedElement.sourceId ||
+                node.attributes.id === selectedElement.sourceId)) ||
+            aliases.includes(selector) ||
+            codeLayerSelectorMatches(node, selector)
+          );
+        })
+      : null;
+
+    if (options.requirePersistedSourceAcceptance) {
+      const capturedLatestActiveContent = latestActiveContentRef.current;
+      const capturedLastLocalContent = lastLocalContentRef.current;
+      const currentYDoc = currentYDocRef ? currentYDocRef.current : ydoc;
+      const capturedYDoc =
+        currentYDoc && !currentYDoc.isDestroyed ? currentYDoc : null;
+      const capturedYText = capturedYDoc?.getText("content");
+      const capturedYTextContent = capturedYText?.toJSON() ?? null;
+      setPatchProofForCurrentFile((prev) =>
+        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+      );
+      // This commit only lands once the server accepts the save, so the save's
+      // result decides the outcome.
+      const resumeAfterSave = op.continueLater();
+      const saved = queueFileContentSave(activeFile.id, resolvedNextContent, {
+        expectedVersionHash: sourceContentHash(latestContent),
+        syncCollab: false,
+        immediate: true,
+        deferCollabReconcile: true,
+        onPersistedContent: (acceptedContent) => {
+          const acceptedYDoc = currentYDocRef ? currentYDocRef.current : ydoc;
+          const currentAcceptedYDoc =
+            acceptedYDoc && !acceptedYDoc.isDestroyed ? acceptedYDoc : null;
+          const currentYTextContent =
+            currentAcceptedYDoc?.getText("content").toJSON() ?? null;
+          if (
+            (activeFileIdRef !== undefined &&
+              activeFileIdRef.current !== activeFile.id) ||
+            latestActiveContentRef.current !== capturedLatestActiveContent ||
+            lastLocalContentRef.current !== capturedLastLocalContent ||
+            capturedYDoc !== currentAcceptedYDoc ||
+            capturedYTextContent !== currentYTextContent
+          ) {
+            return;
+          }
+
+          try {
+            const writeLiveDoc = canWriteCollabText(
+              currentAcceptedYDoc,
+              isSynced,
+              capturedYTextContent ?? latestContent,
+            );
+            const yjsHistoryAvailable = Boolean(
+              viewModeRef.current !== "overview" &&
+              writeLiveDoc &&
+              undoManagerRef.current,
+            );
+            if (
+              acceptedContent !== latestContent &&
+              !suppressContentHistoryRef.current
+            ) {
+              const change = {
+                fileId: activeFile.id,
+                before: latestContent,
+                after: acceptedContent,
+              };
+              if (yjsHistoryAvailable) {
+                recordLocalContentHistoryChangeFallback(change);
+              } else if (viewModeRef.current === "overview") {
+                recordContentHistoryEntry(change);
+              } else {
+                recordLocalContentHistoryEntry(change);
+              }
+            }
+
+            setCollabContent(acceptedContent);
+            setCollabContentFileId(activeFile.id);
+            lastLocalContentRef.current = acceptedContent;
+            latestActiveContentRef.current = acceptedContent;
+            if (currentAcceptedYDoc && writeLiveDoc) {
+              const ytext = currentAcceptedYDoc.getText("content");
+              if (ytext.toJSON() !== acceptedContent) {
+                if (!yjsHistoryAvailable) {
+                  undoManagerRef.current?.clear(true, false);
+                }
+                writeCollabText(
+                  currentAcceptedYDoc,
+                  ytext,
+                  acceptedContent,
+                  yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+                );
+              }
+            }
+            if (
+              previewContentReplaceNeedsRenderFallback(
+                replacePreviewContent(acceptedContent, selector, {
+                  forceFullDocument: true,
+                }),
+              )
+            ) {
+              setContentRenderRevision((revision) => revision + 1);
+            }
+          } catch (error) {
+            const message =
+              designSaveErrorMessage(error) ?? t("common.genericError");
+            toast.error(message, {
+              id: `design-source-integrity:${activeFile.id}`,
+            });
+            setPatchProofForCurrentFile((prev) =>
+              prev?.id === proofId
+                ? { ...prev, status: "failed", error: message }
+                : prev,
+            );
+            console.error("Accepted source publication failed", error);
+          }
+        },
+      });
+      void Promise.resolve(saved).then(
+        (result) =>
+          resumeAfterSave((saveOp) => {
+            if (result === "persisted") saveOp.succeed();
+            else if (result === "conflict") saveOp.fail("not_persisted");
+            else if (result === false) saveOp.skip("no_edit_rights");
+            // Offline, superseded, aborted or an error: the save's own count
+            // carries which, so this one does not claim a failure for it.
+            else saveOp.defer("save_unfinished");
+          }),
+        () => resumeAfterSave((saveOp) => saveOp.fail("exception")),
+      );
+      return;
+    }
+
+    const liveSnapshotUpdated = activeLiveSnapshot
+      ? updateLiveScreenSnapshotContent(activeFile.id, resolvedNextContent)
+      : false;
+    if (liveSnapshotUpdated) {
+      setPatchProof((prev) =>
+        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+      );
+      if (!runtimeStyleApplied || siblingsPinned) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+    } else {
+      const writeLiveDoc = canWriteCollabText(ydoc, isSynced, latestContent);
+      const yjsHistoryAvailable = Boolean(
+        viewModeRef.current !== "overview" &&
+        writeLiveDoc &&
+        undoManagerRef.current,
+      );
+      if (
+        !yjsHistoryAvailable &&
+        !suppressContentHistoryRef.current &&
+        latestContent !== resolvedNextContent
+      ) {
+        const change = {
+          fileId: activeFile.id,
+          before: latestContent,
+          after: resolvedNextContent,
+        };
+        if (viewModeRef.current === "overview") {
+          recordContentHistoryEntry(change);
+        } else {
+          recordLocalContentHistoryEntry(change);
+        }
+      } else if (
+        yjsHistoryAvailable &&
+        !suppressContentHistoryRef.current &&
+        latestContent !== resolvedNextContent
+      ) {
+        recordLocalContentHistoryChangeFallback({
+          fileId: activeFile.id,
+          before: latestContent,
+          after: resolvedNextContent,
+        });
+      }
+
+      setCollabContent(resolvedNextContent);
+      setCollabContentFileId(activeFile.id);
+      setPatchProof((prev) =>
+        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+      );
+      lastLocalContentRef.current = resolvedNextContent;
+      latestActiveContentRef.current = resolvedNextContent;
+      if (ydoc && writeLiveDoc) {
+        const ytext = ydoc.getText("content");
+        if (ytext.toJSON() !== resolvedNextContent) {
+          if (!yjsHistoryAvailable) {
+            undoManagerRef.current?.clear(true, false);
+          }
+          writeCollabText(
+            ydoc,
+            ytext,
+            resolvedNextContent,
+            yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+          );
+        }
+      }
+      queueFileContentSave(activeFile.id, resolvedNextContent, {
+        expectedVersionHash: sourceContentHash(latestContent),
+        syncCollab: !writeLiveDoc,
+      });
+      if (
+        (siblingsPinned ||
+          shouldReplacePreviewAfterVisualStyleCommit({
+            runtimeApplied: options.runtimeApplied && !runtimePreviewStale,
+            runtimeStyleApplied,
+          })) &&
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(resolvedNextContent, selector, {
+            forceFullDocument: siblingsPinned,
+          }),
+        )
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+    }
+    // Applied on the canvas. Whether it persisted is the save's own outcome;
+    // only a caller that requires server acceptance waits for it.
+    op.succeed();
+    if (options.preserveSelection) return;
+    // The user may have selected something else before this commit landed.
+    if (selectedElementRef.current !== committedSelection) return;
+    if (resolvedNode) {
+      setSelectedLayerIdsState((current) =>
+        current.includes(resolvedNode.id) ? current : [resolvedNode.id],
+      );
+    }
+    setSelectedElement((prev) => {
+      const committed = Object.fromEntries(entries);
+      if (options.elementInfo) {
+        return {
+          ...options.elementInfo,
+          computedStyles: {
+            ...options.elementInfo.computedStyles,
+            ...committed,
+          },
+          inlineStyles: patchAuthoredInlineStyles(
+            options.elementInfo.inlineStyles,
+            committed,
+          ),
+          authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+            options.elementInfo.authoredSizeStyles,
+            committed,
           ),
         };
       }
-      return { content: patch.content, failed: null };
-    },
-    { content: baseContent, failed: null },
-  );
-  // §6.4 — the legacy selector-based inline-style fallback (nextContent)
-  // is a BASE write: safe when editing the base, but while a narrower
-  // breakpoint is active it would clobber every viewport width with a
-  // value the user meant to scope. Fail loud (patch-proof error) instead
-  // of silently widening the edit.
-  const commitResolution = resolveVisualStyleCommitContent({
-    scopedContent: stylePatch.content,
-    scopedFailure: stylePatch.failed,
-    legacyFallbackContent: nextContent,
-    breakpointScoped: activeBreakpointUpperBoundPx != null,
-  });
-  if ("error" in commitResolution) {
-    const failureMessage = codeLayerPatchMessage(
-      commitResolution.error,
-      t("designEditor.patchProof.selectorMissing"),
-    );
-    // Fail LOUD, never silently: an unresolvable commit target (e.g. an
-    // Alpine template-instance element with no per-instance source node)
-    // used to only flip the patch-proof panel to "failed" — no toast, no
-    // revert, while the inspector kept displaying the new value, so users
-    // had no idea their edit never persisted (verified on real content:
-    // Gap scrub on an x-for todo-card subtask row). Same toast pattern as
-    // handleVisualStructureChange's move failure.
-    toast.error(failureMessage, { duration: 4000 });
-    setPatchProof((prev) =>
-      prev?.id === proofId
-        ? { ...prev, status: "failed", error: failureMessage }
-        : prev,
-    );
-    return;
-  }
-  const resolvedNextContentBeforeFontLink = commitResolution.content;
-
-  // T16: if this commit set fontFamily to a known Google Font not
-  // already loaded in this screen, inject its <link> into <head>.
-  const fontFamilyValue = Object.fromEntries(entries).fontFamily;
-  const resolvedNextContentAfterFontLink = fontFamilyValue
-    ? ensureGoogleFontLinkInHtml(
-        resolvedNextContentBeforeFontLink,
-        fontFamilyValue,
-      )
-    : resolvedNextContentBeforeFontLink;
-
-  // Finding 2(b): an explicit "color" commit on a node that still carries
-  // BOARD_TEXT_AUTO_COLOR_MARKER means the user just deliberately chose a
-  // color — the marker no longer describes an auto-applied default and
-  // must not survive to mislead a later reparent/cross-screen move (see
-  // isStaleAutoTextColorMarker / clearAutoTextColorMarkerOnExplicitColorCommit).
-  const committedNodeId =
-    targetNode?.dataAttributes["data-agent-native-node-id"];
-  const unpreparedNextContent =
-    "color" in Object.fromEntries(entries) && committedNodeId
-      ? clearAutoTextColorMarkerOnExplicitColorCommit(
-          resolvedNextContentAfterFontLink,
-          committedNodeId,
-        )
-      : resolvedNextContentAfterFontLink;
-  const resolvedNextContent = prepareCanonicalSourceContent(
-    unpreparedNextContent,
-    {
-      fileId: activeFile.id,
-      fileType: activeFile.fileType,
-    },
-  ).content;
-
-  try {
-    assertDesignHtmlEditIntegrity({
-      previousContent: baseContent,
-      nextContent: resolvedNextContent,
-      fileType: activeFile.fileType,
-    });
-  } catch (error) {
-    const message = designSaveErrorMessage(error) ?? t("common.genericError");
-    toast.error(message, {
-      id: `design-source-integrity:${activeFile.id}`,
-    });
-    setPatchProof((previous) =>
-      previous?.id === proofId
-        ? { ...previous, status: "failed", error: message }
-        : previous,
-    );
-    return;
-  }
-
-  const nextProjection = buildCodeLayerProjection(resolvedNextContent, {
-    source: projection.source,
-  });
-  const resolvedNode = selectedElement
-    ? nextProjection.nodes.find((node) => {
-        const aliases = codeLayerSelectorAliases(node);
-        return (
-          (selectedElement.sourceId &&
-            (node.id === selectedElement.sourceId ||
-              node.dataAttributes["data-agent-native-node-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-code-layer-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-layer-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-builder-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-loc"] === selectedElement.sourceId ||
-              node.attributes.id === selectedElement.sourceId)) ||
-          aliases.includes(selector) ||
-          codeLayerSelectorMatches(node, selector)
-        );
-      })
-    : null;
-  const liveSnapshotUpdated = activeLiveSnapshot
-    ? updateLiveScreenSnapshotContent(activeFile.id, resolvedNextContent)
-    : false;
-  if (liveSnapshotUpdated) {
-    setPatchProof((prev) =>
-      prev?.id === proofId ? { ...prev, status: "queued" } : prev,
-    );
-    if (!runtimeStyleApplied) {
-      setContentRenderRevision((revision) => revision + 1);
-    }
-  } else {
-    const writeLiveDoc = canWriteCollabText(ydoc, isSynced, baseContent);
-    const yjsHistoryAvailable = Boolean(
-      viewModeRef.current !== "overview" &&
-      writeLiveDoc &&
-      undoManagerRef.current,
-    );
-    if (
-      !yjsHistoryAvailable &&
-      !suppressContentHistoryRef.current &&
-      baseContent !== resolvedNextContent
-    ) {
-      const change = {
-        fileId: activeFile.id,
-        before: baseContent,
-        after: resolvedNextContent,
-      };
-      if (viewModeRef.current === "overview") {
-        recordContentHistoryEntry(change);
-      } else {
-        recordLocalContentHistoryEntry(change);
-      }
-    } else if (
-      yjsHistoryAvailable &&
-      !suppressContentHistoryRef.current &&
-      baseContent !== resolvedNextContent
-    ) {
-      // BUG-UNDO-RESIZE-STACK: mirror the same before/after into the local
-      // fallback stack that applyLocalContentUpdate already maintains for
-      // every other commit path (text edits, moves, structure changes).
-      // The Yjs UndoManager is destroyed and recreated whenever `docId`
-      // changes — a view-mode switch, a zoom-triggered re-render, or a
-      // breakpoint switch — which silently drops its entire undo stack.
-      // Without this mirror, a gesture-driven style/resize commit (the
-      // ONLY commit path that skipped this call) became permanently
-      // unrecoverable the moment that happened: handleUndo's um.canUndo()
-      // goes false with nothing to fall back to, so Cmd+Z does nothing at
-      // all for a resize-drag even though every other edit kind still has
-      // a working fallback. Only consulted once Yjs itself has nothing
-      // left to undo (see handleUndo), so this never causes a double-undo.
-      recordLocalContentHistoryChangeFallback({
-        fileId: activeFile.id,
-        before: baseContent,
-        after: resolvedNextContent,
-      });
-    }
-
-    setCollabContent(resolvedNextContent);
-    setCollabContentFileId(activeFile.id);
-    setPatchProof((prev) =>
-      prev?.id === proofId ? { ...prev, status: "queued" } : prev,
-    );
-    // Mark as our own write so the get-design reconcile + Yjs observe don't
-    // treat the echo as an external edit and fight the live value.
-    lastLocalContentRef.current = resolvedNextContent;
-    latestActiveContentRef.current = resolvedNextContent;
-    // Write the edit into the shared Y.Doc so other open clients see it live
-    // through Yjs (not only via the slower update-file → applyText round-trip).
-    // Single-screen edits use the active-file UndoManager. Overview edits are
-    // tracked in the global file-content stack so all screens share one order.
-    if (ydoc && writeLiveDoc) {
-      const ytext = ydoc.getText("content");
-      if (ytext.toJSON() !== resolvedNextContent) {
-        if (!yjsHistoryAvailable) {
-          // Untracked write (overview mode with a still-live
-          // single-mode UndoManager, or history-suppressed replay) —
-          // see U1 note: clear the undo stack so a stale tracked delta
-          // can't be replayed against content it no longer matches.
-          undoManagerRef.current?.clear(true, false);
-        }
-        writeCollabText(
-          ydoc,
-          ytext,
-          resolvedNextContent,
-          yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
-        );
-      }
-    }
-    queueFileContentSave(activeFile.id, resolvedNextContent, {
-      expectedVersionHash: sourceContentHash(baseContent),
-      syncCollab: !writeLiveDoc,
-    });
-    if (
-      shouldReplacePreviewAfterVisualStyleCommit({
-        runtimeApplied: options.runtimeApplied,
-        runtimeStyleApplied,
-      }) &&
-      previewContentReplaceNeedsRenderFallback(
-        replacePreviewContent(resolvedNextContent, selector),
-      )
-    ) {
-      setContentRenderRevision((revision) => revision + 1);
-    }
-  }
-  if (options.preserveSelection) return;
-  // A commit must never shrink the selection: a group transform commits one
-  // style change per member, so selecting the committed node keeps only the
-  // member that happened to commit last.
-  if (resolvedNode) {
-    setSelectedLayerIdsState((current) =>
-      current.includes(resolvedNode.id) ? current : [resolvedNode.id],
-    );
-  }
-  setSelectedElement((prev) => {
-    const committed = Object.fromEntries(entries);
-    if (options.elementInfo) {
+      if (!prev) return prev;
+      const stablePatch = resolvedNode
+        ? {
+            sourceId: bridgeSourceIdForCodeLayerNode(resolvedNode),
+            selector: preferredCodeLayerSelector(resolvedNode),
+            classes: resolvedNode.classes,
+          }
+        : {};
       return {
-        ...options.elementInfo,
-        computedStyles: {
-          ...options.elementInfo.computedStyles,
-          ...committed,
-        },
-        inlineStyles: patchAuthoredInlineStyles(
-          options.elementInfo.inlineStyles,
-          committed,
-        ),
+        ...prev,
+        ...stablePatch,
+        computedStyles: { ...prev.computedStyles, ...committed },
+        inlineStyles: patchAuthoredInlineStyles(prev.inlineStyles, committed),
         authoredSizeStyles: clearAuthoredSizeStylesForCommit(
-          options.elementInfo.authoredSizeStyles,
+          prev.authoredSizeStyles,
           committed,
         ),
       };
-    }
-    if (!prev) return prev;
-    const stablePatch = resolvedNode
-      ? {
-          sourceId: bridgeSourceIdForCodeLayerNode(resolvedNode),
-          selector: preferredCodeLayerSelector(resolvedNode),
-          classes: resolvedNode.classes,
-        }
-      : {};
-    return {
-      ...prev,
-      ...stablePatch,
-      computedStyles: { ...prev.computedStyles, ...committed },
-      inlineStyles: patchAuthoredInlineStyles(prev.inlineStyles, committed),
-      authoredSizeStyles: clearAuthoredSizeStylesForCommit(
-        prev.authoredSizeStyles,
-        committed,
-      ),
-    };
-  });
+    });
+  }
 }

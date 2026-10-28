@@ -15,7 +15,7 @@ vi.mock("./federation.js", () => ({
     validateFederatedMembershipMock,
 }));
 
-const { isMissingOrganizationTableError, isOrgMember } =
+const { isMissingOrganizationTableError, isOrgMember, isOrgMemberForA2A } =
   await import("./membership.js");
 
 describe("isOrgMember", () => {
@@ -41,6 +41,36 @@ describe("isOrgMember", () => {
     expect(validateFederatedMembershipMock).not.toHaveBeenCalled();
   });
 
+  it("requires readable organization metadata at credential boundaries while preserving legacy lookup behavior", async () => {
+    executeMock.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("FROM organizations")) {
+        throw new Error('relation "organizations" does not exist');
+      }
+      return { rows: [{ role: "member" }] };
+    });
+
+    await expect(isOrgMember("org-1", "member@example.test")).resolves.toBe(
+      true,
+    );
+    await expect(
+      isOrgMember("org-1", "member@example.test", {
+        requireOrganizationMetadata: true,
+      }),
+    ).rejects.toThrow('relation "organizations" does not exist');
+  });
+
+  it("refuses an orphaned membership when organization metadata is required", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isOrgMember("org-1", "member@example.test", {
+        requireOrganizationMetadata: true,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it("rejects a copied membership after the authority revokes it", async () => {
     executeMock.mockResolvedValue({
       rows: [
@@ -60,10 +90,42 @@ describe("isOrgMember", () => {
     await expect(isOrgMember("org-1", "member@example.com")).resolves.toBe(
       false,
     );
-    expect(validateFederatedMembershipMock).toHaveBeenCalledWith({
-      orgId: "org-1",
-      email: "member@example.com",
+    expect(validateFederatedMembershipMock).toHaveBeenCalledWith(
+      {
+        orgId: "org-1",
+        email: "member@example.com",
+      },
+      undefined,
+    );
+  });
+
+  it("passes the current request to federated membership validation", async () => {
+    const requestEvent = { context: { requestId: "dispatch-action" } } as any;
+    executeMock.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("FROM organizations")
+        ? {
+            rows: [
+              {
+                identity_authority: "https://dispatch.example.test",
+                identity_id: "dispatch-org-1",
+              },
+            ],
+          }
+        : { rows: [{ role: "member" }] },
+    );
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+    validateFederatedMembershipMock.mockResolvedValue({
+      active: true,
+      role: "member",
     });
+
+    await expect(
+      isOrgMember("org-1", "member@example.com", { requestEvent }),
+    ).resolves.toBe(true);
+    expect(validateFederatedMembershipMock).toHaveBeenCalledWith(
+      { orgId: "org-1", email: "member@example.com" },
+      requestEvent,
+    );
   });
 
   it("does not turn an authority check failure into membership", async () => {
@@ -83,6 +145,86 @@ describe("isOrgMember", () => {
 
     await expect(isOrgMember("org-1", "member@example.com")).rejects.toThrow(
       "identity authority unavailable",
+    );
+  });
+});
+
+describe("isOrgMemberForA2A", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    evaluateFeatureFlagStrictMock.mockResolvedValue(false);
+  });
+
+  it("uses the supplied org id and normalized subject for membership evidence", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isOrgMemberForA2A("org-x", " Victim@Y.Example "),
+    ).resolves.toBe(false);
+    expect(executeMock.mock.calls[0]?.[0].args).toEqual([
+      "org-x",
+      "victim@y.example",
+    ]);
+  });
+
+  it("accepts an active member of the resolved org", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({
+        rows: [{ identity_authority: null, identity_id: null }],
+      });
+
+    await expect(isOrgMemberForA2A("org-x", "alice@x.example")).resolves.toBe(
+      true,
+    );
+  });
+
+  it("passes the inbound request to federation validation for linked orgs", async () => {
+    const requestEvent = { context: { requestId: "inbound" } } as any;
+    executeMock
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            identity_authority: "https://dispatch.example.test",
+            identity_id: "dispatch-org-1",
+          },
+        ],
+      });
+    evaluateFeatureFlagStrictMock.mockResolvedValue(true);
+    validateFederatedMembershipMock.mockResolvedValue({
+      active: true,
+      role: "owner",
+    });
+
+    await expect(
+      isOrgMemberForA2A("org-x", "alice@x.example", requestEvent),
+    ).resolves.toBe(true);
+    expect(validateFederatedMembershipMock).toHaveBeenCalledWith(
+      { orgId: "org-x", email: "alice@x.example" },
+      requestEvent,
+    );
+  });
+
+  it("rejects a membership row when its organization record is missing", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(isOrgMemberForA2A("org-x", "alice@x.example")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("propagates unreadable organization metadata instead of treating it as membership", async () => {
+    executeMock
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockRejectedValueOnce(
+        new Error('relation "organizations" does not exist'),
+      );
+
+    await expect(isOrgMemberForA2A("org-x", "alice@x.example")).rejects.toThrow(
+      'relation "organizations" does not exist',
     );
   });
 });

@@ -3,7 +3,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  getDesignClipboardLayerEntries,
   plainTextFromDesignHtml,
+  readDesignClipboardPasteData,
   readDesignClipboardPayloadFromDataTransfer,
   readDesignClipboardPayloadFromSystem,
   writeDesignClipboard,
@@ -25,6 +27,19 @@ const payload: DesignClipboardPayload = {
     },
   ],
 };
+
+describe("design clipboard layer entries", () => {
+  it("does not treat a copied screen's marker as a layer fallback", () => {
+    expect(
+      getDesignClipboardLayerEntries({
+        copiedEntries: [],
+        copiedScreens: [{ filename: "index.html", content: "<main />" }],
+        fallbackHtml: "serialized screen marker",
+        sourceFileId: "screen-1",
+      }),
+    ).toEqual([]);
+  });
+});
 
 class FakeClipboardItem {
   static supports() {
@@ -177,17 +192,14 @@ describe("readDesignClipboardPayload", () => {
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,
     } as unknown as DesignClipboardEnvironment);
-    // A new environment models a remounted editor or separate browser tab:
-    // there are no shared React refs, only the OS clipboard representation.
     const result = await readDesignClipboardPayloadFromSystem({
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,
     } as unknown as DesignClipboardEnvironment);
 
     expect(result).toEqual({
-      payload,
-      markerText: html,
-      plainText: "Readable text",
+      status: "found",
+      value: { payload, markerText: html, plainText: "Readable text" },
     });
   });
 
@@ -231,9 +243,8 @@ describe("readDesignClipboardPayload", () => {
     });
 
     expect(result).toEqual({
-      payload,
-      markerText: html,
-      plainText: "Readable text",
+      status: "found",
+      value: { payload, markerText: html, plainText: "Readable text" },
     });
   });
 
@@ -254,9 +265,8 @@ describe("readDesignClipboardPayload", () => {
     });
 
     expect(result).toEqual({
-      payload,
-      markerText,
-      plainText: markerText,
+      status: "found",
+      value: { payload, markerText, plainText: markerText },
     });
   });
 
@@ -271,7 +281,79 @@ describe("readDesignClipboardPayload", () => {
       readDesignClipboardPayloadFromSystem({
         clipboard: { read: denied, readText: denied },
       }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      status: "unreadable",
+      errors: [expect.anything(), expect.anything()],
+    });
+  });
+
+  it("distinguishes a readable clipboard without a Design marker from an unreadable one", async () => {
+    await expect(
+      readDesignClipboardPayloadFromSystem({
+        clipboard: { readText: async () => "ordinary clipboard text" },
+      }),
+    ).resolves.toEqual({ status: "empty" });
+    await expect(
+      readDesignClipboardPayloadFromSystem({ clipboard: null }),
+    ).resolves.toEqual({ status: "unavailable" });
+  });
+
+  it("reports a marker written under another trust token as untrusted, not empty", async () => {
+    const foreign = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+      "other-origin-token",
+    );
+    await expect(
+      readDesignClipboardPayloadFromSystem({
+        clipboard: { readText: async () => foreign },
+        trustToken: "this-origin-token",
+      }),
+    ).resolves.toEqual({ status: "untrusted" });
+    await expect(
+      readDesignClipboardPayloadFromSystem({
+        clipboard: {
+          read: async () => [
+            {
+              types: ["text/html"],
+              getType: async () => new Blob([foreign]),
+            },
+          ],
+        },
+        trustToken: "this-origin-token",
+      }),
+    ).resolves.toEqual({ status: "untrusted" });
+  });
+
+  it("tells a paste event's untrusted marker apart from no marker", () => {
+    const foreign = serializeDesignClipboardPayload(
+      "<svg></svg>",
+      payload,
+      "other-origin-token",
+    );
+    const transfer = (html: string) => ({
+      getData: (type: string) => (type === "text/html" ? html : ""),
+    });
+    expect(
+      readDesignClipboardPasteData(transfer(foreign), {
+        trustToken: "this-origin-token",
+      }),
+    ).toEqual({ status: "untrusted" });
+    expect(
+      readDesignClipboardPasteData(transfer("<svg></svg>"), {
+        trustToken: "this-origin-token",
+      }),
+    ).toEqual({ status: "absent" });
+    const trusted = serializeDesignClipboardPayload(
+      "<svg></svg>",
+      payload,
+      "this-origin-token",
+    );
+    expect(
+      readDesignClipboardPasteData(transfer(trusted), {
+        trustToken: "this-origin-token",
+      }),
+    ).toMatchObject({ status: "found", value: { payload } });
   });
 
   it("can inspect legacy markers in an explicit migration context", () => {

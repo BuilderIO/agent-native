@@ -94,9 +94,6 @@ describe("ReviewPanel FindingRow fix status", () => {
 
     expect(container!.textContent).toContain("Fixed");
 
-    // A fresh audit pass returns a *new* finding object with the same stable
-    // id — meaning the fix didn't actually resolve it. The row must not keep
-    // showing a stale "Fixed" checkmark for a currently-live issue.
     const reAudited = finding({
       message: "Contrast ratio 2.3:1 — minimum is 4.5:1",
     });
@@ -126,8 +123,6 @@ describe("ReviewPanel FindingRow fix status", () => {
     });
     expect(container!.textContent).toContain("Fixed");
 
-    // Re-rendering with the exact same finding reference (e.g. a parent
-    // re-render unrelated to the audit) must not reset the optimistic state.
     await rerender([original]);
     expect(container!.textContent).toContain("Fixed");
   });

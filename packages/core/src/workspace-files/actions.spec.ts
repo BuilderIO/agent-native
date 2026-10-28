@@ -78,9 +78,6 @@ describe("show-workspace-file", () => {
     ).rejects.toThrow('Workspace file not found: "exports/missing.csv"');
   });
 
-  // Regression: the card only ever shows name/size/type + a download link —
-  // it never inlines file content — so a binary export must render a card
-  // exactly like a text one instead of throwing.
   it("renders a card for a binary (non-text) workspace file", async () => {
     mocks.getWorkspaceFileMeta.mockResolvedValue({
       id: "resource-example",
@@ -120,7 +117,8 @@ describe("show-workspace-file", () => {
   it("registers a read-only native file-card action", () => {
     const action = createWorkspaceFileActionEntries()["show-workspace-file"];
 
-    expect(action).toBe(showWorkspaceFileAction);
+    // oracle-change: Framework classification copies the entry; the native handler and file-card metadata must remain intact.
+    expect(action.run).toBe(showWorkspaceFileAction.run);
     expect(action.readOnly).toBe(true);
     expect(action.chatUI?.renderer).toBe(
       ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,

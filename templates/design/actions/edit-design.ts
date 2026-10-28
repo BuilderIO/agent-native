@@ -1,11 +1,10 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, NoWriteError } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -17,6 +16,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
@@ -29,13 +29,15 @@ import {
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
-import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
+import {
+  assertLockedLayersPreserved,
+  LockedLayerEditError,
+} from "../shared/locked-layers.js";
 
 const editBlocksSchema = z.preprocess(
   (v) => {
     if (typeof v !== "string") return v;
-    // Don't let malformed JSON throw an uncaught SyntaxError — return the
-    // raw value so Zod produces a clean validation error instead.
     try {
       return JSON.parse(v);
     } catch {
@@ -115,10 +117,6 @@ function findUniqueStableIdAgnosticSpan(
   }
   if (count !== 1) return null;
 
-  // Anchor `end` to one byte past the LAST matched stripped character rather than
-  // the mapped index of the NEXT character. Mapping the next index can land before
-  // a stripped node-id attribute that sits right after the match, so the splice
-  // would cross it and corrupt the file (e.g. duplicate/mangled tags).
   const lastMatched = onlyIndex + strippedSearch.length - 1;
   return {
     start: strippedContent.indexMap[onlyIndex] ?? 0,
@@ -162,8 +160,9 @@ export default defineAction({
     "file (cheaper, faster, and it preserves everything you don't touch). Each " +
     "edit's `search` must match the current file exactly and uniquely, so " +
     "include enough surrounding context. Read the file first with " +
-    "`get-design-snapshot`. Wrapping an element is just a search/replace whose " +
-    "`replace` adds the wrapper around the original text. For broad copy-only " +
+    "`get-design-snapshot`. Prefer restyling an existing parent over adding a " +
+    "wrapper; add one only when no existing element can hold the layout. Keep " +
+    "every px length a whole number. For broad copy-only " +
     'changes such as translating all visible text, use `mode: "replace-file"` ' +
     "with `replacementContent`: the complete updated file content copied from " +
     "the snapshot with only the requested copy changed. After a variant pick " +
@@ -176,7 +175,7 @@ export default defineAction({
     "from `get-design-snapshot` first, then call `index-design-tokens` and reuse " +
     "the design's existing tokens so the edited screen matches its siblings; " +
     "introduce values the design does not already use only when asked. " +
-    "Use `generate-design` instead only for brand-new files.",
+    "When refining email HTML, preserve email-safe tables, inline-compatible styles, required HubL footer tokens and any existing internal marker; validate its handoff with export-hubspot-html, which accepts any HTML frame. To rebuild an ordinary frame as a HubSpot email, read it first and use create-file for a new sibling rather than overwriting the source. Use `generate-design` instead only for brand-new files.",
   schema: z
     .object({
       designId: z.string().describe("Design project ID"),
@@ -260,6 +259,18 @@ export default defineAction({
         });
       }
     }),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  // replace-file writes a fixed end state; search-replace can re-match its own
+  // replacement text, so a replay after a lost result may apply an edit twice.
+  retrySafe: (input) =>
+    (input.mode ??
+      (input.replacementContent !== undefined
+        ? "replace-file"
+        : "search-replace")) === "replace-file",
   run: async (
     {
       designId,
@@ -275,8 +286,6 @@ export default defineAction({
     context,
   ) => {
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
-
     const db = getDb();
     const requestedFileId = fileId?.trim();
     const targetFilename = requestedFileId
@@ -286,7 +295,6 @@ export default defineAction({
       ? eq(schema.designFiles.id, requestedFileId)
       : eq(schema.designFiles.filename, targetFilename!);
 
-    // Resolve the target file (access-scoped) by design + fileId or filename.
     const [file] = await db
       .select({
         id: schema.designFiles.id,
@@ -310,7 +318,7 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      fail(
+      throw new NoWriteError(
         requestedFileId
           ? `File id "${requestedFileId}" not found in design ${designId}`
           : `File "${targetFilename}" not found in design ${designId}`,
@@ -322,17 +330,6 @@ export default defineAction({
       mode ??
       (replacementContent !== undefined ? "replace-file" : "search-replace");
 
-    // A concurrent human/agent write can land between reading the live file
-    // and persisting this edit (writeInlineSourceFile throws
-    // SourceWorkspaceEditConflictError when that happens — see its own
-    // comment for the CAS/collab details). search-replace edits are anchored
-    // to specific text rather than a stale full snapshot, so on conflict we
-    // can just re-read the fresh content and reapply the SAME edits against
-    // it instead of forcing the agent to make a separate get-design-snapshot
-    // round trip and guess again. replace-file sends a full document computed
-    // from a point-in-time snapshot — retrying that blind could silently
-    // clobber whatever the concurrent writer did, so it still fails closed on
-    // the first conflict.
     const MAX_EDIT_CONFLICT_RETRIES = 2;
 
     let live: Awaited<ReturnType<typeof readLiveSourceFile>>;
@@ -358,12 +355,9 @@ export default defineAction({
           }>;
         }
       | undefined;
+    let checkpointed = false;
 
     for (let attempt = 0; ; attempt += 1) {
-      // Refetch the SQL content on retries — readLiveSourceFile only falls
-      // back to this when no collab doc exists yet, so a conflict caused by
-      // a plain SQL writer (no live collab session) needs a fresh row here
-      // or every retry would recompute the exact same stale versionHash.
       const currentContent =
         attempt === 0
           ? file.content
@@ -387,10 +381,24 @@ export default defineAction({
       live = await readLiveSourceFile(workspaceFile);
       base = live.content;
 
-      ({ content: nextContent, applied } =
-        resolvedMode === "replace-file"
-          ? { content: replacementContent ?? "", applied: 0 }
-          : applySearchReplaceEdits(base, edits ?? []));
+      if (resolvedMode === "replace-file") {
+        ({ content: nextContent, applied } = {
+          content: replacementContent ?? "",
+          applied: 0,
+        });
+      } else {
+        try {
+          ({ content: nextContent, applied } = applySearchReplaceEdits(
+            base,
+            edits ?? [],
+          ));
+        } catch (error) {
+          if (checkpointed) throw error;
+          throw new NoWriteError(
+            error instanceof Error ? error.message : "Design edit failed",
+          );
+        }
+      }
       changed = nextContent !== base;
       creativeContext = undefined;
 
@@ -400,8 +408,6 @@ export default defineAction({
         contextPackId !== undefined ||
         contextModeOverride !== undefined ||
         reuseLabels.length > 0;
-      // Unscoped deterministic edits are independent of the optional context
-      // service; only an explicit context request needs a prior scope lookup.
       const previous =
         hasCreativeContextRequest && contextModeOverride !== "off"
           ? await getGenerationCreativeContext({
@@ -416,7 +422,7 @@ export default defineAction({
           previous?.contextPackId &&
           contextPackId !== previous.contextPackId
         ) {
-          fail(
+          throw new NoWriteError(
             "The design edit must preserve the design's creative-context pack",
             { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
           );
@@ -466,19 +472,24 @@ export default defineAction({
                 ),
         };
       }
-      assertLockedLayersPreserved(base, nextContent);
+      try {
+        assertLockedLayersPreserved(base, nextContent);
+      } catch (error) {
+        if (error instanceof LockedLayerEditError) {
+          if (checkpointed) throw error;
+          throw new NoWriteError(error.message, {
+            errorCode: error.errorCode,
+            statusCode: error.statusCode,
+          });
+        }
+        throw error;
+      }
 
-      // Mark agent presence + selection so live viewers can see where the
-      // agent is working before the update arrives via collab.
-      //
-      // No resolvable DOM selector is available here (search-replace targets
-      // source text, not a stamped node), so we publish `selection: null`
-      // rather than a fabricated `[data-edit-target=...]` selector that could
-      // never resolve against the rendered iframe. Region attribution instead
-      // rides on the `{ kind: "text", quote }` recentEdits descriptor that
-      // `applyText(..., "agent")` auto-publishes from the content diff inside
-      // writeInlineSourceFile below — clients render a lingering highlight
-      // over the changed text.
+      if (!checkpointed) {
+        await snapshotDesignBeforeAgentEdit(designId, context);
+        checkpointed = true;
+      }
+
       agentEnterDocument(file.id);
       agentUpdateSelection(file.id, {
         selection: null,
@@ -516,11 +527,9 @@ export default defineAction({
       break;
     }
 
-    track(
+    trackDesign(
       "design_edited",
       {
-        app_name: "design",
-        template_name: "design",
         output_id: designId,
         output_type: "design",
         edit_type: resolvedMode,
@@ -536,6 +545,7 @@ export default defineAction({
       mode: resolvedMode,
       editsApplied: applied,
       changed,
+      _receipt: designOutputWriteReceipt(designId, changed ? 1 : 0),
       bytesBefore: base.length,
       bytesAfter: nextContent.length,
       ...(creativeContext

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
@@ -13,7 +11,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import { describe, expect, it, vi } from "vitest";
 
 const shaderWrites = vi.hoisted(() => new Set<string>());
-vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+vi.mock("@/components/design/shader-source-coordination", () => ({
   isShaderWriteInFlight: (fileId: string | undefined) =>
     Boolean(fileId && shaderWrites.has(fileId)),
 }));
@@ -41,6 +39,7 @@ import {
   type PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 
+import { readDesignEditorSource } from "../read-design-editor-source";
 import {
   createLinkedComponentMutationQueue,
   type LinkedComponentActionResult,
@@ -70,6 +69,7 @@ function liveStyleTargets(source: string): SelectedLayerTarget[] {
         ...baseInfo,
         runtimeSelector: `#${runtimeId}`,
         runtimeSourceId: runtimeId,
+        boundingRect: { x: 0, y: 0, width: 120, height: 40 },
         inlineStyles: { ...baseInfo.inlineStyles, color: initialColor },
         computedStyles: { ...baseInfo.computedStyles, color: initialColor },
         provenance: {
@@ -152,6 +152,11 @@ function commandArgs() {
     applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign: true,
+    captureCurrentSelection: () => ({
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [],
+      activeFileId: null,
+    }),
     clipboardPasteRedoStackRef: { current: [] as ContentHistoryChange[] },
     clipboardPasteUndoStackRef: { current: [] as ContentHistoryChange[] },
     codeLayerOwnerByNodeIdRef: { current: new Map() },
@@ -208,8 +213,6 @@ function commandArgs() {
     restoreSelectionSnapshot,
     runtimeStructureInsertRevisionRef: { current: 0 },
     runtimeStructureMoveRevisionRef: { current: 0 },
-    selectionRedoStackRef: { current: [] },
-    selectionUndoStackRef: { current: [] },
     setActiveFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
     setHoveredElement: vi.fn(),
@@ -252,6 +255,82 @@ function commandArgs() {
 }
 
 describe("single-screen linked component history", () => {
+  it("prunes a stale clipboard undo token and continues with the next undo", () => {
+    const state = commandArgs();
+    const current = "<main><p>local change</p></main>";
+    state.content.set("file-a", current);
+    state.args.historyOrderRef.current = ["content", "clipboard-paste"];
+    state.args.contentUndoStackRef.current = [];
+    state.args.contentUndoSelectionStackRef.current = [];
+    state.localContentUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main><p>earlier change</p></main>",
+        after: current,
+      },
+    ];
+    state.args.clipboardPasteUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main><p>paste before</p></main>",
+        after: "<main><p>paste after</p></main>",
+      },
+    ];
+
+    runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+    expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(0);
+    expect(state.localContentUndoStackRef.current).toHaveLength(0);
+    expect(state.applyLocalContentUpdate).toHaveBeenCalledWith(
+      "<main><p>earlier change</p></main>",
+      expect.objectContaining({ recordHistory: false }),
+    );
+    expect(state.content.get("file-a")).toBe(
+      "<main><p>earlier change</p></main>",
+    );
+  });
+
+  it("stops after pruning a stale clipboard token when the next clipboard undo is refused in overview", () => {
+    const state = commandArgs();
+    state.args.viewModeRef.current = "overview";
+    state.content.set("file-a", "<main>a current</main>");
+    state.content.set("file-b", "<main>collab B</main>");
+    state.args.historyOrderRef.current = ["clipboard-paste", "clipboard-paste"];
+    state.args.clipboardPasteUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main>a before</main>",
+        after: "<main>a current</main>",
+      },
+      {
+        fileId: "file-b",
+        before: "<main>before B</main>",
+        after: "<main>after B</main>",
+      },
+    ];
+    const getFreshActiveContent = state.args.getFreshActiveContent;
+    let freshActiveContentReads = 0;
+    state.args.getFreshActiveContent = () => {
+      if (++freshActiveContentReads > 20) {
+        throw new Error("undo loop did not terminate");
+      }
+      return getFreshActiveContent();
+    };
+    shaderWrites.add("file-a");
+    try {
+      runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+      expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
+      expect(state.args.clipboardPasteUndoStackRef.current[0]?.fileId).toBe(
+        "file-a",
+      );
+      expect(state.args.historyOrderRef.current).toEqual(["clipboard-paste"]);
+      expect(state.content.get("file-a")).toBe("<main>a current</main>");
+    } finally {
+      shaderWrites.delete("file-a");
+    }
+  });
+
   it("undoes and redoes the group around the earlier local fallback edit", () => {
     const state = commandArgs();
     const entry = state.contentUndoStackRef.current[0]!;
@@ -361,8 +440,6 @@ describe("single-screen linked component history", () => {
     ).not.toHaveBeenCalled();
     expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
 
-    // This older file-B clipboard redo is not the latest document state; the
-    // linked content group just undone above must remain the next Redo.
     state.args.clipboardPasteRedoStackRef.current = [
       {
         fileId: "file-b",
@@ -789,11 +866,7 @@ describe("single-screen linked component history", () => {
   });
 });
 
-// Exercise the actual editor wiring without mounting its unrelated UI/providers.
-const editorSource = readFileSync(
-  new URL("../../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 function editorCallback(pattern: RegExp, bindings: Record<string, unknown>) {
   const source = editorSource.match(pattern)?.[1];
   if (!source) throw new Error("Editor history callback not found");
@@ -939,6 +1012,44 @@ it.each(["rejected", "no-op", "committed", "intervening edit"])(
 );
 
 describe("pending live multi-target style gestures", () => {
+  it("does not queue a style edit for a boxless layer", () => {
+    const setPatchProof = vi.fn();
+    const setPendingVisualStyleEdits = vi.fn();
+    const onNoRenderedBox = vi.fn();
+
+    runRecordPendingVisualStyleEdit(
+      {
+        activeBreakpointUpperBoundPx: null,
+        activeBreakpointWidthState: undefined,
+        activeFile: { id: "file-a" } as any,
+        canEditDesign: true,
+        files: [{ id: "file-a", filename: "index.html" }] as any,
+        overviewScreens: [],
+        pendingVisualStyleEditsRef: { current: [] },
+        pendingVisualStyleRedoStackRef: { current: [] },
+        pendingVisualStyleUndoStackRef: { current: [] },
+        runtimeLayerSnapshotsById: {},
+        selectedElement: null,
+        onNoRenderedBox,
+        setPatchProof,
+        setPendingVisualStyleEdits,
+      } as any,
+      "file-a",
+      "#provider",
+      { borderRadius: "12px" },
+      { boundingRect: { width: 0, height: 0 } } as any,
+    );
+
+    expect(onNoRenderedBox).toHaveBeenCalledOnce();
+    expect(setPatchProof).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        error: "designEditor.patchProof.noRenderedBox",
+      }),
+    );
+    expect(setPendingVisualStyleEdits).not.toHaveBeenCalled();
+  });
+
   it("records scrub ticks as one target group and replays the group through Undo and Redo", () => {
     const state = commandArgs();
     const source = `<main><section data-agent-native-node-id="main-root" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="card"><div data-agent-native-node-id="main-child" style="color: red">Main</div></section><section data-agent-native-node-id="copy-root" ${COMPONENT_REF_ATTR}="card"><div data-agent-native-node-id="copy-child" ${COMPONENT_SOURCE_NODE_ID_ATTR}="main-child" style="color: orange">Copy</div></section></main>`;
@@ -979,6 +1090,8 @@ describe("pending live multi-target style gestures", () => {
       pendingVisualStyleEditsRef: state.args.pendingVisualStyleEditsRef,
       pendingVisualStyleRedoStackRef: state.args.pendingVisualStyleRedoStackRef,
       pendingVisualStyleUndoStackRef: state.args.pendingVisualStyleUndoStackRef,
+      recordPendingHistoryEntry: (kind: string) =>
+        state.args.historyOrderRef.current.push(kind),
       responsiveEditScopeRef: { current: "cascade-smaller" as const },
       runtimeLayerSnapshotsById: {},
       selectedElement,
@@ -1092,9 +1205,6 @@ describe("pending live multi-target style gestures", () => {
     expect(phaseProbe[3]?.id).not.toBe(phaseProbe[0]?.id);
     expect(phaseProbe[4]?.id).not.toBe(phaseProbe[5]?.id);
 
-    // A preview scrub emits several full commits for multi-selection because
-    // that route has no cheap multi-element preview channel. The final commit
-    // closes the same history gesture.
     runStyleChange(styleChangeArgs, "color", "blue", { phase: "preview" });
     runStyleChange(styleChangeArgs, "color", "purple", { phase: "preview" });
     runStyleChange(styleChangeArgs, "color", "purple", { phase: "commit" });
@@ -1118,8 +1228,6 @@ describe("pending live multi-target style gestures", () => {
     expect(state.setSelectedLayerIdsState).not.toHaveBeenCalled();
     expect(selectedElementState?.sourceId).toBe("main-child");
 
-    // Exercise the batched multi-property inspector caller as a second,
-    // independent gesture on the same target set.
     runStylesChange(styleChangeArgs, { color: "green" }, { phase: "preview" });
     runStylesChange(styleChangeArgs, { color: "green" }, { phase: "commit" });
     expect(pendingStyleUndoStack()).toHaveLength(2);

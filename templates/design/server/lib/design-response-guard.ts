@@ -11,6 +11,9 @@ import {
 } from "./reprompt-action-guard.js";
 
 const DESIGN_MUTATION_ACTIONS = new Set([
+  // Full-app designs: the change lands in the Builder branch's code.
+  "send-builder-message",
+  "apply-builder-edits",
   "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-motion-edit",
@@ -106,12 +109,40 @@ function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
  * this app it is far more often the noun. Let it supply the verb only where a
  * verb can stand: opening the message or a clause, or after a request lead-in,
  * and never in front of a finite verb of its own ("design is ..." is a
- * statement about designs). Every other mutation verb is unambiguous.
+ * statement about designs). Prohibited and conditional verbs do not require
+ * a write merely because a verification request mentions them.
  */
 function suppliesMutationVerb(
   text: string,
   [start, end]: [number, number],
 ): boolean {
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  const prohibitionScope = before
+    .split(/[.!?;,\n]|\b(?:but|then|also)\b/i)
+    .pop()!;
+  if (
+    /\b(?:\w+n['’]t|not(?!\s+only\b)|never|avoid|without|rather\s+than|instead\s+of)\b/i.test(
+      prohibitionScope,
+    )
+  )
+    return false;
+  const conditionScope = before
+    .split(/[.!?;\n]|\b(?:and|but|then|also)\b/i)
+    .pop()!;
+  const suffix = after.split(/[.!?;\n]|\b(?:and|but|then|also)\b/i)[0];
+  if (
+    /\b(?:if|unless)\b/i.test(conditionScope) ||
+    /\b(?:if|unless)\b|\b(?:as|when|where)\s+(?:needed|necessary|appropriate|required)\b/i.test(
+      suffix,
+    )
+  )
+    return false;
+  if (
+    /^mak(?:e|ing)$/i.test(text.slice(start, end)) &&
+    /^\s+(?:sure|certain)\b/i.test(after)
+  )
+    return false;
   if (!DESIGN_AMBIGUOUS_VERB.test(text.slice(start, end))) return true;
   if (DESIGN_FINITE_VERB_FOLLOWS.test(text.slice(end))) return false;
   const prefix = text.slice(0, start).replace(/\s+$/, "");
@@ -119,13 +150,6 @@ function suppliesMutationVerb(
   return DESIGN_REQUEST_LEAD_IN.test(prefix);
 }
 
-/**
- * Testing the verb and object patterns independently let a single `design`
- * token satisfy both halves of the conjunction, so every message that merely
- * mentioned a design read as a request that had to persist one — including
- * this guard's own save-failure notice, which is why pasting it back produced
- * the same notice again.
- */
 function hasDistinctVerbAndObject(text: string): boolean {
   const verbs = matchSpans(
     new RegExp(DESIGN_MUTATION_VERBS.source, "gi"),
@@ -205,9 +229,17 @@ function hasSuccessfulMutation(
     const parsed = parseResult(String(result.content ?? ""));
     if (!parsed) return false;
 
-    // Creating the project shell is not the requested design. Require the
-    // follow-up action that writes a renderable file before accepting success.
     if (name === "create-design") return false;
+
+    // A full-app change is persisted in the app's source by Builder; only a
+    // run Builder reported as finished is the proof (a timed-out one may
+    // still be running).
+    if (name === "send-builder-message") {
+      return parsed.completed === true && !parsed.error;
+    }
+    if (name === "apply-builder-edits") {
+      return typeof parsed.sentCount === "number" && parsed.sentCount > 0;
+    }
 
     if (name === "generate-design") {
       return (
@@ -524,16 +556,9 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   return hasDistinctVerbAndObject(mutationText);
 }
 
-/**
- * Every app-authored generation directive block names mutating actions, so
- * only the user's own words decide intent unless the attached context states
- * outright that this turn has to persist something.
- */
 function requiresPersistedDesignOutput(composedRequest: string): boolean {
   const { message, context } =
     splitAgentChatContextFromMessage(composedRequest);
-  // Preview and read-only turns are marked in the attached context, never in
-  // the instruction, which reads like any other edit request on its own.
   if (
     isRepromptSelectionMessage(context) ||
     isSelectionQuestionMessage(context)
@@ -563,11 +588,6 @@ export function designFinalResponseGuard(
       "If an image or asset is involved, finish with `insert-asset` when placement is needed. " +
       "Do not claim the design is created, updated, or ready until the action result proves " +
       "that content was persisted.",
-    // Intent is read from the user's prose, so it will always misfire on some
-    // turn. Discarding the draft made every miss a dead end that told the user
-    // nothing and left them nothing to act on; labelling it keeps the
-    // correction honest without throwing away a real answer. The fallback
-    // below is still what a genuinely empty turn gets.
     exhaustedDraftPrefix:
       "Unverified — no Design action saved content in this turn, so nothing below is confirmed to exist in your design.",
     fallbackMessage:

@@ -9,6 +9,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import type * as Y from "yjs";
 
+import { trace } from "@/components/design/design-trace";
 import {
   findCanvasIframeForScreen,
   getBreakpointIframeId,
@@ -30,8 +31,10 @@ import {
   captureContentUndoStackTop,
   captureYjsUndoStackTop,
   type ContentHistoryEntry,
+  type ContentHistoryChange,
   type ContentHistorySelectionAfterMap,
   stampContentHistorySelectionAfter,
+  stampLocalContentHistorySelectionAfter,
   stampYjsUndoSelection,
   stampYjsUndoSelectionAfter,
   type YjsUndoSelectionSnapshot,
@@ -45,41 +48,34 @@ import {
   type ApplyLinkedComponentEdit,
 } from "./linked-component-structure";
 
-/**
- * Live-rendered width/height per target node id, keyed for
- * computeAbsoluteUnionBounds's size-hint fallback. wrapNodes (the
- * code-layer.ts substrate) works purely off the source HTML string, so an
- * absolutely-positioned but auto-sized target (a Text-tool node with no
- * explicit inline width/height) otherwise gets NO computed geometry at all —
- * the resulting frame is a zero-area `position:static` div that doesn't
- * enclose its own content (undraggable/unresizable at its own reported
- * position; see item-2 cross-screen investigation). Only fills a gap the
- * string-only path cannot see — never overrides an explicit style value.
- */
+export interface LiveSizeHints {
+  hints: Record<string, WrapNodeSizeHint>;
+  /**
+   * Layers the preview could not measure. Wrapping keeps their authored
+   * geometry, which callers that need a rendered box must refuse instead.
+   */
+  unmeasured: Array<{ nodeId: string; reason: "no-preview" | "not-found" }>;
+}
+
 export function collectLiveSizeHints(
   nodeIds: string[],
   projection: CodeLayerProjection,
   activeIframeId: string,
   boardFileId: string | undefined,
-): Record<string, WrapNodeSizeHint> {
+): LiveSizeHints {
   const hints: Record<string, WrapNodeSizeHint> = {};
-  if (typeof document === "undefined") return hints;
-  // Only the active file's own iframe can legitimately contain these node
-  // ids (they came from parsing the active file's own source) — querying
-  // every preview iframe on the canvas and taking the first match risks
-  // reading a DIFFERENT screen's DOM when a duplicated Screen has remapped
-  // (or not-yet-unique) ids that collide with the active one's. activeIframeId
-  // is already the active breakpoint's sub-frame id when one is focused
-  // (getActiveScreenIframeId's id shape), since an auto-sized target can be
-  // measured only in the iframe it is actually rendered in; boardFileId lets
-  // this resolve the dedicated board surface iframe the same way every other
-  // findCanvasIframeForScreen caller does.
-  const doc = findCanvasIframeForScreen(
-    document.body,
-    activeIframeId,
-    boardFileId,
-  )?.contentDocument;
-  if (!doc) return hints;
+  const unmeasured: LiveSizeHints["unmeasured"] = [];
+  const doc =
+    typeof document === "undefined"
+      ? null
+      : findCanvasIframeForScreen(document.body, activeIframeId, boardFileId)
+          ?.contentDocument;
+  if (!doc) {
+    return {
+      hints,
+      unmeasured: nodeIds.map((nodeId) => ({ nodeId, reason: "no-preview" })),
+    };
+  }
   for (const requestedId of nodeIds) {
     let node = projection.nodes.find(
       (candidate) => candidate.id === requestedId,
@@ -89,13 +85,12 @@ export function collectLiveSizeHints(
         (candidate) =>
           candidate.dataAttributes["data-agent-native-node-id"] === requestedId,
       );
-      // Raw source IDs are only a safe fallback when the projection has
-      // exactly one owner. Duplicate legacy IDs must not collapse multiple
-      // nodes onto whichever attribute selector happens to match first.
-      if (rawIdMatches.length !== 1) continue;
-      node = rawIdMatches[0];
+      node = rawIdMatches.length === 1 ? rawIdMatches[0] : undefined;
     }
-    if (!node) continue;
+    if (!node) {
+      unmeasured.push({ nodeId: requestedId, reason: "not-found" });
+      continue;
+    }
 
     const rawId = node.dataAttributes["data-agent-native-node-id"];
     const sameRawIdNodes = rawId
@@ -104,10 +99,6 @@ export function collectLiveSizeHints(
             candidate.dataAttributes["data-agent-native-node-id"] === rawId,
         )
       : [];
-    // The stable-attribute alias is ambiguous for legacy duplicate IDs; use
-    // only this node's positional path. If that exact path is absent from the
-    // live iframe, do not fall through to an alias that could now identify a
-    // surviving sibling instead.
     const selectors =
       sameRawIdNodes.length > 1 ? [node.path] : codeLayerSelectorAliases(node);
     const element = queryFirstSelector(doc, selectors);
@@ -117,28 +108,23 @@ export function collectLiveSizeHints(
       !iframeWindow ||
       !(element instanceof iframeWindow.HTMLElement)
     ) {
+      unmeasured.push({ nodeId: node.id, reason: "not-found" });
       continue;
     }
-    // offsetWidth/offsetHeight preserve the element's layout border box.
-    // getBoundingClientRect includes transforms and iframe scaling, which
-    // would inflate the source-space frame geometry for rotated/scaled nodes.
     const width = element.offsetWidth;
     const height = element.offsetHeight;
     if (width > 0 && height > 0) {
       const computedPosition = iframeWindow.getComputedStyle(element).position;
       const computedOutOfFlow =
         computedPosition === "absolute" || computedPosition === "fixed";
-      // Keep the existing integer layout dimensions for absolute/fixed
-      // targets. Their hints feed the freeform union fallback, where a
-      // transformed client rect would incorrectly enlarge the frame.
       if (isOutOfFlowHintTarget(node) || computedOutOfFlow) {
-        hints[node.id] = {
-          width,
-          height,
-          ...(!isOutOfFlowHintTarget(node) && computedOutOfFlow
-            ? { outOfFlow: true as const }
-            : {}),
-        };
+        // Layout offsets, not client rects: the pinned child keeps its own
+        // transform inside the wrapper, so its painted box stays put.
+        const origin =
+          computedPosition === "absolute" && element.offsetParent
+            ? { left: element.offsetLeft, top: element.offsetTop }
+            : {};
+        hints[node.id] = { width, height, ...origin, outOfFlow: true };
         continue;
       }
       if (hasUnsupportedMeasuredFlowAncestry(element, iframeWindow)) {
@@ -156,7 +142,7 @@ export function collectLiveSizeHints(
         : { width, height };
     }
   }
-  return hints;
+  return { hints, unmeasured };
 }
 
 function hasUnsupportedMeasuredFlowAncestry(
@@ -193,10 +179,6 @@ function hasUnsupportedMeasuredFlowAncestry(
         return true;
       }
     }
-    // A translation on an ancestor affects both client rects and cancels in
-    // the child-parent delta. This includes the managed Board surface offset.
-    // A translation on the target affects only the child rect, so persisting
-    // that viewport delta as source left/top would double-apply it.
     if (
       isTarget &&
       hasNonZeroTranslate(
@@ -261,17 +243,11 @@ function isOutOfFlowHintTarget(node: CodeLayerNode): boolean {
   });
 }
 
-/**
- * Match measureFreeformGeometry's padding-box coordinate convention while
- * staying scoped to the active preview document. Client rects keep parent
- * transforms and scrolling in the same coordinate space as the child; the
- * border inset converts the parent's border box to its positioning origin.
- */
 function measureParentRelativePosition(
   element: HTMLElement,
   iframeWindow: Window,
 ): { left: number; top: number; width: number; height: number } | null {
-  const parent = element.parentElement;
+  const parent = element.offsetParent ?? element.parentElement;
   if (!parent) return null;
   const childRect = element.getBoundingClientRect();
   const parentRect = parent.getBoundingClientRect();
@@ -287,14 +263,26 @@ function measureParentRelativePosition(
   const parentStyle = iframeWindow.getComputedStyle(parent);
   const borderLeft = Number.parseFloat(parentStyle.borderLeftWidth || "0");
   const borderTop = Number.parseFloat(parentStyle.borderTopWidth || "0");
+  let scrollLeft = 0;
+  let scrollTop = 0;
+  for (
+    let ancestor = element.parentElement;
+    ancestor && ancestor !== parent;
+    ancestor = ancestor.parentElement
+  ) {
+    scrollLeft += ancestor.scrollLeft;
+    scrollTop += ancestor.scrollTop;
+  }
+  scrollLeft += parent.scrollLeft;
+  scrollTop += parent.scrollTop;
   const left =
     childRect.left +
-    parent.scrollLeft -
+    scrollLeft -
     parentRect.left -
     (Number.isFinite(borderLeft) ? borderLeft : 0);
   const top =
     childRect.top +
-    parent.scrollTop -
+    scrollTop -
     parentRect.top -
     (Number.isFinite(borderTop) ? borderTop : 0);
   return Number.isFinite(left) &&
@@ -329,6 +317,7 @@ export interface FrameSelectionArgs {
   canEditDesign: boolean;
   contentHistorySelectionAfterRef: RefObject<ContentHistorySelectionAfterMap>;
   contentUndoStackRef: RefObject<ContentHistoryEntry[]>;
+  localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   files: DesignFile[];
   getFreshActiveContent: () => string;
   overviewSelectedScreenIds: string[];
@@ -348,6 +337,7 @@ export function runFrameSelection({
   canEditDesign,
   contentHistorySelectionAfterRef,
   contentUndoStackRef,
+  localContentUndoStackRef,
   files,
   getFreshActiveContent,
   overviewSelectedScreenIds,
@@ -367,19 +357,19 @@ export function runFrameSelection({
     (id) => !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
   );
   if (nodeIds.length < 1) return;
-  // The selected element may live in the active responsive breakpoint's own
-  // sub-frame rather than the screen's primary iframe — measure wherever it
-  // is actually rendered, or an auto-sized target gets another size's rect.
   const activeIframeId =
     activeBreakpointWidthState !== undefined
       ? getBreakpointIframeId(activeFile.id, activeBreakpointWidthState)
       : activeFile.id;
-  const sizeHints = collectLiveSizeHints(
+  const { hints: sizeHints, unmeasured } = collectLiveSizeHints(
     nodeIds,
     baseProjection,
     activeIframeId,
     boardFileId,
   );
+  if (unmeasured.length > 0) {
+    trace("structure", "frame-unmeasured", { unmeasured });
+  }
   if (
     dispatchLinkedComponentStructure({
       content: baseContent,
@@ -442,9 +432,6 @@ export function runFrameSelection({
           patch.result.wrapperNodeId,
       ) ?? wrapperNode;
   }
-  // Figma-parity undo/redo selection restore: see the identical comment in
-  // group-selection.ts. Frame allows a SINGLE selected layer too, so undo
-  // must restore that one element rather than clear selection.
   const selectionBeforeFrame = {
     selectedElement:
       nodeIds.length === 1
@@ -463,6 +450,10 @@ export function runFrameSelection({
   const contentUndoStackTopBeforeFrame = captureContentUndoStackTop(
     contentUndoStackRef.current,
   );
+  const localContentUndoStackTopBeforeFrame =
+    localContentUndoStackRef.current[
+      localContentUndoStackRef.current.length - 1
+    ];
   const initialWrapperNode = wrapperNode;
   const submittedProjection = buildCodeLayerProjection(nextContent, { source });
   const submittedWrapper = initialWrapperNode
@@ -490,11 +481,9 @@ export function runFrameSelection({
   if (wrapperNode) {
     setSelectedLayerIdsState([wrapperNode.id]);
     setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));
-    // See the matching comment in group-selection.ts: the write lands on
-    // whichever stack is actually tracking it, so both stamps run.
     stampYjsUndoSelectionAfter(
       undoManagerRef.current,
-      undoStackTopBeforeFrame,
+      publication.yjsHistoryRecorded === true,
       {
         selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
         selectedLayerIds: [wrapperNode.id],
@@ -508,6 +497,14 @@ export function runFrameSelection({
         overviewSelectedScreenIds,
         selectedLayerIds: [wrapperNode.id],
         activeFileId: activeFile.id,
+      },
+    );
+    stampLocalContentHistorySelectionAfter(
+      localContentUndoStackRef.current,
+      localContentUndoStackTopBeforeFrame,
+      {
+        selectedElement: elementInfoFromCodeLayerNode(wrapperNode),
+        selectedLayerIds: [wrapperNode.id],
       },
     );
   }

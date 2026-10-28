@@ -5,6 +5,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isMailSearchActive,
   isKeyboardShortcutTarget,
   shouldCycleMailTab,
   useKeyboardShortcuts,
@@ -92,6 +93,59 @@ describe("shouldCycleMailTab", () => {
     expect(shouldCycleMailTab(workspace)).toBe(true);
     expect(shouldCycleMailTab(tab)).toBe(true);
     expect(shouldCycleMailTab(dialogButton)).toBe(false);
+  });
+});
+
+describe("isMailSearchActive", () => {
+  it("keeps search ownership ahead of thread Escape regardless of listener order", () => {
+    const search = document.createElement("input");
+    search.id = "mail-search";
+    search.value = "query";
+    document.body.append(search);
+
+    const threadHandler = vi.fn();
+    const searchHandler = vi.fn();
+    const thread = renderHook(() =>
+      useKeyboardShortcuts([
+        {
+          key: "Escape",
+          shouldHandle: () => !isMailSearchActive(),
+          handler: threadHandler,
+        },
+      ]),
+    );
+    const global = renderHook(() =>
+      useKeyboardShortcuts([
+        {
+          key: "Escape",
+          shouldHandle: isMailSearchActive,
+          handler: searchHandler,
+        },
+      ]),
+    );
+
+    const searchEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    act(() => window.dispatchEvent(searchEscape));
+
+    expect(searchHandler).toHaveBeenCalledOnce();
+    expect(threadHandler).not.toHaveBeenCalled();
+    expect(searchEscape.defaultPrevented).toBe(true);
+
+    search.value = "";
+    const threadEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    act(() => window.dispatchEvent(threadEscape));
+
+    expect(threadHandler).toHaveBeenCalledOnce();
+    expect(searchHandler).toHaveBeenCalledOnce();
+    expect(threadEscape.defaultPrevented).toBe(true);
+    thread.unmount();
+    global.unmount();
   });
 });
 

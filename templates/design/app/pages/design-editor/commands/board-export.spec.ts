@@ -3,11 +3,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  bitmapSizes: new WeakMap<Blob, { width: number; height: number }>(),
   createSinglePageRasterPdf: vi.fn(),
-  html2canvas: vi.fn(),
+  outputCanvasSizes: [] as Array<{ width: number; height: number }>,
+  renderNativeExportPng: vi.fn(),
 }));
 
-vi.mock("html2canvas", () => ({ default: mocks.html2canvas }));
+vi.mock("../native-export-render", () => ({
+  renderNativeExportPng: mocks.renderNativeExportPng,
+}));
 vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -18,20 +22,15 @@ vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
     createSinglePageRasterPdf: mocks.createSinglePageRasterPdf,
   };
 });
-vi.mock("../export-font-mirror", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../export-font-mirror")>();
-  return {
-    ...actual,
-    mirrorPreviewWebFonts: vi.fn().mockResolvedValue({
-      dispose: vi.fn(),
-      unreadableStylesheets: [],
-    }),
-  };
-});
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
+vi.mock("@/lib/design-export-tracking", () => ({
+  trackBrowserDesignExported: vi.fn(),
+  browserDesignExportErrorType: (error: { code?: string }) => error.code,
+}));
 
+import type { PngCaptureScope } from "../png-export-render";
 import { runDownloadPdf } from "./download-pdf";
-import { runRenderPngBlob } from "./render-png-blob";
+import { runRenderPngBlob, runRenderPngCapture } from "./render-png-blob";
 
 const originalDimensions = [
   [document.documentElement, "scrollWidth"],
@@ -63,7 +62,6 @@ function createReportedBoardFixture() {
     });
   }
 
-  // The six saved board elements, after the preview's +4096px content offset.
   const nodeRects = [
     { left: 4096, top: 4096, width: 190, height: 154 },
     { left: 4613, top: 4096, width: 160, height: 12 },
@@ -109,18 +107,39 @@ function renderArgs(fixture: ReturnType<typeof createReportedBoardFixture>) {
 describe("board document exports", () => {
   beforeEach(() => {
     document.body.replaceChildren();
-    mocks.html2canvas.mockReset();
-    mocks.html2canvas.mockImplementation(
-      async (
-        _target: Element,
-        options: { width: number; height: number; scale: number },
-      ) =>
-        ({
-          width: Math.ceil(options.width * options.scale),
-          height: Math.ceil(options.height * options.scale),
-          toBlob: (callback: BlobCallback, type?: string) =>
-            callback(new Blob(["image"], { type })),
-        }) as HTMLCanvasElement,
+    mocks.bitmapSizes = new WeakMap();
+    mocks.outputCanvasSizes.length = 0;
+    mocks.renderNativeExportPng.mockReset();
+    mocks.renderNativeExportPng.mockImplementation(
+      async (args: {
+        width: number;
+        height: number;
+        scale: number;
+        clip?: { width: number; height: number };
+      }) => {
+        const blob = new Blob(["png"], { type: "image/png" });
+        mocks.bitmapSizes.set(blob, {
+          width: Math.ceil((args.clip?.width ?? args.width) * args.scale),
+          height: Math.ceil((args.clip?.height ?? args.height) * args.scale),
+        });
+        return blob;
+      },
+    );
+    vi.stubGlobal("createImageBitmap", async (blob: Blob) => ({
+      ...mocks.bitmapSizes.get(blob),
+      close: vi.fn(),
+    }));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      function (this: HTMLCanvasElement, callback, type) {
+        mocks.outputCanvasSizes.push({
+          width: this.width,
+          height: this.height,
+        });
+        callback(new Blob(["image"], { type }));
+      },
     );
     mocks.createSinglePageRasterPdf.mockReset();
     mocks.createSinglePageRasterPdf.mockResolvedValue(
@@ -130,6 +149,8 @@ describe("board document exports", () => {
 
   afterEach(() => {
     document.body.replaceChildren();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     for (const { descriptor, key, target } of originalDimensionDescriptors) {
       if (descriptor) Object.defineProperty(target, key, descriptor);
       else Reflect.deleteProperty(target, key);
@@ -146,25 +167,23 @@ describe("board document exports", () => {
     });
 
     expect(png.type).toBe("image/png");
-    expect(mocks.html2canvas).toHaveBeenLastCalledWith(
-      fixture.doc.documentElement,
+    expect(mocks.renderNativeExportPng).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        x: 4080,
-        y: 4030,
-        width: 709,
-        height: 236,
-        windowWidth: 8192,
-        windowHeight: 8191,
+        width: 8192,
+        height: 8191,
         scale: 1,
+        clip: { x: 4080, y: 4030, width: 709, height: 236 },
       }),
+    );
+    expect(mocks.outputCanvasSizes[mocks.outputCanvasSizes.length - 1]).toEqual(
+      { width: 709, height: 236 },
     );
 
     await runDownloadPdf(
       {
         fallbackExportName: () => "Test - Export.pdf",
         pngExportingRef: { current: false },
-        renderPngBlob: (arg) => runRenderPngBlob(args, arg),
-        resolvePngCaptureTarget: args.resolvePngCaptureTarget,
+        renderPngCapture: (arg) => runRenderPngCapture(args, arg),
         setPngExporting: vi.fn(),
         showRasterCaptureError: vi.fn(),
         t: () => "PDF downloaded",
@@ -178,69 +197,255 @@ describe("board document exports", () => {
     );
   });
 
+  it("exports the selected overview screen to PDF from its screen iframe", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-screen-iframe-id", "screen-1");
+    Object.defineProperties(iframe, {
+      clientHeight: { configurable: true, value: 200 },
+      clientWidth: { configurable: true, value: 320 },
+    });
+    document.body.append(iframe);
+    iframe.contentDocument!.body.innerHTML = "<main>Selected screen</main>";
+
+    const context = {
+      drawImage: vi.fn(),
+      restore: vi.fn(),
+      rotate: vi.fn(),
+      save: vi.fn(),
+      translate: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((callback, type) =>
+        callback(new Blob(["image"], { type })),
+      );
+
+    try {
+      const events: string[] = [];
+      const screenLease = Symbol("raster export");
+      const args = {
+        ...renderArgs({ doc: iframe.contentDocument!, iframe }),
+        overviewScreens: [
+          { id: "screen-1", width: 320, height: 200 },
+        ] as never[],
+        releaseScreenFromExport: vi.fn(() => events.push("release")),
+        selectedScreenIds: ["screen-1"],
+      };
+      args.resolvePngCaptureTarget = vi.fn(() => {
+        events.push("target:screen-1");
+        return {
+          cropSelection: null,
+          doc: iframe.contentDocument!,
+          iframe,
+          screenLease,
+        };
+      });
+
+      await runDownloadPdf(
+        {
+          fallbackExportName: () => "Test - Export.pdf",
+          pngExportingRef: { current: false },
+          renderPngCapture: (arg) => runRenderPngCapture(args, arg),
+          setPngExporting: vi.fn(),
+          showRasterCaptureError: vi.fn(),
+          t: () => "PDF downloaded",
+          triggerBlobDownload: vi.fn(),
+        },
+        { scale: 1 },
+        "screens",
+      );
+
+      expect(args.resolvePngCaptureTarget).toHaveBeenCalledWith(
+        "screens",
+        "screen-1",
+      );
+      expect(args.releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
+      expect(events).toEqual(["target:screen-1", "release"]);
+      expect(mocks.renderNativeExportPng).toHaveBeenCalledOnce();
+      expect(mocks.renderNativeExportPng).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clip: { x: 0, y: 0, width: 320, height: 200 },
+        }),
+      );
+      expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 320, height: 200 }),
+      );
+    } finally {
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
+  });
+
+  it("keeps the captured PDF frame geometry when the document overflows vertically", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.dataset.screenIframeId = "overflow-screen";
+    Object.defineProperties(iframe, {
+      clientWidth: { value: 1200 },
+      clientHeight: { value: 600 },
+    });
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    Object.defineProperties(doc.documentElement, {
+      scrollWidth: { value: 1200 },
+      scrollHeight: { value: 1000 },
+    });
+    const args = {
+      ...renderArgs({ iframe, doc }),
+      overviewScreens: [
+        { id: "overflow-screen", width: 1200, height: 600 },
+      ] as never[],
+    };
+    const showRasterCaptureError = vi.fn();
+    await runDownloadPdf({
+      fallbackExportName: () => "frame.pdf",
+      pngExportingRef: { current: false },
+      renderPngCapture: (options) => runRenderPngCapture(args, options),
+      setPngExporting: vi.fn(),
+      showRasterCaptureError,
+      t: (key) => key,
+      triggerBlobDownload: vi.fn(),
+    });
+    expect(showRasterCaptureError).not.toHaveBeenCalled();
+    expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 1200, height: 600 }),
+    );
+  });
+
+  it("renders multiple selected screens before resolving a single-frame PDF target", async () => {
+    const screens = [
+      { id: "screen-a", width: 320, height: 200 },
+      { id: "screen-b", width: 400, height: 240 },
+    ] as never[];
+    const geometries = {
+      "screen-a": { x: 0, y: 0, width: 320, height: 200, z: 0 },
+      "screen-b": { x: 400, y: 0, width: 400, height: 240, z: 1 },
+    } as never;
+    const selectedScreenIds = ["screen-a", "screen-b"];
+    const iframes = selectedScreenIds.map((id) => {
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("data-screen-iframe-id", id);
+      Object.defineProperties(iframe, {
+        clientHeight: {
+          configurable: true,
+          value: id === "screen-a" ? 200 : 240,
+        },
+        clientWidth: {
+          configurable: true,
+          value: id === "screen-a" ? 320 : 400,
+        },
+      });
+      document.body.append(iframe);
+      iframe.contentDocument!.body.innerHTML = `<main>${id}</main>`;
+      return iframe;
+    });
+    const context = {
+      drawImage: vi.fn(),
+      restore: vi.fn(),
+      rotate: vi.fn(),
+      save: vi.fn(),
+      translate: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation((callback, type) =>
+        callback(new Blob(["image"], { type })),
+      );
+    const iframeById = new Map(
+      iframes.map((iframe, index) => [selectedScreenIds[index]!, iframe]),
+    );
+    const resolvePngCaptureTarget = vi.fn(
+      (_scope: PngCaptureScope, screenId?: string) => {
+        const iframe = screenId ? iframeById.get(screenId) : undefined;
+        const doc = iframe?.contentDocument;
+        if (!iframe || !doc)
+          throw new Error("A selected screen preview is unavailable");
+        return { cropSelection: null, doc, iframe };
+      },
+    );
+    const captureArgs = {
+      activeCanvasSourceType: "inline" as const,
+      canEditDesign: true,
+      canvasFrameGeometryById: geometries,
+      overviewScreens: screens,
+      resolvePngCaptureTarget,
+      selectedScreenIds,
+      viewMode: "overview" as const,
+    };
+
+    try {
+      await runDownloadPdf(
+        {
+          fallbackExportName: () => "Test - Export.pdf",
+          pngExportingRef: { current: false },
+          renderPngCapture: (arg) => runRenderPngCapture(captureArgs, arg),
+          setPngExporting: vi.fn(),
+          showRasterCaptureError: vi.fn(),
+          t: () => "PDF downloaded",
+          triggerBlobDownload: vi.fn(),
+        },
+        { scale: 1 },
+        "screens",
+      );
+
+      expect(resolvePngCaptureTarget).toHaveBeenNthCalledWith(
+        1,
+        "screens",
+        "screen-a",
+      );
+      expect(resolvePngCaptureTarget).toHaveBeenNthCalledWith(
+        2,
+        "screens",
+        "screen-b",
+      );
+      expect(mocks.renderNativeExportPng).toHaveBeenCalledTimes(2);
+      expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ width: 800, height: 240 }),
+      );
+    } finally {
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
+  });
+
   it("leaves ordinary screen document exports uncropped", async () => {
     const fixture = createReportedBoardFixture();
     fixture.iframe.setAttribute("data-screen-iframe-id", "screen-1");
 
     await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
 
-    expect(mocks.html2canvas).toHaveBeenLastCalledWith(
-      fixture.doc.documentElement,
-      expect.not.objectContaining({ x: 4080, y: 4030 }),
+    expect(mocks.renderNativeExportPng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ width: 8192, height: 8191 }),
     );
+    expect(
+      mocks.outputCanvasSizes[mocks.outputCanvasSizes.length - 1]!.width,
+    ).toBeGreaterThan(8000);
+    expect(
+      mocks.outputCanvasSizes[mocks.outputCanvasSizes.length - 1]!.height,
+    ).toBeGreaterThan(8000);
   });
 
-  it("copies placeholder text styles into the rasterized preview clone", async () => {
+  it("keeps source placeholder rules in the native renderer snapshot", async () => {
     const fixture = createReportedBoardFixture();
+    const style = fixture.doc.createElement("style");
+    style.textContent =
+      'input::placeholder { color: rgb(148, 163, 184); font-family: "PlaceholderFont"; font-size: 14px; font-style: italic; font-weight: 600; line-height: 20px; }';
     const input = fixture.doc.createElement("input");
     input.placeholder = "Search movies";
-    input.style.fontFamily = "TinyFont";
-    input.style.fontSize = "1px";
+    fixture.doc.head.append(style);
     fixture.doc.body.append(input);
 
-    const placeholderProperties: Record<string, string> = {
-      color: "rgb(148, 163, 184)",
-      "font-family": '"PlaceholderFont"',
-      "font-size": "14px",
-      "font-style": "italic",
-      "font-weight": "600",
-      "line-height": "20px",
-    };
-    const placeholderStyle = {
-      getPropertyValue: (property: string) =>
-        placeholderProperties[property] ?? "",
-    } as CSSStyleDeclaration;
-    const view = fixture.doc.defaultView!;
-    const getComputedStyle = view.getComputedStyle.bind(view);
-    const getComputedStyleSpy = vi
-      .spyOn(view, "getComputedStyle")
-      .mockImplementation(((element, pseudoElement) => {
-        if (element === input && pseudoElement === "::placeholder") {
-          return placeholderStyle;
-        }
-        return getComputedStyle(element, pseudoElement);
-      }) as typeof view.getComputedStyle);
+    await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
 
-    try {
-      await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
-      const lastCall =
-        mocks.html2canvas.mock.calls[mocks.html2canvas.mock.calls.length - 1];
-      const options = lastCall?.[1] as unknown as {
-        onclone: (clonedDocument: Document) => void;
-      };
-      const clonedDocument = document.implementation.createHTMLDocument();
-      clonedDocument.documentElement.innerHTML =
-        fixture.doc.documentElement.innerHTML;
-
-      options.onclone(clonedDocument);
-
-      const clonedInput = clonedDocument.querySelector("input")!;
-      expect(clonedInput.style.fontFamily).toBe("PlaceholderFont");
-      expect(clonedInput.style.fontSize).toBe("14px");
-      expect(clonedInput.style.color).toBe("rgb(148, 163, 184)");
-      expect(clonedInput.style.lineHeight).toBe("20px");
-    } finally {
-      getComputedStyleSpy.mockRestore();
-    }
+    const calls = mocks.renderNativeExportPng.mock.calls;
+    const html = calls[calls.length - 1]?.[0].html;
+    expect(html).toContain("input::placeholder");
+    expect(html).toContain('font-family: "PlaceholderFont"');
+    expect(html).toContain("font-size: 14px");
   });
 });

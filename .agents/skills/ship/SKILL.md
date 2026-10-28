@@ -1,10 +1,11 @@
 ---
 name: ship
 description: >-
-  Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes. Matching beta and docs
-  paths publish automatically after merge; other production promotion is manual.
+  Commit and push the current work, open a ready PR, babysit it through CI and
+  review, and admin-merge it once it's green and clean, then rotate the
+  worktree to a fresh branch. Use when the user asks to ship, publish, or hand
+  off local changes. Merging to main deploys beta automatically; production
+  promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -13,193 +14,126 @@ metadata:
 
 # Ship
 
-Use /ship only when the user asks to ship, publish, or hand off the current
-work. It means: publish the requested current-branch snapshot, open a ready
-PR, monitor it, merge it when the gates hold, and leave the worktree ready for
-the next task.
+`/ship` means: get the requested work merged to `main`. That covers
+committing, pushing, opening a ready PR, fixing CI and review feedback,
+merging, and leaving the worktree ready for the next task. Don't stop at
+"PR opened" or "CI green", and don't ask for approval of routine steps along
+the way. The request to ship already authorized them.
 
-## Contract
+## Ownership
 
-- Ship all nonignored changes belonging to the requested work on the current
-  branch. The checkpoint helper excludes learnings.md, bridge/**, and data/**.
-- Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
-  overwrite, rebase, or force-push it.
-- /ship authorizes the merge once the gates below pass, unless the user says
-  not to merge.
-- Use the current worktree and branch. A detached worktree may create one
-  unused shipping branch during this flow; never attach or move another
-  worktree.
-- Never add Co-Authored-By, codex, [codex], or agent labels to commits, branch
-  names, PR titles, or PR bodies.
-
-## Flow
-
-1. Preflight the worktree and ownership.
-2. Run focused validation and publish the first coherent snapshot.
-3. Open or update the ready PR immediately.
-4. Run /babysit-pr <number> and keep the watcher or foreground loop active.
-5. Merge only after the live gates hold continuously for 10 minutes.
-6. Verify the merge reached origin/main, then rotate to a fresh branch.
-7. Report source checks, PR, merge, branch rotation, and deployment boundaries
-   separately.
+- Resolve the active login once: `gh api user --jq .login`.
+- **Your PRs** (author is that login, or a new PR you create): push, reply to
+  every review thread, and admin-merge when the gate below passes. Replying on
+  your own PR's review threads is always expected.
+- **Anyone else's PR:** don't push, comment, or merge unless the user named
+  that exact PR and that exact action. Permission to push is not permission to
+  merge. Leave bot PRs (Dependabot and the like) alone.
+- Never reset, stash, rebase, clean, or force-push work. Never add
+  `Co-Authored-By`, "codex", or agent labels to commits, branches, or PRs.
 
 ## 1. Preflight
 
-Start by refreshing the remote and reading the actual checkout:
-
 ```bash
-if ! git fetch origin --quiet; then
-  echo "Cannot refresh origin refs; stop before checking unpublished commits." >&2
-  exit 1
-fi
+git fetch origin --quiet
 git status --short
-git diff --stat
-git log --oneline -5
 git rev-list --count HEAD..origin/main
 ```
 
-The all-origin fetch refreshes both `origin/main` and the current branch's
-tracking ref before comparing unpublished work. Inspect the current branch's
-unpushed commits with the remote-aware fallback:
+- **Detached HEAD in a task-owned worktree:** create a branch without asking,
+  using `/new-branch`'s naming. If HEAD is behind `origin/main` and has no
+  commits of its own, branch from fresh `origin/main` and carry the dirty
+  changes over. Otherwise branch at HEAD.
+- **Shared checkout** whose branch isn't yours to publish: leave it as it is,
+  make a task-owned worktree from fresh `origin/main` (or from the PR's live
+  head when updating an existing PR), and carry only this task's changes.
+- If a dirty path isn't part of this task, leave it untouched and say so in
+  the report.
+- Being behind `main` is fine. Merge `origin/main` only when GitHub reports
+  `CONFLICTING` or a required check needs a fix that's already on `main`. Use
+  a normal merge, never a rebase.
+
+## 2. Validate and push
+
+Run the focused checks for what changed (formatter, tests, typecheck, and the
+guards `pnpm guards` selects). Batch every known fix into one push, because
+each push restarts CI.
 
 ```bash
-if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
-  git log --oneline "origin/$(git branch --show-current)"..HEAD -- \
-    ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
-else
-  git log --oneline HEAD --not --remotes=origin -- \
-    ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
-fi
+corepack pnpm ship:push -m "<subject naming the actual behavior change>"
 ```
 
-The behind count is information, not a reason to merge or rebase. Check
-GitHub's live mergeability before updating from origin/main.
+The helper refuses vague subjects. For an existing PR whose head isn't this
+branch on `origin`, push to the verified head repo and ref instead (see
+`babysit-pr`).
 
-If git branch --show-current is empty, inspect git worktree list --porcelain
-and existing changes-\* refs, then create an unused shipping branch in this
-worktree only. Never use main, attach a branch checked out elsewhere, or move
-another worktree. This branch creation is authorized by the explicit /ship
-request.
+## 3. Open the PR
 
-Before publishing, classify every dirty path and unpushed commit. If any is
-unrelated or incomplete concurrent work, preserve it and stop the publishing
-step with a concrete report. Do not hide it in a stash or make a guessed
-commit.
+Open one ready (not draft) PR right after the first push, with a factual title
+and body: what changed, why, and how it was verified. Keep source checks, CI
+state, merge, and deployment as separate claims. Don't add unrelated comments,
+tags, assignees, or mentions.
 
-## 2. Validate and publish
+## 4. Babysit to merge
 
-Run the smallest relevant formatter, tests, typecheck, and guards for the
-changed area. Push the first coherent snapshot before a long prep or broad
-validation so CI can work in parallel. A slow or contaminated local check is
-not permission to stall the handoff; record the exact result and let the PR
-checks carry the gate.
+Run `/babysit-pr <number>` in this same task. It's a step inside `/ship`, not
+a handoff, so keep going until the merge. Every tick:
 
-After the ownership check, run:
-
-```bash
-corepack pnpm ship:push
-```
-
-Confirm the push landed on the current branch and read the remote head back.
-Run ship:push again only for an actionable CI fix, review fix, conflict
-resolution, or explicit user request. A clean tree, a behind count, queued
-checks, or a babysit timer never creates a publish commit.
-
-## 3. Open or update the PR
-
-Open or update one ready PR for the current branch immediately after the first
-push. Use a factual title and body. Do not create a second PR from a worktree.
-Do not tag, assign, mention, or leave proactive comments on the PR unless the
-user explicitly requested that communication. A factual reply needed to
-document a review fix or terminal disposition is allowed when the babysit
-gate requires it.
-
-Begin any such reply by thanking the author for the PR, or for their update if
-they have updated it since the last message. If they have not updated since the
-last message, do not reply again. Never write “I have no further feedback” or
-leave another vague closing: state the disposition and who should take the next
-action, such as making a specific change, recording the required approval, or
-merging once the named gates pass. If a product, UX, or app-owner decision is
-the next step, leave the PR thread silent and report that gate in the ship
-ledger and final recap.
-
-Keep these claims separate in the PR and final report:
-
-- source and focused tests;
-- CI and review state;
-- merged commit and origin/main ancestry;
-- beta, docs, or production deployment state.
-
-## 4. Babysit
-
-Run /babysit-pr <number> immediately after PR creation and follow that skill
-for the durable heartbeat, serialized PR lease, local-change ownership checks,
-review handling, conflict recovery, and cadence. Do not duplicate its lease
-protocol here or end the task after opening the PR without either its watcher
-or a foreground loop.
-
-If a live PR is CONFLICTING, let babysit-pr recover it only after:
-
-- the local tree and publishable-path unpublished-commit check are clean;
-- the local HEAD exactly matches the live PR headRefOid;
-- origin/main was freshly fetched.
-
-Merge origin/main once with a normal merge, resolve and test it, push, and
-restart the soak. Never merge main merely because the PR is behind, checks are
-pending, or mergeability is UNKNOWN.
-
-### Feedback handoff
-
-If /review-latest-feedback was used, carry its start cursor, grouped reports,
-evidence links, and disposition table into the ship ledger and PR recap.
-Follow review-latest-feedback for ownership, reactions, reporter replies, and
-the exact disposition vocabulary; follow babysit-pr for review comments and
-merge blocking. Do not send Slack replies or reactions as a routine ship step
-unless that workflow was explicitly requested or already owns the action.
-
-Leave bot-authored PRs, including Dependabot, untouched when reviewing a queue.
+- Read **all** review comments and review bodies (bots re-review on every
+  push). Fix real issues, reply to each thread with the fix or your reasoning,
+  and push one batched update.
+- Read failing CI logs and fix repo-owned causes. Classify provider outages,
+  cancelled runs, and missing secrets before touching code.
+- In Codex, set a goal (`create_goal`, or reuse one that covers this PR)
+  whose endpoint is "merged, in `origin/main`, worktree rotated", plus one
+  same-thread heartbeat (about every 5 minutes, backing off to 30 after three
+  unchanged wakes) so CI waits resume on their own. The heartbeat stays silent
+  unless something changed, and you delete it after the merge. In Claude Code,
+  keep working in the foreground.
 
 ## 5. Merge gate
 
-Merge only when all of these are true at the same time and remain true for 10
-continuous minutes on the unchanged live PR head:
+Merge when all of these have held on the unchanged head for 10 minutes:
 
-- working tree is clean and there are no unpushed commits;
-- required GitHub Actions checks are green;
-- every human or bot review item has a verified fix/reply or a valid terminal
-  disposition;
-- GitHub reports the PR mergeable;
-- no new actionable feedback arrived during the soak.
+- clean tree, nothing unpushed;
+- required checks green;
+- every review item fixed or answered;
+- GitHub says `MERGEABLE`.
 
-Then use the explicit squash-admin merge:
+`REVIEW_REQUIRED` alone doesn't block your own PR. Re-check the gate right
+before merging, then:
 
 ```bash
-gh pr merge <number> --squash --admin
+gh pr merge <number> --squash --admin --match-head-commit <head-oid-you-just-checked>
 ```
 
-Never enable auto-merge. If a gate fails, fix the actionable cause, publish one
-coherent update to the same PR, and restart the soak. A queued, skipped,
-cancelled, superseded, provider, or missing-secret job is not automatically a
-repo defect; classify it before changing code.
+Write the checked OID into the transcript as `ship_merge_head_oid` before
+running the merge. `/new-branch`'s post-merge rotation uses it. If the head
+changed, restart the 10 minutes. Never enable auto-merge.
 
-## 6. Rotate after merge
+If the user said to leave the PR open, or you only have permission to push to
+someone else's PR, stop at a green, review-clean, mergeable PR, and don't
+rotate.
 
-After the merge, verify that origin/main contains the merge commit. Then run
-the post-ship branch rotation owned by /new-branch, preserving and reporting
-any pre-existing stashes. The final state is a fresh branch from current
-origin/main, not a detached merged checkout.
+## 6. After merge
 
-## Deployment boundary
+- Confirm `origin/main` contains the merge commit.
+- Close GitHub issues the PR fixes with a short thank-you that links the PR.
+- If the PR body has a `Reports` section, run `/review-latest-feedback` step
+  5 ("Close the loop") for exactly those threads. That step owns the reply
+  format, the skip rules, and the no-duplicate check. Never reply on threads
+  that aren't listed.
+- In a task-owned worktree, rotate to a fresh branch from the new
+  `origin/main` (`/new-branch`), provided nothing is unpushed or dirty. Leave a
+  shared checkout's branch alone.
 
-Merges trigger the prebuilt beta publisher on every push to `main`. The docs
-production workflow runs only when its path filters match. Other production
-promotion is manual. Do not wait for Netlify Git-connected builds, clear a
-Netlify lock by hand, or claim beta or production is live from a green PR. Use
-/ship-and-monitor when the user asks for post-merge beta, docs, release-tail,
-or manual-production proof.
+Merging to `main` publishes beta automatically
+(`deploy-beta-sites-prebuilt.yml`), so "it'll be on beta shortly" is accurate
+after a merge. Docs on `main` publish to production automatically. All other
+production promotion is manual. Don't claim beta or production is live
+without checking; use `/ship-and-monitor` when the user wants that proof.
 
-## Final report
+## Report
 
-Include the ready PR URL, merged commit, fresh branch, focused/local checks,
-required CI state, feedback dispositions, and any deployment result. Say
-explicitly when deployment was not part of this run.
+Give the PR link, the merge commit, the checks run, the branch disposition,
+and anything left for a person, each in a line or two.

@@ -1,4 +1,4 @@
-import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
+import type { AgentTerminalSubmitRequest } from "@agent-native/toolkit/app/terminal";
 import {
   DropdownMenu,
   DropdownMenuContent,

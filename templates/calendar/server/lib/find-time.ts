@@ -43,11 +43,6 @@ const DEFAULT_SCHEDULE: AvailabilitySchedule["schedule"] = {
   sunday: [],
 };
 
-/**
- * These live in shared/timezone.ts so the grid, the actions, and this module
- * cannot drift on DST edges. Kept under their original names because callers
- * across the template import them from here.
- */
 export function normalizeTimezone(timezone?: string): string {
   return isCalendarTimezone(timezone) ? timezone : "UTC";
 }

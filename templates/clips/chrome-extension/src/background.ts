@@ -1,11 +1,36 @@
-import { sanitizeBrowserDiagnosticNavigationUrl } from "@shared/browser-diagnostics";
+import type { AppActivity } from "@shared/app-activity";
+import {
+  BROWSER_DIAGNOSTIC_LOOKBACK_MS,
+  sanitizeBrowserDiagnosticNavigationUrl,
+} from "@shared/browser-diagnostics";
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
+import {
+  type AppActivityRead,
+  buildAppActivity,
+  type DiagnosticsClock,
+  MAX_RECORDER_REPORT_CHARS,
+  parseRecorderReportResult,
+  readRecorderReport,
+  stopReadSeconds,
+  withReadTimeout,
+} from "./app-activity";
 import {
   cdpTimestampMs,
   cdpWallTimeMs,
   elapsedMsFromCaptureStart,
 } from "./cdp-time";
+import {
+  chooseTabToDetach,
+  fetchXhrFromResourceTiming,
+  lookbackElapsedMs,
+  MAX_DEBUGGED_TABS,
+  pickDebugTabIds,
+  type ResourceTimingSnapshot,
+  recordTabActivation,
+  removeTabActivation,
+  type TabActivation,
+} from "./debugger-scope";
 import {
   MediaPermissionRequiredError,
   mediaPermissionErrorFromResponse,
@@ -14,15 +39,19 @@ import {
   writeCachedMediaPermission,
 } from "./media-permission";
 import {
+  claimRecordingFinalization,
   restartUploadModeFromResponse,
   restartUploadResetBody,
+  shouldClearTerminalSavingOverlay,
   shouldReconcilePersistedRecording,
   type OffscreenRecordingState,
 } from "./native-recording-state";
+import { broadcastOverlayMessage } from "./overlay-broadcast";
 import {
   sendWithInjectionFallback,
   shouldFollowOverlay,
 } from "./overlay-follow";
+import { parseClipDurationLimitMs } from "./recording-duration";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("background");
@@ -36,9 +65,9 @@ const MAX_CLICK_INPUT_INGRESS_PER_WINDOW = 100;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
 const STORAGE_SETUP_REQUIRED_MESSAGE =
-  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+  "Use Builder.io storage (free tier storage + AI) or S3-compatible storage to finish saving this clip.";
 const STORAGE_SETUP_FAILURE_RE =
-  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|(?:connect|use) builder|s3-compatible/i;
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
 const AUTHORIZATION_SCHEME_RE =
@@ -109,12 +138,14 @@ type ChromeTab = {
   url?: string;
 };
 
+// elapsedMs is negative for entries from before the recording started (lookback).
 type ConsoleLog = {
   timestampMs: number;
   elapsedMs: number;
   level: ConsoleLevel;
   message: string;
   stack?: string;
+  tabId?: number;
 };
 
 type NetworkRequest = {
@@ -128,6 +159,7 @@ type NetworkRequest = {
   ok?: boolean;
   durationMs: number;
   error?: string;
+  tabId?: number;
 };
 
 type InteractionEvent = {
@@ -181,13 +213,13 @@ type NativeRecording = {
   includeDeveloperLogs: boolean;
   videoDeviceId: string;
   audioDeviceId: string;
+  maxClipDurationMs?: number | null;
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
   diagnosticsPausedAtMs?: number;
   diagnosticsPausedDurationMs?: number;
-  // When an upload fails, the recording is saved to the user's Downloads as a
-  // fallback so it is never lost; these describe that saved file.
+  diagnosticsPauses?: Array<{ startedAtMs: number; endedAtMs: number }>;
   savedToDisk?: boolean;
   savedFilename?: string;
   mimeType?: string;
@@ -228,6 +260,7 @@ function friendlyRecordingError(message: string | null | undefined): string {
 
 type PendingNetworkRequest = {
   requestId: string;
+  tabId: number;
   timestampMs: number;
   elapsedMs: number;
   startedAtMonotonicSeconds: number | null;
@@ -240,6 +273,11 @@ type PendingNetworkRequest = {
   error?: string;
 };
 
+// Entries from before the recording started, held with absolute time until the
+// recording begins and they get a negative elapsedMs.
+type LookbackConsoleLog = Omit<ConsoleLog, "elapsedMs">;
+type LookbackNetworkRequest = Omit<NetworkRequest, "elapsedMs">;
+
 type CaptureSession = {
   sessionId: string;
   targetTabId: number;
@@ -251,6 +289,12 @@ type CaptureSession = {
   includeDeveloperLogs: boolean;
   attached: boolean;
   attachError: string | null;
+  // Attached tabs and when each was last active, bounded by MAX_DEBUGGED_TABS.
+  debugTabs: Map<number, number>;
+  captureBegun: boolean;
+  lookbackConsoleLogs: LookbackConsoleLog[];
+  lookbackNetworkRequests: LookbackNetworkRequest[];
+  lookbackNetworkKeys: Set<string>;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
   interactionEvents: InteractionEvent[];
@@ -259,6 +303,12 @@ type CaptureSession = {
   diagnosticsPausedAtMs: number | null;
   diagnosticsPausedDurationMs: number;
   pendingNetworkRequests: Map<string, PendingNetworkRequest>;
+  appActivityStartRead: Promise<AppActivityRead | null> | null;
+};
+
+type NativeDiagnostics = {
+  diagnostics: BrowserDiagnosticsData | null;
+  appActivity: Promise<AppActivity | null> | null;
 };
 
 type StoredAuth = {
@@ -282,11 +332,6 @@ const sessions = new Map<string, CaptureSession>();
 const tabToSession = new Map<number, string>();
 let activeNativeRecording: NativeRecording | null = null;
 
-// ----- Loom-style in-page overlay state -------------------------------------
-// The service worker is the single source of truth for the recording phase and
-// the elapsed-time base. The phase decides which overlay "parts" each tab should
-// show; the timer base lets every overlay iframe tick the same clock locally.
-
 type CaptureMode = "screen" | "camera";
 type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
 type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
@@ -294,32 +339,15 @@ type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 let overlayPhase: OverlayPhase = "idle";
 let overlayBaseElapsedMs = 0;
 let overlayBaseEpochMs = 0;
-// Bubble during the countdown preview (any camera). The offscreen document does
-// NOT composite the camera into screen recordings — that compositor code path is
-// unreachable because screen mode never acquires a camera stream (see
-// offscreen.ts acquire()). So the on-page bubble is the only place the face shows
-// up, for both camera-only AND screen+camera recording (recordingShowsBubble).
 let overlayShowsBubble = false;
 let recordingShowsBubble = false;
-// Cross-tab follow stays enabled for the next release. It needs the manifest's
-// broad-host review path (`<all_urls>` + declarative content script coverage) so
-// the face bubble and controls keep following the user across tabs and reloads.
 const CROSS_TAB_FOLLOW: boolean = true;
-// The launch tab stays the anchor for the explicit reload recovery path.
 let overlayTabId: number | null = null;
 let countdownEndsAtMs = 0;
 let armingNativeRecordingSessionId: string | null = null;
-// If the worker dies mid-arming (before the `finally` in handlePopupStart
-// clears the guard), the persisted guard would otherwise survive for the rest
-// of the browser session and permanently report "already recording". A TTL
-// comfortably longer than the picker + create-recording round trip lets a
-// stuck guard self-clear instead.
 const ARMING_GUARD_TTL_MS = 120000;
 
 function desiredParts(): OverlayPart[] {
-  // The on-page controls match the desktop app: a left-edge vertical pill plus
-  // the face bubble. (Both are captured in full-screen/window recordings — same
-  // tradeoff as the desktop's on-screen controls; that's the intended UX.)
   if (overlayPhase === "countdown") {
     return overlayShowsBubble ? ["bubble", "countdown"] : ["countdown"];
   }
@@ -346,10 +374,6 @@ function overlayStateForBroadcast(): {
   };
 }
 
-// The countdown clock lives here in the worker, not in the overlay. The overlay
-// only *visualizes* it. This is critical: on chrome:// pages (and any page where
-// the overlay can't be injected) the recorder must still start. Without this,
-// recording would silently never begin on those pages.
 const COUNTDOWN_SECONDS = 3;
 const PENDING_PERMISSION_START_TTL_MS = 5 * 60 * 1000;
 
@@ -357,8 +381,6 @@ function clearCountdownTimer(): void {
   countdownEndsAtMs = 0;
 }
 
-// Keep the toolbar popup available while recording so the extension icon opens
-// the active-recording controls instead of stopping the take immediately.
 function setActionPopup(path: string): void {
   try {
     void chrome.action.setPopup({ popup: path });
@@ -367,7 +389,6 @@ function setActionPopup(path: string): void {
   }
 }
 
-// Reaches every extension-origin overlay iframe across all tabs at once.
 function broadcastOverlayState(): void {
   void persistOverlay();
   try {
@@ -380,9 +401,6 @@ function broadcastOverlayState(): void {
   }
 }
 
-// MV3 can suspend the service worker mid-recording, wiping these module vars.
-// Persist them to session storage (survives suspend/revive within the browser
-// session) and restore on worker startup so the overlay controls keep working.
 function persistOverlay(): Promise<void> {
   return sessionStorageSet({
     overlayRuntime: {
@@ -435,8 +453,6 @@ async function restoreRuntimeState(): Promise<void> {
   if (freshArmingSessionId && armingNativeRecordingSessionId === null) {
     armingNativeRecordingSessionId = freshArmingSessionId;
   } else if (!freshArmingSessionId) {
-    // A failed earlier status probe can outlive the persisted guard. Do not let
-    // that stale in-memory value keep the popup locked after the TTL expires.
     armingNativeRecordingSessionId = null;
   }
   const rt = stored.overlayRuntime as
@@ -473,8 +489,6 @@ async function restoreRuntimeState(): Promise<void> {
         type: "CLIPS_OFFSCREEN_STATUS",
       });
     } catch (error) {
-      // Keep the guard and disabled action until a later status request can
-      // distinguish a live recorder from an interrupted picker.
       console.warn(
         "[clips-bg] could not inspect interrupted arming state:",
         error,
@@ -483,14 +497,9 @@ async function restoreRuntimeState(): Promise<void> {
 
     if (offscreenState?.activeSessionId === recoverySessionId) {
       if (activeNativeRecording) {
-        // The recorder row was persisted before BEGIN, so a worker restart here
-        // can keep the live recorder without leaving the arming guard stuck on.
         await setArmingGuard(null);
         armingRecovered = true;
       } else {
-        // A pending descriptor normally restores the row above. If it is also
-        // missing, cancel the live recorder instead of leaving it with no UI
-        // stop/discard path; the offscreen state supplies a best-effort row id.
         await cancelRecoveredOffscreenSession(
           recoverySessionId,
           offscreenState.activeRecordingId,
@@ -507,8 +516,6 @@ async function restoreRuntimeState(): Promise<void> {
         // This is the normal acquire/create/attach gap before BEGIN. Keep the
         // guard while the prepared streams are still owned by this arm.
       } else if (activeNativeRecording?.sessionId === recoverySessionId) {
-        // A worker restart ended the arm continuation, so release the row and
-        // prepared streams instead of leaving the popup locked forever.
         await cancelRecording(true);
         await setArmingGuard(null);
         armingRecovered = true;
@@ -522,9 +529,6 @@ async function restoreRuntimeState(): Promise<void> {
         armingRecovered = true;
       }
     } else if (offscreenState) {
-      // The old worker died before BEGIN. Cancel the guarded offscreen session
-      // even when its recording row was never persisted, then clean the local
-      // overlay without touching a different recording that may have resumed.
       if (activeNativeRecording?.sessionId === recoverySessionId) {
         await cancelRecording(true);
       } else {
@@ -542,9 +546,6 @@ async function restoreRuntimeState(): Promise<void> {
   }
 
   if (armingRecovered && overlayPhase !== "idle" && activeNativeRecording) {
-    // Recording survived a worker restart. The offscreen document owns the
-    // recorder + pre-roll timer, so it kept running; restore the active-recording
-    // popup before the user can click the extension icon again.
     setActionPopup(overlayPhase === "saving" ? "" : "src/popup.html");
     if (
       overlayPhase === "countdown" &&
@@ -555,6 +556,24 @@ async function restoreRuntimeState(): Promise<void> {
       overlayBaseEpochMs = countdownEndsAtMs;
       countdownEndsAtMs = 0;
     }
+  }
+
+  if (activeNativeRecording?.status === "complete") {
+    setActionPopup("src/popup.html");
+    await finishSaving(
+      activeNativeRecording,
+      activeNativeRecording.recordingId,
+      true,
+    );
+  } else if (
+    activeNativeRecording &&
+    shouldClearTerminalSavingOverlay(overlayPhase, activeNativeRecording.status)
+  ) {
+    resetOverlay();
+    await broadcastUnmount();
+    broadcastOverlayState();
+  } else {
+    await reconcilePersistedNativeRecording();
   }
 }
 
@@ -631,42 +650,45 @@ function allTabs(): Promise<chrome.tabs.Tab[]> {
 }
 
 async function broadcastMount(): Promise<void> {
-  // Cross-tab follow uses the declarative content script path, so every mounted
-  // tab can receive the current overlay parts and survive reloads.
-  if (!CROSS_TAB_FOLLOW) {
-    if (overlayTabId !== null) await mountOverlayOnTab(overlayTabId);
-    return;
-  }
   const parts = desiredParts();
   const resetDiagnosticQuotas = overlayPhase === "recording";
-  const tabs = await allTabs();
-  await Promise.all(
-    tabs.map((tab) =>
-      typeof tab.id === "number"
-        ? sendTabMessage(tab.id, {
-            type: "CLIPS_OVERLAY_MOUNT",
-            parts,
-            ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
-          })
-        : Promise.resolve(),
-    ),
+  const outcome = await broadcastOverlayMessage(
+    async () =>
+      CROSS_TAB_FOLLOW
+        ? (await allTabs()).flatMap((tab) =>
+            typeof tab.id === "number" ? [tab.id] : [],
+          )
+        : overlayTabId === null
+          ? []
+          : [overlayTabId],
+    sendTabMessage,
+    {
+      type: "CLIPS_OVERLAY_MOUNT",
+      parts,
+      ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
+    },
   );
+  if (outcome === "timed-out") {
+    console.warn("[clips-bg] overlay mount did not reach every tab in time");
+  }
 }
 
 async function broadcastUnmount(): Promise<void> {
-  if (!CROSS_TAB_FOLLOW) {
-    if (overlayTabId !== null)
-      await sendTabMessage(overlayTabId, { type: "CLIPS_OVERLAY_UNMOUNT" });
-    return;
-  }
-  const tabs = await allTabs();
-  await Promise.all(
-    tabs.map((tab) =>
-      typeof tab.id === "number"
-        ? sendTabMessage(tab.id, { type: "CLIPS_OVERLAY_UNMOUNT" })
-        : Promise.resolve(),
-    ),
+  const outcome = await broadcastOverlayMessage(
+    async () =>
+      CROSS_TAB_FOLLOW
+        ? (await allTabs()).flatMap((tab) =>
+            typeof tab.id === "number" ? [tab.id] : [],
+          )
+        : overlayTabId === null
+          ? []
+          : [overlayTabId],
+    sendTabMessage,
+    { type: "CLIPS_OVERLAY_UNMOUNT" },
   );
+  if (outcome === "timed-out") {
+    console.warn("[clips-bg] overlay unmount did not reach every tab in time");
+  }
 }
 
 function resetOverlay(): void {
@@ -677,21 +699,14 @@ function resetOverlay(): void {
   recordingShowsBubble = false;
   clearCountdownTimer();
   setRecordingFlag(false);
-  // Bring back the toolbar popup now that we're idle again.
   setActionPopup("src/popup.html");
   void persistOverlay();
 }
 
-// ----- Pre-record camera preview --------------------------------------------
-// While the popup is open and idle, show the live face bubble on the active tab
-// (like the desktop app's pre-record bubble). The popup holds a runtime port
-// open; its disconnect (popup closed) tears the preview down.
 let previewTabId: number | null = null;
 
 async function startPreview(wantsCamera: boolean): Promise<void> {
   await ensureRestored();
-  // Never show a preview over an active recording (the recording overlay owns
-  // the tab then). If the camera is off, make sure any preview is removed.
   if (overlayPhase !== "idle" || !wantsCamera) {
     await stopPreview();
     return;
@@ -700,8 +715,6 @@ async function startPreview(wantsCamera: boolean): Promise<void> {
   if (!tab || typeof tab.id !== "number") return;
   if (previewTabId !== null && previewTabId !== tab.id) await stopPreview();
   previewTabId = tab.id;
-  // Message delivery reuses the declarative script; fallback injection fails
-  // silently on unsupported pages (chrome://, the Web Store, and similar).
   await mountOverlayOnTab(tab.id, ["bubble"]);
 }
 
@@ -709,15 +722,10 @@ async function stopPreview(): Promise<void> {
   const tabId = previewTabId;
   previewTabId = null;
   if (tabId === null) return;
-  // Don't tear down a recording overlay that took over this tab.
   if (overlayPhase !== "idle") return;
   await sendTabMessage(tabId, { type: "CLIPS_OVERLAY_UNMOUNT" });
 }
 
-// Mirrored into chrome.storage.local so content scripts can cheaply tell whether
-// a recording is in progress without waking the service worker on every page
-// load. Content scripts can read storage.local by default; storage.session
-// cannot, which is why we use local here.
 function setRecordingFlag(active: boolean): void {
   try {
     chrome.storage.local.set(
@@ -906,9 +914,6 @@ function originOf(raw: string | null | undefined): string | null {
   }
 }
 
-// Auth lives in chrome.storage.local (not .session) so the user stays signed in
-// across extension reloads and browser restarts. It is the user's own session
-// token — treated like a cookie — and is cleared on sign-out or when invalid.
 function localStorageSet(value: Record<string, unknown>): Promise<void> {
   return new Promise((resolve) => {
     chrome.storage.local.set(value, () => {
@@ -995,16 +1000,6 @@ async function cancelRecoveredOffscreenSession(
   }
 }
 
-// The arming guard rejects a second CLIPS_POPUP_START while the picker +
-// create-recording round trip is in flight. The in-memory var alone does not
-// survive an MV3 service-worker suspension (possible while awaiting the
-// native picker or the create-recording network call), which would let a
-// second start race in on a revived worker. Persist it to session storage
-// (authoritative; cleared when the browser session ends) and treat the
-// in-memory var as a fast path only. Stored alongside a timestamp so a guard
-// left behind by a worker that died mid-arming (skipping the `finally` that
-// normally clears it) expires instead of blocking every future start for the
-// rest of the browser session.
 async function setArmingGuard(sessionId: string | null): Promise<void> {
   armingNativeRecordingSessionId = sessionId;
   if (sessionId) {
@@ -1025,17 +1020,10 @@ function persistedArmingSessionId(rawValue: unknown): string | null {
   return typeof sessionId === "string" && sessionId ? sessionId : null;
 }
 
-// Reads the persisted arming guard and returns its sessionId only if it is
-// still fresh. Clears (best-effort) and treats as absent when: missing,
-// expired, or in the old bare-string shape (no `ts` — can't be aged, so
-// treat as stale). Centralized so handlePopupStart and restoreRuntimeState
-// apply the exact same TTL logic.
 async function readFreshPersistedArmingSessionId(
   rawValue: unknown,
 ): Promise<string | null> {
   if (typeof rawValue === "string" && rawValue) {
-    // Old shape (bare string, no timestamp) — can't verify freshness, so
-    // treat as stale and clear it.
     await sessionStorageRemove("armingNativeRecordingSessionId").catch(
       () => undefined,
     );
@@ -1255,8 +1243,6 @@ type OffscreenErrorResponse = {
   errorDevice?: string;
 };
 
-// The offscreen document can only answer with plain data, so rebuild the typed
-// error here — callers branch on the class, not on a message string.
 function offscreenError(response: OffscreenErrorResponse): Error {
   return (
     mediaPermissionErrorFromResponse(response) ?? new Error(response.error)
@@ -1283,11 +1269,6 @@ function sendOffscreenMessage<T>(message: Record<string, unknown>): Promise<T> {
   });
 }
 
-// MV3 suspends an idle worker after ~30 seconds. The native picker routinely
-// stays open longer than that, and a worker that dies mid-acquire takes the
-// popup's pending sendResponse channel with it ("the message channel closed
-// before a response was received"). Any extension API call resets the idle
-// timer, so ping while the user is still choosing.
 const WORKER_KEEPALIVE_INTERVAL_MS = 20_000;
 
 async function withWorkerKeepAlive<T>(run: () => Promise<T>): Promise<T> {
@@ -1301,8 +1282,6 @@ async function withWorkerKeepAlive<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-// The author's own dashboard. Fine to OPEN for the person who just recorded;
-// never the thing to hand someone else — see recordingShareUrl below.
 function recordingUrl(
   recording: Pick<NativeRecording, "clipsBaseUrl" | "recordingId">,
 ): string {
@@ -1383,6 +1362,12 @@ function createSession(
     diagnosticsPausedAtMs: null,
     diagnosticsPausedDurationMs: 0,
     pendingNetworkRequests: new Map(),
+    debugTabs: new Map(),
+    captureBegun: false,
+    lookbackConsoleLogs: [],
+    lookbackNetworkRequests: [],
+    lookbackNetworkKeys: new Set(),
+    appActivityStartRead: null,
   };
   sessions.set(sessionId, session);
   tabToSession.set(session.targetTabId, sessionId);
@@ -1402,6 +1387,8 @@ function restoreCaptureSession(recording: NativeRecording): CaptureSession {
   session.recordingId = recording.recordingId;
   session.startedAt = recording.startedAt;
   session.startedAtMs = recording.startedAtMs;
+  // A restored recording already began, so late console replay is not lookback.
+  session.captureBegun = true;
   session.diagnosticsPausedAtMs =
     typeof recording.diagnosticsPausedAtMs === "number"
       ? recording.diagnosticsPausedAtMs
@@ -1432,18 +1419,11 @@ async function handlePopupStart(message: PopupStartMessage) {
 async function startRecordingFromTab(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
-  // False for the start that the permission page itself triggered: sending that
-  // one back to a fresh permission tab on failure would open a new tab per
-  // round, so it reports the failure instead.
   allowPermissionRecovery?: boolean;
 }) {
   const { tab, settings } = args;
   const allowPermissionRecovery = args.allowPermissionRecovery !== false;
   await reconcilePersistedNativeRecording();
-  // The persisted value is authoritative (survives a worker suspension during
-  // arming); the in-memory var is only a same-tick fast path on top of it.
-  // Stale (past-TTL) or legacy-shaped guards are treated as absent — see
-  // readFreshPersistedArmingSessionId.
   const persistedArmingSessionId = await readFreshPersistedArmingSessionId(
     (await sessionStorageGet(["armingNativeRecordingSessionId"]))
       .armingNativeRecordingSessionId,
@@ -1564,10 +1544,6 @@ async function recoverMissingMediaPermission(args: {
   return { ok: false, error: error.message };
 }
 
-// Arm a Loom-style in-page recording: show the native picker, create the row,
-// then hand the recorder its pre-roll delay. The MediaRecorder starts inside the
-// offscreen document after that delay, which reports "recording" back here
-// (markRecordingStarted) — reliable even when no overlay can be injected.
 async function armRecording(args: {
   sessionId: string;
   tab: ChromeTab;
@@ -1581,12 +1557,8 @@ async function armRecording(args: {
     settings.captureSurface === "camera" ? "browser" : settings.captureSurface;
   console.log("[clips-bg] arm: start", { mode, surface, tabId: tab.id });
 
-  // Pre-warmed on popup open, so this is effectively instant and keeps the
-  // getDisplayMedia() call close to the user's click.
   await ensureOffscreenDocument();
 
-  // 1) Native "Choose what to share" picker. Do this before any network round
-  //    trip so the picker stays tied to the user gesture. Throws if cancelled.
   let acq: { ok: boolean; width: number; height: number };
   try {
     acq = await withWorkerKeepAlive(() =>
@@ -1614,10 +1586,6 @@ async function armRecording(args: {
   }
   console.log("[clips-bg] arm: acquired stream", acq);
 
-  // 2) Show the countdown overlay IMMEDIATELY — before the network round-trip —
-  //    so the 3-2-1 runs full-length and the dim/blur clears exactly when the
-  //    recorder starts. The on-page bubble shows during countdown AND recording
-  //    (the face is captured in the display; we do not composite).
   const cameraInvolved = mode === "camera" || settings.includeCamera;
   setActionPopup("");
   overlayPhase = "countdown";
@@ -1626,8 +1594,6 @@ async function armRecording(args: {
   overlayShowsBubble = cameraInvolved;
   recordingShowsBubble = cameraInvolved;
   countdownEndsAtMs = nowMs() + COUNTDOWN_SECONDS * 1000;
-  // The recording overlay now owns this tab's bubble — hand off from any preview
-  // so the popup-close disconnect won't tear down the live recording overlay.
   previewTabId = null;
   setRecordingFlag(true);
   overlayTabId = tab.id as number;
@@ -1644,12 +1610,12 @@ async function armRecording(args: {
     await chrome.action.setBadgeText({ text: "" });
   };
 
-  // 3) Create the recording row (happens during the countdown).
   type CreatedRecording = {
     id?: string;
     uploadChunkUrl?: string;
     abortUrl?: string;
     uploadMode?: UploadMode;
+    maxClipDurationMs?: number | null;
   };
   let created: CreatedRecording;
   try {
@@ -1657,6 +1623,7 @@ async function armRecording(args: {
       title: tab.title || "Untitled recording",
       titleSource: tab.title ? "context" : "default",
       sourceAppName: "Chrome",
+      recordingPlatform: "extension",
       sourceWindowTitle: tab.title ?? null,
       hasCamera: cameraInvolved,
       hasAudio: settings.includeMicrophone,
@@ -1704,12 +1671,11 @@ async function armRecording(args: {
     includeDeveloperLogs: settings.includeDeveloperLogs,
     videoDeviceId: settings.videoDeviceId,
     audioDeviceId: settings.audioDeviceId,
+    maxClipDurationMs: parseClipDurationLimitMs(created.maxClipDurationMs),
     status: "recording",
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
   };
-  // Persist a descriptor before BEGIN so recovery can control or trash the
-  // server row even if the worker dies before the active state write finishes.
   try {
     await persistPendingNativeRecording(activeNativeRecording);
     await saveActiveNativeRecording();
@@ -1721,20 +1687,9 @@ async function armRecording(args: {
     await clearNativeRecording();
     throw err;
   }
-  // 4) Start the recorder when the (already-running) countdown ends. The
-  //    offscreen owns the pre-roll timer (a reliable context, unlike the
-  //    suspendable worker) and reports "recording" back when it actually starts.
   const authToken = (await readAuthSession(settings))?.token;
   console.log("[clips-bg] arm: created row", created.id, "auth?", !!authToken);
-  // Diagnostics follow the launch tab regardless of which display surface is
-  // being recorded. Attach before the recorder starts so the first captured
-  // console or network event is not lost during the countdown.
   await attachSession(session);
-  // The on-page countdown drives the actual start (it sends COUNTDOWN_DONE at
-  // "Go"). This offscreen timer is only a FALLBACK. When a camera is involved the
-  // countdown waits for the camera feed before it even shows "3" (the content
-  // script holds it, with its own 12s cap), so the fallback must be generous
-  // enough not to start the recorder mid-connect; otherwise a short pre-roll.
   const startDelayMs = cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000;
   if (
     armingNativeRecordingSessionId !== sessionId ||
@@ -1751,6 +1706,7 @@ async function armRecording(args: {
       recordingId: created.id,
       uploadUrl,
       uploadMode: created.uploadMode ?? "buffered",
+      maxClipDurationMs: parseClipDurationLimitMs(created.maxClipDurationMs),
       hasCamera: cameraInvolved,
       startDelayMs,
       authToken,
@@ -1773,8 +1729,6 @@ async function armRecording(args: {
     await cancelRecording(true);
     throw err;
   }
-  // Keep the active-recording stop and discard controls behind the popup only
-  // after the offscreen recorder exists and can safely accept Stop or Discard.
   setActionPopup("src/popup.html");
   await saveActiveNativeRecording();
 
@@ -1786,9 +1740,6 @@ async function armRecording(args: {
   return { ok: true, sessionId, recordingId: created.id, native: true };
 }
 
-// Called when the offscreen recorder reports it actually started (after its
-// pre-roll countdown). Advances phase countdown -> recording and starts the
-// on-page timer. Idempotent.
 async function markRecordingStarted() {
   if (overlayPhase !== "countdown") return;
   console.log("[clips-bg] recorder started → phase=recording");
@@ -1799,10 +1750,20 @@ async function markRecordingStarted() {
   const session = activeNativeRecording
     ? sessions.get(activeNativeRecording.sessionId)
     : null;
-  if (session) beginSessionCapture(session, overlayBaseEpochMs);
+  if (session) {
+    await refreshLookbackNetwork(session);
+    beginSessionCapture(session, overlayBaseEpochMs);
+    if (session.includeDeveloperLogs) {
+      session.appActivityStartRead = readAppActivity(
+        session.targetTabId,
+        BROWSER_DIAGNOSTIC_LOOKBACK_MS / 1000,
+      );
+    }
+  }
   if (activeNativeRecording) {
     delete activeNativeRecording.diagnosticsPausedAtMs;
     delete activeNativeRecording.diagnosticsPausedDurationMs;
+    delete activeNativeRecording.diagnosticsPauses;
     activeNativeRecording.startedAtMs = overlayBaseEpochMs;
     activeNativeRecording.startedAt = new Date(
       overlayBaseEpochMs,
@@ -1814,8 +1775,6 @@ async function markRecordingStarted() {
   broadcastOverlayState();
 }
 
-// Skip the pre-roll: tell the offscreen recorder to start immediately. It will
-// report "recording", which flips our phase via markRecordingStarted.
 async function handleOverlaySkip() {
   if (overlayPhase !== "countdown" || !activeNativeRecording) {
     return { ok: true };
@@ -1869,6 +1828,10 @@ function handleOverlayResume() {
       activeNativeRecording.diagnosticsPausedDurationMs =
         (activeNativeRecording.diagnosticsPausedDurationMs ?? 0) +
         pausedDurationMs;
+      (activeNativeRecording.diagnosticsPauses ??= []).push({
+        startedAtMs: pausedAtMs,
+        endedAtMs: resumedAtMs,
+      });
       delete activeNativeRecording.diagnosticsPausedAtMs;
     }
   }
@@ -1886,8 +1849,6 @@ function handleOverlayResume() {
   return { ok: true };
 }
 
-// Restart: discard the in-progress capture but keep the same screen selection,
-// reset the server-side chunks, then replay the countdown.
 async function handleOverlayRestart() {
   const recording = activeNativeRecording;
   if (!recording) return { ok: true };
@@ -1902,14 +1863,6 @@ async function handleOverlayRestart() {
       error: err instanceof Error ? err.message : "Could not restart.",
     };
   }
-  // If the previous take's chunks could not be cleared, do NOT re-arm with the
-  // same recordingId — finalize would otherwise assemble stale chunk keys from
-  // the aborted take into the restarted recording. Surface the failure instead.
-  // CLIPS_OFFSCREEN_RESTART above already cleared the offscreen's active
-  // recording (it only holds the raw source streams in a "prepared" slot now),
-  // so we must not leave the overlay stuck mid-recording/paused with no
-  // recorder behind it — tear the overlay back down and release those streams,
-  // matching the re-arm failure handling just below.
   const uploadMode = await resetRecordingChunks(recording);
   if (!uploadMode) {
     recording.status = "error";
@@ -1941,8 +1894,6 @@ async function handleOverlayRestart() {
   const restartAuthToken = (
     await readAuthSession(settingsFromRecording(recording))
   )?.token;
-  // Re-arm the recorder on the same (re-homed) source streams with a fresh
-  // pre-roll. The offscreen reports "recording" when it restarts.
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
@@ -1950,6 +1901,7 @@ async function handleOverlayRestart() {
       recordingId: recording.recordingId,
       uploadUrl: recording.uploadUrl,
       uploadMode: recording.uploadMode ?? "buffered",
+      maxClipDurationMs: recording.maxClipDurationMs ?? null,
       hasCamera: cameraInvolved,
       startDelayMs: cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000,
       authToken: restartAuthToken,
@@ -1959,8 +1911,6 @@ async function handleOverlayRestart() {
       ),
     });
   } catch (err) {
-    // Re-arming failed: tear the countdown overlay back down and report the
-    // failure instead of leaving the user on a pre-roll with no recorder.
     recording.status = "error";
     recording.error =
       err instanceof Error ? err.message : "Could not restart the recorder.";
@@ -1999,27 +1949,35 @@ async function resetRecordingChunks(
   return restartUploadModeFromResponse(await response.json().catch(() => null));
 }
 
-// Finalize a successful save: open the clip and tear down the "Saving…" overlay.
-// Guarded + claims the phase synchronously so it runs exactly once even if both
-// the STOP response and the offscreen "complete" status race to call it (the
-// latter is the safety net when the worker was suspended mid-upload).
 async function finishSaving(
   recording: NativeRecording,
   recordingIdFromStatus?: string,
+  restoringCompletedRecording = false,
 ): Promise<boolean> {
-  if (overlayPhase !== "saving") return false;
-  resetOverlay(); // first statement sets overlayPhase = "idle" synchronously
-  recording.status = "complete";
-  recording.error = null;
-  if (recordingIdFromStatus) recording.recordingId = recordingIdFromStatus;
-  recording.recordingUrl = recordingUrl(recording);
-  await deleteSession(recording.sessionId);
-  await broadcastUnmount();
-  broadcastOverlayState();
-  await copyRecordingUrlToClipboard(recording);
-  await clearNativeRecording();
-  await createTab(recording.recordingUrl);
-  return true;
+  if (
+    overlayPhase !== "saving" &&
+    !(restoringCompletedRecording && recording.status === "complete")
+  ) {
+    return false;
+  }
+  const releaseFinalization = claimRecordingFinalization(recording.sessionId);
+  if (!releaseFinalization) return false;
+  try {
+    resetOverlay();
+    recording.status = "complete";
+    recording.error = null;
+    if (recordingIdFromStatus) recording.recordingId = recordingIdFromStatus;
+    recording.recordingUrl = recordingUrl(recording);
+    await deleteSession(recording.sessionId);
+    await broadcastUnmount();
+    broadcastOverlayState();
+    await copyRecordingUrlToClipboard(recording);
+    await clearNativeRecording();
+    await createTab(recording.recordingUrl);
+    return true;
+  } finally {
+    releaseFinalization();
+  }
 }
 
 async function stopRecording() {
@@ -2034,8 +1992,8 @@ async function stopRecording() {
   setActionPopup("");
   overlayPhase = "saving";
   countdownEndsAtMs = 0;
-  const diagnostics = await stopNativeDiagnostics(recording);
-  const diagnosticsSave = saveNativeDiagnostics(recording, diagnostics);
+  const captured = await stopNativeDiagnostics(recording);
+  const diagnosticsSave = saveNativeDiagnostics(recording, captured);
   await saveActiveNativeRecording();
   await broadcastMount();
   broadcastOverlayState();
@@ -2049,9 +2007,6 @@ async function stopRecording() {
     });
     if (response.result && response.result.status === "cancelled") {
       await diagnosticsSave;
-      // Stopped during the pre-roll countdown: no media was captured. Treat it
-      // as an aborted take — discard the empty recording instead of opening a
-      // playback tab for a finished-but-empty clip.
       await deleteSession(recording.sessionId);
       await postAction(settingsFromRecording(recording), "trash-recording", {
         id: recording.recordingId,
@@ -2104,6 +2059,8 @@ async function cancelRecording(force = false) {
   await sendOffscreenMessage({
     type: "CLIPS_OFFSCREEN_CANCEL",
     sessionId: recording.sessionId,
+    failureCode: "user_cancelled",
+    reason: "Recording cancelled by user",
   }).catch(() => undefined);
   await deleteSession(recording.sessionId);
   await postAction(settingsFromRecording(recording), "trash-recording", {
@@ -2115,16 +2072,16 @@ async function cancelRecording(force = false) {
 
 async function saveNativeDiagnostics(
   recording: NativeRecording,
-  diagnostics?: BrowserDiagnosticsData | null,
+  captured: NativeDiagnostics | null,
 ): Promise<void> {
   if (!recording.includeDeveloperLogs) return;
   const session = sessions.get(recording.sessionId);
-  const snapshot = diagnostics ?? (session ? snapshotSession(session) : null);
+  const snapshot =
+    captured?.diagnostics ?? (session ? snapshotSession(session) : null);
   if (!snapshot) return;
-  await postAction(
-    settingsFromRecording(recording),
-    "save-browser-diagnostics",
-    {
+  const settings = settingsFromRecording(recording);
+  try {
+    await postAction(settings, "save-browser-diagnostics", {
       recordingId: recording.recordingId,
       sessionId: recording.sessionId,
       source: "extension",
@@ -2136,24 +2093,65 @@ async function saveNativeDiagnostics(
       consoleLogs: snapshot.consoleLogs,
       networkRequests: snapshot.networkRequests,
       interactionEvents: snapshot.interactionEvents,
-    },
-  ).catch((err) => {
+    });
+  } catch (err) {
     console.warn("[clips-extension] diagnostics save failed:", err);
+    return;
+  }
+  // App activity is attached to the diagnostics row, so it is saved second.
+  const appActivity = await captured?.appActivity;
+  if (!appActivity) return;
+  await postAction(settings, "save-recording-app-activity", {
+    recordingId: recording.recordingId,
+    ...appActivity,
+  }).catch((err) => {
+    console.warn("[clips-extension] app activity save failed:", err);
   });
 }
 
 async function stopNativeDiagnostics(
   recording: NativeRecording,
-): Promise<BrowserDiagnosticsData | null> {
+): Promise<NativeDiagnostics | null> {
   const session = sessions.get(recording.sessionId);
   if (!session) return null;
   const diagnostics = recording.includeDeveloperLogs
     ? snapshotSession(session)
     : null;
+  const appActivity = recording.includeDeveloperLogs
+    ? collectAppActivity(session, recording).catch((err) => {
+        console.warn("[clips-extension] app activity dropped:", err);
+        return null;
+      })
+    : null;
   await deleteSession(recording.sessionId).catch((err) => {
     console.warn("[clips-extension] diagnostics detach failed:", err);
   });
-  return diagnostics;
+  return { diagnostics, appActivity };
+}
+
+function diagnosticsClockOf(recording: NativeRecording): DiagnosticsClock {
+  return {
+    startedAtMs: recording.startedAtMs,
+    pauses: [
+      ...(recording.diagnosticsPauses ?? []),
+      ...(typeof recording.diagnosticsPausedAtMs === "number"
+        ? [{ startedAtMs: recording.diagnosticsPausedAtMs, endedAtMs: null }]
+        : []),
+    ],
+  };
+}
+
+async function collectAppActivity(
+  session: CaptureSession,
+  recording: NativeRecording,
+): Promise<AppActivity | null> {
+  const clock = diagnosticsClockOf(recording);
+  const startRead = await session.appActivityStartRead;
+  const stopRead = await readAppActivity(
+    session.targetTabId,
+    stopReadSeconds(clock.startedAtMs, nowMs(), startRead !== null),
+  );
+  return buildAppActivity({ start: startRead, stop: stopRead }, clock);
 }
 
 async function clearNativeRecording(): Promise<void> {
@@ -2182,7 +2180,6 @@ async function reconcilePersistedNativeRecording(): Promise<void> {
       return;
     }
   } catch {
-    // A transient wake-up failure must not discard a real recording.
     return;
   }
 
@@ -2351,8 +2348,12 @@ function beginSessionCapture(
 ): void {
   session.startedAtMs = startedAtMs;
   session.startedAt = new Date(startedAtMs).toISOString();
-  session.consoleLogs = [];
-  session.networkRequests = [];
+  session.captureBegun = true;
+  session.consoleLogs = lookbackConsoleFor(session, startedAtMs);
+  session.networkRequests = lookbackNetworkFor(session, startedAtMs);
+  session.lookbackConsoleLogs = [];
+  session.lookbackNetworkRequests = [];
+  session.lookbackNetworkKeys.clear();
   session.interactionEvents = [];
   session.clickInputIngressWindowStartedAtMs = 0;
   session.clickInputIngressCount = 0;
@@ -2368,37 +2369,215 @@ function beginSessionCapture(
   session.pendingNetworkRequests.clear();
 }
 
+// Lookback entries are the ones gathered before the recording began, placed by
+// their time relative to its start. Anything older than the window is dropped.
+function lookbackConsoleFor(
+  session: CaptureSession,
+  startedAtMs: number,
+): ConsoleLog[] {
+  return session.lookbackConsoleLogs
+    .flatMap((entry) => {
+      const elapsedMs = lookbackElapsedMs(entry.timestampMs, startedAtMs);
+      return elapsedMs === null ? [] : [{ ...entry, elapsedMs }];
+    })
+    .slice(-MAX_CONSOLE_LOGS);
+}
+
+function lookbackNetworkFor(
+  session: CaptureSession,
+  startedAtMs: number,
+): NetworkRequest[] {
+  return session.lookbackNetworkRequests
+    .flatMap((entry) => {
+      const elapsedMs = lookbackElapsedMs(entry.timestampMs, startedAtMs);
+      return elapsedMs === null ? [] : [{ ...entry, elapsedMs }];
+    })
+    .slice(-MAX_NETWORK_REQUESTS);
+}
+
+// Attaches to the recording's tab and to recently active tabs, up to
+// MAX_DEBUGGED_TABS. Safe to call again: tabs already attached are skipped.
 async function attachSession(session: CaptureSession): Promise<void> {
-  if (!session.includeDeveloperLogs || session.attached) return;
+  if (!session.includeDeveloperLogs) return;
+  // If the recent-tab list cannot be read, only the recording's own tab is
+  // attached, and the failure is reported rather than hidden.
+  let wanted = [session.targetTabId];
   try {
-    await debuggerAttach(session.targetTabId);
-    session.attached = true;
-    tabToSession.set(session.targetTabId, session.sessionId);
-    await Promise.allSettled([
-      debuggerSendCommand(session.targetTabId, "Runtime.enable"),
-      debuggerSendCommand(session.targetTabId, "Log.enable"),
-      debuggerSendCommand(session.targetTabId, "Network.enable", {
-        maxTotalBufferSize: 0,
-        maxResourceBufferSize: 0,
-        maxPostDataSize: 0,
-      }),
-    ]);
-  } catch (err) {
-    session.attachError =
-      err instanceof Error ? err.message : "Could not attach to the tab.";
-    pushConsole(session, {
-      level: "warn",
-      message: `Clips could not attach browser diagnostics: ${session.attachError}`,
+    wanted = pickDebugTabIds({
+      targetTabId: session.targetTabId,
+      activations: await readTabActivations(),
+      nowMs: nowMs(),
     });
+  } catch (err) {
+    session.attachError = `Could not read recently used tabs: ${
+      err instanceof Error ? err.message : String(err)
+    }`;
+  }
+  for (const tabId of wanted) {
+    if (session.debugTabs.has(tabId)) continue;
+    if (session.debugTabs.size >= MAX_DEBUGGED_TABS) break;
+    await attachDebugTab(session, tabId);
   }
 }
 
-async function detachSession(session: CaptureSession): Promise<void> {
-  if (session.attached) {
-    await debuggerDetach(session.targetTabId);
+async function attachDebugTab(
+  session: CaptureSession,
+  tabId: number,
+): Promise<boolean> {
+  try {
+    await debuggerAttach(tabId);
+  } catch (err) {
+    // Other tabs can refuse (DevTools already open, chrome:// pages). Only the
+    // recording's own tab is reported as an attach failure.
+    if (tabId === session.targetTabId) {
+      session.attachError =
+        err instanceof Error ? err.message : "Could not attach to the tab.";
+    } else {
+      console.warn("[clips-bg] debugger skipped a recent tab", tabId, err);
+    }
+    return false;
   }
-  session.attached = false;
+  session.debugTabs.set(tabId, nowMs());
+  tabToSession.set(tabId, session.sessionId);
+  session.attached = true;
+  await Promise.allSettled([
+    debuggerSendCommand(tabId, "Runtime.enable"),
+    debuggerSendCommand(tabId, "Log.enable"),
+    debuggerSendCommand(tabId, "Network.enable", {
+      maxTotalBufferSize: 0,
+      maxResourceBufferSize: 0,
+      maxPostDataSize: 0,
+    }),
+  ]);
+  return true;
+}
+
+async function detachDebugTab(
+  session: CaptureSession,
+  tabId: number,
+): Promise<void> {
+  await debuggerDetach(tabId);
+  session.debugTabs.delete(tabId);
+  tabToSession.delete(tabId);
+  session.attached = session.debugTabs.size > 0;
+}
+
+async function detachSession(session: CaptureSession): Promise<void> {
+  for (const tabId of [...session.debugTabs.keys()]) {
+    await detachDebugTab(session, tabId);
+  }
   tabToSession.delete(session.targetTabId);
+  session.attached = false;
+}
+
+// Runs inside the page through chrome.scripting, so it must not close over
+// anything from this file.
+function readResourceTiming(): {
+  timeOriginMs: number;
+  entries: ResourceTimingSnapshot[];
+} {
+  return {
+    timeOriginMs: performance.timeOrigin,
+    entries: performance.getEntriesByType("resource").map((entry) => {
+      const timing = entry as PerformanceResourceTiming & {
+        responseStatus?: number;
+      };
+      return {
+        name: timing.name,
+        initiatorType: timing.initiatorType,
+        startTime: timing.startTime,
+        duration: timing.duration,
+        responseStatus: timing.responseStatus,
+      };
+    }),
+  };
+}
+
+// Chrome does not replay network events on attach, but the page keeps its
+// resource timing history. It is read only before the recording begins.
+async function readLookbackNetwork(
+  session: CaptureSession,
+  tabId: number,
+): Promise<void> {
+  if (session.captureBegun) return;
+  let snapshot:
+    | { timeOriginMs: number; entries: ResourceTimingSnapshot[] }
+    | undefined;
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: readResourceTiming,
+    });
+    snapshot = injection?.result;
+  } catch (err) {
+    // chrome:// and other pages cannot be scripted, so they have no lookback.
+    console.warn("[clips-bg] no network lookback for tab", tabId, err);
+    return;
+  }
+  if (!snapshot) return;
+  for (const entry of fetchXhrFromResourceTiming(
+    snapshot.entries,
+    snapshot.timeOriginMs,
+  )) {
+    const url = sanitizeUrl(entry.url);
+    const key = `${tabId}|${entry.timestampMs}|${url}`;
+    if (!url || session.lookbackNetworkKeys.has(key)) continue;
+    session.lookbackNetworkKeys.add(key);
+    session.lookbackNetworkRequests.push({
+      timestampMs: entry.timestampMs,
+      type: entry.type,
+      method: "UNKNOWN",
+      url,
+      durationMs: entry.durationMs,
+      tabId,
+      ...(entry.status
+        ? {
+            status: entry.status,
+            ok: entry.status >= 200 && entry.status < 400,
+          }
+        : {}),
+    });
+  }
+  if (session.lookbackNetworkRequests.length > MAX_NETWORK_REQUESTS) {
+    session.lookbackNetworkRequests.splice(
+      0,
+      session.lookbackNetworkRequests.length - MAX_NETWORK_REQUESTS,
+    );
+  }
+}
+
+// Pages without the agent-native recorder are the common case and are skipped
+// silently.
+async function readAppActivity(
+  tabId: number,
+  seconds: number,
+): Promise<AppActivityRead | null> {
+  let result: unknown;
+  try {
+    const [injection] = await withReadTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: readRecorderReport,
+        args: [seconds, MAX_RECORDER_REPORT_CHARS],
+      }),
+    );
+    result = injection?.result;
+  } catch (err) {
+    console.warn("[clips-bg] no app activity for tab", tabId, err);
+    return null;
+  }
+  const parsed = parseRecorderReportResult(result, nowMs());
+  if (parsed.status === "failed") {
+    console.warn("[clips-bg] unreadable app activity", tabId, parsed.reason);
+  }
+  return parsed.status === "ok" ? parsed.read : null;
+}
+
+async function refreshLookbackNetwork(session: CaptureSession): Promise<void> {
+  for (const tabId of [...session.debugTabs.keys()]) {
+    await readLookbackNetwork(session, tabId);
+  }
 }
 
 async function deleteSession(sessionId: string): Promise<void> {
@@ -2415,15 +2594,12 @@ function pushConsole(
     message: string;
     stack?: string | null;
     timestampMs?: number | null;
+    tabId?: number;
   },
 ): void {
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
-  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
-  // Runtime and Log can replay old entries when the debugger attaches. Those
-  // entries belong to the page history, not the recording that just started.
-  if (elapsedMs === null) return;
   const message = truncate(
     redactString(entry.message, { redactQueryValues: true }),
     MAX_MESSAGE_LENGTH,
@@ -2434,12 +2610,32 @@ function pushConsole(
         MAX_MESSAGE_LENGTH,
       )
     : "";
+  const tabId = entry.tabId;
+  if (!session.captureBegun) {
+    session.lookbackConsoleLogs.push({
+      timestampMs,
+      level: entry.level,
+      message,
+      ...(stack ? { stack } : {}),
+      ...(tabId !== undefined ? { tabId } : {}),
+    });
+    if (session.lookbackConsoleLogs.length > MAX_CONSOLE_LOGS) {
+      session.lookbackConsoleLogs.splice(
+        0,
+        session.lookbackConsoleLogs.length - MAX_CONSOLE_LOGS,
+      );
+    }
+    return;
+  }
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
+  if (elapsedMs === null) return;
   session.consoleLogs.push({
     timestampMs,
     elapsedMs,
     level: entry.level,
     message,
     ...(stack ? { stack } : {}),
+    ...(tabId !== undefined ? { tabId } : {}),
   });
   if (session.consoleLogs.length > MAX_CONSOLE_LOGS) {
     session.consoleLogs.splice(
@@ -2581,7 +2777,11 @@ function stackTraceText(stackTrace: unknown): string | null {
   return lines.length ? lines.join("\n") : null;
 }
 
-function handleConsoleEvent(session: CaptureSession, params: unknown): void {
+function handleConsoleEvent(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const args = Array.isArray(event.args) ? event.args : [];
@@ -2592,10 +2792,15 @@ function handleConsoleEvent(session: CaptureSession, params: unknown): void {
     message,
     stack: stackTraceText(event.stackTrace),
     timestampMs: cdpTimestampMs(event.timestamp),
+    tabId,
   });
 }
 
-function handleExceptionEvent(session: CaptureSession, params: unknown): void {
+function handleExceptionEvent(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const details = (params as { exceptionDetails?: unknown }).exceptionDetails;
   if (!details || typeof details !== "object") return;
@@ -2612,10 +2817,15 @@ function handleExceptionEvent(session: CaptureSession, params: unknown): void {
     stack: stackTraceText(item.stackTrace),
     timestampMs:
       typeof item.timestamp === "number" ? item.timestamp : undefined,
+    tabId,
   });
 }
 
-function handleLogEntryEvent(session: CaptureSession, params: unknown): void {
+function handleLogEntryEvent(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const entry = (params as { entry?: unknown }).entry;
   if (!entry || typeof entry !== "object") return;
@@ -2627,6 +2837,7 @@ function handleLogEntryEvent(session: CaptureSession, params: unknown): void {
     level: consoleLevel(item.level),
     message: `${source}${text}`,
     timestampMs: cdpTimestampMs(item.timestamp),
+    tabId,
   });
 }
 
@@ -2640,9 +2851,15 @@ function requestTimestampMs(params: Record<string, unknown>): number {
   return cdpWallTimeMs(params.wallTime) ?? nowMs();
 }
 
+// Request ids are only unique per debugger target, so pending requests are keyed by tab too.
+function networkKey(tabId: number, requestId: string): string {
+  return `${tabId}:${requestId}`;
+}
+
 function handleRequestWillBeSent(
   session: CaptureSession,
   params: unknown,
+  tabId: number,
 ): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
@@ -2659,8 +2876,9 @@ function handleRequestWillBeSent(
   if (elapsedMs === null) return;
   const url = sanitizeUrl(typeof request.url === "string" ? request.url : "");
   if (!url) return;
-  session.pendingNetworkRequests.set(requestId, {
+  session.pendingNetworkRequests.set(networkKey(tabId, requestId), {
     requestId,
+    tabId,
     timestampMs,
     elapsedMs,
     startedAtMonotonicSeconds:
@@ -2677,13 +2895,16 @@ function handleRequestWillBeSent(
 function handleResponseReceived(
   session: CaptureSession,
   params: unknown,
+  tabId: number,
 ): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const requestId =
     typeof event.requestId === "string" ? event.requestId : null;
   if (!requestId) return;
-  const pending = session.pendingNetworkRequests.get(requestId);
+  const pending = session.pendingNetworkRequests.get(
+    networkKey(tabId, requestId),
+  );
   if (!pending) return;
   const response =
     event.response && typeof event.response === "object"
@@ -2706,11 +2927,13 @@ function finalizeNetworkRequest(
   session: CaptureSession,
   requestId: string,
   params: Record<string, unknown>,
+  tabId: number,
   error?: string,
 ): void {
-  const pending = session.pendingNetworkRequests.get(requestId);
+  const key = networkKey(tabId, requestId);
+  const pending = session.pendingNetworkRequests.get(key);
   if (!pending) return;
-  session.pendingNetworkRequests.delete(requestId);
+  session.pendingNetworkRequests.delete(key);
   const monotonicEnd =
     typeof params.timestamp === "number" ? params.timestamp : null;
   const durationMs =
@@ -2723,6 +2946,7 @@ function finalizeNetworkRequest(
     type: pending.type,
     method: pending.method,
     url: pending.url,
+    tabId: pending.tabId,
     ...(typeof pending.status === "number" ? { status: pending.status } : {}),
     ...(pending.statusText ? { statusText: pending.statusText } : {}),
     ...(typeof pending.ok === "boolean" ? { ok: pending.ok } : {}),
@@ -2738,22 +2962,31 @@ function finalizeNetworkRequest(
   });
 }
 
-function handleLoadingFinished(session: CaptureSession, params: unknown): void {
+function handleLoadingFinished(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const requestId =
     typeof event.requestId === "string" ? event.requestId : null;
-  if (requestId) finalizeNetworkRequest(session, requestId, event);
+  if (requestId) finalizeNetworkRequest(session, requestId, event, tabId);
 }
 
-function handleLoadingFailed(session: CaptureSession, params: unknown): void {
+function handleLoadingFailed(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const requestId =
     typeof event.requestId === "string" ? event.requestId : null;
   const errorText =
     typeof event.errorText === "string" ? event.errorText : "Request failed";
-  if (requestId) finalizeNetworkRequest(session, requestId, event, errorText);
+  if (requestId)
+    finalizeNetworkRequest(session, requestId, event, tabId, errorText);
 }
 
 async function handleExternalMessage(
@@ -2773,6 +3006,7 @@ async function handleExternalMessage(
     const session = sessions.get(message.sessionId);
     if (!session) return { ok: false, error: "Capture session not found." };
     session.recordingId = message.recordingId ?? null;
+    await refreshLookbackNetwork(session);
     beginSessionCapture(session);
     await attachSession(session);
     return {
@@ -2803,8 +3037,6 @@ async function handleExternalMessage(
 
 chrome.runtime.onInstalled.addListener((details) => {
   void readSettings().then((settings) => storageSet(settings));
-  // Ask for camera/mic once on install so the grant is ready before the first
-  // recording (the record-time gate in the popup is the fallback).
   if (details.reason === "install") {
     void createTab(chrome.runtime.getURL("src/permission.html")).catch(
       () => undefined,
@@ -2812,11 +3044,6 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
-// Restore recording/overlay state whenever the service worker (re)starts so an
-// in-progress recording survives MV3 worker suspension. Memoized so every entry
-// point can `await ensureRestored()` before reading activeNativeRecording — the
-// worker can be revived by the very event (icon click, status message) that
-// needs the state, and the module globals start out empty until restore runs.
 let restorePromise: Promise<void> | null = null;
 function ensureRestored(): Promise<void> {
   if (!restorePromise) {
@@ -2829,9 +3056,6 @@ void ensureRestored();
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
   void (async () => {
-    // Critical: never read activeNativeRecording/overlayPhase before state is
-    // restored, or a freshly-woken worker drops the message (e.g. the offscreen
-    // "recording" status, or an overlay Stop click).
     await ensureRestored();
     let response: unknown;
     try {
@@ -2920,10 +3144,6 @@ async function dispatchRuntimeMessage(
     return { ok: true };
   }
 
-  // The offscreen recorder asks us to save a recording to disk when its upload
-  // fails (storage not connected, network drop, size cap), so the recording is
-  // never lost. The offscreen document holds the blob URL alive until its next
-  // acquire(); we only need the download to be accepted, not fully written.
   if (type === "CLIPS_SAVE_RECORDING_TO_DISK") {
     const { url, filename } = message as { url?: string; filename?: string };
     if (typeof url !== "string" || !url) {
@@ -2950,7 +3170,6 @@ async function dispatchRuntimeMessage(
     }
   }
 
-  // Status updates streamed from the offscreen recorder.
   if (type === "CLIPS_NATIVE_STATUS") {
     const status = message as OffscreenStatusMessage;
     console.log(
@@ -3010,13 +3229,9 @@ async function dispatchRuntimeMessage(
         return { ok: true };
       }
       await saveActiveNativeRecording();
-      // The offscreen recorder finished its pre-roll and actually started —
-      // advance from countdown to recording (the reliable phase flip).
       if (status.status === "recording" && overlayPhase === "countdown") {
         await markRecordingStarted();
       }
-      // Safety net: if the worker was suspended during the upload, stopRecording's
-      // await was lost — finalize here when the offscreen reports completion.
       if (status.status === "complete" && overlayPhase === "saving") {
         await finishSaving(
           activeNativeRecording,
@@ -3034,7 +3249,6 @@ async function dispatchRuntimeMessage(
     return { ok: true };
   }
 
-  // The user stopped sharing from Chrome's native control bar.
   if (type === "CLIPS_NATIVE_ENDED") {
     const sessionId = (message as { sessionId?: string }).sessionId;
     if (
@@ -3048,12 +3262,10 @@ async function dispatchRuntimeMessage(
     return { ok: true };
   }
 
-  // Content script asking which overlay parts to show on its page.
   if (type === "CLIPS_CONTENT_HELLO") {
     return { ok: true, parts: desiredParts() };
   }
 
-  // Overlay iframe handshake — rebroadcast the current timer/phase to it.
   if (type === "CLIPS_OVERLAY_HELLO") {
     broadcastOverlayState();
     return { ok: true, state: overlayStateForBroadcast() };
@@ -3094,7 +3306,6 @@ async function dispatchRuntimeMessage(
     case "CLIPS_PERMISSION_START_AFTER_GRANT":
       return handlePermissionStartAfterGrant();
     case "CLIPS_OVERLAY_COUNTDOWN_DONE":
-      // Skip button on the countdown overlay: start the recorder now.
       return handleOverlaySkip();
     case "CLIPS_OVERLAY_PAUSE":
       return handleOverlayPause();
@@ -3111,9 +3322,6 @@ async function dispatchRuntimeMessage(
   }
 }
 
-// While a recording is active or arming, keep the overlay following the user as
-// they switch tabs. The message-first path reuses declarative scripts and only
-// injects for tabs that predate the extension or otherwise have no receiver.
 chrome.tabs.onActivated.addListener((info) => {
   if (!CROSS_TAB_FOLLOW) return;
   void (async () => {
@@ -3130,9 +3338,88 @@ chrome.tabs.onActivated.addListener((info) => {
   })();
 });
 
-// Keep the launch tab in sync after a reload. Declarative follow covers the
-// other tabs; this is the explicit recovery path for the tab that originally
-// started the recording.
+// Recent-tab tracking decides which tabs a recording attaches to. Updates go
+// through one queue so overlapping activations cannot overwrite each other.
+const RECENT_TABS_KEY = "recentTabActivations";
+let tabActivationQueue: Promise<void> = Promise.resolve();
+
+function queueTabActivation(task: () => Promise<void>): void {
+  tabActivationQueue = tabActivationQueue
+    .then(task)
+    .catch((err) => console.warn("[clips-bg] tab tracking failed", err));
+}
+
+async function readTabActivations(): Promise<TabActivation[]> {
+  const stored = await sessionStorageGet([RECENT_TABS_KEY]);
+  const value = stored[RECENT_TABS_KEY];
+  return Array.isArray(value) ? (value as TabActivation[]) : [];
+}
+
+function recordingDiagnosticsSession(): CaptureSession | null {
+  if (!activeNativeRecording) return null;
+  const { status, sessionId } = activeNativeRecording;
+  if (status !== "recording") return null;
+  const session = sessions.get(sessionId);
+  return session?.includeDeveloperLogs ? session : null;
+}
+
+// While a recording runs, the tab the user switches to is attached too. When
+// the cap is full, the least recently active attached tab gives up its slot;
+// its logs so far stay in the recording.
+async function followRecordingTab(tabId: number, now: number): Promise<void> {
+  const session = recordingDiagnosticsSession();
+  if (!session) return;
+  if (session.debugTabs.has(tabId)) {
+    session.debugTabs.set(tabId, now);
+    return;
+  }
+  // Attach first, so a refused tab never costs an attached tab its slot.
+  if (!(await attachDebugTab(session, tabId))) return;
+  while (session.debugTabs.size > MAX_DEBUGGED_TABS) {
+    const victim = chooseTabToDetach({
+      attached: [...session.debugTabs].map(([id, lastActiveMs]) => ({
+        tabId: id,
+        lastActiveMs,
+      })),
+      keepTabId: tabId,
+    });
+    if (victim === null) break;
+    await detachDebugTab(session, victim);
+  }
+}
+
+async function noteTabActivated(tabId: number): Promise<void> {
+  const now = nowMs();
+  await sessionStorageSet({
+    [RECENT_TABS_KEY]: recordTabActivation(
+      await readTabActivations(),
+      tabId,
+      now,
+    ),
+  });
+  await followRecordingTab(tabId, now);
+}
+
+chrome.tabs.onActivated.addListener((info) => {
+  queueTabActivation(() => noteTabActivated(info.tabId));
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  queueTabActivation(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, windowId });
+    if (typeof tab?.id === "number") await noteTabActivated(tab.id);
+  });
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  queueTabActivation(async () => {
+    await sessionStorageSet({
+      [RECENT_TABS_KEY]: removeTabActivation(await readTabActivations(), tabId),
+    });
+  });
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "complete") return;
   void (async () => {
@@ -3152,16 +3439,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
-// The popup normally handles the icon click while recording. Keep this as a
-// fallback for environments where the action popup cannot be configured.
 chrome.action.onClicked.addListener(() => {
   void (async () => {
-    // Await restore — the click may have woken the worker, leaving the module
-    // globals empty until this resolves. Without it, Stop silently does nothing.
     await ensureRestored();
     if (armingNativeRecordingSessionId) {
-      // The action can stay disabled after a transient offscreen-status wake
-      // failure, so retry recovery from the fallback click path as well.
       await restoreRuntimeState();
     }
     console.log(
@@ -3178,8 +3459,6 @@ chrome.action.onClicked.addListener(() => {
   })();
 });
 
-// The popup opens a port for as long as it is visible; its disconnect (popup
-// closed) is our reliable signal to remove the pre-record preview bubble.
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "clips-preview") return;
   port.onDisconnect.addListener(() => {
@@ -3211,21 +3490,24 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   const sessionId = tabToSession.get(tabId);
   const session = sessionId ? sessions.get(sessionId) : null;
   if (!session) return;
+  // Network events before the recording begins are not kept: the page's
+  // resource timing history covers that period instead.
+  if (!session.captureBegun && method.startsWith("Network.")) return;
   try {
     if (method === "Runtime.consoleAPICalled") {
-      handleConsoleEvent(session, params);
+      handleConsoleEvent(session, params, tabId);
     } else if (method === "Runtime.exceptionThrown") {
-      handleExceptionEvent(session, params);
+      handleExceptionEvent(session, params, tabId);
     } else if (method === "Log.entryAdded") {
-      handleLogEntryEvent(session, params);
+      handleLogEntryEvent(session, params, tabId);
     } else if (method === "Network.requestWillBeSent") {
-      handleRequestWillBeSent(session, params);
+      handleRequestWillBeSent(session, params, tabId);
     } else if (method === "Network.responseReceived") {
-      handleResponseReceived(session, params);
+      handleResponseReceived(session, params, tabId);
     } else if (method === "Network.loadingFinished") {
-      handleLoadingFinished(session, params);
+      handleLoadingFinished(session, params, tabId);
     } else if (method === "Network.loadingFailed") {
-      handleLoadingFailed(session, params);
+      handleLoadingFailed(session, params, tabId);
     }
   } catch (err) {
     pushConsole(session, {
@@ -3243,15 +3525,13 @@ chrome.debugger.onDetach.addListener((source) => {
   const sessionId = tabToSession.get(tabId);
   if (!sessionId) return;
   const session = sessions.get(sessionId);
-  if (session) session.attached = false;
+  if (session) {
+    session.debugTabs.delete(tabId);
+    session.attached = session.debugTabs.size > 0;
+  }
+  tabToSession.delete(tabId);
 });
 
-// ---- Dev auto-reload (unpacked installs only) ------------------------------
-// `pnpm dev:hot` runs a localhost server that streams "reload" after each
-// rebuild; we hold the stream open and reload the extension when it fires, so
-// edits land without touching chrome://extensions. The open fetch also keeps
-// this worker alive while iterating. No-ops for packed/Web Store installs
-// (they have an update_url) and quietly retries when no dev server is running.
 function startDevHotReload(): void {
   if ("update_url" in chrome.runtime.getManifest()) return;
   const url = "http://localhost:8123/dev-reload-stream";

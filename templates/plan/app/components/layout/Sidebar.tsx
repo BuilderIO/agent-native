@@ -2,37 +2,39 @@ import {
   navigateWithAgentChatViewTransition,
   sendToAgentChat,
   useChatThreads,
-  useSendToAgentChat,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import {
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+  ownDraftRows,
+} from "@agent-native/toolkit/app/chat/ownership-history";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
   AgentNativeIcon,
-  buildSignInReturnHref,
-  FeedbackButton,
-  type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
-import {
-  ChatHistoryRail,
-  type ChatHistoryItem,
-} from "@agent-native/toolkit/chat-history";
+} from "@agent-native/toolkit/app/shared";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
+import { planPathForKind } from "@shared/plan-routes";
 import {
   IconClipboardCheck,
   IconEdit,
   IconMessageCircle,
   IconPlus,
   IconRefresh,
-  IconSettings,
+  IconNews,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { lazy, Suspense, useMemo, useState, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -49,10 +51,24 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useEditionsLab } from "@/hooks/use-editions-lab";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
-import { planReturnPathFromLocation } from "@/lib/plan-local-bridge";
+import { isPlanChatPath, planChatThreadPath } from "@/lib/chat-route";
+import { planReturnPathFromLocation } from "@/lib/plan-return-path";
 import { cn } from "@/lib/utils";
+
+const loadPlanBrandingComposer = () =>
+  import("@agent-native/toolkit/app/chat/composer/index").then(
+    ({ PromptComposer }) => ({
+      default: PromptComposer,
+    }),
+  );
+const LazyPlanBrandingComposer = lazy(loadPlanBrandingComposer);
+
+function preloadPlanBrandingComposer() {
+  void loadPlanBrandingComposer().catch(() => {});
+}
 
 const PLAN_CHAT_STORAGE_KEY = "plans";
 
@@ -73,10 +89,6 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/chat" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
-];
-
-const bottomNavItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 interface SidebarProps {
@@ -100,40 +112,6 @@ function formatPlanAge(value: string) {
     month: "short",
     day: "numeric",
   });
-}
-
-function formatThreadAge(updatedAt: number) {
-  const diffMs = Math.max(0, Date.now() - updatedAt);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(updatedAt).toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function threadTitle(thread: ChatThreadSummary) {
-  return thread.title || thread.preview || "Untitled chat";
-}
-
-function threadUpdatedAt(thread: ChatThreadSummary) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
-}
-
-function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
-  const aPinned = a.pinnedAt ?? 0;
-  const bPinned = b.pinnedAt ?? 0;
-  if (aPinned || bPinned) return bPinned - aPinned;
-  return threadUpdatedAt(b) - threadUpdatedAt(a);
 }
 
 function persistedActiveThreadId() {
@@ -163,59 +141,40 @@ function PlanChatsSection({
     pinThread,
     archiveThread,
     renameThread,
-    refreshThreads,
+    isNewThread,
   } = useChatThreads(undefined, PLAN_CHAT_STORAGE_KEY, undefined, {
+    ownership: "mine",
     autoCreate: false,
     restoreActiveThread: false,
   });
 
-  const visibleThreads = useMemo(
-    () =>
-      threads
-        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
-        .sort(compareThreads)
-        .slice(0, 15),
-    [threads],
-  );
-  const chatItems = useMemo<ChatHistoryItem[]>(
-    () =>
-      visibleThreads.map((thread) => ({
-        id: thread.id,
-        title: threadTitle(thread),
-        titleText: threadTitle(thread),
-        timestamp:
-          thread.id === activeThreadId
-            ? undefined
-            : formatThreadAge(threadUpdatedAt(thread)),
-        pinned: Boolean(thread.pinnedAt),
-      })),
-    [activeThreadId, visibleThreads],
-  );
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (typeof detail?.isRunning === "boolean") refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
+  const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(planChatThreadPath(threadId)),
+    activeId: activeThreadId,
+    localMineRows: ownDraftRows({ threads, isNewThread }),
+    mutations: {
+      pin: pinThread,
+      rename: renameThread,
+      archive: archiveThread,
+    },
+    onMutationFailed: (kind) => {
+      toast.error(
+        t(
+          kind === "archive"
+            ? "raw.sidebar.archiveChatFailed"
+            : kind === "rename"
+              ? "raw.sidebar.renameChatFailed"
+              : "agentChat.common.saveFailed",
+        ),
+      );
+    },
+  });
 
   if (collapsed) return null;
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/chat");
+    navigateWithAgentChatViewTransition(navigate, planChatThreadPath(threadId));
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -233,20 +192,12 @@ function PlanChatsSection({
   async function handleArchiveThread(threadId: string) {
     const wasActive =
       threadId === activeThreadId || threadId === persistedActiveThreadId();
-    const archived = await archiveThread(threadId);
-    if (!archived) {
-      toast.error(t("raw.sidebar.archiveChatFailed"));
-      return;
-    }
+    const archived = await history.listProps.onDelete!(threadId);
+    if (!archived) return false;
     if (wasActive) {
       await handleNewChat();
     }
-  }
-
-  function handleRenameThread(threadId: string, title: string) {
-    void renameThread(threadId, title).then((renamed) => {
-      if (!renamed) toast.error(t("raw.sidebar.renameChatFailed"));
-    });
+    return true;
   }
 
   return (
@@ -256,22 +207,15 @@ function PlanChatsSection({
       aria-hidden={!open}
     >
       <div className="ms-4">
-        <ChatHistoryRail
-          items={chatItems}
+        <OwnershipChatHistoryRail
+          {...history}
           activeId={activeThreadId}
           onSelect={(threadId) => openThread(threadId)}
           onNewChat={() => void handleNewChat()}
           railLabels={{
             newChat: t("sidebar.newChat"),
-            showMore: t("sidebar.chats"),
-            showLess: t("sidebar.chats"),
           }}
           renameMaxLength={160}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
           onDelete={(threadId) => void handleArchiveThread(threadId)}
           labels={{
             options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
@@ -291,12 +235,14 @@ function PlanChatsSection({
 
 function signInForPlanCreate() {
   window.location.href = buildSignInReturnHref({
-    returnTo: "/plans?create=1",
+    returnTo: appPath("/plans?create=1"),
   });
 }
 
 function signInWithReturnPath(returnPath: string) {
-  window.location.href = buildSignInReturnHref({ returnTo: returnPath });
+  window.location.href = buildSignInReturnHref({
+    returnTo: appPath(returnPath),
+  });
 }
 
 function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
@@ -405,10 +351,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
         <div className="grid gap-0.5">
           {plans.map((plan) => {
             const isActive = plan.id === selectedPlanId;
-            const href =
-              plan.kind === "recap"
-                ? `/recaps/${plan.id}`
-                : `/plans/${plan.id}`;
+            const href = planPathForKind(plan.id, plan.kind);
             return (
               <Link
                 key={plan.id}
@@ -489,12 +432,20 @@ function BrandingCustomizePopover() {
   return (
     <>
       {codeRequiredDialog}
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (nextOpen) preloadPlanBrandingComposer();
+          setOpen(nextOpen);
+        }}
+      >
         <PopoverTrigger asChild>
           <button
             type="button"
             aria-label={t("sidebar.customizePlanBranding")}
             title={t("sidebar.customizeBranding")}
+            onPointerEnter={preloadPlanBrandingComposer}
+            onFocus={preloadPlanBrandingComposer}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/55 opacity-0 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/brand:opacity-100 group-focus-within/brand:opacity-100 data-[state=open]:opacity-100"
           >
             <IconEdit className="size-3.5" />
@@ -514,15 +465,32 @@ function BrandingCustomizePopover() {
               {t("sidebar.customizeBrandingDescription")}
             </p>
           </div>
-          <PromptComposer
-            autoFocus
-            disabled={isGenerating}
-            attachmentsEnabled={false}
-            showModelSelector={false}
-            placeholder={t("sidebar.customizeBrandingPlaceholder")}
-            draftScope="plans:customize-branding"
-            onSubmit={handleSubmit}
-          />
+          <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
+            <Suspense
+              fallback={
+                <div
+                  aria-busy="true"
+                  className="flex min-h-36 flex-col justify-between gap-3"
+                >
+                  <Skeleton className="h-24 w-full" />
+                  <div className="flex justify-end gap-2">
+                    <Skeleton className="h-8 w-16" />
+                    <Skeleton className="h-8 w-20" />
+                  </div>
+                </div>
+              }
+            >
+              <LazyPlanBrandingComposer
+                autoFocus
+                disabled={isGenerating}
+                attachmentsEnabled={false}
+                showModelSelector={false}
+                placeholder={t("sidebar.customizeBrandingPlaceholder")}
+                draftScope="plans:customize-branding"
+                onSubmit={handleSubmit}
+              />
+            </Suspense>
+          </LazyChunkErrorBoundary>
         </PopoverContent>
       </Popover>
     </>
@@ -538,16 +506,8 @@ export function Sidebar({
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const { session, isLoading: sessionLoading } = useSession();
   const t = useT();
+  const editionsEnabled = useEditionsLab();
   const returnPath = planReturnPathFromLocation(location);
-
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: pathname.startsWith("/settings"),
-    },
-  ];
 
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
@@ -597,7 +557,6 @@ export function Sidebar({
           {!collapsed ? <BrandingCustomizePopover /> : null}
         </div>
       }
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={<DevDatabaseLink />}
@@ -607,9 +566,12 @@ export function Sidebar({
           to="/chat"
           label={t("navigation.ask")}
           icon={IconMessageCircle}
-          active={pathname === "/chat"}
+          active={isPlanChatPath(pathname)}
         />
-        <PlanChatsSection collapsed={collapsed} open={pathname === "/chat"} />
+        <PlanChatsSection
+          collapsed={collapsed}
+          open={isPlanChatPath(pathname)}
+        />
       </div>
 
       <div>
@@ -629,6 +591,17 @@ export function Sidebar({
           <PlansSidebarSection collapsed={collapsed} />
         ) : null}
       </div>
+
+      {editionsEnabled ? (
+        <div>
+          <AppSidebarNavItem
+            to="/editions"
+            label={t("edition.nav.label")}
+            icon={IconNews}
+            active={pathname.startsWith("/editions")}
+          />
+        </div>
+      ) : null}
     </AppSidebar>
   );
 }

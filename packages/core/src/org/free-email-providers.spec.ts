@@ -45,8 +45,6 @@ describe("isFreeEmailProvider", () => {
   });
 
   it("does not treat a subdomain of a free provider as free", () => {
-    // We match the literal domain only; a crafted subdomain is a distinct
-    // string and is (correctly) not in the set.
     expect(isFreeEmailProvider("mail.gmail.com")).toBe(false);
     expect(isFreeEmailProvider("corp.outlook.com")).toBe(false);
   });
@@ -65,8 +63,6 @@ describe("isFreeEmailProvider", () => {
 
   it("exposes a frozen-by-convention Set with no accidental empty entry", () => {
     expect(FREE_EMAIL_PROVIDER_DOMAINS.has("")).toBe(false);
-    // Every entry must already be lowercase, or the lowercasing lookup
-    // in isFreeEmailProvider would silently never match it.
     for (const domain of FREE_EMAIL_PROVIDER_DOMAINS) {
       expect(domain).toBe(domain.toLowerCase());
       expect(domain.trim()).toBe(domain);

@@ -74,3 +74,97 @@ export function useChatHistoryRailController<Item>({
     resetExpanded,
   };
 }
+
+export interface ChatHistoryRailSectionControllerLabels {
+  showAll: string;
+  showLess: string;
+  loadMore: string;
+  loadingMore: string;
+  retry: string;
+}
+
+export interface ChatHistoryRailSectionInput<Item> {
+  id: string;
+  items: readonly Item[];
+  /** Rows shown before disclosure. Defaults to 5. */
+  previewCount?: number;
+  /**
+   * The server has more rows than `items`. Disclosed sections then offer
+   * `onLoadMore`; disclosed rows are never capped, so a loaded page is never
+   * hidden. Ignored without `onLoadMore`.
+   */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  /** Overrides the rail-level section labels for this section. */
+  labels?: Partial<ChatHistoryRailSectionControllerLabels>;
+}
+
+export interface ChatHistoryRailSectionController<Item> {
+  id: string;
+  expanded: boolean;
+  previewLimit: number;
+  visibleItems: Item[];
+  /** More rows exist, loaded or on the server, than the preview shows. */
+  canExpand: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
+  /** Present only when the section is disclosed and the server has more. */
+  loadMore: (() => void) | null;
+  toggleExpanded: () => void;
+  labels: ChatHistoryRailSectionControllerLabels;
+}
+
+export const DEFAULT_SECTION_PREVIEW_COUNT = 5;
+
+/**
+ * Independent preview/disclosure per section, keyed by section id. Disclosure
+ * state is kept here rather than in each section so a section whose rows are
+ * replaced by a refetch keeps its state.
+ */
+export function useChatHistoryRailSectionsController<Item>(
+  sections: readonly ChatHistoryRailSectionInput<Item>[],
+  sectionLabels: ChatHistoryRailSectionControllerLabels | undefined,
+): ChatHistoryRailSectionController<Item>[] {
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggle = useCallback((id: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  return sections.map((section) => {
+    const previewLimit = normalizeLimit(
+      section.previewCount,
+      DEFAULT_SECTION_PREVIEW_COUNT,
+    );
+    const onLoadMore = section.onLoadMore;
+    const hasMore = Boolean(section.hasMore && onLoadMore);
+    const canExpand = section.items.length > previewLimit || hasMore;
+    const expanded = canExpand && expandedIds.has(section.id);
+    return {
+      id: section.id,
+      expanded,
+      previewLimit,
+      visibleItems: expanded
+        ? [...section.items]
+        : section.items.slice(0, previewLimit),
+      canExpand,
+      hasMore,
+      loadingMore: Boolean(section.loadingMore),
+      loadMore: expanded && hasMore && onLoadMore ? onLoadMore : null,
+      toggleExpanded: () => {
+        if (canExpand) toggle(section.id);
+      },
+      labels: {
+        ...sectionLabels,
+        ...section.labels,
+      } as ChatHistoryRailSectionControllerLabels,
+    };
+  });
+}

@@ -18,12 +18,15 @@ const mocks = vi.hoisted(() => ({
     return `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`;
   }),
   managerStart: vi.fn(),
+  managerGetConnectErrorStatus: vi.fn(),
   managerStop: vi.fn(),
   managerCallTool: vi.fn(),
   managerConstructor: vi.fn(),
   a2aConstructor: vi.fn(),
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
+  signA2AOrgMemberDelegationToken: vi.fn(),
+  signA2AOrganizationToken: vi.fn(),
   signA2AToken: vi.fn(),
   canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
   getOrgA2ASecret: vi.fn(),
@@ -86,7 +89,10 @@ vi.mock("@agent-native/core/a2a", async (importOriginal) => {
         return mocks.a2aGetTask(...args);
       }
     },
+    signA2AOrganizationToken: mocks.signA2AOrganizationToken,
+    signA2AOrgMemberDelegationToken: mocks.signA2AOrgMemberDelegationToken,
     signA2AToken: mocks.signA2AToken,
+    getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
     canonicalA2AAudience: mocks.canonicalA2AAudience,
   };
 });
@@ -108,6 +114,10 @@ vi.mock("@agent-native/core/mcp-client", () => ({
       return mocks.managerStart();
     }
 
+    getConnectErrorStatus(serverId: string) {
+      return mocks.managerGetConnectErrorStatus(serverId);
+    }
+
     stop() {
       return mocks.managerStop();
     }
@@ -122,7 +132,9 @@ import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
   createGrantedDispatchMcpEmbedSession,
+  createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSession,
+  createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
   askGrantedDispatchMcpApp,
   getGrantedDispatchMcpAppTask,
   listGrantedDispatchMcpApps,
@@ -161,6 +173,8 @@ beforeEach(() => {
   mocks.a2aConstructor.mockReset();
   mocks.a2aSend.mockReset();
   mocks.a2aGetTask.mockReset();
+  mocks.signA2AOrganizationToken.mockReset();
+  mocks.signA2AOrgMemberDelegationToken.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
   mocks.getBuiltinAgents.mockReturnValue([]);
@@ -173,6 +187,7 @@ beforeEach(() => {
     expiresAt: 12345,
   });
   mocks.managerStart.mockResolvedValue(undefined);
+  mocks.managerGetConnectErrorStatus.mockReturnValue(undefined);
   mocks.managerStop.mockResolvedValue(undefined);
   mocks.managerCallTool.mockResolvedValue({
     structuredContent: {
@@ -190,8 +205,12 @@ beforeEach(() => {
     },
   });
   mocks.signA2AToken.mockResolvedValue("signed-token");
+  mocks.signA2AOrgMemberDelegationToken.mockResolvedValue("org-member-token");
+  mocks.signA2AOrganizationToken.mockResolvedValue("signed-token");
   mocks.getOrgA2ASecret.mockResolvedValue(null);
   mocks.getOrgDomain.mockResolvedValue(null);
+  vi.stubEnv("A2A_SECRET", "");
+  vi.stubEnv("APP_URL", "http://localhost:8092");
   mocks.isFeatureFlagEnabled.mockResolvedValue(true);
 });
 
@@ -202,6 +221,300 @@ afterEach(() => {
 });
 
 describe("Dispatch MCP gateway app discovery", () => {
+  it("keeps discovered agents available when mounted app lookup fails", async () => {
+    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
+  });
+
+  it("refuses a Workspace app on its Dispatch page URL while the mounted lookup is unavailable", async () => {
+    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
+      ),
+    ).rejects.toThrow(
+      'Dispatch MCP app "customer-ticket-triage" is unavailable until its Workspace mount resolves.',
+    );
+  });
+
+  it("keeps Dispatch-page apps out of the granted list while the mounted lookup is unavailable", async () => {
+    mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("refuses a Dispatch-page app whose mounted path is invalid", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "//evil.example",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
+      ),
+    ).rejects.toThrow(
+      'Dispatch MCP app "customer-ticket-triage" is unavailable until its Workspace mount resolves.',
+    );
+  });
+
+  it("builds open_app links from the mounted Workspace app path", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "customer-ticket-triage",
+          path: "/triage",
+        }),
+    );
+
+    expect(result.url).toBe(
+      "https://beta.agent-workspace.builder.io/customer-ticket-triage/triage",
+    );
+  });
+
+  it("keeps Dispatch-page apps out of the granted list when the registry omits them", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("does not route Workspace chat to a Dispatch-page app with an invalid mounted path", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "//evil.example",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+            "customer-ticket-triage",
+          ),
+      ),
+    ).rejects.toThrow();
+    expect(mocks.managerCallTool).not.toHaveBeenCalled();
+  });
+
+  it("refuses a Dispatch-page app whose mount is on a different origin", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://other.example.test/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => resolveGrantedDispatchMcpApp("customer-ticket-triage"),
+      ),
+    ).rejects.toThrow(
+      'Dispatch MCP app "customer-ticket-triage" is unavailable until its Workspace mount resolves.',
+    );
+  });
+
+  it("looks up the Workspace registry once when opening an app with an embed", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        color: "#6366F1",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "customer-ticket-triage",
+          path: "/triage",
+          embed: true,
+        }),
+    );
+
+    expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a prefixed Dispatch app page out of the granted list when a base path is configured", async () => {
+    const previous = process.env.APP_BASE_PATH;
+    process.env.APP_BASE_PATH = "/prefix";
+    try {
+      mocks.discoverAgents.mockResolvedValue([
+        {
+          id: "customer-ticket-triage",
+          name: "Customer Ticket Triage",
+          description: "Triage customer tickets",
+          url: "https://beta.agent-workspace.builder.io/prefix/dispatch/apps/customer-ticket-triage",
+          color: "#6366F1",
+        },
+      ]);
+      mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
+
+      const apps = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () => listGrantedDispatchMcpApps(),
+      );
+
+      expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+    } finally {
+      if (previous === undefined) delete process.env.APP_BASE_PATH;
+      else process.env.APP_BASE_PATH = previous;
+    }
+  });
+
   it("defaults to exposing every discovered app", async () => {
     mocks.getUserSetting.mockResolvedValue(null);
     const apps = await runWithRequestContext(
@@ -408,6 +721,12 @@ describe("askGrantedDispatchMcpApp", () => {
       "signed-token",
       { requestTimeoutMs: 10_000 },
     );
+    expect(mocks.signA2AOrganizationToken).toHaveBeenCalledWith(
+      "builder.io",
+      "org-specific-secret",
+      undefined,
+      { audience: "http://localhost:8086" },
+    );
     expect(mocks.a2aSend).toHaveBeenCalledWith(
       {
         role: "user",
@@ -433,6 +752,27 @@ describe("askGrantedDispatchMcpApp", () => {
       taskId: "task-1",
       status: "completed",
     });
+  });
+
+  it("does not sign an unscoped A2A user token when the active org domain is unavailable", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-a2a-secret");
+
+    await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-without-domain",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => askGrantedDispatchMcpApp("analytics", "Build a dashboard."),
+    );
+
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      "http://localhost:8086",
+      undefined,
+      { requestTimeoutMs: 10_000 },
+    );
   });
 
   it("reuses the MCP request identity for transport retries", async () => {
@@ -1081,6 +1421,10 @@ describe("askGrantedDispatchMcpApp", () => {
 });
 
 describe("openGrantedDispatchMcpApp", () => {
+  beforeEach(() => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+  });
+
   it("opens Dispatch extension routes through the Dispatch app id", async () => {
     const result = await runWithRequestContext(
       {
@@ -1139,6 +1483,85 @@ describe("openGrantedDispatchMcpApp", () => {
       chrome: "minimal",
       embedStartUrl:
         "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
+  it("reads the target embed start URL from Core MCP response metadata", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        targetPath: "/dashboards?range=30d",
+        expiresAt: 12345,
+      },
+      _meta: {
+        "agent-native/embedStart": {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards?range=30d",
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      embedTargetPath: "/dashboards?range=30d",
+      embedExpiresAt: 12345,
+    });
+  });
+
+  it("reads the target embed start URL when Core returns JSON text", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            targetPath: "/dashboards?range=30d",
+            expiresAt: 12345,
+          }),
+        },
+      ],
+      _meta: {
+        "agent-native/embedStart": {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "analytics",
+          path: "/dashboards?range=30d",
+          embed: true,
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result).toMatchObject({
+      app: "analytics",
+      embedStartUrl:
+        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      embedTargetPath: "/dashboards?range=30d",
+      embedExpiresAt: 12345,
     });
   });
 
@@ -1305,6 +1728,10 @@ describe("openGrantedDispatchMcpApp", () => {
 });
 
 describe("createGrantedDispatchMcpEmbedSession", () => {
+  beforeEach(() => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+  });
+
   it("mints Dispatch self embeds locally instead of recursively calling Dispatch MCP", async () => {
     const result = await runWithRequestContext(
       {
@@ -1335,8 +1762,60 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
+  it("pins Dispatch self embeds to configured hosts instead of request context", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "");
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://attacker.example",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "dispatch",
+          path: "/extensions/ext-1/github-stars-over-time",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "https://dispatch.agent-native.test/_agent-native/embed/start?ticket=ticket-123",
+    );
+  });
+
+  it("logs an invalid production origin while accepting a trusted runtime origin", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubEnv("APP_URL", "not-a-url");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://runtime.example/dispatch");
+    vi.stubEnv("APP_BASE_PATH", "");
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://runtime.example",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "dispatch",
+          path: "/extensions/ext-1/github-stars-over-time",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "https://runtime.example/_agent-native/embed/start?ticket=ticket-123",
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "[dispatch] invalid configured request origin",
+      { source: "production" },
+    );
+  });
+
   it("keeps workspace sign-in behind the rollout flag", async () => {
-    mocks.isFeatureFlagEnabled.mockResolvedValueOnce(false);
+    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
 
     await expect(
       runWithRequestContext(
@@ -1352,6 +1831,31 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       ),
     ).rejects.toThrow(/not enabled/);
     expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("allows Desktop workspace sign-in when Dispatch pane SSO is off", async () => {
+    mocks.isFeatureFlagEnabled.mockImplementation(
+      async (flag) => flag.key === "desktop.workspace-sso",
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "analytics",
+            path: "/overview",
+          }),
+      ),
+    ).resolves.toMatchObject({ app: "analytics" });
+
+    expect(
+      mocks.isFeatureFlagEnabled.mock.calls.map(([flag]) => flag.key),
+    ).toEqual(["dispatch.workspace-sso", "desktop.workspace-sso"]);
+    expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
   it("allows an exact canonical app without requiring an MCP app grant", async () => {
@@ -1431,6 +1935,573 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
+  it.each(["workspace-sso", "dispatch-grant"] as const)(
+    "uses a mounted app's MCP endpoint for %s embeds when Dispatch shares its host",
+    async (route) => {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv(
+        "WORKSPACE_GATEWAY_URL",
+        "https://beta.agent-workspace.builder.io",
+      );
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      vi.stubEnv(
+        "IDENTITY_SSO_APP_REGISTRY_JSON",
+        JSON.stringify([
+          {
+            appId: "customer-ticket-triage",
+            clientId: "workspace-client",
+            origin: "https://beta.agent-workspace.builder.io",
+            callbackPath: "/_agent-native/identity/callback",
+            capabilities: ["identity-sso"],
+          },
+        ]),
+      );
+      const workspaceApp = {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/customer-ticket-triage",
+        isDispatch: false,
+      };
+      mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
+      mocks.discoverAgents.mockResolvedValue([
+        {
+          id: workspaceApp.id,
+          name: workspaceApp.name,
+          description: workspaceApp.description,
+          url: workspaceApp.url,
+          color: "#14B8A6",
+        },
+      ]);
+      mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
+      mocks.managerCallTool.mockResolvedValue({
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/customer-ticket-triage/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+      const result = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.agent-workspace.builder.io",
+        },
+        () => {
+          const input = {
+            app: workspaceApp.id,
+            path: "/",
+            chrome: "minimal" as const,
+          };
+          return route === "workspace-sso"
+            ? createWorkspaceSsoEmbedSession(input)
+            : createGrantedDispatchMcpEmbedSession(input);
+        },
+      );
+
+      expect(mocks.managerConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
+              headers: { Authorization: "Bearer signed-token" },
+            }),
+          },
+        }),
+      );
+      expect(mocks.signA2AToken).toHaveBeenCalledWith(
+        "owner@example.test",
+        undefined,
+        undefined,
+        expect.objectContaining({
+          audience:
+            "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
+          preferGlobalSecret: true,
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenCalledWith(
+        "mcp__target__create_embed_session",
+        {
+          url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/",
+          chrome: "minimal",
+        },
+      );
+      expect(result.startUrl).toBe(
+        "https://beta.agent-workspace.builder.io/customer-ticket-triage/_agent-native/embed/start?ticket=remote",
+      );
+
+      const chatSession = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.agent-workspace.builder.io",
+        },
+        () =>
+          route === "workspace-sso"
+            ? createWorkspaceSsoEmbedSessionForWorkspaceAppChat(workspaceApp.id)
+            : createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+                workspaceApp.id,
+              ),
+      );
+      expect(chatSession.appBaseUrl).toBe(
+        "https://beta.agent-workspace.builder.io/customer-ticket-triage",
+      );
+    },
+  );
+
+  it("uses a mounted Workspace app path for embedded chat when its registry URL is a Dispatch page", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "https://beta.agent-workspace.builder.io/dispatch",
+    );
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "customer-ticket-triage",
+          clientId: "workspace-client",
+          origin: "https://beta.agent-workspace.builder.io",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+    mocks.discoverAgents.mockResolvedValue([]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValue({
+      structuredContent: {
+        startUrl:
+          "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const session = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+          "customer-ticket-triage",
+        ),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+          }),
+        },
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        audience: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+        preferGlobalSecret: true,
+      }),
+    );
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/",
+        chrome: "minimal",
+      },
+    );
+    expect(session).toEqual({
+      startUrl:
+        "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      appBaseUrl:
+        "https://beta.agent-workspace.builder.io/customer-ticket-triage",
+    });
+  });
+
+  it("skips a malformed mounted app while resolving a valid embedded chat sibling", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "https://beta.agent-workspace.builder.io/dispatch",
+    );
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "customer-ticket-triage",
+          clientId: "workspace-client",
+          origin: "https://beta.agent-workspace.builder.io",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+    const mountedApps = [
+      {
+        id: "malformed-app",
+        name: "Malformed app",
+        description: "Invalid mounted path",
+        path: "//invalid",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/malformed-app",
+        isDispatch: false,
+      },
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ];
+    mocks.listWorkspaceApps.mockResolvedValue(mountedApps);
+    mocks.discoverAgents.mockResolvedValue(
+      mountedApps.map((app) => ({
+        id: app.id,
+        name: app.name,
+        description: app.description,
+        url: app.url,
+        color: "#14B8A6",
+      })),
+    );
+    mocks.managerCallTool.mockResolvedValue({
+      structuredContent: {
+        startUrl:
+          "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listGrantedDispatchMcpApps(),
+    );
+
+    expect(
+      apps.find((app) => app.id === "malformed-app")?.homeUrl,
+    ).toBeUndefined();
+    expect(
+      apps.find((app) => app.id === "customer-ticket-triage")?.homeUrl,
+    ).toBe("https://beta.agent-workspace.builder.io/customer-ticket-triage");
+
+    const session = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+          "customer-ticket-triage",
+        ),
+    );
+
+    expect(session.appBaseUrl).toBe(
+      "https://beta.agent-workspace.builder.io/customer-ticket-triage",
+    );
+  });
+
+  it.each([
+    [
+      "workspace-sso",
+      "gateway mount path",
+      "https://beta.agent-workspace.builder.io/dispatch",
+      "",
+    ],
+    [
+      "dispatch-grant",
+      "gateway mount path",
+      "https://beta.agent-workspace.builder.io/dispatch",
+      "",
+    ],
+    [
+      "workspace-sso",
+      "APP_BASE_PATH",
+      "https://beta.agent-workspace.builder.io",
+      "/dispatch",
+    ],
+    [
+      "dispatch-grant",
+      "APP_BASE_PATH",
+      "https://beta.agent-workspace.builder.io",
+      "/dispatch",
+    ],
+  ] as const)(
+    "uses the mounted Workspace MCP endpoint and audience for %s embeds with %s",
+    async (route, _mountConfig, gatewayUrl, appBasePath) => {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("WORKSPACE_GATEWAY_URL", gatewayUrl);
+      vi.stubEnv("APP_BASE_PATH", appBasePath);
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      vi.stubEnv(
+        "IDENTITY_SSO_APP_REGISTRY_JSON",
+        JSON.stringify([
+          {
+            appId: "customer-ticket-triage",
+            clientId: "workspace-client",
+            origin: "https://beta.agent-workspace.builder.io",
+            callbackPath: "/_agent-native/identity/callback",
+            capabilities: ["identity-sso"],
+          },
+        ]),
+      );
+      const workspaceApp = {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      };
+      mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
+      mocks.discoverAgents.mockResolvedValue([
+        {
+          id: workspaceApp.id,
+          name: workspaceApp.name,
+          description: workspaceApp.description,
+          url: workspaceApp.url,
+          color: "#14B8A6",
+        },
+      ]);
+      mocks.managerCallTool.mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+      const result = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          route === "workspace-sso"
+            ? createWorkspaceSsoEmbedSession({
+                app: workspaceApp.id,
+                path: "/triage",
+                chrome: "minimal",
+              })
+            : createGrantedDispatchMcpEmbedSession({
+                app: workspaceApp.id,
+                path: "/triage",
+                chrome: "minimal",
+              }),
+      );
+
+      expect(mocks.managerConstructor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+              headers: { Authorization: "Bearer signed-token" },
+            }),
+          },
+        }),
+      );
+      expect(mocks.signA2AToken).toHaveBeenCalledWith(
+        "owner@example.test",
+        undefined,
+        undefined,
+        expect.objectContaining({
+          audience: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+          preferGlobalSecret: true,
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenCalledWith(
+        "mcp__target__create_embed_session",
+        {
+          url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/triage",
+          chrome: "minimal",
+        },
+      );
+      expect(result.startUrl).toBe(
+        "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      );
+
+      mocks.managerCallTool.mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage/_agent-native/embed/start?ticket=sibling",
+        },
+      });
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "owner@example.test",
+            requestOrigin: "https://beta.dispatch.agent-native.com",
+          },
+          () =>
+            route === "workspace-sso"
+              ? createWorkspaceSsoEmbedSession({
+                  app: workspaceApp.id,
+                  path: "/",
+                  chrome: "minimal",
+                })
+              : createGrantedDispatchMcpEmbedSession({
+                  app: workspaceApp.id,
+                  path: "/",
+                  chrome: "minimal",
+                }),
+        ),
+      ).rejects.toThrow(/invalid embed start URL/);
+    },
+  );
+
+  it.each(["workspace-sso", "dispatch-grant"] as const)(
+    "retains the Workspace gateway path for discovered-only app chats through %s",
+    async (route) => {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("APP_URL", "https://beta.agent-workspace.builder.io");
+      vi.stubEnv(
+        "WORKSPACE_GATEWAY_URL",
+        "https://beta.agent-workspace.builder.io/dispatch",
+      );
+      vi.stubEnv("APP_BASE_PATH", "");
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      vi.stubEnv(
+        "IDENTITY_SSO_APP_REGISTRY_JSON",
+        JSON.stringify([
+          {
+            appId: "customer-ticket-triage",
+            clientId: "workspace-client",
+            origin: "https://beta.agent-workspace.builder.io",
+            callbackPath: "/_agent-native/identity/callback",
+            capabilities: ["identity-sso"],
+          },
+        ]),
+      );
+      mocks.listWorkspaceApps.mockResolvedValue([]);
+      mocks.discoverAgents.mockResolvedValue([
+        {
+          id: "customer-ticket-triage",
+          name: "Customer Ticket Triage",
+          description: "Triage customer tickets",
+          url: "https://beta.agent-workspace.builder.io",
+          color: "#14B8A6",
+        },
+      ]);
+      mocks.managerCallTool.mockResolvedValue({
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+      const result = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          route === "workspace-sso"
+            ? createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+                "customer-ticket-triage",
+              )
+            : createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+                "customer-ticket-triage",
+              ),
+      );
+
+      expect(result).toEqual({
+        startUrl:
+          "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        appBaseUrl: "https://beta.agent-workspace.builder.io/dispatch",
+      });
+    },
+  );
+
+  it("does not fall back when the configured Workspace gateway URL is invalid", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "not-a-url");
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/customer-ticket-triage",
+        url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+        isDispatch: false,
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "customer-ticket-triage",
+            path: "/",
+            chrome: "minimal",
+          }),
+      ),
+    ).rejects.toThrow();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported Workspace gateway schemes before beta projection", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "WORKSPACE_GATEWAY_URL",
+      "ftp://agent-workspace.builder.io/dispatch",
+    );
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    const workspaceApp = {
+      id: "customer-ticket-triage",
+      name: "Customer Ticket Triage",
+      description: "Triage customer tickets",
+      path: "/customer-ticket-triage",
+      url: "https://beta.agent-workspace.builder.io/dispatch/apps/customer-ticket-triage",
+      isDispatch: false,
+    };
+    mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: workspaceApp.id,
+        name: workspaceApp.name,
+        description: workspaceApp.description,
+        url: workspaceApp.url,
+        color: "#14B8A6",
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://beta.dispatch.agent-native.com",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: workspaceApp.id,
+            path: "/",
+            chrome: "minimal",
+          }),
+      ),
+    ).rejects.toThrow("WORKSPACE_GATEWAY_URL must use http or https.");
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
   it("rejects beta workspace SSO apps on the production lane", async () => {
     mocks.discoverAgents.mockResolvedValue([]);
     mocks.listWorkspaceApps.mockResolvedValue([
@@ -1505,10 +2576,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         chrome: "full",
       },
     );
-    // Regression: the target MCP connection must use the home origin, not
-    // the discovered agent URL, which can be a deep share link
-    // (https://clips.agent-native.com/share/deep-link) that turns "/mcp"
-    // into a query-string suffix and hits Clips' HTML page instead of MCP.
     expect(mocks.managerConstructor).toHaveBeenCalledWith({
       servers: {
         target: expect.objectContaining({
@@ -1875,9 +2942,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
   });
 
-  it("uses the org A2A secret when minting cross-app MCP embed tokens", async () => {
+  it("does not send the source app's local org ID to the target", async () => {
     mocks.getOrgDomain.mockResolvedValue("builder.io");
-    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
 
     await runWithRequestContext(
       {
@@ -1894,35 +2960,32 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
 
     expect(mocks.signA2AToken).toHaveBeenCalledWith(
       "owner@example.test",
-      "builder.io",
-      "org-specific-secret",
+      undefined,
+      undefined,
       {
         expiresIn: "5m",
-        audience: "http://localhost:8086",
-        preferGlobalSecret: false,
+        audience: "http://localhost:8086/mcp",
+        preferGlobalSecret: true,
       },
+    );
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(mocks.getOrgDomain).toHaveBeenCalledWith("org-1");
+    expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
+    expect(mocks.managerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer signed-token" },
+          }),
+        },
+      }),
     );
   });
 
-  it("falls back to the shared A2A secret when the target rejects org signing", async () => {
-    vi.stubEnv("A2A_SECRET", "shared-secret");
+  it("uses a user delegation token when only the org secret is configured", async () => {
+    vi.stubEnv("A2A_SECRET", "");
     mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-    mocks.signA2AToken
-      .mockResolvedValueOnce("org-signed-token")
-      .mockResolvedValueOnce("global-signed-token");
-    mocks.managerCallTool
-      .mockRejectedValueOnce(
-        new Error(
-          'MCP server "target" is not connected: HTTP 401 Unauthorized',
-        ),
-      )
-      .mockResolvedValueOnce({
-        structuredContent: {
-          startUrl:
-            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-        },
-      });
 
     const result = await runWithRequestContext(
       {
@@ -1937,14 +3000,57 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         }),
     );
 
-    expect(result).toMatchObject({ app: "analytics" });
-    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.signA2AToken).not.toHaveBeenCalled();
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      "builder.io",
+      "org-specific-secret",
+      "http://localhost:8086/mcp",
+    );
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer org-member-token" },
+          }),
+        },
+      }),
+    );
+  });
+
+  it("tries org-member delegation after a deployment-token auth rejection", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.signA2AToken.mockResolvedValue("deployment-user-token");
+    mocks.signA2AOrgMemberDelegationToken.mockResolvedValue("org-member-token");
+    mocks.managerGetConnectErrorStatus.mockReturnValueOnce(401);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    );
     expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer org-signed-token" },
+            headers: { Authorization: "Bearer deployment-user-token" },
           }),
         },
       }),
@@ -1954,29 +3060,27 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer global-signed-token" },
+            headers: { Authorization: "Bearer org-member-token" },
           }),
         },
       }),
     );
-    expect(mocks.signA2AToken).toHaveBeenNthCalledWith(
-      2,
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledWith(
       "owner@example.test",
       "builder.io",
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086",
-        preferGlobalSecret: true,
-      },
+      "org-specific-secret",
+      "http://localhost:8086/mcp",
     );
   });
 
-  it("falls back to the shared A2A secret when no org secret is available", async () => {
+  it("uses member delegation when the org secret matches the source deployment secret", async () => {
+    vi.stubEnv("A2A_SECRET", "source-deployment-secret");
     mocks.getOrgDomain.mockResolvedValue("builder.io");
-    mocks.getOrgA2ASecret.mockResolvedValue(null);
+    mocks.getOrgA2ASecret.mockResolvedValue("source-deployment-secret");
+    mocks.managerGetConnectErrorStatus.mockReturnValueOnce(401);
 
-    await runWithRequestContext(
+    const result = await runWithRequestContext(
       {
         userEmail: "owner@example.test",
         orgId: "org-1",
@@ -1989,45 +3093,104 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         }),
     );
 
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.signA2AOrgMemberDelegationToken).toHaveBeenCalledWith(
       "owner@example.test",
       "builder.io",
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086",
-        preferGlobalSecret: true,
-      },
+      "source-deployment-secret",
+      "http://localhost:8086/mcp",
     );
   });
 
-  it("falls back to the shared A2A secret when org signing inputs are incomplete", async () => {
-    mocks.getOrgDomain.mockResolvedValue(null);
+  it("does not treat a bare status number in an error message as an auth refusal", async () => {
+    vi.stubEnv("A2A_SECRET", "source-deployment-secret");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
     mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
-
-    await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        orgId: "org-1",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        createGrantedDispatchMcpEmbedSession({
-          app: "analytics",
-          path: "/dashboards",
-        }),
+    mocks.managerStart.mockRejectedValueOnce(
+      new Error(
+        "MCP response body mentions reference 403 from an unrelated request",
+      ),
     );
 
-    expect(mocks.signA2AToken).toHaveBeenCalledWith(
-      "owner@example.test",
-      undefined,
-      undefined,
-      {
-        expiresIn: "5m",
-        audience: "http://localhost:8086",
-        preferGlobalSecret: true,
-      },
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/reference 403 from an unrelated request/);
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrgMemberDelegationToken).not.toHaveBeenCalled();
+    expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an action-level authorization error with member delegation", async () => {
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.managerCallTool.mockRejectedValueOnce(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
     );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow("Forbidden");
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrgMemberDelegationToken).not.toHaveBeenCalled();
+    expect(mocks.getOrgA2ASecret).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an authenticated-caller error with an org principal", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: create_embed_session requires an authenticated MCP caller.",
+        },
+      ],
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/authenticated MCP caller/);
+
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
   });
 
   it("does not retry permanent target MCP errors", async () => {
@@ -2105,5 +3268,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           }),
       ),
     ).rejects.toThrow(/authenticated MCP caller/);
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(1);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+    expect(mocks.signA2AOrganizationToken).not.toHaveBeenCalled();
   });
 });

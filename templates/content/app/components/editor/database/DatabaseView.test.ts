@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type {
   ContentDatabaseItem,
+  ContentDatabaseItemLayout,
   ContentDatabaseResponse,
   ContentDatabaseSource,
   ContentDatabaseSourceReviewPayload,
@@ -12,6 +13,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireDatabaseSourceOperation,
+  defaultDatabaseViewConfig,
+  duplicateDatabaseView,
+  normalizeClientDatabaseViewConfig,
+  updateDatabaseViewIcon,
   createDatabaseViewSaveQueue,
   databaseBuilderBulkUpdateSource,
   databaseBuilderHydrationSourceForItem,
@@ -34,6 +39,7 @@ import {
   databaseBuilderProgressHighWater,
   databaseBuilderExecutionRequiresReconciliation,
   databaseBuilderReviewAfterExecutionError,
+  databaseBuilderReviewAuthoritativeChangeSetIds,
   databaseBuilderReviewBelongsToSource,
   databaseBuilderPreparedReviewSelection,
   databaseBuilderReviewExactSelectionIsValid,
@@ -69,7 +75,90 @@ import {
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
   requestedDatabaseViewId,
+  exactRequestedDatabaseViewUnavailable,
+  updateDatabaseViewType,
 } from "./DatabaseView";
+
+describe("database view icons", () => {
+  it("retains a selected icon through normalization, duplication, and removal", () => {
+    const initial = defaultDatabaseViewConfig();
+    const icon = { version: 1, kind: "emoji", emoji: "🚀" } as const;
+    const changed = updateDatabaseViewIcon(initial, initial.activeViewId, icon);
+    expect(changed.views[0].icon).toEqual(icon);
+    expect(normalizeClientDatabaseViewConfig(changed).views[0].icon).toEqual(
+      icon,
+    );
+    const duplicated = duplicateDatabaseView(changed, changed.activeViewId);
+    expect(duplicated.views[1].icon).toEqual(icon);
+    expect(
+      updateDatabaseViewIcon(changed, changed.activeViewId, null).views[0].icon,
+    ).toBeNull();
+  });
+});
+
+describe("list view item layouts", () => {
+  const itemLayout: ContentDatabaseItemLayout = {
+    leading: { kind: "checkbox", propertyId: "done" },
+    titleWeight: "bold",
+    line2: { propertyId: "pitch", lines: 2 },
+    line3: ["due"],
+    trailing: [],
+  };
+
+  it("keeps a row layout through normalization, type changes, and duplication", () => {
+    const config = normalizeClientDatabaseViewConfig({
+      activeViewId: "ideas",
+      views: [
+        {
+          id: "ideas",
+          name: "Ideas",
+          type: "list",
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+          itemLayout,
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(config.views[0].itemLayout).toEqual(itemLayout);
+    expect(duplicateDatabaseView(config, "ideas").views[1].itemLayout).toEqual(
+      itemLayout,
+    );
+    expect(
+      updateDatabaseViewType(config, "ideas", "table").views[0].itemLayout,
+    ).toEqual(itemLayout);
+  });
+
+  it("keeps a cleared layout as null so the reset reaches the server", () => {
+    const config = normalizeClientDatabaseViewConfig({
+      activeViewId: "ideas",
+      views: [
+        {
+          id: "ideas",
+          name: "Ideas",
+          type: "list",
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+          itemLayout: null,
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(config.views[0]).toHaveProperty("itemLayout", null);
+    expect(
+      normalizeClientDatabaseViewConfig({
+        ...config,
+        views: [{ ...config.views[0], itemLayout: undefined }],
+      }).views[0],
+    ).not.toHaveProperty("itemLayout");
+  });
+});
 
 describe("database view deep-link selection", () => {
   it("prefers the explicit route view without changing the saved default", () => {
@@ -78,6 +167,23 @@ describe("database view deep-link selection", () => {
     );
     expect(requestedDatabaseViewId(null, " default ")).toBe("default");
     expect(requestedDatabaseViewId("   ", null)).toBeNull();
+  });
+
+  it("keeps a cached exact view available after its refresh fails", () => {
+    const config = defaultDatabaseViewConfig();
+    const data = {
+      database: { viewConfig: config },
+    } as unknown as ContentDatabaseResponse;
+
+    expect(
+      exactRequestedDatabaseViewUnavailable(config.activeViewId, data),
+    ).toBe(false);
+    expect(
+      exactRequestedDatabaseViewUnavailable(config.activeViewId, undefined),
+    ).toBe(false);
+    expect(exactRequestedDatabaseViewUnavailable("missing-view", data)).toBe(
+      true,
+    );
   });
 });
 
@@ -877,6 +983,49 @@ describe("Builder review source sessions", () => {
         "change-foreign",
       ]),
     ).toBeNull();
+  });
+
+  it("checks a review of a row past the loaded page against the complete or prepared ids", () => {
+    const pageWithoutRow = {
+      ...source,
+      changeSets: [],
+    } as ContentDatabaseSource;
+    const complete = {
+      rows: [{ changeSetId: "change-past-page" }],
+    } as ContentDatabaseSourceReviewPayload;
+    const prepared = {
+      rows: [{ changeSetId: "change-prepared" }],
+    } as ContentDatabaseSourceReviewPayload;
+
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(complete, pageWithoutRow, [
+        "change-past-page",
+      ]),
+    ).toBeNull();
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(
+        complete,
+        pageWithoutRow,
+        ["change-past-page"],
+        databaseBuilderReviewAuthoritativeChangeSetIds({
+          prepared: null,
+          preparedChangeSetIdMap: null,
+          completeChangeSetIds: ["change-past-page"],
+        }),
+      ),
+    ).toEqual(["change-past-page"]);
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(
+        prepared,
+        pageWithoutRow,
+        ["change-prepared"],
+        databaseBuilderReviewAuthoritativeChangeSetIds({
+          prepared,
+          preparedChangeSetIdMap: { "change-past-page": "change-prepared" },
+          completeChangeSetIds: ["change-past-page"],
+        }),
+      ),
+    ).toEqual(["change-prepared"]);
   });
 
   it("requires the prepared review to return exactly the selected ids", () => {

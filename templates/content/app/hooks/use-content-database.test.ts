@@ -1,7 +1,9 @@
 import type {
   ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSourceFieldPropertyResponse,
 } from "@shared/api";
+import { compactContentDatabaseItems } from "@shared/database-row-properties";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
@@ -15,13 +17,17 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseCreationRequest,
+  contentDatabaseItemsPageReadState,
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
+  contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseConstrainedQueryFilter,
+  contentDatabaseExcerptContainingDocumentFilter,
   contentDatabaseQueryKey,
   fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  invalidateContentDatabaseNavigationQueries,
   isContentDatabaseByIdQueryEnabled,
   moveOptimisticContentDatabaseItem,
   preserveScopedDatabasePlaceholder,
@@ -209,6 +215,97 @@ describe("contentDatabaseConstrainedQueryFilter", () => {
   });
 });
 
+describe("contentDatabaseExcerptContainingDocumentFilter", () => {
+  it("targets only collection reads that show the page's text", () => {
+    const queryClient = new QueryClient();
+    const withExcerpt = [
+      "action",
+      "get-content-database",
+      { documentId: "notes", limit: 100 },
+    ] as const;
+    const withoutExcerpt = [
+      "action",
+      "get-content-database",
+      { documentId: "tasks", limit: 100 },
+    ] as const;
+    queryClient.setQueryData(withExcerpt, {
+      items: [{ document: { id: "page" }, excerpt: "We ship." }],
+    });
+    queryClient.setQueryData(withoutExcerpt, {
+      items: [{ document: { id: "page" } }],
+    });
+
+    void queryClient.invalidateQueries(
+      contentDatabaseExcerptContainingDocumentFilter("page"),
+    );
+
+    expect(queryClient.getQueryState(withExcerpt)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(withoutExcerpt)?.isInvalidated).toBe(
+      false,
+    );
+  });
+});
+
+describe("current Content database table page", () => {
+  it("does not treat a previous view's placeholder rows as the requested result", () => {
+    const previousPage = { items: [{ document: { title: "Previous view" } }] };
+
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, true, false),
+    ).toEqual({ page: undefined, failed: false, settled: false });
+    expect(contentDatabaseItemsPageReadState(previousPage, true, true)).toEqual(
+      { page: undefined, failed: true, settled: true },
+    );
+    expect(
+      contentDatabaseItemsPageReadState(previousPage, false, false),
+    ).toEqual({ page: previousPage, failed: false, settled: true });
+  });
+});
+
+describe("Content database navigation query invalidation", () => {
+  it("matches navigation rows safely and invalidates only the affected database", () => {
+    const queryClient = new QueryClient();
+    const matchingKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", navigation: { parentId: null } },
+    ] as const;
+    const otherKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "other", navigation: { parentId: null } },
+    ] as const;
+    const tableKey = [
+      "action",
+      "query-content-database-items",
+      { databaseId: "files", tableQuery: {} },
+    ] as const;
+    queryClient.setQueryData(matchingKey, {
+      items: [{ documentId: "page" }],
+    });
+    queryClient.setQueryData(otherKey, { items: [] });
+    queryClient.setQueryData(tableKey, {
+      items: [{ document: { id: "page" } }],
+    });
+
+    expect(() =>
+      queryClient.invalidateQueries(
+        contentDatabaseItemsContainingDocumentFilter("page"),
+      ),
+    ).not.toThrow();
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(true);
+
+    queryClient.resetQueries();
+    invalidateContentDatabaseNavigationQueries(queryClient, {
+      databaseId: "files",
+    });
+    expect(queryClient.getQueryState(matchingKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(false);
+  });
+});
+
 describe("isContentDatabaseByIdQueryEnabled", () => {
   it("fetches when a databaseId is present and the caller doesn't pause it", () => {
     expect(isContentDatabaseByIdQueryEnabled("files-db")).toBe(true);
@@ -222,11 +319,6 @@ describe("isContentDatabaseByIdQueryEnabled", () => {
   });
 
   it("pauses fetching for a still-known databaseId instead of requiring the caller to null it out", () => {
-    // A caller that wants to briefly hold off refetching (e.g. a deferred
-    // sidebar read) must be able to do so by passing `enabled: false` while
-    // keeping the same databaseId — nulling databaseId out instead would move
-    // the query to its disabled, uncached key and read as empty rather than
-    // paused. See DocumentSidebar.tsx's useDeferredFilesDatabaseId.
     expect(
       isContentDatabaseByIdQueryEnabled("files-db", { enabled: false }),
     ).toBe(false);
@@ -239,6 +331,7 @@ describe("optimistic Content database items", () => {
     const property = { ...current.properties[0]!, value: "2026-09-01" };
     const bounded = {
       items: [{ ...current.items[0]!, properties: [property] }],
+      properties: current.properties,
       source: current.source,
       sources: current.sources,
       pagination: current.pagination,
@@ -316,7 +409,7 @@ describe("optimistic Content database items", () => {
       databaseId: "database",
       documentId: "database-page",
       sourceTable: "agent-native-blog-article-test",
-      base: databaseResponse(),
+      base: databaseResponsePayload(),
       items: [previewItem],
       fetchedAt: createdAt,
       hasMore: true,
@@ -360,7 +453,7 @@ describe("optimistic Content database items", () => {
       databaseId: "database",
       documentId: "database-page",
       sourceTable: "agent-native-blog-article-test",
-      base: databaseResponse(),
+      base: databaseResponsePayload(),
       items: [previewItem],
       fetchedAt: createdAt,
       hasMore: true,
@@ -436,6 +529,16 @@ describe("optimistic Content database items", () => {
     ).toBe(current);
   });
 });
+
+function databaseResponsePayload(): ContentDatabaseResponsePayload {
+  const response = databaseResponse();
+  return {
+    ...response,
+    items: compactContentDatabaseItems(response.items),
+    createdItem: undefined,
+    duplicatedItems: undefined,
+  };
+}
 
 function databaseResponse(): ContentDatabaseResponse {
   return {
@@ -1055,6 +1158,62 @@ describe("readCachedContentDatabaseResponse", () => {
     expect(
       readCachedContentDatabaseResponse(queryClient, "database-page"),
     ).toBe(exact);
+  });
+
+  it("skips a cached read without page text for a List that shows it", () => {
+    const showingPageText = (
+      excerpt: string | undefined,
+    ): ContentDatabaseResponse => {
+      const base = databaseResponse();
+      return {
+        ...base,
+        database: {
+          ...base.database,
+          viewConfig: {
+            ...base.database.viewConfig,
+            views: [
+              {
+                id: "notes",
+                name: "Notes",
+                type: "list",
+                sorts: [],
+                filters: [],
+                columnWidths: {},
+                itemLayout: {
+                  leading: { kind: "page_icon", propertyId: null },
+                  titleWeight: "bold",
+                  line2: { source: "page", propertyId: null, lines: 2 },
+                  line3: [],
+                  trailing: [],
+                },
+              },
+            ],
+          },
+        },
+        items: base.items.map((item) => ({ ...item, excerpt })),
+      };
+    };
+    const unpaged = showingPageText(undefined);
+    const paged = showingPageText("We ship.");
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(contentDatabaseQueryKey("database-page"), unpaged);
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBeUndefined();
+
+    queryClient.setQueryData<ContentDatabaseResponse>(
+      [
+        "action",
+        "get-content-database",
+        { documentId: "database-page", limit: 100 },
+      ],
+      paged,
+    );
+
+    expect(
+      readCachedContentDatabaseResponse(queryClient, "database-page"),
+    ).toBe(paged);
   });
 
   it("never seeds an unavailable (deleted database) payload", () => {

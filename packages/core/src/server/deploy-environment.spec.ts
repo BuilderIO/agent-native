@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isExplicitLocalDeployEnvironment,
   resolveDeployEnvironment,
+  resolveServerRelease,
 } from "./deploy-environment.js";
 
 describe("resolveDeployEnvironment", () => {
@@ -59,5 +60,34 @@ describe("resolveDeployEnvironment", () => {
     vi.stubEnv("NODE_ENV", "production");
 
     expect(resolveDeployEnvironment()).toBe("production");
+  });
+});
+
+describe("resolveServerRelease", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("uses an explicit release verbatim", () => {
+    vi.stubEnv("AGENT_NATIVE_RELEASE", "2026.10.1-rc2");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "deploy-123");
+
+    expect(resolveServerRelease()).toBe("2026.10.1-rc2");
+  });
+
+  it("names the release after the deploy's baked build id", () => {
+    vi.stubEnv("AGENT_NATIVE_RELEASE", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "6513a1f7c2d94b0e8a3f1c20");
+
+    expect(resolveServerRelease()).toBe(
+      "agent-native-server@6513a1f7c2d94b0e8a3f1c20",
+    );
+  });
+
+  it("does not mistake the baked 'development' build id for a release", () => {
+    vi.stubEnv("AGENT_NATIVE_RELEASE", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "development");
+
+    expect(resolveServerRelease()).not.toBe("agent-native-server@development");
   });
 });

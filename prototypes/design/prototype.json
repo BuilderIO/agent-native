@@ -1,0 +1,24 @@
+{
+  "template": "design",
+  "figma": {
+    "file": "oJQ7t9q4e8oHzLZKuki7k1",
+    "page": "⏳ Design",
+    "pageId": "547:24",
+    "sections": {
+      "Inspector": "1054:16227",
+      "Inspector types": "2483:47564",
+      "Toolbar": "1098:17334",
+      "Top bar": "2483:42241",
+      "Left Rail & Sidebar": "2448:36682",
+      "Menus": "2373:2066",
+      "Comments": "1788:5948",
+      "Share popover": "2448:37298",
+      "Colour picker": "2454:39896",
+      "Curve editor": "2463:41372",
+      "Keyboard shortcuts": "2483:42523",
+      "Editor parts": "2378:4503",
+      "Editor shell screens": "2402:7016",
+      "App landing": "1512:3574"
+    }
+  }
+}

@@ -1,9 +1,4 @@
 import { getSession } from "@agent-native/core/server";
-/**
- * Return the Zoom connection status for the current session user.
- *
- * Shape: { connected: boolean, configured: boolean, accounts: [...] }
- */
 import { defineEventHandler, type H3Event } from "h3";
 
 import { getZoomStatus } from "../../../lib/zoom.js";

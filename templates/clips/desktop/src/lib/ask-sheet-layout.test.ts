@@ -19,16 +19,12 @@ describe("clampAskSheetHeight", () => {
   });
 
   it("leaves the transcript its floor on a short panel", () => {
-    // 260px is the panel's own minimum, where 70% would leave the feed 78px —
-    // less than two lines, which is the state that read as "cut off".
     const height = clampAskSheetHeight(ASK_SHEET_MAX, 260);
     expect(height * 260).toBeLessThanOrEqual(260 - TRANSCRIPT_MIN_PX);
     expect(260 - height * 260).toBeGreaterThanOrEqual(TRANSCRIPT_MIN_PX);
   });
 
   it("never collapses the sheet below its own minimum", () => {
-    // A panel too short for both keeps the sheet usable and lets the transcript
-    // scroll: silently reopening at zero height would look like a dead sheet.
     expect(clampAskSheetHeight(0.5, 120)).toBeCloseTo(ASK_SHEET_MIN);
   });
 
@@ -38,9 +34,6 @@ describe("clampAskSheetHeight", () => {
 });
 
 describe("isSheetGripTap", () => {
-  // The dismissal used to be gated on whether a drag was in progress, which
-  // `click` can never observe: it fires after `pointerup` has already cleared
-  // it. So every resize closed the sheet, including one that grew it.
   it("tells a resize apart from the tap that dismisses the sheet", () => {
     expect(isSheetGripTap(0)).toBe(true);
     expect(isSheetGripTap(SHEET_DRAG_SLOP_PX)).toBe(true);
@@ -48,7 +41,6 @@ describe("isSheetGripTap", () => {
   });
 
   it("counts travel in either direction", () => {
-    // Dragging the sheet taller is the case that made this obvious.
     expect(isSheetGripTap(-40)).toBe(false);
     expect(isSheetGripTap(40)).toBe(false);
   });

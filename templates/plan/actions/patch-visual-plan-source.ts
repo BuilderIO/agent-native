@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -26,7 +26,10 @@ import {
   planPath,
   writeEvent,
 } from "../server/plans.js";
-import type { PlanContent } from "../shared/plan-content.js";
+import {
+  getPlanContentValidationMessage,
+  type PlanContent,
+} from "../shared/plan-content.js";
 
 const agentPlanMdxSourcePatchesSchema = z
   .array(
@@ -100,6 +103,12 @@ type PlanSurfaceCounts = {
   canvasFrames: number;
   prototypeScreens: number;
 };
+
+function failInvalidPlanContent(error: unknown): never {
+  const message = getPlanContentValidationMessage(error);
+  if (message === null) throw error;
+  fail(message, { errorCode: "invalid_plan_content", statusCode: 422 });
+}
 
 function planSurfaceCounts(content: PlanContent | null | undefined) {
   return {
@@ -276,8 +285,6 @@ export default defineAction({
       "Apply granular MDX source patches and persist the normalized visual plan.",
   },
   run: async (args, ctx) => {
-    // Only agent invocations (in-app tool loop / A2A → "tool"; external MCP →
-    // "mcp") light the AI presence flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
     await assertPlanEditor(args.planId);
@@ -316,7 +323,15 @@ export default defineAction({
       referencedBlockIds,
     });
     const nextMdx = await applyPlanMdxSourcePatches(currentMdx, args.patches);
-    const nextContent = await parsePlanMdxFolder(nextMdx);
+    let nextContent: PlanContent;
+    try {
+      nextContent = await parsePlanMdxFolder(nextMdx, {
+        allowStoredLegacyDefaults: true,
+        validateAuthoringChangesAgainst: bundle.plan.content,
+      });
+    } catch (error) {
+      failInvalidPlanContent(error);
+    }
     const beforeCounts = planSurfaceCounts(bundle.plan.content);
     const afterCounts = planSurfaceCounts(nextContent);
     assertNoUnexpectedSurfaceCollapse(
@@ -377,8 +392,6 @@ export default defineAction({
       createdBy: "agent",
     });
 
-    // Surface AI presence + a lingering highlight on the patched block(s) via the
-    // plan-presence doc. Best-effort — never fail the save on presence.
     if (isAgentCaller) {
       try {
         const patchIds = new Set<string>();

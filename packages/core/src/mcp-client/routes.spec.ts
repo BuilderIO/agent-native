@@ -1,20 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { hashEmail } from "./remote-store.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
+import {
+  hashEmail,
+  InvalidMcpHeaderConfigurationError,
+  McpHeaderSecretUnavailableError,
+} from "./remote-store.js";
 import {
   buildMergedConfig,
   formatMcpConnectError,
   McpConfigUnreadableError,
   mountMcpServersRoutes,
-  startMcpConfigRefresh,
 } from "./routes.js";
 
 const mockedSettings = vi.hoisted(() => ({
   all: {} as Record<string, Record<string, unknown>>,
   readError: null as Error | null,
-  reads: 0,
-  emitter: null as null | import("node:events").EventEmitter,
+  readKeys: [] as string[],
 }));
+const appSecretMocks = vi.hoisted(() => ({ read: vi.fn() }));
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 
@@ -30,11 +34,15 @@ vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: (app: any) => app.h3,
 }));
 
-vi.mock("../settings/store.js", async () => {
-  const { EventEmitter } = await import("node:events");
-  mockedSettings.emitter = new EventEmitter();
+vi.mock("../settings/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings/store.js")>();
   return {
-    getSetting: async (key: string) => mockedSettings.all[key] ?? null,
+    ...actual,
+    getSetting: async (key: string) => {
+      mockedSettings.readKeys.push(key);
+      if (mockedSettings.readError) throw mockedSettings.readError;
+      return mockedSettings.all[key] ?? null;
+    },
     putSetting: async (key: string, value: Record<string, unknown>) => {
       mockedSettings.all[key] = value;
     },
@@ -43,13 +51,12 @@ vi.mock("../settings/store.js", async () => {
       delete mockedSettings.all[key];
       return existed;
     },
-    getAllSettings: async () => {
-      mockedSettings.reads += 1;
-      if (mockedSettings.readError) throw mockedSettings.readError;
-      return mockedSettings.all;
-    },
-    getSettingsEmitter: () => mockedSettings.emitter,
   };
+});
+
+vi.mock("../secrets/storage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../secrets/storage.js")>();
+  return { ...actual, readAppSecret: appSecretMocks.read };
 });
 
 vi.mock("./config.js", async (importOriginal) => {
@@ -72,7 +79,8 @@ vi.mock("./workspace-servers.js", () => ({
 beforeEach(() => {
   mockedSettings.all = {};
   mockedSettings.readError = null;
-  mockedSettings.reads = 0;
+  mockedSettings.readKeys = [];
+  appSecretMocks.read.mockReset().mockResolvedValue(null);
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
 });
@@ -171,82 +179,6 @@ describe("formatMcpConnectError", () => {
   });
 });
 
-describe("startMcpConfigRefresh", () => {
-  it("re-reads the settings table only on a write or the backstop", async () => {
-    // `buildMergedConfig` scans the whole settings table. On an idle app that
-    // used to be a full-table round trip every 60s per app, forever, just to
-    // diff a signature that had not changed since boot.
-    vi.useFakeTimers();
-    const manager = {
-      getConfig: () => ({ servers: {} }),
-      reconfigure: vi.fn(async () => {}),
-    };
-    const stop = startMcpConfigRefresh(manager as never)!;
-    try {
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(1);
-
-      // Idle: no settings write, no scan.
-      await vi.advanceTimersByTimeAsync(120_000);
-      expect(mockedSettings.reads).toBe(1);
-
-      mockedSettings.emitter!.emit("settings", { source: "settings" });
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(2);
-
-      // Backstop still catches a write made by another process.
-      await vi.advanceTimersByTimeAsync(6 * 60_000);
-      expect(mockedSettings.reads).toBe(3);
-    } finally {
-      stop();
-      vi.useRealTimers();
-    }
-  });
-
-  it("starts no timer where in-process sweeps are disabled", async () => {
-    // Billed per warm container, and the first tick always scans the whole
-    // settings table because it starts dirty.
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("NETLIFY", "true");
-    vi.useFakeTimers();
-    const manager = {
-      getConfig: () => ({ servers: {} }),
-      reconfigure: vi.fn(async () => {}),
-    };
-    try {
-      expect(startMcpConfigRefresh(manager as never)).toBeNull();
-      await vi.advanceTimersByTimeAsync(10 * 60_000);
-      expect(mockedSettings.reads).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("retries a failed refresh on the next interval", async () => {
-    vi.useFakeTimers();
-    const reconfigure = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("temporary manager failure"))
-      .mockResolvedValue(undefined);
-    const manager = {
-      getConfig: () => ({ servers: { stale: {} } }),
-      reconfigure,
-    };
-    const stop = startMcpConfigRefresh(manager as never)!;
-    try {
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(1);
-
-      await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockedSettings.reads).toBe(2);
-      expect(reconfigure).toHaveBeenCalledTimes(2);
-    } finally {
-      stop();
-      vi.useRealTimers();
-    }
-  });
-});
-
 describe("buildMergedConfig built-in MCP capabilities", () => {
   it("merges enabled user and org built-ins with scoped visibility keys", async () => {
     mockedSettings.all = {
@@ -258,7 +190,10 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       },
     };
 
-    const cfg = await buildMergedConfig();
+    const cfg = await buildMergedConfig({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
     const userKey = `user_${hashEmail("alice@example.com")}_chrome-devtools`;
     expect(cfg?.servers[userKey]).toEqual({
       type: "stdio",
@@ -279,6 +214,192 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
     });
   });
 
+  it("keeps a malformed remote server failed without hiding healthy servers or built-ins", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const userEmail = "alice@example.com";
+    mockedSettings.all = {
+      [`u:${userEmail}:mcp-servers-remote`]: {
+        servers: [
+          {
+            id: "broken-server",
+            name: "broken-server",
+            url: "https://broken.example.test/mcp",
+            headers: { Accept: "application/json" },
+            headerSecretKey: "mcp_headers:broken-server",
+            createdAt: 1,
+          },
+          {
+            id: "healthy-server",
+            name: "healthy-server",
+            url: "https://healthy.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      [`u:${userEmail}:mcp-builtin-capabilities`]: {
+        enabledIds: ["browser-chrome-devtools"],
+      },
+    };
+    appSecretMocks.read.mockResolvedValue({ value: "not-json" });
+
+    const config = await buildMergedConfig({ userEmail, orgId: null });
+    const userPrefix = `user_${hashEmail(userEmail)}_`;
+    const brokenServer = config?.servers[`${userPrefix}broken-server`];
+
+    expect(brokenServer).toMatchObject({
+      type: "http",
+      url: "https://broken.example.test/mcp",
+      configurationError: expect.any(InvalidMcpHeaderConfigurationError),
+    });
+    expect(brokenServer).not.toHaveProperty("headers");
+    expect(config?.servers[`${userPrefix}healthy-server`]).toMatchObject({
+      type: "http",
+      url: "https://healthy.example.test/mcp",
+    });
+    expect(config?.servers[`${userPrefix}chrome-devtools`]).toMatchObject({
+      type: "stdio",
+      command: "npx",
+    });
+  });
+
+  it("keeps an undecryptable remote header secret isolated to its server", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const userEmail = "alice@example.com";
+    mockedSettings.all = {
+      [`u:${userEmail}:mcp-servers-remote`]: {
+        servers: [
+          {
+            id: "broken-server",
+            name: "broken-server",
+            url: "https://broken.example.test/mcp",
+            headerSecretKey: "mcp_headers:broken-server",
+            createdAt: 1,
+          },
+          {
+            id: "healthy-server",
+            name: "healthy-server",
+            url: "https://healthy.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      [`u:${userEmail}:mcp-builtin-capabilities`]: {
+        enabledIds: ["browser-chrome-devtools"],
+      },
+    };
+    appSecretMocks.read.mockRejectedValue(
+      new AppSecretDecryptionError({ scope: "user", scopeId: userEmail }),
+    );
+
+    const config = await buildMergedConfig({ userEmail, orgId: null });
+    const userPrefix = `user_${hashEmail(userEmail)}_`;
+
+    expect(config?.servers[`${userPrefix}broken-server`]).toMatchObject({
+      type: "http",
+      url: "https://broken.example.test/mcp",
+      configurationError: expect.any(AppSecretDecryptionError),
+    });
+    expect(config?.servers[`${userPrefix}healthy-server`]).toMatchObject({
+      type: "http",
+      url: "https://healthy.example.test/mcp",
+    });
+    expect(config?.servers[`${userPrefix}chrome-devtools`]).toMatchObject({
+      type: "stdio",
+      command: "npx",
+    });
+  });
+
+  it("keeps a transient remote header secret read failure isolated to its server", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const userEmail = "alice@example.com";
+    mockedSettings.all = {
+      [`u:${userEmail}:mcp-servers-remote`]: {
+        servers: [
+          {
+            id: "broken-server",
+            name: "broken-server",
+            url: "https://broken.example.test/mcp",
+            headerSecretKey: "mcp_headers:broken-server",
+            createdAt: 1,
+          },
+          {
+            id: "healthy-server",
+            name: "healthy-server",
+            url: "https://healthy.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      [`u:${userEmail}:mcp-builtin-capabilities`]: {
+        enabledIds: ["browser-chrome-devtools"],
+      },
+    };
+    appSecretMocks.read.mockRejectedValue(new Error("database unavailable"));
+
+    const config = await buildMergedConfig({ userEmail, orgId: null });
+    const userPrefix = `user_${hashEmail(userEmail)}_`;
+
+    expect(config?.servers[`${userPrefix}broken-server`]).toMatchObject({
+      type: "http",
+      url: "https://broken.example.test/mcp",
+      configurationError: expect.any(McpHeaderSecretUnavailableError),
+    });
+    expect(
+      (config?.servers[`${userPrefix}broken-server`] as any).configurationError
+        .message,
+    ).not.toContain("database unavailable");
+    expect(config?.servers[`${userPrefix}healthy-server`]).toMatchObject({
+      type: "http",
+      url: "https://healthy.example.test/mcp",
+    });
+    expect(config?.servers[`${userPrefix}chrome-devtools`]).toMatchObject({
+      type: "stdio",
+      command: "npx",
+    });
+  });
+
+  it("keeps a missing referenced header secret visibly failed", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const userEmail = "alice@example.com";
+    mockedSettings.all = {
+      [`u:${userEmail}:mcp-servers-remote`]: {
+        servers: [
+          {
+            id: "broken-server",
+            name: "broken-server",
+            url: "https://broken.example.test/mcp",
+            headerSecretKey: "mcp_headers:missing",
+            createdAt: 1,
+          },
+          {
+            id: "healthy-server",
+            name: "healthy-server",
+            url: "https://healthy.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+    };
+    appSecretMocks.read.mockResolvedValue(null);
+
+    const config = await buildMergedConfig({ userEmail, orgId: null });
+    const userPrefix = `user_${hashEmail(userEmail)}_`;
+
+    expect(config?.servers[`${userPrefix}broken-server`]).toMatchObject({
+      type: "http",
+      url: "https://broken.example.test/mcp",
+      configurationError: expect.objectContaining({
+        name: "InvalidMcpHeaderConfigurationError",
+        code: "invalid_mcp_header_configuration",
+        reason: "missing-secret",
+      }),
+    });
+    expect(config?.servers[`${userPrefix}healthy-server`]).toMatchObject({
+      type: "http",
+      url: "https://healthy.example.test/mcp",
+    });
+  });
+
   it("keeps browser built-ins exclusive while merging settings", async () => {
     mockedSettings.all = {
       "u:alice@example.com:mcp-builtin-capabilities": {
@@ -286,7 +407,10 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       },
     };
 
-    const cfg = await buildMergedConfig();
+    const cfg = await buildMergedConfig({
+      userEmail: "alice@example.com",
+      orgId: null,
+    });
     const chromeKey = `user_${hashEmail("alice@example.com")}_chrome-devtools`;
     const playwrightKey = `user_${hashEmail("alice@example.com")}_playwright`;
     expect(cfg?.servers[chromeKey]).toBeUndefined();
@@ -303,22 +427,127 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
       },
     };
 
-    await expect(buildMergedConfig()).resolves.toBeNull();
+    await expect(
+      buildMergedConfig({ userEmail: "alice@example.com", orgId: "acme" }),
+    ).resolves.toBeNull();
+    expect(mockedSettings.readKeys).toEqual([
+      "u:alice@example.com:mcp-servers-remote",
+      "o:acme:mcp-servers-remote",
+    ]);
   });
 
   it("reports an unreadable settings table instead of an empty config", async () => {
     mockedSettings.readError = new Error("connect ECONNREFUSED");
 
-    // `null` means "zero MCP servers configured". An unreachable settings table
-    // must not be able to produce that answer.
-    await expect(buildMergedConfig()).rejects.toThrow(McpConfigUnreadableError);
+    await expect(
+      buildMergedConfig({ userEmail: "alice@example.com", orgId: null }),
+    ).rejects.toThrow(McpConfigUnreadableError);
+  });
+
+  it("reads only the caller and active organization settings", async () => {
+    mockedSettings.all = {
+      "u:alice@example.com:mcp-servers-remote": {
+        servers: [
+          {
+            id: "alice-server",
+            name: "alice-server",
+            url: "https://alice.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      "u:bob@example.com:mcp-servers-remote": {
+        servers: [
+          {
+            id: "bob-server",
+            name: "bob-server",
+            url: "https://bob.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+      "o:acme:mcp-servers-remote": {
+        servers: [
+          {
+            id: "org-server",
+            name: "org-server",
+            url: "https://org.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      },
+    };
+
+    const cfg = await buildMergedConfig({
+      userEmail: "alice@example.com",
+      orgId: "acme",
+    });
+    expect(Object.keys(cfg?.servers ?? {})).toEqual([
+      `user_${hashEmail("alice@example.com")}_alice-server`,
+      "org_acme_org-server",
+    ]);
+    expect(mockedSettings.readKeys).toEqual([
+      "u:alice@example.com:mcp-servers-remote",
+      "o:acme:mcp-servers-remote",
+      "u:alice@example.com:mcp-builtin-capabilities",
+      "o:acme:mcp-builtin-capabilities",
+    ]);
+    expect(mockedSettings.readKeys).not.toContain(
+      "u:bob@example.com:mcp-servers-remote",
+    );
+  });
+
+  it("does not create settings reads for anonymous identities", async () => {
+    await expect(
+      buildMergedConfig({
+        userEmail: "anon-session@agent-native.com",
+        orgId: "acme",
+      }),
+    ).rejects.toThrow("Authenticated MCP principal required");
+    expect(mockedSettings.readKeys).toEqual([]);
   });
 });
 
 describe("MCP server routes", () => {
-  it("serializes route access behind deferred manager hydration", async () => {
+  it("invalidates same-scope managers when built-in MCP settings change", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "owner",
+    });
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    const invalidateScope = vi.fn(async () => {});
+    mountMcpServersRoutes(nitroApp, manager as any, { invalidateScope });
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/builtin",
+      "POST",
+      { scope: "org", enabledIds: [] },
+    );
+
+    expect(response.status).toBe(200);
+    expect(invalidateScope).toHaveBeenCalledWith("org", "acme", manager);
+  });
+
+  it("rejects anonymous mutations before waiting for manager readiness", async () => {
     getSessionMock.mockResolvedValue(null);
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
     let release!: () => void;
     const ready = new Promise<void>((resolve) => {
       release = resolve;
@@ -333,22 +562,50 @@ describe("MCP server routes", () => {
       })),
       reconfigure: vi.fn(),
     };
+    const waitUntilReady = vi.fn(() => ready);
     mountMcpServersRoutes(nitroApp, manager as any, {
-      waitUntilReady: () => ready,
+      waitUntilReady,
     });
 
     const pending = dispatchMountedRoute(
       nitroApp,
-      "/_agent-native/mcp/servers/test",
+      "/_agent-native/mcp/servers",
       "POST",
-      { url: "https://mcp.example.test/mcp" },
+      { scope: "user", name: "private", url: "https://mcp.example.test/mcp" },
     );
-    await Promise.resolve();
-    expect(getSessionMock).not.toHaveBeenCalled();
-
-    release();
     await expect(pending).resolves.toMatchObject({ status: 401 });
+    release();
     expect(getSessionMock).toHaveBeenCalledOnce();
+    expect(getOrgContextMock).not.toHaveBeenCalled();
+    expect(waitUntilReady).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous removals before waiting for manager readiness", async () => {
+    getSessionMock.mockResolvedValue(null);
+    const waitUntilReady = vi.fn(async () => {});
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: vi.fn(() => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      })),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any, { waitUntilReady });
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/private?scope=user",
+      "DELETE",
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(getOrgContextMock).not.toHaveBeenCalled();
+    expect(waitUntilReady).not.toHaveBeenCalled();
+    expect(manager.reconfigure).not.toHaveBeenCalled();
   });
 
   it("reconnects a scoped existing server by reconfiguring the manager", async () => {
@@ -402,8 +659,10 @@ describe("MCP server routes", () => {
               },
             ],
           };
+          return reconfigured({ reconnected: [mergedId] });
         },
       ),
+      refreshTools: vi.fn(),
     };
     const nitroApp = createNitroApp();
     mountMcpServersRoutes(nitroApp, manager as any);
@@ -416,6 +675,7 @@ describe("MCP server routes", () => {
 
     expect(response.status).toBe(200);
     expect(manager.reconfigure).toHaveBeenCalledOnce();
+    expect(manager.refreshTools).not.toHaveBeenCalled();
     expect(response.body).toEqual({
       ok: true,
       server: {
@@ -466,7 +726,7 @@ describe("MCP server routes", () => {
         },
         tools: [],
       }),
-      reconfigure: vi.fn(async () => {}),
+      reconfigure: vi.fn(async () => reconfigured({ reconnected: [mergedId] })),
     };
     const nitroApp = createNitroApp();
     mountMcpServersRoutes(nitroApp, manager as any);
@@ -500,9 +760,132 @@ describe("MCP server routes", () => {
     });
   });
 
+  describe("reconnecting a connected server that held back tools", () => {
+    const mergedId = "org_acme_demo";
+    const error =
+      'Tool "broken" is unavailable: its input schema references "#/$defs/Missing", which does not resolve at /properties/item.';
+    const tool = (name: string) => ({
+      source: mergedId,
+      name: `mcp__${mergedId}__${name}`,
+      description: "",
+    });
+
+    type Status = {
+      connectedServers: string[];
+      configuredServers: string[];
+      errors: Record<string, string>;
+      tools: ReturnType<typeof tool>[];
+    };
+
+    /** Reconnects `demo`, whose tools `relist` lists again. */
+    async function reconnect(relist: (status: Status) => void) {
+      getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+      getOrgContextMock.mockResolvedValue({
+        email: "alice@example.com",
+        orgId: "acme",
+        role: "member",
+      });
+      mockedSettings.all["o:acme:mcp-servers-remote"] = {
+        servers: [
+          {
+            id: "demo",
+            name: "demo",
+            url: "https://mcp.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      };
+      const status: Status = {
+        connectedServers: [mergedId],
+        configuredServers: [mergedId],
+        errors: { [mergedId]: error },
+        tools: [tool("ping")],
+      };
+      const manager = {
+        getStatus: () => status,
+        reconfigure: vi.fn(async () => reconfigured({ unchanged: [mergedId] })),
+        refreshTools: vi.fn(async () => relist(status)),
+      };
+      const nitroApp = createNitroApp();
+      mountMcpServersRoutes(nitroApp, manager as any);
+      const response = await dispatchMountedRoute(
+        nitroApp,
+        "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+        "POST",
+      );
+      expect(manager.refreshTools).toHaveBeenCalledWith(mergedId);
+      return response;
+    }
+
+    it("reports the tools it still holds back", async () => {
+      const response = await reconnect(() => {});
+
+      expect(response.status).toBe(200);
+      expect(response.body.server.status).toEqual({
+        state: "connected",
+        toolCount: 1,
+        error,
+      });
+    });
+
+    it("offers a repaired tool again", async () => {
+      const response = await reconnect((status) => {
+        status.errors = {};
+        status.tools = [tool("ping"), tool("broken")];
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.server.status).toEqual({
+        state: "connected",
+        toolCount: 2,
+      });
+    });
+
+    it("reports a tool list that could not be fetched over a connection that stays up", async () => {
+      const response = await reconnect(() => {
+        throw new Error(
+          `MCP server ${mergedId} tools/list timed out after 5000ms`,
+        );
+      });
+
+      expect(response.status).toBe(502);
+      expect(response.body).toEqual({
+        ok: false,
+        error:
+          "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.",
+      });
+    });
+
+    it("answers a list refused for its authorization with the status a refused connect leaves", async () => {
+      const response = await reconnect((status) => {
+        // What the manager reports once the SDK drops the refused connection.
+        status.connectedServers = [];
+        status.errors = {
+          [mergedId]:
+            'HTTP 401: Error POSTing to endpoint: {"error":"invalid_token"}',
+        };
+        throw Object.assign(new Error("Error POSTing to endpoint"), {
+          status: 401,
+        });
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.ok).toBe(true);
+      expect(response.body.server.status).toEqual({
+        state: "error",
+        error:
+          "The MCP server rejected the request. Reconnect or update the required Authorization header.",
+      });
+    });
+  });
+
   it("requires an active org to reconnect an org-scoped server", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     mockedSettings.all["o:acme:mcp-servers-remote"] = {
       servers: [
@@ -568,6 +951,149 @@ describe("MCP server routes", () => {
     expect(manager.reconfigure).not.toHaveBeenCalled();
   });
 
+  it("returns the typed invalid-header error from an existing-server test", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
+    });
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [
+        {
+          id: "demo",
+          name: "demo",
+          url: "https://mcp.example.test/mcp",
+          headerSecretKey: "mcp_headers:demo",
+          createdAt: 1,
+        },
+      ],
+    };
+    appSecretMocks.read.mockResolvedValue({ value: "not-json" });
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/test?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      ok: false,
+      error:
+        "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+      errorCode: "invalid_mcp_header_configuration",
+    });
+  });
+
+  it("returns an actionable failure when an existing server references a missing header secret", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
+    });
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [
+        {
+          id: "demo",
+          name: "demo",
+          url: "https://mcp.example.test/mcp",
+          headerSecretKey: "mcp_headers:missing",
+          createdAt: 1,
+        },
+      ],
+    };
+    appSecretMocks.read.mockResolvedValue(null);
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/test?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      ok: false,
+      error:
+        "Saved MCP server headers are invalid. Re-save the server's headers before reconnecting.",
+      errorCode: "invalid_mcp_header_configuration",
+    });
+  });
+
+  it("returns a retryable typed error when an existing-server secret is unreadable", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
+    });
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [
+        {
+          id: "demo",
+          name: "demo",
+          url: "https://mcp.example.test/mcp",
+          headerSecretKey: "mcp_headers:demo",
+          createdAt: 1,
+        },
+      ],
+    };
+    appSecretMocks.read.mockRejectedValue(
+      new AppSecretDecryptionError({ scope: "workspace", scopeId: "acme" }),
+    );
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/test?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({
+      ok: false,
+      error:
+        "A saved MCP server credential could not be read. Retry or replace it before testing.",
+      errorCode: "app_secret_unreadable",
+    });
+  });
+
   it("does not list local built-ins in production runtimes", async () => {
     vi.stubEnv("NODE_ENV", "production");
     mockedSettings.all = {
@@ -576,7 +1102,11 @@ describe("MCP server routes", () => {
       },
     };
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -605,7 +1135,11 @@ describe("MCP server routes", () => {
 
   it("mediates MCP App tool calls through the same server only", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -645,9 +1179,17 @@ describe("MCP server routes", () => {
     );
 
     expect(ok.status).toBe(200);
-    expect(manager.callTool).toHaveBeenCalledWith("mcp__apps__render", {
-      id: "1",
-    });
+    expect(manager.callTool).toHaveBeenCalledWith(
+      "mcp__apps__render",
+      { id: "1" },
+      {
+        context: {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          orgId: null,
+        },
+      },
+    );
     expect(ok.body).toEqual({ content: [{ type: "text", text: "ok" }] });
 
     const blocked = await dispatchMountedRoute(
@@ -662,9 +1204,60 @@ describe("MCP server routes", () => {
     });
   });
 
+  it("preserves authorization denials from MCP App tool calls", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({ orgId: "acme" });
+
+    const denied = new Error("Not authorized") as Error & {
+      statusCode: number;
+    };
+    denied.name = "ForbiddenError";
+    denied.statusCode = 403;
+    const nitroApp = createNitroApp();
+    const manager = {
+      hasServer: () => true,
+      getToolsForServer: () => [
+        {
+          source: "apps",
+          name: "mcp__apps__render",
+          originalName: "render",
+          description: "Render",
+          inputSchema: { type: "object" },
+          raw: { name: "render" },
+        },
+      ],
+      callTool: vi.fn(async () => {
+        throw denied;
+      }),
+      readResource: vi.fn(),
+      getStatus: () => ({
+        connectedServers: ["apps"],
+        configuredServers: ["apps"],
+        errors: {},
+        tools: [{ source: "apps", name: "mcp__apps__render" }],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/apps/call-tool",
+      "POST",
+      { serverId: "apps", toolName: "render", arguments: {} },
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "Not authorized" });
+  });
+
   it("requires authentication for MCP App routes outside production too", async () => {
     getSessionMock.mockResolvedValue(null);
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -693,7 +1286,11 @@ describe("MCP server routes", () => {
 
   it("blocks MCP App calls to model-only tools", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -742,7 +1339,11 @@ describe("MCP server routes", () => {
 
   it("allows MCP Apps to read only ui:// resources from visible servers", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -803,7 +1404,11 @@ describe("MCP server routes", () => {
 
   it("blocks MCP App resource reads when the server has no app-visible tools", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: null,
+      role: null,
+    });
 
     const nitroApp = createNitroApp();
     const manager = {
@@ -847,6 +1452,22 @@ describe("MCP server routes", () => {
     expect(manager.readResource).not.toHaveBeenCalled();
   });
 });
+
+/** A `reconfigure` summary with every list not given empty. */
+function reconfigured(lists: {
+  added?: string[];
+  removed?: string[];
+  unchanged?: string[];
+  reconnected?: string[];
+}) {
+  return {
+    added: [],
+    removed: [],
+    unchanged: [],
+    reconnected: [],
+    ...lists,
+  };
+}
 
 function createNitroApp() {
   return {
@@ -907,5 +1528,6 @@ async function dispatchMountedRoute(
   return {
     body: responseBody,
     status: event.res.status || event.node.res.statusCode,
+    headers: event.res.headers,
   };
 }

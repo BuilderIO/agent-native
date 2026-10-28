@@ -1,10 +1,10 @@
-import { verifyScopedAgentAccessToken } from "@agent-native/core/server";
+import { getForwardedRequestOrigin } from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import {
   injectDocumentMarkup,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
@@ -16,7 +16,7 @@ import {
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
-  CLIP_AGENT_ACCESS_TOKEN_PREFIX,
+  buildGenericAgentDiscoveryPayload,
   CLIPS_AGENT_ACCESS_PARAM,
 } from "../../shared/agent-context.js";
 import { getDb, schema } from "../db/index.js";
@@ -45,7 +45,7 @@ function stripAppBasePath(pathname: string): string {
 
 function clipIdFromPath(pathname: string): string | null {
   const match = stripAppBasePath(pathname).match(
-    /^\/(?:share|embed)\/([^/]+)\/?$/,
+    /^\/(?:share|embed|r)\/([^/]+)\/?$/,
   );
   if (!match?.[1]) return null;
   try {
@@ -81,6 +81,28 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
   const recordingId = clipIdFromPath(requestUrl.pathname);
   if (!recordingId) return null;
 
+  const query = getQuery(event);
+  const suppliedToken = queryString(query[CLIPS_AGENT_ACCESS_PARAM]);
+
+  const agentContextUrl = buildAgentApiUrls(recordingId, {
+    origin: getForwardedRequestOrigin(event),
+    basePath: getServerAppBasePath(),
+  }).contextUrl;
+  const genericDiscovery = () => ({
+    markup: buildClipAgentDiscoveryMarkup(
+      buildGenericAgentDiscoveryPayload({
+        recordingId,
+        agentContextUrl,
+      }),
+      agentContextUrl,
+    ),
+  });
+
+  // Agent links can carry a private-share token. Keep discovery generic so the
+  // cached SSR shell never reflects that token or private recording metadata.
+  if (suppliedToken) return genericDiscovery();
+
+  // guard:allow-unscoped — the cached anonymous shell queries metadata only for public, password-free clips; other links get path-only generic discovery.
   const [recording] = await getDb()
     .select({
       id: schema.recordings.id,
@@ -93,13 +115,19 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
       trashedAt: schema.recordings.trashedAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId))
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        eq(schema.recordings.visibility, "public"),
+        isNull(schema.recordings.password),
+      ),
+    )
     .limit(1);
 
-  // SSR is an impersonal cache shell. Owner-specific expiry and discovery are
-  // resolved by the authenticated public-recording payload after hydration.
   if (
     !recording ||
+    recording.visibility !== "public" ||
+    recording.password ||
     recording.archivedAt ||
     recording.trashedAt ||
     isRecordingExpiredForViewer({
@@ -107,40 +135,27 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
       viewerIsOwner: false,
     })
   ) {
-    return null;
+    return genericDiscovery();
   }
 
-  const query = getQuery(event);
-  const suppliedToken = queryString(query[CLIPS_AGENT_ACCESS_PARAM]);
-  const tokenGrantsAgentAccess = suppliedToken
-    ? verifyScopedAgentAccessToken(suppliedToken, {
-        resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: recording.id,
-      }).ok
-    : false;
-  const anonymousAccess =
-    recording.visibility === "public" && !recording.password;
-  if (!anonymousAccess && !tokenGrantsAgentAccess) return null;
-
-  // Tokenized URLs must never put the access token in a publicly cached SSR
-  // shell. The client registers tools after it has verified access instead.
-  if (tokenGrantsAgentAccess) return null;
-
-  const agentContextUrl = buildAgentApiUrls(recording.id, {
-    origin: requestUrl.origin,
-    basePath: getServerAppBasePath(),
-  }).contextUrl;
   const discovery = buildAgentDiscoveryPayload({
     recordingId: recording.id,
     title: recording.title,
     status: recording.status,
     agentContextUrl,
   });
+  return {
+    markup: buildClipAgentDiscoveryMarkup(discovery, agentContextUrl),
+  };
+}
+
+function buildClipAgentDiscoveryMarkup(
+  discovery: Record<string, unknown>,
+  agentContextUrl: string,
+): string {
   const contextHref = escapeHtmlAttribute(agentContextUrl);
 
-  return {
-    markup: `<link rel="alternate" type="application/json" href="${contextHref}" title="Agent-readable clip context"><script type="application/agent-native+json" id="clips-agent-context">${safeJsonForHtml(discovery)}</script>`,
-  };
+  return `<link rel="alternate" type="application/json" href="${contextHref}" title="Agent-readable clip context"><script type="application/agent-native+json" id="clips-agent-context">${safeJsonForHtml(discovery)}</script>`;
 }
 
 function injectClipAgentDiscovery(html: string, markup: string): string {

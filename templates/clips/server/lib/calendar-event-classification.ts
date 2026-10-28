@@ -97,11 +97,6 @@ export function isPersonalSoloCalendarEvent(args: {
   });
 }
 
-/**
- * True when a calendar event has no active attendee besides the current user.
- * This is intentionally broader than the title-based personal-event helper:
- * desktop meeting reminders should not surface for any self-only event.
- */
 export function isSoloCalendarEvent(args: {
   account: CalendarAccountForEventClassification;
   event: CalendarEvent;

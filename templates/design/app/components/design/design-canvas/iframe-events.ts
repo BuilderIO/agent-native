@@ -11,8 +11,10 @@ export interface IframeHotkeyPayload {
 }
 
 export interface IframeFigmaClipboardPastePayload {
-  /** Empty when the canvas saw a Figma-looking paste it could not read. */
   content: string;
+  svgFileError?: "too-large" | "unreadable";
+  sourceScreenId?: string;
+  svg?: string;
   html?: string;
   text?: string;
 }
@@ -25,6 +27,7 @@ export interface IframeImagePasteFile {
 
 export interface IframeImagePastePayload {
   files: IframeImagePasteFile[];
+  screenId?: string;
 }
 
 export interface IframeContextMenuPayload {
@@ -54,4 +57,14 @@ export interface IframeNodeHtmlPreviewMessage {
 export interface IframeNodeHtmlPreviewAppliedPayload {
   type: "agent-native:node-html-preview-applied";
   proposalId: string;
+}
+
+export interface IframeNodeHtmlPreviewFailedPayload {
+  type: "agent-native:node-html-preview-failed";
+  proposalId: string;
+  reason:
+    | "target-unresolved"
+    | "preview-invalid"
+    | "preview-replacement-failed"
+    | "unknown";
 }

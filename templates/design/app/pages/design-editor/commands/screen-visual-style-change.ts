@@ -1,6 +1,6 @@
+import { roundGeometryStylesPx } from "@shared/canvas-math";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { RefObject } from "react";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -12,7 +12,11 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import { applyScopedVisualStyleEdit } from "@/pages/design-editor/pending-edits";
+import {
+  applyScopedVisualStyleEdit,
+  resolveOverviewScreenSourceType,
+  type PendingRelativeStyleOperation,
+} from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface ScreenVisualStyleChangeArgs {
@@ -33,6 +37,7 @@ export interface ScreenVisualStyleChangeArgs {
     },
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
   getScreenContent: (screenId: string) => string;
   handleVisualStyleChange: (
@@ -42,6 +47,10 @@ export interface ScreenVisualStyleChangeArgs {
     metadata?: {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
+      routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+      runtimeApplied?: boolean;
+      requirePersistedSourceAcceptance?: boolean;
     },
   ) => void;
   overviewScreens: OverviewScreen[];
@@ -54,6 +63,8 @@ export interface ScreenVisualStyleChangeArgs {
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
       interactionState?: InteractionState;
+      routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => void;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
@@ -67,6 +78,7 @@ export function runScreenVisualStyleChange(
     activeFile,
     applyFileContentUpdate,
     canEditDesign,
+    canEditLiveScreen,
     designSourceType,
     getScreenContent,
     handleVisualStyleChange,
@@ -83,39 +95,49 @@ export function runScreenVisualStyleChange(
     phase?: "preview" | "commit";
     originalStyles?: Record<string, string>;
     preserveSelection?: boolean;
+    routePath?: string;
+    runtimeApplied?: boolean;
+    requirePersistedSourceAcceptance?: boolean;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
-  if (screenId === activeFile?.id) {
-    handleVisualStyleChange(selector, styles, elementInfo, metadata);
-    return;
-  }
-  // Overview iframes already paint preview edits locally. Persisting their
-  // preview packets here makes every non-active screen write on every drag
-  // tick; only the pointer-up commit belongs in the source document.
-  if (metadata?.phase === "preview") return;
-  // §gesture-persistence — mirror handleVisualStyleChange's source-type
-  // branch for overview screens other than the active one: localhost
-  // still queues for agent apply, inline/fusion screens persist the
-  // gesture commit immediately (breakpoint-aware, single history step),
-  // matching commitStylesToSelectedLayers's established per-file write
-  // pattern below.
   const overviewScreen = overviewScreens.find(
     (screen) => screen.id === screenId,
   );
-  const screenSourceType =
-    normalizeDesignSourceType(overviewScreen?.sourceType) ?? designSourceType;
+  const screenSourceType = resolveOverviewScreenSourceType(
+    overviewScreen,
+    designSourceType,
+  );
+  const canEditScreen =
+    canEditDesign ||
+    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+  if (screenId === activeFile?.id) {
+    if (!canEditScreen) return;
+    handleVisualStyleChange(selector, styles, elementInfo, metadata);
+    return;
+  }
+  if (metadata?.phase === "preview") return;
+  const wholePixelStyles = roundGeometryStylesPx(styles, {
+    containingBlockTransform: elementInfo?.positionContainingBlockTransform,
+  });
   if (screenSourceType === "localhost") {
+    if (!canEditScreen) return;
     recordPendingVisualStyleEdit(
       screenId,
       selector,
-      styles,
+      wholePixelStyles,
       elementInfo,
-      metadata,
+      {
+        originalStyles: metadata?.originalStyles,
+        preserveSelection: metadata?.preserveSelection,
+        routePath: metadata?.routePath,
+        relativeOperations: metadata?.relativeOperations,
+      },
     );
     return;
   }
   if (!canEditDesign) return;
-  const entries = Object.entries(styles).filter(
+  const entries = Object.entries(wholePixelStyles).filter(
     ([, value]) => value !== undefined,
   );
   if (entries.length === 0) return;

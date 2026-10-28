@@ -1,17 +1,3 @@
-/**
- * GET /_agent-native/voice-providers/status
- *
- * Reports which voice transcription providers are configured for the
- * current user. The desktop Settings UI uses this to show "Connect" vs
- * "Connected" status pills next to each provider option.
- *
- * Resolution mirrors `transcribe-voice.ts`: we read request-scoped encrypted
- * secrets (user, org, workspace), with env fallback only outside authenticated
- * request contexts. Each lookup is wrapped in try/catch — one provider's
- * failure must never break the whole response.
- *
- * Returns booleans only — never the actual key material.
- */
 import {
   defineEventHandler,
   getMethod,
@@ -23,33 +9,53 @@ import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import {
   prefetchSecrets,
-  resolveHasCompleteBuilderConnection,
-  resolveSecret,
+  resolveBuilderGatewayAuth,
 } from "./credential-provider.js";
 import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
 import { runWithRequestContext } from "./request-context.js";
+import {
+  GEMINI_API_KEY,
+  resolveSecretWithAliases,
+  secretKeyNames,
+} from "./secret-key-aliases.js";
+import {
+  readServiceProviderChoice,
+  type ServiceProviderId,
+} from "./service-providers.js";
+
+/** A provider whose credential this status checks. */
+export type VoiceCredentialProvider =
+  | "builder"
+  | "gemini"
+  | "openai"
+  | "groq"
+  | "googleRealtime";
 
 export interface VoiceProvidersStatus {
+  /**
+   * Builder's gateway accepts the request's credentials: an OAuth sign-in or
+   * a stored key pair, the same resolver the voice and transcription routes use.
+   */
   builder: boolean;
   gemini: boolean;
   openai: boolean;
   groq: boolean;
-  /**
-   * Google Speech-to-Text realtime streaming is BYOK-only for v1. This reports
-   * whether a service-account credential is configured; the actual stream runs
-   * through the dedicated WebSocket -> StreamingRecognize path, not the batch
-   * transcribe route.
-   */
   googleRealtime: boolean;
-  /** Always true — the Web Speech API is available in WebKit-based clients. */
   browser: true;
-  /**
-   * Apple's SFSpeechRecognizer + AVAudioEngine, exposed by the Tauri
-   * desktop client. Always reported as `true` from the server — the
-   * desktop client gates this on macOS at the Tauri-command boundary, so
-   * non-macOS hosts return a clear error instead of attempting to use it.
-   */
   native: true;
+  /**
+   * The organization's Voice input choice (Settings › Infrastructure), tried
+   * first by batch transcription when the user's own provider is auto. Null
+   * when unset or outside an organization.
+   */
+  orgProvider: ServiceProviderId<"voice"> | null;
+  /** The organization choice could not be read; `orgProvider` is unknown, not unset. */
+  orgProviderLookupFailed?: true;
+  /**
+   * Providers whose credentials could not be read. Their flag is false because
+   * it is unknown, not because nothing is configured.
+   */
+  credentialLookupFailed?: VoiceCredentialProvider[];
 }
 
 export function createVoiceProvidersStatusHandler() {
@@ -72,11 +78,25 @@ export function createVoiceProvidersStatusHandler() {
         ? runWithRequestContext(requestContext, fn)
         : fn();
 
-    async function hasKey(key: string): Promise<boolean> {
+    const credentialLookupFailed: VoiceCredentialProvider[] = [];
+    const lookupFailed = (
+      provider: VoiceCredentialProvider,
+      error: unknown,
+    ): false => {
+      credentialLookupFailed.push(provider);
+      console.warn(
+        `[voice-providers] could not read ${provider} credentials:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      return false;
+    };
+
+    async function hasKey(
+      provider: VoiceCredentialProvider,
+      key: string,
+    ): Promise<boolean> {
       try {
         if (key === "GOOGLE_APPLICATION_CREDENTIALS") {
-          // Same identity, passed explicitly — the context is here only so this
-          // scope sweep shares the prefetched per-request memo below.
           const resolved = await withRequestContext(() =>
             resolveGoogleRealtimeCredentials({
               userEmail: session?.email,
@@ -85,39 +105,48 @@ export function createVoiceProvidersStatusHandler() {
           );
           return typeof resolved === "string" && resolved.length > 0;
         }
-        const resolved = await withRequestContext(() => resolveSecret(key));
+        const resolved = await withRequestContext(() =>
+          resolveSecretWithAliases(key),
+        );
         return typeof resolved === "string" && resolved.length > 0;
-      } catch {
-        return false;
+      } catch (error) {
+        return lookupFailed(provider, error);
       }
     }
 
-    // One read per scope for every key below, instead of one per key per scope.
     await withRequestContext(() =>
       prefetchSecrets([
-        "GEMINI_API_KEY",
+        ...secretKeyNames(GEMINI_API_KEY),
         "OPENAI_API_KEY",
         "GROQ_API_KEY",
         "GOOGLE_APPLICATION_CREDENTIALS",
       ]),
     );
 
-    let builder = false;
+    let builder: boolean;
     try {
       builder =
-        (await withRequestContext(() =>
-          resolveHasCompleteBuilderConnection(),
-        )) === true;
-    } catch {
-      builder = false;
+        (await withRequestContext(() => resolveBuilderGatewayAuth())) !== null;
+    } catch (error) {
+      builder = lookupFailed("builder", error);
     }
 
     const [gemini, openai, groq, googleRealtime] = await Promise.all([
-      hasKey("GEMINI_API_KEY"),
-      hasKey("OPENAI_API_KEY"),
-      hasKey("GROQ_API_KEY"),
-      hasKey("GOOGLE_APPLICATION_CREDENTIALS"),
+      hasKey("gemini", GEMINI_API_KEY),
+      hasKey("openai", "OPENAI_API_KEY"),
+      hasKey("groq", "GROQ_API_KEY"),
+      hasKey("googleRealtime", "GOOGLE_APPLICATION_CREDENTIALS"),
     ]);
+
+    let orgProvider: ServiceProviderId<"voice"> | null = null;
+    let orgProviderLookupFailed = false;
+    try {
+      orgProvider = await readServiceProviderChoice("voice", {
+        orgId: orgCtx?.orgId ?? null,
+      });
+    } catch {
+      orgProviderLookupFailed = true;
+    }
 
     const status: VoiceProvidersStatus = {
       builder,
@@ -127,6 +156,9 @@ export function createVoiceProvidersStatusHandler() {
       googleRealtime,
       browser: true,
       native: true,
+      orgProvider,
+      ...(orgProviderLookupFailed ? { orgProviderLookupFailed: true } : {}),
+      ...(credentialLookupFailed.length > 0 ? { credentialLookupFailed } : {}),
     };
     return status;
   });

@@ -104,13 +104,6 @@ function coerceReview(value: unknown): AgentReview {
   };
 }
 
-/**
- * Ask a model to judge one captured signup journey.
- *
- * Every failure here throws. A review that could not run is not a review that
- * found nothing, and an advisory lane that reports "clean" because the API was
- * unreachable is worse than no lane at all.
- */
 export async function reviewSignupJourney(
   app: string,
   environment: string,
@@ -181,8 +174,6 @@ export async function reviewSignupJourney(
     });
 
     if (!response.ok) {
-      // An unreadable body and an empty body are different facts, and the one
-      // job this error has is to say why the review did not happen.
       const body = await response.text().then(
         (text) => text.slice(0, 300),
         (error) => `<body unreadable: ${String(error)}>`,

@@ -1,13 +1,3 @@
-/**
- * Full-bleed rendering of the faux Clips Library + tray popover, kept as a
- * screenshot surface. The real popover is a Tauri window excluded from screen
- * capture (`set_capture_excluded` in
- * templates/clips/desktop/src-tauri/src/lib.rs), so it cannot be captured from
- * the OS — this route renders the recreation at a comfortable window size.
- *
- * The composition itself lives in ClipsLibraryMock, which is also the Clips
- * landing-page hero art.
- */
 import { ClipsLibraryMock } from "../components/template-landing/ClipsLibraryMock";
 
 export default function ClipsReadyToRecordPreview() {

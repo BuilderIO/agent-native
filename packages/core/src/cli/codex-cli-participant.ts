@@ -30,7 +30,6 @@ const SAFE_ENVIRONMENT_KEYS = [
   "USER",
   "LOGNAME",
   "SHELL",
-  // Codex reads its subscription session from this config root (or HOME/.codex).
   "CODEX_HOME",
 ] as const;
 
@@ -42,7 +41,6 @@ export interface CodexCliSubscriptionStatus {
 }
 
 export interface CodexCliParticipantSession {
-  /** Codex owns and interprets this value; Agent-Native only persists it. */
   resumeSessionId?: string;
 }
 
@@ -89,9 +87,7 @@ export interface RunCodexCliParticipantOptions {
   cwd: string;
   model?: string;
   session?: CodexCliParticipantSession;
-  /** Drivers remain read-only unless this explicit capability is true. */
   allowWorkspaceWrite?: boolean;
-  /** Either the fixed CLI name or an absolute executable path for packaged apps. */
   command?: string;
   signal?: AbortSignal;
   env?: NodeJS.ProcessEnv;

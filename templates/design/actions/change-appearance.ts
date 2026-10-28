@@ -2,15 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
-// Overrides the core `change-appearance` action (see
-// packages/core/src/appearance/actions/change-appearance.ts) with a
-// Design-specific description. Design is the one template where the shared
-// wording is actively misleading: this preset only tints the Design EDITOR's
-// own chrome, but Design also generates prototypes with their own colors, so
-// an agent (and users) reasonably read "change the theme" as "restyle my
-// prototype" and land here instead of `index-design-tokens` +
-// `apply-design-token-edit`. Same schema and run behavior as core — narrowed
-// description only.
 const PRESET_IDS = [
   "default",
   "warm",

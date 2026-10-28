@@ -1,72 +1,127 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import type { DbExec } from "../db/client.js";
 import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
+import { hashAgentToolApprovalKey } from "./approval-key.js";
+import { withFencedExecutionWrite } from "./execution-fence.js";
+import {
+  AGENT_TOOL_APPROVAL_MIGRATIONS,
+  AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+} from "./tool-approval-migrations.js";
+import {
+  AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL,
   AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
-// 15 minutes was too short in practice: a user who steps away mid-approval
-// (switching tabs to update their client, checking something else) comes back
-// to a silently expired grant with no visible error — clicking Approve just
-// does nothing, because `consumeAgentToolApproval`'s `expires_at > ?` no
-// longer matches. An hour gives real human latency room while still bounding
-// how long a stale grant can be replayed.
+export { hashAgentToolApprovalKey } from "./approval-key.js";
+
 const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
-let initPromise: Promise<void> | undefined;
-let policyInitPromise: Promise<void> | undefined;
+export const agentToolApprovalsStore = defineStore({
+  id: "agent_tool_approvals",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "agent_tool_approvals",
+          AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_binding",
+          AGENT_TOOL_APPROVAL_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_logical",
+          AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_recovery",
+          AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
+        );
+      },
+    },
+    {
+      name: "tool-revision",
+      run: async () => {
+        await ensureColumnExists(
+          "agent_tool_approvals",
+          "tool_revision",
+          AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL,
+        );
+      },
+    },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version <= 3),
+    ),
+    {
+      name: "arguments-hash",
+      run: async () => {
+        await ensureColumnExists(
+          "agent_tool_approvals",
+          "arguments_hash",
+          AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL,
+        );
+      },
+    },
+  ],
+});
 
-export async function ensureAgentToolApprovalTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      await ensureTableExists(
-        "agent_tool_approvals",
-        AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approvals_binding",
-        AGENT_TOOL_APPROVAL_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approvals_logical",
-        AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approvals_recovery",
-        AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
-      );
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+export function ensureAgentToolApprovalTable(): Promise<void> {
+  return agentToolApprovalsStore.ready();
 }
 
-export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
-  if (!policyInitPromise) {
-    policyInitPromise = (async () => {
-      await ensureTableExists(
-        "agent_tool_approval_policies",
-        AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approval_policies_scope",
-        AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
-      );
-    })().catch((error) => {
-      policyInitPromise = undefined;
-      throw error;
-    });
-  }
-  return policyInitPromise;
+export const agentToolApprovalPoliciesStore = defineStore({
+  id: "agent_tool_approval_policies",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "agent_tool_approval_policies",
+          AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approval_policies_scope",
+          AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
+        );
+      },
+    },
+    {
+      name: "tool-revision",
+      run: async () => {
+        await ensureColumnExists(
+          "agent_tool_approval_policies",
+          "tool_revision",
+          AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
+        );
+      },
+    },
+    ...fromMigrationEntries(
+      AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+      AGENT_TOOL_APPROVAL_MIGRATIONS.filter((entry) => entry.version === 4),
+    ),
+  ],
+});
+
+export function ensureAgentToolApprovalPolicyTable(): Promise<void> {
+  return agentToolApprovalPoliciesStore.ready();
 }
 
 export interface AgentToolApprovalBinding {
@@ -75,19 +130,21 @@ export interface AgentToolApprovalBinding {
   threadId?: string | null;
   turnId?: string | null;
   toolName: string;
+  /** Null for entries without a revision, and for rows written before one existed. */
+  toolRevision?: string | null;
   callId: string;
   approvalKey: string;
+  /** Fingerprint of the arguments the call runs with; consuming requires the same. */
+  argumentsHash?: string | null;
+  approvalId?: string;
   expiresAt?: number;
-}
-
-export function hashAgentToolApprovalKey(approvalKey: string): string {
-  return createHash("sha256").update(approvalKey).digest("hex");
 }
 
 export interface AgentToolApprovalPolicyBinding {
   ownerEmail: string;
   orgId?: string | null;
   toolName: string;
+  toolRevision?: string | null;
 }
 
 function normalizeApprovalPolicyBinding(
@@ -101,6 +158,7 @@ function normalizeApprovalPolicyBinding(
     ownerEmail,
     orgId: binding.orgId?.trim() || null,
     toolName,
+    toolRevision: binding.toolRevision ?? null,
   };
 }
 
@@ -112,19 +170,91 @@ function approvalPolicyId(binding: AgentToolApprovalPolicyBinding): string {
     .digest("hex")}`;
 }
 
+export class AgentToolApprovalNotFoundError extends Error {
+  constructor() {
+    super("The approval this grant was requested from was not found.");
+    this.name = "AgentToolApprovalNotFoundError";
+  }
+}
+
+/** Denial is a durable resolution so queued turns can resume after a pause. */
+export async function denyAgentToolApproval(input: {
+  approvalId: string;
+  ownerEmail: string;
+  orgId?: string | null;
+  threadId: string;
+}): Promise<"denied" | "already_resolved" | "not_applied"> {
+  await ensureAgentToolApprovalTable();
+  const now = Date.now();
+  const updated = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_tool_approvals
+          SET status = 'denied', updated_at = ?
+          WHERE id = ?
+            AND owner_email = ?
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+            AND thread_id = ?
+            AND status = 'pending'`,
+        args: [
+          now,
+          input.approvalId,
+          input.ownerEmail,
+          input.orgId ?? null,
+          input.orgId ?? null,
+          input.threadId,
+        ],
+      }),
+    { threadId: input.threadId },
+  );
+  if (updated.rowsAffected === 1) return "denied";
+
+  const existing = await getDbExec().execute({
+    sql: `SELECT status FROM agent_tool_approvals
+      WHERE id = ?
+        AND owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND thread_id = ?
+      LIMIT 1`,
+    args: [
+      input.approvalId,
+      input.ownerEmail,
+      input.orgId ?? null,
+      input.orgId ?? null,
+      input.threadId,
+    ],
+  });
+  const status = (existing.rows[0] as { status?: unknown } | undefined)?.status;
+  if (status === "denied") return "denied";
+  if (status && status !== "pending") return "already_resolved";
+  return "not_applied";
+}
+
+/**
+ * Saves "always allow" for one tool name. With `approvalId`, the grant takes
+ * the revision of that approval row, the card the user clicked, so it never
+ * covers a revision they were not shown. Without one, it covers only an entry
+ * that declares no revision.
+ */
 export async function setAgentToolApprovalPolicy(input: {
-  binding: AgentToolApprovalPolicyBinding;
+  binding: Omit<AgentToolApprovalPolicyBinding, "toolRevision">;
   enabled: boolean;
+  approvalId?: string;
 }): Promise<void> {
   const binding = normalizeApprovalPolicyBinding(input.binding);
+  const toolRevision = input.approvalId
+    ? await readApprovalRevision(binding, input.approvalId)
+    : null;
   await ensureAgentToolApprovalPolicyTable();
   const now = Date.now();
   const id = approvalPolicyId(binding);
   await getDbExec().execute({
     sql: `INSERT INTO agent_tool_approval_policies
-      (id, owner_email, org_id, tool_name, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (id, owner_email, org_id, tool_name, tool_revision, enabled, created_at,
+       updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        tool_revision = excluded.tool_revision,
         enabled = excluded.enabled,
         updated_at = excluded.updated_at`,
     args: [
@@ -132,11 +262,37 @@ export async function setAgentToolApprovalPolicy(input: {
       binding.ownerEmail,
       binding.orgId,
       binding.toolName,
+      toolRevision,
       input.enabled,
       now,
       now,
     ],
   });
+}
+
+async function readApprovalRevision(
+  binding: Omit<AgentToolApprovalPolicyBinding, "toolRevision">,
+  approvalId: string,
+): Promise<string | null> {
+  await ensureAgentToolApprovalTable();
+  const result = await getDbExec().execute({
+    // Approval rows keep the request's email casing; policies lowercase it.
+    sql: `SELECT tool_revision FROM agent_tool_approvals
+      WHERE id = ?
+        AND LOWER(owner_email) = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND tool_name = ?`,
+    args: [
+      approvalId,
+      binding.ownerEmail,
+      binding.orgId ?? null,
+      binding.orgId ?? null,
+      binding.toolName,
+    ],
+  });
+  const row = result.rows[0] as { tool_revision?: unknown } | undefined;
+  if (!row) throw new AgentToolApprovalNotFoundError();
+  return typeof row.tool_revision === "string" ? row.tool_revision : null;
 }
 
 export async function isAgentToolAlwaysAllowed(
@@ -147,26 +303,100 @@ export async function isAgentToolAlwaysAllowed(
   const result = await getDbExec().execute({
     sql: `SELECT 1 FROM agent_tool_approval_policies
       WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
         AND tool_name = ?
+        AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
         AND enabled = TRUE
       LIMIT 1`,
-    args: [binding.ownerEmail, binding.orgId, binding.orgId, binding.toolName],
+    args: [
+      binding.ownerEmail,
+      binding.orgId,
+      binding.orgId,
+      binding.toolName,
+      binding.toolRevision,
+      binding.toolRevision,
+    ],
   });
   return (result.rows ?? []).length > 0;
 }
 
-/**
- * Recover the durable scope for an approval continuation when a transport
- * drops the original turn id. A single pending logical turn is safe to
- * recover; multiple turns are deliberately ambiguous and stay unmatched.
- */
+export async function getPendingCurrentTurnApprovals(
+  threadId: string,
+  tx: DbExec,
+  turnId?: string,
+): Promise<Array<{ turnId: string; status: "running" | "completed" }>> {
+  const { rows } = await tx.execute({
+    // Legacy turns can tie without admission metadata; keep every unresolved pause in that group.
+    sql: `WITH turn_runs AS (
+            SELECT DISTINCT ON (COALESCE(turn_id, id))
+                   COALESCE(turn_id, id) AS turn_id, status, admission_order, started_at
+            FROM agent_runs
+            WHERE thread_id = ? AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+            ORDER BY COALESCE(turn_id, id), admission_order DESC NULLS LAST,
+                     COALESCE(continuation_order, 0) DESC, started_at DESC, id DESC
+          ), latest_admission AS (
+            SELECT turn_id, status, started_at FROM turn_runs
+            WHERE admission_order IS NOT DISTINCT FROM (
+              SELECT MAX(admission_order) FROM turn_runs
+            )
+          )
+          SELECT current_turn.turn_id, current_turn.status FROM latest_admission current_turn
+          WHERE current_turn.started_at = (SELECT MAX(started_at) FROM latest_admission)
+            AND current_turn.status IN ('running', 'completed')
+            AND (CAST(? AS TEXT) IS NULL OR current_turn.turn_id = ?)
+            AND EXISTS (
+              SELECT 1 FROM agent_tool_approvals approval
+              WHERE approval.thread_id = ? AND approval.turn_id = current_turn.turn_id
+                AND approval.status = 'pending' AND approval.expires_at > ?
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs stopped
+              WHERE stopped.thread_id = ?
+                AND stopped.turn_id = current_turn.turn_id
+                AND stopped.dispatch_mode = 'turn-abort'
+                AND stopped.status = 'aborted'
+            )`,
+    args: [
+      threadId,
+      turnId ?? null,
+      turnId ?? null,
+      threadId,
+      Date.now(),
+      threadId,
+    ],
+  });
+  return rows.map((result) => {
+    const row = result as { turn_id?: unknown; status?: unknown };
+    if (
+      typeof row.turn_id !== "string" ||
+      !row.turn_id ||
+      (row.status !== "running" && row.status !== "completed")
+    ) {
+      throw new Error(
+        "Pending approval has an invalid turn identity or status",
+      );
+    }
+    return { turnId: row.turn_id, status: row.status };
+  });
+}
+
+export async function hasPendingCurrentTurnApproval(
+  threadId: string,
+  tx: DbExec,
+  turnId?: string,
+): Promise<boolean> {
+  return (
+    (await getPendingCurrentTurnApprovals(threadId, tx, turnId)).length > 0
+  );
+}
+
 export async function resolveAgentToolApprovalTurnId(binding: {
   ownerEmail: string;
   orgId?: string | null;
   threadId?: string | null;
   requestedTurnId?: string | null;
   approvalKeys: readonly string[];
+  approvalId?: string;
 }): Promise<string | null> {
   const approvalKeys = [...new Set(binding.approvalKeys)].slice(0, 200);
   if (!binding.threadId || approvalKeys.length === 0) return null;
@@ -175,12 +405,15 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   const now = Date.now();
   const hashes = approvalKeys.map(hashAgentToolApprovalKey);
   const placeholders = hashes.map(() => "?").join(", ");
+  const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
+  const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
   const result = await getDbExec().execute({
     sql: `SELECT turn_id FROM agent_tool_approvals
       WHERE owner_email = ?
-        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+        AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = CAST(? AS TEXT))
         AND approval_key_hash IN (${placeholders})
+        ${exactApprovalFilter}
         AND status = 'pending'
         AND expires_at > ?
         AND turn_id IS NOT NULL`,
@@ -191,6 +424,7 @@ export async function resolveAgentToolApprovalTurnId(binding: {
       binding.threadId,
       binding.threadId,
       ...hashes,
+      ...approvalIdArgs,
       now,
     ],
   });
@@ -204,19 +438,17 @@ export async function resolveAgentToolApprovalTurnId(binding: {
       .filter((turnId: string | null): turnId is string => turnId !== null),
   );
   const requestedTurnId = binding.requestedTurnId?.trim();
+  if (binding.approvalId) {
+    if (turnIds.size !== 1) return null;
+    const exactTurnId = [...turnIds][0]!;
+    return requestedTurnId && requestedTurnId !== exactTurnId
+      ? null
+      : exactTurnId;
+  }
   if (requestedTurnId && turnIds.has(requestedTurnId)) return requestedTurnId;
   return turnIds.size === 1 ? [...turnIds][0]! : null;
 }
 
-/**
- * Creates the durable pending-approval row and returns its id as the "ask"
- * identity for this specific gate hit. Every call is a fresh row (a fresh
- * id), including a second gate hit for the same `approvalKey` after a prior
- * grant failed to be consumed — so the id doubles as the signal the client
- * needs to tell "this approval_required is the one I already approved,
- * re-rendered" apart from "this is a NEW ask for the same tool call". See
- * `ApprovalAffordance` in client/chat/tool-call-display.tsx.
- */
 export async function createAgentToolApproval(
   binding: AgentToolApprovalBinding,
 ): Promise<string> {
@@ -224,29 +456,36 @@ export async function createAgentToolApproval(
   const now = Date.now();
   const expiresAt = binding.expiresAt ?? now + APPROVAL_TTL_MS;
   const id = `agent-tool-approval-${randomUUID()}`;
-  await getDbExec().execute({
-    sql: `INSERT INTO agent_tool_approvals
-      (id, owner_email, org_id, thread_id, turn_id, tool_name, call_id,
-       approval_key_hash, status, expires_at, consumed_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`,
-    args: [
-      id,
-      binding.ownerEmail,
-      binding.orgId ?? null,
-      binding.threadId ?? null,
-      binding.turnId ?? null,
-      binding.toolName,
-      binding.callId,
-      hashAgentToolApprovalKey(binding.approvalKey),
-      expiresAt,
-      now,
-      now,
-    ],
-  });
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `INSERT INTO agent_tool_approvals
+          (id, owner_email, org_id, thread_id, turn_id, tool_name, tool_revision,
+           call_id, approval_key_hash, status, expires_at, consumed_at, created_at,
+           updated_at, arguments_hash)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?, ?)`,
+        args: [
+          id,
+          binding.ownerEmail,
+          binding.orgId ?? null,
+          binding.threadId ?? null,
+          binding.turnId ?? null,
+          binding.toolName,
+          binding.toolRevision ?? null,
+          binding.callId,
+          hashAgentToolApprovalKey(binding.approvalKey),
+          expiresAt,
+          now,
+          now,
+          binding.argumentsHash ?? null,
+        ],
+      }),
+    {
+      threadId: binding.threadId ?? undefined,
+      turnId: binding.turnId ?? undefined,
+    },
+  );
 
-  // Cleanup is hygiene only. Expired rows remain unusable because consume uses
-  // an atomic status and expiry predicate, so cleanup failures must not affect
-  // the approval that was just recorded.
   try {
     await getDbExec().execute({
       sql: `DELETE FROM agent_tool_approvals
@@ -275,37 +514,53 @@ export async function consumeAgentToolApproval(
 ): Promise<boolean> {
   await ensureAgentToolApprovalTable();
   const now = Date.now();
-  const result = await getDbExec().execute({
-    sql: `UPDATE agent_tool_approvals
-      SET status = 'consumed', consumed_at = ?, updated_at = ?
-      WHERE id = (
-        SELECT id FROM agent_tool_approvals
+  const exactApprovalFilter = binding.approvalId ? "AND id = ?" : "";
+  const approvalIdArgs = binding.approvalId ? [binding.approvalId] : [];
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE agent_tool_approvals
+          SET status = 'consumed', consumed_at = ?, updated_at = ?
+          WHERE id = (
+        SELECT MIN(id) FROM agent_tool_approvals
         WHERE owner_email = ?
-          AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
-          AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = ?)
-          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = ?)
+          AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
+          AND ((thread_id IS NULL AND CAST(? AS TEXT) IS NULL) OR thread_id = CAST(? AS TEXT))
+          AND ((turn_id IS NULL AND CAST(? AS TEXT) IS NULL) OR turn_id = CAST(? AS TEXT))
           AND tool_name = ?
+          AND ((tool_revision IS NULL AND CAST(? AS TEXT) IS NULL) OR tool_revision = ?)
           AND approval_key_hash = ?
+          AND ((arguments_hash IS NULL AND CAST(? AS TEXT) IS NULL) OR arguments_hash = ?)
+          ${exactApprovalFilter}
           AND status = 'pending'
           AND expires_at > ?
-        ORDER BY created_at DESC
-        LIMIT 1
-      )
-      AND status = 'pending'`,
-    args: [
-      now,
-      now,
-      binding.ownerEmail,
-      binding.orgId ?? null,
-      binding.orgId ?? null,
-      binding.threadId ?? null,
-      binding.threadId ?? null,
-      binding.turnId ?? null,
-      binding.turnId ?? null,
-      binding.toolName,
-      hashAgentToolApprovalKey(binding.approvalKey),
-      now,
-    ],
-  });
+        HAVING COUNT(*) = 1
+          )
+          AND status = 'pending'`,
+        args: [
+          now,
+          now,
+          binding.ownerEmail,
+          binding.orgId ?? null,
+          binding.orgId ?? null,
+          binding.threadId ?? null,
+          binding.threadId ?? null,
+          binding.turnId ?? null,
+          binding.turnId ?? null,
+          binding.toolName,
+          binding.toolRevision ?? null,
+          binding.toolRevision ?? null,
+          hashAgentToolApprovalKey(binding.approvalKey),
+          binding.argumentsHash ?? null,
+          binding.argumentsHash ?? null,
+          ...approvalIdArgs,
+          now,
+        ],
+      }),
+    {
+      threadId: binding.threadId ?? undefined,
+      turnId: binding.turnId ?? undefined,
+    },
+  );
   return result.rowsAffected === 1;
 }

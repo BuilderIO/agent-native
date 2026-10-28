@@ -1,18 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createDbExec } from "@agent-native/core/db";
-import { chromium, type FullConfig } from "@playwright/test";
+import {
+  chromium,
+  type FullConfig,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-
-/**
- * Global setup: authenticate a test user (email/password; there is no dev auth
- * bypass) and seed one design with a known fixture HTML so specs run against
- * deterministic content. Writes:
- *   e2e/.auth/state.json  - signed session storageState
- *   e2e/.auth/seed.json   - { designId } of the seeded design
- */
+import { designE2eRunRoot } from "./global-teardown";
+import {
+  E2E_CHILD_STARTUP_RETRY_MS,
+  E2E_CHILD_STARTUP_TIMEOUT_MS,
+  startE2EChildWithReadiness,
+} from "./startup-child.js";
 
 export const E2E_EMAIL = "e2e+autoz@local.test";
 export const E2E_MENTION_EMAIL = "alice+e2e@local.test";
@@ -29,15 +32,156 @@ const AUTH_DIR = process.env.E2E_AUTH_DIR
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
-const E2E_DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
+const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
+const GLOBAL_SETUP_BUDGET_MS = 11 * 60_000;
+const SEED_BUDGET_MS = 2 * 60_000;
+const HOME_WARMUP_BUDGET_MS = 3 * 60_000;
+const EDITOR_WARMUP_BUDGET_MS = 3 * 60_000;
+const WARMUP_ATTEMPT_MS = 2 * 60_000;
+
+async function withDeadline<T>(
+  label: string,
+  deadline: number,
+  action: () => Promise<T>,
+): Promise<T> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error(`${label} budget expired`);
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      action(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${label} budget expired`)),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function timeoutBefore(deadline: number, requestedMs: number): number {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error("the warmup budget expired");
+  return Math.min(requestedMs, remainingMs);
+}
 
 /**
- * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
- * (no CDN) so the layout is deterministic and offline. The flex row of two
- * buttons exercises reorder/move; headings and paragraphs exercise select.
+ * Loads `url` until `ready` shows, and returns why it never did by `deadline`. The first compile of a
+ * route can outlast one attempt, and Vite's dependency optimizer can reload or abort a navigation
+ * partway, so a failed attempt navigates again instead of leaving the first test a cold server.
  */
+async function warmupFailure(
+  page: Page,
+  url: string,
+  ready: Locator,
+  deadline: number,
+): Promise<string | null> {
+  let failure = "the warmup budget expired";
+  while (Date.now() < deadline) {
+    try {
+      await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: timeoutBefore(deadline, WARMUP_ATTEMPT_MS),
+      });
+      await ready.waitFor({
+        state: "visible",
+        timeout: timeoutBefore(deadline, WARMUP_ATTEMPT_MS),
+      });
+      return null;
+    } catch (error) {
+      failure = (error as Error).message.split("\n")[0];
+      if (page.isClosed()) return failure;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  return failure;
+}
+
+export async function startLoopbackProvider(port: number): Promise<void> {
+  const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
+  if (!runRoot) throw new Error("loopback provider requires an E2E run root");
+  const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
+  const instanceId = randomUUID();
+  await startE2EChildWithReadiness({
+    serviceName: "loopback provider",
+    command: process.execPath,
+    args: [
+      "--import",
+      "tsx/esm",
+      path.join(import.meta.dirname, "loopback-design-provider.ts"),
+    ],
+    env: {
+      ...process.env,
+      E2E_LOOPBACK_PORT: String(port),
+      E2E_LOOPBACK_INSTANCE_ID: instanceId,
+    },
+    pidPath: loopbackPidPath,
+    readinessTarget: `on port ${port}`,
+    checkReady: async () => {
+      const response = await fetch(
+        `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
+        { signal: AbortSignal.timeout(250) },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (response.headers.get(LOOPBACK_INSTANCE_HEADER) !== instanceId) {
+        throw new Error(
+          "readiness response came from a different provider instance",
+        );
+      }
+    },
+  });
+}
+
+async function startHttpsAttachmentStorage(
+  httpsPort: number,
+  controlPort: number,
+): Promise<void> {
+  const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
+  if (!runRoot) {
+    throw new Error("HTTPS attachment storage requires an E2E run directory.");
+  }
+  const pidPath = path.join(runRoot, "https-attachment-storage.pid");
+  await startE2EChildWithReadiness({
+    serviceName: "HTTPS attachment storage",
+    command: process.execPath,
+    args: [
+      "--import",
+      "tsx/esm",
+      path.join(import.meta.dirname, "https-attachment-storage.ts"),
+    ],
+    env: {
+      ...process.env,
+      E2E_ATTACHMENT_STORAGE_HTTPS_PORT: String(httpsPort),
+      E2E_ATTACHMENT_STORAGE_CONTROL_PORT: String(controlPort),
+      E2E_ATTACHMENT_STORAGE_CERT: path.join(
+        runRoot,
+        "attachment-storage-tls",
+        "attachment-storage-ca.pem",
+      ),
+      E2E_ATTACHMENT_STORAGE_KEY: path.join(
+        runRoot,
+        "attachment-storage-tls",
+        "attachment-storage-key.pem",
+      ),
+    },
+    pidPath,
+    readinessTarget: `on port ${controlPort}`,
+    readinessTimeoutMs: E2E_CHILD_STARTUP_TIMEOUT_MS,
+    readinessRetryMs: E2E_CHILD_STARTUP_RETRY_MS,
+    checkReady: async () => {
+      const response = await fetch(
+        `http://127.0.0.1:${controlPort}/health` /* e2e-harness-ignore: allocated local stub control port, not an app endpoint */,
+        { signal: AbortSignal.timeout(250) },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    },
+  });
+}
+
 export const FIXTURE_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -113,63 +257,6 @@ async function postAction(
   return res.json();
 }
 
-function componentIndexId(designId: string, name: string): string {
-  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-}
-
-export async function seedComponentVariantMetadata(
-  designId: string,
-): Promise<void> {
-  const client = await createDbExec({ url: E2E_DATABASE_URL });
-  const name = "E2EButton";
-  const now = new Date().toISOString();
-  const variants = JSON.stringify({
-    variant: ["primary", "secondary", "ghost"],
-    size: ["sm", "md", "lg"],
-  });
-  const props = JSON.stringify([
-    { name: "variant", type: "primary | secondary | ghost" },
-    { name: "size", type: "sm | md | lg" },
-  ]);
-
-  try {
-    const result = await client.execute({
-      sql: `
-        UPDATE component_index
-        SET variants = ?, props = ?, file_path = ?, export_name = ?, updated_at = ?
-        WHERE design_id = ? AND name = ?
-      `,
-      args: [variants, props, "index.html", name, now, designId, name],
-    });
-
-    if (result.rowsAffected > 0) return;
-
-    await client.execute({
-      sql: `
-        INSERT INTO component_index (
-          id, design_id, name, file_path, export_name, props, variants,
-          runtime_selectors, owner_email, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      args: [
-        componentIndexId(designId, name),
-        designId,
-        name,
-        "index.html",
-        name,
-        props,
-        variants,
-        JSON.stringify(['[data-agent-native-node-id="e2e-component-button"]']),
-        E2E_EMAIL,
-        now,
-        now,
-      ],
-    });
-  } finally {
-    await client.close?.();
-  }
-}
-
 async function seedMentionMember(
   browser: import("@playwright/test").Browser,
   ownerContext: import("@playwright/test").BrowserContext,
@@ -179,8 +266,15 @@ async function seedMentionMember(
   const membersURL = `${baseURL}/_agent-native/org/members?limit=25&offset=0&search=${memberSearch}`;
   const existingMembers = await ownerContext.request.get(membersURL);
   if (!existingMembers.ok()) {
+    const body = await existingMembers.text();
+    if (
+      existingMembers.status() === 400 &&
+      body.includes("You must belong to an organization")
+    ) {
+      return;
+    }
     throw new Error(
-      `list organization members failed: ${existingMembers.status()} ${await existingMembers.text()}`,
+      `list organization members failed: ${existingMembers.status()} ${body}`,
     );
   }
   const existingPayload = await existingMembers.json();
@@ -204,10 +298,19 @@ async function seedMentionMember(
   let invitationId: string | undefined;
   if (invitation.ok()) {
     invitationId = String((await invitation.json())?.id ?? "") || undefined;
-  } else if (invitation.status() !== 409) {
-    throw new Error(
-      `invite mention member failed: ${invitation.status()} ${await invitation.text()}`,
-    );
+  } else {
+    const body = await invitation.text();
+    if (
+      invitation.status() === 400 &&
+      body.includes("You must belong to an organization")
+    ) {
+      return;
+    }
+    if (invitation.status() !== 409) {
+      throw new Error(
+        `invite mention member failed: ${invitation.status()} ${body}`,
+      );
+    }
   }
 
   if (!invitationId) {
@@ -300,6 +403,14 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
+  const globalSetupDeadline = Date.now() + GLOBAL_SETUP_BUDGET_MS;
+  if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
+    await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
+    await startHttpsAttachmentStorage(
+      config.metadata.attachmentStorageHttpsPort as number,
+      config.metadata.attachmentStorageControlPort as number,
+    );
+  }
   const baseURL =
     (config.projects[0]?.use?.baseURL as string | undefined) ?? e2eBaseURL();
   await mkdir(AUTH_DIR, { recursive: true });
@@ -310,92 +421,124 @@ export default async function globalSetup(config: FullConfig) {
   const context = await browser.newContext();
 
   try {
-    const registration = await context.request.post(
-      `${baseURL}/_agent-native/auth/register`,
-      {
-        data: {
-          email: E2E_EMAIL,
-          password: E2E_PASSWORD,
-        },
-        headers: { "Content-Type": "application/json" },
+    const seedDeadline = Math.min(
+      Date.now() + SEED_BUDGET_MS,
+      globalSetupDeadline - HOME_WARMUP_BUDGET_MS - EDITOR_WARMUP_BUDGET_MS,
+    );
+    const designId = await withDeadline(
+      "Design E2E seeding",
+      seedDeadline,
+      async () => {
+        const registration = await context.request.post(
+          `${baseURL}/_agent-native/auth/register`,
+          {
+            data: {
+              email: E2E_EMAIL,
+              password: E2E_PASSWORD,
+            },
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        if (!registration.ok() && registration.status() !== 409) {
+          throw new Error(
+            `registration failed: ${registration.status()} ${await registration.text()}`,
+          );
+        }
+
+        const login = await context.request.post(
+          `${baseURL}/_agent-native/auth/login`,
+          {
+            data: {
+              email: E2E_EMAIL,
+              password: E2E_PASSWORD,
+            },
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+        if (!login.ok()) {
+          throw new Error(
+            `login failed: ${login.status()} ${await login.text()}`,
+          );
+        }
+
+        await context.storageState({ path: STATE_PATH });
+
+        const created = await postAction(
+          context.request,
+          baseURL,
+          "create-design",
+          {
+            title: SEED_TITLE,
+            projectType: "prototype",
+          },
+        );
+        const createdDesignId: string =
+          created?.id ?? created?.data?.id ?? created?.design?.id;
+        if (!createdDesignId) {
+          throw new Error(
+            `create-design did not return an id: ${JSON.stringify(created)}`,
+          );
+        }
+        await seedMentionMember(browser, context, baseURL);
+        await postAction(context.request, baseURL, "create-file", {
+          designId: createdDesignId,
+          filename: "index.html",
+          content: FIXTURE_HTML,
+          fileType: "html",
+        });
+        await postAction(context.request, baseURL, "index-components", {
+          designId: createdDesignId,
+        });
+
+        await writeFile(
+          SEED_PATH,
+          JSON.stringify({ designId: createdDesignId }, null, 2),
+        );
+        // eslint-disable-next-line no-console
+        console.log(`[e2e] seeded design ${createdDesignId} for ${E2E_EMAIL}`);
+        return createdDesignId;
       },
     );
-    if (!registration.ok() && registration.status() !== 409) {
-      throw new Error(
-        `registration failed: ${registration.status()} ${await registration.text()}`,
-      );
-    }
 
-    const login = await context.request.post(
-      `${baseURL}/_agent-native/auth/login`,
-      {
-        data: {
-          email: E2E_EMAIL,
-          password: E2E_PASSWORD,
-        },
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-    if (!login.ok()) {
-      throw new Error(`login failed: ${login.status()} ${await login.text()}`);
-    }
-
-    await context.storageState({ path: STATE_PATH });
-
-    // Seed a design + fixture file via the authenticated action surface.
-    const created = await postAction(
-      context.request,
-      baseURL,
-      "create-design",
-      {
-        title: SEED_TITLE,
-        projectType: "prototype",
-      },
-    );
-    const designId: string =
-      created?.id ?? created?.data?.id ?? created?.design?.id;
-    if (!designId) {
-      throw new Error(
-        `create-design did not return an id: ${JSON.stringify(created)}`,
-      );
-    }
-    await seedMentionMember(browser, context, baseURL);
-    await postAction(context.request, baseURL, "create-file", {
-      designId,
-      filename: "index.html",
-      content: FIXTURE_HTML,
-      fileType: "html",
-    });
-    await postAction(context.request, baseURL, "index-components", {
-      designId,
-    });
-
-    await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
-    // eslint-disable-next-line no-console
-    console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
-
-    // Compile the editor once, here, instead of inside the first test's 30s
-    // budget. DesignEditor.tsx is past Babel's 500KB deopt threshold, so a
-    // cold dev server can take ~40s to first paint — which is why the first
-    // spec in a shard was the one that flaked.
     const warmupPage = await context.newPage();
     try {
-      await warmupPage.goto(`${baseURL}/design/${designId}`, {
-        waitUntil: "domcontentloaded",
-      });
-      await warmupPage
-        .getByRole("button", { name: "Move", exact: true })
-        .waitFor({ timeout: 180_000 });
-      // eslint-disable-next-line no-console
-      console.log("[e2e] editor warm");
-    } catch (error) {
-      // Not fatal — the suite still runs, the first test just pays the
-      // compile again. Say so out loud rather than reporting a warm editor.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
-          "the first test will pay the compile.",
+      const homeFailure = await warmupFailure(
+        warmupPage,
+        `${baseURL}/home`,
+        warmupPage.locator("[data-design-home-composer]"),
+        Math.min(
+          Date.now() + HOME_WARMUP_BUDGET_MS,
+          globalSetupDeadline - EDITOR_WARMUP_BUDGET_MS,
+        ),
       );
+      if (homeFailure) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e] home warmup did not finish (${homeFailure}); the first test touching /home will pay the compile.`,
+        );
+      } else {
+        // eslint-disable-next-line no-console
+        console.log("[e2e] home composer warm");
+      }
+      const editorFailure = await warmupFailure(
+        warmupPage,
+        `${baseURL}/design/${designId}`,
+        warmupPage
+          .locator(
+            "[data-design-canvas-container] iframe[data-design-preview-iframe]",
+          )
+          .first(),
+        Math.min(Date.now() + EDITOR_WARMUP_BUDGET_MS, globalSetupDeadline),
+      );
+      if (editorFailure) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e] editor warmup did not finish (${editorFailure}); the first test will pay the compile.`,
+        );
+      } else {
+        // eslint-disable-next-line no-console
+        console.log("[e2e] editor warm");
+      }
     } finally {
       await warmupPage.close();
     }

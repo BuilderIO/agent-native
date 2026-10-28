@@ -68,6 +68,36 @@ it("preserves quoted values, the cascade, custom-property case, and other declar
   expect(height.content).toContain("height: 6px !important; height: 4px");
 });
 
+it("replaces important grid longhands when setting a grid shorthand", () => {
+  const html =
+    '<div data-agent-native-node-id="target" style="color: navy !important; ' +
+    "grid-column-start: 1 !important; grid-column-end: 3 !important; " +
+    "grid-row-start: 1 !important; grid-row-end: 2 !important; " +
+    '--Theme: dark">Target</div>';
+  const column = applyVisualEdit(html, {
+    kind: "style",
+    target: { nodeId: "target" },
+    property: "grid-column",
+    value: "3 / 5",
+  });
+  const row = applyVisualEdit(column.content, {
+    kind: "style",
+    target: { nodeId: "target" },
+    property: "grid-row",
+    value: "2 / 3",
+  });
+
+  expect([column.result.status, row.result.status]).toEqual([
+    "applied",
+    "applied",
+  ]);
+  expect(row.content).not.toMatch(/grid-(?:column|row)-(?:start|end)/);
+  expect(row.content).toContain("grid-column: 3 / 5");
+  expect(row.content).toContain("grid-row: 2 / 3");
+  expect(row.content).toContain("color: navy !important");
+  expect(row.content).toContain("--Theme: dark");
+});
+
 it("diagnoses malformed inline CSS and refuses a write without changing HTML", () => {
   const html = `<div data-agent-native-node-id="target" style="color: 'red">Target</div>`;
   const projection = buildCodeLayerProjection(html);
@@ -86,6 +116,18 @@ it("diagnoses malformed inline CSS and refuses a write without changing HTML", (
   );
   expect(patch.result.status).toBe("unsupported");
   expect(patch.content).toBe(html);
+});
+
+it("reads an entity-encoded quoted value as valid inline CSS", () => {
+  const html =
+    `<div data-agent-native-node-id="target" ` +
+    `style="font-family: &quot;SF Pro&quot;, sans-serif; color: red">Target</div>`;
+
+  expect(buildCodeLayerProjection(html).diagnostics).toEqual([]);
+  expect(projectedStyle(html)).toEqual({
+    "font-family": `"SF Pro", sans-serif`,
+    color: "red",
+  });
 });
 
 it("diagnoses stylesheet rules inside inline CSS and refuses a write", () => {

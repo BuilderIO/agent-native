@@ -128,7 +128,7 @@ describe("Clips Slack unfurls", () => {
     });
   });
 
-  it("uses a public video frame when no stored thumbnail exists", () => {
+  it("uses the branded image while a thumbnail is unavailable", () => {
     expect(
       buildSlackVideoBlock({
         recording: recording({
@@ -139,8 +139,19 @@ describe("Clips Slack unfurls", () => {
         basePath: "/clips",
       }),
     ).toMatchObject({
+      thumbnail_url: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+    });
+  });
+
+  it("versions Slack thumbnail URLs when the recording changes", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({ updatedAt: "2026-09-28T17:46:22.267Z" }),
+        origin: "https://clips.example.com",
+      }),
+    ).toMatchObject({
       thumbnail_url:
-        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
+        "https://clips.example.com/api/thumbnail/rec-1?v=2026-09-28T17%3A46%3A22.267Z",
     });
   });
 
@@ -172,6 +183,44 @@ describe("Clips Slack unfurls", () => {
       },
     });
   });
+
+  it.each([
+    { expiresAt: "not-a-date", playable: false },
+    { expiresAt: "2099-02-30T12:00:00Z", playable: false },
+    { expiresAt: "2099-01-01T00:00:00.1234567Z", playable: false },
+    { expiresAt: "2099-01-01T00:00:00+23:00", playable: false },
+    { expiresAt: "2000-01-01T00:00:00Z", playable: false },
+    { expiresAt: "2099-01-01T00:00:00.123456Z", playable: true },
+    { expiresAt: "", playable: true },
+  ])(
+    "applies expiry $expiresAt to the emitted Slack payload",
+    async ({ expiresAt, playable }) => {
+      const url = "https://clips.example.com/share/rec-1";
+      const payload = await buildChatUnfurlPayload(
+        {
+          type: "event_callback",
+          event: {
+            type: "link_shared",
+            channel: "C123",
+            message_ts: "1782136451.918049",
+            links: [{ url }],
+          },
+        },
+        async () =>
+          buildSlackVideoBlock({
+            recording: recording({ expiresAt }),
+            origin: "https://clips.example.com",
+          }),
+      );
+      if (playable) {
+        expect(payload).toMatchObject({
+          unfurls: { [url]: { blocks: [{ type: "video", title_url: url }] } },
+        });
+      } else {
+        expect(payload).toBeNull();
+      }
+    },
+  );
 
   it("does not build playable unfurls for password-protected clips", () => {
     expect(

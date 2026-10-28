@@ -25,10 +25,19 @@ import type {
   DocumentProperty,
 } from "../shared/api.js";
 import {
+  CLIP_EMBED_BLOCK_TYPE,
+  isClipRecordingId,
+} from "../shared/clip-embed-block.js";
+import { normalizeContentDatabaseItemLayout } from "../shared/database-item-layout.js";
+import {
   databaseColumnWraps,
   databaseFrozenColumnIds,
   databaseTableColumnIds,
 } from "../shared/database-table-columns.js";
+import {
+  isRegistryBlockId,
+  registryBlockSpecByType,
+} from "../shared/nfm-registry.js";
 import {
   documentPropertyDateKey,
   formulaValueText,
@@ -235,24 +244,37 @@ export function documentContentPreview(content: string) {
   };
 }
 
-/** Shape written by the editor's `content-selection.ts` client helper. Kept
- *  as a local structural type (rather than imported from `app/`) since
- *  actions are server-only and app-state values are untrusted input anyway. */
 interface ContentSelectionAppState {
   documentId?: unknown;
   collapsed?: unknown;
+  selectedBlock?: unknown;
   selectedText?: unknown;
   textTruncated?: unknown;
   blockText?: unknown;
   heading?: unknown;
 }
 
-/**
- * Build the `selection` screen section from the raw `content-selection`
- * app-state value, or return null when there is nothing usable — no value,
- * malformed value, or a selection left over from a document that isn't the
- * one currently open (the tab navigated away without clearing it in time).
- */
+function readSelectedBlock(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const { blockType, blockId, recordingId } = value as Record<string, unknown>;
+  // The browser writes this state and the hint quotes it, so only values
+  // Content itself would write get through.
+  if (
+    typeof blockType !== "string" ||
+    !registryBlockSpecByType(blockType) ||
+    !isRegistryBlockId(blockId)
+  ) {
+    return null;
+  }
+  return {
+    blockType,
+    blockId,
+    ...(blockType === CLIP_EMBED_BLOCK_TYPE && isClipRecordingId(recordingId)
+      ? { recordingId }
+      : {}),
+  };
+}
+
 export function buildSelectionScreenSection(
   selection: unknown,
   openDocumentId: string | undefined,
@@ -269,6 +291,21 @@ export function buildSelectionScreenSection(
 
   const heading = typeof state.heading === "string" ? state.heading : null;
   const blockText = typeof state.blockText === "string" ? state.blockText : "";
+
+  const selectedBlock = readSelectedBlock(state.selectedBlock);
+  if (selectedBlock) {
+    return {
+      documentId: state.documentId,
+      collapsed: false,
+      selectedBlock,
+      heading,
+      hint:
+        `The user selected a whole ${selectedBlock.blockType} block. It is the tag with id="${selectedBlock.blockId}" in get-document's body` +
+        (selectedBlock.recordingId
+          ? `; it plays Clips recording ${selectedBlock.recordingId}.`
+          : "."),
+    };
+  }
 
   if (state.collapsed === true || typeof state.selectedText !== "string") {
     return {
@@ -791,6 +828,17 @@ export function databaseCurrentViewSnapshot(
       "preview",
     formQuestions:
       arrayValue(nav.databaseFormQuestions) ?? activeView?.formQuestions ?? [],
+    ...(viewType === "list"
+      ? {
+          // An explicit null is a reset to default rows that may not be saved yet.
+          itemLayout:
+            nav.databaseItemLayout === null
+              ? null
+              : (normalizeContentDatabaseItemLayout(nav.databaseItemLayout) ??
+                activeView?.itemLayout ??
+                null),
+        }
+      : {}),
     visibleItemCount:
       numberValue(nav.databaseVisibleItemCount) ??
       response.pagination?.returnedItems ??
@@ -828,9 +876,15 @@ export default defineAction({
     const localFilesState = await readAppState("local-files");
     const contentSpaceState = await readAppState("content-space");
     const selectionState = await readAppStateForCurrentTab("content-selection");
+    const importState = await readAppStateForCurrentTab("content-import");
+    const clipUploadsState = await readAppStateForCurrentTab(
+      "content-clip-uploads",
+    );
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (importState) screen.contentImport = importState;
+    if (clipUploadsState) screen.clipUploads = clipUploadsState;
     if (suggestionMode) screen.suggestionMode = suggestionMode;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 

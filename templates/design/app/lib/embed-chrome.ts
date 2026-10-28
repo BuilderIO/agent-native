@@ -1,8 +1,4 @@
-/**
- * Embedded hosts normally supply their own chrome, so the editor hides its
- * rails. A host that frames only the canvas asks for them back with
- * `?embedChrome=1`.
- */
+import { isInProcessDesignHost } from "@/host/design-host-channel";
 
 const EMBED_CHROME_QUERY_PARAM = "embedChrome";
 
@@ -20,8 +16,7 @@ function readFromUrl(win: Window): boolean {
 
 export function isEmbedChromeRequested(): boolean {
   if (typeof window === "undefined") return false;
-  // The editor's URL-state builder preserves unrelated params, including this
-  // one. Reading the current URL keeps a same-design host navigation from
-  // inheriting a stale canvas-only preference.
+  // An in-process host always wants the editor's own chrome.
+  if (isInProcessDesignHost()) return true;
   return readFromUrl(window);
 }

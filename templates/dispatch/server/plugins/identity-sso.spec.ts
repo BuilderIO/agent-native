@@ -109,7 +109,10 @@ vi.mock("@agent-native/core/org", () => ({
   isGoogleSignInRequiredForEmail: isGoogleSignInRequiredForEmailMock,
   setActiveOrgId: setActiveOrgIdMock,
 }));
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  queryEchoSafeRedirect: (
+    await importOriginal<typeof import("@agent-native/core/server")>()
+  ).queryEchoSafeRedirect,
   getH3App: vi.fn(() => ({ use: vi.fn() })),
   getSession: getSessionMock,
   hasGoogleAuthIdentity: hasGoogleAuthIdentityMock,
@@ -139,7 +142,8 @@ vi.mock("@agent-native/core/db", () => ({
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
       if (/^DELETE FROM identity_sso_bootstrap/i.test(sql)) {
         for (let i = bootstrapRows.length - 1; i >= 0; i--) {
-          if (bootstrapRows[i].expires_at < args[0]) bootstrapRows.splice(i, 1);
+          if ((bootstrapRows[i]?.expires_at ?? Infinity) < args[0])
+            bootstrapRows.splice(i, 1);
         }
         return { rows: [], rowsAffected: 0 };
       }
@@ -154,10 +158,33 @@ vi.mock("@agent-native/core/db", () => ({
         };
       }
       if (/^INSERT INTO organizations/i.test(sql)) {
+        organizationRow = {
+          id: args[0],
+          name: args[1],
+          icon_json: args[7],
+          icon_revision: args[8],
+        };
         return { rows: [], rowsAffected: 1 };
       }
       if (/^UPDATE organizations/i.test(sql)) {
+        if (/SET icon_json = \?, icon_revision = \?/i.test(sql)) {
+          if (
+            organizationRow &&
+            Number(organizationRow.icon_revision ?? 0) < Number(args[3])
+          ) {
+            organizationRow.icon_json = args[0];
+            organizationRow.icon_revision = args[1];
+            return { rows: [{ icon_revision: args[1] }], rowsAffected: 1 };
+          }
+          return { rows: [], rowsAffected: 0 };
+        }
         return { rows: [], rowsAffected: 1 };
+      }
+      if (/^SELECT icon_json, icon_revision\s+FROM organizations/i.test(sql)) {
+        return {
+          rows: organizationRow ? [organizationRow] : [],
+          rowsAffected: 0,
+        };
       }
       if (/^INSERT INTO org_members/i.test(sql)) {
         return { rows: [], rowsAffected: 1 };
@@ -1084,16 +1111,22 @@ describe("silent browser bootstrap", () => {
     );
     expect(activationWithoutBinding.status).toBe(400);
 
-    const activation = await bootstrapActivationHandler(
-      event(
-        `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
-        { cookies: { ...continuationEvent.cookies } },
-      ),
+    const activationEvent = event(
+      `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
+      {
+        cookies: { ...continuationEvent.cookies },
+        headers: { "sec-fetch-mode": "navigate" },
+      },
     );
-    expect(activation.status).toBe(302);
-    expect(activation.headers.get("Location")).toBe(
-      "https://mail.agent-native.com/after#compose",
+    const activation = await bootstrapActivationHandler(activationEvent);
+    // A page, not a redirect, so the edge cannot copy the spent activation
+    // handle onto the app URL.
+    expect(activation.status).toBe(200);
+    const landing = await activation.text();
+    expect(landing).toContain(
+      'content="0;url=https://mail.agent-native.com/after#compose"',
     );
+    expect(landing).not.toContain(tokenBody.bootstrap_activation);
     expect(addSessionMock).toHaveBeenCalledWith(
       expect.any(String),
       "user@example.test",
@@ -1107,6 +1140,7 @@ describe("silent browser bootstrap", () => {
       "user@example.test",
       "org-1",
       "cross-app bootstrap organization context",
+      activationEvent,
     );
   });
 
@@ -1183,6 +1217,49 @@ describe("silent browser bootstrap", () => {
 });
 
 describe("organization federation endpoint", () => {
+  it("returns the canonical icon and revision when a replica sends a stale icon", async () => {
+    featureFlagMocks.isEnabled.mockImplementation(
+      async (flag) => flag.key === "organization.cross-app-federation",
+    );
+    const canonical = { version: 1, kind: "emoji", emoji: "📚" };
+    organizationRow = {
+      id: "dispatch-org-1",
+      name: "Example Org",
+      identity_authority: AUTHORITY,
+      identity_id: "dispatch-org-1",
+      icon_json: JSON.stringify(canonical),
+      icon_revision: 5,
+    };
+    centralActorRole = "owner";
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "organization-federation",
+        org_name: "Example Org",
+        org_role: "owner",
+        org_icon: { version: 1, kind: "emoji", emoji: "🏗️" },
+        org_icon_revision: 2,
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer stale-icon-assertion" },
+      }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: "icon-revision-conflict",
+      icon: canonical,
+      iconRevision: 5,
+    });
+  });
+
   it("atomically bootstraps the existing owner roster", async () => {
     featureFlagMocks.isEnabled.mockImplementation(async (flag) => {
       return flag.key === "organization.cross-app-federation";
@@ -1197,6 +1274,7 @@ describe("organization federation endpoint", () => {
     const rosterHash = createHash("sha256")
       .update(JSON.stringify(roster))
       .digest("base64url");
+    const icon = { version: 1, kind: "emoji", emoji: "📚" };
     verifyA2ATokenMock.mockResolvedValue({
       email: "owner@example.test",
       orgDomain: null,
@@ -1207,6 +1285,8 @@ describe("organization federation endpoint", () => {
         scope: "organization-federation",
         org_name: "Example Org",
         org_role: "owner",
+        org_icon: icon,
+        org_icon_revision: 1,
         federation_roster_hash: rosterHash,
       },
     });
@@ -1223,6 +1303,10 @@ describe("organization federation endpoint", () => {
     expect(await response.json()).toMatchObject({
       orgId: "dispatch-org-1",
       rosterInitialized: true,
+    });
+    expect(organizationRow).toMatchObject({
+      icon_json: JSON.stringify(icon),
+      icon_revision: 1,
     });
     expect(verifyA2ATokenMock).toHaveBeenCalledWith(
       "roster-assertion",
@@ -1251,6 +1335,7 @@ describe("organization federation endpoint", () => {
     const rosterHash = createHash("sha256")
       .update(JSON.stringify(roster))
       .digest("base64url");
+    const icon = { version: 1, kind: "emoji", emoji: "📚" };
     verifyA2ATokenMock.mockResolvedValue({
       email: "owner@example.test",
       orgDomain: null,
@@ -1261,6 +1346,8 @@ describe("organization federation endpoint", () => {
         scope: "organization-federation",
         org_name: "Example Org",
         org_role: "owner",
+        org_icon: icon,
+        org_icon_revision: 1,
         federation_roster_hash: rosterHash,
       },
     });
@@ -1277,6 +1364,10 @@ describe("organization federation endpoint", () => {
     expect(await response.json()).toMatchObject({
       orgId: "dispatch-org-1",
       rosterInitialized: true,
+    });
+    expect(organizationRow).toMatchObject({
+      icon_json: JSON.stringify(icon),
+      icon_revision: 1,
     });
   });
 
@@ -1385,6 +1476,43 @@ describe("organization federation endpoint", () => {
     );
 
     expect(response.status).toBe(401);
+    expect(verifyA2ATokenMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ verificationSecret: "test-a2a-secret" }),
+    );
+  });
+
+  it("rejects org-member assertions at the dedicated federation boundary", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "org-member",
+        org_role: "owner",
+        federation_operation: "remove-member",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer org-member-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(verifyA2ATokenMock).toHaveBeenCalledWith(
+      "org-member-assertion",
+      expect.anything(),
+      expect.objectContaining({
+        globalSecretOnly: true,
+        verificationSecret: "test-mail-federation-secret",
+      }),
+    );
     expect(verifyA2ATokenMock).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),

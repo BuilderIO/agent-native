@@ -1,25 +1,19 @@
-/**
- * Delegate: remove filler words (um, uh, like, you know, etc.) from the
- * recording.
- *
- * The agent analyzes the transcript segments, identifies filler-word
- * timestamps, and calls the Editor-team-owned `trim-recording` action with
- * the ranges to exclude. The edits are non-destructive (stored in editsJson).
- *
- * Usage:
- *   pnpm action remove-filler-words --recordingId=<id>
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
-  queueAiRequest,
+  isTranscriptReady,
+  resolveTranscriptPresentation,
+} from "../shared/transcript-status.js";
+import {
+  queueBackgroundAiRequest,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
+import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
   description:
@@ -28,18 +22,43 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
+    const [recording] = await db
+      .select()
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+    if (!recording) {
+      fail(`Recording not found: ${args.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
+    assertNativeRecordingMedia(recording);
+
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
 
-    if (!transcript || transcript.status !== "ready") {
-      throw new Error(
-        "Transcript must be ready before removing filler words. Call request-transcript first.",
+    const transcriptPresentation = resolveTranscriptPresentation(transcript);
+    if (!isTranscriptReady(transcriptPresentation.status)) {
+      const transcriptPending = transcriptPresentation.status === "pending";
+      fail(
+        transcriptPending
+          ? "Transcript is still being generated. Try removing filler words after it finishes."
+          : "Transcript must be ready before removing filler words. Call request-transcript first.",
+        {
+          errorCode: transcriptPending
+            ? "transcript_pending"
+            : "transcript_not_ready",
+          statusCode: 409,
+        },
       );
     }
 
@@ -64,7 +83,7 @@ export default defineAction({
       }),
     };
 
-    await queueAiRequest({
+    await queueBackgroundAiRequest({
       recordingId: args.recordingId,
       kind: "remove-filler-words",
       requestedAt,
@@ -74,6 +93,11 @@ export default defineAction({
     console.log(
       `Delegation queued: remove-filler-words for ${args.recordingId}`,
     );
-    return { queued: true, recordingId: args.recordingId };
+    return {
+      queued: true,
+      kind: "remove-filler-words",
+      requestedAt,
+      recordingId: args.recordingId,
+    };
   },
 });

@@ -1,8 +1,14 @@
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { importFigmaClipboardFromBuffer } from "../server/lib/figma-clipboard-local-decode.js";
+import {
+  importFigmaClipboardFromBuffer,
+  type ClipboardLayerPlacement,
+} from "../server/lib/figma-clipboard-local-decode.js";
 import {
   buildFigmaNodeCandidates,
   extractVisibleTexts,
@@ -21,31 +27,34 @@ import {
 } from "../server/lib/figma-node-import.js";
 import { saveFigmaPasteHtmlFallback } from "../server/lib/figma-paste-fallback.js";
 import {
+  FRAME_GAP,
   resolveImportDesignId,
   saveImportedDesignFiles,
+  type ImportedDesignFile,
 } from "../server/lib/import-design-files.js";
 import { parseVisibleClipboardHtml } from "../server/lib/visible-clipboard-html.js";
+import { planFigmaPaste } from "../shared/figma-paste-plan.js";
 import { parseFigmaFileKey } from "../shared/figma-url.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
 
-// A Figma 403 means the token is saved but lacks file_content:read scope -
-// the validator only checks current_user:read. An absent token normally
-// arrives as a typed `figma_auth_required` from the provider wrapper; the
-// raw resolver message is kept so a caller that reaches the provider runtime
-// without that wrapper still degrades to the local fallback instead of
-// surfacing a hard failure.
 const CREDENTIAL_MISSING_RE =
   /credential not configured|figma.*request failed:.*403|figma.*request failed:.*forbidden/i;
-// Transient errors should not block local-kiwi fallback when the buffer is present.
 const TRANSIENT_ERROR_RE =
   /quota cooldown|provider.*quota|rate.?limit|fetch failed|network.*error|timeout|ECONNRESET|ENOTFOUND|ERR_NETWORK/i;
 
-function isMissingFigmaCredential(error: unknown, message: string): boolean {
+function isTypedMissingFigmaCredential(error: unknown): boolean {
   const code = (error as { errorCode?: unknown } | null)?.errorCode;
   return (
     code === FIGMA_IMPORT_ERROR_CODES.authRequired ||
-    CREDENTIAL_MISSING_RE.test(message)
+    (isAgentConnectionRequiredError(error) && error.reason === "connect")
+  );
+}
+
+function isMissingFigmaCredential(error: unknown, message: string): boolean {
+  return (
+    isTypedMissingFigmaCredential(error) || CREDENTIAL_MISSING_RE.test(message)
   );
 }
 
@@ -63,11 +72,6 @@ const DURABLE_STORAGE_REQUIRED_RE =
 const AMBIGUOUS_GUIDANCE =
   'Couldn\'t confidently match this paste to specific Figma nodes, so nothing was imported from the API. Paste a frame LINK instead (copy the frame in Figma, then "Copy link to selection") for an exact node import — or continue with the clipboard preview below.';
 
-/**
- * A paste that imports nothing must say which of the four strategies refused
- * and why. Returning a bare empty result is what "I pasted and nothing
- * happened" looks like from the user's side.
- */
 function matchReasonGuidance(
   reason: FigmaClipboardMatchReason | undefined,
   candidateNames: string[] | undefined,
@@ -96,6 +100,69 @@ function describeOmittedBuffer(bytes: number | undefined): string | null {
 
 const KEY_MISSING_GUIDANCE =
   "Connect your Figma access token (Settings > Integrations > API keys) to import this paste as exact, editable Figma nodes.";
+function convertedLayers(
+  files: ImportedDesignFile[],
+  placements?: ClipboardLayerPlacement[],
+) {
+  return files.map((file, index) => ({
+    title: file.preferredFrame?.title ?? file.filename.replace(/\.html$/, ""),
+    width: file.preferredFrame?.width ?? null,
+    height: file.preferredFrame?.height ?? null,
+    content: file.content,
+    wrapsLooseNode: placements?.[index]?.wrapsLooseNode ?? false,
+    origin: placements?.[index]?.origin ?? null,
+    sourceOffset: placements?.[index]?.sourceOffset ?? null,
+  }));
+}
+
+function restNodePlacements(
+  nodesById: Record<
+    string,
+    { absoluteBoundingBox?: { x: number; y: number }; type?: string }
+  >,
+): ClipboardLayerPlacement[] {
+  return Object.values(nodesById).map((node) => ({
+    wrapsLooseNode: ![
+      "FRAME",
+      "SECTION",
+      "COMPONENT",
+      "INSTANCE",
+      "SLICE",
+    ].includes(node.type ?? ""),
+    origin: {
+      x: node.absoluteBoundingBox?.x ?? 0,
+      y: node.absoluteBoundingBox?.y ?? 0,
+    },
+    sourceOffset: null,
+  }));
+}
+
+function placeFilesAt(
+  files: ImportedDesignFile[],
+  placeAt: { x: number; y: number } | undefined,
+  placements?: ClipboardLayerPlacement[],
+): ImportedDesignFile[] {
+  if (!placeAt) return files;
+  const origins = placements?.map((placement) => placement.origin);
+  const minX = origins ? Math.min(...origins.map((o) => o.x)) : 0;
+  const minY = origins ? Math.min(...origins.map((o) => o.y)) : 0;
+  let stackedX = placeAt.x;
+  return files.map((file, index) => {
+    const origin = origins?.[index];
+    const x = origin ? placeAt.x + origin.x - minX : stackedX;
+    const y = origin ? placeAt.y + origin.y - minY : placeAt.y;
+    stackedX += (file.preferredFrame?.width ?? 0) + FRAME_GAP;
+    return { ...file, preferredFrame: { ...file.preferredFrame, x, y } };
+  });
+}
+
+const pasteRect = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+
 const SELECTION_TRUNCATED_GUIDANCE =
   "Figma copied more than 100 selected nodes. Imported the first 100; split larger selections into smaller pastes so every layer is included.";
 
@@ -153,6 +220,25 @@ export default defineAction({
         "Decoded size of a clipboard buffer the client could not transport (see app/lib/figma-clipboard.ts). Present instead of clipboardBuffer for oversized selections so this action can name the reason rather than importing nothing.",
       ),
     originalName: z.string().optional(),
+    pasteScene: z
+      .object({
+        container: z
+          .object({
+            fileId: z.string(),
+            selector: z.string().nullable(),
+            width: z.number(),
+            height: z.number(),
+            visible: pasteRect.nullable(),
+            autoLayout: z.boolean(),
+          })
+          .nullable(),
+        viewport: pasteRect.nullable(),
+        screens: z.array(pasteRect.extend({ fileId: z.string() })).max(5000),
+      })
+      .optional()
+      .describe(
+        "The editor's selection, visible canvas, and screen frames at paste time. When set, layers bound for an existing screen, frame, or the board come back as `layers` + `plan` (unsaved) for the editor to insert; new screens are saved at the viewport centre. Omit to save each pasted frame as a new screen.",
+      ),
   }),
   run: async (
     {
@@ -164,9 +250,21 @@ export default defineAction({
       clipboardBuffer,
       clipboardBufferOmittedBytes,
       originalName,
+      pasteScene,
     },
     context,
   ) => {
+    const placePaste = (
+      files: ImportedDesignFile[],
+      placements?: ClipboardLayerPlacement[],
+    ) => {
+      if (!pasteScene) return { save: files };
+      const layers = convertedLayers(files, placements);
+      const plan = planFigmaPaste(layers, pasteScene);
+      return plan.kind === "screens"
+        ? { save: placeFilesAt(files, plan.placeAt ?? undefined, placements) }
+        : { layers, plan };
+    };
     const fileKey = parseFigmaFileKey(figmetaFileKey);
     if (!fileKey) {
       failFigmaImport(
@@ -176,9 +274,6 @@ export default defineAction({
     }
     const resolvedDesignId = await resolveImportDesignId(designId);
 
-    // Current Figma clipboard HTML commonly contains only figmeta + the
-    // private binary figma buffer, with no visible HTML at all. Exact REST ids
-    // must therefore run before requiring the legacy preview/matching signal.
     const parsedClipboard = parseVisibleClipboardHtml(clipboardHtml);
     const clipboardTexts = parsedClipboard.fallbackHtml
       ? extractVisibleTexts(parsedClipboard.fallbackHtml)
@@ -197,17 +292,37 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        const placements = restNodePlacements(nodesById);
+        const selectionWarnings = selectedNodeIdsTruncated
+          ? [SELECTION_TRUNCATED_GUIDANCE]
+          : [];
+        const placed = placePaste(files, placements);
+        if (!placed.save) {
+          return {
+            designId: resolvedDesignId,
+            files: [],
+            layers: placed.layers,
+            plan: placed.plan,
+            warnings: [...selectionWarnings, ...omissionWarnings],
+            strategy: "restNodes" as const,
+          };
+        }
         await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
           designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
-          files,
+          files: placed.save,
         });
-        const selectionWarnings = selectedNodeIdsTruncated
-          ? [SELECTION_TRUNCATED_GUIDANCE]
-          : [];
         return {
           ...saved,
+          ...(saved.files.length
+            ? {
+                _receipt: designOutputWriteReceipt(
+                  resolvedDesignId,
+                  saved.files.length,
+                ),
+              }
+            : {}),
           warnings: [
             ...saved.warnings,
             ...selectionWarnings,
@@ -247,14 +362,33 @@ export default defineAction({
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
         const { files, fidelityEntries, omissionWarnings } =
           await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
+        const placed = placePaste(files, restNodePlacements(nodesById));
+        if (!placed.save) {
+          return {
+            designId: resolvedDesignId,
+            files: [],
+            layers: placed.layers,
+            plan: placed.plan,
+            warnings: omissionWarnings,
+            strategy: "restNodes" as const,
+          };
+        }
         await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
         const saved = await saveImportedDesignFiles({
           designId: resolvedDesignId,
           sourceType: "figma-clipboard-rest",
-          files,
+          files: placed.save,
         });
         return {
           ...saved,
+          ...(saved.files.length
+            ? {
+                _receipt: designOutputWriteReceipt(
+                  resolvedDesignId,
+                  saved.files.length,
+                ),
+              }
+            : {}),
           warnings: [...(saved.warnings ?? []), ...omissionWarnings],
           strategy: "restNodes" as const,
           figma: {
@@ -270,9 +404,6 @@ export default defineAction({
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      // The importer intentionally refuses to persist Figma's expiring render
-      // URLs. Keep its actionable storage setup error instead of disguising it
-      // as an ordinary clipboard-format fallback.
       const storageCode = (error as { errorCode?: unknown } | null)?.errorCode;
       if (
         storageCode === FIGMA_IMPORT_ERROR_CODES.storageUnavailable ||
@@ -286,14 +417,10 @@ export default defineAction({
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&
-        !figmaApiKeyMissing &&
-        (!isTransient || !clipboardBuffer)
+        (figmaApiKeyMissing
+          ? !clipboardBuffer && isTypedMissingFigmaCredential(error)
+          : !isTransient || !clipboardBuffer)
       ) {
-        // Exact ids prove this was a current Figma clipboard. With no visible
-        // fallback, a permanent REST failure must surface as a real error rather
-        // than silently degrading. Transient errors fall through to local-kiwi
-        // only when a buffer is present to decode; without a buffer there is
-        // nothing to fall back to, so even transient errors must propagate.
         throw error;
       }
       if (!figmaApiKeyMissing) {
@@ -301,11 +428,6 @@ export default defineAction({
       }
     }
 
-    // Local-kiwi fallback: decode the binary buffer when REST failed for any
-    // reason (missing token, 403, quota cooldown, network error) and the buffer
-    // is present. Always produces editable geometry, text, and auto-layout.
-    // IMAGE fills land as about:blank placeholders that hydrate-figma-paste-images
-    // resolves retroactively once the quota clears or the token is configured.
     if ((figmaApiKeyMissing || matchStatus === "error") && clipboardBuffer) {
       try {
         const localResult = await importFigmaClipboardFromBuffer({
@@ -313,15 +435,39 @@ export default defineAction({
           fileKey,
           originalName,
         });
-        if (localResult.files.length > 0) {
+        const placed =
+          localResult.files.length > 0
+            ? placePaste(localResult.files, localResult.layers)
+            : null;
+        if (placed && !placed.save) {
+          return {
+            designId: resolvedDesignId,
+            files: [],
+            layers: placed.layers,
+            plan: placed.plan,
+            warnings: localResult.warnings,
+            strategy: "localKiwi" as const,
+            figmaApiKeyMissing,
+            unresolvedImages: localResult.unresolvedImageRefs.length,
+          };
+        }
+        if (placed?.save) {
           await snapshotDesignBeforeAgentEdit(resolvedDesignId, context);
           const saved = await saveImportedDesignFiles({
             designId: resolvedDesignId,
             sourceType: "figma-clipboard-local-kiwi",
-            files: localResult.files,
+            files: placed.save,
           });
           return {
             ...saved,
+            ...(saved.files.length
+              ? {
+                  _receipt: designOutputWriteReceipt(
+                    resolvedDesignId,
+                    saved.files.length,
+                  ),
+                }
+              : {}),
             warnings: [...saved.warnings, ...localResult.warnings],
             strategy: "localKiwi" as const,
             figmaApiKeyMissing,
@@ -342,22 +488,15 @@ export default defineAction({
         localDecodeError =
           "the .fig clipboard buffer decoded to zero frames (an unsupported or truncated clipboard format)";
       } catch (error) {
-        // Never swallow this: without the reason, a failed local decode and a
-        // successful empty import are indistinguishable downstream.
         localDecodeError =
           error instanceof Error ? error.message : String(error);
       }
     }
 
-    // Every reason this paste could not produce screens, in the order the
-    // strategies were attempted. This is the message a user gets instead of a
-    // paste that appears to do nothing.
     const reasons = [
       oversizeGuidance,
       figmaApiKeyMissing ? KEY_MISSING_GUIDANCE : null,
       matchReasonGuidance(matchReason, matchCandidateNames),
-      // Already a self-describing sentence ("Figma request failed: ...", or the
-      // clipboard-shape error raised above); a prefix would mislabel half of them.
       !figmaApiKeyMissing && restError ? restError : null,
       localDecodeError
         ? `Local clipboard decode failed: ${localDecodeError}`
@@ -390,6 +529,14 @@ export default defineAction({
     });
     return {
       ...saved,
+      ...(saved.files.length
+        ? {
+            _receipt: designOutputWriteReceipt(
+              resolvedDesignId,
+              saved.files.length,
+            ),
+          }
+        : {}),
       strategy: "htmlFallback" as const,
       figmaApiKeyMissing,
       matchStatus,

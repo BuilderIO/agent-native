@@ -1,4 +1,6 @@
-import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import type { MigrationEntry } from "../db/migrations.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 
 async function assertBetterAuthUserIdentityColumns(): Promise<void> {
   const { getDbExec } = await import("../db/client.js");
@@ -145,10 +147,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     version: 2,
     name: "better-auth-repair-user-columns",
     sql: {
-      // `CREATE TABLE IF NOT EXISTS` does not reconcile an older table that
-      // already has the Better Auth name but is missing newer columns. Keep
-      // this repair additive so existing user rows and legacy auth data stay
-      // intact while the adapter gets the columns it selects on signup.
       postgres: `
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "name" TEXT NOT NULL DEFAULT '';
         ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "email_verified" BOOLEAN NOT NULL DEFAULT FALSE;
@@ -163,9 +161,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     version: 3,
     name: "legacy-auth-sessions-table",
     sql: {
-      // `addSession()` is still used by the mobile/deep-link OAuth flow and
-      // the workspace callback. Provision its legacy table in the release
-      // runtime so those request paths only perform normal row writes.
       postgres: `
         CREATE TABLE IF NOT EXISTS sessions (
           token TEXT PRIMARY KEY,
@@ -191,7 +186,9 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     },
   },
   {
-    version: 5,
+    // Shipped as a second v5. Named entries are gated by name, so the new
+    // number changes nothing for databases that already applied it.
+    version: 11,
     name: "better-auth-user-lower-email-index",
     sql: {
       postgres:
@@ -201,10 +198,6 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
   {
     version: 6,
     name: "better-auth-enterprise-sso-scim-tables",
-    // These tables are provisioned even when the opt-in plugins are disabled.
-    // Plugin flags can be enabled after a deployment without requiring a
-    // second migration run, and CREATE IF NOT EXISTS is additive for existing
-    // installs.
     sql: {
       postgres: `
         CREATE TABLE IF NOT EXISTS sso_provider (
@@ -455,12 +448,42 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       `,
     },
   },
+  {
+    version: 10,
+    name: "better-auth-user-first-touch-attribution",
+    sql: {
+      postgres: `
+        ALTER TABLE "user"
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_source" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_medium" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_campaign" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_term" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_gclid" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_msclkid" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_vector_source" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_referrer" TEXT
+      `,
+    },
+  },
 ];
 
+export const betterAuthStore = defineStore({
+  id: "better_auth",
+  // v3 creates the legacy `sessions` table the auth-sessions store owns; on
+  // main every store ran before this list.
+  after: ["auth_sessions"],
+  migrations: fromMigrationEntries(
+    "_better_auth_migrations",
+    BETTER_AUTH_MIGRATIONS,
+    // v4 expires every active signing key: it must run at most once per
+    // database, which the ledger (or the imported old bookkeeping) guarantees.
+    { ranAtBoot: true, data: [4] },
+  ),
+});
+
+/** Kept for callers of the public export; the store owns these migrations. */
 export async function runBetterAuthMigrations(
-  nitroApp: unknown,
+  _nitroApp?: unknown,
 ): Promise<void> {
-  await runMigrations(BETTER_AUTH_MIGRATIONS, {
-    table: "_better_auth_migrations",
-  })(nitroApp);
+  await betterAuthStore.ready();
 }

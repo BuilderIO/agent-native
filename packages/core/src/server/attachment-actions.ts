@@ -1,132 +1,323 @@
-/**
- * Core `read-attachment` agent tool.
- *
- * Large text pastes, CSVs, JSON files, and code files are truncated to
- * 60 K chars when injected into the model context. This action lets the agent
- * read the full content in offset/limit slices from the durable resource
- * stored at attach-time.
- *
- * Storage: text-y attachments are persisted as `agent_scratch` resources
- * keyed  `attachments/<threadId>/<sanitised-name>` under the owner's scope.
- * The maximum stored size per attachment is 20 MB.
- */
+import { randomUUID } from "node:crypto";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  decodeTextAttachmentData,
+  isOverTextAttachmentLimit,
+  isTextLikeFilename,
+  isTextLikeMimeType,
+  ATTACHMENT_REFERENCE_MIME_TYPE,
+  MAX_ATTACHMENT_RESOURCE_BODY_CHARS,
+  MAX_ATTACHMENT_RESOURCE_BODY_TOTAL_CHARS,
+  type TextAttachmentStorage,
+  unwrapOwnAttachmentEnvelope,
+} from "../file-upload/attachment-text.js";
+import {
+  createOwnedAttachmentHydrationBudget,
+  describeOwnedFileReadFailure,
+  hydrateOwnedFileUrl,
+} from "../file-upload/owned-attachment.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import { resourceGet, resourcePut, resourceList } from "../resources/store.js";
 import { getRequestUserEmail } from "./request-context.js";
 
-const MAX_ATTACHMENT_RESOURCE_BYTES = 20 * 1024 * 1024; // 20 MB
-const DEFAULT_SLICE_LIMIT = 8_000; // chars returned by default per call
+export { isTextLikeFilename, isTextLikeMimeType };
 
-/**
- * Derive a deterministic resource path for a text attachment stored inside a
- * thread scope.
- */
+const DEFAULT_SLICE_LIMIT = 8_000;
+const MAX_SLICE_LIMIT = 50_000;
+const ATTACHMENT_RESOURCE_PATH = /^attachments\/[^/]+\/[^/]+$/;
+
 function attachmentResourcePath(
   threadId: string,
+  batch: string,
   name: string,
   index: number,
 ): string {
-  // Sanitise the name: keep alphanum, dot, dash, underscore; replace anything
-  // else with '_'. Append the index to avoid collisions between same-named
-  // files in the same thread.
-  const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-  return `attachments/${threadId}/${index}-${safe}`;
+  return `attachments/${threadId}/${batch}-${index}-${storedAttachmentFileName(name)}`;
 }
 
-/**
- * Determine whether a MIME type or filename represents a text-like attachment
- * that should be stored as a durable resource for paginated reads.
- */
-export function isTextLikeMimeType(contentType: string | undefined): boolean {
-  if (!contentType) return false;
-  const ct = contentType.toLowerCase().split(";")[0].trim();
-  if (ct.startsWith("text/")) return true;
-  if (ct === "application/json") return true;
-  if (ct === "application/javascript") return true;
-  if (ct === "application/typescript") return true;
-  if (ct === "application/x-yaml") return true;
-  if (ct === "message/rfc822") return true;
-  return false;
+// Every non-path character used to become "_", so 设计.md and 规格.md shared
+// a stored name. Each is now spelled as its code point between underscores,
+// and "_" itself is escaped, so distinct names stay distinct.
+function storedAttachmentFileName(name: string): string {
+  return Array.from(name, (char) =>
+    /[a-zA-Z0-9.-]/.test(char)
+      ? char
+      : `_${(char.codePointAt(0) ?? 0).toString(16)}_`,
+  )
+    .join("")
+    .slice(0, 200);
 }
 
-export function isTextLikeFilename(name: string | undefined): boolean {
-  if (!name) return false;
-  return /\.(txt|md|markdown|csv|json|jsonl|yaml|yml|ts|tsx|js|jsx|py|rb|go|rs|java|c|cpp|h|cs|swift|kt|sh|bash|zsh|fish|toml|ini|cfg|conf|xml|html|htm|css|scss|sass|less|sql|graphql|gql|eml)$/i.test(
-    name,
+/** How paths written before batch ids spelled a name. */
+function legacyAttachmentFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+}
+
+// Paths are `<batch>-<index>-<name>`; ones written before batches existed
+// are `<index>-<name>` and stay readable until they expire. A batch always
+// contains a letter, which is what tells the two formats apart.
+function parseStoredAttachmentPath(path: string): {
+  batch: string;
+  index: number;
+  name: string;
+} {
+  const basename = path.split("/").pop() ?? "";
+  const match =
+    basename.match(/^([a-z0-9]*[a-z][a-z0-9]*)-(\d+)-(.+)$/) ??
+    basename.match(/^()(\d+)-(.+)$/);
+  if (!match) return { batch: "", index: -1, name: basename };
+  const [, batch = "", index = "-1", name = basename] = match;
+  return { batch, index: Number(index), name };
+}
+
+function compareNewestAttachmentFirst(
+  a: { path: string; updatedAt?: number },
+  b: { path: string; updatedAt?: number },
+): number {
+  const left = parseStoredAttachmentPath(a.path);
+  const right = parseStoredAttachmentPath(b.path);
+  if (left.batch !== right.batch) return left.batch < right.batch ? 1 : -1;
+  // A legacy index only orders files within one message, so legacy paths
+  // from different turns are ordered by when they were written.
+  if (!left.batch) {
+    const byTime = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    if (byTime !== 0) return byTime;
+  }
+  return right.index - left.index;
+}
+
+// A truncation note names one path for the rest of the thread, so each
+// request writes its own; the time prefix makes later uploads sort first.
+function attachmentBatchId(): string {
+  return `${Date.now().toString(36)}${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+interface StoredAttachmentReference {
+  url: string;
+  contentType?: string;
+  name?: string;
+}
+
+// Paging re-reads the file from storage, so a file being read page by page
+// is kept for a short while; the total size bound keeps one instance from
+// holding many large files at once.
+const REREAD_CACHE_TTL_MS = 10 * 60 * 1000;
+const REREAD_CACHE_MAX_CHARS = 16_000_000;
+const REREAD_CACHE_MAX_ENTRIES = 32;
+// Map order is least recently used first.
+const rereadCache = new Map<string, { text: string; expiresAt: number }>();
+let rereadCacheChars = 0;
+
+function dropReread(key: string): void {
+  const entry = rereadCache.get(key);
+  if (!entry) return;
+  rereadCache.delete(key);
+  rereadCacheChars -= entry.text.length;
+}
+
+function cachedReread(key: string): string | undefined {
+  const entry = rereadCache.get(key);
+  if (!entry) return undefined;
+  dropReread(key);
+  if (entry.expiresAt <= Date.now()) return undefined;
+  rereadCache.set(key, entry);
+  rereadCacheChars += entry.text.length;
+  return entry.text;
+}
+
+function cacheReread(key: string, text: string): void {
+  dropReread(key);
+  if (text.length > REREAD_CACHE_MAX_CHARS) return;
+  const now = Date.now();
+  for (const [cachedKey, entry] of rereadCache) {
+    if (entry.expiresAt <= now) dropReread(cachedKey);
+  }
+  rereadCache.set(key, { text, expiresAt: now + REREAD_CACHE_TTL_MS });
+  rereadCacheChars += text.length;
+  for (const oldest of rereadCache.keys()) {
+    if (
+      rereadCacheChars <= REREAD_CACHE_MAX_CHARS &&
+      rereadCache.size <= REREAD_CACHE_MAX_ENTRIES
+    ) {
+      break;
+    }
+    dropReread(oldest);
+  }
+}
+
+/** @internal exported for unit tests only */
+export function clearAttachmentRereadCache(): void {
+  rereadCache.clear();
+  rereadCacheChars = 0;
+}
+
+/** @internal exported for unit tests only */
+export function attachmentRereadCacheStats(): {
+  entries: number;
+  chars: number;
+} {
+  return { entries: rereadCache.size, chars: rereadCacheChars };
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+// Only the server writes reference rows: read-attachment fetches the URL in
+// one, so a body row must never carry that type from the client.
+function bodyMimeType(contentType: string | undefined): string {
+  if (!contentType || !isTextLikeMimeType(contentType)) return "text/plain";
+  const [baseType = ""] = contentType.split(";");
+  const normalized = baseType.trim().toLowerCase();
+  return normalized.startsWith("image/") ||
+    normalized === ATTACHMENT_REFERENCE_MIME_TYPE
+    ? "text/plain"
+    : contentType;
+}
+
+/** An upload already lives in file storage, so SQL keeps only where it is. */
+function storedAttachmentReference(att: {
+  url?: string;
+  uploadProvider?: string;
+  contentType?: string;
+  name?: string;
+}): StoredAttachmentReference | null {
+  if (!att.uploadProvider || !att.url?.startsWith("https://")) return null;
+  // The re-read decides "text" from this type, so a generic upload type
+  // that was classified by filename must not be stored as-is.
+  const contentType =
+    att.contentType && isTextLikeMimeType(att.contentType)
+      ? att.contentType
+      : "text/plain";
+  return {
+    url: att.url,
+    contentType,
+    ...(att.name === undefined ? {} : { name: att.name }),
+  };
+}
+
+async function readStoredAttachmentReference(
+  content: string,
+): Promise<{ text: string } | { error: string }> {
+  let reference: StoredAttachmentReference;
+  try {
+    reference = JSON.parse(content) as StoredAttachmentReference;
+  } catch {
+    return { error: "the stored attachment reference is unreadable" };
+  }
+  const hydration = await hydrateOwnedFileUrl(
+    reference.url,
+    reference.contentType,
+    reference.name,
+    createOwnedAttachmentHydrationBudget(),
   );
+  if (hydration.kind !== "hydrated") {
+    return { error: describeOwnedFileReadFailure(hydration.code) };
+  }
+  const decoded = decodeTextAttachmentData({
+    name: reference.name,
+    contentType: reference.contentType,
+    data: hydration.dataUrl,
+  });
+  if (decoded.kind !== "text") {
+    return {
+      error:
+        decoded.kind === "undecodable"
+          ? "the stored file is no longer valid UTF-8 text"
+          : "the stored file is no longer a text file",
+    };
+  }
+  return { text: decoded.text };
 }
 
-/**
- * Persist text-ish attachments from a chat turn as thread-scoped resources
- * so the agent can later read them in slices via `read-attachment`.
- *
- * Silently skips attachments that aren't text-like or have no text content.
- * Returns a map from attachment index → stored resource id for use in the
- * truncation-notice injected into the model context.
- */
 export async function persistTextAttachmentsAsResources(opts: {
   attachments: Array<{
     type?: string;
     name?: string;
     contentType?: string;
+    displayOnly?: boolean;
     text?: string;
+    data?: string;
+    url?: string;
+    uploadProvider?: string;
   }>;
   threadId: string;
   ownerEmail: string | null | undefined;
-}): Promise<
-  Map<number, { resourceId: string; path: string; totalChars: number }>
-> {
-  const result = new Map<
-    number,
-    { resourceId: string; path: string; totalChars: number }
-  >();
+}): Promise<Map<number, TextAttachmentStorage>> {
+  const result = new Map<number, TextAttachmentStorage>();
   const owner = opts.ownerEmail || "anonymous";
+  const batch = attachmentBatchId();
+  let bodyChars = 0;
 
-  for (let i = 0; i < opts.attachments.length; i++) {
-    const att = opts.attachments[i];
-    if (!att.text || att.text.length === 0) continue;
-    if (!isTextLikeMimeType(att.contentType) && !isTextLikeFilename(att.name)) {
+  for (const [i, att] of opts.attachments.entries()) {
+    if (att.displayOnly === true) continue;
+    const decoded = decodeTextAttachmentData(att);
+    // The prompt says an undecodable file's contents were withheld, so no
+    // copy of them may become readable here.
+    if (decoded.kind === "undecodable" || isOverTextAttachmentLimit(att)) {
       continue;
     }
-
     const text =
-      att.text.length > MAX_ATTACHMENT_RESOURCE_BYTES
-        ? att.text.slice(0, MAX_ATTACHMENT_RESOURCE_BYTES)
-        : att.text;
+      decoded.kind === "text"
+        ? decoded.text
+        : (isTextLikeMimeType(att.contentType) ||
+              isTextLikeFilename(att.name)) &&
+            att.text
+          ? unwrapOwnAttachmentEnvelope(att.text, att.name)
+          : undefined;
+    if (!text) continue;
+
+    const reference = storedAttachmentReference(att);
+    // A partial copy would let read-attachment report "End of attachment"
+    // for a file whose tail was never stored.
+    if (
+      !reference &&
+      (text.length > MAX_ATTACHMENT_RESOURCE_BODY_CHARS ||
+        bodyChars + text.length > MAX_ATTACHMENT_RESOURCE_BODY_TOTAL_CHARS)
+    ) {
+      result.set(i, { kind: "failed", reason: "too-large" });
+      continue;
+    }
+    if (!reference) bodyChars += text.length;
 
     const path = attachmentResourcePath(
       opts.threadId,
+      batch,
       att.name || "attachment",
       i,
     );
 
     try {
-      const resource = await resourcePut(
-        owner,
-        path,
-        text,
-        att.contentType || "text/plain",
-        {
-          createdBy: "user",
-          visibility: "agent_scratch",
-          threadId: opts.threadId,
-          // 7-day TTL — long enough for multi-session threads.
-          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-        },
-      );
+      // The resource store rejects non-URL content under an image/* type, so
+      // SVG source is stored as plain text.
+      const mimeType = reference
+        ? ATTACHMENT_REFERENCE_MIME_TYPE
+        : bodyMimeType(att.contentType);
+      const content = reference ? JSON.stringify(reference) : text;
+      const resource = await resourcePut(owner, path, content, mimeType, {
+        createdBy: "user",
+        visibility: "agent_scratch",
+        threadId: opts.threadId,
+        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
       result.set(i, {
+        kind: "stored",
         resourceId: resource.id,
         path,
         totalChars: text.length,
       });
     } catch (err) {
-      // Best-effort: if storage fails the agent still gets the truncated
-      // context and the read-attachment call will return a not-found error.
+      const error = err instanceof Error ? err.message : String(err);
       console.warn(
         "[agent-native] persistTextAttachmentsAsResources failed:",
-        err instanceof Error ? err.message : String(err),
+        error,
       );
+      result.set(i, { kind: "failed", reason: "write-failed", error });
     }
   }
 
@@ -137,16 +328,19 @@ export function createCoreAttachmentActionEntries(): Record<
   string,
   ActionEntry
 > {
-  return {
+  return frameworkMcpTools({
     "read-attachment": {
       tool: {
         description: [
-          "Read a slice of a large text attachment (CSV, code, JSON, markdown, plain text) that was",
-          "truncated in the conversation context. Use this when the initial context showed a truncated",
-          "attachment and you need to read more of it.",
+          "Read a slice of a large text attachment (CSV, code, JSON, markdown, SVG, plain text) that was",
+          "truncated in the conversation context. When a <chat-attachment-truncated> note names an",
+          "attachment, read it as the note directs before you edit, summarize, or answer from it. If the",
+          "file is too long to read in full, read the parts the request depends on and tell the user which",
+          "parts you did not read.",
           "",
-          "Identify the attachment by name (e.g. name='data.csv') exactly as shown in the",
-          "<attachment name='...'> tag in the conversation. Use offset and limit to page through it.",
+          "Identify the attachment by the path a <chat-attachment-truncated> note gives, or by name",
+          "(e.g. name='data.csv') as shown in the <attachment name='...'> tag. Use offset and limit to",
+          "page through it.",
           "",
           "Returns { content, offset, limit, totalChars, hasMore }.",
           "If totalChars is unknown (attachment not stored as a resource), returns a not-found message.",
@@ -154,6 +348,11 @@ export function createCoreAttachmentActionEntries(): Record<
         parameters: {
           type: "object" as const,
           properties: {
+            path: {
+              type: "string",
+              description:
+                "The stored attachment path from a <chat-attachment-truncated> note. Preferred over name.",
+            },
             name: {
               type: "string",
               description:
@@ -171,19 +370,20 @@ export function createCoreAttachmentActionEntries(): Record<
             },
             limit: {
               type: "string",
-              description: `Maximum characters to return. Default: ${DEFAULT_SLICE_LIMIT}.`,
+              description: `Maximum characters to return. Default: ${DEFAULT_SLICE_LIMIT}. Maximum: ${MAX_SLICE_LIMIT}.`,
             },
           },
-          required: ["name"],
         },
       },
       run: async (input: Record<string, string>, ctx) => {
         const ownerEmail =
           ctx?.userEmail || getRequestUserEmail() || "anonymous";
-        const name = String(input.name || "").trim();
+        const path = String(input.path || "").trim();
+        const name =
+          String(input.name || "").trim() || (path.split("/").pop() ?? "");
         const offset = Math.max(0, parseInt(input.offset || "0", 10) || 0);
         const limit = Math.min(
-          50_000,
+          MAX_SLICE_LIMIT,
           Math.max(
             1,
             parseInt(input.limit || String(DEFAULT_SLICE_LIMIT), 10) ||
@@ -192,11 +392,15 @@ export function createCoreAttachmentActionEntries(): Record<
         );
 
         if (!name) {
-          return { error: "name is required" };
+          return { error: "name or path is required" };
+        }
+        if (path && !ATTACHMENT_RESOURCE_PATH.test(path)) {
+          return { error: `"${path}" is not a stored attachment path.` };
         }
 
-        // Determine threadId — from input or from turn-scoped run context.
-        let threadId = String(input.threadId || "").trim();
+        let threadId = path
+          ? (path.split("/").at(1) ?? "")
+          : String(input.threadId || "").trim();
         if (!threadId) {
           try {
             const { getRequestRunContext } =
@@ -215,28 +419,33 @@ export function createCoreAttachmentActionEntries(): Record<
           };
         }
 
-        // Search the owner's resources for an attachment matching the name.
         try {
           const prefix = `attachments/${threadId}/`;
           const metas = await resourceList(ownerEmail, prefix, {
             includeAgentScratch: true,
           });
 
-          // Find by name suffix match (the path ends with <index>-<safe-name>).
-          const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-          const matching = metas.filter((m) => m.path.endsWith(`-${safeName}`));
-
-          // If no exact match, try a partial search on the raw name.
+          const storedName = (m: { path: string }) => {
+            const parsed = parseStoredAttachmentPath(m.path);
+            return {
+              actual: parsed.name,
+              wanted: parsed.batch
+                ? storedAttachmentFileName(name)
+                : legacyAttachmentFileName(name),
+            };
+          };
+          const exact = path
+            ? metas.filter((m) => m.path === path)
+            : metas.filter((m) => {
+                const { actual, wanted } = storedName(m);
+                return actual === wanted;
+              });
           const candidates =
-            matching.length > 0
-              ? matching
+            exact.length > 0 || path
+              ? exact
               : metas.filter((m) => {
-                  const basename = m.path.split("/").pop() || "";
-                  // Strip the leading index prefix (<digits>-)
-                  const withoutIndex = basename.replace(/^\d+-/, "");
-                  return withoutIndex
-                    .toLowerCase()
-                    .includes(name.toLowerCase());
+                  const { actual, wanted } = storedName(m);
+                  return actual.toLowerCase() === wanted.toLowerCase();
                 });
 
           if (candidates.length === 0) {
@@ -245,26 +454,83 @@ export function createCoreAttachmentActionEntries(): Record<
             };
           }
 
-          // Use the first match (most recent upsert wins when there are
-          // multiple same-name attachments in the same thread).
-          const meta = candidates[0];
+          const sorted = candidates.sort(compareNewestAttachmentFirst);
+          const meta = sorted.at(0);
+          const next = sorted.at(1);
+          if (!meta) {
+            return {
+              error: `No stored attachment found with name "${name}" in thread ${threadId}.`,
+            };
+          }
+          const newestBatch = parseStoredAttachmentPath(meta.path).batch;
+          // Legacy paths have no batch, so they never prove two files were
+          // sent together.
+          if (
+            next &&
+            newestBatch &&
+            parseStoredAttachmentPath(next.path).batch === newestBatch
+          ) {
+            const paths = candidates
+              .filter(
+                (m) => parseStoredAttachmentPath(m.path).batch === newestBatch,
+              )
+              .map((m) => m.path);
+            return {
+              error: `"${name}" matches more than one attachment sent together: ${paths.join(", ")}. Call again with one of these as path.`,
+            };
+          }
           const resource = await resourceGet(meta.id);
           if (!resource) {
             return { error: `Attachment resource "${name}" not found.` };
           }
 
-          const totalChars = resource.content.length;
-          const slice = resource.content.slice(offset, offset + limit);
+          let content = resource.content;
+          if (resource.mimeType === ATTACHMENT_REFERENCE_MIME_TYPE) {
+            const cacheKey = `${resource.id}:${resource.content}`;
+            const cached = cachedReread(cacheKey);
+            if (cached !== undefined) {
+              content = cached;
+            } else {
+              const read = await readStoredAttachmentReference(content);
+              if ("error" in read) {
+                return {
+                  error: `Could not re-read "${name}" from file storage: ${read.error}. Tell the user which part of the file you could not read before doing anything that depends on it.`,
+                };
+              }
+              cacheReread(cacheKey, read.text);
+              content = read.text;
+            }
+          }
+          const totalChars = content.length;
+          // Page edges never split a surrogate pair: start before a low half
+          // and stop before a high half, and report the real next offset.
+          const requested = Math.min(offset, totalChars);
+          const start =
+            requested > 0 &&
+            requested < totalChars &&
+            isLowSurrogate(content.charCodeAt(requested))
+              ? requested - 1
+              : requested;
+          let end = Math.min(totalChars, start + limit);
+          if (
+            end < totalChars &&
+            isHighSurrogate(content.charCodeAt(end - 1))
+          ) {
+            // Backing off would return an empty page at the same offset when
+            // the page is only the high half, so take the whole pair instead.
+            end = end - 1 > start ? end - 1 : end + 1;
+          }
+          const slice = content.slice(start, end);
           return {
             name,
             content: slice,
-            offset,
-            limit,
+            offset: start,
+            limit: end - start,
             totalChars,
-            hasMore: offset + limit < totalChars,
+            hasMore: end < totalChars,
             note:
-              offset + limit < totalChars
-                ? `${totalChars - offset - limit} chars remain. Call again with offset=${offset + limit}.`
+              end < totalChars
+                ? `${totalChars - end} chars remain. Call again with offset=${end}.`
                 : "End of attachment.",
           };
         } catch (err) {
@@ -274,5 +540,5 @@ export function createCoreAttachmentActionEntries(): Record<
         }
       },
     },
-  };
+  });
 }

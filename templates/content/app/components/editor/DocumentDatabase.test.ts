@@ -2,6 +2,7 @@
 
 import type {
   ContentDatabaseItem,
+  ContentDatabaseItemLayout,
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecution,
@@ -11,8 +12,15 @@ import type {
   DocumentPropertyType,
   DocumentPropertyValue,
 } from "@shared/api";
-import { describe, expect, it } from "vitest";
+import { compactContentDatabaseItems } from "@shared/database-row-properties";
+import { describe, expect, it, vi } from "vitest";
 
+import {
+  DATABASE_NAVIGATION_STATE_MAX_BYTES,
+  DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseNavigationStateFitsKeepaliveBudget,
+  fitDatabaseNavigationState,
+} from "./database/navigation-state";
 import {
   addDatabaseView,
   appendDatabaseFilter,
@@ -53,6 +61,8 @@ import {
   databaseNavigationState,
   databaseAttachedBuilderModelNames,
   databaseAttachedBuilderSource,
+  databaseBuilderReviewAfterExecution,
+  databaseBuilderReviewAfterPartialExecution,
   builderReviewableChangeSets,
   builderReviewExecutableRows,
   builderSourceLiveWriteControlState,
@@ -78,6 +88,7 @@ import {
   databaseGridColumns,
   databaseItemPropertyForColumn,
   databaseInlineFilterLabel,
+  databaseFilterRuleCandidate,
   databaseViewSummaries,
   databaseViewItemGroups,
   databaseResultCountLabel,
@@ -389,13 +400,45 @@ describe("database property picker", () => {
     ).toEqual(["number", "checkbox", "date", "end"]);
   });
 
-  it("can omit fields that already have active filters", () => {
+  it("can omit fields that are already sorted", () => {
     expect(
       databasePropertyPickerItems(properties, "", {
         includeName: true,
         excludeKeys: new Set(["checkbox", "name"]),
       }).map((item) => item.key),
     ).toEqual(["number", "date", "end"]);
+  });
+
+  it("prefers an unfiltered field for a new rule but never runs out", () => {
+    const filterOn = (key: string): DatabaseFilter => ({
+      key,
+      label: key,
+      operator: "is_not_empty",
+      value: "",
+    });
+
+    expect(databaseFilterRuleCandidate(properties, []).key).toBe("number");
+    expect(
+      databaseFilterRuleCandidate(properties, [
+        filterOn("number"),
+        filterOn("checkbox"),
+      ]).key,
+    ).toBe("date");
+    expect(
+      databaseFilterRuleCandidate(
+        properties,
+        ["number", "checkbox", "date", "end"].map(filterOn),
+      ).key,
+    ).toBe("name");
+    expect(
+      databaseFilterRuleCandidate(
+        properties,
+        ["name", "number", "checkbox", "date", "end"].map(filterOn),
+      ).key,
+    ).toBe("number");
+    expect(databaseFilterRuleCandidate([], [filterOn("name")]).key).toBe(
+      "name",
+    );
   });
 });
 
@@ -822,7 +865,85 @@ describe("database view filtering", () => {
         },
         [ownerProperty],
       ),
-    ).toBe("Owner: Is empty");
+    ).toBe("Owner: is empty");
+  });
+
+  it("names the operator on a chip unless it reads as a plain match", () => {
+    const chipProperties = [
+      property("status", "Status", "status", null, {
+        options: [{ id: "done", name: "done", color: "green" }],
+      }),
+      property("context", "Context", "multi_select", null, {
+        options: [
+          { id: "builder", name: "Builder", color: "blue" },
+          { id: "agent-native", name: "Agent-Native", color: "purple" },
+        ],
+      }),
+      property("rank", "Rank", "number"),
+      property("deadline", "Deadline", "date"),
+      property("done", "Done", "checkbox"),
+    ];
+    const chip = (
+      key: string,
+      label: string,
+      operator: DatabaseFilter["operator"],
+      value = "",
+    ) =>
+      databaseInlineFilterLabel(
+        { key, label, operator, value },
+        chipProperties,
+      );
+    const context = JSON.stringify(["Builder", "Agent-Native"]);
+
+    expect(chip("status", "Status", "does_not_equal", "done")).toBe(
+      "Status: is not done",
+    );
+    expect(chip("status", "Status", "contains", "done")).toBe("Status: done");
+    expect(chip("context", "Context", "does_not_equal", context)).toBe(
+      "Context: does not contain Builder, Agent-Native",
+    );
+    expect(chip("context", "Context", "contains", context)).toBe(
+      "Context: Builder, Agent-Native",
+    );
+
+    expect(chip("name", "Name", "contains", "foo")).toBe("Name: foo");
+    expect(chip("name", "Name", "equals", "foo")).toBe("Name: is foo");
+    expect(chip("name", "Name", "does_not_equal", "foo")).toBe(
+      "Name: is not foo",
+    );
+
+    expect(chip("rank", "Rank", "equals", "25")).toBe("Rank: = 25");
+    expect(chip("rank", "Rank", "does_not_equal", "25")).toBe("Rank: ≠ 25");
+    expect(chip("rank", "Rank", "greater_than", "25")).toBe("Rank: > 25");
+    expect(chip("rank", "Rank", "less_than", "25")).toBe("Rank: < 25");
+    expect(chip("rank", "Rank", "greater_than_or_equal", "25")).toBe(
+      "Rank: ≥ 25",
+    );
+    expect(chip("rank", "Rank", "less_than_or_equal", "25")).toBe("Rank: ≤ 25");
+    expect(chip("rank", "Rank", "is_not_empty")).toBe("Rank: is not empty");
+
+    expect(chip("deadline", "Deadline", "equals", "2026-11-01")).toBe(
+      "Deadline: is 2026-11-01",
+    );
+    expect(chip("deadline", "Deadline", "does_not_equal", "2026-11-01")).toBe(
+      "Deadline: is not 2026-11-01",
+    );
+    expect(chip("deadline", "Deadline", "before", "2026-11-01")).toBe(
+      "Deadline: before 2026-11-01",
+    );
+    expect(chip("deadline", "Deadline", "after", "2026-11-01")).toBe(
+      "Deadline: after 2026-11-01",
+    );
+    expect(
+      chip(
+        "deadline",
+        "Deadline",
+        "between",
+        JSON.stringify(["2026-11-01", "2026-11-30"]),
+      ),
+    ).toBe("Deadline: 2026-11-01 to 2026-11-30");
+
+    expect(chip("done", "Done", "is_checked")).toBe("Done: checked");
   });
 
   it("can match any active filter instead of requiring every filter", () => {
@@ -1101,6 +1222,149 @@ describe("Builder source settings helpers", () => {
       message: "Builder push failed. The change remains retryable.",
     });
   });
+
+  it("builds a pushed review from every row's own execution response", () => {
+    const rowSource = (
+      id: string,
+      changeSet: Partial<ContentDatabaseSourceChangeSet> = {},
+    ) =>
+      builderSource({
+        capabilities: {
+          ...builderSource().capabilities,
+          liveWritesEnabled: true,
+        },
+        rows: builderSource().rows.map((row) => ({
+          ...row,
+          id: `row-source-${id}`,
+          databaseItemId: `item-${id}`,
+          documentId: id,
+          sourceDisplayKey: `Builder ${id}`,
+        })),
+        changeSets: [
+          builderChangeSet({
+            id: `change-${id}`,
+            databaseItemId: `item-${id}`,
+            documentId: id,
+            fieldChanges: [],
+            ...changeSet,
+          }),
+        ],
+      });
+    const preparedSecond = rowSource("second");
+    const prepared = [rowSource("first"), preparedSecond];
+    const preparedReview = buildClientBuilderReviewPayload(
+      { ...preparedSecond, rows: prepared.flatMap((source) => source.rows) },
+      prepared.flatMap((source) => source.changeSets),
+    );
+    const pushedRow = (id: string) => ({
+      changeSetId: `change-${id}`,
+      source: rowSource(id, {
+        state: "applied",
+        executions: [
+          builderExecution({ changeSetId: `change-${id}`, state: "succeeded" }),
+        ],
+      }),
+    });
+    const pushedFirst = pushedRow("first");
+    const pushed = [pushedFirst, pushedRow("second")];
+
+    const review = databaseBuilderReviewAfterExecution(preparedReview, pushed);
+
+    expect(
+      review?.rows.map((row) => [
+        row.changeSetId,
+        row.title,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "Builder first", "succeeded"],
+      ["change-second", "Builder second", "succeeded"],
+    ]);
+    expect(review?.result).toMatchObject({
+      status: "succeeded",
+      message: "Pushed to Builder and reconciled locally.",
+    });
+    expect(
+      databaseBuilderReviewAfterExecution(preparedReview, [
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
+      ]),
+    ).toBeNull();
+
+    const skipped = databaseBuilderReviewAfterExecution(
+      preparedReview,
+      pushed.slice(1),
+    );
+    expect(
+      skipped?.rows.map((row) => [row.changeSetId, row.execution?.state]),
+    ).toEqual([
+      [
+        "change-first",
+        preparedReview.rows.find((row) => row.changeSetId === "change-first")
+          ?.execution?.state,
+      ],
+      ["change-second", "succeeded"],
+    ]);
+    expect(skipped?.result.status).toBe("succeeded");
+    expect(skipped?.summary).toBe(preparedReview.summary);
+
+    const failedAfterFirst = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [pushedFirst],
+      "Builder rejected the second entry.",
+    );
+    expect(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual([
+      ["change-first", "succeeded"],
+      [
+        "change-second",
+        preparedReview.rows.find((row) => row.changeSetId === "change-second")
+          ?.execution?.state,
+      ],
+    ]);
+    expect(failedAfterFirst?.result).toEqual({
+      status: "failed",
+      message: "Builder rejected the second entry.",
+    });
+    const unconfirmedSecond = databaseBuilderReviewAfterPartialExecution(
+      preparedReview,
+      [
+        pushedFirst,
+        { changeSetId: "change-second", source: pushedFirst.source },
+      ],
+      "Builder rejected the third entry.",
+    );
+    expect(
+      unconfirmedSecond?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    ).toEqual(
+      failedAfterFirst?.rows.map((row) => [
+        row.changeSetId,
+        row.execution?.state,
+      ]),
+    );
+    expect(unconfirmedSecond?.result.status).toBe("failed");
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [pushedFirst],
+        "Builder execution is already running.",
+      )?.result.status,
+    ).toBe("running");
+    expect(
+      databaseBuilderReviewAfterPartialExecution(
+        preparedReview,
+        [],
+        "Builder rejected the first entry.",
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("database view sorting", () => {
@@ -1342,6 +1606,60 @@ describe("new database item defaults", () => {
     });
   });
 
+  it("gives a new row every value from repeated multi-select and person filters", () => {
+    const pillarsProperty = property("pillars", "Pillars", "multi_select");
+    const ownerProperty = property("owner", "Owner", "person");
+    const statusProperty = property("status", "Status", "select");
+
+    expect(
+      databasePropertyValuesForNewItem(
+        [
+          {
+            key: "pillars",
+            label: "Pillars",
+            operator: "contains",
+            value: "design",
+          },
+          {
+            key: "pillars",
+            label: "Pillars",
+            operator: "contains",
+            value: JSON.stringify(["research", "design"]),
+          },
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: "alice@example.com",
+          },
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: "eric@example.com",
+          },
+          {
+            key: "status",
+            label: "Status",
+            operator: "equals",
+            value: "published",
+          },
+          {
+            key: "status",
+            label: "Status",
+            operator: "equals",
+            value: "draft",
+          },
+        ],
+        [pillarsProperty, ownerProperty, statusProperty],
+      ),
+    ).toEqual({
+      pillars: ["design", "research"],
+      owner: ["alice@example.com", "eric@example.com"],
+      status: "published",
+    });
+  });
+
   it("normalizes option-label equality filters into stable option ids for new rows", () => {
     const options = {
       options: [
@@ -1499,6 +1817,101 @@ describe("new database item defaults", () => {
     ).toEqual({});
   });
 
+  describe("with filter groups", () => {
+    const groupProperties = [
+      property("status", "Status", "select"),
+      property("done", "Done", "checkbox"),
+      property("pillars", "Pillars", "multi_select"),
+    ];
+    const status: DatabaseFilter = {
+      key: "status",
+      label: "Status",
+      operator: "equals",
+      value: "published",
+    };
+    const done: DatabaseFilter = {
+      key: "done",
+      label: "Done",
+      operator: "is_checked",
+      value: "",
+    };
+    const pillars: DatabaseFilter = {
+      key: "pillars",
+      label: "Pillars",
+      operator: "contains",
+      value: "design",
+    };
+
+    it("seeds the rules every row in an And view must match", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            status,
+            { ...done, filterGroupId: "advanced", filterGroupMode: "or" },
+            { ...pillars, filterGroupId: "advanced", filterGroupMode: "or" },
+          ],
+          groupProperties,
+          "and",
+        ),
+      ).toEqual({ status: "published" });
+    });
+
+    it("skips a nested group that combines several rules with Or", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            { ...status, filterGroupId: "advanced", filterGroupMode: "and" },
+            {
+              ...done,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+            {
+              ...pillars,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+          ],
+          groupProperties,
+          "and",
+        ),
+      ).toEqual({ status: "published" });
+    });
+
+    it("seeds through an Any view whose only member is an And group", () => {
+      expect(
+        databasePropertyValuesForNewItem(
+          [
+            { ...status, filterGroupId: "advanced", filterGroupMode: "and" },
+            { ...done, filterGroupId: "advanced", filterGroupMode: "and" },
+            {
+              ...pillars,
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+            // Inactive, so the nested group still has one member.
+            {
+              ...status,
+              value: "",
+              filterGroupId: "advanced-a",
+              parentFilterGroupId: "advanced",
+              filterGroupMode: "or",
+              parentFilterGroupMode: "and",
+            },
+          ],
+          groupProperties,
+          "or",
+        ),
+      ).toEqual({ status: "published", done: true, pillars: ["design"] });
+    });
+  });
+
   it("ignores filters that cannot safely become default row values", () => {
     const createdProperty = {
       ...property("created", "Created", "created_time"),
@@ -1530,6 +1943,55 @@ describe("new database item defaults", () => {
         [property("status", "Status", "select"), createdProperty],
       ),
     ).toEqual({});
+  });
+
+  it("seeds the day a relative date filter names and nothing for ranges", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 23, 30));
+      const dueProperty = property("due", "Due", "date");
+      const titleProperty = property("summary", "Summary", "text");
+      const due = (
+        operator: DatabaseFilter["operator"],
+        value: string,
+      ): DatabaseFilter => ({ key: "due", label: "Due", operator, value });
+
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "today")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-22", includeTime: false } });
+      expect(
+        databasePropertyValuesForNewItem(
+          [due("equals", "tomorrow")],
+          [dueProperty],
+        ),
+      ).toEqual({ due: { start: "2026-10-23", includeTime: false } });
+      for (const filter of [
+        due("on_or_before", "today"),
+        due("on_or_after", "2026-10-22"),
+        due("is_within", "next_7_days"),
+      ]) {
+        expect(
+          databasePropertyValuesForNewItem([filter], [dueProperty]),
+        ).toEqual({});
+      }
+      for (const operator of [
+        "does_not_contain",
+        "starts_with",
+        "ends_with",
+      ] as const) {
+        expect(
+          databasePropertyValuesForNewItem(
+            [{ key: "summary", label: "Summary", operator, value: "Draft" }],
+            [titleProperty],
+          ),
+        ).toEqual({});
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -1803,6 +2265,33 @@ describe("database item preview", () => {
       databasePreviewDocumentId: row.document.id,
       databasePreviewTitle: "Launch brief",
     });
+  });
+
+  it("reports a list view's row layout, and null for default rows", () => {
+    const itemLayout: ContentDatabaseItemLayout = {
+      leading: { kind: "checkbox", propertyId: "done" },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 1 },
+      line3: [],
+      trailing: [],
+    };
+    const state = (
+      activeView: Parameters<typeof databaseNavigationState>[0]["activeView"],
+    ) =>
+      databaseNavigationState({
+        document: { id: "database-doc", title: "Content calendar" },
+        databaseId: "database",
+        activeView,
+        previewItem: null,
+      }).databaseItemLayout;
+
+    expect(
+      state({ id: "list", name: "List", type: "list", itemLayout }),
+    ).toEqual(itemLayout);
+    expect(state({ id: "list", name: "List", type: "list" })).toBeNull();
+    expect(
+      state({ id: "table", name: "Table", type: "table", itemLayout }),
+    ).toBeUndefined();
   });
 
   it("includes source status in navigation state when a database is source-backed", () => {
@@ -2111,23 +2600,33 @@ describe("database item preview", () => {
 
   it("finds the duplicated row returned by a duplicate database item action", () => {
     const alpha = item("alpha", "Alpha", {});
-    const beta = item("beta", "Beta", {});
+    const beta = item("beta", "Beta", { number: 2 });
 
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
         duplicatedItemId: beta.id,
       })?.document.title,
     ).toBe("Beta");
     expect(
       databaseDuplicatedItemFromResponse({
+        items: compactContentDatabaseItems([alpha, beta]),
+        properties,
+        duplicatedItemId: beta.id,
+      }),
+    ).toEqual(beta);
+    expect(
+      databaseDuplicatedItemFromResponse({
         items: [alpha],
+        properties,
         duplicatedItemId: "missing",
       }),
     ).toBeNull();
     expect(
       databaseDuplicatedItemFromResponse({
         items: [alpha, beta],
+        properties,
       }),
     ).toBeNull();
   });
@@ -2149,7 +2648,6 @@ describe("database item preview", () => {
             propertyId: "number",
             name: "Priority",
             type: "number",
-            value: 3,
             text: "3",
           },
           {
@@ -2162,6 +2660,158 @@ describe("database item preview", () => {
         ],
       },
     ]);
+  });
+
+  it("sends a cell's text once and marks text it cuts", () => {
+    const notes = property("notes", "Notes", "text");
+    const status = property("status", "Status", "status", null, {
+      options: [{ id: "opt-doing", name: "Doing", color: "blue" }],
+    });
+    const waiting = property("waiting", "Waiting on", "text");
+    const row: ContentDatabaseItem = {
+      ...item("alpha", "Alpha", {}),
+      properties: [
+        { ...notes, value: "x".repeat(250) },
+        { ...status, value: "opt-doing" },
+        { ...waiting, value: null },
+      ],
+    };
+
+    const [summary] = databaseVisibleItemSummaries(
+      [row],
+      [notes, status, waiting],
+    );
+
+    expect(summary?.properties).toEqual([
+      {
+        propertyId: "notes",
+        name: "Notes",
+        type: "text",
+        text: `${"x".repeat(200)}…`,
+        textTruncated: true,
+      },
+      {
+        propertyId: "status",
+        name: "Status",
+        type: "status",
+        value: "opt-doing",
+        text: "Doing",
+      },
+      { propertyId: "waiting", name: "Waiting on", type: "text", text: "" },
+    ]);
+  });
+
+  it("keeps navigation state for a wide database under its byte budget", () => {
+    const options = ["Not started", "In progress", "Waiting", "Done"].map(
+      (name, index) => ({ id: `opt-${index}`, name, color: "gray" as const }),
+    );
+    const columns = [
+      property("status", "Status", "status", null, { options }),
+      property("area", "Area", "select", null, { options }),
+      property("tags", "Tags", "multi_select", null, { options }),
+      property("rank", "Rank", "number"),
+      property("effort", "Effort", "number"),
+      property("due", "Due", "date"),
+      property("touched", "Last touched", "date"),
+      property("link", "Link", "url"),
+      ...["Next action", "Waiting on", "Notes", "Context", "Outcome"].map(
+        (name, index) => property(`text-${index}`, name, "text"),
+      ),
+    ];
+    const rows = Array.from({ length: 60 }, (_, index) => ({
+      ...item(`row-${index}`, `Task ${index} with a descriptive title`, {}),
+      properties: columns.map((column) => ({
+        ...column,
+        value:
+          column.definition.type === "text"
+            ? `Row ${index} ${"long free-form note text ".repeat(12)}`
+            : column.definition.type === "multi_select"
+              ? ["opt-0", "opt-2"]
+              : column.definition.type === "number"
+                ? index
+                : column.definition.type === "date"
+                  ? { start: "2026-06-01", includeTime: false }
+                  : column.definition.type === "url"
+                    ? `https://example.com/tasks/${index}`
+                    : "opt-1",
+      })),
+    }));
+    const state = databaseNavigationState({
+      document: { id: "database-doc", title: "Tasks" },
+      databaseId: "database",
+      activeView: { id: "default", name: "Table", type: "table" },
+      visibleItems: rows,
+      visibleProperties: columns,
+      visibleItemCount: rows.length,
+      totalItemCount: 230,
+      selectedItems: rows.slice(0, 40),
+      previewItem: null,
+    });
+    const bytes = (value: unknown) =>
+      new TextEncoder().encode(JSON.stringify(value)).length;
+    expect(bytes(state)).toBeGreaterThan(64 * 1024);
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(bytes(fitted)).toBeLessThanOrEqual(
+      DATABASE_NAVIGATION_STATE_MAX_BYTES,
+    );
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(true);
+    expect(DATABASE_NAVIGATION_STATE_MAX_BYTES).toBeLessThan(64 * 1024);
+    expect(fitted.databaseVisibleItems.length).toBeGreaterThan(0);
+    expect(fitted.databaseVisibleItems.length).toBeLessThan(
+      DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    );
+    expect(fitted.databaseVisibleItemLimit).toBe(
+      fitted.databaseVisibleItems.length,
+    );
+    expect(fitted.databaseVisibleItems).toEqual(
+      state.databaseVisibleItems.slice(0, fitted.databaseVisibleItemLimit),
+    );
+    expect(fitted.databaseVisibleItemCount).toBe(60);
+    expect(fitDatabaseNavigationState(fitted)).toBe(fitted);
+  });
+
+  it("drops every row but keeps the view's settings when the settings alone pass the budget", () => {
+    const filters = Array.from({ length: 20 }, (_, index) => ({
+      id: `filter-${index}`,
+      propertyId: "notes",
+      operator: "contains",
+      value: "a long filter value ".repeat(5),
+    }));
+    const state = {
+      databaseActiveFilters: filters,
+      databaseVisibleItems: [{ itemId: "row-0" }, { itemId: "row-1" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state, 512);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(fitted.databaseVisibleItemLimit).toBe(0);
+    expect(fitted.databaseActiveFilters).toBe(filters);
+  });
+
+  it("keeps oversized view settings out of keepalive requests", () => {
+    const state = {
+      databaseActiveFilters: [
+        {
+          propertyId: "notes",
+          value: "x".repeat(DATABASE_NAVIGATION_STATE_MAX_BYTES),
+        },
+      ],
+      databaseVisibleItems: [{ itemId: "row-0" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(false);
   });
 
   it("omits preview row ids from navigation state when no row is open", () => {

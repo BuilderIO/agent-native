@@ -25,15 +25,12 @@ const MAX_HEALTH_BYTES = 64 * 1024;
 const MAX_TRANSIENT_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 10_000;
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_STATUSES = new Set([404, 408, 429, 500, 502, 503, 504]);
 const CALLBACK_PATHS = {
   root: "/_agent-native/google/callback",
-  // This callback is owned by the Slides template, not the framework fleet.
   google_docs: "/_agent-native/google-docs/callback",
 } as const;
 const OPTIONAL_CALLBACK_PATHS = {
-  // Kept as an explicit audit target for deployments that still expose the
-  // legacy provider path; current Google workspace flows use the root relay.
   google_drive: "/_agent-native/connections/oauth/google_drive/callback",
 } as const;
 const ALL_CALLBACK_PATHS = { ...CALLBACK_PATHS, ...OPTIONAL_CALLBACK_PATHS };
@@ -325,7 +322,6 @@ function decodeGoogleAuthError(value: string): string {
   }
 }
 
-/** Classify Google's redirect without following the provider redirect. */
 export function classifyGoogleAuthorizeResponse(
   response: Response,
   redirectUri: string,
@@ -431,12 +427,13 @@ export async function fetchWithRetry(
         retryDelayMilliseconds(response, attempt),
         Math.max(0, deadline - Date.now()),
       );
-      await response.body?.cancel().catch(() => undefined);
       if (Date.now() >= deadline) return response;
       console.warn(
         `Google probe request returned HTTP ${response.status}; retrying in ${Math.ceil(delay / 1000)}s.`,
       );
       await sleep(delay);
+      if (Date.now() >= deadline) return response;
+      await response.body?.cancel().catch(() => undefined);
     } catch (error) {
       lastError = error;
       if (attempt === MAX_TRANSIENT_ATTEMPTS - 1 || Date.now() >= deadline) {
@@ -557,7 +554,6 @@ function advertisedRedirectUri(value: unknown): string | null {
   return `${url.origin}${url.pathname}`;
 }
 
-/** Parse the public health contract without trusting arbitrary response text. */
 export function classifyGoogleHealthResponse(
   response: Response,
   bodyText: string,
@@ -881,8 +877,6 @@ async function run(argv: string[]): Promise<number> {
     HOST_CONCURRENCY,
     async (target) => {
       if (notApplicable.has(target.host)) {
-        // Managed Connect can be absent while identity sign-in remains live;
-        // only the explicit fleet manifest opts a host out of both checks.
         return {
           ...target,
           managedHealth: emptyHealth(

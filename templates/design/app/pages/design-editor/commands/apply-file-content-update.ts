@@ -4,7 +4,7 @@ import type { RefObject } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
-import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
+import { isShaderWriteInFlight } from "@/components/design/shader-source-coordination";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import {
   canWriteCollabText,
@@ -13,11 +13,13 @@ import {
 } from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
 import type { ContentHistoryEntry } from "@/pages/design-editor/history";
+import type { YjsUndoSelectionSnapshot } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import type { FileContentSaveCompletion } from "./save-file-content";
 
 export type ApplyFileContentUpdateResult =
   | ApplyLocalContentUpdateResult
@@ -38,7 +40,9 @@ export interface ApplyFileContentUpdateArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
+      previewOnly?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
       sourceBaseContent?: string;
@@ -46,6 +50,7 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      serverAccepted?: boolean;
     },
   ) => void;
   applyLocalContentUpdate: (
@@ -55,7 +60,9 @@ export interface ApplyFileContentUpdateArgs {
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
       immediateSave?: boolean;
+      awaitSave?: boolean;
       persist?: boolean;
+      previewOnly?: boolean;
       recordHistory?: boolean;
       historyBeforeContent?: string;
       sourceBaseContent?: string;
@@ -63,6 +70,8 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      serverAccepted?: boolean;
+      selectionBefore?: YjsUndoSelectionSnapshot;
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesignRef: RefObject<boolean>;
@@ -80,7 +89,7 @@ export interface ApplyFileContentUpdateArgs {
       immediate?: boolean;
       identityMigrationSourceContent?: string;
     },
-  ) => void;
+  ) => unknown;
   files: DesignFile[];
   getScreenContent: (screenId: string) => string;
   id: string | undefined;
@@ -128,7 +137,9 @@ export function runApplyFileContentUpdate(
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
     immediateSave?: boolean;
+    awaitSave?: boolean;
     persist?: boolean;
+    previewOnly?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;
     sourceBaseContent?: string;
@@ -136,11 +147,11 @@ export function runApplyFileContentUpdate(
     shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
+    serverAccepted?: boolean;
+    selectionBefore?: YjsUndoSelectionSnapshot;
   } = {},
 ): ApplyFileContentUpdateResult {
   if (!canEditDesignRef.current) return { status: "refused" };
-  // Raw whole-document snapshots cannot be safely replayed after a shader
-  // round trip: the callback may belong to a different active Screen by then.
   if (isShaderWriteInFlight(fileId) && !options.shaderWriteCompletion) {
     toast.error(t("designEditor.toasts.saveConflict"), {
       id: `design-source-shader-conflict:${fileId}`,
@@ -170,18 +181,25 @@ export function runApplyFileContentUpdate(
     return { status: "refused" };
   }
   const acceptedContent = prepared.content;
+  const previewOnly =
+    options.previewOnly === true &&
+    options.persist === false &&
+    options.recordHistory === false;
   const needsIdentityMigration = Boolean(options.updatedAt && prepared.changed);
   const identityMigrationSourceContent =
     options.identityMigrationSourceContent ??
     (needsIdentityMigration ? nextContent : undefined);
 
-  acknowledgeAuthoritativeClipboardMutation({
-    fileId,
-    nextContent: acceptedContent,
-    publication: options.clipboardMutation,
-  });
+  if (!previewOnly) {
+    acknowledgeAuthoritativeClipboardMutation({
+      fileId,
+      nextContent: acceptedContent,
+      publication: options.clipboardMutation,
+    });
+  }
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
   if (
     !suppressContentHistoryRef.current &&
     shouldRecordHistory &&
@@ -220,8 +238,6 @@ export function runApplyFileContentUpdate(
       ),
     };
   });
-  // Overview presence owns a live document only for the selected Screen.
-  // A lagging document must receive the server delta before authoring edits.
   const { writeLiveDoc, syncCollab } = resolveScreenCollabSyncTarget({
     fileId,
     overviewPresenceFileId,
@@ -229,7 +245,7 @@ export function runApplyFileContentUpdate(
       !needsIdentityMigration &&
       canWriteCollabText(overviewYdoc, overviewIsSynced, previousContent),
   });
-  if (writeLiveDoc && overviewYdoc) {
+  if (writeLiveDoc && overviewYdoc && !previewOnly && !options.serverAccepted) {
     writeCollabText(
       overviewYdoc,
       overviewYdoc.getText("content"),
@@ -237,23 +253,30 @@ export function runApplyFileContentUpdate(
       TAB_ID,
     );
   }
-  if (options.persist === false && !needsIdentityMigration) {
-    cancelQueuedFileContentSave(fileId);
-  } else {
-    queueFileContentSave(fileId, acceptedContent, {
-      expectedVersionHash: sourceContentHash(
-        needsIdentityMigration
-          ? nextContent
-          : (options.sourceBaseContent ?? previousContent),
-      ),
-      syncCollab,
-      immediate: true,
-      identityMigrationSourceContent,
-    });
+  let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
+  if (!options.serverAccepted) {
+    if (options.persist === false && !needsIdentityMigration) {
+      cancelQueuedFileContentSave(fileId);
+    } else {
+      const completion = queueFileContentSave(fileId, acceptedContent, {
+        expectedVersionHash: sourceContentHash(
+          needsIdentityMigration
+            ? nextContent
+            : (options.sourceBaseContent ?? previousContent),
+        ),
+        syncCollab,
+        immediate: true,
+        identityMigrationSourceContent,
+      });
+      if (completion instanceof Promise) saveCompletion = completion;
+    }
   }
   return {
     status: "accepted",
     content: acceptedContent,
     nodeIdMap: prepared.nodeIdMap,
+    ...(options.awaitSave && saveCompletion instanceof Promise
+      ? { saveCompletion }
+      : {}),
   };
 }

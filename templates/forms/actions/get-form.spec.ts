@@ -81,9 +81,6 @@ describe("get-form action", () => {
   });
 
   it("reports a missing form as a readable 404, not a generic 500", async () => {
-    // A bare `throw new Error` here is indistinguishable from a driver blowup
-    // at the action route, so it is replaced by "Internal server error" and the
-    // caller cannot tell a deleted form from a broken backend.
     sharingMock.resolveAccess.mockResolvedValue(null);
 
     await expect(getForm.run({ id: "missing_form" })).rejects.toMatchObject({

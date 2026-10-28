@@ -9,6 +9,10 @@ import {
 import { cn } from "@/lib/utils";
 
 export type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
+export type TimeProposal = {
+  attendee: NonNullable<CalendarEvent["attendees"]>[number];
+  comment: string;
+};
 
 const TIME_PROPOSAL_COMMENT_RE =
   /\b(proposal|propos(?:e|ed|ing)|new time|different time|another time|reschedul|move (?:it|this)|can we (?:do|move)|could we (?:do|move))\b/i;
@@ -72,16 +76,24 @@ export function RsvpStatusIcon({
   );
 }
 
-export function hasTimeProposal(
+export function getTimeProposals(
   event: Pick<CalendarEvent, "attendees">,
-): boolean {
+): TimeProposal[] {
   const attendees = event.attendees ?? [];
   return attendees
     .filter((attendee) => !attendee.self)
-    .some((attendee) => {
+    .flatMap((attendee) => {
       const comment = attendee.comment?.trim();
-      return !!comment && TIME_PROPOSAL_COMMENT_RE.test(comment);
+      return comment && TIME_PROPOSAL_COMMENT_RE.test(comment)
+        ? [{ attendee, comment }]
+        : [];
     });
+}
+
+export function hasTimeProposal(
+  event: Pick<CalendarEvent, "attendees">,
+): boolean {
+  return getTimeProposals(event).length > 0;
 }
 
 export function EventStatusIcon({

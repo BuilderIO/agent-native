@@ -1,28 +1,32 @@
-import { randomUUID } from "node:crypto";
-
 import {
-  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
 import {
   deleteUploadedFile,
-  uploadFile,
   type FileUploadResult,
 } from "@agent-native/core/file-upload";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
-import { isLoomEmbedBackedRecording } from "../../shared/loom.js";
+import { RECORDING_THUMBNAIL_AT_MS } from "../../shared/agent-context.js";
+import { recordingEmbedProvider } from "../../shared/embed-provider.js";
 import { getDb, schema } from "../db/index.js";
 import {
   loadRecordingMediaBytes,
   type PublicAgentRecording,
 } from "./public-agent-context.js";
+import {
+  claimLease,
+  releaseLease,
+  type RecordingLease,
+} from "./recording-leases.js";
+import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
 import { ownerEmailMatches } from "./recordings.js";
+import { uploadRecordingMedia } from "./upload-recording-media.js";
 import { extractJpegFrame, VideoFrameExtractionError } from "./video-frame.js";
 
-export const RECORDING_THUMBNAIL_AT_MS = 350;
+export { RECORDING_THUMBNAIL_AT_MS };
 
 export type EnsureRecordingThumbnailStatus =
   | "generated"
@@ -31,6 +35,7 @@ export type EnsureRecordingThumbnailStatus =
   | "skipped-not-ready"
   | "skipped-no-media"
   | "skipped-loom-embed"
+  | "skipped-youtube-embed"
   | "skipped-media-fetch"
   | "skipped-frame-extraction"
   | "skipped-upload-failed"
@@ -55,6 +60,18 @@ export interface EnsureRecordingThumbnailResult {
   changed: boolean;
   thumbnailUrl?: string | null;
   detail?: string;
+  /** The media fetch failed on storage or the network, not on this recording. */
+  transient?: boolean;
+}
+
+// `RecordingMediaFetchError` carries the HTTP status (502 network, 504
+// timeout); a 404 or a blocked URL is about the recording itself.
+function isTransientMediaFetchError(error: unknown): boolean {
+  const status = (error as { statusCode?: unknown } | null)?.statusCode;
+  return (
+    typeof status === "number" &&
+    (status === 408 || status === 429 || status >= 500)
+  );
 }
 
 type EnsureRecordingThumbnailParams = {
@@ -69,14 +86,10 @@ type EnsureRecordingThumbnailParams = {
 };
 
 const RECORDING_THUMBNAIL_LEASE_MS = 5 * 60 * 1000;
-const RECORDING_THUMBNAIL_LEASE_PREFIX = "recording-thumbnail-lease-";
+const RECORDING_THUMBNAIL_LEASE_PREFIX = "recording-thumbnail:";
 const RECORDING_THUMBNAIL_ASSET_PREFIX = "recording-thumbnail-asset-";
 
-type RecordingThumbnailLease = {
-  key: string;
-  token: string;
-  expiresAt: number;
-};
+type RecordingThumbnailLease = RecordingLease;
 
 type GeneratedThumbnailAsset = {
   url: string;
@@ -92,45 +105,20 @@ function recordingThumbnailAssetKey(recordingId: string): string {
   return `${RECORDING_THUMBNAIL_ASSET_PREFIX}${recordingId}`;
 }
 
-function hasActiveThumbnailLease(
-  value: Record<string, unknown> | null,
-  now: number,
-): boolean {
-  return (
-    typeof value?.token === "string" &&
-    typeof value.expiresAt === "number" &&
-    value.expiresAt > now
-  );
-}
-
-export async function claimRecordingThumbnailLease(
+export function claimRecordingThumbnailLease(
   recordingId: string,
 ): Promise<RecordingThumbnailLease | null> {
-  const key = recordingThumbnailLeaseKey(recordingId);
-  const previous = await readAppState(key);
-  const now = Date.now();
-  if (hasActiveThumbnailLease(previous, now)) return null;
-
-  const lease = {
-    token: randomUUID(),
-    expiresAt: now + RECORDING_THUMBNAIL_LEASE_MS,
-  };
-  if (!(await compareAndSetAppState(key, previous, lease))) return null;
-  return { key, token: lease.token, expiresAt: lease.expiresAt };
+  return claimLease(
+    recordingThumbnailLeaseKey(recordingId),
+    RECORDING_THUMBNAIL_LEASE_MS,
+  );
 }
 
 export async function releaseRecordingThumbnailLease(
   lease: RecordingThumbnailLease,
 ): Promise<void> {
   try {
-    await compareAndSetAppState(
-      lease.key,
-      {
-        token: lease.token,
-        expiresAt: lease.expiresAt,
-      },
-      null,
-    );
+    await releaseLease(lease);
   } catch (error) {
     console.warn("[clips] recording thumbnail lease release failed", {
       error: error instanceof Error ? error.message : String(error),
@@ -175,7 +163,7 @@ async function extractThumbnailFrame(
   } catch (error) {
     if (
       !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_VIDEO"
+      error.code !== "NO_FRAME_AT_TIMESTAMP"
     ) {
       throw error;
     }
@@ -293,10 +281,16 @@ async function cleanupReplacedGeneratedThumbnail(
     ) {
       return;
     }
-    const deleted = await deleteUploadedFile(previousAsset.provider, {
-      url: previousAsset.url,
-      ...(previousAsset.id ? { id: previousAsset.id } : {}),
-    });
+    const deleted =
+      previousAsset.provider === "clips-hosted"
+        ? await deleteStoredMediaUrl(previousAsset.url, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : await deleteUploadedFile(previousAsset.provider, {
+            url: previousAsset.url,
+            ...(previousAsset.id ? { id: previousAsset.id } : {}),
+          });
     if (!deleted) {
       console.warn("[clips] replaced recording thumbnail cleanup unavailable", {
         recordingId,
@@ -334,10 +328,16 @@ async function cleanupUnreferencedThumbnail(
   }
 
   try {
-    const deleted = await deleteUploadedFile(uploaded.provider, {
-      url: uploaded.url,
-      ...(uploaded.id ? { id: uploaded.id } : {}),
-    });
+    const deleted =
+      uploaded.provider === "clips-hosted"
+        ? await deleteStoredMediaUrl(uploaded.url, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : await deleteUploadedFile(uploaded.provider, {
+            url: uploaded.url,
+            ...(uploaded.id ? { id: uploaded.id } : {}),
+          });
     if (!deleted) {
       console.warn(
         "[clips] generated recording thumbnail cleanup unavailable",
@@ -357,14 +357,6 @@ async function cleanupUnreferencedThumbnail(
   return current;
 }
 
-/**
- * Best-effort terminal-status write, independent of the compare-and-set
- * thumbnail update above: a recording with no video (or a Loom-embed-backed
- * recording, which has no local media) will never get a generated thumbnail,
- * so mark it 'none' rather than leaving thumbnail_status stuck at 'pending'
- * forever for the sweeper to keep retrying. Logged and swallowed — this is
- * observability, not the operation the caller asked for.
- */
 async function setThumbnailStatus(
   recordingId: string,
   status: "none" | "failed",
@@ -387,7 +379,6 @@ async function setThumbnailStatus(
   }
 }
 
-/** Called by the post-finalize worker once thumbnail retries are exhausted. */
 export function markThumbnailFailed(
   recordingId: string,
   reason: string,
@@ -395,12 +386,6 @@ export function markThumbnailFailed(
   return setThumbnailStatus(recordingId, "failed", reason);
 }
 
-/**
- * Persist one still thumbnail when the upload path did not already provide
- * one. Supplied frames can arrive before the recording is ready; generated
- * frames wait for playable media. The update is compare-and-set so a user or
- * another upload cannot be overwritten while frame extraction runs.
- */
 async function ensureRecordingThumbnailOnce(
   params: EnsureRecordingThumbnailParams,
 ): Promise<EnsureRecordingThumbnailResult> {
@@ -460,9 +445,11 @@ async function ensureRecordingThumbnailOnce(
         return { recordingId, status: "skipped-no-media", changed: false };
       }
       try {
-        if (isLoomEmbedBackedRecording(recording)) {
-          await setThumbnailStatus(recordingId, "none", "skipped-loom-embed");
-          return { recordingId, status: "skipped-loom-embed", changed: false };
+        const embedProvider = recordingEmbedProvider(recording);
+        if (embedProvider) {
+          const status = `skipped-${embedProvider}-embed` as const;
+          await setThumbnailStatus(recordingId, "none", status);
+          return { recordingId, status, changed: false };
         }
         const media = await loadRecordingMediaBytes(recording);
         bytes = media.bytes;
@@ -477,6 +464,7 @@ async function ensureRecordingThumbnailOnce(
           status: "skipped-media-fetch",
           changed: false,
           detail: error instanceof Error ? error.message : String(error),
+          transient: isTransientMediaFetchError(error),
         };
       }
     }
@@ -512,7 +500,8 @@ async function ensureRecordingThumbnailOnce(
     let uploaded: FileUploadResult | null = null;
     let uploadError: unknown;
     try {
-      uploaded = await uploadFile({
+      uploaded = await uploadRecordingMedia({
+        recordingId,
         data: frame,
         filename: `thumb-${recordingId}.${thumbnailExtension}`,
         mimeType: thumbnailMimeType,

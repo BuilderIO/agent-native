@@ -18,7 +18,7 @@ function stringifyError(error: unknown): string {
   }
 }
 
-function httpStatusFromError(error: unknown): number | undefined {
+export function httpStatusFromError(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined;
   const record = error as Record<string, unknown>;
   const nested =

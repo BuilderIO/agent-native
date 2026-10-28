@@ -1,15 +1,25 @@
-/**
- * `@agent-native/core/testing` — a small barrel of internal symbols that
- * template test suites need direct access to (an in-memory db factory, the
- * local Design/Plan dev bridges). Published so template specs can import these through the package
- * boundary instead of reaching into `packages/core/src/**` with deep
- * relative paths.
- *
- * Keep this list minimal — only add a re-export when a template spec
- * actually needs it.
- */
-
 export { createGetDb } from "./db/create-get-db.js";
+
+export {
+  conformanceMcpConfig,
+  DIRECTORY_PROFILE_MODULE,
+  listMcpCatalogTools,
+  loadTemplateDirectoryProfile,
+  loadTemplateMcpActions,
+  loadTemplateMcpConformance,
+  MCP_CATALOG_MODES,
+  PROVIDER_SCHEMA_RULES,
+  providerSchemaViolations,
+  SCHEMA_PROVIDERS,
+  templateMcpCatalogModes,
+  type McpCatalogMode,
+  type McpDirectoryProfileFixture,
+  type ProviderRuleBasis,
+  type ProviderSchemaRule,
+  type ProviderSchemaViolation,
+  type SchemaProvider,
+  type TemplateMcpConformance,
+} from "./mcp/provider-schema-conformance.js";
 
 export { startLocalPlanBridge } from "./cli/plan-local.js";
 
@@ -18,3 +28,5 @@ export {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "./cli/design-connect.js";
+
+export { assertNoInlineImageBytes } from "./shared/inline-bytes.js";

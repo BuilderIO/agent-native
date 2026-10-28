@@ -6,12 +6,16 @@ import {
 } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
+import { USE_CASE_SLUG_REDIRECTS } from "../app/components/campaign/use-case-redirects";
 import { loader as localeLoader } from "../app/routes/$locale";
+import { loader as localizedUseCaseLoader } from "../app/routes/$locale.use-cases.$slug";
 import { loader as localizedDocsLoader } from "../app/routes/docs.$locale.$slug";
 import { loader as docsSlugLoader } from "../app/routes/docs.$slug";
 import { loader as corePhilosophyLoader } from "../app/routes/docs.core-philosophy";
 import { loader as databaseAdaptersLoader } from "../app/routes/docs.database-adapters";
 import { loader as templatesLoader } from "../app/routes/templates";
+import { loader as useCaseLoader } from "../app/routes/use-cases.$slug";
+import { loadCampaignContent } from "../lib/campaign-content.server";
 
 function captureRedirect(run: () => unknown): Response {
   try {
@@ -20,6 +24,11 @@ function captureRedirect(run: () => unknown): Response {
     return error as Response;
   }
   throw new Error("Expected the route loader to throw a redirect response");
+}
+
+function returnedRedirect(value: unknown): Response {
+  if (value instanceof Response) return value;
+  throw new Error("Expected the route loader to return a redirect response");
 }
 
 async function captureAsyncRedirect(
@@ -96,9 +105,103 @@ describe("public docs redirects", () => {
   });
 });
 
+describe("moved use-case pages", () => {
+  it("redirects every old address to its new page, in every language", () => {
+    for (const [from, to] of Object.entries(USE_CASE_SLUG_REDIRECTS)) {
+      const english = returnedRedirect(
+        useCaseLoader({
+          params: { slug: from },
+        } as Parameters<typeof useCaseLoader>[0]),
+      );
+      expectHtmlRedirect(english, 301, `/use-cases/${to}/`);
+
+      const german = returnedRedirect(
+        localizedUseCaseLoader({
+          params: { locale: "de-de", slug: from },
+          request: new Request(
+            `https://www.agent-native.com/de-de/use-cases/${from}/`,
+          ),
+        } as Parameters<typeof localizedUseCaseLoader>[0]),
+      );
+      expectHtmlRedirect(german, 301, `/de-de/use-cases/${to}/`);
+    }
+  });
+
+  it("redirects only to pages that exist, and never from one", () => {
+    const content = loadCampaignContent();
+    const live = new Set(content.useCases.map((page) => page.slug));
+    for (const [from, to] of Object.entries(USE_CASE_SLUG_REDIRECTS)) {
+      expect(live.has(to), to).toBe(true);
+      expect(live.has(from), from).toBe(false);
+    }
+  });
+});
+
+type NetlifyRedirect = { from: string; to: string; status: number };
+
+function readNetlifyRedirects(): NetlifyRedirect[] {
+  const toml = readFileSync(
+    new URL("../netlify.toml", import.meta.url),
+    "utf8",
+  );
+  return toml
+    .split("[[redirects]]")
+    .slice(1)
+    .map((block) => {
+      const field = (name: string) =>
+        block.match(new RegExp(`^${name}\\s*=\\s*"?([^"\\n]*)"?`, "m"))?.[1];
+      const from = field("from");
+      const to = field("to");
+      const status = Number(field("status"));
+      if (!from || !to || !Number.isInteger(status)) {
+        throw new Error(`Unparseable netlify.toml redirect: ${block.trim()}`);
+      }
+      return { from, to, status };
+    });
+}
+
+// Netlify applies the first matching rule: `:name` matches one path segment
+// and a trailing `*` matches the rest.
+function resolveNetlifyRedirect(
+  rules: NetlifyRedirect[],
+  pathname: string,
+): { to: string; status: number } | undefined {
+  for (const rule of rules) {
+    const params: Record<string, string> = {};
+    const fromSegments = rule.from.split("/");
+    const pathSegments = pathname.split("/");
+    let matched = true;
+    for (let index = 0; index < fromSegments.length; index++) {
+      const pattern = fromSegments[index];
+      if (pattern === "*") {
+        params.splat = pathSegments.slice(index).join("/");
+        break;
+      }
+      const segment = pathSegments[index];
+      if (segment === undefined) {
+        matched = false;
+        break;
+      }
+      if (pattern.startsWith(":")) params[pattern.slice(1)] = segment;
+      else if (pattern !== segment) {
+        matched = false;
+        break;
+      }
+      if (
+        index === fromSegments.length - 1 &&
+        pathSegments.length !== fromSegments.length
+      ) {
+        matched = false;
+      }
+    }
+    if (!matched) continue;
+    const to = rule.to.replace(/:(\w+)/g, (_, name: string) => params[name]);
+    return { to, status: rule.status };
+  }
+  return undefined;
+}
+
 describe("netlify redirect rules", () => {
-  // `:splat` carries the child path's own trailing slash, so appending one
-  // turns `/templates/calendar/` into `/apps/calendar//`.
   it("never appends a slash directly after a splat", () => {
     const toml = readFileSync(
       new URL("../netlify.toml", import.meta.url),
@@ -106,5 +209,45 @@ describe("netlify redirect rules", () => {
     );
 
     expect(toml).not.toMatch(/to\s*=\s*"[^"]*:splat\/"/);
+  });
+
+  it("sends Brain app and template URLs to the Brain docs", () => {
+    const rules = readNetlifyRedirects();
+
+    for (const pathname of [
+      "/apps/brain",
+      "/apps/brain/",
+      "/templates/brain",
+      "/templates/brain/",
+    ]) {
+      expect(resolveNetlifyRedirect(rules, pathname)).toEqual({
+        to: "/docs/template-brain/",
+        status: 301,
+      });
+    }
+    for (const pathname of ["/es-es/apps/brain/", "/es-es/templates/brain"]) {
+      expect(resolveNetlifyRedirect(rules, pathname)).toEqual({
+        to: "/es-es/docs/template-brain/",
+        status: 301,
+      });
+    }
+  });
+
+  it("sends /home to the homepage and keeps other template paths on /apps/", () => {
+    const rules = readNetlifyRedirects();
+
+    expect(resolveNetlifyRedirect(rules, "/home")).toEqual({
+      to: "/",
+      status: 301,
+    });
+    expect(resolveNetlifyRedirect(rules, "/home/")).toEqual({
+      to: "/",
+      status: 301,
+    });
+    expect(resolveNetlifyRedirect(rules, "/templates/mail")).toEqual({
+      to: "/apps/mail",
+      status: 301,
+    });
+    expect(resolveNetlifyRedirect(rules, "/apps/mail/")).toBeUndefined();
   });
 });

@@ -30,8 +30,17 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: () => "author@example.com",
   getRequestUserName: () => "Authenticated Profile Name",
 }));
+vi.mock("./_content-webhooks.js", () => ({
+  enqueueCommentWebhooks: vi.fn(async () => 0),
+  scheduleContentWebhookDelivery: vi.fn(),
+}));
 vi.mock("../server/lib/comment-notifications.js", () => ({
   notifyDocumentComment: vi.fn(async () => false),
+}));
+const mockListProperties = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
+vi.mock("./_property-utils.js", () => ({
+  listPropertiesForDocument: (...args: unknown[]) =>
+    mockListProperties(...args),
 }));
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
@@ -108,6 +117,70 @@ beforeEach(() => {
   ];
 });
 
+describe("add-comment Property target", () => {
+  it("records the Property's name and value as the reader sees it", async () => {
+    mockListProperties.mockResolvedValueOnce([
+      {
+        definition: {
+          id: "status",
+          name: "Status",
+          type: "status",
+          options: { options: [{ id: "opt-blocked", name: "Blocked" }] },
+        },
+        value: "opt-blocked",
+        editable: true,
+      },
+    ]);
+    await run({
+      documentId: "doc-1",
+      databaseId: "db-1",
+      propertyId: "status",
+      content: "Unblocked yesterday",
+    });
+    expect(mockListProperties).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "owner@example.com" }),
+      "db-1",
+    );
+    expect(state.inserted[0]).toMatchObject({
+      quotedText: null,
+      propertyId: "status",
+      propertyName: "Status",
+      propertyValue: "Blocked",
+    });
+  });
+
+  it("rejects a Property that isn't on the Page, before saving", async () => {
+    await expect(
+      run({ documentId: "doc-1", propertyId: "missing", content: "Hm" }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      errorCode: "comment_property_not_found",
+    });
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it("rejects a Property comment on a reply or with quoted text", async () => {
+    for (const extra of [
+      { threadId: "root-1", parentId: "root-1" },
+      { quotedText: "Ship it" },
+    ]) {
+      await expect(
+        run({
+          documentId: "doc-1",
+          propertyId: "status",
+          content: "Hm",
+          ...extra,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        errorCode: "comment_property_target_conflict",
+      });
+    }
+    expect(mockListProperties).not.toHaveBeenCalled();
+    expect(state.inserted).toHaveLength(0);
+  });
+});
+
 describe("add-comment reply boundary", () => {
   it("adds a reply only when parent and thread match the document", async () => {
     const result = await run({
@@ -124,6 +197,72 @@ describe("add-comment reply boundary", () => {
       threadId: "root-1",
       parentId: "root-1",
     });
+  });
+
+  it("rejects a mention whose @name is not in the text, before saving or notifying", async () => {
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Samuel check this?",
+        mentions: JSON.stringify([
+          { kind: "person", email: "sam@example.com", name: "Sam" },
+        ]),
+      }),
+    ).rejects.toThrow("@Sam");
+    expect(state.inserted).toHaveLength(0);
+    expect(notifyDocumentComment).not.toHaveBeenCalled();
+
+    await run({
+      documentId: "doc-1",
+      content: "Can @Sam check this?",
+      mentions: JSON.stringify([
+        { kind: "person", email: "sam@example.com", name: "Sam" },
+      ]),
+    });
+    expect(notifyDocumentComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mentions: [{ kind: "person", email: "sam@example.com", name: "Sam" }],
+      }),
+    );
+  });
+
+  it("rejects malformed mention metadata as the caller's error", async () => {
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Sam check this?",
+        mentions: JSON.stringify([{ kind: "person", name: "Sam" }]),
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Comment mention email is required",
+    });
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it("saves and notifies both people who share a name, and rejects one no @name reaches", async () => {
+    const first = { kind: "person", email: "a@example.com", name: "Sam" };
+    const second = { kind: "person", email: "b@example.com", name: "Sam" };
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Sam check this?",
+        mentions: JSON.stringify([first, second]),
+      }),
+    ).rejects.toThrow("@Sam (b@example.com)");
+    expect(notifyDocumentComment).not.toHaveBeenCalled();
+
+    await run({
+      documentId: "doc-1",
+      content: "Can @Sam and @Sam check this?",
+      mentions: JSON.stringify([first, second]),
+    });
+    expect(state.inserted[0]?.mentionsJson).toBe(
+      JSON.stringify([first, second]),
+    );
+    expect(notifyDocumentComment).toHaveBeenCalledWith(
+      expect.objectContaining({ mentions: [first, second] }),
+    );
   });
 
   it("derives authorship from the authenticated caller", async () => {
@@ -231,6 +370,26 @@ describe("comment submission receipts", () => {
       "commenter",
       expect.objectContaining({ transaction: expect.anything() }),
     );
+  });
+  it("replays a saved Property comment after its Property left the Page", async () => {
+    mockListProperties.mockResolvedValueOnce([
+      {
+        definition: { id: "status", name: "Status", type: "text" },
+        value: "Blocked",
+        editable: true,
+      },
+    ]);
+    const property = { ...input, propertyId: "status", databaseId: "db-1" };
+    await run(property);
+    expect(await run(property)).toMatchObject({
+      id: clientOperationId,
+      replayed: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+    // A retry naming another Property that isn't there is still refused.
+    await expect(
+      run({ ...property, propertyId: "priority" }),
+    ).rejects.toMatchObject({ errorCode: "comment_property_not_found" });
   });
   it("preserves original submission provenance when a retry comes from a new run", async () => {
     await run(input, { caller: "tool", runId: "original-run" });

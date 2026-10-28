@@ -1,13 +1,14 @@
 import {
   isResolvedEngineUsableForRequest,
+  readDefaultAgentEngineSetting,
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
-import {
-  readDeployCredentialEnv,
-  runWithRequestContext,
-} from "@agent-native/core/server";
-import { getSetting } from "@agent-native/core/settings";
+import type {
+  AI_SDK_MODEL_CONFIG,
+  BUILDER_MODEL_CONFIG,
+} from "@agent-native/core/agent/model-config";
+import { runWithRequestContext } from "@agent-native/core/server";
 
 export interface AutomationModelSettings {
   engine?: string;
@@ -15,14 +16,23 @@ export interface AutomationModelSettings {
 }
 
 export const DEFAULT_AUTOMATION_ENGINE = "builder";
-export const DEFAULT_AUTOMATION_MODEL = "gpt-5-6-luna";
-export const TYPESAFE_AUTOMATION_ENGINE = "typesafe";
-export const TYPESAFE_AUTOMATION_MODEL = "jev-latest";
+// Each id is typed against its engine's catalog so a retired id fails
+// typecheck instead of every automation on that engine.
+export const DEFAULT_AUTOMATION_MODEL =
+  "gpt-6-luna" satisfies (typeof BUILDER_MODEL_CONFIG.supportedModels)[number];
 
 const CHEAP_MODEL_CANDIDATES: AutomationModelSettings[] = [
   { engine: DEFAULT_AUTOMATION_ENGINE, model: DEFAULT_AUTOMATION_MODEL },
-  { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
-  { engine: "ai-sdk:openrouter", model: "openai/gpt-5.6-luna" },
+  {
+    engine: "ai-sdk:openai",
+    model:
+      "gpt-6-luna" satisfies (typeof AI_SDK_MODEL_CONFIG.openai.supportedModels)[number],
+  },
+  {
+    engine: "ai-sdk:openrouter",
+    model:
+      "openai/gpt-6-luna" satisfies (typeof AI_SDK_MODEL_CONFIG.openrouter.supportedModels)[number],
+  },
 ];
 
 function isUnavailableEngineError(error: unknown): boolean {
@@ -59,21 +69,9 @@ async function resolveEngineDefaultModel(
   });
 }
 
-/**
- * Prefer Luna for background text classification when a Luna-capable provider
- * is actually configured. An app's explicit automation setting always wins;
- * this is only the no-override default.
- */
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
-  if (readDeployCredentialEnv("TYPESAFE_API_KEY")) {
-    return {
-      engine: TYPESAFE_AUTOMATION_ENGINE,
-      model: TYPESAFE_AUTOMATION_MODEL,
-    };
-  }
-
   for (const candidate of CHEAP_MODEL_CANDIDATES) {
     if (
       candidate.engine &&
@@ -83,7 +81,7 @@ export async function resolveDefaultAutomationModel(
     }
   }
 
-  const agentEngine = (await getSetting("agent-engine")) as {
+  const agentEngine = (await readDefaultAgentEngineSetting()) as {
     engine?: string;
     model?: string;
   } | null;
@@ -99,12 +97,9 @@ export async function resolveDefaultAutomationModel(
     };
   }
 
-  // Leave engine selection to resolveEngine so a configured non-Luna provider
-  // remains usable when none of the preferred Luna engines is connected.
   return {};
 }
 
-/** Text generation is only needed when feedback rewrites a rule. */
 export async function resolveTextAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
@@ -117,7 +112,7 @@ export async function resolveTextAutomationModelSettings(
     }
   }
 
-  const agentEngine = (await getSetting("agent-engine")) as {
+  const agentEngine = (await readDefaultAgentEngineSetting()) as {
     engine?: string;
     model?: string;
   } | null;
@@ -137,6 +132,8 @@ export async function resolveAutomationModelSettings(
   ownerEmail: string,
   settings: AutomationModelSettings | null | undefined,
 ): Promise<AutomationModelSettings> {
+  if (settings?.engine && settings.model) return settings;
+
   const defaults = await resolveDefaultAutomationModel(ownerEmail);
   if (!settings?.engine && !settings?.model) return defaults;
 

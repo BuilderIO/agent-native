@@ -1,8 +1,3 @@
-// Integration tests for the server-side CRM query. Boots a real PGlite
-// database, runs the actual migrations, and seeds attribute values through the
-// real bitemporal writer — the whole point of this file is that filters, sorts,
-// and cursors are proven against SQL rather than against a stub.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -152,7 +147,6 @@ async function setValue(
   );
 }
 
-// Attributes and records shared by every test below.
 let stage: CrmWritableAttribute;
 let arr: CrmWritableAttribute;
 let amount: CrmWritableAttribute;
@@ -264,7 +258,6 @@ beforeAll(async () => {
   await setValue(acme, stage, "Won");
   await setValue(globex, stage, "Discovery");
   await setValue(initech, stage, "Won");
-  // hooli deliberately has no stage value — it is the is-empty case.
 
   await setValue(acme, arr, 120_000);
   await setValue(globex, arr, 40_000);
@@ -293,10 +286,6 @@ afterAll(() => {
 });
 
 describe("record summary", () => {
-  // The board drags a record between columns with `update-crm-record`, which
-  // refuses a native local write without the record's current revision. The
-  // summary is that board's only read, so dropping this column silently breaks
-  // every drag.
   it("carries the record revision, reporting an absent one as null", async () => {
     const summaries = await run({ limit: 50 });
     expect(
@@ -369,7 +358,6 @@ describe("condition compilation", () => {
     });
     expect(notContains).toContain(globex);
     expect(notContains).not.toContain(acme);
-    // Records with no value at all are "not containing" it.
     expect(notContains).toContain(hooli);
 
     await expect(
@@ -544,7 +532,6 @@ describe("condition compilation", () => {
       }),
     ).resolves.toEqual([acme]);
 
-    // "smb" must not match Acme's ["enterprise","expansion"] set.
     await expect(
       ids({
         limit: 50,
@@ -571,7 +558,6 @@ describe("condition compilation", () => {
       }),
     ).rejects.toMatchObject({ code: "crm-filter-condition", statusCode: 422 });
 
-    // The option family has no substring condition at all…
     await expect(
       ids({
         limit: 50,
@@ -584,8 +570,6 @@ describe("condition compilation", () => {
       }),
     ).rejects.toMatchObject({ code: "crm-filter-condition" });
 
-    // …and a multi attribute whose family does have one still refuses it,
-    // because the stored value is the whole set rather than one string.
     await expect(
       ids({
         limit: 50,
@@ -748,8 +732,6 @@ describe("sorting", () => {
         { field: "displayName", direction: "asc" },
       ],
     });
-    // Acme 120k, then the 40k pair ordered by name, then the record with no
-    // value at all — NULLs last in both dialects.
     expect(byArrThenName).toEqual([acme, globex, initech, hooli]);
 
     const ascending = await ids({
@@ -844,11 +826,90 @@ describe("cursor pagination", () => {
     const withoutTotal = await run({ limit: 2 });
     expect(withoutTotal).not.toHaveProperty("totalEstimate");
   });
+
+  it("leaves rows withheld from the current scope out of totalEstimate, beyond the page too", async () => {
+    await createRecord("Zzz Stale Scope Co", {
+      accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-total-key" }),
+    });
+    const withheldOnPage = await run({
+      limit: 10,
+      includeTotal: true,
+      query: "Zzz Stale Scope Co",
+    });
+    expect(withheldOnPage.records).toHaveLength(0);
+    expect(withheldOnPage.totalEstimate).toBe(0);
+
+    // The stale row sorts last, so this page never scans it.
+    const pageOfOne = await run({
+      limit: 1,
+      includeTotal: true,
+      sort: [{ field: "displayName", direction: "asc" }],
+    });
+    expect(pageOfOne.totalEstimate).toBe(4);
+  });
+
+  it("fills the page past a withheld row instead of returning it short", async () => {
+    await createRecord("Zfill A Withheld", {
+      accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-fill-key" }),
+    });
+    const visible = await createRecord("Zfill B Visible");
+    const result = await run({
+      limit: 1,
+      query: "Zfill",
+      sort: [{ field: "displayName", direction: "asc" }],
+    });
+    expect(result.records.map((record) => record.id)).toEqual([visible]);
+    expect(result.complete).toBe(true);
+  });
+
+  it("keeps the cursor small when sort values are long", async () => {
+    const long = "Zlong ".padEnd(2_000, "x");
+    const first = await createRecord(`${long}1`);
+    const second = await createRecord(`${long}2`);
+    const sort = [{ field: "displayName" as const, direction: "asc" as const }];
+    const page1 = await run({ limit: 1, query: "Zlong", sort });
+    expect(page1.records.map((record) => record.id)).toEqual([first]);
+    expect(page1.nextCursor!.length).toBeLessThan(1_000);
+    const page2 = await run({
+      limit: 1,
+      query: "Zlong",
+      sort,
+      cursor: page1.nextCursor,
+    });
+    expect(page2.records.map((record) => record.id)).toEqual([second]);
+  });
+
+  it("resumes past withheld rows without revealing them in the cursor", async () => {
+    const withheld: string[] = [];
+    // Enough withheld rows to exhaust every fill batch for a one-row page.
+    for (let index = 0; index < 10; index += 1) {
+      withheld.push(
+        await createRecord(`Zcur A${index} Withheld`, {
+          accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-cur-key" }),
+        }),
+      );
+    }
+    const visible = await createRecord("Zcur B Visible");
+    const sort = [{ field: "displayName" as const, direction: "asc" as const }];
+    const first = await run({ limit: 1, query: "Zcur", sort });
+    expect(first.records).toHaveLength(0);
+    expect(first.nextCursor).toBeTruthy();
+    for (const id of withheld) expect(first.nextCursor).not.toContain(id);
+    expect(first.nextCursor).not.toContain("Withheld");
+
+    const second = await run({
+      limit: 1,
+      query: "Zcur",
+      sort,
+      cursor: first.nextCursor,
+    });
+    expect(second.records.map((record) => record.id)).toEqual([visible]);
+  });
 });
 
 describe("relative date tokens", () => {
   it("resolves day-boundary ranges in UTC", () => {
-    const now = new Date("2026-07-26T12:00:00.000Z"); // a Sunday
+    const now = new Date("2026-07-26T12:00:00.000Z");
     expect(query.resolveRelativeDateToken("today", now)).toEqual({
       from: "2026-07-26",
       to: "2026-07-27",
@@ -866,5 +927,86 @@ describe("relative date tokens", () => {
       to: "2026-07-29",
     });
     expect(query.resolveRelativeDateToken("whenever", now)).toBeNull();
+  });
+});
+
+describe("recordsInCurrentScope", () => {
+  const row = (objectType: string, scope: object = SCOPE) => ({
+    connectionId: CONNECTION,
+    workspaceConnectionId: null,
+    provider: "native",
+    objectType,
+    accessScopeJson: JSON.stringify(scope),
+  });
+
+  it("surfaces a resolver failure instead of withholding every row", async () => {
+    await expect(
+      query.recordsInCurrentScope([row("accounts")], async () => {
+        throw new Error("provider timed out");
+      }),
+    ).rejects.toThrow(/provider timed out/);
+  });
+
+  it("verifies every scope on a page that spans more than one batch", async () => {
+    const rows = Array.from({ length: 45 }, (_, index) => row(`type_${index}`));
+    const checked: string[] = [];
+    const visible = await query.recordsInCurrentScope(rows, async (target) => {
+      checked.push(target.objectType);
+      return target.objectType === "type_44" ? null : SCOPE;
+    });
+    expect(checked).toHaveLength(45);
+    expect(visible).toHaveLength(44);
+  });
+});
+
+describe("listCrmTasks", () => {
+  async function createTask(title: string, dueAt: string, recordId?: string) {
+    const id = `task_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmTasks)
+      .values({
+        id,
+        recordId: recordId ?? null,
+        title,
+        dueAt,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+    return id;
+  }
+
+  it("withholds a task whose linked record is out of the current scope and fills the page past it", async () => {
+    const { listCrmTasks } = await import("../db/crm-store.js");
+    const stale = await createRecord("Task Stale Record", {
+      accessScopeJson: JSON.stringify({ ...SCOPE, key: "stale-task-key" }),
+    });
+    const visible = await createRecord("Task Visible Record");
+    await createTask("Stale follow-up", "2099-12-03", stale);
+    const linked = await createTask("Visible follow-up", "2099-12-02", visible);
+    const standalone = await createTask("Standalone follow-up", "2099-12-01");
+
+    const first = await asUser(OWNER, () =>
+      listCrmTasks({ limit: 1 }, { resolveScope: async () => SCOPE }),
+    );
+    expect(first.tasks.map((task) => task.id)).toEqual([linked]);
+    expect(first.tasks[0]).not.toHaveProperty("accessScopeJson");
+
+    const second = await asUser(OWNER, () =>
+      listCrmTasks(
+        { limit: 1, cursor: first.nextCursor },
+        { resolveScope: async () => SCOPE },
+      ),
+    );
+    expect(second.tasks.map((task) => task.id)).toEqual([standalone]);
+
+    const forStale = await asUser(OWNER, () =>
+      listCrmTasks(
+        { limit: 10, recordId: stale },
+        { resolveScope: async () => SCOPE },
+      ),
+    );
+    expect(forStale.tasks).toHaveLength(0);
   });
 });

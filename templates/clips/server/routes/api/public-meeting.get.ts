@@ -1,11 +1,3 @@
-/**
- * GET /api/public-meeting?id=<meetingId>
- *
- * Access-checked meeting notes for the anonymous share surface. Meeting access
- * governs the payload; the linked transcript is an explicit, default-off part
- * of that share and is omitted unless the meeting owner enables it.
- */
-
 import {
   getSession,
   runWithRequestContext,
@@ -30,6 +22,7 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { loadMeetingRecordingContent } from "../../lib/meeting-recording-access.js";
 
 interface Bullet {
   text: string;
@@ -78,8 +71,8 @@ export default defineEventHandler(async (event) => {
 
   const session = await getSession(event).catch(() => null);
   const accessContext = {
-    userEmail: session?.email,
-    orgId: session?.orgId,
+    ...(session?.email ? { userEmail: session.email } : {}),
+    ...(session?.orgId ? { orgId: session.orgId } : {}),
   };
 
   return runWithRequestContext(accessContext, async () => {
@@ -102,7 +95,7 @@ export default defineEventHandler(async (event) => {
     }
 
     db ??= getDb();
-    const [participants, actionItems, transcriptRows] = await Promise.all([
+    const [participants, actionItems, linked] = await Promise.all([
       db
         .select({
           email: schema.meetingParticipants.email,
@@ -120,25 +113,12 @@ export default defineEventHandler(async (event) => {
         })
         .from(schema.meetingActionItems)
         .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-      meeting.shareTranscript && meeting.recordingId
-        ? db
-            .select({
-              status: schema.recordingTranscripts.status,
-              language: schema.recordingTranscripts.language,
-              fullText: schema.recordingTranscripts.fullText,
-              failureReason: schema.recordingTranscripts.failureReason,
-              segmentsJson: schema.recordingTranscripts.segmentsJson,
-              updatedAt: schema.recordingTranscripts.updatedAt,
-            })
-            .from(schema.recordingTranscripts)
-            .where(
-              eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
-            )
-            .limit(1)
-        : Promise.resolve([]),
+      meeting.shareTranscript
+        ? loadMeetingRecordingContent(meeting, session?.email)
+        : Promise.resolve(null),
     ]);
 
-    const transcript = transcriptRows[0] ?? null;
+    const transcript = linked?.transcript ?? null;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
     const transcriptSegments = transcript
       ? normalizeTranscriptSegments({
@@ -148,9 +128,6 @@ export default defineEventHandler(async (event) => {
       : [];
     const role = access.role;
 
-    // The owner's email is only safe to disclose here when it's already
-    // public via the attendee list — an unauthenticated viewer must never
-    // learn an account email that isn't otherwise visible on this page.
     const ownerEmailIsPublic = participants.some(
       (participant) =>
         participant.email.trim().toLowerCase() ===

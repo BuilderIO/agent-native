@@ -1,4 +1,7 @@
-import type { BrowserContext } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
+
+import { LUNA_OPENAI_MODEL } from "./chat";
+import { raceWithTimeout } from "./deadline";
 
 /**
  * Install the dedicated e2e OpenAI key for the signed-in identity.
@@ -20,8 +23,11 @@ const ENGINE_STATUS_ROUTE = "/_agent-native/agent-engine/status";
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
-const OPENAI_E2E_MODEL = "gpt-5.6-luna";
 const OPENAI_VALIDATION_TIMEOUT_MS = 15_000;
+// Each in-page fetch is aborted by its own signal; the outer bound covers the
+// page itself freezing, which an abort signal inside it cannot.
+const IN_PAGE_FETCH_TIMEOUT_MS = 30_000;
+const INSTALL_EVALUATE_TIMEOUT_MS = 75_000;
 
 export type KeySource = "dedicated" | "shared";
 
@@ -106,7 +112,6 @@ export function isConfirmedOpenAiEngineStatus(
   }
 }
 
-/** Validate the exact credential once before installing it on any beta host. */
 export async function validateOpenAiKey(apiKey: string): Promise<void> {
   let response: Response;
   try {
@@ -140,7 +145,7 @@ export async function validateOpenAiKey(apiKey: string): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_E2E_MODEL,
+        model: LUNA_OPENAI_MODEL,
         input: "Reply with OK.",
         max_output_tokens: 16,
         store: false,
@@ -149,29 +154,47 @@ export async function validateOpenAiKey(apiKey: string): Promise<void> {
     });
   } catch (error) {
     throw new Error(
-      `Could not validate the selected OpenAI credential for ${OPENAI_E2E_MODEL}: ${error instanceof Error ? error.message : String(error)}`,
+      `Could not validate the selected OpenAI credential for ${LUNA_OPENAI_MODEL}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
   if (execution.ok) return;
   if (execution.status === 401 || execution.status === 403) {
     throw new Error(
-      `OpenAI rejected the selected credential for ${OPENAI_E2E_MODEL} (HTTP ${execution.status}).`,
+      `OpenAI rejected the selected credential for ${LUNA_OPENAI_MODEL} (HTTP ${execution.status}).`,
     );
   }
   throw new Error(
-    `OpenAI could not validate the selected credential for ${OPENAI_E2E_MODEL} (HTTP ${execution.status}).`,
+    `OpenAI could not validate the selected credential for ${LUNA_OPENAI_MODEL} (HTTP ${execution.status}).`,
   );
 }
 
-/**
- * POST the key from inside a loaded page on the target origin. Same-origin is
- * required: the framework rejects a cross-origin credential write.
- */
+// The Chat app can hard-navigate right after DOMContentLoaded, which destroys
+// the evaluation context mid-request. The install is an idempotent upsert, so
+// it is safe to settle the navigation and run it again on the page that loaded.
+async function withNavigationRetry<T>(
+  page: Pick<Page, "waitForLoadState">,
+  run: () => Promise<T>,
+  attempts = 3,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const destroyed =
+        error instanceof Error &&
+        error.message.includes("Execution context was destroyed");
+      if (!destroyed || attempt >= attempts) throw error;
+      await page.waitForLoadState("domcontentloaded");
+    }
+  }
+}
+
 export async function installOpenAiKey(
   context: BrowserContext,
   origin: string,
   apiKey: string,
+  evaluateTimeoutMs = INSTALL_EVALUATE_TIMEOUT_MS,
 ): Promise<KeyInstallResult> {
   const page = await context.newPage();
   try {
@@ -179,39 +202,48 @@ export async function installOpenAiKey(
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
-    const result = await page.evaluate(
-      async ([route, statusRoute, key, baseUrl]) => {
-        const response = await fetch(route, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            provider: "openai",
-            value: key,
-            baseUrl,
-            scope: "user",
-          }),
-        });
-        const install = {
-          status: response.status,
-          body: (await response.text()).slice(0, 400),
-        };
-        const runtime = await fetch(statusRoute, {
-          cache: "no-store",
-        });
-        return {
-          ...install,
-          runtimeStatus: {
-            status: runtime.status,
-            body: (await runtime.text()).slice(0, 400),
-          },
-        };
-      },
-      [
-        KEY_ROUTE,
-        ENGINE_STATUS_ROUTE,
-        apiKey,
-        OPENAI_DEFAULT_BASE_URL,
-      ] as const,
+    const attemptInstall = () =>
+      page.evaluate(
+        async ([route, statusRoute, key, baseUrl, timeoutMs]) => {
+          const response = await fetch(route, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              provider: "openai",
+              value: key,
+              baseUrl,
+              scope: "user",
+            }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          const install = {
+            status: response.status,
+            body: (await response.text()).slice(0, 400),
+          };
+          const runtime = await fetch(statusRoute, {
+            cache: "no-store",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          return {
+            ...install,
+            runtimeStatus: {
+              status: runtime.status,
+              body: (await runtime.text()).slice(0, 400),
+            },
+          };
+        },
+        [
+          KEY_ROUTE,
+          ENGINE_STATUS_ROUTE,
+          apiKey,
+          OPENAI_DEFAULT_BASE_URL,
+          IN_PAGE_FETCH_TIMEOUT_MS,
+        ] as const,
+      );
+    const result = await raceWithTimeout(
+      `Installing the OpenAI key on ${origin}`,
+      evaluateTimeoutMs,
+      withNavigationRetry(page, attemptInstall),
     );
     return {
       installed:

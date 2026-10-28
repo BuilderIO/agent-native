@@ -7,14 +7,9 @@ export type RecordingSidePanelProps = Omit<
   "children"
 > & {
   children: ReactNode;
-  /** The shared viewer tab list rendered at the top of the panel. */
   tabs: ReactNode;
 };
 
-/**
- * Shared recording viewer rail. Both authenticated and public viewers use the
- * same frame so access differences never turn into a second visual language.
- */
 export function RecordingSidePanel({
   children,
   tabs,

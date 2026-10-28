@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -55,6 +56,12 @@ export default defineAction({
     canonicalLogoAssetId,
   }) => {
     await assertCanApprove(id, "Editing brand kit settings");
+    const libraryEditorAccess = accessFilter(
+      schema.assetLibraries,
+      schema.assetLibraryShares,
+      undefined,
+      "editor",
+    );
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
@@ -67,7 +74,7 @@ export default defineAction({
       const [library] = await getDb()
         .select({ settings: schema.assetLibraries.settings })
         .from(schema.assetLibraries)
-        .where(eq(schema.assetLibraries.id, id))
+        .where(and(eq(schema.assetLibraries.id, id), libraryEditorAccess))
         .limit(1);
       const previousSettings = parseJson<Record<string, unknown>>(
         library?.settings,
@@ -94,7 +101,7 @@ export default defineAction({
     await getDb()
       .update(schema.assetLibraries)
       .set(updates)
-      .where(eq(schema.assetLibraries.id, id));
+      .where(and(eq(schema.assetLibraries.id, id), libraryEditorAccess));
     return { id, updated: true };
   },
 });

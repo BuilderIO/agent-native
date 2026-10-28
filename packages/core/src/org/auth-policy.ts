@@ -1,6 +1,7 @@
+import { getCurrentAdapter } from "better-auth";
+
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
-import { invalidateSessionEmailCache } from "../server/session-email-cache.js";
 
 export type RequiredAuthProvider = "google" | `sso:${string}` | null;
 export type ResolvedRequiredAuthProvider = RequiredAuthProvider | "conflict";
@@ -46,7 +47,6 @@ function isMissingOrgAuthPolicySchema(error: unknown): boolean {
   );
 }
 
-/** Resolve the active auth requirement for an organization. */
 export async function getRequiredAuthProviderForOrg(
   orgId: string,
 ): Promise<RequiredAuthProvider> {
@@ -60,8 +60,6 @@ export async function getRequiredAuthProviderForOrg(
       args: [orgId],
     });
   } catch (error) {
-    // Apps that do not mount the org plugin have no policy surface. This is a
-    // known absence, while every other read failure must remain loud.
     if (isMissingOrgAuthPolicySchema(error)) return null;
     throw error;
   }
@@ -110,8 +108,6 @@ export async function getRequiredAuthProviderForEmail(
       args: [normalizedEmail, normalizedEmail, domain],
     });
   } catch (error) {
-    // The org module is optional for custom-auth apps. Do not turn its absent
-    // tables into an auth outage; unreadable existing policy data still throws.
     if (isMissingOrgAuthPolicySchema(error)) return null;
     throw error;
   }
@@ -133,13 +129,25 @@ export async function isGoogleSignInRequiredForEmail(
   return (await getRequiredAuthProviderForEmail(email)) === "google";
 }
 
-/** Resolve the email used by Better Auth's session lifecycle hook. */
-export async function getAuthEmailForUserId(userId: string): Promise<string> {
-  const result = await getDbExec().execute({
-    sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
-    args: [userId],
-  });
-  const email = result.rows[0]?.email;
+export async function getAuthEmailForUserId(
+  userId: string,
+  adapter?: Parameters<typeof getCurrentAdapter>[0],
+): Promise<string> {
+  let email: unknown;
+  if (adapter) {
+    const user = await (
+      await getCurrentAdapter(adapter)
+    ).findOne<{
+      email: string;
+    }>({ model: "user", where: [{ field: "id", value: userId }] });
+    email = user?.email;
+  } else {
+    const result = await getDbExec().execute({
+      sql: 'SELECT email FROM "user" WHERE id = ? LIMIT 1',
+      args: [userId],
+    });
+    email = result.rows[0]?.email;
+  }
   if (typeof email !== "string" || !email) {
     throw new Error(`Better Auth user email not found: ${userId}`);
   }
@@ -154,10 +162,6 @@ function isMissingLegacySessionTable(error: unknown): boolean {
   );
 }
 
-/**
- * Enable or disable an org auth requirement. Enabling revokes every current
- * session in both auth stores before the request returns.
- */
 export async function setRequiredAuthProvider(
   orgId: string,
   provider: RequiredAuthProvider,
@@ -225,9 +229,6 @@ export async function setRequiredAuthProvider(
   } catch (error) {
     if (!isMissingLegacySessionTable(error)) throw error;
   }
-  // Revoking a whole org's sessions must land immediately, not after the
-  // resolution cache's TTL.
-  invalidateSessionEmailCache();
 
   return {
     revokedBetterAuthSessions: Number(betterAuthResult.rowsAffected ?? 0),

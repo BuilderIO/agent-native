@@ -4,11 +4,83 @@ import type { AgentEvent } from "../protocol/index.js";
 import {
   classifyAgentEvent,
   createAgentThreadState,
+  hasActiveAgentRuns,
   reduceAgentEvent,
+  retireSupersededConnectionRequests,
   selectActiveAgentRoster,
 } from "./state.js";
 
 const occurredAt = "2026-08-29T00:00:00.000Z";
+
+describe("hasActiveAgentRuns", () => {
+  it("keeps an unprojected approval active until a run status resolves it", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-1"];
+    thread.runs["run-1"] = {
+      id: "run-1",
+      status: "awaiting_approval",
+      lastSequence: 1,
+    };
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+
+    thread.runs["run-1"].status = "completed";
+    expect(hasActiveAgentRuns(thread)).toBe(false);
+  });
+
+  it("matches approval resolution by ID across continuation event ordering", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-1"];
+    thread.runs["run-1"] = {
+      id: "run-1",
+      status: "awaiting_approval",
+      lastSequence: 1,
+    };
+    const resolved = {
+      ...event(2, {
+        type: "approval.resolved",
+        approvalId: "approval-1",
+        response: { decision: "approve" },
+      }),
+      id: "event-continuation-resolution",
+      runId: "run-continuation",
+    };
+    const requested = event(1, {
+      type: "approval.requested",
+      request: { id: "approval-1", title: "Continue?" },
+    });
+    thread.events = [requested];
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+    thread.events = [resolved, requested];
+    expect(hasActiveAgentRuns(thread)).toBe(false);
+  });
+
+  it("treats an active id with a missing run projection as active", () => {
+    const thread = createAgentThreadState("thread-1");
+    thread.activeRunIds = ["run-unprojected"];
+
+    expect(hasActiveAgentRuns(thread)).toBe(true);
+  });
+
+  it("restores a pending approval run when its active-id projection is missing", () => {
+    const started = reduceAgentEvent(
+      createAgentThreadState("thread-1"),
+      event(1, { type: "run.started" }),
+    );
+    const withoutActiveId = { ...started, activeRunIds: [] };
+    const awaitingApproval = reduceAgentEvent(
+      withoutActiveId,
+      event(2, {
+        type: "approval.requested",
+        request: { id: "approval-1", title: "Continue?" },
+      }),
+    );
+
+    expect(awaitingApproval.activeRunIds).toEqual(["run-1"]);
+    expect(hasActiveAgentRuns(awaitingApproval)).toBe(true);
+  });
+});
 
 function event(
   sequence: number,
@@ -171,6 +243,573 @@ describe("AgentKit lifecycle projections", () => {
     expect(reduced.tasks["task-1"]?.status).toBe("completed");
   });
 
+  it("keeps the assistant message id after the run completes", () => {
+    const withUser = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Question" }],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    expect(withUser.runs["run-1"]?.activeMessageId).toBeUndefined();
+
+    const completed = [
+      event(3, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(4, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, withUser);
+
+    expect(completed.runs["run-1"]).toMatchObject({
+      status: "completed",
+      activeMessageId: "assistant-1",
+    });
+  });
+
+  it("keeps a shared assistant message streaming when the predecessor run settles", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, {
+      ...event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: " still",
+      }),
+      id: "run-2-delta",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.runs["run-1"]?.status).toBe("completed");
+    expect(thread.runs["run-2"]).toMatchObject({
+      status: "running",
+      activeMessageId: "assistant-shared",
+    });
+    expect(thread.messages[0]).toMatchObject({
+      id: "assistant-shared",
+      status: "streaming",
+      parts: [{ type: "text", text: "Partial still" }],
+    });
+  });
+
+  it("keeps a shared assistant message streaming when a continuation starts before it emits", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+
+    expect(thread.runs["run-2"]).toMatchObject({
+      status: "running",
+      inheritedMessageId: "assistant-shared",
+    });
+    expect(thread.runs["run-2"]?.activeMessageId).toBeUndefined();
+
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.runs["run-1"]?.status).toBe("completed");
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial" }],
+      }),
+    ]);
+
+    thread = reduceAgentEvent(thread, {
+      ...event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: " still",
+      }),
+      id: "run-2-delta",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, {
+      ...event(3, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
+  it("reopens a restored shared reply when its active continuation resumes", () => {
+    const hydrated = {
+      ...createAgentThreadState("thread-1"),
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant" as const,
+          parts: [{ type: "text" as const, text: "Partial" }],
+          status: "complete" as const,
+        },
+      ],
+      runs: {
+        "run-1": {
+          id: "run-1",
+          status: "completed" as const,
+          lastSequence: 2,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:01.000Z",
+        },
+        "run-2": {
+          id: "run-2",
+          status: "running" as const,
+          lastSequence: 2,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:02.000Z",
+        },
+      },
+      activeRunIds: ["run-2"],
+    };
+
+    const resumed = reduceAgentEvent(hydrated, {
+      ...event(3, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: " still",
+      }),
+      runId: "run-2",
+    });
+
+    expect(resumed.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
+  it("does not assign an earlier reply to a queued run without a start time", () => {
+    const thread = {
+      ...createAgentThreadState("thread-1"),
+      messages: [
+        {
+          id: "assistant-shared",
+          role: "assistant" as const,
+          parts: [{ type: "text" as const, text: "Finished answer" }],
+          status: "streaming" as const,
+        },
+      ],
+      runs: {
+        "run-1": {
+          id: "run-1",
+          status: "running" as const,
+          lastSequence: 1,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+        },
+        "run-2": {
+          id: "run-2",
+          status: "queued" as const,
+          lastSequence: 0,
+        },
+      },
+      activeRunIds: ["run-1"],
+    };
+
+    const settled = reduceAgentEvent(thread, {
+      ...event(2, { type: "run.completed" }),
+      runId: "run-1",
+    });
+
+    expect(settled.runs["run-2"]?.inheritedMessageId).toBeUndefined();
+    expect(settled.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "complete" }),
+    ]);
+  });
+
+  it("keeps a shared assistant message streaming when a client-registered continuation has not emitted", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = {
+      ...thread,
+      runs: {
+        ...thread.runs,
+        "run-2": { id: "run-2", status: "running", lastSequence: 0 },
+      },
+      activeRunIds: [...thread.activeRunIds, "run-2"],
+    };
+
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "streaming" }),
+    ]);
+
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "complete" }),
+    ]);
+  });
+
+  it("keeps an unprojected continuation regardless of run-map order", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = {
+      ...thread,
+      runs: {
+        "run-2": { id: "run-2", status: "running", lastSequence: 0 },
+        ...thread.runs,
+      },
+      activeRunIds: [...thread.activeRunIds, "run-2"],
+    };
+
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.runs["run-2"]).toMatchObject({
+      status: "running",
+      inheritedMessageId: "assistant-shared",
+    });
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "streaming" }),
+    ]);
+  });
+
+  it("assigns a shared reply to every unprojected continuation", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = {
+      ...thread,
+      runs: {
+        "run-2": { id: "run-2", status: "running", lastSequence: 0 },
+        "run-3": { id: "run-3", status: "running", lastSequence: 0 },
+        ...thread.runs,
+      },
+      activeRunIds: [...thread.activeRunIds, "run-2", "run-3"],
+    };
+
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+
+    expect(thread.runs["run-2"]?.inheritedMessageId).toBe("assistant-shared");
+    expect(thread.runs["run-3"]?.inheritedMessageId).toBe("assistant-shared");
+    expect(thread.messages[0]?.status).toBe("streaming");
+
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+    expect(thread.runs["run-2"]?.inheritedMessageId).toBeUndefined();
+    expect(thread.messages[0]?.status).toBe("streaming");
+
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.completed" }),
+      id: "run-3-completed",
+      runId: "run-3",
+    });
+    expect(thread.runs["run-3"]?.inheritedMessageId).toBeUndefined();
+    expect(thread.messages[0]?.status).toBe("complete");
+  });
+
+  it("does not record a continuation that never writes as the shared reply's author", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Answer",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+    thread = reduceAgentEvent(thread, {
+      ...event(2, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.runs["run-1"]?.activeMessageId).toBe("assistant-shared");
+    expect(thread.runs["run-2"]?.activeMessageId).toBeUndefined();
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "complete" }),
+    ]);
+  });
+
+  it("keeps a completed predecessor's reply complete when its continuation fails before writing", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Answer",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = reduceAgentEvent(thread, event(3, { type: "run.completed" }));
+    thread = reduceAgentEvent(thread, {
+      ...event(2, {
+        type: "run.failed",
+        error: { code: "provider_error", message: "Provider failed" },
+      }),
+      id: "run-2-failed",
+      runId: "run-2",
+    });
+
+    expect(thread.runs["run-2"]?.status).toBe("failed");
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Answer" }],
+      }),
+    ]);
+  });
+
+  it("keeps a shared reply streaming when the predecessor completes the message during a continuation", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    thread = reduceAgentEvent(thread, {
+      ...event(1, { type: "run.started" }),
+      id: "run-2-started",
+      runId: "run-2",
+    });
+    thread = [
+      event(3, {
+        type: "message.completed",
+        message: {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "complete",
+          parts: [],
+        },
+      }),
+      event(4, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({ id: "assistant-shared", status: "streaming" }),
+    ]);
+
+    thread = [
+      {
+        ...event(2, {
+          type: "message.delta",
+          messageId: "assistant-shared",
+          text: " still",
+        }),
+        id: "run-2-delta",
+        runId: "run-2",
+      },
+      {
+        ...event(3, { type: "run.completed" }),
+        id: "run-2-completed",
+        runId: "run-2",
+      },
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
+  it("appends a continuation after message completion but before predecessor run completion", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+      event(3, {
+        type: "message.completed",
+        message: {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "complete",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(thread.messages[0]?.status).toBe("complete");
+    expect(thread.runs["run-1"]?.status).toBe("running");
+
+    thread = [
+      {
+        ...event(1, { type: "run.started" }),
+        id: "run-2-started",
+        runId: "run-2",
+      },
+      {
+        ...event(2, {
+          type: "message.delta",
+          messageId: "assistant-shared",
+          text: " still",
+        }),
+        id: "run-2-delta",
+        runId: "run-2",
+      },
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+
+    thread = reduceAgentEvent(thread, event(4, { type: "run.completed" }));
+
+    expect(thread.messages[0]?.status).toBe("streaming");
+
+    thread = reduceAgentEvent(thread, {
+      ...event(3, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
+  it("appends a continuation that starts after its predecessor completed the shared reply", () => {
+    let thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.delta",
+        messageId: "assistant-shared",
+        text: "Partial",
+      }),
+      event(3, {
+        type: "message.completed",
+        message: {
+          id: "assistant-shared",
+          role: "assistant",
+          status: "complete",
+          parts: [],
+        },
+      }),
+      event(4, { type: "run.completed" }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(thread.messages[0]?.status).toBe("complete");
+
+    thread = [
+      {
+        ...event(1, { type: "run.started" }),
+        id: "run-2-started",
+        runId: "run-2",
+      },
+      {
+        ...event(2, {
+          type: "message.delta",
+          messageId: "assistant-shared",
+          text: " still",
+        }),
+        id: "run-2-delta",
+        runId: "run-2",
+      },
+    ].reduce(reduceAgentEvent, thread);
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "streaming",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+
+    thread = reduceAgentEvent(thread, {
+      ...event(3, { type: "run.completed" }),
+      id: "run-2-completed",
+      runId: "run-2",
+    });
+
+    expect(thread.messages).toEqual([
+      expect.objectContaining({
+        id: "assistant-shared",
+        status: "complete",
+        parts: [{ type: "text", text: "Partial still" }],
+      }),
+    ]);
+  });
+
   it("ignores late work after a terminal lifecycle event", () => {
     const terminal = [
       event(1, { type: "run.started" }),
@@ -239,6 +878,39 @@ describe("AgentKit lifecycle projections", () => {
     ]);
   });
 
+  it("defaults empty completion status and preserves deltas", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      event(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Answer",
+      }),
+      event(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [],
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.messages[0]).toMatchObject({
+      status: "complete",
+      parts: [{ type: "text", text: "Answer" }],
+    });
+  });
+
   it("preserves a failed synthetic completion status while retaining deltas", () => {
     const reduced = [
       event(1, { type: "run.started" }),
@@ -300,6 +972,121 @@ describe("AgentKit lifecycle projections", () => {
       output: "final result",
     });
     expect(reduced.tools["tool-1"]?.input).toBeUndefined();
+  });
+
+  it("preserves the message association when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.started",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+          messageId: "assistant-1",
+          input: { query: "report" },
+        },
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "Found it.",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      messageId: "assistant-1",
+      input: { query: "report" },
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+      event(4, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a running tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+        },
+      }),
+      event(4, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "running",
+      output: "Found it.",
+    });
+  });
+
+  it("uses the output provided by a terminal tool update", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "partial output",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "final output",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "final output",
+    });
   });
 
   it("does not reopen settled tool, activity, task, or action projections", () => {
@@ -531,5 +1318,168 @@ describe("AgentKit lifecycle projections", () => {
       "connected",
     );
     expect(connected.connectionRequestRunIds["connection-1"]).toBe("run-1");
+  });
+
+  describe("retiring connection requests nobody can answer any more", () => {
+    const request = (
+      id: string,
+      status: "requested" | "connecting" | "connected",
+    ) =>
+      ({
+        type: "connection.requested",
+        request: { id, provider: "slack", reason: "connect", status },
+      }) as const;
+
+    function awaitingConnection() {
+      return [
+        event(1, { type: "run.started" }),
+        event(2, request("open", "requested")),
+        event(3, request("connecting", "connecting")),
+        event(4, request("answered", "connected")),
+      ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    }
+
+    it.each([
+      [
+        "run.failed",
+        { type: "run.failed", error: { code: "x", message: "x" } },
+      ],
+      ["run.cancelled", { type: "run.cancelled" }],
+      [
+        "a terminal failed run.status",
+        { type: "run.status", status: "failed" },
+      ],
+    ] as const)(
+      "drops the still-open requests of a run that ends on %s",
+      (_name, terminal) => {
+        const ended = reduceAgentEvent(
+          awaitingConnection(),
+          event(5, terminal),
+        );
+
+        expect(Object.keys(ended.connectionRequests)).toEqual(["answered"]);
+        expect(Object.keys(ended.connectionRequestRunIds)).toEqual([
+          "answered",
+        ]);
+      },
+    );
+
+    it("keeps a completed run's request: the yielded turn is waiting on the user", () => {
+      const completed = reduceAgentEvent(
+        awaitingConnection(),
+        event(5, { type: "run.completed" }),
+      );
+
+      expect(Object.keys(completed.connectionRequests).sort()).toEqual([
+        "answered",
+        "connecting",
+        "open",
+      ]);
+    });
+
+    it("drops the older run's open request when a newer run starts in the thread", () => {
+      const next = reduceAgentEvent(
+        reduceAgentEvent(
+          awaitingConnection(),
+          event(5, { type: "run.completed" }),
+        ),
+        {
+          ...event(1, { type: "run.started" }),
+          id: "event-run-2-1",
+          runId: "run-2",
+        },
+      );
+
+      expect(Object.keys(next.connectionRequests)).toEqual(["answered"]);
+      expect(Object.keys(next.connectionRequestRunIds)).toEqual(["answered"]);
+    });
+
+    it("leaves another run's request alone when a different run fails", () => {
+      const withSecondRun = reduceAgentEvent(awaitingConnection(), {
+        ...event(1, { type: "run.started" }),
+        id: "event-run-2-1",
+        runId: "run-2",
+      });
+      // run-2 starting already retired run-1's open requests; give run-2 its own.
+      const requested = reduceAgentEvent(withSecondRun, {
+        ...event(2, request("second", "requested")),
+        id: "event-run-2-2",
+        runId: "run-2",
+      });
+      const firstFailed = reduceAgentEvent(requested, {
+        ...event(5, { type: "run.failed", error: { code: "x", message: "x" } }),
+        id: "event-run-1-5",
+        runId: "run-1",
+      });
+
+      expect(Object.keys(firstFailed.connectionRequests).sort()).toEqual([
+        "answered",
+        "second",
+      ]);
+    });
+  });
+
+  describe("retiring requests of runs a loaded snapshot shows as superseded", () => {
+    // One open request per run, keyed by the run's startedAt string.
+    function openRequestsAfterRetiring(startedAt: Record<string, string>) {
+      const thread = createAgentThreadState("thread-1");
+      for (const [runId, at] of Object.entries(startedAt)) {
+        const id = `request-${runId}`;
+        thread.runs[runId] = {
+          id: runId,
+          status: "completed",
+          lastSequence: 1,
+          startedAt: at,
+        };
+        thread.connectionRequests[id] = {
+          id,
+          provider: "slack",
+          reason: "connect",
+          status: "requested",
+        };
+        thread.connectionRequestRunIds[id] = runId;
+      }
+      return Object.keys(
+        retireSupersededConnectionRequests(thread).connectionRequests,
+      );
+    }
+
+    it("orders runs by instant, not by how their timestamps are spelled", () => {
+      // "…:00.500Z" sorts before "…:00Z" as text but is the later instant.
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T00:00:00.500Z",
+          "run-2": "2026-08-29T00:00:00Z",
+        }),
+      ).toEqual(["request-run-1"]);
+    });
+
+    it("does not retire either run when two spellings name the same instant", () => {
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T00:00:00.000Z",
+          "run-2": "2026-08-29T00:00:00Z",
+        }).sort(),
+      ).toEqual(["request-run-1", "request-run-2"]);
+    });
+
+    it("honours a UTC offset", () => {
+      // 01:00+02:00 is 23:00Z the day before, an hour older than run-2.
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T01:00:00+02:00",
+          "run-2": "2026-08-29T00:00:00Z",
+        }),
+      ).toEqual(["request-run-2"]);
+    });
+
+    it("leaves a run with an unreadable start time alone and ignores it as the latest", () => {
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T00:00:00Z",
+          "run-2": "not a timestamp",
+        }),
+      ).toEqual(["request-run-1", "request-run-2"]);
+    });
   });
 });

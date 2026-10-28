@@ -31,8 +31,6 @@ describe("findTargetedMatches", () => {
     const result = findTargetedMatches(content, "Hello World");
     expect(result.ok).toBe(false);
     if (result.ok || result.reason !== "not_found") return;
-    // The candidate carries the ORIGINAL bytes (3 spaces), not the
-    // normalized find text — the model can copy it verbatim next time.
     expect(result.candidates[0]).toMatchObject({
       line: 1,
       text: "Hello   World",
@@ -191,9 +189,6 @@ describe("applyTargetedReplace", () => {
       "<p>Different</p>",
     );
     expect(result).toMatchObject({ ok: false, reason: "ambiguous" });
-    // The original content is a return value the caller never sees on failure,
-    // but nothing should have been mutated either way — re-run to confirm
-    // determinism.
     expect(
       applyTargetedReplace(content, "<p>Same</p>", "<p>Different</p>"),
     ).toMatchObject({

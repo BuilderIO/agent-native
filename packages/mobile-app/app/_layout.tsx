@@ -1,84 +1,108 @@
 import "../global.css";
-import {
-  NavigationContainer,
-  type LinkingOptions,
-} from "@react-navigation/native";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import * as Linking from "expo-linking";
+import { Stack, usePathname, useRootNavigationState } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
-import { KeyboardProvider } from "react-native-keyboard-controller";
-import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Uniwind } from "uniwind";
 
-import TabLayout from "@/app/(tabs)/_layout";
-import NotFoundScreen from "@/app/+not-found";
-import AppScreen from "@/app/app/[id]";
-import MeetingCaptureScreen from "@/app/capture/audio";
-import DictationCaptureScreen from "@/app/capture/dictate";
-import VideoCaptureScreen from "@/app/capture/video";
-import OAuthComplete from "@/app/oauth-complete";
-import CaptureSyncProvider from "@/components/CaptureSyncProvider";
+import AppProviders from "@/components/AppProviders";
 import MobileAnalyticsObserver from "@/components/MobileAnalyticsObserver";
 import NativeSessionBootstrap from "@/components/NativeSessionBootstrap";
 import OAuthDeepLinkHandler from "@/components/OAuthDeepLinkHandler";
+import {
+  acknowledgeIOSQuickAction,
+  peekPendingIOSQuickAction,
+  subscribeToIOSQuickActionAvailable,
+} from "@/lib/ios-companion";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 import {
   flushPendingNavigation,
-  getCurrentPathname,
-  navigationRef,
+  navigateToPath,
   NavigationPathProvider,
-  type RootStackParamList,
 } from "@/lib/navigation";
 
-const Stack = createNativeStackNavigator<RootStackParamList>();
-
-const linking: LinkingOptions<RootStackParamList> = {
-  prefixes: [Linking.createURL("/"), "agentnative://"],
-  config: {
-    screens: {
-      Tabs: {
-        path: "",
-        screens: {
-          analytics: "analytics",
-          assets: "assets",
-          brain: "brain",
-          calendar: "calendar",
-          chat: "chat",
-          clips: "clips",
-          content: "content",
-          design: "design",
-          dispatch: "dispatch",
-          forms: "forms",
-          mail: "mail",
-          more: "more",
-          plan: "plan",
-          sessions: "sessions",
-          settings: "settings",
-          slides: "slides",
-        },
-      },
-      App: "app/:id",
-      CaptureAudio: "capture/audio",
-      CaptureDictate: "capture/dictate",
-      CaptureVideo: "capture/video",
-      OAuthComplete: "oauth-complete",
-      NotFound: "*",
-    },
-  },
+export const unstable_settings = {
+  anchor: "(tabs)",
 };
 
 export default function RootLayout() {
   const { background, foreground, theme } = useMobileThemeColors();
-  const [pathname, setPathname] = useState("/chat");
-  const syncPathname = useCallback(() => {
-    setPathname(getCurrentPathname());
-  }, []);
-  const handleNavigationReady = useCallback(() => {
+  const pathname = usePathname();
+  const rootNavigationState = useRootNavigationState();
+  const navigationReady = useRef(false);
+  const pendingQuickAction = useRef<{ id: string; path: string } | null>(null);
+  const routedQuickActionId = useRef<string | null>(null);
+
+  const routeQuickAction = useCallback(
+    (action: { id: string; path: string }) => {
+      const allowedPaths = [
+        "/capture/audio",
+        "/capture/video",
+        "/capture/dictate",
+      ];
+      if (!allowedPaths.includes(action.path)) {
+        const acknowledgment = acknowledgeIOSQuickAction(action.id);
+        void acknowledgment?.catch((error) => {
+          console.error(
+            "[quick-action] Could not discard the pending route:",
+            error,
+          );
+        });
+        return;
+      }
+      if (!navigationReady.current) {
+        pendingQuickAction.current = action;
+        return;
+      }
+      if (routedQuickActionId.current !== action.id) {
+        routedQuickActionId.current = action.id;
+        navigateToPath(action.path, "replace");
+      }
+      pendingQuickAction.current = null;
+      const acknowledgment = acknowledgeIOSQuickAction(action.id);
+      void acknowledgment?.catch((error) => {
+        console.error("[quick-action] Could not acknowledge the route:", error);
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!rootNavigationState?.key) return;
+    navigationReady.current = true;
     flushPendingNavigation();
-    syncPathname();
-  }, [syncPathname]);
+    if (pendingQuickAction.current)
+      routeQuickAction(pendingQuickAction.current);
+  }, [rootNavigationState?.key, routeQuickAction]);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+
+    const consumePendingQuickAction = async () => {
+      try {
+        const action = await peekPendingIOSQuickAction();
+        if (
+          !action ||
+          typeof action.id !== "string" ||
+          typeof action.path !== "string"
+        )
+          return;
+        routeQuickAction(action);
+      } catch (error) {
+        console.error(
+          "[quick-action] Could not read the pending route:",
+          error,
+        );
+      }
+    };
+
+    const unsubscribe = subscribeToIOSQuickActionAvailable(() => {
+      void consumePendingQuickAction();
+    });
+    void consumePendingQuickAction();
+
+    return unsubscribe;
+  }, [routeQuickAction]);
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
@@ -105,80 +129,52 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <KeyboardProvider>
-        <CaptureSyncProvider>
-          <NavigationPathProvider pathname={pathname}>
-            <MobileAnalyticsObserver />
-            <NativeSessionBootstrap />
-            <OAuthDeepLinkHandler />
-            <StatusBar style={theme === "dark" ? "light" : "dark"} />
-            <NavigationContainer
-              linking={linking}
-              onReady={handleNavigationReady}
-              onStateChange={syncPathname}
-              ref={navigationRef}
-            >
-              <Stack.Navigator
-                screenOptions={{
-                  headerStyle: { backgroundColor: background },
-                  headerTintColor: foreground,
-                  headerTitleStyle: { fontWeight: "600" },
-                  contentStyle: { backgroundColor: background },
-                }}
-              >
-                <Stack.Screen
-                  component={TabLayout}
-                  name="Tabs"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  component={AppScreen}
-                  name="App"
-                  options={{ headerBackTitle: "Apps" }}
-                />
-                <Stack.Screen
-                  component={MeetingCaptureScreen}
-                  name="CaptureAudio"
-                  options={{
-                    gestureEnabled: false,
-                    headerShown: false,
-                    presentation: "fullScreenModal",
-                  }}
-                />
-                <Stack.Screen
-                  component={DictationCaptureScreen}
-                  name="CaptureDictate"
-                  options={{
-                    gestureEnabled: false,
-                    headerShown: false,
-                    presentation: "fullScreenModal",
-                  }}
-                />
-                <Stack.Screen
-                  component={VideoCaptureScreen}
-                  name="CaptureVideo"
-                  options={{
-                    gestureEnabled: false,
-                    headerShown: false,
-                    presentation: "fullScreenModal",
-                  }}
-                />
-                <Stack.Screen
-                  component={OAuthComplete}
-                  name="OAuthComplete"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  component={NotFoundScreen}
-                  name="NotFound"
-                  options={{ headerShown: false }}
-                />
-              </Stack.Navigator>
-            </NavigationContainer>
-          </NavigationPathProvider>
-        </CaptureSyncProvider>
-      </KeyboardProvider>
-    </SafeAreaProvider>
+    <AppProviders>
+      <NavigationPathProvider pathname={pathname === "/" ? "/chat" : pathname}>
+        <MobileAnalyticsObserver />
+        <NativeSessionBootstrap />
+        <OAuthDeepLinkHandler />
+        <StatusBar style={theme === "dark" ? "light" : "dark"} />
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: background },
+            headerTintColor: foreground,
+            headerTitleStyle: { fontWeight: "600" },
+            contentStyle: { backgroundColor: background },
+          }}
+        >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="app/[id]" options={{ headerBackTitle: "Apps" }} />
+          <Stack.Screen
+            name="capture/audio"
+            options={{
+              gestureEnabled: false,
+              headerShown: false,
+              presentation: "fullScreenModal",
+            }}
+          />
+          <Stack.Screen
+            name="capture/dictate"
+            options={{
+              gestureEnabled: false,
+              headerShown: false,
+              presentation: "fullScreenModal",
+            }}
+          />
+          <Stack.Screen
+            name="capture/video"
+            options={{
+              gestureEnabled: false,
+              headerShown: false,
+              presentation: "fullScreenModal",
+            }}
+          />
+          <Stack.Screen
+            name="oauth-complete"
+            options={{ headerShown: false }}
+          />
+        </Stack>
+      </NavigationPathProvider>
+    </AppProviders>
   );
 }

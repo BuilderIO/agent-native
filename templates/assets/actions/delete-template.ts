@@ -1,9 +1,12 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { resolveTemplateAccess } from "./_template-access.js";
+import {
+  accessibleTemplateFilter,
+  resolveTemplateAccess,
+} from "./_template-access.js";
 
 export default defineAction({
   description:
@@ -11,6 +14,7 @@ export default defineAction({
   schema: z.object({ id: z.string() }),
   run: async ({ id }) => {
     await resolveTemplateAccess(id, "editor");
+    const templateFilter = await accessibleTemplateFilter();
     const db = getDb();
     const [[session], [run]] = await Promise.all([
       db
@@ -28,9 +32,10 @@ export default defineAction({
     await db
       .delete(schema.assetTemplateShares)
       .where(eq(schema.assetTemplateShares.resourceId, id));
+    // guard:allow-unscoped — resolveTemplateAccess requires editor access through the template or inherited Brand Kit ACL; the SQL filter repeats accessible-template scope before deletion.
     await db
       .delete(schema.assetTemplates)
-      .where(eq(schema.assetTemplates.id, id));
+      .where(and(eq(schema.assetTemplates.id, id), templateFilter));
     return { id, deleted: true };
   },
 });

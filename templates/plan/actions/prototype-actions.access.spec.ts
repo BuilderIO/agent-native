@@ -1,31 +1,3 @@
-/**
- * AUTHZ / ownership matrix for the NEW prototype actions:
- *   - create-prototype-plan
- *   - convert-visual-plan-to-prototype
- *
- * These landed with the prototype prototype feature and had no access spec of
- * their own. This file drives the REAL actions against a REAL PostgreSQL DB with the
- * REAL core sharing helpers (registerShareableResource / resolveAccess /
- * assertAccess) and the REAL request context, mocking only filesystem/email side
- * effects. It pins:
- *
- *   create-prototype-plan
- *     - owner scoping: the new plan row is owned by the request user
- *       (requirePlanOwnerEmailForWrite), private, and org-tagged from context.
- *     - an unauthenticated hosted request (no identity, PLAN_LOCAL_MODE=0) is
- *       rejected ("requires an authenticated user"), nothing persisted.
- *     - a guest-author identity may NOT create on a hosted deploy.
- *     - one user cannot create a plan that another user can read.
- *
- *   convert-visual-plan-to-prototype
- *     - requires EDITOR on the SOURCE plan (assertPlanEditor) — a non-owner with
- *       no access, a viewer-only share holder, and a public-link reader must all
- *       be rejected and must NOT mutate the owner's plan row.
- *     - the owner CAN convert their own convertible plan.
- *
- * Mirrors the proven setup in publish-visual-plan.access.spec.ts /
- * sharing-access-matrix.spec.ts.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -50,8 +22,8 @@ import {
 } from "vitest";
 
 import * as planSchema from "../server/db/schema.js";
+import { PLANS_TABLE_DDL } from "../server/test-support/plans-test-schema.js";
 
-// Real PostgreSQL access matrices run alongside every workspace suite in CI.
 vi.setConfig({ testTimeout: 60_000 });
 
 type SqlStatement = string | { sql: string; args?: unknown[] };
@@ -144,11 +116,6 @@ async function countPlans() {
   return rows.length;
 }
 
-/**
- * Create a prototype plan as the given user. Returns the plan id (or null if the
- * action threw — used by negative tests). Prototype plans embed a canvas derived
- * from their screens, which makes them convertible.
- */
 async function createPrototypeAs(
   ownerEmail: string | undefined,
   orgId?: string,
@@ -183,30 +150,7 @@ beforeAll(async () => {
   client = await PGlite.create(dbDir);
   db = drizzle(client, { schema: planSchema });
   await execute(`
-    CREATE TABLE plans (
-      id TEXT PRIMARY KEY, title TEXT NOT NULL, brief TEXT NOT NULL,
-      kind TEXT NOT NULL DEFAULT 'plan',
-      status TEXT NOT NULL DEFAULT 'draft', source TEXT NOT NULL DEFAULT 'manual',
-      repo_path TEXT, current_focus TEXT, html TEXT, markdown TEXT, content TEXT,
-      hosted_plan_id TEXT, hosted_plan_url TEXT,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, approved_at TEXT,
-      usage_agent TEXT, usage_model TEXT,
-      usage_input_tokens INTEGER, usage_output_tokens INTEGER,
-      usage_cache_read_tokens INTEGER, usage_cache_write_tokens INTEGER,
-      usage_cost_cents_x100 INTEGER, usage_cost_source TEXT, usage_recorded_at TEXT,
-      source_url TEXT,
-      source_type TEXT,
-      source_repo TEXT,
-      source_pr_number INTEGER,
-      source_pr_state TEXT,
-      source_pr_merged_at TEXT,
-      source_author_email TEXT,
-      source_author_name TEXT,
-      source_author_login TEXT,
-      recap_idempotency_key TEXT,
-      deleted_at TEXT, deleted_by TEXT,
-      owner_email TEXT NOT NULL, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private'
-    );
+    ${PLANS_TABLE_DDL};
     CREATE TABLE plan_sections (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'custom', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', html TEXT, sort_order INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, deleted_at TEXT, deleted_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
@@ -253,9 +197,6 @@ beforeEach(async () => {
   `);
 });
 
-// ===========================================================================
-// create-prototype-plan: owner scoping
-// ===========================================================================
 describe("create-prototype-plan: owner scoping", () => {
   it("create-visual-plan can import existing plan text without a separate skill action", async () => {
     const planText = `# Existing Import Plan
@@ -326,12 +267,9 @@ describe("create-prototype-plan: owner scoping", () => {
 
   it("a non-owner read goes through loadPlanBundle's ForbiddenError (statusCode 403, clean 4xx)", async () => {
     const planId = await createPrototypeAs(OWNER);
-    // The task's re-verify item: loadPlanBundle conflates not-found/no-access
-    // into a 403 ForbiddenError so a missing/private plan never surfaces a 500.
     await expect(
       asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
     ).rejects.toMatchObject({ statusCode: 403 });
-    // Same 403 for a truly non-existent id (no existence leak).
     await expect(
       asUser({ userEmail: OTHER }, () =>
         getVisualPlan.run({ id: "plan_nope" }),
@@ -378,15 +316,9 @@ describe("create-prototype-plan: owner scoping", () => {
   });
 });
 
-// ===========================================================================
-// convert-visual-plan-to-prototype: requires editor on the source plan
-// ===========================================================================
 describe("convert-visual-plan-to-prototype: editor gate", () => {
   it("owner can convert their own convertible plan", async () => {
     const planId = await createPrototypeAs(OWNER);
-    // Strip the prototype so convert re-derives it from the canvas; otherwise
-    // it would short-circuit to the existing prototype. Either way the editor
-    // gate is the load-bearing check; this confirms the happy path still works.
     const res = await asUser({ userEmail: OWNER }, () =>
       convertVisualPlanToPrototype.run({ planId }),
     );
@@ -402,7 +334,6 @@ describe("convert-visual-plan-to-prototype: editor gate", () => {
         convertVisualPlanToPrototype.run({ planId }),
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
-    // The owner's plan row is untouched.
     const after = await rawPlan(planId);
     expect(after.updatedAt).toBe(before.updatedAt);
     expect(after.currentFocus).toBe(before.currentFocus);
@@ -445,7 +376,6 @@ describe("convert-visual-plan-to-prototype: editor gate", () => {
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
     const after = await rawPlan(planId);
-    // Title/content/currentFocus must be unchanged by the rejected convert.
     expect(after.currentFocus).toBe(before.currentFocus);
     expect(after.updatedAt).toBe(before.updatedAt);
   });
@@ -495,10 +425,6 @@ describe("convert-visual-plan-to-prototype: editor gate", () => {
   });
 
   it("the editor gate (403) precedes the content checks — a non-editor never learns the plan's content shape", async () => {
-    // A real visual plan with NO convertible content (no canvas frames). The
-    // owner would get a 400 ("No HTML canvas wireframes..."), but a non-editor
-    // must be stopped at the 403 gate first, never reaching the 400 that would
-    // leak the plan's convertibility.
     const planId = await asUser({ userEmail: OWNER }, async () => {
       const r = await createVisualPlan.run({
         title: "Text only",

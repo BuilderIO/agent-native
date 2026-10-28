@@ -83,7 +83,6 @@ export default defineAction({
       }
     }
 
-    // Next position within siblings
     const whereClauses = [eq(schema.folders.organizationId, organizationId)];
     if (!args.spaceId) {
       whereClauses.push(

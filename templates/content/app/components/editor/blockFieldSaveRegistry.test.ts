@@ -5,11 +5,17 @@ import {
   __resetBlockFieldSaveRegistry,
   acquireBlockFieldSaveController,
   activeControllerCount,
+  blockFieldRevision,
   blockFieldSaveImplRef,
+  createBlockFieldPersistenceRef,
+  readBlockFieldEditorState,
   flushAllBlockFieldSaveControllersForDocument,
   flushBlockFieldSaveController,
+  forgetBlockFieldSaveController,
+  isBlockFieldDeleting,
   peekBlockFieldSaveController,
   releaseBlockFieldSaveController,
+  setBlockFieldDeleting,
 } from "./blockFieldSaveRegistry";
 
 afterEach(() => {
@@ -17,8 +23,6 @@ afterEach(() => {
   __resetBlockFieldSaveRegistry();
 });
 
-// A controller factory wired to a save spy and the per-key impl ref, so the test
-// can drive saves exactly as the hook does.
 function factoryFor(key: string, initialContent = "") {
   const impl = blockFieldSaveImplRef(key);
   return () =>
@@ -36,7 +40,6 @@ describe("blockFieldSaveRegistry", () => {
     expect(b).toBe(a);
     expect(activeControllerCount()).toBe(1);
 
-    // Releasing one of two references keeps the controller alive and identical.
     releaseBlockFieldSaveController(key);
     const c = acquireBlockFieldSaveController(key, factoryFor(key));
     expect(c).toBe(a);
@@ -55,19 +58,14 @@ describe("blockFieldSaveRegistry", () => {
     vi.useFakeTimers();
     const controller = acquireBlockFieldSaveController(key, factoryFor(key));
 
-    // Dirty content with no debounce fired yet.
     controller.change("draft");
 
-    // Release the only reference → flush-then-evict begins. The flush issues the
-    // save immediately, but the controller is NOT evicted until that save settles.
     const released = releaseBlockFieldSaveController(key);
     expect(saved).toEqual(["draft"]);
-    expect(activeControllerCount()).toBe(1); // still present: flush in flight.
+    expect(activeControllerCount()).toBe(1);
 
-    // A peek before settle still finds the live controller.
     expect(peekBlockFieldSaveController(key)).toBe(controller);
 
-    // Settle the flush save → now it evicts.
     await act(() => {
       resolvers[0]!();
     });
@@ -118,13 +116,53 @@ describe("blockFieldSaveRegistry", () => {
     const controller = acquireBlockFieldSaveController(key, factoryFor(key));
     controller.change("unsaved final edit");
 
-    // No debounce has fired; release must flush it so it is not dropped, then
-    // evict once the flush settles (a few microtasks: flush → save → settle).
     releaseBlockFieldSaveController(key);
     for (let i = 0; i < 8; i++) await Promise.resolve();
 
     expect(saved).toContain("unsaved final edit");
     expect(activeControllerCount()).toBe(0);
+  });
+
+  it("retains an uncertain reverted write across release and refuses reads and navigation until undo is accepted", async () => {
+    vi.useFakeTimers();
+    const key = "doc:field";
+    let stored = "Saved";
+    let available = true;
+    let loseResponse = true;
+    blockFieldSaveImplRef(key).current = async (value) => {
+      if (!available) throw new Error("offline");
+      stored = value;
+      if (loseResponse) throw new Error("response lost after commit");
+    };
+    const controller = acquireBlockFieldSaveController(
+      key,
+      factoryFor(key, stored),
+    );
+    controller.change("Committed edit");
+    await controller.flush();
+    controller.change("Saved");
+    available = false;
+    await expect(flushBlockFieldSaveController("doc", "field")).rejects.toThrow(
+      "could not be saved",
+    );
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
+    await expect(releaseBlockFieldSaveController(key)).resolves.toBe(false);
+    expect(peekBlockFieldSaveController(key)).toBe(controller);
+    expect(stored).toBe("Committed edit");
+    expect(acquireBlockFieldSaveController(key, factoryFor(key, stored))).toBe(
+      controller,
+    );
+    available = true;
+    loseResponse = false;
+    await flushBlockFieldSaveController("doc", "field");
+    await flushAllBlockFieldSaveControllersForDocument("doc");
+    expect(stored).toBe("Saved");
+    await expect(releaseBlockFieldSaveController(key)).resolves.toBe(true);
+    expect(
+      acquireBlockFieldSaveController(key, factoryFor(key, stored)).lastSaved,
+    ).toBe("Saved");
   });
 
   it("reopen BEFORE the flush settles reuses the same controller (eviction cancelled)", async () => {
@@ -136,16 +174,12 @@ describe("blockFieldSaveRegistry", () => {
     const first = acquireBlockFieldSaveController(key, factoryFor(key));
     first.change("content");
 
-    // Release → flush-then-evict starts; the save goes in flight (unresolved).
     releaseBlockFieldSaveController(key);
     expect(activeControllerCount()).toBe(1);
 
-    // Reopen before the flush settles: same instance, eviction cancelled.
     const second = acquireBlockFieldSaveController(key, factoryFor(key));
     expect(second).toBe(first);
 
-    // Even after the in-flight flush save settles, the entry is NOT evicted
-    // because it was re-acquired (refCount > 0, evicting cleared).
     await act(() => {
       resolvers.forEach((r) => r());
     });
@@ -164,24 +198,16 @@ describe("blockFieldSaveRegistry", () => {
     const first = acquireBlockFieldSaveController(key, factoryFor(key));
     first.change("first content");
 
-    // Release → flush-then-evict; settle the microtasks so the entry evicts.
     releaseBlockFieldSaveController(key);
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(activeControllerCount()).toBe(0);
     expect(saved).toContain("first content");
 
-    // The impl ref must have been dropped on eviction. blockFieldSaveImplRef
-    // recreates it lazily; a never-registered ref rejects when invoked, proving
-    // the prior impl closure did NOT survive (no stale closure leaks across
-    // eviction).
     const freshRef = blockFieldSaveImplRef(key);
     await expect(freshRef.current("anything")).rejects.toThrow(
       /No save impl registered/,
     );
 
-    // Re-acquire the SAME key after eviction: a brand-new controller is created
-    // and wired through a freshly rebuilt impl ref. Re-register an impl (as a new
-    // mount would) and confirm saves flow to it cleanly.
     const saved2: string[] = [];
     blockFieldSaveImplRef(key).current = (value) => {
       saved2.push(value);
@@ -194,7 +220,6 @@ describe("blockFieldSaveRegistry", () => {
     second.change("second content");
     await second.flush();
     expect(saved2).toEqual(["second content"]);
-    // The rebuilt controller did NOT write through the old impl.
     expect(saved).toEqual(["first content"]);
   });
 
@@ -218,19 +243,15 @@ describe("blockFieldSaveRegistry", () => {
     expect(c1).not.toBe(c2);
     expect(activeControllerCount()).toBe(2);
 
-    // k1's save blocks indefinitely (its resolver is held). k2 must still persist
-    // fully — independent controllers, no cross-key stall. We do NOT await k1's
-    // flush (it would never resolve until resolveK1).
     c1.change("k1 value");
-    const k1Flush = c1.flush(); // in flight, intentionally not awaited yet.
+    const k1Flush = c1.flush();
     void k1Flush;
-    expect(saved1).toEqual(["k1 value"]); // k1's save started but is stuck.
+    expect(saved1).toEqual(["k1 value"]);
 
     c2.change("k2 value");
-    await c2.flush(); // resolves immediately — not blocked by k1.
+    await c2.flush();
     expect(saved2).toEqual(["k2 value"]);
 
-    // Unblock k1 so the test leaves no dangling promise.
     resolveK1();
     await k1Flush;
   });
@@ -299,6 +320,29 @@ describe("blockFieldSaveRegistry", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("forgets a deleted field's dirty controller so the page can still flush", async () => {
+    const key = "doc:notes";
+    const saved: string[] = [];
+    blockFieldSaveImplRef(key).current = (value) => {
+      saved.push(value);
+      return Promise.reject(new Error("Property not found"));
+    };
+    const controller = acquireBlockFieldSaveController(key, factoryFor(key));
+    controller.change("typed before the delete");
+    releaseBlockFieldSaveController(key);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).rejects.toThrow("could not be saved");
+
+    forgetBlockFieldSaveController(key);
+
+    expect(peekBlockFieldSaveController(key)).toBeUndefined();
+    await expect(
+      flushAllBlockFieldSaveControllersForDocument("doc"),
+    ).resolves.toBeUndefined();
+  });
+
   it("fails when an additional field remains dirty after its save rejects", async () => {
     const key = "doc:notes";
     blockFieldSaveImplRef(key).current = () =>
@@ -310,10 +354,185 @@ describe("blockFieldSaveRegistry", () => {
       "could not be saved",
     );
   });
+
+  it("requires every mounted projection's live controller and observes its visual version", async () => {
+    const first = createBlockFieldPersistenceRef();
+    const second = createBlockFieldPersistenceRef();
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      first,
+    );
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      second,
+    );
+    first.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    expect(readBlockFieldEditorState("doc:notes")?.clean).toBe(false);
+    await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
+      "unavailable",
+    );
+    let version = {};
+    second.current = {
+      get version() {
+        return version;
+      },
+      flushLatest: vi.fn(async () => true),
+    };
+    const before = readBlockFieldEditorState("doc:notes")!;
+    expect(before.clean).toBe(true);
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).toBe(
+      before.visualVersion,
+    );
+    version = {};
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).not.toBe(
+      before.visualVersion,
+    );
+    const changed = readBlockFieldEditorState("doc:notes")!.visualVersion;
+    const controller = second.current;
+    second.current = null;
+    second.current = controller;
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).not.toBe(
+      changed,
+    );
+    second.current = { version: {}, flushLatest: vi.fn(async () => false) };
+    await expect(flushBlockFieldSaveController("doc", "notes")).rejects.toThrow(
+      "could not be saved",
+    );
+  });
+
+  it("drains the exact live serializer through single-field and all-field barriers", async () => {
+    const saved: string[] = [];
+    blockFieldSaveImplRef("doc:notes").current = async (value) => {
+      saved.push(value);
+    };
+    const editor = createBlockFieldPersistenceRef();
+    const controller = acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      editor,
+    );
+    let text = "first un-emitted body";
+    editor.current = {
+      version: {},
+      flushLatest: vi.fn(async () => {
+        controller.change(text);
+        await controller.flush();
+        return controller.isClean;
+      }),
+    };
+    await flushBlockFieldSaveController("doc", "notes");
+    text = "second un-emitted body";
+    await flushAllBlockFieldSaveControllersForDocument("doc");
+    expect(saved).toEqual(["first un-emitted body", "second un-emitted body"]);
+    expect(editor.current.flushLatest).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases only its own projection and ignores retired cleanup after deletion and reacquisition", async () => {
+    const first = createBlockFieldPersistenceRef();
+    const second = createBlockFieldPersistenceRef();
+    first.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    second.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      first,
+    );
+    acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      second,
+    );
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", first),
+    ).resolves.toBe(false);
+    expect(readBlockFieldEditorState("doc:notes")?.clean).toBe(true);
+    forgetBlockFieldSaveController("doc:notes");
+    const current = createBlockFieldPersistenceRef();
+    current.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    const save = acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      current,
+    );
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", second),
+    ).resolves.toBe(false);
+    expect(readBlockFieldEditorState("doc:notes")?.clean).toBe(true);
+    expect(peekBlockFieldSaveController("doc:notes")).toBe(save);
+    await flushBlockFieldSaveController("doc", "notes");
+    expect(current.current.flushLatest).toHaveBeenCalledOnce();
+    expect(second.current.flushLatest).not.toHaveBeenCalled();
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", current),
+    ).resolves.toBe(true);
+    expect(readBlockFieldEditorState("doc:notes")).toBeUndefined();
+    expect(activeControllerCount()).toBe(0);
+  });
+
+  it("keeps a reopened projection alive when the old release's save settles", async () => {
+    const first = createBlockFieldPersistenceRef();
+    first.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    let finish!: () => void;
+    blockFieldSaveImplRef("doc:notes").current = () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    const controller = acquireBlockFieldSaveController(
+      "doc:notes",
+      factoryFor("doc:notes"),
+      first,
+    );
+    controller.change("pending old mount");
+    const released = releaseBlockFieldSaveController("doc:notes", first);
+    const second = createBlockFieldPersistenceRef();
+    second.current = { version: {}, flushLatest: vi.fn(async () => true) };
+    expect(
+      acquireBlockFieldSaveController(
+        "doc:notes",
+        factoryFor("doc:notes"),
+        second,
+      ),
+    ).toBe(controller);
+    await act(() => finish());
+    await expect(released).resolves.toBe(false);
+    const before = readBlockFieldEditorState("doc:notes")!;
+    expect(before.clean).toBe(true);
+    first.current = null;
+    expect(readBlockFieldEditorState("doc:notes")!.visualVersion).toBe(
+      before.visualVersion,
+    );
+    await expect(
+      releaseBlockFieldSaveController("doc:notes", second),
+    ).resolves.toBe(true);
+    expect(activeControllerCount()).toBe(0);
+  });
+
+  it("keeps a field's revision for as long as its controller", async () => {
+    const key = "doc:notes";
+    blockFieldSaveImplRef(key).current = () => Promise.resolve();
+    acquireBlockFieldSaveController(key, factoryFor(key));
+    const revision = blockFieldRevision(key, 4);
+    revision.base = 7;
+    expect(blockFieldRevision(key, 4)).toBe(revision);
+
+    await releaseBlockFieldSaveController(key);
+
+    expect(blockFieldRevision(key, 4)).toEqual({ base: 4, stale: false });
+  });
+
+  it("clears a field's delete mark when the field is forgotten", () => {
+    const key = "doc:notes";
+    setBlockFieldDeleting(key, true);
+    expect(isBlockFieldDeleting(key)).toBe(true);
+
+    forgetBlockFieldSaveController(key);
+
+    expect(isBlockFieldDeleting(key)).toBe(false);
+  });
 });
 
-// Minimal act() shim: the registry has no React, but settling promises after a
-// resolver mirrors how the hook awaits flushes. Keeps assertions deterministic.
 async function act(fn: () => void): Promise<void> {
   fn();
   await Promise.resolve();

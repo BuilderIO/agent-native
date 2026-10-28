@@ -1,14 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const expiryAccess = vi.hoisted(() => ({
+  role: "editor",
+  expiresAt: null as string | null,
+}));
+
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
-const mockUpdateWhere = vi.hoisted(() => vi.fn(async () => undefined));
+const mockUpdateReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ id: "rec_1" }]),
+);
+const mockUpdateWhere = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockUpdateReturning })),
+);
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
+const mockReadAppState = vi.hoisted(() =>
+  vi.fn(async () => null as Record<string, unknown> | null),
+);
+const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn(async () => true));
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
+const mockLoadAgentsContext = vi.hoisted(() => vi.fn(async () => ""));
 
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
@@ -28,6 +43,8 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetManyAppState: mockCompareAndSetManyAppState,
+  readAppState: mockReadAppState,
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
@@ -35,11 +52,16 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => ({ role: "editor" })),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => ({
+    role: expiryAccess.role,
+    resource: { expiresAt: expiryAccess.expiresAt },
+  })),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
 
@@ -72,7 +94,7 @@ vi.mock("./cleanup-transcript.js", () => ({
 }));
 
 vi.mock("./lib/agents-md-context.js", () => ({
-  loadAgentsMdContext: vi.fn(async () => ""),
+  loadAgentsMdContext: mockLoadAgentsContext,
 }));
 
 vi.mock("./lib/builder-credits-state.js", () => ({
@@ -114,9 +136,211 @@ describe("fallbackTitleFromTranscript", () => {
 
 describe("regenerate-title fallback refinement", () => {
   beforeEach(() => {
+    expiryAccess.role = "editor";
+    expiryAccess.expiresAt = null;
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockReadAppState.mockResolvedValue(null);
+    mockCompareAndSetManyAppState.mockResolvedValue(true);
+    mockUpdateReturning.mockResolvedValue([{ id: "rec_1" }]);
+    mockLoadAgentsContext.mockResolvedValue("");
   });
+
+  it("does not automatically replace a manually chosen default title", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "manual",
+          updatedAt: "one",
+          description: "Saved",
+        },
+      ],
+    ];
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", automatic: true }),
+    ).resolves.toMatchObject({
+      updated: false,
+      skipped: true,
+      reason: "Recording title is manual",
+    });
+    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit request to regenerate a manually chosen default title", async () => {
+    const manual = {
+      title: "Untitled recording",
+      titleSource: "manual",
+      updatedAt: "one",
+    };
+    mockSelectRows.queue = [
+      [{ id: "rec_1", ...manual, description: "Saved" }],
+      [
+        {
+          status: "ready",
+          fullText: "A representative transcript for the recording.",
+          segmentsJson: "[]",
+        },
+      ],
+      [manual],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "Generated title",
+      provider: "builder",
+    });
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: true, title: "Generated title" });
+  });
+
+  it.each([false, true])(
+    "rechecks title expiry after cleanup without falling back (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      mockSelectRows.queue = [
+        [
+          {
+            id: "rec_1",
+            title: "Untitled recording",
+            titleSource: "default",
+            description: "Saved",
+          },
+        ],
+        [
+          {
+            status: "ready",
+            fullText: "Fake transcript for a title",
+            segmentsJson: "[]",
+            ownerEmail: "owner@example.com",
+          },
+        ],
+        [{ title: "Untitled recording", titleSource: "default" }],
+      ];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { title: "Fake delayed title", provider: "builder" };
+      });
+      const pending = regenerateTitle.run({ recordingId: "rec_1" });
+      if (owner)
+        await expect(pending).resolves.toMatchObject({ updated: true });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockUpdateSet).not.toHaveBeenCalled();
+        expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "rechecks expiry before queuing a same-title refinement (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      const title = "Agent Credits Cost $63";
+      mockSelectRows.queue = [
+        [{ id: "rec_1", title, titleSource: "manual", description: "Saved" }],
+        [
+          {
+            status: "ready",
+            fullText:
+              "It's easier to just walk through this real quick. Regarding your question about the agent credits costing $63, there are two reasons. The CPQ tool cannot show the SLA fee as a separate line item today.",
+            segmentsJson: "[]",
+            ownerEmail: "owner@example.com",
+          },
+        ],
+        [{ title, titleSource: "manual" }],
+        [{ title, titleSource: "manual" }],
+      ];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { title, provider: "builder" };
+      });
+      const pending = regenerateTitle.run({ recordingId: "rec_1" });
+      if (owner) await expect(pending).resolves.toMatchObject({ queued: true });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      }
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not overwrite a manual edit made while the generated title is being saved", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "Saved",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText: "A representative transcript for the recording.",
+          segmentsJson: "[]",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "Generated title",
+      provider: "builder",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({
+      updated: false,
+      skipped: true,
+      reason: "title_changed",
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it.each(["generated", "fallback"])(
+    "preserves a manual rename back to the original title on the %s path",
+    async (path) => {
+      const original = {
+        id: "rec_1",
+        title: "Untitled recording",
+        titleSource: "default",
+        updatedAt: "2026-01-01T00:00:00Z",
+        description: "Saved",
+      };
+      const renamed = {
+        title: original.title,
+        titleSource: "manual",
+        updatedAt: "2026-01-01T00:00:01Z",
+      };
+      mockSelectRows.queue = [
+        [original],
+        [
+          {
+            status: "ready",
+            fullText: "A representative transcript for the recording.",
+            segmentsJson: "[]",
+          },
+        ],
+        [renamed],
+      ];
+      if (path === "generated") {
+        mockCleanupTranscriptRun.mockResolvedValueOnce({
+          title: "Generated title",
+          provider: "builder",
+        });
+      } else {
+        mockCleanupTranscriptRun.mockRejectedValueOnce(
+          new Error("provider unavailable"),
+        );
+      }
+      const result = await regenerateTitle.run({ recordingId: "rec_1" });
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ updated: false, skipped: true });
+    },
+  );
 
   it("keeps a heuristic title replaceable and queues richer metadata", async () => {
     const transcript = `
@@ -145,6 +369,7 @@ describe("regenerate-title fallback refinement", () => {
         },
       ],
       [{ title: "Untitled recording", titleSource: "default" }],
+      [{ title: "Agent Credits Cost $63", titleSource: "context" }],
     ];
 
     const result = await regenerateTitle.run({
@@ -158,14 +383,25 @@ describe("regenerate-title fallback refinement", () => {
         titleSource: "context",
       }),
     );
-    expect(mockWriteAppState).toHaveBeenCalledWith(
-      "clips-ai-request-rec_1",
-      expect.objectContaining({
-        kind: "generate-metadata",
-        includeSummary: true,
-        currentTitle: "Agent Credits Cost $63",
-      }),
-    );
+    expect(mockCompareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-ai-request-status-rec_1",
+        expectedValue: null,
+        nextValue: expect.objectContaining({
+          kind: "generate-metadata",
+          status: "queued",
+        }),
+      },
+      {
+        key: "clips-ai-request-rec_1",
+        expectedValue: null,
+        nextValue: expect.objectContaining({
+          kind: "generate-metadata",
+          includeSummary: true,
+          currentTitle: "Agent Credits Cost $63",
+        }),
+      },
+    ]);
     expect(result).toMatchObject({
       updated: true,
       queued: true,

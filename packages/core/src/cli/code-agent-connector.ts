@@ -6,7 +6,6 @@ import path from "node:path";
 import { assertValidComputerCommandEnvelope } from "../integrations/computer-supervision.js";
 import { serializeBoundedRemoteJson } from "../integrations/remote-json-safety.js";
 import type {
-  ComputerCommandEnvelope,
   RemoteComputerCapabilities,
   RemoteExecutionCapabilities,
 } from "../integrations/remote-types.js";
@@ -46,7 +45,6 @@ export interface RemoteCodeAgentDeviceConfig {
   relayUrl?: string;
   deviceId?: string;
   deviceName?: string;
-  /** Default host-local workspace used when a command omits cwd. */
   workspacePath?: string;
   pollIntervalMs?: number;
 }
@@ -611,8 +609,6 @@ class RemoteCodeAgentConnector {
     if (!runId) return { ok: false, error: "Missing runId." };
     const run = getCodeAgentRunRecord(runId);
     if (!run) return { ok: false, error: `Run not found: ${runId}` };
-    // executePendingCodeAgentApproval now auto-resumes inline after running the
-    // approved command, so no separate spawnRunner call is needed.
     const result = await executePendingCodeAgentApproval(runId);
     return { ok: true, runId, run: result ?? getCodeAgentRunRecord(runId) };
   }
@@ -628,7 +624,6 @@ class RemoteCodeAgentConnector {
       message: "Remote approval denied.",
       metadata: { source: "remote-connector", commandId: command.id },
     });
-    // Auto-resume so the model can adapt its plan after the denial.
     const result = await executeDenyCodeAgentApproval(runId);
     return { ok: true, runId, run: result ?? getCodeAgentRunRecord(runId) };
   }

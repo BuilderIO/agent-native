@@ -33,6 +33,25 @@ describe("Content skill correction semantics", () => {
     );
   });
 
+  it("submits every explicitly supplied intake field and verifies its receipt", () => {
+    expect(skill).toMatch(
+      /Pass `propertyEntries` with one explicit `\{ property, value \}`\s+entry for every unambiguous enabled form field/,
+    );
+    expect(skill).toMatch(
+      /Do not use the dynamic-key `propertyValues` map in an\s+agent tool call/,
+    );
+    expect(skill).toMatch(
+      /form has no enabled primary\s+Blocks field for it, pass that detail through the action's `content` input/,
+    );
+    expect(skill).toMatch(
+      /`submittedProperties` covering every\s+intended field/,
+    );
+    expect(skill).toMatch(
+      /If any intended field is absent, the submission is incomplete/,
+    );
+    expect(skill).toContain("require `submittedContent: true`");
+  });
+
   it("uses live Content state and sparse patches for corrections", () => {
     expect(skill).toMatch(
       /treat Slack history as identity and\s+intent context, not as the current record state/,

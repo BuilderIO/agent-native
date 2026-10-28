@@ -276,7 +276,7 @@ Wenn `message/send` mit `async: true` aufgerufen wird, stellt der Handler JSON-R
 
 > [!IMPORTANT]
 > **Serverlose Webhook- und Gateway-Zeitüberschreitungen:**
-> Gehostete Umgebungs-Gateways (wie Netlify, Vercel oder Cloudflare Pages) legen strenge Ausführungslimits (oft 10 bis 30 Sekunden) für öffentlich zugängliche HTTP-Routen fest. Da Agent-Schleifen viel Zeit in Anspruch nehmen können, um Abfragen auszuführen, Kontext abzurufen und Tools auszuführen, müssen Sie `async: true` verwenden, wenn Sie A2A-Endpunkte aufrufen oder externe webhooks verarbeiten. Dadurch wird sofort ein `working`-Status an das API-Gateway zurückgegeben, wodurch die Verbindung nur für einige Millisekunden geöffnet bleibt, während der selbstauslösende `/process-task` POST die Agentenschleife im Hintergrund ausführt. Blockieren Sie nicht die primäre HTTP-Anfrage, die auf den Abschluss der Agentenschleife wartet.
+> Gehostete Umgebungs-Gateways (wie Netlify, Vercel oder Cloudflare Workers) legen strenge Ausführungslimits (oft 10 bis 30 Sekunden) für öffentlich zugängliche HTTP-Routen fest. Da Agent-Schleifen viel Zeit in Anspruch nehmen können, um Abfragen auszuführen, Kontext abzurufen und Tools auszuführen, müssen Sie `async: true` verwenden, wenn Sie A2A-Endpunkte aufrufen oder externe webhooks verarbeiten. Dadurch wird sofort ein `working`-Status an das API-Gateway zurückgegeben, wodurch die Verbindung nur für einige Millisekunden geöffnet bleibt, während der selbstauslösende `/process-task` POST die Agentenschleife im Hintergrund ausführt. Blockieren Sie nicht die primäre HTTP-Anfrage, die auf den Abschluss der Agentenschleife wartet.
 
 Nachrichten enthalten typisierte Teile – Text, strukturierte Daten und Dateien können alle in einer Nachricht übertragen werden:
 
@@ -650,7 +650,7 @@ Der Endpunkt der Agentenkarte ist immer öffentlich (keine Authentifizierung), s
 
 Bearer-Validierung wird an der Anforderungsgrenze ausgeführt – im JSON-RPC-Handler – bevor die Agentenschleife die Nachricht jemals sieht. Die gemeinsam genutzten Helfer in `packages/core/src/a2a/auth-policy.ts` entscheiden, was die Bereitstellung erfordert:
 
-- `isA2AProductionRuntime()` gibt `true` auf Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly und Cloud Run zurück – auch wenn `NODE_ENV` nicht `"production"` ist. Einige serverlose Anbieter setzen `NODE_ENV` nicht konsistent, sodass die Richtlinie auch anbieterspezifische Flags liest.
+- `isA2AProductionRuntime()` gibt `true` auf Netlify, AWS Lambda, Cloudflare Workers, Vercel, Render, Fly und Cloud Run zurück – auch wenn `NODE_ENV` nicht `"production"` ist. Einige serverlose Anbieter setzen `NODE_ENV` nicht konsistent, sodass die Richtlinie auch anbieterspezifische Flags liest.
 - `hasConfiguredA2ASecret()` gibt `true` zurück, wenn `A2A_SECRET` festgelegt ist.
 - `shouldAdvertiseJwtA2AAuth()` ist das, was die Agentenkarte verwendet, um zu entscheiden, ob ein `jwtBearer`-Sicherheitsschema veröffentlicht werden soll.
 

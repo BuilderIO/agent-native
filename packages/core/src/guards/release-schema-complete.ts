@@ -1,56 +1,34 @@
 /**
- * Every store that defines schema through `ensureTableExists()` must be listed
- * in `server/release-schema.ts`.
+ * Every module that defines schema must export a `defineStore()` that is in the
+ * generated store registry, and that registry must be fresh.
  *
- * A store's `ensureTable()` is the only definition of its tables — there is no
- * second copy in a migration list. Production serverless can never run one
- * (`schemaEnsureDisabled()` reports every table present so a cold start skips
- * ~390 probes), so a store missing from the release list has no path to
- * creation on a hosted deploy at all. Nothing fails at deploy time; the first
- * symptom is `relation "..." does not exist` from a user request, long after
- * the commit that caused it.
- *
- * That is not hypothetical. `settings`, `application_state`, `app_secrets` and
- * `resources` were absent from the release path for twelve days, and published
- * sites came up with an empty database while the deploy reported success.
+ * Hosted request runtimes never create tables, so a module whose DDL is not
+ * reachable from the release step has no path to creation on a hosted deploy.
+ * Nothing fails at deploy time; the first symptom is a missing relation from a
+ * user request. `settings`, `application_state`, `app_secrets` and `resources`
+ * were once absent from the hand-kept release list for twelve days.
  */
 
 import path from "node:path";
 
 import { readFileSafe, relPosix, walk } from "./scan-utils.js";
+import {
+  STORE_REGISTRY_FILE,
+  discoverStores,
+  findDuplicateStoreIds,
+  findUndiscoverableStores,
+  normalizeGenerated,
+  renderStoreRegistry,
+} from "./store-registry-codegen.js";
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
-/**
- * What counts as "this module creates a table". `ensureTableExists` is the
- * intended helper, but a store that executes its DDL through the raw client
- * creates schema just as much, and needs the release pass just as much. Missing
- * that second form is how `extensions/slots/store.ts` stayed invisible to the
- * first version of this guard.
- *
- * Keyed on EXECUTING the DDL, not on containing it. A `schema.ts` that exports
- * `CREATE TABLE` strings and a migration list that stores them both mention the
- * SQL without ever running it: the first is executed by its own store, which is
- * on the list, and the second is applied by `runMigrations`.
- */
 const ENSURE_TABLE_RE = /\bensureTableExists\s*\(/;
 const EXECUTES_RE = /\.execute\s*\(/;
 const CREATE_TABLE_RE = /\bCREATE\s+TABLE\b/i;
-/**
- * DDL that lives in another module, the way `extensions/slots` keeps its SQL in
- * `slots/schema.ts`. Keyed on the `_CREATE_SQL` / `_TABLE_SQL` / `_INDEX_SQL`
- * naming rather than on any executed constant, so a plain
- * `execute(DB_PRESSURE_SQL)` SELECT is not mistaken for schema.
- */
 const DDL_CONST_RE =
   /\b[A-Z][A-Z0-9_]*_(?:CREATE|TABLE|INDEX)_SQL(?:_[A-Z0-9]+)?\b/;
 
-/**
- * Whether this module CREATES tables, in any of the three shapes the codebase
- * actually uses. Deliberately NOT keyed on the name of the executed expression:
- * stores run their DDL from a local `createSql` or `ddl` variable as often as
- * from a named constant, so requiring a recognisable name would let the
- * commonest shape of all walk past the guard.
- */
+const ALTERS_SCHEMA_RE = /\bensure(?:Column|Index)Exists\s*\(/;
 const definesSchema = (code: string) =>
   ENSURE_TABLE_RE.test(code) ||
   (EXECUTES_RE.test(code) &&
@@ -59,24 +37,12 @@ const ALLOW_MARKER_RE = /guard:allow-unreleased-schema\s*[—-]\s*\S/;
 const SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/i;
 const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts)$/i;
 
-/**
- * The two halves of the release path. `release-schema.ts` runs the stores' own
- * ensure functions; `release-migrations.ts` runs the versioned migration lists
- * and a few schema runners of its own (better-auth). A module reached by either
- * one is created at release, so both count as coverage.
- */
-const RELEASE_LIST = "src/server/release-schema.ts";
 const RELEASE_MIGRATIONS = "src/server/release-migrations.ts";
 const DDL_GUARD = "src/db/ddl-guard.ts";
-/** The migration runner executes migration-list DDL; `runMigrations` owns it. */
 const MIGRATION_RUNNER = "src/db/migrations.ts";
-/** Guards describe this rule in prose; they never own schema. */
+const STORE_RUNNER = "src/db/store-registry.ts";
 const GUARDS_DIR = "src/guards/";
 
-/**
- * Blank out comments so a file that only NAMES `ensureTableExists` — this guard,
- * a doc block, a changelog note — is not reported as defining schema.
- */
 function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -84,24 +50,23 @@ function stripComments(source: string): string {
 }
 
 export interface ReleaseSchemaScanOptions extends GuardScanOptions {
-  /** Defaults to `<root>/packages/core`. */
   corePackageDir?: string;
 }
 
-/**
- * Import specifiers in `release-schema.ts`, resolved to repo-relative paths so
- * they can be compared against the files that actually call `ensureTableExists`.
- */
-function coveredModules(coreDir: string, sources: string[]): Set<string> {
+function coveredModules(
+  coreDir: string,
+  sources: Array<[relFile: string, source: string]>,
+): Set<string> {
   const covered = new Set<string>();
-  // Static `from "..."` and dynamic `import("...")`; the list uses the latter.
   const importRe = /(?:from\s+|import\s*\(\s*)"([^"]+)"/g;
-  for (const match of sources.join("\n").matchAll(importRe)) {
-    const spec = match[1];
-    if (!spec.startsWith(".")) continue;
-    const fromDir = path.join(coreDir, "src", "server");
-    const resolved = path.resolve(fromDir, spec).replace(/\.js$/, ".ts");
-    covered.add(relPosix(coreDir, resolved));
+  for (const [relFile, source] of sources) {
+    const fromDir = path.join(coreDir, path.dirname(relFile));
+    for (const match of source.matchAll(importRe)) {
+      const spec = match[1];
+      if (!spec.startsWith(".")) continue;
+      const resolved = path.resolve(fromDir, spec).replace(/\.js$/, ".ts");
+      covered.add(relPosix(coreDir, resolved));
+    }
   }
   return covered;
 }
@@ -113,38 +78,80 @@ export function scanReleaseSchemaCoverage(
     options.corePackageDir ?? path.join(options.root, "packages", "core");
   const findings: GuardFinding[] = [];
 
-  const listSource = readFileSafe(path.join(coreDir, RELEASE_LIST));
-  if (listSource === null) {
-    // Not "nothing to check" — the list this guard exists to audit is gone.
+  const registrySource = readFileSafe(path.join(coreDir, STORE_REGISTRY_FILE));
+  if (registrySource === null) {
     findings.push({
-      file: RELEASE_LIST,
+      file: STORE_REGISTRY_FILE,
       line: 1,
       message:
-        "release-schema.ts is missing; every framework table would stop being created at release time.",
+        "the generated store registry is missing; run `pnpm gen:store-registry`.",
     });
     return { name: "release-schema-complete", findings };
   }
 
+  const stores = discoverStores(coreDir);
+  for (const file of findUndiscoverableStores(coreDir)) {
+    findings.push({
+      file,
+      line: 1,
+      message:
+        'calls defineStore() in a form the registry generator cannot read; write it as `export const xStore = defineStore({ id: "literal", ... })`.',
+    });
+  }
+  const storeFiles = new Set(stores.map((store) => store.file));
+  for (const id of findDuplicateStoreIds(stores)) {
+    findings.push({
+      file: STORE_REGISTRY_FILE,
+      line: 1,
+      message: `defineStore id "${id}" is declared more than once.`,
+    });
+  }
+  if (
+    normalizeGenerated(registrySource) !==
+    normalizeGenerated(renderStoreRegistry(stores))
+  ) {
+    findings.push({
+      file: STORE_REGISTRY_FILE,
+      line: 1,
+      message:
+        "is stale: it does not match the defineStore() exports in src; run `pnpm gen:store-registry`.",
+    });
+  }
+
   const covered = coveredModules(coreDir, [
-    listSource,
-    readFileSafe(path.join(coreDir, RELEASE_MIGRATIONS)) ?? "",
+    [STORE_REGISTRY_FILE, registrySource],
+    [
+      RELEASE_MIGRATIONS,
+      readFileSafe(path.join(coreDir, RELEASE_MIGRATIONS)) ?? "",
+    ],
   ]);
   const srcDir = path.join(coreDir, "src");
 
   for (const file of walk(srcDir)) {
     if (!SOURCE_EXTENSIONS.test(file) || TEST_FILE.test(file)) continue;
     const rel = relPosix(coreDir, file);
-    if (rel === RELEASE_LIST || rel === RELEASE_MIGRATIONS) continue;
-    if (rel === DDL_GUARD) continue;
+    if (rel === STORE_REGISTRY_FILE || rel === RELEASE_MIGRATIONS) continue;
+    if (rel === DDL_GUARD || rel === STORE_RUNNER) continue;
     if (rel === MIGRATION_RUNNER) continue;
     if (rel.startsWith(GUARDS_DIR)) continue;
 
     const source = readFileSafe(file);
     if (source === null) continue;
     const code = stripComments(source);
+    if (ALLOW_MARKER_RE.test(source)) continue;
+    if (!storeFiles.has(rel) && ALTERS_SCHEMA_RE.test(code)) {
+      const lines = code.split("\n");
+      const line = lines.findIndex((text) => ALTERS_SCHEMA_RE.test(text)) + 1;
+      findings.push({
+        file: rel,
+        line: line > 0 ? line : 1,
+        message:
+          "alters schema outside a defineStore() migration. Move it into the owning store's migrations so the release step applies and records it.",
+      });
+      continue;
+    }
     if (!definesSchema(code)) continue;
     if (covered.has(rel)) continue;
-    if (ALLOW_MARKER_RE.test(source)) continue;
 
     const lines = code.split("\n");
     const line = lines.findIndex((text) => definesSchema(text)) + 1;
@@ -152,7 +159,7 @@ export function scanReleaseSchemaCoverage(
       file: rel,
       line: line > 0 ? line : 1,
       message:
-        "creates tables but is not imported by src/server/release-schema.ts, so they are never created on a hosted deploy.",
+        "creates tables but exports no defineStore() in the generated store registry, so they are never created on a hosted deploy.",
     });
   }
 

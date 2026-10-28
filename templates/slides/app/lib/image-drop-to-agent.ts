@@ -1,18 +1,8 @@
-/**
- * Resolve how to hand a dropped image to the agent chat.
- *
- * Prefer a hosted CDN URL from `/api/assets/upload` when a file-upload
- * provider is configured. When nothing is configured (or the upload fails),
- * fall back to an inline data URL when it fits Core's request limit so the
- * agent can still see the image. Chat already accepts `images: string[]` data
- * URLs without a storage provider. The agent can call `upload-image` later if
- * the slide needs a durable hosted URL.
- */
-
+import { parseBase64DataUrl } from "@agent-native/core/shared";
 import {
   estimateAttachmentBodyBytes,
   MAX_ESTIMATED_BODY_BYTES,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/toolkit/composer/attachment-accept";
 
 import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../../shared/upload-types";
 
@@ -39,16 +29,42 @@ export type ImageDropAgentPayload =
     };
 
 export function isMissingUploadProviderError(
-  status: number,
+  _status: number,
   error: string | undefined,
 ): boolean {
-  if (status === 503) return true;
   const lower = (error ?? "").toLowerCase();
   return (
+    lower.includes("no object storage is connected") ||
     lower.includes("no file upload provider") ||
     lower.includes("registerfileuploadprovider") ||
-    lower.includes("connect builder.io")
+    lower.includes("connect builder.io") ||
+    lower.includes("use builder.io")
   );
+}
+
+export function isStorageSetupRequiredError(error: unknown): boolean {
+  // Typed first: the server says who can fix storage, and "nobody connected
+  // it" is the workspace admin's setup, whatever the message says.
+  const typed = error as {
+    errorCode?: unknown;
+    details?: { whoCanFix?: unknown } | null;
+  } | null;
+  if (typed?.errorCode === "attachment_storage_unavailable") {
+    return typed.details?.whoCanFix === "workspace_admin";
+  }
+  // Producers that do not carry a typed code yet (image assets, image
+  // generation) still word this as "No object storage is connected".
+  const message =
+    error instanceof Error
+      ? error.message
+      : error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : undefined;
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? Number(error.status)
+      : 0;
+  return isMissingUploadProviderError(status, message);
 }
 
 export function buildImageDropAgentPayload(args: {
@@ -88,22 +104,23 @@ export function buildImageDropAgentPayload(args: {
     };
   }
 
+  if (isMissingUploadProviderError(args.upload.status, args.upload.error)) {
+    throw new Error(
+      args.upload.error ||
+        "Connect object storage to upload images: Builder.io (free) or your own S3-compatible storage keys.",
+    );
+  }
+
   if (!inlineDataUrl) {
     throw new Error(
       args.upload.error ||
-        "Image upload failed. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+        "Image upload failed. Use Builder.io (free) or configure your own S3-compatible storage keys.",
     );
   }
 
   if (!isMissingUploadProviderError(args.upload.status, args.upload.error)) {
-    // Unexpected upload failure — still try the inline path so the user can
-    // keep working, but tell the agent the hosted upload didn't land.
     contextLines.push(
       "Hosted upload failed; the image is attached inline as a data URL. Call upload-image on it before placing it on the slide if a durable URL is required.",
-    );
-  } else {
-    contextLines.push(
-      "No file upload provider is configured, so the image is attached inline as a data URL. Call upload-image to obtain a hosted URL before inserting it into slide HTML.",
     );
   }
 
@@ -114,10 +131,6 @@ export function buildImageDropAgentPayload(args: {
     images: [inlineDataUrl],
   };
 }
-
-// Keep browser-side vision payloads below Core's encoded request boundary. A
-// hosted URL remains available for larger files, but those bytes cannot be
-// sent inline without making the chat request itself too large.
 
 export function canInlineImageFile(file: File): boolean {
   const mediaType = file.type || "application/octet-stream";
@@ -133,14 +146,12 @@ export function canInlineImageFile(file: File): boolean {
 }
 
 export function canInlineImageDataUrl(dataUrl: string): boolean {
-  const match = /^data:(image\/[^;]+);base64,(.*)$/is.exec(dataUrl);
-  const mediaType = match?.[1]?.trim().toLowerCase();
+  const parsed = parseBase64DataUrl(dataUrl);
   return Boolean(
-    match &&
-    mediaType &&
-    mediaType !== "image/svg+xml" &&
-    match[2].length + `data:${mediaType};base64,`.length <=
-      MAX_INLINE_IMAGE_BASE64_CHARS,
+    parsed &&
+    parsed.mediaType.startsWith("image/") &&
+    parsed.mediaType !== "image/svg+xml" &&
+    dataUrl.length <= MAX_INLINE_IMAGE_BASE64_CHARS,
   );
 }
 

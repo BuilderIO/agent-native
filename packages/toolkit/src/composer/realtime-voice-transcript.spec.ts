@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  appendRealtimeVoiceTranscriptToRepository,
   createRealtimeVoiceTranscriptRegistry,
   type RealtimeVoiceTranscriptMessage,
 } from "./realtime-voice-transcript.js";
@@ -30,9 +29,6 @@ describe("realtime voice transcript registry", () => {
     registry.register({
       threadId: "thread-1",
       active: true,
-      // Simulate the chat surface being selected but not yet ready to apply
-      // the completed transcript. The registry must retain it for the sink
-      // that mounts once the surface is ready.
       append: vi.fn(() => false),
     });
     expect(registry.activeThreadId()).toBe("thread-1");
@@ -53,43 +49,90 @@ describe("realtime voice transcript registry", () => {
     registry.publish(transcript());
     expect(append).toHaveBeenCalledOnce();
   });
-});
 
-describe("appendRealtimeVoiceTranscriptToRepository", () => {
-  it("links completed user and assistant messages without starting a run", () => {
-    const first = appendRealtimeVoiceTranscriptToRepository({}, transcript());
-    const second = appendRealtimeVoiceTranscriptToRepository(
-      first.repository,
-      transcript({
-        id: "voice-2",
-        role: "assistant",
-        text: "Opening Sources.",
-      }),
+  it("streams updates for one id until the final transcript lands", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    const append = vi.fn(() => true);
+    registry.register({ threadId: "thread-1", active: true, append });
+
+    registry.publish(transcript({ text: "Open", status: "streaming" }));
+    registry.publish(transcript({ text: "Open sour", status: "streaming" }));
+    registry.publish(transcript({ text: "Open sources" }));
+    registry.publish(
+      transcript({ text: "Open sources late", status: "streaming" }),
     );
-    expect(second.repository.headId).toBe("voice-2");
-    expect(second.repository.messages).toMatchObject([
-      {
-        parentId: null,
-        message: {
-          id: "voice-1",
-          role: "user",
-          metadata: { custom: { source: "realtime-voice" } },
-        },
-      },
-      {
-        parentId: "voice-1",
-        message: {
-          id: "voice-2",
-          role: "assistant",
-          status: { type: "complete", reason: "stop" },
-        },
-      },
+
+    expect(append.mock.calls.map(([message]) => message)).toEqual([
+      expect.objectContaining({ text: "Open", status: "streaming" }),
+      expect.objectContaining({ text: "Open sour", status: "streaming" }),
+      expect.objectContaining({ text: "Open sources", status: "complete" }),
     ]);
-    expect(
-      appendRealtimeVoiceTranscriptToRepository(
-        second.repository,
-        transcript({ id: "voice-2" }),
-      ).appended,
-    ).toBe(false);
+  });
+
+  it("keeps only the newest queued text while the sink defers", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    registry.register({
+      threadId: "thread-1",
+      active: true,
+      append: () => false,
+    });
+    registry.publish(transcript({ text: "Open", status: "streaming" }));
+    registry.publish(transcript({ text: "Open sources", status: "streaming" }));
+    expect(registry.pendingCount()).toBe(1);
+
+    const append = vi.fn(() => true);
+    registry.register({ threadId: "thread-1", active: true, append });
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Open sources", status: "streaming" }),
+    );
+  });
+
+  it("asks a sink whether it is on screen when picking the active thread", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    let visible = false;
+    registry.register({
+      threadId: "thread-1",
+      active: () => visible,
+      append: () => true,
+    });
+    expect(registry.activeThreadId()).toBeUndefined();
+    visible = true;
+    expect(registry.activeThreadId()).toBe("thread-1");
+  });
+
+  it("queues a reply's work until its thread's sink takes it, finished over running", () => {
+    const registry = createRealtimeVoiceTranscriptRegistry();
+    const running = {
+      id: "call-1",
+      threadId: "thread-1",
+      calls: [
+        {
+          id: "call-1",
+          name: "web-search",
+          status: "running" as const,
+          startedAt: "2026-07-10T20:00:00.000Z",
+        },
+      ],
+    };
+    registry.publishWork(running);
+    registry.publishWork({
+      ...running,
+      completedAt: "2026-07-10T20:00:02.000Z",
+    });
+    registry.publishWork(running);
+    expect(registry.pendingCount()).toBe(1);
+
+    const appendWork = vi.fn(() => true);
+    registry.register({
+      threadId: "thread-1",
+      active: true,
+      append: vi.fn(() => true),
+      appendWork,
+    });
+    expect(appendWork).toHaveBeenCalledOnce();
+    expect(appendWork).toHaveBeenCalledWith(
+      expect.objectContaining({ completedAt: "2026-07-10T20:00:02.000Z" }),
+    );
+    expect(registry.pendingCount()).toBe(0);
   });
 });

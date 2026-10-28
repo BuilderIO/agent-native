@@ -10,3 +10,5 @@ Core application state, scoped access और Context X-Ray engine का owner �
 Context X-Ray engine Core-owned रहता है। समान presentation के लिए Toolkit उपयोग करें, लेकिन state और access decisions Core तथा actions में रखें। [Context awareness](/docs/context-awareness) navigation, selection और focused object को agent के सामने रखता है; [Resources](/docs/toolkit-resources) files और attachments संभालता है।
 
 Context access control का विकल्प नहीं है। Provider knowledge लेने से पहले resource और credential checks बनाए रखें।
+
+Toolkit, @agent-native/toolkit/app/context-xray से तैयार panel export करता है। ऐप manifest, optimistic pin/evict state और callbacks देता है; panel खुद data fetch या actions call नहीं करता।

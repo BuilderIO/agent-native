@@ -5,10 +5,13 @@ import {
   IconUsersGroup,
   IconArchive,
   IconTrash,
+  IconLink,
+  IconFileText,
 } from "@tabler/icons-react";
-import type { ComponentType, ReactNode } from "react";
+import { type ComponentType, type ReactNode, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
+import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -19,6 +22,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 
+import { buildLibraryActionHrefs } from "./library-action-hrefs";
+
 type EmptyKind =
   | "library"
   | "shared"
@@ -26,6 +31,7 @@ type EmptyKind =
   | "space"
   | "archive"
   | "trash"
+  | "fromContent"
   | "search";
 
 const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
@@ -35,6 +41,7 @@ const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
   space: IconUsersGroup,
   archive: IconArchive,
   trash: IconTrash,
+  fromContent: IconFileText,
   search: IconVideo,
 };
 
@@ -43,6 +50,7 @@ const BACK_TO_LIBRARY_KINDS = new Set<EmptyKind>([
   "shared",
   "archive",
   "trash",
+  "fromContent",
 ]);
 
 interface AppEmptyStateProps {
@@ -60,7 +68,7 @@ export function AppEmptyState({
 }: AppEmptyStateProps) {
   return (
     <Empty className="min-h-64 px-6 py-12 md:p-12">
-      <EmptyHeader>
+      <EmptyHeader className="w-full max-w-xl">
         <EmptyMedia variant="icon">
           <Icon />
         </EmptyMedia>
@@ -69,7 +77,9 @@ export function AppEmptyState({
           <EmptyDescription>{description}</EmptyDescription>
         ) : null}
       </EmptyHeader>
-      {content ? <EmptyContent>{content}</EmptyContent> : null}
+      {content ? (
+        <EmptyContent className="gap-2">{content}</EmptyContent>
+      ) : null}
     </Empty>
   );
 }
@@ -91,6 +101,7 @@ export function EmptyState({
   const t = useT();
   const Icon = ICONS[kind];
   const hasCta = CTA_KINDS.has(kind);
+  const [loomImportOpen, setLoomImportOpen] = useState(false);
 
   const handleCta = () => {
     if (onCtaClick) {
@@ -104,12 +115,33 @@ export function EmptyState({
     }
   };
 
+  const { recordHref } = buildLibraryActionHrefs({ spaceId, folderId });
+
   const content = hasCta ? (
-    <Button onClick={handleCta} size="sm">
-      {t(`empty.${kind}.cta`)}
-    </Button>
+    <div className="flex flex-col items-center gap-2">
+      <Button onClick={handleCta} size="sm">
+        {t(`empty.${kind}.cta`)}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-2"
+        onClick={() => setLoomImportOpen(true)}
+      >
+        <IconLink />
+        {t("preRecord.importLoom")}
+      </Button>
+      <ImportLoomDialog
+        open={loomImportOpen}
+        onOpenChange={setLoomImportOpen}
+        spaceId={spaceId}
+        folderId={folderId}
+        recordHref={recordHref}
+      />
+    </div>
   ) : BACK_TO_LIBRARY_KINDS.has(kind) ? (
-    <Button asChild size="sm" variant="outline">
+    <Button asChild size="sm">
       <Link to="/library">{t("recordingPage.backToLibrary")}</Link>
     </Button>
   ) : null;

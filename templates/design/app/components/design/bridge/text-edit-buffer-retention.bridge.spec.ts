@@ -3,12 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Needs a real browser: the subject is keystrokes that exist ONLY inside this
- * frame. Characters typed while a begin-text-edit is still waiting for its node
- * live on `pendingBeginTextEdit.buffer` — the host never saw them, so Escape
- * cancelling that entry was the one path that could still lose them.
- */
 const SCREEN_ID = "board-file";
 
 function hydratedEditorChromeBridgeScript(): string {
@@ -78,14 +72,10 @@ describe("text buffered inside the frame is never dropped", () => {
         const page = await browser.newPage();
         await startFrame(page);
 
-        // The command wins the race against the insert: the node is not here
-        // yet, so these keystrokes park on the pending entry and exist nowhere
-        // else — not in the document, and not on the host.
         await beginTextEdit(page, "text-late");
         await page.keyboard.type("Sta");
         await page.keyboard.press("Escape");
 
-        // Escape ends the creation but KEEPS what was typed (Figma).
         await mountTextNode(page, "text-late");
         await page.waitForFunction(
           () =>
@@ -98,7 +88,6 @@ describe("text buffered inside the frame is never dropped", () => {
           { timeout: 5_000 },
         );
         expect(await nodeText(page, "text-late")).toBe("Sta");
-        // Escape closes the session it committed into.
         expect(
           await page.evaluate(
             () =>

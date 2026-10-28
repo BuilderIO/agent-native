@@ -21,6 +21,11 @@ const schema = z.object({
 export default defineAction({
   description: "Create a reusable version-history snapshot for a resource.",
   schema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     const access = await assertVersionedResourceAccess(
@@ -30,8 +35,6 @@ export default defineAction({
       "editor",
     );
     const registration = getVersionedResource(args.resourceType);
-    // Prefer the registered server snapshot when available so editors/agents
-    // cannot plant arbitrary restore payloads for managed resource types.
     const serverSnapshot = registration?.getSnapshot
       ? await registration.getSnapshot({
           resourceType: args.resourceType,

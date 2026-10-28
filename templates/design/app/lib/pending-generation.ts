@@ -1,12 +1,11 @@
-import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { isBoardFile } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import { normalizedDesignFileType } from "@/pages/design-editor/canvas-primitive-insert";
 
-// Pending generation state is a UI recovery aid, not a generation deadline.
-// Keep it long enough for thorough designs while still clearing abandoned runs.
 export const PENDING_GENERATION_STALE_MS = 30 * 60_000;
 
 export interface PendingGeneration {
@@ -19,13 +18,66 @@ export interface PendingGeneration {
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   autoGenerate?: boolean;
   skipQuestions?: boolean;
   attempt?: number;
   createdAt?: number;
   startedAt?: number;
   runTabId?: string;
+  previousRunId?: string;
+  previousRunBaselineVerified?: boolean;
+  currentRunId?: string;
+  currentTurnId?: string;
+  outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
+}
+
+export interface PreviousRunBaseline {
+  runId: string | null;
+  verified: boolean;
+  turnId?: string;
+}
+
+export function resolvePendingGenerationOutputBaseline(
+  persisted: PendingGeneration["outputBaselineFiles"],
+  live: PendingGeneration["outputBaselineFiles"],
+): PendingGeneration["outputBaselineFiles"] {
+  return persisted ?? live;
+}
+
+export function resolvePreviousRunBaseline(
+  baseline: PreviousRunBaseline | null | undefined,
+  pending: Pick<
+    PendingGeneration,
+    | "currentRunId"
+    | "currentTurnId"
+    | "previousRunId"
+    | "previousRunBaselineVerified"
+  > | null,
+): PreviousRunBaseline {
+  if (baseline && (baseline.verified || baseline.runId)) {
+    const turnId =
+      baseline.runId &&
+      (baseline.turnId ||
+        (baseline.runId === pending?.currentRunId
+          ? pending.currentTurnId
+          : undefined));
+    return {
+      runId: baseline.runId,
+      verified: baseline.verified || Boolean(baseline.runId),
+      ...(turnId ? { turnId } : {}),
+    };
+  }
+
+  const runId = pending?.currentRunId ?? pending?.previousRunId ?? null;
+  return {
+    runId,
+    verified: Boolean(runId) || pending?.previousRunBaselineVerified === true,
+    ...(pending?.currentRunId && pending.currentTurnId
+      ? { turnId: pending.currentTurnId }
+      : {}),
+  };
 }
 
 function isGenerationOutputFile(file: {
@@ -36,9 +88,6 @@ function isGenerationOutputFile(file: {
   return normalizedDesignFileType(file.fileType ?? "html") === "html";
 }
 
-/** Screens the user would notice as generated output. The reserved board
- * file is created on every design open and must not count as generation.
- * CSS/JSX/asset support files match the overview screen list: not screens. */
 export function generationOutputFiles<
   T extends { filename?: string; fileType?: string } = {
     filename?: string;
@@ -48,22 +97,45 @@ export function generationOutputFiles<
   return files.filter(isGenerationOutputFile);
 }
 
-/** Fresh (non-template) generation must not restart once a real HTML screen
- * exists. CSS/JSX/board files are not screens, so a CSS-only file list still
- * resumes. Template refinements keep going even when screens already exist. */
-export function shouldSkipPendingGenerationResume<
-  T extends { filename?: string; fileType?: string },
->(pending: PendingGeneration, files: readonly T[]): boolean {
-  return generationOutputFiles(files).length > 0 && !pending.templateId;
+export function snapshotGenerationOutputBaseline(
+  files: readonly {
+    id: string;
+    filename?: string;
+    fileType?: string;
+    content: string;
+  }[],
+): Array<{ id: string; contentHash: string }> {
+  return generationOutputFiles(files).map((file) => ({
+    id: file.id,
+    contentHash: sourceContentHash(file.content),
+  }));
 }
 
-function isTrackedTemplateOutputFile(file: { filename?: string }): boolean {
-  return !(file.filename && isBoardFile(file.filename));
+export function shouldSkipPendingGenerationResume<
+  T extends {
+    id: string;
+    filename?: string;
+    fileType?: string;
+    content: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  },
+>(pending: PendingGeneration, files: readonly T[]): boolean {
+  if (pending.templateId) return false;
+
+  if (
+    pending.outputBaselineFiles === undefined &&
+    generationOutputFiles(files).length > 0
+  ) {
+    return !isPendingGenerationStale(pending);
+  }
+
+  return hasPendingGenerationOutput(pending, files);
 }
 
 export function hasPendingGenerationOutput(
-  pending: PendingGeneration | null,
-  files: readonly {
+  _pending: PendingGeneration | null,
+  _files: readonly {
     id: string;
     filename?: string;
     fileType?: string;
@@ -72,31 +144,9 @@ export function hasPendingGenerationOutput(
     updatedAt?: string | null;
   }[],
 ): boolean {
-  if (!pending?.templateId) return generationOutputFiles(files).length > 0;
-
-  // Template refinements can persist CSS/JSX/assets without a new HTML screen.
-  // Fresh generation still requires a rendered HTML screen.
-  const trackedFiles = files.filter(isTrackedTemplateOutputFile);
-
-  if (pending.templateBaselineFiles?.length) {
-    const baseline = new Map(
-      pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
-    );
-    return trackedFiles.some(
-      (file) =>
-        !baseline.has(file.id) ||
-        baseline.get(file.id) !== sourceContentHash(file.content),
-    );
-  }
-
-  // Recovery for template refinements started before baseline hashes were
-  // recorded. Freshly copied files have matching creation/update revisions;
-  // only a later write is evidence that refinement produced output.
-  return trackedFiles.some(
-    (file) =>
-      Boolean(file.createdAt && file.updatedAt) &&
-      file.createdAt !== file.updatedAt,
-  );
+  // Design file changes carry no active run identity, so only run status can
+  // confirm that changed or newly created files came from this generation.
+  return false;
 }
 
 export function pendingGenerationKey(id: string): string {
@@ -137,6 +187,20 @@ export function clearPendingGeneration(id: string | undefined): void {
   } catch {
     // Storage may be unavailable.
   }
+}
+
+export function failPendingGenerationForMissingImagePayload(
+  id: string | undefined,
+  error: unknown,
+  message: string,
+  setGenerationIssue: (message: string) => void,
+  setHasPendingGeneration: (pending: boolean) => void,
+): boolean {
+  if (!(error instanceof MissingVisualImagePayloadError)) return false;
+  clearPendingGeneration(id);
+  setGenerationIssue(message);
+  setHasPendingGeneration(false);
+  return true;
 }
 
 export function readPendingGeneration(

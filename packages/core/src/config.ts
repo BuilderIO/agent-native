@@ -1,10 +1,5 @@
-/**
- * Public, non-secret configuration for an Agent-Native app.
- *
- * This module is intentionally free of Node and framework imports so it can be
- * used from a typed `agent-native.config.ts` file and from browser code after Vite
- * serializes the resolved config into the client bundle.
- */
+import { isThemeFamily, type ThemeFamily } from "./appearance/theme-family.js";
+import { normalizeFrameworkRoutePrefix } from "./shared/framework-route-prefix.js";
 
 export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
 
@@ -20,29 +15,18 @@ export type AgentNativeFirstRunOnboardingSetting =
     });
 
 export interface AgentNativeOnboardingConfig {
-  /**
-   * First-run setup shown by the shared Agent Sidebar.
-   *
-   * `connect` shows Builder/BYOK setup and skips the generic integrations
-   * catalog. `connect-and-integrations` includes that catalog. A per-Vite-mode
-   * object is useful when local development and hosted builds need different
-   * defaults.
-   */
   firstRun?: AgentNativeFirstRunOnboardingSetting;
 }
 
 export interface AgentNativeRuntimeAuthConfig {
-  /** Whether the app expects the framework or a custom auth layer to run. */
   enabled?: boolean;
 }
 
 export interface AgentNativeRuntimeDatabaseConfig {
-  /** Whether production needs a persistent remote database. */
   required?: boolean;
 }
 
 export interface AgentNativeRuntimeEnvironmentConfig {
-  /** Additional non-secret environment keys required by this app. */
   required?: string[];
 }
 
@@ -50,6 +34,7 @@ export interface AgentNativeRuntimeConfig {
   auth?: AgentNativeRuntimeAuthConfig;
   database?: AgentNativeRuntimeDatabaseConfig;
   environment?: AgentNativeRuntimeEnvironmentConfig;
+  frameworkRoutePrefix?: string;
 }
 
 export type AgentNativeDeploymentEnvironment =
@@ -59,34 +44,34 @@ export type AgentNativeDeploymentEnvironment =
   | "preview";
 
 export interface AgentNativeDeploymentConfig {
-  /** The release lane that produced the currently running client bundle. */
   environment?: AgentNativeDeploymentEnvironment;
-  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
   badgeText?: string;
+  workspace?: AgentNativeWorkspaceDeploymentConfig;
+}
+
+export type AgentNativeWorkspaceAuthMode = "shared" | "isolated";
+export type AgentNativeWorkspaceRootPage = "redirect" | "directory";
+
+export interface AgentNativeWorkspaceDeploymentConfig {
+  appsDirectory?: string;
+  authMode?: AgentNativeWorkspaceAuthMode;
+  rootPage?: AgentNativeWorkspaceRootPage;
 }
 
 export interface AgentNativeDiagnosticsConfig {
-  /** Fail a production Vite build when runtime configuration has issues. */
   failOnBuild?: boolean;
 }
 
 export interface AgentNativeInstructionsConfig {
-  /** Relative Markdown file loaded by the in-app runtime agent. */
   runtime?: string;
-  /** Relative Markdown file loaded by development/coding agents. */
   development?: string;
 }
 
 export interface AgentNativeTranslationsConfig {
-  /**
-   * Locales the app intentionally ships translations for. `en-US` is the
-   * default source locale; additional locales are opt-in.
-   */
   locales?: string[];
 }
 
 export interface AgentNativeChangelogConfig {
-  /** Whether agents should create and surface user-facing changelog entries. */
   enabled?: boolean;
 }
 
@@ -97,29 +82,33 @@ export type AgentNativeHarnessRuntime =
   | "opencode";
 
 export interface AgentNativeHarnessConfig {
-  /** Optionally narrow the hosted harness picker to these runtimes. */
   runtimes?: AgentNativeHarnessRuntime[];
 }
 
-/**
- * The intentionally small app-level switch for hosted tools-only harnesses.
- * `true` enables every supported runtime; an object narrows the picker.
- */
 export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
+
+export interface AgentNativeThemeFamilyConfig {
+  families: ThemeFamily[];
+  defaultFamily?: ThemeFamily;
+}
 
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
   deployment?: AgentNativeDeploymentConfig;
-  /** Badge text override shown in the top-left sidebar header badge (e.g. "alpha" or "beta"). Defaults to "alpha". */
   badgeText?: string;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
   changelog?: AgentNativeChangelogConfig;
   harness?: AgentNativeHarnessSetting;
+  themeFamily?: AgentNativeThemeFamilyConfig;
 }
+
+type AgentNativeConfigEnvOverride = Omit<AgentNativeConfig, "themeFamily"> & {
+  themeFamily?: Partial<AgentNativeThemeFamilyConfig>;
+};
 
 export interface AgentNativeConfigContext {
   command: "serve" | "build";
@@ -136,13 +125,6 @@ export type AgentNativeConfigInput =
   | AgentNativeConfig
   | AgentNativeConfigFactory;
 
-/**
- * Type-safe authoring helper for `agent-native.config.ts`.
- *
- * Like Next's typed config file, this is deliberately identity-like: the
- * framework evaluates the exported object or factory in the Vite config
- * phase, while the browser only receives the resolved serializable result.
- */
 export function defineAgentNativeConfig(
   config: AgentNativeConfigInput,
 ): AgentNativeConfigInput {
@@ -167,13 +149,6 @@ interface AgentNativeConfigEnvNode {
   dynamicObjectKeys?: boolean;
 }
 
-/**
- * Serializable public config nodes that may be initialized from the
- * deployment environment. Object nodes accept JSON fragments, which lets a
- * deploy set a whole section without requiring a separate alias for every
- * leaf. Dynamic keys in the onboarding mode map stay JSON-only at the union
- * node because they are not part of the fixed config shape.
- */
 const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: [], kind: "object" },
   { path: ["version"], kind: "number" },
@@ -193,11 +168,16 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
     path: ["runtime", "environment", "required"],
     kind: "array",
   },
+  { path: ["runtime", "frameworkRoutePrefix"], kind: "string" },
   { path: ["deployment"], kind: "object" },
   {
     path: ["deployment", "environment"],
     kind: "deployment-environment",
   },
+  { path: ["deployment", "workspace"], kind: "object" },
+  { path: ["deployment", "workspace", "appsDirectory"], kind: "string" },
+  { path: ["deployment", "workspace", "authMode"], kind: "string" },
+  { path: ["deployment", "workspace", "rootPage"], kind: "string" },
   { path: ["diagnostics"], kind: "object" },
   { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
   { path: ["instructions"], kind: "object" },
@@ -209,6 +189,9 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: ["changelog", "enabled"], kind: "boolean" },
   { path: ["harness"], kind: "union" },
   { path: ["harness", "runtimes"], kind: "array" },
+  { path: ["themeFamily"], kind: "object" },
+  { path: ["themeFamily", "families"], kind: "array" },
+  { path: ["themeFamily", "defaultFamily"], kind: "string" },
 ];
 
 function agentNativeConfigEnvSegment(segment: string): string {
@@ -220,7 +203,6 @@ function agentNativeConfigEnvSegment(segment: string): string {
     .toUpperCase();
 }
 
-/** Convert a config path such as `runtime.auth.enabled` to its env name. */
 export function agentNativeConfigEnvName(path: readonly string[]): string {
   if (path.length === 0) return AGENT_NATIVE_CONFIG_ENV_PREFIX;
   return `${AGENT_NATIVE_CONFIG_ENV_PREFIX}_${path
@@ -237,6 +219,63 @@ function isAgentNativeConfigEnvKey(key: string): boolean {
     key === AGENT_NATIVE_CONFIG_ENV_PREFIX ||
     key.startsWith(`${AGENT_NATIVE_CONFIG_ENV_PREFIX}_`)
   );
+}
+
+function normalizeThemeFamilyConfig(
+  value: unknown,
+  source: string,
+): AgentNativeThemeFamilyConfig;
+function normalizeThemeFamilyConfig(
+  value: unknown,
+  source: string,
+  allowPartialFamilies: true,
+): Partial<AgentNativeThemeFamilyConfig>;
+function normalizeThemeFamilyConfig(
+  value: unknown,
+  source: string,
+  allowPartialFamilies = false,
+): AgentNativeThemeFamilyConfig | Partial<AgentNativeThemeFamilyConfig> {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  if (value.families === undefined && !allowPartialFamilies) {
+    throw new Error(`${source}.families must be a non-empty array`);
+  }
+  if (
+    value.families !== undefined &&
+    (!Array.isArray(value.families) || value.families.length === 0)
+  ) {
+    throw new Error(`${source}.families must be a non-empty array`);
+  }
+
+  const families: ThemeFamily[] = [];
+  for (const family of (value.families ?? []) as unknown[]) {
+    if (!isThemeFamily(family)) {
+      throw new Error(
+        `${source}.families contains an unsupported theme family`,
+      );
+    }
+    if (!families.includes(family)) families.push(family);
+  }
+
+  const defaultFamily = value.defaultFamily;
+  if (defaultFamily !== undefined && !isThemeFamily(defaultFamily)) {
+    throw new Error(
+      `${source}.defaultFamily must be a registered theme family`,
+    );
+  }
+  if (
+    defaultFamily !== undefined &&
+    families.length > 0 &&
+    !families.includes(defaultFamily)
+  ) {
+    throw new Error(`${source}.defaultFamily must be included in families`);
+  }
+
+  return {
+    ...(value.families === undefined ? {} : { families }),
+    ...(defaultFamily === undefined ? {} : { defaultFamily }),
+  };
 }
 
 function parseAgentNativeConfigJson(raw: string, key: string): unknown {
@@ -416,16 +455,9 @@ function assignAgentNativeConfigEnvFragment(
       : value;
 }
 
-/**
- * Reads the public config's deterministic environment aliases.
- *
- * `AGENT_NATIVE_CONFIG` contains a complete JSON object. A suffixed name
- * contains a JSON fragment at that config path, or a typed scalar at a leaf.
- * Nodes are applied from shallowest to deepest so a more specific path wins.
- */
 export function readAgentNativeConfigEnv(
   env: Record<string, string | undefined>,
-): AgentNativeConfig {
+): AgentNativeConfigEnvOverride {
   const known = new Map<string, AgentNativeConfigEnvNode>();
   for (const node of AGENT_NATIVE_CONFIG_ENV_NODES) {
     for (const key of agentNativeConfigEnvKeys(node)) {
@@ -460,7 +492,24 @@ export function readAgentNativeConfigEnv(
     }
   }
 
-  return normalizeAgentNativeConfig(layer, "Agent-Native config environment");
+  const themeFamilyValue = layer.themeFamily;
+  if (themeFamilyValue === undefined) {
+    return normalizeAgentNativeConfig(layer, "Agent-Native config environment");
+  }
+
+  const configWithoutThemeFamily = { ...layer };
+  delete configWithoutThemeFamily.themeFamily;
+  return {
+    ...normalizeAgentNativeConfig(
+      configWithoutThemeFamily,
+      "Agent-Native config environment",
+    ),
+    themeFamily: normalizeThemeFamilyConfig(
+      themeFamilyValue,
+      "Agent-Native config environment.themeFamily",
+      true,
+    ),
+  };
 }
 
 export function normalizeAgentNativeConfig(
@@ -489,6 +538,7 @@ export function normalizeAgentNativeConfig(
   const translationsValue = input.translations;
   const changelogValue = input.changelog;
   const harnessValue = input.harness;
+  const themeFamilyValue = input.themeFamily;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -563,17 +613,36 @@ export function normalizeAgentNativeConfig(
     );
   }
 
+  if (themeFamilyValue !== undefined) {
+    normalized.themeFamily = normalizeThemeFamilyConfig(
+      themeFamilyValue,
+      `${source}.themeFamily`,
+    );
+  }
+
   return normalized;
 }
 
 export function mergeAgentNativeConfigs(
   base: AgentNativeConfig,
-  override: AgentNativeConfig,
+  override: AgentNativeConfigEnvOverride,
   options: {
     arrayStrategy?: "merge" | "replace";
   } = {},
 ): AgentNativeConfig {
   const arrayStrategy = options.arrayStrategy ?? "merge";
+  const themeFamilies = mergeStringLists(
+    base.themeFamily?.families,
+    override.themeFamily?.families,
+    arrayStrategy,
+  );
+  const inheritedThemeFamilyDefault = base.themeFamily?.defaultFamily;
+  const themeFamilyDefault =
+    override.themeFamily?.defaultFamily ??
+    (inheritedThemeFamilyDefault !== undefined &&
+    themeFamilies?.includes(inheritedThemeFamilyDefault)
+      ? inheritedThemeFamilyDefault
+      : undefined);
 
   return {
     ...(base.version === undefined && override.version === undefined
@@ -627,6 +696,13 @@ export function mergeAgentNativeConfigs(
         ? {
             ...base.deployment,
             ...override.deployment,
+            workspace:
+              base.deployment?.workspace || override.deployment?.workspace
+                ? {
+                    ...base.deployment?.workspace,
+                    ...override.deployment?.workspace,
+                  }
+                : undefined,
           }
         : undefined,
     badgeText: override.badgeText ?? base.badgeText,
@@ -671,11 +747,21 @@ export function mergeAgentNativeConfigs(
       override.harness,
       arrayStrategy,
     ),
+    themeFamily:
+      base.themeFamily || override.themeFamily
+        ? normalizeThemeFamilyConfig(
+            {
+              families: themeFamilies,
+              defaultFamily: themeFamilyDefault,
+            },
+            "merged Agent-Native config.themeFamily",
+          )
+        : undefined,
   };
 }
 
 export function resolveAgentNativeConfig(
-  input: AgentNativeConfigInput | undefined,
+  input: AgentNativeConfigInput | AgentNativeConfigEnvOverride | undefined,
   context: AgentNativeConfigContext,
 ): AgentNativeConfig {
   const value = typeof input === "function" ? input(context) : (input ?? {});
@@ -705,6 +791,35 @@ export function resolveFirstRunOnboardingMode(
   const environmentValue =
     setting[context.command === "serve" ? "development" : "production"];
   return environmentValue ?? setting.default ?? "off";
+}
+
+export function isFirstRunOnboardingModeActive(
+  mode: AgentNativeFirstRunOnboardingMode | undefined,
+): boolean {
+  return mode === "connect" || mode === "connect-and-integrations";
+}
+
+export const FIRST_RUN_ONBOARDING_ENV_OVERRIDE_KEY =
+  "VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING";
+
+export function resolveEffectiveFirstRunOnboardingMode(
+  envOverride: string | boolean | undefined,
+  configuredMode: AgentNativeFirstRunOnboardingMode | undefined,
+): AgentNativeFirstRunOnboardingMode {
+  if (envOverride !== undefined) {
+    const enabled =
+      envOverride === true ||
+      (typeof envOverride === "string" &&
+        ["1", "true"].includes(envOverride.trim().toLowerCase()));
+    return enabled ? "connect" : "off";
+  }
+  if (
+    configuredMode !== undefined &&
+    isFirstRunOnboardingModeActive(configuredMode)
+  ) {
+    return configuredMode;
+  }
+  return "off";
 }
 
 function normalizeFirstRunSetting(
@@ -745,6 +860,12 @@ function normalizeRuntimeConfig(
   }
 
   const result: AgentNativeRuntimeConfig = {};
+  if (value.frameworkRoutePrefix !== undefined) {
+    result.frameworkRoutePrefix = normalizeFrameworkRoutePrefix(
+      value.frameworkRoutePrefix,
+      `${source}.frameworkRoutePrefix`,
+    );
+  }
   for (const section of ["auth", "database", "environment"] as const) {
     const sectionValue = value[section];
     if (sectionValue === undefined) continue;
@@ -780,20 +901,68 @@ function normalizeDeploymentConfig(
   }
   const environment = value.environment;
   const badgeText = value.badgeText;
+  const workspace = value.workspace;
   if (badgeText !== undefined && typeof badgeText !== "string") {
     throw new Error(`${source}.badgeText must be a string`);
   }
-  if (environment === undefined) {
-    return badgeText === undefined ? {} : { badgeText };
-  }
-  if (!isAgentNativeDeploymentEnvironment(environment)) {
+  if (
+    environment !== undefined &&
+    !isAgentNativeDeploymentEnvironment(environment)
+  ) {
     throw new Error(
       `${source}.environment must be "local", "beta", "production", or "preview"`,
     );
   }
+
+  let normalizedWorkspace: AgentNativeWorkspaceDeploymentConfig | undefined;
+  if (workspace !== undefined) {
+    if (!isRecord(workspace)) {
+      throw new Error(`${source}.workspace must be an object`);
+    }
+    const appsDirectory = workspace.appsDirectory;
+    const authMode = workspace.authMode;
+    const rootPage = workspace.rootPage;
+    if (appsDirectory !== undefined && typeof appsDirectory !== "string") {
+      throw new Error(`${source}.workspace.appsDirectory must be a string`);
+    }
+    if (
+      authMode !== undefined &&
+      authMode !== "shared" &&
+      authMode !== "isolated"
+    ) {
+      throw new Error(
+        `${source}.workspace.authMode must be "shared" or "isolated"`,
+      );
+    }
+    if (
+      rootPage !== undefined &&
+      rootPage !== "redirect" &&
+      rootPage !== "directory"
+    ) {
+      throw new Error(
+        `${source}.workspace.rootPage must be "redirect" or "directory"`,
+      );
+    }
+    normalizedWorkspace = {
+      ...(appsDirectory === undefined
+        ? {}
+        : {
+            appsDirectory: normalizeRelativeFilePath(
+              appsDirectory,
+              `${source}.workspace.appsDirectory`,
+            ),
+          }),
+      ...(authMode === undefined ? {} : { authMode }),
+      ...(rootPage === undefined ? {} : { rootPage }),
+    };
+  }
+
   return {
-    environment,
+    ...(environment === undefined ? {} : { environment }),
     ...(badgeText === undefined ? {} : { badgeText }),
+    ...(normalizedWorkspace === undefined
+      ? {}
+      : { workspace: normalizedWorkspace }),
   };
 }
 
@@ -999,13 +1168,6 @@ export function isAgentNativeDeploymentEnvironment(
   );
 }
 
-/**
- * Resolve the public deployment lane from hosting facts at build time.
- *
- * Netlify exposes `CONTEXT` and `BRANCH` to builds. Keeping this inference in
- * the Vite/config boundary means browser code consumes typed public config and
- * never parses process.env itself.
- */
 export function inferAgentNativeDeploymentEnvironment(
   env: Record<string, string | undefined>,
   mode?: string,

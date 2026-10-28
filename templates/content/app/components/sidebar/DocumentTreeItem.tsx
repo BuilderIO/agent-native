@@ -13,8 +13,6 @@ import {
   IconFolder,
   IconFileText,
   IconPlus,
-  IconPin,
-  IconTrash,
   IconDots,
 } from "@tabler/icons-react";
 import { useState } from "react";
@@ -34,6 +32,7 @@ import {
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon, contentIconValue } from "../icons/ContentIcon";
 import { documentSidebarActionAvailability } from "./document-sidebar-actions";
 
 interface DocumentTreeItemProps {
@@ -59,7 +58,7 @@ export function getDocumentSidebarIconKind(
   ) {
     return "folder";
   }
-  if (document.icon?.trim()) return "custom";
+  if (contentIconValue(document.icon)) return "custom";
   if (document.database) return "database";
   return "page";
 }
@@ -71,7 +70,9 @@ export function DocumentSidebarIcon({
 }) {
   const iconKind = getDocumentSidebarIconKind(document);
 
-  if (iconKind === "custom") return <>{document.icon}</>;
+  if (iconKind === "custom") {
+    return <ContentIcon value={document.icon} size={14} />;
+  }
   if (iconKind === "database") {
     return <IconDatabase size={14} className="text-muted-foreground" />;
   }
@@ -231,11 +232,6 @@ export function DocumentTreeItem({
                       onToggleFavorite(node.id, !node.isFavorite);
                     }}
                   >
-                    <IconPin
-                      size={14}
-                      className="me-2"
-                      strokeWidth={node.isFavorite ? 2.2 : 1.7}
-                    />
                     {node.isFavorite
                       ? t("sidebar.unpinFromSidebar")
                       : t("sidebar.pinToSidebar")}
@@ -250,7 +246,6 @@ export function DocumentTreeItem({
                       setContextSheetOpen(true);
                     }}
                   >
-                    <IconPlus size={14} className="me-2" />
                     {t("creativeContext.addToContext" /* i18n-key-ignore */)}
                   </DropdownMenuItem>
                 )}
@@ -262,7 +257,6 @@ export function DocumentTreeItem({
                       onDelete(node.id, node.title || t("sidebar.untitled"));
                     }}
                   >
-                    <IconTrash size={14} className="me-2" />
                     {t("database.delete")}
                   </DropdownMenuItem>
                 )}
@@ -297,7 +291,6 @@ export function DocumentTreeItem({
                     onCreateChildPage(node.id);
                   }}
                 >
-                  <IconFileText className="me-2 size-4" />
                   {t("sidebar.page")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -306,8 +299,7 @@ export function DocumentTreeItem({
                     onCreateChildDatabase(node.id);
                   }}
                 >
-                  <IconDatabase className="me-2 size-4" />
-                  {t("sidebar.database")}
+                  {t("sidebar.collection")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

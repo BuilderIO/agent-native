@@ -4,13 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-// The browser entry is re-exported into every template's client bundle, so a
-// server-only import anywhere in its static graph (db clients, request
-// context, node built-ins) crashes the app at load. Vite only reports it as a
-// runtime "externalized for browser compatibility" error, which is how #4310
-// shipped a deck editor that never hydrated. This walks the graph and names
-// the chain instead.
-
 const SRC = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ONLY = /[\\/]src[\\/](server|db|audit[\\/]store)[\\/]/;
 
@@ -30,7 +23,6 @@ function resolveImport(spec: string, from: string): string | undefined {
   return undefined;
 }
 
-/** Static, value-level import specifiers of a module (type-only ones erased). */
 function valueImports(source: string): string[] {
   const stripped = source
     .replace(/\/\*[\s\S]*?\*\//g, "")

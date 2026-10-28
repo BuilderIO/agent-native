@@ -3,12 +3,12 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import type {
   DispatchExtensionConfig,
   DispatchNavItem,
 } from "@agent-native/dispatch/components";
+import { extensionIdFromPathname } from "@agent-native/toolkit/app/extensions";
 import { useRef } from "react";
 import { useLocation } from "react-router";
 
@@ -26,7 +26,6 @@ export interface NavigationState {
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
   const location = useLocation();
-  // Capture extensions in a ref so the stable callbacks always read latest.
   const extensionsRef = useRef(extensions);
   extensionsRef.current = extensions;
 
@@ -114,10 +113,6 @@ function routerPath(path: string): string {
   const basePath = appBasePath();
   if (!basePath) return path;
   let result = path;
-  // Iteratively strip basename. A path that arrives doubly-prefixed
-  // (e.g. "/dispatch/dispatch/overview", possibly from a stale link or a
-  // prior bug) would otherwise get partially stripped here and then
-  // re-prefixed by react-router's basename, restoring the bad URL.
   for (let i = 0; i < 4; i += 1) {
     if (result === basePath) return "/";
     if (!result.startsWith(`${basePath}/`)) break;
@@ -168,6 +163,12 @@ function resolveView(
     return "extensions";
   }
   if (pathname === "/admin") return "admin";
+  if (
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "integrations";
+  }
   if (pathname.startsWith("/admin/")) {
     const adminView = resolveView(pathname.slice("/admin".length), extensions);
     return adminView === "overview" ? "admin" : adminView;
@@ -178,7 +179,6 @@ function resolveView(
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
-  if (pathname.startsWith("/integrations")) return "integrations";
   if (pathname.startsWith("/workspace")) return "workspace";
   if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/messaging")) return "messaging";

@@ -1,10 +1,5 @@
 export const RECORDING_START_TIMEOUT_MS = 90_000;
 
-// Cleanup invokes (closing overlay windows, clearing recording state) are
-// normally instant. This bounds them well above any real duration but far
-// below forever, so a stuck native call (e.g. a ScreenCaptureKit handshake
-// that never returns its completion) can't turn "recovery" into another
-// permanent hang on top of the one the start guard already gave up on.
 export const RECOVERY_INVOKE_TIMEOUT_MS = 5_000;
 
 export class RecordingStartTimeoutError extends Error {
@@ -27,12 +22,15 @@ export function guardRecordingStart<T>(
   operation: Promise<T>,
   options: {
     signal?: AbortSignal;
-    timeoutMs?: number;
+    timeoutMs?: number | null;
     onCancel?: () => void;
     onLateResolve?: (value: T) => void;
   } = {},
 ): Promise<T> {
-  const timeoutMs = options.timeoutMs ?? RECORDING_START_TIMEOUT_MS;
+  const timeoutMs =
+    options.timeoutMs === undefined
+      ? RECORDING_START_TIMEOUT_MS
+      : options.timeoutMs;
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
@@ -65,12 +63,6 @@ export function guardRecordingStart<T>(
       finish(() => reject(new RecordingStartCancelledError()));
     };
 
-    if (options.signal?.aborted) {
-      onAbort();
-      return;
-    }
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-
     operation.then(
       (value) => {
         if (settled) {
@@ -83,22 +75,22 @@ export function guardRecordingStart<T>(
         finish(() => reject(error));
       },
     );
-    timer = setTimeout(() => {
-      notifyCancellation();
-      finish(() => reject(new RecordingStartTimeoutError(timeoutMs)));
-    }, timeoutMs);
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs !== null) {
+      timer = setTimeout(() => {
+        finish(() => {
+          notifyCancellation();
+          reject(new RecordingStartTimeoutError(timeoutMs));
+        });
+      }, timeoutMs);
+    }
   });
 }
 
-/**
- * Best-effort recovery step that must never block the caller. Recording-start
- * failure paths (and their "always restore the UI" `finally` blocks) await
- * cleanup invokes like `hide_recording_chrome` — if the underlying native
- * command hangs, an unbounded `await ...catch(() => {})` hangs the whole
- * recovery with it, leaving the toolbar/"Preparing…" state stuck until the
- * user restarts the app. Swallows both success and failure; only existence
- * to cap how long a single cleanup step can stall recovery.
- */
 export function boundedCleanup(
   operation: Promise<unknown>,
   timeoutMs = RECOVERY_INVOKE_TIMEOUT_MS,

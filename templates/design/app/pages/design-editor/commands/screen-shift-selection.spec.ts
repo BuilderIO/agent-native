@@ -92,7 +92,6 @@ function select(ids: string[], clickedId: string, range: boolean) {
       },
       files: [file(alphaId), betaFile, boardFile],
       getScreenContent: () => "",
-      focusDesignInspectorForSelection: vi.fn(),
       overviewSelectedScreenIds: selectedScreenIds,
       pendingOverviewLayerSelectionRef: { current: null },
       pendingOverviewScreenSelectionRef: { current: null },
@@ -127,8 +126,6 @@ function select(ids: string[], clickedId: string, range: boolean) {
 
 describe("Layers screen selection", () => {
   it("preserves every Screen in a Shift range", () => {
-    // The Layers tree is reverse paint order, so Shift-clicking Beta from
-    // Alpha yields Beta then Alpha even though Beta was the clicked row.
     expect(select([betaId, alphaId], betaId, true)).toEqual({
       selectedLayerIds: [betaId, alphaId],
       selectedScreenIds: [betaId, alphaId],

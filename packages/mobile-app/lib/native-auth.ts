@@ -23,6 +23,7 @@ export const NATIVE_AUTH_BASE_URL =
   dispatchApp?.url ?? "https://dispatch.agent-native.com";
 export const NATIVE_SESSION_BOOTSTRAP_KEY =
   "agent-native:native-session-bootstrap-v1";
+export const NATIVE_SESSION_CHECK_TIMEOUT_MS = 5_000;
 
 type NativeAuthResponse = {
   error?: unknown;
@@ -72,55 +73,68 @@ export async function inspectNativeSession(
   token: string,
   baseUrl: string,
 ): Promise<NativeSessionCheck> {
-  let response: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    NATIVE_SESSION_CHECK_TIMEOUT_MS,
+  );
   try {
-    response = await fetch(
+    const response = await fetch(
       `${cleanBaseUrl(baseUrl)}/_agent-native/auth/session`,
       {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
         },
+        signal: controller.signal,
       },
     );
+    if (response.status === 401 || response.status === 403) {
+      return { reason: "unauthorized", status: "invalid" };
+    }
+    if (!response.ok) {
+      return {
+        reason: "server",
+        status: "unavailable",
+        statusCode: response.status,
+      };
+    }
+
+    let payload: NativeAuthResponse | null = null;
+    try {
+      payload = (await response.json()) as NativeAuthResponse;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        console.warn("[mobile auth] session validation request failed", {
+          reason: "timeout while reading response",
+        });
+        return { reason: "network", status: "unavailable" };
+      }
+      console.warn("[mobile auth] session response was not valid JSON", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return { reason: "invalid-response", status: "unavailable" };
+    }
+    const email =
+      typeof payload?.email === "string" ? payload.email.trim() : "";
+    if (!email) return { reason: "invalid-response", status: "unavailable" };
+
+    const orgId =
+      typeof payload?.orgId === "string" && payload.orgId.trim()
+        ? payload.orgId.trim()
+        : undefined;
+    return {
+      session: { email, token, ...(orgId ? { orgId } : {}) },
+      status: "valid",
+    };
   } catch (error) {
     console.warn("[mobile auth] session validation request failed", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
     return { reason: "network", status: "unavailable" };
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  if (response.status === 401 || response.status === 403) {
-    return { reason: "unauthorized", status: "invalid" };
-  }
-  if (!response.ok) {
-    return {
-      reason: "server",
-      status: "unavailable",
-      statusCode: response.status,
-    };
-  }
-
-  let payload: NativeAuthResponse | null = null;
-  try {
-    payload = (await response.json()) as NativeAuthResponse;
-  } catch (error) {
-    console.warn("[mobile auth] session response was not valid JSON", {
-      reason: error instanceof Error ? error.message : "unknown error",
-    });
-    return { reason: "invalid-response", status: "unavailable" };
-  }
-  const email = typeof payload?.email === "string" ? payload.email.trim() : "";
-  if (!email) return { reason: "invalid-response", status: "unavailable" };
-
-  const orgId =
-    typeof payload?.orgId === "string" && payload.orgId.trim()
-      ? payload.orgId.trim()
-      : undefined;
-  return {
-    session: { email, token, ...(orgId ? { orgId } : {}) },
-    status: "valid",
-  };
 }
 
 /**
@@ -192,10 +206,6 @@ async function readSessionIdentity(
   throw new Error("Sign-in did not create a usable session.");
 }
 
-/**
- * Check whether the stored credential is still a valid native parent session.
- * Child app sessions are intentionally not interchangeable with this token.
- */
 export async function validateNativeSession(
   token: string | null,
   baseUrl = NATIVE_AUTH_BASE_URL,
@@ -212,13 +222,6 @@ export async function validateNativeSession(
   return null;
 }
 
-/**
- * Validate the Keychain-backed parent once when the native shell starts. The
- * AsyncStorage marker detects an install whose app data was deleted while its
- * Keychain item survived. A stale parent is cleared only after Dispatch
- * returns an authentication failure; transport failures keep it available for
- * the next retry.
- */
 export async function bootstrapNativeSession({
   baseUrl = NATIVE_AUTH_BASE_URL,
 }: {
@@ -261,7 +264,6 @@ async function resolveGoogleAuthUrl(baseUrl: string): Promise<string> {
   try {
     payload = (await response.json()) as { error?: unknown; url?: unknown };
   } catch (error) {
-    // Use the status-based fallback below when the endpoint is not JSON.
     console.warn("[mobile auth] Google auth-url response was not valid JSON", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
@@ -299,11 +301,6 @@ async function clearNativeOAuthContext(): Promise<void> {
   ]);
 }
 
-/**
- * Sign the native parent into Google. The browser owns Google's UI; the
- * callback is state-validated before its one-time session is stored under the
- * parent key. Child WebViews never receive the parent bearer.
- */
 export async function signInWithGoogle({
   baseUrl = NATIVE_AUTH_BASE_URL,
 }: {
@@ -370,11 +367,6 @@ async function readMagicLinkResponse(
   }
 }
 
-/**
- * Request and complete a parent magic-link sign-in. The verified browser
- * session is bridged through the existing single-use desktop exchange; no
- * child app page is opened and the bearer is stored only under the parent key.
- */
 export async function signInWithMagicLink({
   email,
   baseUrl = NATIVE_AUTH_BASE_URL,
@@ -477,8 +469,6 @@ async function postPasswordAuth(
   try {
     payload = (await response.json()) as NativeAuthResponse;
   } catch (error) {
-    // The status below remains the source of truth when the server did not
-    // return JSON.
     console.warn("[mobile auth] auth response was not valid JSON", {
       reason: error instanceof Error ? error.message : "unknown error",
     });
@@ -515,8 +505,6 @@ export async function authenticateWithPassword({
     await postPasswordAuth("sign-up", normalizedEmail, password, baseUrl);
   }
 
-  // Registration intentionally completes with the same login response shape
-  // so the parent stores exactly one session credential for both paths.
   const payload = await postPasswordAuth(
     "sign-in",
     normalizedEmail,

@@ -1,3 +1,4 @@
+import type { ActionEntry } from "../agent/production-agent.js";
 /**
  * Framework-level agent action for sending transactional/notification emails
  * via the configured core email transport (Resend or SendGrid).
@@ -14,8 +15,7 @@
  * when both would be present under the same key. To avoid any ambiguity this
  * action is keyed "core-send-email" which is distinct from the template name.
  */
-
-import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   markdownToHtml,
   markdownToText,
@@ -27,7 +27,7 @@ export function createCoreEmailActionEntries(options?: {
   unattended?: boolean;
 }): Record<string, ActionEntry> {
   const unattended = options?.unattended === true;
-  return {
+  return frameworkMcpTools({
     "core-send-email": {
       tool: {
         description: [
@@ -115,23 +115,30 @@ export function createCoreEmailActionEntries(options?: {
         if (!bodyMd) return "Error: 'body' is required.";
 
         try {
-          await sendEmail({
+          const result = await sendEmail({
             to,
             subject,
             html: wrapInEmailTemplate(markdownToHtml(bodyMd)),
             text: markdownToText(bodyMd),
             ...(from ? { from } : {}),
             ...(cc ? { cc } : {}),
+            ...(bcc ? { bcc } : {}),
             ...(replyTo ? { replyTo } : {}),
           });
+          if (result.status === "suppressed") {
+            return `Not sent: every recipient is a test identity, which never receives non-auth email.`;
+          }
 
           const bccNote = bcc ? ` (bcc: ${bcc})` : "";
-          return `Email sent to ${to}${bccNote}: "${subject}"`;
+          const skippedNote = result.suppressed?.length
+            ? `. Skipped test identities, which never receive non-auth email: ${result.suppressed.join(", ")}`
+            : "";
+          return `Email sent to ${to}${bccNote}: "${subject}"${skippedNote}`;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           return `Error sending email: ${msg}`;
         }
       },
     },
-  };
+  });
 }

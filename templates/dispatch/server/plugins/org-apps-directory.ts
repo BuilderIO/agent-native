@@ -8,20 +8,9 @@
  *
  * AUTH — reuses the EXISTING A2A peer auth path, no new scheme.
  * ------------------------------------------------------------
- * The caller is another org app, authenticated by the org A2A secret as a
- * Bearer JWT — exactly like A2A peers authenticate to `/_agent-native/a2a`.
- * Verification reuses the SAME recipe as core's A2A receiver
- * (`packages/core/src/a2a/server.ts` `verifyA2AToken`) and
- * `receiveA2ASecretHandler` (`packages/core/src/org/handlers.ts`): peek the
- * unverified `org_domain`, build the ordered candidate-secret set
- * (the org's per-domain `a2a_secret` via `getA2ASecretByDomain` from
- * `@agent-native/core/org`, with the global secret only for a proven
- * single-org legacy deployment), verify the HS256
- * signature, then require the verified org_domain to resolve to a LOCAL org
- * (`resolveOrgByDomain`). Cross-org / unauthenticated callers are rejected.
- * The crypto/secret-resolution helpers are imported from `@agent-native/core`
- * — no crypto is reimplemented (HS256 verify uses Node's built-in `crypto`,
- * the same operation jose performs).
+ * A verified organization principal can list org-visible apps. A verified
+ * user assertion can additionally list that user's own private apps. Core
+ * verifies the JWT and binds its audience to this request.
  *
  * APP-LIST SOURCE — Dispatch's existing connected-apps registry.
  * -------------------------------------------------------------
@@ -47,28 +36,28 @@
  * Read-only, cacheable, no secrets in the response, no mutation.
  */
 
-import {
-  getA2ASecretByDomain,
-  getOrgDomain,
-  isSoleOrgDomain,
-  resolveOrgByDomain,
-} from "@agent-native/core/org";
+import { verifyA2AToken } from "@agent-native/core/a2a";
+import { getOrgDomain, resolveOrgByDomain } from "@agent-native/core/org";
 import { getH3App, runWithRequestContext } from "@agent-native/core/server";
 import { discoverOrgDirectoryAgents } from "@agent-native/core/server/agent-discovery";
+import {
+  orgAppsDirectoryAccessCache,
+  orgAppsDirectoryCache,
+  listOrganizationVisibleWorkspaceApps,
+  listWorkspaceApps,
+} from "@agent-native/dispatch/server";
 import { defineEventHandler, getMethod, getRequestHeader } from "h3";
 import type { H3Event } from "h3";
 
 import {
   ORG_APPS_PATH,
   buildOrgAppsResponse,
-  createOrgDirectorySuccessCache,
   extractBearerToken,
-  verifyA2ABearerToken,
   type DiscoveredAppLike,
 } from "../lib/org-apps-directory.js";
 
 const SELF_APP_ID = "dispatch";
-const directoryCache = createOrgDirectorySuccessCache<DiscoveredAppLike[]>();
+const directoryCache = orgAppsDirectoryCache;
 
 class DirectoryDiscoveryUnavailable extends Error {
   constructor(readonly reason: "remote-manifests" | "workspace-metadata") {
@@ -95,7 +84,6 @@ export const orgAppsHandler = defineEventHandler(
       return jsonResponse({ error: "method_not_allowed" }, 405);
     }
 
-    // ---- A2A peer auth (reuses core's A2A verification recipe) ----------
     const token = extractBearerToken(getRequestHeader(event, "authorization"));
     if (!token) {
       return jsonResponse(
@@ -109,14 +97,17 @@ export const orgAppsHandler = defineEventHandler(
       );
     }
 
-    const verified = await verifyA2ABearerToken({
-      token,
-      resolveOrgSecretByDomain: (domain) => getA2ASecretByDomain(domain),
-      resolveSoleOrgGlobalSecretByDomain: async (domain) => {
-        if (!(await isSoleOrgDomain(domain))) return null;
-        return process.env.A2A_SECRET?.trim() || null;
-      },
-    });
+    let verified: Awaited<ReturnType<typeof verifyA2AToken>>;
+    try {
+      verified = await verifyA2AToken(token, event, {
+        routePrefix: ORG_APPS_PATH,
+        requireAudience: true,
+      });
+    } catch {
+      return jsonResponse({ error: "identity_verification_unavailable" }, 503, {
+        "Cache-Control": "private, no-store",
+      });
+    }
     if (!verified) {
       return jsonResponse(
         {
@@ -124,6 +115,31 @@ export const orgAppsHandler = defineEventHandler(
           error_description: "Invalid or expired A2A token.",
         },
         401,
+      );
+    }
+    const isOrganizationPrincipal =
+      verified.identityAssurance === "organization";
+    const userEmail =
+      !isOrganizationPrincipal && verified.email
+        ? verified.email.trim().toLowerCase()
+        : undefined;
+    if (!isOrganizationPrincipal && !userEmail) {
+      return jsonResponse(
+        {
+          error: "forbidden",
+          error_description:
+            "A verified user or organization identity is required.",
+        },
+        verified.orgDomain ? 403 : 401,
+      );
+    }
+    if (!verified.orgDomain) {
+      return jsonResponse(
+        {
+          error: "forbidden",
+          error_description: "Caller must belong to an organization.",
+        },
+        403,
       );
     }
 
@@ -138,8 +154,6 @@ export const orgAppsHandler = defineEventHandler(
       localOrg = null;
     }
     if (!localOrg) {
-      // Either the domain is unknown here, or it belongs to a different org
-      // than this Dispatch serves — do not disclose anything cross-org.
       return jsonResponse(
         {
           error: "forbidden",
@@ -149,30 +163,70 @@ export const orgAppsHandler = defineEventHandler(
         403,
       );
     }
+    if (verified.orgId && verified.orgId !== localOrg.orgId) {
+      return jsonResponse(
+        {
+          error: "forbidden",
+          error_description:
+            "Caller organization does not match this Dispatch workspace.",
+        },
+        403,
+      );
+    }
 
-    // ---- Build the directory from Dispatch's existing registry ---------
-    // Scope discovery to the verified caller's org/user so org-tracked
-    // custom/remote agents resolve correctly (discoverAgents reads request
-    // context). No DB writes; this is strictly read-only.
     const includeDirectoryApp =
       getRequestHeader(event, "x-agent-native-include-directory-app") === "1";
     const preferLocalUrls =
       process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1";
     const cacheKey = [
       localOrg.orgId,
+      userEmail ? `user:${userEmail}` : "organization",
       includeDirectoryApp ? "include-self" : "exclude-self",
       preferLocalUrls ? "local" : "hosted",
-    ].join("|");
+    ];
     let apps: DiscoveredAppLike[];
     try {
-      apps = await directoryCache.get(cacheKey, async () =>
-        runWithRequestContext(
-          { userEmail: verified.email, orgId: localOrg.orgId },
-          async () => {
-            const startedAt = Date.now();
+      apps = await runWithRequestContext(
+        {
+          orgId: localOrg.orgId,
+          ...(userEmail ? { userEmail } : {}),
+        },
+        async () => {
+          const startedAt = Date.now();
+          const allowedWorkspaceAppIds = await orgAppsDirectoryAccessCache.get(
+            cacheKey.join("|"),
+            async () => {
+              const visibleWorkspaceApps = isOrganizationPrincipal
+                ? await listOrganizationVisibleWorkspaceApps()
+                : await listWorkspaceApps({
+                    includeAgentCards: false,
+                    audience: "all",
+                  });
+              return new Set(
+                visibleWorkspaceApps
+                  .filter(
+                    (app) =>
+                      app.status === "ready" &&
+                      (app.visibility === "org" ||
+                        (app.visibility === "private" &&
+                          !!userEmail &&
+                          app.owner?.trim().toLowerCase() === userEmail)) &&
+                      app.orgEnabled !== false &&
+                      typeof app.url === "string" &&
+                      app.url.trim().length > 0,
+                  )
+                  .map((app) => app.id),
+              );
+            },
+          );
+          const scopedCacheKey = [
+            ...cacheKey,
+            JSON.stringify([...allowedWorkspaceAppIds].sort()),
+          ].join("|");
+          return directoryCache.get(scopedCacheKey, async () => {
             const discovered = await discoverOrgDirectoryAgents(
               includeDirectoryApp ? undefined : SELF_APP_ID,
-              { preferLocalUrls },
+              { preferLocalUrls, allowedWorkspaceAppIds },
             );
             const durationMs = Date.now() - startedAt;
             if (discovered.status === "unavailable") {
@@ -182,18 +236,35 @@ export const orgAppsHandler = defineEventHandler(
               });
               throw new DirectoryDiscoveryUnavailable(discovered.reason);
             }
+            const safeAgents = discovered.agents.filter((agent) => {
+              if (agent.source === "workspace") {
+                return allowedWorkspaceAppIds.has(agent.id);
+              }
+              return (
+                agent.source === "builtin" ||
+                agent.source === "remote-agent" ||
+                agent.source === "org-directory"
+              );
+            });
             console.info("[org-apps-directory] discovery complete", {
               durationMs,
-              appCount: discovered.agents.length,
+              appCount: safeAgents.length,
             });
-            return discovered.agents.map((agent) => ({
+            return safeAgents.map((agent) => ({
               id: agent.id,
               name: agent.name,
               description: agent.description,
+              ...(agent.whenToUse === undefined
+                ? {}
+                : { whenToUse: agent.whenToUse }),
+              ...(agent.aliases === undefined
+                ? {}
+                : { aliases: agent.aliases }),
               url: agent.url,
+              ...(agent.source === undefined ? {} : { source: agent.source }),
             }));
-          },
-        ),
+          });
+        },
       );
     } catch (error) {
       const reason =
@@ -214,29 +285,36 @@ export const orgAppsHandler = defineEventHandler(
       orgLabel = verified.orgDomain || localOrg.orgId;
     }
 
-    const body = buildOrgAppsResponse({
+    const response = buildOrgAppsResponse({
       org: orgLabel,
       apps,
       selfId: includeDirectoryApp ? undefined : SELF_APP_ID,
     });
+    const aliasesById = new Map(
+      apps.map((app) => [
+        app.id,
+        (app as DiscoveredAppLike & { aliases?: string[] }).aliases,
+      ]),
+    );
+    const body = {
+      ...response,
+      apps: response.apps.map((app) => {
+        const aliases = aliasesById.get(app.id);
+        return aliases?.length ? { ...app, aliases } : app;
+      }),
+    };
 
-    // Short, cacheable, read-only. Private (per-org) so shared caches must
-    // not store it; a small max-age lets the caller poll cheaply.
     return jsonResponse(body, 200, {
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": "private, no-store",
     });
   },
 );
 
 export function _resetOrgAppsDirectoryCache(): void {
   directoryCache.clear();
+  orgAppsDirectoryAccessCache.clear();
 }
 
-/**
- * Dispatch org-app-directory plugin. The primary Dispatch auth plugin owns
- * the exact public-path registration so this handler can perform its own JWT
- * and same-org checks without racing a second auth initializer.
- */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(ORG_APPS_PATH, orgAppsHandler);
 };

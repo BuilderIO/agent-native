@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  BrowserRouter,
   MemoryRouter,
   Route,
   Routes,
@@ -12,6 +13,7 @@ import {
 } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   useAgentRouteState,
   useSemanticNavigationState,
@@ -99,6 +101,9 @@ function renderWithQueryClient(element: React.ReactElement) {
 describe("route-state client helpers", () => {
   const roots: Root[] = [];
   const containers: HTMLDivElement[] = [];
+  const originalWorkspaceEnv = process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  const originalWorkspaceAppsEnv =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -111,12 +116,18 @@ describe("route-state client helpers", () => {
     for (const container of containers) {
       container.remove();
     }
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
     Reflect.deleteProperty(document, "startViewTransition");
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: window,
     });
-    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    expect(process.env.VITE_AGENT_NATIVE_WORKSPACE).toBe(originalWorkspaceEnv);
+    expect(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
+      originalWorkspaceAppsEnv,
+    );
   });
 
   it("reports child route changes to an embedding parent", async () => {
@@ -171,6 +182,63 @@ describe("route-state client helpers", () => {
       },
       "*",
     );
+  });
+
+  it("switches route-state keys when navigating between workspace mounts", async () => {
+    const { fetchMock, writes } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    window.history.replaceState(null, "", "/risk/register");
+    const moduleTabId = getBrowserTabId();
+    let navigate: ReturnType<typeof useNavigate> | undefined;
+
+    function Harness() {
+      navigate = useNavigate();
+      useAgentRouteState({
+        browserTabId: moduleTabId,
+        requestSource: moduleTabId,
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ pathname }),
+        getCommandPath: () => null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <BrowserRouter>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </BrowserRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+
+    await act(async () => {
+      void navigate?.("/chat/thread-1");
+      await flush();
+    });
+
+    const scopedNavigationKeys = Array.from(
+      new Set(
+        writes
+          .map((write) => write.key)
+          .filter((key) => key.startsWith("navigation:")),
+      ),
+    );
+    expect(scopedNavigationKeys).toHaveLength(2);
+    expect(scopedNavigationKeys[0]).not.toBe(scopedNavigationKeys[1]);
+    expect(writes.at(-1)?.init.headers).toMatchObject({
+      "X-Request-Source": scopedNavigationKeys[1]?.slice("navigation:".length),
+    });
   });
 
   it("writes semantic navigation state with request-source metadata", async () => {
@@ -340,9 +408,6 @@ describe("route-state client helpers", () => {
   });
 
   it("reports an unserializable state once per state, not once per render", async () => {
-    // `navigationKeys` is a fresh array on every render, so the write dedup key
-    // is recomputed constantly; keyed on anything render-unstable, each re-render
-    // issues another failing write and another error.
     const { fetchMock } = makeAppStateFetch({});
     vi.stubGlobal("fetch", fetchMock);
     const onError = vi.fn();
@@ -424,8 +489,6 @@ describe("route-state client helpers", () => {
         },
       },
     ]);
-    // Reads are batched, so which keys share a request is not a behavioural
-    // contract — that only the tab-scoped command was consumed is (above).
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);
@@ -553,7 +616,10 @@ describe("route-state client helpers", () => {
         requestSource: "tab-1",
         refetchInterval: false,
         getNavigationState: ({ pathname }) => ({ view: pathname }),
-        getCommandPath: (command: { path?: string }) => command.path,
+        getCommandPath: (command: { path?: string }) =>
+          command.path
+            ? { type: "workspace-app" as const, path: command.path }
+            : null,
       });
       return null;
     }
@@ -571,6 +637,117 @@ describe("route-state client helpers", () => {
     await act(flush);
 
     expect(assign).toHaveBeenCalledWith("/seo-application/settings");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("uses the workspace gateway when its target matches the current local route", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": {
+        path: "/chat/thread-1",
+        _writeId: "cmd-workspace-chat-route",
+      },
+    });
+    const assign = vi.fn();
+    const replace = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/risk/chat/thread-1",
+        assign,
+        replace,
+      },
+    });
+
+    function Harness() {
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ view: pathname }),
+        getCommandPath: (command: { path?: string }) =>
+          command.path
+            ? { type: "workspace-app" as const, path: command.path }
+            : null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter basename="/risk" initialEntries={["/risk/chat/thread-1"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(assign).toHaveBeenCalledWith("/chat/thread-1");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps app-local chat routes local when a sibling app mounts at /chat", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": {
+        path: "/chat/thread-1",
+        _writeId: "cmd-local-chat-route",
+      },
+    });
+    const assign = vi.fn();
+    const replace = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/risk/register",
+        assign,
+        replace,
+      },
+    });
+
+    function Harness() {
+      const location = useLocation();
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ view: pathname }),
+        getCommandPath: (command: { path?: string }) => command.path,
+      });
+      return <div>{location.pathname}</div>;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/register"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(rendered.container.textContent).toBe("/chat/thread-1");
+    expect(assign).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 

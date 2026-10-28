@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { redactArgsToJson, redactTextToSummary, __test } from "./redact.js";
+import {
+  redactArgsToJson,
+  redactedArgsWereCut,
+  redactTextToSummary,
+  __test,
+} from "./redact.js";
 
 describe("redactArgsToJson", () => {
   it("redacts credential-looking keys", () => {
@@ -29,6 +34,177 @@ describe("redactArgsToJson", () => {
     expect(JSON.parse(json!).note).toBe("[redacted]");
   });
 
+  it("redacts a credential inside an ordinary string, keeping the text around it", () => {
+    const parsed = JSON.parse(
+      redactArgsToJson({
+        notes: "Call it with\nAuthorization: Bearer short-token\nthen run it",
+        steps: ["export password=hunter2", "then run it"],
+      })!,
+    );
+    expect(parsed.notes).toBe(
+      "Call it with\nAuthorization: [redacted]\nthen run it",
+    );
+    expect(parsed.steps).toEqual(["export password=[redacted]", "then run it"]);
+  });
+
+  it.each([
+    ["Authorization: Basic ZmFrZTpmYWtl", "Authorization: [redacted]"],
+    ["Authorization: Bearer fake-token", "Authorization: [redacted]"],
+    ["Use token=Bearer fake-credential", "Use token=[redacted]"],
+    [
+      String.raw`Use token="Bearer fake\"quoted\" phrase" next=visible`,
+      'Use token="[redacted]" next=visible',
+    ],
+    [
+      String.raw`Use token='Bearer fake\'quoted\' phrase' next=visible`,
+      "Use token='[redacted]' next=visible",
+    ],
+    [
+      'Use token=Bearer "fake phrase" next=visible',
+      "Use token=[redacted] next=visible",
+    ],
+    [
+      "Authorization:\n  Bearer fake-token\nBody: visible",
+      "Authorization:\n  [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: Bearer\nfake-token\nBody: visible",
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: Basic\r\n  ZmFrZTpmYWtl\r\nBody: visible",
+      "Authorization: [redacted]\r\nBody: visible",
+    ],
+    [
+      "Authorization: fake-token\nBody: visible",
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: Bearer-ish\nBody: visible",
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: Api-Key\nfake-secret-value\nBody: visible",
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      'Authorization: "Api-Key"\nfake-secret-value\nBody: visible',
+      'Authorization: "[redacted]"\nBody: visible',
+    ],
+    [
+      'Authorization: Api-Key\n"fake-secret-value"\nBody: visible',
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: \"Api-Key\"\n  'fake-secret-value'\nBody: visible",
+      'Authorization: "[redacted]"\nBody: visible',
+    ],
+    [
+      'Authorization: Api-Key\n"fake-secret-value\nBody: visible',
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      'Authorization: "Api-Key"\n\'fake-secret-value\nBody: visible',
+      'Authorization: "[redacted]"\nBody: visible',
+    ],
+    [
+      'Authorization: Digest\nusername="fake", response="fake"\nBody: visible',
+      "Authorization: [redacted]\nBody: visible",
+    ],
+    [
+      "Authorization: fake-token\nThis is ordinary text",
+      "Authorization: [redacted]\nThis is ordinary text",
+    ],
+    [
+      'Authorization: fake-token\n  "body": "visible"',
+      'Authorization: [redacted]\n  "body": "visible"',
+    ],
+    [
+      "Authorization:\nContent-Type: application/json\nBody: visible",
+      "Authorization:\nContent-Type: application/json\nBody: visible",
+    ],
+    [
+      "Authorization:\nfake-token\nBody: visible",
+      "Authorization:\n[redacted]\nBody: visible",
+    ],
+    [
+      "Authorization:\n   \nBody: visible",
+      "Authorization:\n   \nBody: visible",
+    ],
+    ["Authorization:   \nBody: visible", "Authorization:   \nBody: visible"],
+    [
+      "Authorization:\n\nfake-token\nBody: visible",
+      "Authorization:\n\n[redacted]\nBody: visible",
+    ],
+    ["password:\nBody: visible", "password:\nBody: visible"],
+    ["password:\nfake-phrase\nvisible", "password:\n[redacted]\nvisible"],
+    ["token=\nfake-value next=visible", "token=\n[redacted] next=visible"],
+    [
+      'Authorization: Digest username="fake", realm="fake"',
+      "Authorization: [redacted]",
+    ],
+    [
+      '{"Authorization":"Basic ZmFrZTpmYWtl"}',
+      '{"Authorization":"[redacted]"}',
+    ],
+    [
+      'password="fake phrase with spaces" next=visible',
+      'password="[redacted]" next=visible',
+    ],
+    [
+      "password='fake phrase with spaces' next=visible",
+      "password='[redacted]' next=visible",
+    ],
+    [
+      String.raw`password="fake \"quoted\" phrase" next=visible`,
+      'password="[redacted]" next=visible',
+    ],
+  ])("redacts complete embedded credentials in %s", (text, expected) => {
+    expect(JSON.parse(redactArgsToJson({ notes: text })!).notes).toBe(expected);
+    expect(redactTextToSummary(text)).toBe(expected);
+  });
+
+  it("preserves UUIDs and paths when generic opaque values are disabled", () => {
+    const googleApiKey = ["AI", "za", "Sy"].join("") + "x".repeat(33);
+    const values = {
+      id: "123e4567-e89b-12d3-a456-426614174000",
+      path: "/workspace/project/packages/core/src/agent/harness/store.ts",
+      text: `request failed with ${googleApiKey}`,
+    };
+
+    expect(
+      JSON.parse(
+        redactArgsToJson(values, {
+          redactEmbeddedSecrets: true,
+          redactGenericOpaqueStrings: false,
+        })!,
+      ),
+    ).toEqual({
+      ...values,
+      text: "request failed with [redacted]",
+    });
+  });
+
+  it("redacts embedded credentials before truncating oversized strings", () => {
+    const googleApiKey = ["AI", "za", "Sy"].join("") + "x".repeat(33);
+    const text = `request failed with ${googleApiKey}; ${"safe output ".repeat(80)}`;
+    const json = redactArgsToJson(
+      { text },
+      {
+        maxJson: 256,
+        maxString: 128,
+        redactEmbeddedSecrets: true,
+        redactGenericOpaqueStrings: false,
+      },
+    )!;
+    const output = JSON.parse(json) as { text: string };
+
+    expect(output.text).not.toContain(googleApiKey);
+    expect(output.text).toContain("[redacted]");
+    expect(output.text).toContain("more chars");
+    expect(json.length).toBeLessThanOrEqual(256);
+  });
+
   it("redacts webhook URLs under a generic field, regardless of key", () => {
     expect(
       __test.looksSecret(
@@ -38,7 +214,6 @@ describe("redactArgsToJson", () => {
     expect(
       __test.looksSecret("https://discord.com/api/webhooks/123/abcDEF"),
     ).toBe(true);
-    // A vault-style payload puts the secret under a generic `value` key.
     const json = redactArgsToJson({
       value: "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXX",
     });
@@ -46,8 +221,6 @@ describe("redactArgsToJson", () => {
   });
 
   it("truncates very long (non-secret) strings", () => {
-    // Spaces make it clearly prose, not an opaque token, so it is truncated
-    // rather than redacted as a secret.
     const long = "lorem ipsum ".repeat(500);
     const json = redactArgsToJson({ body: long });
     const parsed = JSON.parse(json!);
@@ -56,23 +229,18 @@ describe("redactArgsToJson", () => {
   });
 
   it("keeps the output parseable when the whole payload is truncated", () => {
-    // 10 fields × ~1000-char prose values → serialized JSON exceeds MAX_JSON,
-    // but no single string hits the per-string limit and none look secret.
     const sentence = "word ".repeat(200);
     const big = Object.fromEntries(
       Array.from({ length: 10 }, (_, i) => [`f${i}`, sentence]),
     );
     const json = redactArgsToJson(big);
-    expect(() => JSON.parse(json!)).not.toThrow(); // valid JSON, not a slice
+    expect(() => JSON.parse(json!)).not.toThrow();
     const parsed = JSON.parse(json!);
     expect(parsed._auditTruncated).toBe(true);
     expect(typeof parsed.preview).toBe("string");
   });
 
   it("honours a caller-supplied cap, envelope included", () => {
-    // The A2A activity snapshot has a much tighter wire budget than the audit
-    // log, and validates the exact stored length — the truncation envelope has
-    // to fit inside the cap, not overhang it.
     const json = redactArgsToJson(
       { command: "echo hi; ".repeat(500), cwd: "/repo" },
       { maxJson: 256, maxString: 64 },
@@ -91,9 +259,61 @@ describe("redactArgsToJson", () => {
     a.self = a;
     expect(() => redactArgsToJson(a)).not.toThrow();
   });
+
+  it("tells a cut from a redaction", () => {
+    const parsed = (args: unknown, limits?: { maxString: number }) =>
+      JSON.parse(redactArgsToJson(args, limits)!);
+    expect(redactedArgsWereCut(parsed({ apiKey: "sk-live-1" }))).toBe(false);
+    expect(redactedArgsWereCut(parsed({ to: ["a@x.com", "b@x.com"] }))).toBe(
+      false,
+    );
+    expect(
+      redactedArgsWereCut(
+        parsed({ body: "word ".repeat(20) }, { maxString: 10 }),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed({ to: Array.from({ length: 101 }, (_, i) => `p${i}@x.com`) }),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed(
+          Object.fromEntries(
+            Array.from({ length: 101 }, (_, i) => [`k${i}`, i]),
+          ),
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed({ a: { b: { c: { d: { e: { f: { g: 1 } } } } } } }),
+      ),
+    ).toBe(true);
+    expect(
+      redactedArgsWereCut(
+        parsed(
+          Object.fromEntries(
+            Array.from({ length: 10 }, (_, i) => [
+              `f${i}`,
+              "word ".repeat(200),
+            ]),
+          ),
+        ),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("redactTextToSummary", () => {
+  it("redacts a quoted value when the summary boundary cuts an escape", () => {
+    const text = 'password="' + "x".repeat(85) + '\\fake suffix"';
+    const summary = redactTextToSummary(text, 64);
+    expect(summary).toContain('password="[redacted]"');
+    expect(summary).not.toContain("x".repeat(10));
+  });
+
   it("keeps short text verbatim and marks clipped text", () => {
     expect(redactTextToSummary("all good", 100)).toBe("all good");
 
@@ -112,9 +332,9 @@ describe("redactTextToSummary", () => {
 
   it("redacts credentials embedded in text and JSON fields", () => {
     const summary = redactTextToSummary(
-      'request failed: Authorization: Bearer fake-bearer-value token=fake-token-value body={"apiKey":"fake-api-key"}',
+      'request failed:\nAuthorization: Bearer fake-bearer-value\ntoken=fake-token-value body={"apiKey":"fake-api-key"}',
     );
-    expect(summary).toContain("Authorization: Bearer [redacted]");
+    expect(summary).toContain("Authorization: [redacted]");
     expect(summary).toContain("token=[redacted]");
     expect(summary).toContain('"apiKey":"[redacted]"');
     expect(summary).not.toContain("fake-bearer-value");

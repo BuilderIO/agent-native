@@ -167,6 +167,43 @@ synthesize a CLI invocation example instead. Pick an action with a genuinely
 reusable pattern (a concurrency lock, a two-table uniqueness check, input
 normalization), not just the simplest one.
 
+## Voice: Declarative, Not Imperative
+
+Applies broadly, to any docs page, reference section or app page alike. It
+came out of reworking Slides' Overview intro paragraph, which opened "Generate
+full presentation decks from a prompt, edit slides visually, and present
+full-screen" — accurate, but a bare imperative verb with no stated subject
+reads as ad copy, not documentation, and invites hype words like "in seconds"
+or "own end to end" that don't add information.
+
+State the subject first: what the thing *is*, then what happens when you use
+it. Calendar's Overview opening is the reference shape: "Calendar is an
+agent-powered scheduling app. Connect your Google Calendar and the agent can
+read your schedule, find free time, create events, and manage Calendly-style
+booking links, in plain English or with a click. It replaces the Google
+Calendar + Calendly combo with one app, so your real schedule and your public
+booking pages are never two things you have to keep in sync by hand." Three
+moves, in order:
+
+1. **Name what it is.** `<Subject> is a(n) <category>.`
+2. **One sentence of what using it looks like.** A trigger clause followed by
+   what the agent then does, e.g. "...and the agent can `<verb list>`, in
+   plain English or with a click."
+3. **What it replaces, and why that's better.** "It replaces `<X>` with one
+   app, so `<concrete benefit>`."
+
+An imperative clause is fine inside that shape ("Connect your Google Calendar
+and the agent can...") because it's conditional, not a command aimed at the
+reader as the paragraph's opener. The same two-sentence shape (declarative
+opener, then a capability-list sentence) applies to the frontmatter
+`description` field too. Apply this to the free-flowing prose paragraphs on a
+page (the opening paragraph, teaser paragraphs, closing behavior notes). It
+does not apply to procedural instructions (numbered setup steps genuinely are
+commands), quoted example prompts (they're user speech, not framework prose),
+or the bold-imperative-lead bullet convention used for feature lists
+("**Build forms conversationally.** Try prompts like...") since that's an
+established, distinct list convention across the doc set, not a tone problem.
+
 ## Verify Agent-Driven Claims
 
 Applies broadly, to any docs page, reference section or app page alike.

@@ -142,8 +142,6 @@ impl Drop for ProducerRegistration {
     }
 }
 
-/// Cloneable producer handle. The registration remains live through stream
-/// rebuilds until explicitly deactivated or the final clone is dropped.
 #[derive(Clone)]
 pub(crate) struct AudioProducer {
     registration: Arc<ProducerRegistration>,
@@ -208,8 +206,6 @@ impl AudioProducer {
                 })
             })
             .unwrap_or_default();
-        // Never hold the bus lock while invoking client code. A callback may
-        // stop its session and drop its own subscription.
         for (active, callback) in callbacks {
             if active.load(Ordering::SeqCst) {
                 callback(samples, sample_rate);

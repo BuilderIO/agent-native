@@ -1,12 +1,3 @@
-/**
- * Availability rule evaluation.
- *
- * Given a Schedule (weekly rules + date overrides) and a local date in the
- * schedule's timezone, produce the set of available intervals on that day.
- *
- * Date overrides win over weekly rules: an empty-intervals override blocks
- * the day entirely; a non-empty override replaces the weekly rules for the day.
- */
 import type {
   AvailabilityInterval,
   DateOverride,
@@ -19,10 +10,6 @@ export interface ScheduleInput {
   dateOverrides: DateOverride[];
 }
 
-/**
- * Return the intervals available for a given local date.
- * Intervals are in the schedule's local HH:MM, not UTC.
- */
 export function evaluateAvailabilityForDate(
   schedule: ScheduleInput,
   localDate: string,
@@ -34,10 +21,6 @@ export function evaluateAvailabilityForDate(
   return weekly?.intervals ?? [];
 }
 
-/**
- * Normalize an interval list: sort by start, merge overlapping/adjacent,
- * drop zero-length.
- */
 export function normalizeIntervals(
   intervals: AvailabilityInterval[],
 ): AvailabilityInterval[] {

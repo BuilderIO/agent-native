@@ -22,6 +22,7 @@ export interface SlackAuthTestResult {
   userName: string;
   teamId: string;
   teamName: string;
+  botId?: string;
 }
 
 export interface SlackTeamInfo {
@@ -34,6 +35,14 @@ export interface SlackUserInfo {
   id: string;
   name: string | null;
   displayName: string | null;
+  /** From Slack's `is_bot` and `is_app_user`; absent when a stored profile predates the flag. */
+  isBot?: boolean;
+}
+
+export interface SlackUserLookup {
+  id: string;
+  isBot: boolean;
+  deleted: boolean;
 }
 
 export interface ChannelHistoryResult {
@@ -48,21 +57,23 @@ export interface ThreadRepliesResult {
   next_cursor?: string;
 }
 
-export interface SlackReactionResult {
-  added: boolean;
-  already_present: boolean;
-}
-
-export interface SlackReactionState {
-  present: boolean;
-}
-
 export interface SlackPostMessageResult {
   ok?: boolean;
   error?: string;
   channel: string;
   ts: string;
   message?: SlackMessage;
+}
+
+export class SlackWriteError extends Error {
+  constructor(
+    message: string,
+    readonly delivery: "rejected" | "unknown",
+    readonly retryAfterSeconds: number | null = null,
+  ) {
+    super(message);
+    this.name = "SlackWriteError";
+  }
 }
 
 const cache = new Map<string, { value: unknown; expiresAt: number }>();
@@ -123,25 +134,46 @@ async function slackWrite<T extends { ok?: boolean; error?: string }>(
   tokenResolver?: SlackTokenResolver,
 ): Promise<T> {
   const token = await getToken(workspace, tokenResolver);
-  const response = await fetch(`https://slack.com/api/${method}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok)
-    throw new Error(
-      `Slack API error ${response.status}: ${await response.text()}`,
-    );
-  const data = (await response.json()) as T;
-  if (data.ok !== true)
-    throw new Error(`Slack API error: ${data.error ?? "unknown_error"}`);
-  // A successful reaction or message write makes cached reads stale. This is
-  // especially important when a retry follows a partially recorded handoff.
-  invalidateWorkspaceCache(workspace);
-  return data;
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`https://slack.com/api/${method}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new SlackWriteError(`Slack transport error: ${message}`, "unknown");
+    }
+    if (!response.ok) {
+      const retryAfterHeader = response.headers.get("retry-after");
+      const retryAfterSeconds =
+        retryAfterHeader && /^\d+$/.test(retryAfterHeader)
+          ? Number(retryAfterHeader)
+          : null;
+      throw new SlackWriteError(
+        `Slack API error ${response.status}: ${await response.text()}`,
+        response.status >= 400 && response.status < 500
+          ? "rejected"
+          : "unknown",
+        response.status === 429 ? retryAfterSeconds : null,
+      );
+    }
+    const data = (await response.json()) as T;
+    if (data.ok !== true) {
+      throw new SlackWriteError(
+        `Slack API error: ${data.error ?? "unknown_error"}`,
+        "rejected",
+      );
+    }
+    return data;
+  } finally {
+    invalidateWorkspaceCache(workspace);
+  }
 }
 
 export async function getChannelHistory(
@@ -240,6 +272,7 @@ export async function authTest(
     user?: string;
     team_id?: string;
     team?: string;
+    bot_id?: string;
   }>(workspace, "auth.test", undefined, tokenResolver);
   if (
     typeof data.user_id !== "string" ||
@@ -254,53 +287,8 @@ export async function authTest(
     userName: data.user,
     teamId: data.team_id,
     teamName: data.team,
+    ...(typeof data.bot_id === "string" ? { botId: data.bot_id } : {}),
   };
-}
-
-export async function hasReaction(
-  workspace: Workspace,
-  channelId: string,
-  timestamp: string,
-  name: string,
-  tokenResolver?: SlackTokenResolver,
-): Promise<SlackReactionState> {
-  const data = await slackApi<{
-    message?: { reactions?: Array<{ name?: string; count?: number }> };
-  }>(
-    workspace,
-    "reactions.get",
-    { channel: channelId, timestamp },
-    tokenResolver,
-  );
-  if (!data.message) {
-    throw new Error("Slack reaction response is missing the message.");
-  }
-  return {
-    present: (data.message.reactions ?? []).some(
-      (reaction) => reaction.name === name && (reaction.count ?? 0) > 0,
-    ),
-  };
-}
-
-export async function addReaction(
-  workspace: Workspace,
-  channelId: string,
-  timestamp: string,
-  name: string,
-  tokenResolver?: SlackTokenResolver,
-): Promise<SlackReactionResult> {
-  try {
-    await slackWrite(
-      workspace,
-      "reactions.add",
-      { channel: channelId, timestamp, name },
-      tokenResolver,
-    );
-    return { added: true, already_present: false };
-  } catch (error) {
-    if (!String(error).includes("already_reacted")) throw error;
-    return { added: false, already_present: true };
-  }
 }
 
 export async function postThreadReply(
@@ -317,6 +305,20 @@ export async function postThreadReply(
     tokenResolver,
   );
   return data;
+}
+
+export async function postChannelMessage(
+  workspace: Workspace,
+  channelId: string,
+  text: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackPostMessageResult> {
+  return slackWrite<SlackPostMessageResult>(
+    workspace,
+    "chat.postMessage",
+    { channel: channelId, text },
+    tokenResolver,
+  );
 }
 
 export async function getTeamInfo(
@@ -343,6 +345,8 @@ export async function getUserInfo(
     user?: {
       id?: string;
       name?: string;
+      is_bot?: boolean;
+      is_app_user?: boolean;
       profile?: { display_name?: string };
     };
   }>(workspace, "users.info", { user: id }, tokenResolver);
@@ -359,5 +363,61 @@ export async function getUserInfo(
     id: user.id.trim(),
     name: name || null,
     displayName: displayName || null,
+    isBot: user.is_bot === true || user.is_app_user === true,
   };
+}
+
+/**
+ * Resolves an email to a Slack member. Null means Slack looked and found no
+ * one; any other failure (a missing `users:read.email` scope, a revoked token)
+ * throws, so "no such person" is never confused with "could not ask".
+ */
+export async function findUserByEmail(
+  workspace: Workspace,
+  email: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackUserLookup | null> {
+  const address = email.trim();
+  if (!address) throw new Error("An email address is required.");
+  let data: {
+    user?: { id?: string; is_bot?: boolean; deleted?: boolean };
+  };
+  try {
+    data = await slackApi(
+      workspace,
+      "users.lookupByEmail",
+      { email: address },
+      tokenResolver,
+    );
+  } catch (error) {
+    if (String(error).includes("users_not_found")) return null;
+    throw error;
+  }
+  const user = data.user;
+  if (!user || typeof user.id !== "string" || !user.id.trim()) {
+    throw new Error("Slack user lookup response is missing a user id.");
+  }
+  return {
+    id: user.id.trim(),
+    isBot: user.is_bot === true,
+    deleted: user.deleted === true,
+  };
+}
+
+export async function getMessagePermalink(
+  workspace: Workspace,
+  channelId: string,
+  messageTs: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<string> {
+  const data = await slackApi<{ permalink?: string }>(
+    workspace,
+    "chat.getPermalink",
+    { channel: channelId, message_ts: messageTs },
+    tokenResolver,
+  );
+  if (typeof data.permalink !== "string" || !data.permalink) {
+    throw new Error("Slack permalink response is missing the link.");
+  }
+  return data.permalink;
 }

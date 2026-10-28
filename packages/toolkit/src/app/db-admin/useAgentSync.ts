@@ -1,0 +1,184 @@
+import {
+  removeAgentChatContextItem,
+  setAgentChatContextItem,
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  deleteClientAppState,
+  readClientAppState,
+  setClientAppState,
+} from "@agent-native/core/client/application-state";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { usePollLoop } from "@agent-native/core/client/hooks";
+import { useEffect, useRef } from "react";
+
+const POLL_INTERVAL_MS = 1500;
+const TABLE_CONTEXT_KEY = "database-selected-table";
+const SELECTED_OBJECT_STATE_KEY = "selected-object";
+const SELECTED_OBJECT_SOURCE_FIELD = "__agentNativeSelectedObjectSource";
+
+let cachedSource: string | null = null;
+
+function requestSource(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  if (!cachedSource) cachedSource = getBrowserTabId();
+  return cachedSource;
+}
+
+function appStatePath(key: string): string {
+  const source = requestSource();
+  return agentNativePath(
+    `/_agent-native/application-state/${key}${source ? `:${source}` : ""}`,
+  );
+}
+
+function headers(extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { ...extra };
+  const source = requestSource();
+  if (source) h["X-Request-Source"] = source;
+  return h;
+}
+
+async function deleteSelectedObjectIfOwned(source: string | undefined) {
+  if (!source) return;
+  try {
+    const current = await readClientAppState<Record<string, unknown>>(
+      SELECTED_OBJECT_STATE_KEY,
+    );
+    if (current?.[SELECTED_OBJECT_SOURCE_FIELD] !== source) return;
+    await deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
+      keepalive: true,
+      requestSource: source,
+    });
+  } catch {
+    // Best effort only; stale selected-object context is less harmful than
+    // clearing a selection owned by another tab.
+  }
+}
+
+export interface DbAdminNavigationState {
+  view: "database";
+  table: string | null;
+  mode: "table" | "sql";
+}
+
+export interface UseDbAdminAgentSyncArgs {
+  table: string | null;
+  mode: "table" | "sql";
+  enabled?: boolean;
+}
+
+export function useDbAdminAgentSync({
+  table,
+  mode,
+  enabled = true,
+}: UseDbAdminAgentSyncArgs): void {
+  useEffect(() => {
+    if (!enabled) return;
+    const state: DbAdminNavigationState = { view: "database", table, mode };
+    fetch(appStatePath("navigation"), {
+      method: "PUT",
+      keepalive: true,
+      credentials: "include",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify(state),
+    }).catch(() => {});
+  }, [enabled, table, mode]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const source = requestSource();
+    if (!table) {
+      removeAgentChatContextItem({
+        key: TABLE_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      void deleteSelectedObjectIfOwned(source);
+      return;
+    }
+
+    const selection = {
+      type: "database-table",
+      table,
+      mode,
+      [SELECTED_OBJECT_SOURCE_FIELD]: source,
+    };
+    setAgentChatContextItem({
+      key: TABLE_CONTEXT_KEY,
+      title: `Table: ${table}`,
+      context: [
+        `The user currently has this database table selected: ${table}.`,
+        `Database admin mode: ${mode}`,
+        "Use the database admin actions and current-screen context to inspect rows, schema, or run SQL against this table.",
+      ].join("\n"),
+      openSidebar: false,
+      focus: false,
+    });
+    setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+      keepalive: true,
+      requestSource: source,
+    }).catch(() => {});
+
+    return () => {
+      removeAgentChatContextItem({
+        key: TABLE_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      void deleteSelectedObjectIfOwned(source);
+    };
+  }, [enabled, table, mode]);
+}
+
+interface NavigateCommand {
+  view?: string;
+  table?: string | null;
+}
+
+export function useNavigateConsumer(
+  onNavigate: (table: string) => void,
+  enabled = true,
+): void {
+  const handlerRef = useRef(onNavigate);
+  handlerRef.current = onNavigate;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  usePollLoop(
+    async (signal) => {
+      const navigatePath = appStatePath("navigate");
+      const res = await fetch(navigatePath, {
+        method: "GET",
+        credentials: "include",
+        headers: headers(),
+        signal,
+      });
+      if (!mountedRef.current || !res.ok) return;
+      const data = (await res.json()) as NavigateCommand | null;
+      if (
+        data &&
+        data.view === "database" &&
+        typeof data.table === "string" &&
+        data.table
+      ) {
+        const target = data.table;
+        fetch(navigatePath, {
+          method: "DELETE",
+          credentials: "include",
+          headers: headers({ "X-Agent-Native-CSRF": "1" }),
+        }).catch(() => {});
+        handlerRef.current(target);
+      }
+    },
+    {
+      intervalMs: POLL_INTERVAL_MS,
+      leading: false,
+      pauseWhenHidden: true,
+      enabled,
+    },
+  );
+}

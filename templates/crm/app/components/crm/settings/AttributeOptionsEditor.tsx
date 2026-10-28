@@ -53,7 +53,6 @@ import {
   reorderedOptionIds,
 } from "./settings-admin";
 
-/** Option colors offered by the picker, with the swatch each one renders as. */
 const OPTION_COLORS: Array<{ value: string; swatch: string }> = [
   { value: "gray", swatch: "bg-muted-foreground/50" },
   { value: "blue", swatch: "bg-sky-500" },
@@ -108,11 +107,6 @@ export function AttributeOptionsEditor({
   ).showsStageFields;
   const options = attribute.options ?? [];
 
-  /**
-   * Every option write goes through here so the optimistic options and the
-   * rollback stay in one place: a half-applied reorder is worse than no
-   * optimism at all.
-   */
   async function apply(input: ManageOptionInput, next: CrmAttributeOption[]) {
     const rollback = patchAttribute(attribute.id, { options: next });
     try {

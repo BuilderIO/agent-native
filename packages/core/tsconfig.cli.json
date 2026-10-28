@@ -3,12 +3,10 @@
   "compilerOptions": {
     "declaration": true,
     "declarationMap": true,
-    "noCheck": true,
-    "strict": false,
     "incremental": true,
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/core-cli.tsbuildinfo"
   },
-  "include": ["src/cli/**/*.ts", "src/testing.ts"],
+  "include": ["src/cli/**/*.ts", "src/cli/**/*.tsx", "src/testing.ts"],
   "exclude": [
     "node_modules",
     "dist",

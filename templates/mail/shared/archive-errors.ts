@@ -125,7 +125,8 @@ export function archiveFailureToastMessage(
   const message = withoutActionPrefix(errorText(error));
   if (!message || /^internal server error$/i.test(message)) return fallback;
 
-  if (/\bFailures:/i.test(message)) {
+  // A bare cooldown carries wording meant for the agent ("Do not retry...").
+  if (/\bFailures:/i.test(message) || /briefly busy/i.test(message)) {
     return summarizeArchiveFailures({
       succeeded: 0,
       total: 1,

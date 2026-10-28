@@ -1,3 +1,4 @@
+import { clientFailureContext } from "./failure-report.js";
 import {
   getFeedbackClientContext,
   type FeedbackClientContext,
@@ -57,6 +58,15 @@ function debugLines(options: ErrorReportTemplateOptions): string[] {
   } else if (context.chatSessionIds.length > 1) {
     lines.push(`Chat sessions: ${context.chatSessionIds.join(", ")}`);
   }
+  // A link to the thread, the deploy and the moment: what a person opening the
+  // issue needs to find the failing run without asking the reporter.
+  const threadId = context.chatSessionIds[0];
+  const failure = clientFailureContext({ ...(threadId ? { threadId } : {}) });
+  if (threadId && failure.threadUrl) {
+    lines.push(`Thread: ${failure.threadUrl}`);
+  }
+  if (failure.release) lines.push(`Build: ${failure.release}`);
+  if (failure.occurredAt) lines.push(`Time: ${failure.occurredAt}`);
   for (const item of options.extraDebug ?? []) {
     const value = cleanText(item.value);
     if (value) lines.push(`${item.label}: ${value}`);

@@ -1,5 +1,5 @@
 import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
-import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
+import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
   listDashboardSummaries,
@@ -66,7 +66,7 @@ function seedConfig(id: string): SqlDashboardConfig {
   if (id !== FIRST_PARTY_DASHBOARD_ID) {
     return seed as unknown as SqlDashboardConfig;
   }
-  return repairCanonicalFirstPartyDashboardQueries(seed)
+  return repairKnownFirstPartyDashboardQueries(id, seed)
     .config as unknown as SqlDashboardConfig;
 }
 
@@ -931,7 +931,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "first-party-template-traffic",
     name: "First-party Template Traffic",
     description:
-      "Template signups, activation and onboarding funnel, sharing actions, clicks, demo starts, CLI copies, activity, top URLs, top clips, retention by template, and active users over time.",
+      "Template signups, activation and onboarding step/choice funnels, sharing actions, clicks, demo starts, CLI copies, activity, top URLs, top clips, retention by template, and active users over time.",
     category: "Product",
     defaultDashboardId: "agent-native-templates-first-party",
     dataSources: ["first-party"],
@@ -948,7 +948,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 42,
+    panelCount: 51,
     version: CATALOG_VERSION,
     recommended: true,
     visibleInCatalog: false,
@@ -968,6 +968,28 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     recommended: true,
     visibleInCatalog: false,
     buildConfig: () => seedConfig("skills-cli-funnel"),
+  },
+  {
+    id: "content-view",
+    name: "Content",
+    description:
+      "Blog articles ranked by first-touch signups, with signups by author, new and rising articles, and each source's last run, from the daily content collection.",
+    category: "Acquisition",
+    defaultDashboardId: "content-view",
+    dataSources: ["first-party"],
+    tags: [
+      "content",
+      "blog",
+      "articles",
+      "authors",
+      "search console",
+      "pageviews",
+      "seo",
+      "signups",
+    ],
+    panelCount: 11,
+    version: CATALOG_VERSION,
+    buildConfig: () => seedConfig("content-view"),
   },
   {
     id: "google-analytics-web",

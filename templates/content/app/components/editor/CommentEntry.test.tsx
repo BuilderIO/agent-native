@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { serializeStoredCommentMentions } from "@shared/comment-mentions";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -9,23 +10,32 @@ import type { Comment } from "@/hooks/use-comments";
 import { CommentDraftProvider, useCommentDraft } from "./comment-drafts";
 import { CommentEntry } from "./CommentEntry";
 
-const { reconcile, mutateAsync } = vi.hoisted(() => ({
+const { reconcile, mutateAsync, createRetry } = vi.hoisted(() => ({
   reconcile: vi.fn(),
   mutateAsync: vi.fn(),
+  createRetry: vi.fn(),
 }));
 vi.mock("@/hooks/use-comments", () => ({
-  useCreateComment: () => ({ reconcileAmbiguous: reconcile }),
+  useCreateComment: () => ({
+    reconcileAmbiguous: reconcile,
+    mutateAsync: createRetry,
+  }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useFormatters: () => ({ formatDate: () => "Sep 10" }),
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
+}));
+vi.mock("@/hooks/use-mention-members", () => ({
+  useMentionMembers: () => ({ data: [] }),
 }));
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -44,21 +54,42 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     onSelect: () => void;
   }) => <button onClick={onSelect}>{children}</button>,
 }));
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 vi.mock("./CommentComposer", () => ({
   CommentComposer: ({
     value,
     onChange,
+    onSubmit,
+    onCancel,
+    onEscape,
+    confirmEscape,
     ariaLabel,
+    submitLabel,
   }: {
     value: string;
     onChange: (value: string) => void;
+    onSubmit: () => void;
+    onCancel?: () => void;
+    onEscape?: () => void;
+    confirmEscape?: string | false;
     ariaLabel: string;
+    submitLabel?: string;
   }) => (
-    <textarea
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <>
+      <textarea
+        aria-label={ariaLabel}
+        data-confirm-escape={String(confirmEscape ?? false)}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {submitLabel ? <button onClick={onSubmit}>{submitLabel}</button> : null}
+      {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
+      {onEscape ? <button onClick={onEscape}>Escape</button> : null}
+    </>
   ),
 }));
 
@@ -94,6 +125,7 @@ function DraftProbe() {
   editDraft = useCommentDraft("edit:comment-1", {
     text: comment.content,
     mentions: [],
+    aiDraft: null,
   });
   return null;
 }
@@ -116,7 +148,6 @@ function Harness({
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
-          members={[]}
         />
       )}
     </CommentDraftProvider>
@@ -132,14 +163,132 @@ async function click(label: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   reconcile.mockResolvedValue("confirmed");
+  createRetry.mockResolvedValue({ id: "saved-reply", threadId: "comment-1" });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+});
+
+it("checks an uncertain reply before retrying with its original operation ID", async () => {
+  reconcile.mockResolvedValue("unresolved");
+  const entry: Comment = {
+    ...comment,
+    id: "optimistic-operation-1",
+    parent_id: "comment-1",
+    content: "Reply text",
+    mutation: {
+      operationId: "operation-1",
+      kind: "create",
+      status: "error",
+      ambiguous: true,
+    },
+  };
+  await act(async () => root.render(<Harness entry={entry} />));
+  expect(container.textContent).not.toContain("comments.retry");
+  await click("comments.checkSaved");
+  expect(reconcile).toHaveBeenCalledWith("doc-1", "operation-1");
+  await click("comments.retry");
+  expect(createRetry).toHaveBeenCalledWith(
+    expect.objectContaining({
+      clientOperationId: "operation-1",
+      documentId: "doc-1",
+      threadId: "comment-1",
+      parentId: "comment-1",
+      content: "Reply text",
+    }),
+  );
+});
+it("retries an uncertain new thread on its Property or in its tab", async () => {
+  reconcile.mockResolvedValue("unresolved");
+  const uncertain = (id: string, extra: Partial<Comment>): Comment => ({
+    ...comment,
+    id: `optimistic-${id}`,
+    thread_id: `optimistic-${id}`,
+    mutation: {
+      operationId: id,
+      kind: "create",
+      status: "error",
+      ambiguous: true,
+    },
+    ...extra,
+  });
+  const cases: [Comment, Record<string, unknown>][] = [
+    [
+      uncertain("operation-property", {
+        property_id: "status",
+        property_database_id: "collection-2",
+      }),
+      {
+        propertyId: "status",
+        databaseId: "collection-2",
+        fieldId: undefined,
+        quotedText: undefined,
+      },
+    ],
+    [
+      uncertain("operation-tab", { field_id: "notes", quoted_text: "dolor" }),
+      {
+        fieldId: "notes",
+        propertyId: undefined,
+        databaseId: undefined,
+        quotedText: "dolor",
+      },
+    ],
+  ];
+  for (const [entry, target] of cases) {
+    createRetry.mockClear();
+    await act(async () => root.render(<Harness entry={entry} />));
+    await click("comments.checkSaved");
+    await click("comments.retry");
+    expect(createRetry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientOperationId: entry.mutation!.operationId,
+        threadId: undefined,
+        parentId: undefined,
+        ...target,
+      }),
+    );
+  }
 });
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   localStorage.clear();
+});
+
+it("saves an edit's mentions in text order when a person and an agent share a name", async () => {
+  const agent = {
+    kind: "agent" as const,
+    model: "claude",
+    name: "Claude",
+  };
+  const person = {
+    kind: "person" as const,
+    email: "claude@example.test",
+    name: "Claude",
+  };
+  mutateAsync.mockResolvedValue(undefined);
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          content: "@Claude asked @Claude",
+          mentions: [agent, person],
+        }}
+      />,
+    ),
+  );
+  await click("comments.edit");
+  await click("comments.save");
+
+  expect(mutateAsync).toHaveBeenCalledWith(
+    expect.objectContaining({
+      content: "@Claude asked @Claude",
+      mentions: serializeStoredCommentMentions([agent, person]),
+    }),
+    expect.anything(),
+  );
 });
 
 it("keeps an edit draft when its row unmounts and reopens", async () => {
@@ -158,6 +307,46 @@ it("keeps an edit draft when its row unmounts and reopens", async () => {
   await click("comments.cancel");
   await click("comments.edit");
   expect(container.querySelector("textarea")?.value).toBe(comment.content);
+});
+
+it("has Escape confirm only a changed edit, and restores the comment once it cancels", async () => {
+  await act(async () => root.render(<Harness />));
+  await click("comments.edit");
+  const confirmEscape = () =>
+    container.querySelector("textarea")?.dataset.confirmEscape;
+  expect(confirmEscape()).toBe("false");
+  await act(async () => editDraft.setText("Original comment, revised"));
+  expect(confirmEscape()).toBe("edit");
+  // The composer runs this once the dialog's Discard is chosen.
+  await click("Escape");
+  expect(container.querySelector("textarea")).toBeNull();
+  await click("comments.edit");
+  expect(container.querySelector("textarea")?.value).toBe(comment.content);
+  expect(confirmEscape()).toBe("false");
+});
+
+it("does not count a repeated mention's extra pills as an edit", async () => {
+  const ana = {
+    kind: "person" as const,
+    email: "ana@example.test",
+    name: "Ana",
+  };
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{ ...comment, content: "@Ana asked @Ana", mentions: [ana] }}
+      />,
+    ),
+  );
+  await click("comments.edit");
+  // The editor reports one mention per pill; the comment stores one per name.
+  await act(async () => {
+    editDraft.setText("@Ana asked @Ana");
+    editDraft.setMentions([ana, ana]);
+  });
+  expect(container.querySelector("textarea")?.dataset.confirmEscape).toBe(
+    "false",
+  );
 });
 
 it.each([false, true])(
@@ -208,4 +397,117 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(
     "comments.saveUnconfirmed",
   );
+});
+
+it("names the agent, keeps the exact model in its badge, and keeps the time compact", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "agent",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+
+  expect(container.textContent).toContain("GPT");
+  const badge = container.querySelector("[data-comment-agent-badge]");
+  expect(badge?.textContent).toBe("comments.agentBadge");
+  expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
+  const time = container.querySelector("time");
+  expect(time?.getAttribute("datetime")).toBe(comment.created_at);
+  // The time truncates before a short author name does.
+  expect(time?.className).toContain("truncate");
+  expect(time?.className).toContain("whitespace-nowrap");
+});
+
+it("gives a comment another app's agent wrote the agent's card", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "a2a",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+  const name = container.querySelector<HTMLElement>(
+    "[data-comment-author-name]",
+  )!;
+  await act(async () => name.click());
+
+  expect(name.textContent).toContain("GPT");
+  expect(
+    document
+      .querySelector("[data-comment-identity-card]")
+      ?.getAttribute("data-comment-identity-card"),
+  ).toBe("agent");
+});
+
+it("lets a long author shrink while keeping thread actions inline after the menu", async () => {
+  const author = "A reviewer with a long display name";
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={{ ...comment, author_name: author }}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          headerActions={<button data-testid="resolve">resolve</button>}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  const actions = container.querySelector("[data-comment-row-actions]");
+  const name = [...container.querySelectorAll("span")].find(
+    (node) => node.textContent === author,
+  );
+  expect(name?.className).toContain("min-w-0");
+  expect(name?.className).toContain("truncate");
+  expect(name?.className).not.toContain("shrink-0");
+  expect(actions?.className).toContain("shrink-0");
+  const buttons = [...(actions?.querySelectorAll("button") ?? [])];
+  expect(buttons[buttons.length - 1]?.dataset.testid).toBe("resolve");
+  expect(
+    buttons.some(
+      (button) =>
+        button.getAttribute("aria-label") === "comments.commentActions",
+    ),
+  ).toBe(true);
+});
+
+it("keeps the exact AI conversation link in the comment overflow", async () => {
+  const onOpenAiConversation = vi.fn();
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          onOpenAiConversation={onOpenAiConversation}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  await click("comments.aiOpenConversation");
+  expect(onOpenAiConversation).toHaveBeenCalledOnce();
 });

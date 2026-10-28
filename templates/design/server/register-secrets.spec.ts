@@ -69,6 +69,22 @@ describe("Figma secret registration", () => {
     expect(JSON.stringify(result)).not.toContain(exampleToken);
   });
 
+  it("rejects a Figma file URL before sending it to Figma as a token", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await figmaSecret().validator?.(
+      "https://www.figma.com/design/file-key/file-name",
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Paste a Figma access token, not a Figma file URL.",
+      validationCode: "figma_file_url_as_token",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns actionable permission guidance without reflecting the token", async () => {
     const exampleToken = "<FIGMA_ACCESS_TOKEN>";
     vi.stubGlobal(

@@ -1,5 +1,5 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { IconPlus } from "@tabler/icons-react";
 import { Link, useLocation, useSearchParams } from "react-router";
 

@@ -1,0 +1,699 @@
+import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cache";
+import {
+  agentNativePath,
+  frameworkRoutePrefix,
+  isWorkspaceRuntime,
+  resolveAppBasePath,
+} from "@agent-native/core/client/api-path";
+import {
+  AgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "@agent-native/core/client/i18n";
+import { AgentNativeRouteWarmup } from "@agent-native/core/client/route-warmup";
+import {
+  EMBEDDED_THEME_CHANGE_EVENT,
+  applyEmbeddedThemeUpdate,
+  parseEmbeddedThemeUpdate,
+} from "@agent-native/core/client/theme";
+import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
+import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
+import { useSession } from "@agent-native/core/client/use-session";
+import { SettingsShortcut } from "@agent-native/core/client/use-settings-shortcut";
+import {
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared/document-title";
+import { getMcpAppWidgetEmbedBootScriptBody } from "@agent-native/core/shared/mcp-app-widget-embed";
+import { getSsrBetaRedirectScriptBody } from "@agent-native/core/shared/ssr-beta-redirect";
+import { getSsrSessionBootstrapScriptBody } from "@agent-native/core/shared/ssr-session-bootstrap";
+import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import { ThemeProvider, type Attribute, useTheme } from "next-themes";
+import React, { useContext, useEffect, useRef } from "react";
+import { useInRouterContext } from "react-router";
+
+import { RequireSession } from "../auth/RequireSession.js";
+import {
+  McpApprovalReviewGate,
+  McpApprovalReviewSkeleton,
+} from "../mcp-approval/McpApprovalReview.js";
+import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
+import {
+  AppShellSkeleton,
+  type AppShellSkeletonLayout,
+} from "../shared/AppShellSkeleton.js";
+import { ClientOnly } from "../shared/ClientOnly.js";
+import { ConsentBanner } from "../shared/ConsentBanner.js";
+import { EnvironmentBadge } from "../shared/EnvironmentBadge.js";
+import { RouteTransitionIndicator } from "../shared/RouteTransitionIndicator.js";
+import { RuntimeConfigNotice } from "../shared/RuntimeConfigNotice.js";
+import {
+  UnsupportedDeviceGate,
+  type UnsupportedDeviceGateProps,
+} from "../shared/UnsupportedDeviceGate.js";
+
+export interface AppProvidersProps {
+  queryClient: QueryClient;
+
+  defaultTheme?: string;
+
+  themeAttribute?: Attribute | Attribute[];
+
+  tooltipDelayDuration?: number;
+
+  toaster?: React.ReactNode | null;
+
+  disableThemeTransitions?: boolean;
+
+  disableWebMcp?: boolean;
+
+  webMcpExcludeActionNames?: readonly string[];
+
+  showEnvironmentBadge?: boolean;
+
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
+
+  isPublicPath?: boolean;
+
+  clientOnlyFallback?: React.ReactNode;
+
+  skeletonLayout?: AppShellSkeletonLayout;
+
+  sessionBypass?: boolean;
+
+  skipFirstRunOnboarding?: boolean;
+
+  /**
+   * Replaces the app with a hand-off notice on touch screens smaller than an
+   * iPad. It sits outside the session gate so a phone never signs in just to
+   * be turned away, and applies under `sessionBypass`; omit it where the app
+   * renders inside a host, whose pane width says nothing about the device.
+   */
+  unsupportedDevice?: Omit<UnsupportedDeviceGateProps, "children">;
+
+  /**
+   * False when the app is mounted inside another app's document (an
+   * in-process host). The app then leaves `<html>`, `document.title` and the
+   * document head alone: no next-themes class/color-scheme on the root
+   * element, no title guard, no early boot scripts. The host applies the
+   * theme by toggling `.dark` on the mount node instead.
+   */
+  ownsDocument?: boolean;
+
+  enableThemeFamily?: boolean;
+
+  documentTitleFallback?: string;
+
+  children: React.ReactNode;
+}
+
+const DEFAULT_TOASTER = (
+  <Toaster
+    richColors
+    position="bottom-left"
+    offset={{ bottom: 44, left: 32 }}
+    mobileOffset={{ bottom: 44, left: 16 }}
+  />
+);
+
+function EarlyBetaRedirectScript() {
+  return (
+    <script
+      data-agent-native-beta-redirect="1"
+      dangerouslySetInnerHTML={{
+        __html: getSsrBetaRedirectScriptBody(
+          agentNativePath("/_agent-native/auth/session"),
+          frameworkRoutePrefix(),
+        ),
+      }}
+    />
+  );
+}
+
+// Marks <html> as an MCP App widget before the server-rendered skeleton below
+// paints, so the widget never flashes the app's own sidebar.
+function McpAppWidgetBootScript() {
+  const workspaceRuntime = isWorkspaceRuntime();
+  // Workspace mount metadata is available to the inline browser script.
+  return (
+    <script
+      data-agent-native-mcp-widget-boot="1"
+      dangerouslySetInnerHTML={{
+        __html: getMcpAppWidgetEmbedBootScriptBody(
+          workspaceRuntime ? undefined : resolveAppBasePath(),
+          workspaceRuntime,
+        ),
+      }}
+    />
+  );
+}
+
+function EarlySessionBootstrapScript() {
+  const sessionPath = agentNativePath("/_agent-native/auth/session");
+  // The document handler starts this read again from the top of <head>, where
+  // no stylesheet holds it back; this copy then finds it started and returns.
+  // It stays for any other handler, and so hydration finds the same tree.
+  useContext(SsrSessionBootstrapContext)?.(sessionPath);
+  return (
+    <script
+      data-agent-native-session-bootstrap="1"
+      dangerouslySetInnerHTML={{
+        __html: getSsrSessionBootstrapScriptBody(sessionPath),
+      }}
+    />
+  );
+}
+
+function RoutedAppEnhancements({
+  settingsShortcut,
+}: {
+  settingsShortcut: boolean;
+}) {
+  const isInRouter = useInRouterContext();
+  if (!isInRouter) return null;
+
+  return (
+    <>
+      <AgentNativeRouteWarmup />
+      <RouteTransitionIndicator />
+      {settingsShortcut ? <SettingsShortcut /> : null}
+    </>
+  );
+}
+
+type WebMcpRegistration = ReturnType<
+  (typeof import("@agent-native/core/client/webmcp"))["createAgentNativeServerActionWebMcpRegistration"]
+>;
+type WebMcpModule = typeof import("@agent-native/core/client/webmcp");
+
+let webMcpModulePromise: Promise<WebMcpModule> | null = null;
+
+function loadWebMcpModule(): Promise<WebMcpModule> {
+  return (webMcpModulePromise ??= import("@agent-native/core/client/webmcp"));
+}
+
+function AgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
+
+  useEffect(() => {
+    // sessionBypass surfaces are token-authenticated MCP embeds; their host
+    // may call tools immediately, so registration must not wait out the
+    // paint-aligned window — only the cookie-session-gated variant defers.
+    // Ownership is local to this effect: two coexisting surfaces each stop
+    // only the registration they created.
+    let disposed = false;
+    let registration: WebMcpRegistration | null = null;
+    void loadWebMcpModule()
+      .then(({ createAgentNativeServerActionWebMcpRegistration }) => {
+        if (disposed) return;
+        registration = createAgentNativeServerActionWebMcpRegistration({
+          excludeActionNames,
+        });
+        void registration.start().catch(() => {
+          // WebMCP is progressive enhancement. Session expiry or a transient
+          // manifest failure must not prevent the authenticated app from
+          // loading.
+        });
+      })
+      .catch(() => {
+        // A failed optional WebMCP chunk must not delay the app shell.
+      });
+    return () => {
+      disposed = true;
+      registration?.stop();
+    };
+  }, [excludeActionNamesKey]);
+  return null;
+}
+
+function SessionGatedAgentNativeWebMcpRegistration({
+  excludeActionNames,
+}: {
+  excludeActionNames?: readonly string[];
+}) {
+  const { status } = useSession();
+  const registrationRef = useRef<WebMcpRegistration | null>(null);
+  const registrationExcludeActionNamesKeyRef = useRef<string | null>(null);
+  const excludeActionNamesKey = JSON.stringify(excludeActionNames ?? []);
+  useEffect(() => {
+    // The manifest route requires a session, so registration starts only on
+    // a confirmed session: a signed-out visitor (first visit, expired cookie)
+    // never logs the manifest 401, and a still-loading or unreadable session
+    // waits for the next status change (focus invalidation, session retry,
+    // auth arrival) instead of firing a request that is expected to fail.
+    // Previously an unavailable session registered anyway ("best-effort");
+    // that traded a known-bad manifest fetch for zero benefit.
+    if (status === "unauthenticated" || status === "signing-out") {
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
+      return;
+    }
+    if (
+      status !== "authenticated" ||
+      (registrationRef.current &&
+        registrationExcludeActionNamesKeyRef.current === excludeActionNamesKey)
+    ) {
+      return;
+    }
+    registrationRef.current?.stop();
+    registrationRef.current = null;
+    registrationExcludeActionNamesKeyRef.current = null;
+    let disposed = false;
+    const cancel = scheduleAfterPaint(() => {
+      void loadWebMcpModule()
+        .then(({ createAgentNativeServerActionWebMcpRegistration }) => {
+          if (disposed) return;
+          const registration = createAgentNativeServerActionWebMcpRegistration({
+            excludeActionNames,
+          });
+          void registration.start().catch(() => {
+            // WebMCP is progressive enhancement. Session expiry or a transient
+            // manifest failure must not prevent the authenticated app from
+            // loading.
+          });
+          registrationRef.current = registration;
+          registrationExcludeActionNamesKeyRef.current = excludeActionNamesKey;
+        })
+        .catch(() => {
+          // A failed optional WebMCP chunk must not delay the app shell.
+        });
+    });
+    return () => {
+      disposed = true;
+      cancel();
+    };
+    // Unmount stops exactly the registration this surface created, whether
+    // it started or is still scheduled.
+  }, [status, excludeActionNamesKey]);
+  useEffect(
+    () => () => {
+      registrationRef.current?.stop();
+      registrationRef.current = null;
+      registrationExcludeActionNamesKeyRef.current = null;
+    },
+    [],
+  );
+  return null;
+}
+
+export function AgentNativeWebMcpActionRegistration({
+  requireSession = false,
+  excludeActionNames,
+}: {
+  requireSession?: boolean;
+  excludeActionNames?: readonly string[];
+} = {}) {
+  if (requireSession) {
+    return (
+      <SessionGatedAgentNativeWebMcpRegistration
+        excludeActionNames={excludeActionNames}
+      />
+    );
+  }
+  return (
+    <AgentNativeWebMcpRegistration excludeActionNames={excludeActionNames} />
+  );
+}
+
+function readDocumentTitleFallback(): string {
+  const selectors = [
+    'meta[name="application-name"]',
+    'meta[name="apple-mobile-web-app-title"]',
+    'meta[property="og:site_name"]',
+  ];
+  const metadataTitle = selectors
+    .map(
+      (selector) =>
+        document.querySelector<HTMLMetaElement>(selector)?.content ?? "",
+    )
+    .find((title) => isHumanReadableDocumentTitle(title));
+  return normalizeDocumentTitle(metadataTitle, "Agent-Native");
+}
+
+function EmbeddedThemeSync() {
+  const { setTheme } = useTheme();
+
+  useEffect(() => {
+    const applyUpdate = (
+      update: ReturnType<typeof parseEmbeddedThemeUpdate>,
+    ) => {
+      if (!update) return;
+      applyEmbeddedThemeUpdate(document.documentElement, update);
+      setTheme(update.theme);
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (window.parent === window || event.source !== window.parent) return;
+      applyUpdate(parseEmbeddedThemeUpdate(event.data));
+    };
+
+    const onThemeChange = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      applyUpdate(parseEmbeddedThemeUpdate(event.detail));
+    };
+
+    window.addEventListener("message", onMessage);
+    window.addEventListener(EMBEDDED_THEME_CHANGE_EVENT, onThemeChange);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener(EMBEDDED_THEME_CHANGE_EVENT, onThemeChange);
+    };
+  }, [setTheme]);
+
+  return null;
+}
+
+function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
+  const initialTitleRef = useRef<string | null>(null);
+  if (initialTitleRef.current === null && typeof document !== "undefined") {
+    const initialTitle = document.title.trim();
+    if (isHumanReadableDocumentTitle(initialTitle)) {
+      initialTitleRef.current = initialTitle;
+    }
+  }
+
+  useEffect(() => {
+    let lastKnownTitle = normalizeDocumentTitle(
+      initialTitleRef.current ?? fallbackTitle ?? readDocumentTitleFallback(),
+      fallbackTitle ?? "Agent-Native",
+    );
+
+    const repairTitle = () => {
+      const currentTitle = document.title.trim();
+      if (isHumanReadableDocumentTitle(currentTitle)) {
+        lastKnownTitle = currentTitle;
+        return;
+      }
+      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent-Native");
+      if (currentTitle !== nextTitle) document.title = nextTitle;
+    };
+
+    repairTitle();
+    const observer = new MutationObserver(repairTitle);
+    observer.observe(document.head, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [fallbackTitle]);
+
+  return null;
+}
+
+function AgentEngineReadinessBootstrap() {
+  useAgentEngineConfigured();
+  return null;
+}
+
+const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
+
+const LazyAgentRunAwareness = React.lazy(() =>
+  import("../chat/run-awareness/AgentRunAwareness.js").then((module) => ({
+    default: module.AgentRunAwareness,
+  })),
+);
+
+function AgentRunAwareness({ persistUnread }: { persistUnread?: boolean }) {
+  return (
+    <React.Suspense fallback={null}>
+      <LazyAgentRunAwareness persistUnread={persistUnread} />
+    </React.Suspense>
+  );
+}
+
+/**
+ * An MCP approval review the URL names replaces the app. It sits outside the
+ * device gate, so a phone can decide, and outside first-run onboarding, so a
+ * new user can decide before setting up the app.
+ */
+function McpApprovalReviewBoundary({
+  appName,
+  themeFamily,
+  children,
+}: {
+  appName: string | undefined;
+  themeFamily: boolean;
+  children: React.ReactNode;
+}) {
+  const name = appName ?? readDocumentTitleFallback();
+  return (
+    <McpApprovalReviewGate
+      appName={name}
+      wrap={(review) => (
+        <RequireSession fallback={<McpApprovalReviewSkeleton appName={name} />}>
+          {themeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
+          {review}
+        </RequireSession>
+      )}
+    >
+      {children}
+    </McpApprovalReviewGate>
+  );
+}
+
+function ProvidersInner({
+  queryClient,
+  defaultTheme = "system",
+  themeAttribute = "class",
+  tooltipDelayDuration,
+  toaster = DEFAULT_TOASTER,
+  disableThemeTransitions = true,
+  disableWebMcp,
+  webMcpExcludeActionNames,
+  sessionBypass,
+  i18n,
+  documentTitleFallback,
+  showProductionEnvironmentBadge,
+  showEnvironmentBadge,
+  settingsShortcut,
+  ownsDocument = true,
+  children,
+}: {
+  ownsDocument?: boolean;
+  queryClient: QueryClient;
+  defaultTheme?: string;
+  themeAttribute?: Attribute | Attribute[];
+  tooltipDelayDuration?: number;
+  toaster?: React.ReactNode | null;
+  disableThemeTransitions?: boolean;
+  disableWebMcp: boolean;
+  webMcpExcludeActionNames?: readonly string[];
+  sessionBypass: boolean;
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
+  documentTitleFallback?: string;
+  showProductionEnvironmentBadge: boolean;
+  showEnvironmentBadge: boolean;
+  settingsShortcut: boolean;
+  children: React.ReactNode;
+}) {
+  // The banner reads the app's locale, so it sits inside the same provider.
+  const localizedChildren =
+    i18n === false ? (
+      <>
+        {children}
+        {ownsDocument ? <ConsentBanner /> : null}
+      </>
+    ) : (
+      <AgentNativeI18nProvider {...(i18n ?? {})}>
+        {children}
+        {ownsDocument ? <ConsentBanner /> : null}
+      </AgentNativeI18nProvider>
+    );
+
+  const content = (
+    <TooltipProvider delayDuration={tooltipDelayDuration}>
+      {!disableWebMcp && (
+        <AgentNativeWebMcpActionRegistration
+          requireSession={!sessionBypass}
+          excludeActionNames={webMcpExcludeActionNames}
+        />
+      )}
+      {localizedChildren}
+      {ownsDocument ? (
+        <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
+      ) : null}
+      <RuntimeConfigNotice />
+      <RoutedAppEnhancements settingsShortcut={settingsShortcut} />
+      {showEnvironmentBadge ? (
+        <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+      ) : null}
+      {toaster}
+    </TooltipProvider>
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {ownsDocument ? (
+        <ThemeProvider
+          attribute={themeAttribute}
+          defaultTheme={defaultTheme}
+          enableSystem
+          disableTransitionOnChange={disableThemeTransitions}
+        >
+          <EmbeddedThemeSync />
+          {content}
+        </ThemeProvider>
+      ) : (
+        content
+      )}
+    </QueryClientProvider>
+  );
+}
+
+function publicPathI18n(
+  i18n: AppProvidersProps["i18n"],
+): AppProvidersProps["i18n"] {
+  if (i18n === false || i18n?.persistPreference !== undefined) return i18n;
+  return { ...(i18n ?? {}), persistPreference: false };
+}
+
+export function AppProviders({
+  queryClient,
+  isPublicPath = false,
+  clientOnlyFallback,
+  skeletonLayout,
+  sessionBypass = false,
+  skipFirstRunOnboarding = false,
+  unsupportedDevice,
+  disableWebMcp = false,
+  webMcpExcludeActionNames,
+  showEnvironmentBadge = false,
+  defaultTheme,
+  themeAttribute,
+  tooltipDelayDuration,
+  toaster,
+  disableThemeTransitions,
+  i18n,
+  documentTitleFallback,
+  ownsDocument = true,
+  enableThemeFamily = true,
+  children,
+}: AppProvidersProps) {
+  const fallback = clientOnlyFallback ?? (
+    <AppShellSkeleton layout={skeletonLayout} />
+  );
+
+  if (isPublicPath) {
+    return (
+      <ProvidersInner
+        queryClient={queryClient}
+        defaultTheme={defaultTheme}
+        themeAttribute={themeAttribute}
+        tooltipDelayDuration={tooltipDelayDuration}
+        toaster={toaster}
+        disableThemeTransitions={disableThemeTransitions}
+        disableWebMcp={disableWebMcp}
+        webMcpExcludeActionNames={webMcpExcludeActionNames}
+        sessionBypass={sessionBypass}
+        i18n={publicPathI18n(i18n)}
+        documentTitleFallback={documentTitleFallback}
+        showProductionEnvironmentBadge={false}
+        showEnvironmentBadge={showEnvironmentBadge}
+        settingsShortcut={false}
+        ownsDocument={ownsDocument}
+      >
+        {children}
+      </ProvidersInner>
+    );
+  }
+
+  const sessionGated = (
+    <RequireSession bypass={sessionBypass} fallback={fallback}>
+      {sessionBypass ? (
+        <>
+          {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
+          {children}
+        </>
+      ) : (
+        <>
+          {ownsDocument ? <AgentRunAwareness /> : null}
+          {ownsDocument && enableThemeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
+          <AgentEngineReadinessBootstrap />
+          <FirstRunOnboardingStartupGate
+            suppressSurface={skipFirstRunOnboarding}
+            fallback={fallback}
+          >
+            {children}
+          </FirstRunOnboardingStartupGate>
+        </>
+      )}
+    </RequireSession>
+  );
+
+  const deviceGated = unsupportedDevice ? (
+    <UnsupportedDeviceGate {...unsupportedDevice}>
+      {sessionGated}
+    </UnsupportedDeviceGate>
+  ) : (
+    sessionGated
+  );
+
+  // A token-authenticated embed or an app inside another app's document
+  // never shows a review: neither is the reader's own top-level page.
+  const gated =
+    sessionBypass || !ownsDocument ? (
+      deviceGated
+    ) : (
+      <McpApprovalReviewBoundary
+        appName={documentTitleFallback}
+        themeFamily={enableThemeFamily}
+      >
+        {deviceGated}
+      </McpApprovalReviewBoundary>
+    );
+
+  return (
+    <>
+      {ownsDocument ? <McpAppWidgetBootScript /> : null}
+      {ownsDocument && !sessionBypass && (
+        <>
+          <EarlySessionBootstrapScript />
+          <EarlyBetaRedirectScript />
+        </>
+      )}
+      <ClientOnly fallback={fallback}>
+        <ProvidersInner
+          queryClient={queryClient}
+          defaultTheme={defaultTheme}
+          themeAttribute={themeAttribute}
+          tooltipDelayDuration={tooltipDelayDuration}
+          toaster={toaster}
+          disableThemeTransitions={disableThemeTransitions}
+          disableWebMcp={disableWebMcp}
+          webMcpExcludeActionNames={webMcpExcludeActionNames}
+          sessionBypass={sessionBypass}
+          i18n={i18n}
+          documentTitleFallback={documentTitleFallback}
+          showProductionEnvironmentBadge={!sessionBypass}
+          showEnvironmentBadge={showEnvironmentBadge}
+          settingsShortcut={!sessionBypass}
+          ownsDocument={ownsDocument}
+        >
+          {sessionBypass ? (
+            gated
+          ) : (
+            // Outside RequireSession on purpose: inside it, a signed-out session
+            // unmounts the gate before it can clear the stored results.
+            <ActionQueryCacheGate>{gated}</ActionQueryCacheGate>
+          )}
+        </ProvidersInner>
+      </ClientOnly>
+    </>
+  );
+}

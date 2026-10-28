@@ -12,7 +12,7 @@ import {
   IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import {
   AlertDialog,
@@ -37,9 +37,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type {
-  DashboardPanelChatContextArgs,
-  SelectDashboardPanelOptions,
+import {
+  useDashboardPanelSelectable,
+  type DashboardChatContextResult,
+  type DashboardPanelChatContextArgs,
+  type SelectDashboardPanelOptions,
 } from "@/hooks/use-dashboard-chat-context";
 import { useMetricsQuery } from "@/lib/query-metrics";
 import { cn } from "@/lib/utils";
@@ -61,6 +63,7 @@ interface ChartCardProps {
     panel: DashboardPanelChatContextArgs,
     options?: SelectDashboardPanelOptions,
   ) => void;
+  panelSelectionTarget: DashboardChatContextResult["panelSelectionTarget"];
 }
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
@@ -87,6 +90,7 @@ export function DashboardChartCard({
   editable = true,
   selectedForChat = false,
   selectPanelForChat,
+  panelSelectionTarget,
 }: ChartCardProps) {
   const t = useT();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -122,26 +126,34 @@ export function DashboardChartCard({
 
   const isLoading = !config || queryLoading;
   const displayTitle = config?.name ?? configName;
+  const panelArgs = useMemo<DashboardPanelChatContextArgs>(
+    () => ({
+      panelId: chart.id,
+      panelTitle: displayTitle,
+      panelKind: config?.chartType === "table" ? "table" : "chart",
+      chartType: config?.chartType,
+      configId: chart.configId,
+    }),
+    [chart.configId, chart.id, config?.chartType, displayTitle],
+  );
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const setCardRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      cardRef.current = node;
+      setNodeRef(node);
+    },
+    [setNodeRef],
+  );
+  useDashboardPanelSelectable(
+    panelSelectionTarget,
+    panelArgs,
+    () => cardRef.current,
+  );
   const handleSelectForChat = useCallback(
     (options?: SelectDashboardPanelOptions) => {
-      selectPanelForChat(
-        {
-          panelId: chart.id,
-          panelTitle: displayTitle,
-          panelKind: config?.chartType === "table" ? "table" : "chart",
-          chartType: config?.chartType,
-          configId: chart.configId,
-        },
-        options,
-      );
+      selectPanelForChat(panelArgs, options);
     },
-    [
-      chart.configId,
-      chart.id,
-      config?.chartType,
-      displayTitle,
-      selectPanelForChat,
-    ],
+    [panelArgs, selectPanelForChat],
   );
   const handleCardClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -149,7 +161,7 @@ export function DashboardChartCard({
       if (
         target instanceof Element &&
         target.closest(
-          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+          "button, a, input, textarea, select, [role='menuitem'], [role='menuitemradio'], [data-no-panel-chat-select]",
         )
       ) {
         return;
@@ -161,7 +173,7 @@ export function DashboardChartCard({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setCardRef}
       onClick={handleCardClick}
       style={style}
       data-dragging={isDragging ? "true" : undefined}

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "../../action-ui.js";
+import { putUserSetting } from "../../settings/user-settings.js";
 import getPreference from "./get-localization-preference.js";
 import setPreference from "./set-localization-preference.js";
 
@@ -21,6 +23,7 @@ vi.mock("../../settings/user-settings.js", () => ({
 describe("localization preference actions", () => {
   beforeEach(() => {
     store.settings.clear();
+    vi.clearAllMocks();
   });
 
   it("defaults to system when no user setting exists", async () => {
@@ -30,16 +33,66 @@ describe("localization preference actions", () => {
   });
 
   it("stores and reads a canonical locale", async () => {
-    await expect(
-      setPreference.run(
-        { locale: "zh" },
-        { caller: "frontend", userEmail: "a@example.com" },
-      ),
-    ).resolves.toEqual({ locale: "zh-CN", timezone: "system" });
+    const result = await setPreference.run(
+      { locale: "zh" },
+      { caller: "frontend", userEmail: "a@example.com" },
+    );
+
+    expect(result).toEqual({
+      locale: "zh-CN",
+      timezone: "system",
+      change: {
+        verb: "updated",
+        kind: "preference",
+        title: "简体中文",
+      },
+    });
+    expect(setPreference.chatUI?.renderer).toBe(
+      ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    );
+    expect(setPreference.chatUI?.when?.({}, result)).toBe(true);
+    expect(setPreference.chatUI?.projectResult?.({}, result)).toEqual({
+      change: result.change,
+    });
 
     await expect(
       getPreference.run({}, { caller: "frontend", userEmail: "a@example.com" }),
     ).resolves.toEqual({ locale: "zh-CN", timezone: "system" });
+  });
+
+  it("keeps unchanged preferences as ordinary action results", async () => {
+    store.settings.set("a@example.com:localization", {
+      locale: "es-ES",
+      timezone: "America/Los_Angeles",
+    });
+
+    const result = await setPreference.run(
+      { locale: "es-ES", timezone: "America/Los_Angeles" },
+      { caller: "tool", userEmail: "a@example.com" },
+    );
+
+    expect(result).toEqual({
+      locale: "es-ES",
+      timezone: "America/Los_Angeles",
+    });
+    expect(putUserSetting).not.toHaveBeenCalled();
+    expect(setPreference.chatUI?.when?.({}, result)).toBe(false);
+  });
+
+  it("keeps system preference values for localized card rendering", async () => {
+    store.settings.set("a@example.com:localization", {
+      locale: "fr-FR",
+      timezone: "America/Los_Angeles",
+    });
+
+    await expect(
+      setPreference.run(
+        { locale: "system", timezone: "system" },
+        { caller: "frontend", userEmail: "a@example.com" },
+      ),
+    ).resolves.toMatchObject({
+      change: { kind: "preference", title: "system · system" },
+    });
   });
 
   it("rejects malformed locales", async () => {

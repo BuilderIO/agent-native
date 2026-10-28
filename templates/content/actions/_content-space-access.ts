@@ -1,6 +1,10 @@
 import { ActionContractError } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { readOrgMemberRole } from "@agent-native/core/server";
+import {
+  getRequestContext,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -12,6 +16,29 @@ export type ContentSpaceAccess = {
   authority: { userEmail: string; orgId: string | null };
   role: ContentSpaceRole;
 };
+
+function isDelegatedIdentityMismatch(orgId: string, email: string): boolean {
+  const request = getRequestContext();
+  return (
+    request?.a2aIdentityAssurance === "org-member" &&
+    (request.orgId?.trim() !== orgId.trim() ||
+      request.userEmail?.trim().toLowerCase() !== email.trim().toLowerCase())
+  );
+}
+
+function preserveDelegatedMemberRole(
+  orgId: string,
+  email: string,
+  validatedRole: string,
+  verifiedRole: string,
+): string {
+  const request = getRequestContext();
+  return request?.a2aIdentityAssurance === "org-member" &&
+    request.orgId?.trim() === orgId.trim() &&
+    request.userEmail?.trim().toLowerCase() === email.trim().toLowerCase()
+    ? verifiedRole
+    : validatedRole;
+}
 
 type ContentOrganizationMembership = {
   role: string;
@@ -59,9 +86,12 @@ export async function getContentOrganizationMembership(
   userEmail: string,
   options: { db?: any } = {},
 ): Promise<{ role: string; name: string; createdBy: string } | null> {
+  if (isDelegatedIdentityMismatch(orgId, userEmail)) return null;
+
+  const verifiedRole = await readOrgMemberRole(orgId, userEmail);
+  if (!verifiedRole) return null;
+
   if (options.db) {
-    // Load the canonical tables only for transaction-scoped checks to avoid
-    // initializing auth timers elsewhere.
     const { organizations, orgMembers } =
       await import("@agent-native/core/org");
     const [row] = await options.db
@@ -83,7 +113,7 @@ export async function getContentOrganizationMembership(
       )
       .limit(1);
     if (!row) return null;
-    return revalidateFederatedMembership(orgId, userEmail, {
+    const validated = await revalidateFederatedMembership(orgId, userEmail, {
       role: (typeof row.role === "string"
         ? row.role
         : (JSON.stringify(row.role) ?? "member")
@@ -93,6 +123,17 @@ export async function getContentOrganizationMembership(
       identityAuthority: row.identityAuthority,
       identityId: row.identityId,
     });
+    return validated
+      ? {
+          ...validated,
+          role: preserveDelegatedMemberRole(
+            orgId,
+            userEmail,
+            validated.role,
+            verifiedRole,
+          ),
+        }
+      : null;
   }
   const result = await getDbExec().execute({
     sql: `SELECT m.role AS role, o.name AS name, o.created_by AS "createdBy",
@@ -121,7 +162,7 @@ export async function getContentOrganizationMembership(
   ) {
     return null;
   }
-  return revalidateFederatedMembership(orgId, userEmail, {
+  const validated = await revalidateFederatedMembership(orgId, userEmail, {
     role: (typeof row.role === "string"
       ? row.role
       : (JSON.stringify(row.role) ?? "member")
@@ -131,12 +172,44 @@ export async function getContentOrganizationMembership(
     identityAuthority: row.identityAuthority,
     identityId: row.identityId,
   });
+  return validated
+    ? {
+        ...validated,
+        role: preserveDelegatedMemberRole(
+          orgId,
+          userEmail,
+          validated.role,
+          verifiedRole,
+        ),
+      }
+    : null;
 }
 
-export async function listContentOrganizationMemberships(userEmail: string) {
+export async function listContentOrganizationMemberships(
+  userEmail: string,
+  transaction?: DbExec,
+) {
+  const request = getRequestContext();
+  const normalizedEmail = normalizeContentSpaceEmail(userEmail);
+  const delegated = request?.a2aIdentityAssurance === "org-member";
+  if (
+    delegated &&
+    (!request.orgId?.trim() ||
+      request.userEmail?.trim().toLowerCase() !== normalizedEmail)
+  ) {
+    return [];
+  }
+
+  if (transaction) {
+    const relation = await transaction.execute({
+      sql: "SELECT to_regclass('org_members') AS relation",
+      args: [],
+    });
+    if (!relation.rows[0]?.relation) return [];
+  }
   let result;
   try {
-    result = await getDbExec().execute({
+    result = await (transaction ?? getDbExec()).execute({
       sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS name,
                  o.created_by AS "createdBy",
                  o.identity_authority AS "identityAuthority",
@@ -145,8 +218,11 @@ export async function listContentOrganizationMemberships(userEmail: string) {
           INNER JOIN organizations o ON o.id = m.org_id
           WHERE LOWER(m.email) = $1
             AND m.federation_removal_pending_at IS NULL
+            ${delegated ? "AND m.org_id = $2" : ""}
           ORDER BY m.org_id ASC`,
-      args: [normalizeContentSpaceEmail(userEmail)],
+      args: delegated
+        ? [normalizedEmail, request!.orgId!.trim()]
+        : [normalizedEmail],
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes("does not exist")) {
@@ -166,11 +242,21 @@ export async function listContentOrganizationMemberships(userEmail: string) {
       identityAuthority: row.identityAuthority ?? row.identity_authority,
       identityId: row.identityId ?? row.identity_id,
     }))
+    .map((row: ContentOrganizationMembership & { orgId?: string }) => ({
+      ...row,
+      role:
+        row.role === "owner" || row.role === "admin" || row.role === "member"
+          ? delegated
+            ? "member"
+            : row.role
+          : null,
+    }))
     .filter(
       (row): row is ContentOrganizationMembership & { orgId: string } =>
         typeof row.orgId === "string" &&
         typeof row.name === "string" &&
-        typeof row.createdBy === "string",
+        typeof row.createdBy === "string" &&
+        row.role !== null,
     );
   return Promise.all(
     memberships.map(async ({ orgId, ...membership }) => {
@@ -179,7 +265,18 @@ export async function listContentOrganizationMemberships(userEmail: string) {
         userEmail,
         membership,
       );
-      return validated ? { orgId, ...validated } : null;
+      return validated
+        ? {
+            orgId,
+            ...validated,
+            role: preserveDelegatedMemberRole(
+              orgId,
+              normalizedEmail,
+              validated.role,
+              membership.role,
+            ),
+          }
+        : null;
     }),
   ).then((validated) =>
     validated.filter(

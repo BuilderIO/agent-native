@@ -1,20 +1,3 @@
-/**
- * Cross-app SSO ("Sign in with Agent-Native") — the CLIENT side.
- *
- * Each hosted app has its own Better Auth store. Dispatch is the identity
- * authority, but the browser only ever carries a short-lived, one-time
- * authorization code. The client keeps the PKCE verifier in an HttpOnly,
- * callback-scoped cookie and redeems the code server-to-server. Only that
- * server-to-server response may contain the signed identity assertion.
- *
- * Direct browser federation uses the canonical Dispatch authority for exact
- * first-party hosted app origins and remains opt-in through
- * `AGENT_NATIVE_IDENTITY_HUB_URL` for self-hosted deployments. Canonical auth
- * pages may also use a silent, flag-gated probe to reuse an existing Dispatch
- * session. The packaged Desktop Canary follows the same canonical-origin
- * boundary.
- */
-
 import { createHash, randomBytes } from "node:crypto";
 
 import type { H3Event } from "h3";
@@ -30,18 +13,22 @@ import {
   getRequiredAuthProviderForEmail,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
-import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
+import {
+  normalizeAppPath,
+  SIGN_IN_ENTRY_PATH,
+} from "../shared/sign-in-journey.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   addSignupAttributionHeader,
   signupAttributionContextFromCookieHeader,
 } from "./attribution.js";
-import { getSession, isExpectedAuthFailure, safeReturnPath } from "./auth.js";
 import {
   getBetterAuth,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
 import { createOAuthSession, getAppUrl, getOrigin } from "./google-oauth.js";
 import { hasIdentityGoogleAuthCookie } from "./identity-auth-provider.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
@@ -60,6 +47,7 @@ import {
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -91,6 +79,15 @@ const MAX_BOOTSTRAP_NAME_LENGTH = 200;
 const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
+function safeReturnPath(raw: string | null | undefined): string {
+  return normalizeAppPath(raw) ?? "/";
+}
+
+async function getSessionForEvent(event: H3Event) {
+  const { getSession } = await import("./auth.js");
+  return getSession(event);
+}
+
 function html(body: string, status = 200): Response {
   return new Response(body, {
     status,
@@ -110,7 +107,10 @@ function redirect(event: H3Event, location: string): Response {
   });
   const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
-  return new Response("", { status: 302, headers });
+  return queryEchoSafeRedirect(
+    event,
+    new Response("", { status: 302, headers }),
+  );
 }
 
 function errorPage(message: string, loginPath: string): Response {
@@ -162,9 +162,6 @@ function normalizeAuthority(raw: string): string | null {
 }
 
 export function resolveIdentitySsoAppId(event: H3Event): string {
-  // Generic id first here, unlike credential scoping: SSO identifies this app
-  // instance to an authority, it does not look up a row keyed by the id a
-  // workspace deploy assigned.
   const app = getAppConfig().app;
   const configured = app.id ?? app.workspaceId;
   if (configured) return configured;
@@ -193,6 +190,10 @@ function createPkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
+function publicIdentitySsoPath(path: string): string {
+  return publicFrameworkPath(`${getConfiguredAppBasePath()}${path}`);
+}
+
 function requestUrl(event: H3Event): string {
   return (event as any).node?.req?.url ?? event.path ?? "/";
 }
@@ -206,7 +207,7 @@ function setPkceVerifierCookie(
   setCookie(event, verifierCookieName(state), verifier, {
     httpOnly: true,
     maxAge: Math.floor(SSO_STATE_TTL_MS / 1_000),
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH),
     sameSite: "lax",
     secure,
   });
@@ -353,7 +354,7 @@ function addBridgeParams(url: string, sourceOrigin: string): string {
 
 function clearPkceVerifierCookie(event: H3Event, state: string): void {
   deleteCookie(event, verifierCookieName(state), {
-    path: IDENTITY_SSO_CALLBACK_PATH,
+    path: publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH),
   });
 }
 
@@ -384,17 +385,12 @@ function resolveClientBinding(
 ): SsoClientBinding | null {
   const appId = resolveIdentitySsoAppId(event);
   const clientId = resolveClientId(appId);
-  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const redirectUri = `${resolveIdentitySsoClientOrigin(event)}${publicIdentitySsoPath(IDENTITY_SSO_CALLBACK_PATH)}`;
   const authority = normalizeAuthority(hub);
   if (!authority || !appId || !clientId || !redirectUri) return null;
   return { appId, clientId, redirectUri, authority };
 }
 
-/**
- * Canonical hosted apps may use Dispatch without per-app hub configuration.
- * Self-hosted apps remain strictly env-gated. The exact-origin check is kept
- * request-scoped so a missing deployment URL cannot broaden the trust set.
- */
 export function resolveIdentityHubUrl(event: H3Event): string | undefined {
   const configured = isIdentitySsoExplicitlyEnabled()
     ? getIdentityHubUrl()
@@ -443,12 +439,13 @@ interface VerifiedIdentity {
   orgId?: string;
   orgName?: string;
   orgRole?: "owner" | "admin" | "member";
+  orgIcon?: import("../icons/index.js").IconValue | null;
+  orgIconRevision?: number;
   authProvider?: "google" | `sso:${string}`;
   sub: string;
   jti: string;
 }
 
-/** Verify only the server-to-server assertion returned by Dispatch /token. */
 async function verifyIdentityAssertion(
   assertion: string,
   binding: SsoClientBinding,
@@ -497,6 +494,20 @@ async function verifyIdentityAssertion(
       payload.org_role === "member"
         ? payload.org_role
         : undefined;
+    let orgIcon: import("../icons/index.js").IconValue | null | undefined;
+    const orgIconRevision = payload.org_icon_revision;
+    if (payload.org_icon !== undefined) {
+      const { safeParseIconValue } = await import("../icons/index.js");
+      const parsedIcon = safeParseIconValue(payload.org_icon);
+      if (!parsedIcon.success) return null;
+      orgIcon = parsedIcon.data;
+      if (
+        !Number.isSafeInteger(orgIconRevision) ||
+        Number(orgIconRevision) < 0
+      ) {
+        return null;
+      }
+    }
     if ((orgId || orgName || orgRole) && (!orgId || !orgName || !orgRole)) {
       return null;
     }
@@ -521,6 +532,9 @@ async function verifyIdentityAssertion(
       ...(orgId ? { orgId } : {}),
       ...(orgName ? { orgName } : {}),
       ...(orgRole ? { orgRole } : {}),
+      ...(orgIcon !== undefined
+        ? { orgIcon, orgIconRevision: Number(orgIconRevision) }
+        : {}),
       ...(authProvider ? { authProvider } : {}),
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
@@ -615,6 +629,7 @@ export async function ensureIdentityUser(
         ...(signupHeaders ? { headers: signupHeaders } : {}),
       });
     } catch (error) {
+      const { isExpectedAuthFailure } = await import("./auth.js");
       if (!isExpectedAuthFailure(error)) throw error;
     }
     existing = await adapter.findUserByEmail(email, {
@@ -633,15 +648,6 @@ export async function ensureIdentityUser(
         "[identity-sso] cannot record authority-verified email: adapter has no updateUser",
       );
     } else {
-      // Reconcile before recording verification, and leave the row unverified
-      // if it fails. Better Auth's user-create hook skipped these while the row
-      // was unverified and nothing else reconciles a federated signup, so this
-      // branch is the only thing that ever runs them - and it is reached only
-      // while the row is still unverified. Writing verification first would
-      // make a transient failure permanent: the next login would see a verified
-      // row, skip this branch, and the invitations would never be applied.
-      // Staying unverified is honest and retried on the next login; sign-in
-      // still succeeds either way, because the caller owns the session.
       let reconciled = true;
       try {
         await acceptPendingInvitationsForEmail(email);
@@ -677,8 +683,6 @@ async function jitLinkIdentity(
     identity.email,
     identity.name,
     signupHeaders,
-    // A Google identity at the authority is proof of control of the address.
-    // Any other authority session is not, so those rows stay unverified.
     { emailVerified: identity.authProvider === "google" },
   );
 
@@ -727,7 +731,7 @@ async function startIdentityBootstrap(
   hub: string,
   returnPath: string,
 ): Promise<Response> {
-  const current = await getSession(event).catch((error) => {
+  const current = await getSessionForEvent(event).catch((error) => {
     void error;
     return null;
   });
@@ -850,9 +854,6 @@ export async function handleIdentitySso(
   );
   const loginPath = SIGN_IN_ENTRY_PATH;
 
-  // Dispatch is the identity authority, so it has no SSO hub for the
-  // browser to federate to. Its authenticated desktop completion page still
-  // lives on this route and must be reachable after ordinary sign-in.
   if (sub === "/desktop-complete") {
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
@@ -869,7 +870,7 @@ export async function handleIdentitySso(
     if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
       return new Response("Invalid completion request", { status: 400 });
     }
-    const current = await getSession(event).catch((error) => {
+    const current = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });
@@ -899,7 +900,7 @@ export async function handleIdentitySso(
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const current = await getSession(event).catch((error) => {
+    const current = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });
@@ -928,7 +929,7 @@ export async function handleIdentitySso(
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const existing = await getSession(event).catch((error) => {
+    const existing = await getSessionForEvent(event).catch((error) => {
       void error;
       return null;
     });
@@ -1083,9 +1084,6 @@ export async function handleIdentitySso(
             {
               ...(getRequestContext() ?? {}),
               signupAttribution,
-              // This person already signed up somewhere; we are provisioning
-              // them into this app. Counting it as an acquisition is how one
-              // human became a dozen "signups" across sibling apps.
               signupOrigin: "sso_jit",
             },
             linkIdentity,
@@ -1094,13 +1092,22 @@ export async function handleIdentitySso(
       if (identity.orgId && identity.orgName && identity.orgRole) {
         const { provisionFederatedOrganization } =
           await import("../org/federation.js");
-        await provisionFederatedOrganization({
-          authority: binding.authority,
-          id: identity.orgId,
-          name: identity.orgName,
-          role: identity.orgRole,
-          email: identity.email,
-        });
+        await provisionFederatedOrganization(
+          {
+            authority: binding.authority,
+            id: identity.orgId,
+            name: identity.orgName,
+            role: identity.orgRole,
+            email: identity.email,
+            ...(identity.orgIcon !== undefined
+              ? {
+                  icon: identity.orgIcon,
+                  iconRevision: identity.orgIconRevision,
+                }
+              : {}),
+          },
+          { event },
+        );
       }
     } catch {
       return errorPage(

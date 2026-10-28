@@ -7,7 +7,7 @@ export { readBrainHealth };
 
 export default defineAction({
   description:
-    "Summarize Brain setup and source health, including configured sources, sync freshness, pending proposals, queue issues, last eval score, and suggested next setup steps.",
+    "Summarize Brain setup and source health, including embedding provider readiness and coverage, sync freshness, pending proposals, queue issues, last eval score, and suggested next setup steps.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,

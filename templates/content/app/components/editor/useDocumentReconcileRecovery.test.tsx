@@ -30,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.useRealTimers();
 });
 
 function mount(
@@ -84,6 +85,114 @@ describe("document reconcile recovery", () => {
 
     await act(async () => savePending.resolve(true));
     expect(await result).toBe(true);
+    expect(recovery.state).toBeNull();
+  });
+
+  it("hands a newer page to the automatic save already running", async () => {
+    const firstSave = deferred();
+    const save = vi.fn(() => firstSave.promise);
+    draft = "first merge";
+    mount(save, undefined, undefined, false);
+    const newerBase = {
+      ...base,
+      content: "saved remotely, then edited by a peer",
+      updatedAt: "2026-09-10T12:00:01.000Z",
+      revision: "peer-revision",
+    };
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+    });
+    save.mockImplementation(async () => true);
+    act(() => {
+      draft = "second merge";
+      second = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        newerBase,
+      );
+    });
+    expect(recovery.state).toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => firstSave.resolve(true));
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "second merge", localTitle: "" },
+      newerBase,
+    );
+    expect(recovery.state).toBeNull();
+  });
+
+  it("retries a refused automatic save against the newer page handed to it", async () => {
+    const firstSave = deferred();
+    const save = vi.fn(() => firstSave.promise);
+    draft = "first merge";
+    mount(save, undefined, undefined, false);
+    const newerBase = { ...base, content: "edited by a peer", revision: "r2" };
+
+    let first!: Promise<boolean>;
+    act(() => {
+      first = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+    });
+    save.mockImplementation(async () => true);
+    act(() => {
+      draft = "second merge";
+      void recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        newerBase,
+      );
+    });
+
+    await act(async () => firstSave.resolve(false));
+    expect(await first).toBe(true);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "second merge", localTitle: "" },
+      newerBase,
+    );
+    expect(recovery.state).toBeNull();
+  });
+
+  it("retries against a newer page handed over while a refused save is retained", async () => {
+    const retention = deferred();
+    const retain = vi.fn(() => retention.promise.then(() => undefined));
+    const save = vi.fn(async () => false);
+    draft = "first merge";
+    mount(save, undefined, retain, false);
+    const newerBase = { ...base, content: "edited by a peer", revision: "r2" };
+
+    let first!: Promise<boolean>;
+    await act(async () => {
+      first = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+    });
+    expect(retain).toHaveBeenCalledTimes(1);
+    save.mockImplementation(async () => true);
+    act(() => {
+      draft = "second merge";
+      void recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        newerBase,
+      );
+    });
+
+    await act(async () => retention.resolve(true));
+    expect(await first).toBe(true);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "second merge", localTitle: "" },
+      newerBase,
+    );
     expect(recovery.state).toBeNull();
   });
 
@@ -165,37 +274,84 @@ describe("document reconcile recovery", () => {
     });
   });
 
-  it("falls back to recovery after three automatic saves race with typing", async () => {
+  it("keeps saving while typing overtakes each automatic save", async () => {
+    vi.useFakeTimers();
     const save = vi.fn(async () => true);
     const retain = vi.fn(async () => undefined);
     let identity = 0;
     mount(save, () => String(identity), retain, false);
     save.mockImplementation(async () => {
-      identity += 1;
-      draft = `typing generation ${identity}`;
+      if (save.mock.calls.length <= 3) {
+        identity += 1;
+        draft = `typing generation ${identity}`;
+      }
       return true;
     });
 
     let result!: boolean;
     await act(async () => {
-      result = await recovery.resolveAutomatically(
+      const resolved = recovery.resolveAutomatically(
         { localDraft: draft, localTitle: "Merged title" },
         base,
       );
+      await vi.advanceTimersByTimeAsync(10_000);
+      result = await resolved;
     });
 
-    expect(result).toBe(false);
-    expect(save).toHaveBeenCalledTimes(3);
-    expect(retain).toHaveBeenCalledWith({
-      localDraft: "typing generation 3",
-      localTitle: "",
+    expect({ result, state: recovery.state }).toEqual({
+      result: true,
+      state: null,
     });
-    expect(recovery.state).toEqual({
-      reason: "conflict",
-      localDraft: "typing generation 3",
-      localTitle: "",
-      saving: false,
+    expect(save).toHaveBeenCalledTimes(4);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "typing generation 3", localTitle: "" },
+      undefined,
+    );
+    expect(retain).not.toHaveBeenCalled();
+  });
+
+  async function overtakeFirstAutomaticSave() {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => true);
+    const typing = { identity: 0 };
+    mount(save, () => String(typing.identity), undefined, false);
+    save.mockImplementationOnce(async () => {
+      typing.identity += 1;
+      return true;
     });
+    await act(async () => {
+      void recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Merged title" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+    const after = async (ms: number, keystroke = false) => {
+      await act(async () => vi.advanceTimersByTimeAsync(ms));
+      if (keystroke) typing.identity += 1;
+    };
+    return { save, after };
+  }
+
+  it("saves again once typing that overtook a save pauses", async () => {
+    const { save, after } = await overtakeFirstAutomaticSave();
+    await after(500, true);
+    await after(500, true);
+    await after(1_000);
+    expect(save).toHaveBeenCalledTimes(1);
+    // A second without a keystroke.
+    await after(1_000);
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves again within 5 s while typing never pauses", async () => {
+    const { save, after } = await overtakeFirstAutomaticSave();
+    for (let elapsed = 500; elapsed < 5_000; elapsed += 500)
+      await after(500, true);
+    expect(save).toHaveBeenCalledTimes(1);
+    await after(500, true);
+    expect(save).toHaveBeenCalledTimes(2);
   });
 
   it("saves text typed during recovery before clearing the banner", async () => {

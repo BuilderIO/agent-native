@@ -90,8 +90,6 @@ describe("A2A correlation metadata", () => {
   });
 
   it("never lets a model hint reach identity, org, or access fields", () => {
-    // The hint travels the same telemetry channel; adding it must not create a
-    // second way for a caller to assert who it is or what it may reach.
     const sanitized = sanitizeA2ACorrelationMetadata({
       callerModel: "claude-opus-4-8",
       userEmail: "attacker@example.com",

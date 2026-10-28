@@ -2,7 +2,10 @@ import { applyVisualEdit, type CodeLayerSource } from "@shared/code-layer";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
-import type { ApplyLayoutFlowOutcome } from "@/components/design/edit-panel/style-change-types";
+import type {
+  ApplyLayoutFlowOutcome,
+  LayoutNodePatches,
+} from "@/components/design/edit-panel/style-change-types";
 import { codeLayerPatchMessage } from "@/pages/design-editor/code-layer-state";
 
 export interface ApplyLayoutFlowArgs {
@@ -18,10 +21,6 @@ export interface ApplyLayoutFlowArgs {
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
-/**
- * Turn a container into a flex or grid layout, reflowing its children the way
- * Shift+A does.
- */
 export function runApplyLayoutFlow(
   {
     applyLocalContentUpdate,
@@ -32,17 +31,26 @@ export function runApplyLayoutFlow(
   }: ApplyLayoutFlowArgs,
   nodeIds: readonly string[],
   containerStyles: Record<string, string>,
+  nodePatches?: LayoutNodePatches,
 ): ApplyLayoutFlowOutcome {
-  if (!canEditDesign || nodeIds.length === 0) return "unsupported";
+  const appliesFlow = Object.keys(containerStyles).length > 0;
+  if (!canEditDesign || (appliesFlow && nodeIds.length === 0)) {
+    return "unsupported";
+  }
   const baseContent = getFreshActiveContent();
   if (!baseContent) return "unsupported";
 
-  // One accumulating content string, one update: a multi-selection conversion
-  // is a single undo step, like every other batched layer commit.
   let content = baseContent;
   let applied = 0;
   let failed = 0;
-  for (const nodeId of nodeIds) {
+  const fail = (message: string | undefined) => {
+    failed += 1;
+    toast.error(
+      codeLayerPatchMessage(message, t("designEditor.toasts.layerMoveFailed")),
+      { duration: 4000 },
+    );
+  };
+  for (const nodeId of appliesFlow ? nodeIds : []) {
     const patch = applyVisualEdit(
       content,
       {
@@ -65,22 +73,46 @@ export function runApplyLayoutFlow(
       applied += 1;
       continue;
     }
-    // "conflict" is the only status that means "not this file's node".
-    if (patch.result.status !== "conflict") {
-      failed += 1;
-      toast.error(
-        codeLayerPatchMessage(
-          patch.result.message,
-          t("designEditor.toasts.layerMoveFailed"),
-        ),
-        { duration: 4000 },
-      );
-    }
+    if (patch.result.status !== "conflict") fail(patch.result.message);
   }
 
-  if (applied > 0 && content !== baseContent) {
+  // A frame and the children its change freezes land together or not at all:
+  // half of a Hug edit leaves the circular sizing it exists to prevent.
+  if (failed === 0 && nodePatches) {
+    let patched = content;
+    for (const [nodeId, styles] of nodePatches) {
+      for (const [property, value] of Object.entries(styles)) {
+        const edit = applyVisualEdit(
+          patched,
+          value === null
+            ? {
+                kind: "style",
+                operation: "remove",
+                target: { nodeId },
+                property,
+              }
+            : { kind: "style", target: { nodeId }, property, value },
+          { ...(source ? { source } : {}) },
+        );
+        if (edit.result.status !== "applied") {
+          trace("structure", "layout-patch-refused", {
+            nodeId,
+            property,
+            status: edit.result.status,
+          });
+          fail(edit.result.message);
+          return "failed";
+        }
+        patched = edit.content;
+      }
+    }
+    content = patched;
+  }
+
+  if ((failed === 0 || applied > 0) && content !== baseContent) {
     applyLocalContentUpdate(content, { forcePreviewFullDocument: true });
   }
   if (failed > 0) return "failed";
+  if (!appliesFlow) return "applied";
   return applied === nodeIds.length ? "applied" : "unsupported";
 }

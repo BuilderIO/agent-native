@@ -53,4 +53,61 @@ describe("ActionQueryError", () => {
     });
     expect(onRetry).toHaveBeenCalledOnce();
   });
+
+  it("shows the query and safe HTTP diagnostic without exposing the message", () => {
+    act(() => {
+      root.render(
+        <ActionQueryError
+          error={Object.assign(new Error("secret database detail"), {
+            status: 401,
+            errorCode: "workspace_gateway_rejected",
+          })}
+          queryName="list-workspace-apps"
+          onRetry={() => {}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "list-workspace-apps · HTTP 401 · workspace_gateway_rejected",
+    );
+    expect(container.textContent).not.toContain("secret database detail");
+  });
+
+  it("shows the request id so a screenshot leads to the server's record", () => {
+    act(() => {
+      root.render(
+        <ActionQueryError
+          error={Object.assign(new Error("secret database detail"), {
+            status: 503,
+            errorCode: "session_unavailable",
+            requestId: "ed4b2e72-dbf7-41d2-8a20-2fb6f43e01b7",
+          })}
+          queryName="list-workspace-apps"
+          onRetry={() => {}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "list-workspace-apps · HTTP 503 · session_unavailable · ref ed4b2e72-dbf7-41d2-8a20-2fb6f43e01b7",
+    );
+  });
+
+  it("drops a request id that is not a plain identifier", () => {
+    act(() => {
+      root.render(
+        <ActionQueryError
+          error={Object.assign(new Error("boom"), {
+            status: 500,
+            requestId: "<script>alert(1)</script>",
+          })}
+          onRetry={() => {}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("HTTP 500");
+    expect(container.textContent).not.toContain("script");
+  });
 });

@@ -11,7 +11,6 @@ import { createApp, type CreateAppOptions } from "./create.js";
 
 export interface CreateWorkspaceOptions {
   name?: string;
-  /** Pre-select these templates in the picker. */
   template?: string;
   noInstall?: boolean;
 }
@@ -22,8 +21,6 @@ export async function createWorkspace(
   const passthrough: CreateAppOptions = {
     template: opts.template,
     noInstall: opts.noInstall,
-    // Preserve the alias's contract: always scaffold a workspace, never the
-    // new start-shape prompt that could route to a standalone app.
     forceWorkspace: true,
   };
   await createApp(opts.name, passthrough);

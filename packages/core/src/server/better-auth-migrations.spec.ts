@@ -75,6 +75,40 @@ describe("Better Auth migrations", () => {
     );
   });
 
+  it("adds the first-touch columns in one idempotent statement that keeps existing users", async () => {
+    const sql = postgresSql("better-auth-user-first-touch-attribution");
+    expect(sql.match(/ALTER TABLE/g)).toHaveLength(1);
+    expect(sql.match(/ADD COLUMN IF NOT EXISTS/g)).toHaveLength(8);
+
+    const db = await createTestPglite();
+    await db.exec(`CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE);
+      INSERT INTO "user" (id, email) VALUES ('user-1', 'user@example.com')`);
+    await db.exec(sql);
+    await db.exec(sql);
+    const columns = await db
+      .prepare(
+        "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'user' AND column_name LIKE 'first_touch_%' ORDER BY column_name",
+      )
+      .all();
+    expect(columns.map((column) => column.column_name)).toEqual([
+      "first_touch_gclid",
+      "first_touch_msclkid",
+      "first_touch_referrer",
+      "first_touch_utm_campaign",
+      "first_touch_utm_medium",
+      "first_touch_utm_source",
+      "first_touch_utm_term",
+      "first_touch_vector_source",
+    ]);
+    expect(columns.every((column) => column.is_nullable === "YES")).toBe(true);
+    await expect(
+      db
+        .prepare('SELECT id FROM "user" WHERE email = ?')
+        .get("user@example.com"),
+    ).resolves.toMatchObject({ id: "user-1" });
+    await db.close();
+  });
+
   it("indexes case-insensitive legacy session verification lookups", () => {
     expect(postgresSql("better-auth-user-lower-email-index")).toContain(
       'ON "user" (LOWER(email))',

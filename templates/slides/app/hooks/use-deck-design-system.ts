@@ -58,12 +58,6 @@ function mergeWithDefaults<T>(defaults: T, value: unknown): T {
     return merged as T;
   }
 
-  // Every leaf in DEFAULT_DESIGN_SYSTEM is a string (including union-typed
-  // ones like slideDefaults.labelStyle), and DesignSystemCard/slide renderers
-  // call string methods (e.g. `.split()` on typography.headingFont) with no
-  // type guard. A persisted value of the wrong runtime type — an empty
-  // object from an interrupted generation, a stray number — must fall back
-  // to the default rather than reach those call sites and crash the caller.
   if (value === undefined || value === null) return defaults;
   return (typeof value === typeof defaults ? value : defaults) as T;
 }
@@ -75,31 +69,35 @@ export function getDesignSystemImageStyleReferenceUrls(
 }
 
 export function mergeDesignSystemData(value: unknown): DesignSystemData {
-  return mergeWithDefaults(DEFAULT_DESIGN_SYSTEM, value);
+  const merged = mergeWithDefaults(DEFAULT_DESIGN_SYSTEM, value);
+  // resolveSlideBackground prefers slideDefaults, so a defaulted white slide
+  // background would hide a dark colors.background the design system did set.
+  const storedSlideDefaults = isRecord(value) ? value.slideDefaults : undefined;
+  if (!isRecord(storedSlideDefaults) || !storedSlideDefaults.background) {
+    merged.slideDefaults.background = merged.colors.background;
+  }
+  return merged;
 }
 
 export interface DeckDesignSystemResult {
-  designSystem: DesignSystemData;
+  designSystem: DesignSystemData | undefined;
   designSystemTitle: string | null;
   imageStyleReferenceUrls: string[];
   isLoading: boolean;
+  /** Raw JSON of the design system row, before defaults are merged in. */
+  rawData: string | null;
 }
 
-export function useDeckDesignSystem(designSystemId?: string | null) {
-  const { data, isLoading } = useActionQuery<{
-    id: string;
-    title: string;
-    data: string;
-  }>("get-design-system", designSystemId ? { id: designSystemId } : undefined, {
-    enabled: Boolean(designSystemId),
-  });
-
+export function resolveDeckDesignSystem(
+  designSystemId: string | null | undefined,
+  data: { title?: string | null; data?: string } | undefined,
+): Omit<DeckDesignSystemResult, "isLoading"> {
   if (!designSystemId || !data?.data) {
     return {
-      designSystem: DEFAULT_DESIGN_SYSTEM,
+      designSystem: undefined,
       designSystemTitle: null,
       imageStyleReferenceUrls: [],
-      isLoading: false,
+      rawData: null,
     };
   }
 
@@ -109,16 +107,40 @@ export function useDeckDesignSystem(designSystemId?: string | null) {
       designSystem: parsed,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: getDesignSystemImageStyleReferenceUrls(parsed),
-      isLoading,
+      rawData: data.data,
     };
   } catch {
     return {
-      designSystem: DEFAULT_DESIGN_SYSTEM,
+      designSystem: undefined,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: [],
-      isLoading,
+      rawData: data.data,
     };
   }
+}
+
+export function useDeckDesignSystem(
+  designSystemId?: string | null,
+  deckId?: string | null,
+): DeckDesignSystemResult {
+  const { data, isLoading } = useActionQuery<{
+    id: string;
+    title: string;
+    data: string;
+  }>(
+    "get-design-system",
+    designSystemId
+      ? { id: designSystemId, ...(deckId ? { deckId } : {}) }
+      : undefined,
+    {
+      enabled: Boolean(designSystemId),
+    },
+  );
+
+  return {
+    ...resolveDeckDesignSystem(designSystemId, data),
+    isLoading: designSystemId ? isLoading : false,
+  };
 }
 
 export { DEFAULT_DESIGN_SYSTEM };

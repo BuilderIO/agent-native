@@ -9,8 +9,6 @@ export interface ZoomAuthStatus {
   accounts: Array<{ id: string; email?: string; displayName?: string }>;
 }
 
-// Bounds every zoom fetch so a hung request can't leave the status poll's
-// `inFlight` guard stuck forever.
 const FETCH_ABORT_MS = 10_000;
 
 async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
@@ -37,17 +35,6 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   }
   return (await res.json()) as T;
 }
-
-// ---------------------------------------------------------------------------
-// Shared Zoom OAuth-completion listener
-//
-// Every mounted useZoomStatus() call (one per rendered EventDetailPopover,
-// plus Settings/CreateEventDialog/BookingLinksPage) needs to react to the
-// OAuth popup finishing. Rather than each instance opening its own
-// window "message" listener and BroadcastChannel, a single module-level pair
-// attaches when the first subscriber joins and detaches when the last
-// leaves, fanning the "connected" signal out to every subscriber.
-// ---------------------------------------------------------------------------
 
 const zoomAuthSubscribers = new Set<() => void>();
 let zoomAuthChannel: BroadcastChannel | null = null;
@@ -110,11 +97,6 @@ export function useZoomStatus() {
   });
 }
 
-/**
- * Kick off the Zoom OAuth flow by navigating to the auth URL. Uses a
- * mutation (not a query) so the flow only starts when the user clicks
- * Connect, not on mount.
- */
 export function useConnectZoom() {
   const queryClient = useQueryClient();
   return useMutation({

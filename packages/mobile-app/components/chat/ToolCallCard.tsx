@@ -15,7 +15,6 @@ import { ShineText } from "./ShineText";
 
 const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace" });
 const DETAIL_LIMIT = 1200;
-// Matches the web client's TOOL_LONG_RUNNING_HINT_DELAY_MS.
 const LONG_RUNNING_HINT_DELAY_MS = 45_000;
 
 function truncate(value: string): string {
@@ -24,7 +23,6 @@ function truncate(value: string): string {
     : value;
 }
 
-/** First string value in the tool input — e.g. the query of a search tool. */
 function inputPreview(inputText: string): string | null {
   if (!inputText) return null;
   try {

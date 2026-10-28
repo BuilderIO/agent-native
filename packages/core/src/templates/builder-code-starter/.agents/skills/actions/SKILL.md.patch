@@ -1,0 +1,18 @@
+===================================================================
+--- a/.agents/skills/actions/SKILL.md
++++ b/.agents/skills/actions/SKILL.md
+@@ -163,0 +164,14 @@
++After adding or changing several related actions, smoke-test **once** (one
++happy-path call that proves the wire-up), then typecheck once. Do not run
++`pnpm action …` for every method unless a smoke test failed and you need to
++isolate which action broke.
++
++## CRUD + Drizzle in this starter
++
++Before hunting through `node_modules` for DB helpers, read:
++
++1. `drizzle/START_HERE.md` — where tables live + migrate commands
++2. `drizzle/crud-action-example.ts` — copy-paste list/create/update/delete pattern
++
++DB client: `getDb` / `schema` from `server/db.ts`.
++

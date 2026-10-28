@@ -1,7 +1,17 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import * as jose from "jose";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
+import * as orgContext from "../org/context.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,
@@ -46,6 +56,7 @@ function context() {
 describe("Anthropic Managed Agents A2A handler", () => {
   let server: Server;
   let origin = "";
+  const previousAppUrl = process.env.APP_URL;
   let mode:
     | "complete"
     | "approval"
@@ -184,6 +195,7 @@ describe("Anthropic Managed Agents A2A handler", () => {
           throw new Error("fixture did not bind");
         }
         origin = `http://127.0.0.1:${address.port}`;
+        process.env.APP_URL = origin;
         resolve();
       });
     });
@@ -192,6 +204,8 @@ describe("Anthropic Managed Agents A2A handler", () => {
   afterAll(async () => {
     if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
     else process.env.A2A_SECRET = previousA2ASecret;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
@@ -201,6 +215,14 @@ describe("Anthropic Managed Agents A2A handler", () => {
     mode = "complete";
     streamConnected = false;
     requests.length = 0;
+    vi.spyOn(orgContext, "getOrgDomain").mockResolvedValue(null);
+    vi.spyOn(orgContext, "getOrgA2ASecret").mockResolvedValue(null);
+    vi.spyOn(
+      orgContext,
+      "resolveA2AOrganizationMetadataById",
+    ).mockImplementation(async (orgId) =>
+      orgId === "org_fixture" ? { orgId, orgDomain: null } : null,
+    );
   });
 
   function makeHandler(
@@ -367,6 +389,44 @@ describe("Anthropic Managed Agents A2A handler", () => {
         },
       ],
     });
+  });
+
+  it("rejects a signed continuation token minted for another token purpose", async () => {
+    const handler = makeHandler([]);
+    const token = await new jose.SignJWT({
+      typ: "another-typed-credential",
+      managed_session_id: "ses_fixture",
+      managed_pending_tool_use_ids: ["sevt_tool"],
+      managed_agent_id: "agt_fixture",
+      managed_environment_id: "env_fixture",
+      managed_agent_url: origin,
+      org_id: "org_fixture",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("alice@example.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("anthropic-managed-fixture-secret"));
+
+    await expect(
+      withCaller(() =>
+        handler(
+          {
+            role: "user",
+            parts: [{ type: "text", text: "Approve it." }],
+            metadata: {
+              [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+                continuationToken: token,
+                pendingToolUseIds: ["sevt_tool"],
+                confirmations: [{ toolUseId: "sevt_tool", result: "allow" }],
+              },
+            },
+          },
+          context(),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "continuation_invalid" });
+    expect(requests).toHaveLength(0);
   });
 
   it("waits for the stream connection before posting and does not miss a reply", async () => {

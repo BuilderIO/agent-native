@@ -16,8 +16,12 @@ import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import { lockDatabasesForTrash } from "./delete-document.js";
-import { restoreDocumentSubtree } from "./delete-document.js";
+import {
+  type LifecycleGroupLocks,
+  lockLifecycleGroup,
+  restoreDocumentSubtree,
+  retryRestoreOnMembershipChange,
+} from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
@@ -47,6 +51,12 @@ export default defineAction({
     "Restore one exact ordinary collection from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   agentInputSchema: setupLifecycleSchema,
   schema: z.union([
     setupLifecycleSchema,
@@ -73,50 +83,62 @@ export default defineAction({
       const { database } = await assertContentDatabaseLifecycleAccess(
         input.target.databaseId,
       );
-      const result = await runDatabaseSetupMutation({
-        operation: "restore-content-database",
-        input,
-        payload: input,
-        role: "admin",
-        includeDeleted: true,
-        lock: (tx) =>
-          lockDatabasesForTrash(tx, database.documentId, database.ownerEmail),
-        apply: async (tx, context) => {
-          if (context.database.ownerDocumentId)
-            setupError(
-              "UNSUPPORTED_DATABASE",
-              "Use the owning page to restore an inline database.",
-              400,
+      let locks: LifecycleGroupLocks | undefined;
+      const result = await retryRestoreOnMembershipChange(() =>
+        runDatabaseSetupMutation({
+          operation: "restore-content-database",
+          input,
+          payload: input,
+          role: "admin",
+          includeDeleted: true,
+          lock: async (tx) => {
+            locks = await lockLifecycleGroup(tx, {
+              operation: "restore",
+              roots: [
+                { id: database.documentId, ownerEmail: database.ownerEmail },
+              ],
+              alsoLockDatabaseIds: [database.id],
+            });
+          },
+          apply: async (tx, context) => {
+            if (context.database.ownerDocumentId)
+              setupError(
+                "UNSUPPORTED_DATABASE",
+                "Use the owning page to restore an inline database.",
+                400,
+              );
+            if (
+              context.databaseDocument.trashedAt &&
+              context.databaseDocument.trashRootId !==
+                context.database.documentId
+            )
+              setupError(
+                "PARENT_IN_TRASH",
+                "Restore the parent Trash item instead.",
+                400,
+              );
+            const ids = await restoreDocumentSubtree(
+              tx,
+              context.database.documentId,
+              context.database.ownerEmail,
+              locks,
             );
-          if (
-            context.databaseDocument.trashedAt &&
-            context.databaseDocument.trashRootId !== context.database.documentId
-          )
-            setupError(
-              "PARENT_IN_TRASH",
-              "Restore the parent Trash item instead.",
-              400,
-            );
-          const ids = await restoreDocumentSubtree(
-            tx,
-            context.database.documentId,
-            context.database.ownerEmail,
-          );
-          return {
-            outcome: context.database.deletedAt
-              ? ("restored" as const)
-              : ("unchanged" as const),
-            value: {
-              databaseId: context.database.id,
-              documentId: context.database.documentId,
-              deletedAt: null,
-              affectedDocumentIds: ids.slice(0, 100),
-              affectedDocumentCount: ids.length,
-              affectedDocumentIdsComplete: ids.length <= 100,
-            },
-          };
-        },
-      });
+            return {
+              outcome: context.database.deletedAt
+                ? ("restored" as const)
+                : ("unchanged" as const),
+              value: {
+                databaseId: context.database.id,
+                documentId: context.database.documentId,
+                deletedAt: null,
+                affectedDocumentIds: ids.slice(0, 100),
+                affectedDocumentCount: ids.length,
+                affectedDocumentIdsComplete: ids.length <= 100,
+              },
+            };
+          },
+        }),
+      );
       await refreshAfterSetup(result.receipt);
       return { success: true, ...result.value, receipt: result.receipt };
     }
@@ -129,7 +151,20 @@ export default defineAction({
       ownerBlockId: ownership.database.ownerBlockId,
     });
 
-    await db.transaction(async (tx) => {
+    const restoreOnce = async (
+      tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    ) => {
+      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+      const locks = await lockLifecycleGroup(transactionDb, {
+        operation: "restore",
+        roots: [
+          {
+            id: ownership.database.documentId,
+            ownerEmail: ownership.database.ownerEmail,
+          },
+        ],
+        alsoLockDatabaseIds: [databaseId],
+      });
       const [backingDocument] = await tx
         .select({
           trashedAt: schema.documents.trashedAt,
@@ -149,9 +184,10 @@ export default defineAction({
       }
 
       const restoredDocumentIds = await restoreDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
+        transactionDb,
         ownership.database.documentId,
         ownership.database.ownerEmail,
+        locks,
       );
       if (
         backingDocument.trashedAt &&
@@ -174,7 +210,8 @@ export default defineAction({
             isNotNull(schema.contentDatabases.deletedAt),
           ),
         );
-    });
+    };
+    await retryRestoreOnMembershipChange(() => db.transaction(restoreOnce));
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

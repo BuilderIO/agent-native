@@ -157,14 +157,22 @@ describe("user profile actions", () => {
     );
   });
 
-  it("rejects an onboarding role outside the shared vocabulary", async () => {
+  it("passes a custom onboarding role through to the shared profile write", async () => {
     await expect(
       updateProfile.run(
-        { name: "Alice Smith", onboardingRole: "pirate" as never },
+        { name: "Alice Smith", onboardingRole: "Content strategist" },
         { caller: "frontend", userEmail: "alice@example.com" },
       ),
-    ).rejects.toThrow();
-    expect(updateUserProfileMock).not.toHaveBeenCalled();
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: null,
+    });
+    expect(updateUserProfileMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "Alice Smith",
+      "Content strategist",
+    );
   });
 
   it("records privacy requests only from Account settings", async () => {
@@ -271,10 +279,6 @@ describe("user profile actions", () => {
   });
 
   it("resolves password state for a caller with no Better Auth session cookie (e.g. AUTH_DISABLED dev sessions)", async () => {
-    // AUTH_DISABLED mints ctx.userEmail without ever setting a real Better
-    // Auth session cookie, so the cookie-based auth.api.listUserAccounts
-    // path always 401s for it — reproduce that failure here to prove the
-    // action no longer depends on that path for its data.
     auth.api.listUserAccounts.mockRejectedValue(
       Object.assign(new Error("UNAUTHORIZED"), { statusCode: 401 }),
     );

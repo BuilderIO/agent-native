@@ -1,0 +1,103 @@
+slug: ask-your-database
+app: analytics
+roles:
+  - engineering
+  - product
+  - founders
+title: 데이터에 평소 말로 질문해 보세요
+seo_title: SQL 없이 데이터베이스에 질문하기
+meta_description: "BigQuery 데이터에 대해 질문하면, Agent-Native Analytics가 직접 확인할 수 있는 읽기 전용 SQL로 답하고, 반복되는 질문은 대시보드에 남겨 둬요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics가 BigQuery 데이터로 답하고, 다시 묻는 질문은 대시보드에 남겨 둬요. 에이전트는 직접 확인할 수 있는 읽기 전용 SQL을 써요."
+  button:
+    label: 데이터에 질문하기
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1120abfcd1447b9ab48ff98a9b7592d
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2db877a772674ad4af41e7efbb062d50
+    alt: "Ask 화면이 열린 Analytics. 에이전트가 지난주 가입에 관한 질문에 요금제별 막대 차트와 집계에 쓴 표로 답해요. 그 아래 후속 질문에서는 Pro가 가장 많이 늘었다는 걸 보여 줘요."
+how_to:
+  heading: 평소 말로 데이터베이스에 질문하는 방법
+  steps:
+    - title: 데이터 웨어하우스 연결하기
+      body: "**데이터 소스** 페이지에서 BigQuery를 여세요. BigQuery Data Viewer와 BigQuery Job User 역할이 있는 서비스 계정의 JSON 키를 업로드하고, 프로젝트 ID를 입력한 뒤 **자격 증명 저장**과 **연결 테스트**를 클릭하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62008ebd98594f02b1c0bf3ae565ef49
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb01d428bca15467eb4c04299dd9575b8
+        alt: "Data Sources의 BigQuery 카드 확대 화면. Connected로 표시되고, 프로젝트 ID와 서비스 계정이 Configured로 표시돼 있으며, “Connection successful”이 보여요."
+    - title: 평소 말로 질문하기
+      body: "**질문**에서 팀원에게 묻듯이 질문을 입력하세요. “지난주에 가입한 계정이 요금제별로 몇 개야?”처럼요. 에이전트가 맞는 테이블을 찾아 쿼리를 실행하고 차트로 답해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3e9ac5b30a924dab9b09bc76ed24b2de
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F31c48c5ccc9247b792c00474b01f97b0
+        alt: "Ask 채팅 확대 화면. 에이전트가 BigQuery 스키마를 검색하고 쿼리를 한 번 실행한 뒤, 가입 723건과 요금제별 막대 차트로 답했어요."
+    - title: 답을 대시보드에 남기기
+      body: "에이전트에게 “이걸 대시보드에 추가해 줘”라고 요청하세요. 에이전트가 패널을 만들고 SQL이 실행되는지 확인한 뒤 대시보드를 저장해요. 대시보드는 팀원이나 조직 전체와 공유하기 전까지 비공개예요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F957858f8613241a2b2249d88430b3cc4
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0111e9f420149fc8a35cad845ad8e2e
+        alt: "요금제별 가입 패널과 주별 가입 차트가 있는 새 Weekly signups 대시보드. 옆의 에이전트 채팅에는 두 패널 모두 BigQuery로 확인했다고 나와요."
+features:
+  heading: 데이터베이스에서 답을 얻는 데 필요한 모든 것
+  items:
+    - title: 모든 답 뒤에 있는 SQL
+      body: "대시보드 차트에서 **SQL 보기**를 열거나 채팅으로 물어보면, 에이전트가 쓴 쿼리를 보고 복사해서 직접 실행할 수 있어요."
+    - title: 우리 팀의 지표 정의
+      body: "관리자가 **시맨틱 레이어** 페이지에 “활성”이나 “가입”이 무슨 뜻인지 적어 둬요. 에이전트는 SQL을 쓰기 전에 그걸 읽어요."
+    - title: 데이터를 바꿀 수 없는 쿼리
+      body: "BigQuery에서 에이전트의 SQL은 삽입, 수정, 삭제를 할 수 없고, 테이블 읽기와 쿼리 실행만 가능한 서비스 계정으로 연결돼요."
+    - title: 에이전트가 고치는 대시보드
+      body: "채팅으로 패널, 필터, 요금제별 분석을 추가해 달라고 하면, 공유한 모든 사람이 보는 대시보드를 에이전트가 바꿔요."
+    - title: 여러 도구를 넘나드는 질문
+      body: "웨어하우스 테이블과 Stripe 매출, HubSpot 딜, PostHog 이벤트를 섞은 질문을 한 번에 할 수 있어요."
+    - title: 받은편지함으로 오는 대시보드
+      body: "원하는 시간에 매일 대시보드를 이메일로 받아 보세요. 차트와 표가 이메일 본문에 들어 있고, 최대 다섯 명까지 받을 수 있어요."
+integrations:
+  heading: 이미 쓰는 도구와 Analytics 연결하기
+  cards:
+    - title: 웨어하우스와 사이트 트래픽
+      logos:
+        - name: BigQuery
+        - name: Google Analytics
+      body: "Analytics는 BigQuery 테이블을 쿼리하고, 같은 Google 서비스 계정 키로 Google Analytics 트래픽도 조회해요."
+    - title: 매출과 제품 데이터 더하기
+      logos:
+        - name: Stripe
+        - name: HubSpot
+        - name: PostHog
+      body: "Stripe, HubSpot, PostHog를 연결하면, 답에서 데이터베이스 숫자를 매출, 딜, 제품 이벤트와 나란히 볼 수 있어요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Supabase
+        - name: Neon
+        - name: Notion
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Analytics로 할 수 있는 다른 일
+  cards:
+    - title: 스타트업 KPI 대시보드를 만들어 보세요
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "스타트업의 매출, 파이프라인, 제품 사용량을 질문할 수 있는 대시보드 하나에서 추적하세요."
+    - title: 신규 사용자가 이탈하는 지점을 찾아보세요
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "가입이 멈추는 단계를 찾고, 그 뒤에 있는 세션 리플레이를 확인하세요."
+    - title: HubSpot과 Gong 데이터로 영업 파이프라인을 검토하세요
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: "CRM과 녹음된 영업 통화에서 나온 답으로 딜이 어떻게 진행되는지 확인하세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Analytics는 무료인가요?
+      a: "네, Agent-Native Analytics는 무료 오픈 소스예요. 호스팅된 앱을 쓰거나 직접 복사본을 실행할 수 있어요. 에이전트에는 Builder.io나 내 모델 키를 통한 AI 연결이 필요해서, AI 사용량이 무제한은 아니에요. Analytics는 알파 버전이라 바뀌는 부분이 있을 수 있어요."
+    - q: SQL을 알아야 하나요?
+      a: "아니요. 평소 말로 질문하면 에이전트가 SQL을 써요. 처음에는 데이터를 잘 아는 사람이 [BigQuery를 연결](https://www.agent-native.com/docs/template-analytics-connectors/)해야 할 수도 있어요. 관리자가 **시맨틱 레이어** 페이지에 [지표 정의](https://www.agent-native.com/docs/template-analytics-dashboards/)를 추가해 두면, 에이전트가 맞는 테이블과 열을 골라요."
+    - q: Postgres, Supabase, Neon에서도 되나요?
+      a: "네, Supabase나 Neon의 Postgres라면 돼요. 채팅의 + 메뉴에서 [MCP로 연결](https://www.agent-native.com/docs/mcp-clients/)하고 채팅으로 질문하세요. 대시보드 패널은 아직 Postgres를 쿼리할 수 없어서, 이 답은 채팅에만 남아요. 그 밖의 Postgres 데이터베이스는 아직 쿼리할 수 없어서, 이 페이지의 단계는 BigQuery를 사용해요."
+    - q: 에이전트가 내 데이터를 바꿀 수 있나요?
+      a: "BigQuery에서는 안 돼요. Analytics는 그곳의 데이터를 삽입, 수정, 삭제하거나 제거하려는 에이전트의 쿼리를 모두 거부해요. 설정할 때도 읽기 전용 역할을 가진 서비스 계정을 요구하므로, 테이블을 읽고 쿼리를 실행할 수는 있지만 바꿀 수는 없어요. Supabase나 Neon을 통하면 에이전트는 그 연결에 허용한 일을 할 수 있어요."
+    - q: 답이 맞는지 어떻게 알 수 있나요?
+      a: "답 뒤에 있는 쿼리를 확인하세요. 에이전트에게 SQL을 보여 달라고 하거나, 대시보드 차트에서 **SQL 보기**를 여세요. 어떤 테이블과 필터를 썼는지 물어볼 수도 있어요. 라이브 쿼리가 실행되지 않은 숫자에는 에이전트가 **Unverified** 표시를 해요."
+    - q: CSV를 내보내 ChatGPT에 묻는 것과 무엇이 다른가요?
+      a: "채팅 어시스턴트는 내보낸 파일로 답하기 때문에, 새 질문을 할 때마다 다시 내보내야 해요. Analytics는 웨어하우스를 직접 쿼리하고, 팀의 지표 정의를 쓰고, 다시 필요한 답은 대시보드에 남겨 둬요. 그게 바로 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."

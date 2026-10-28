@@ -1,11 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "Remover {{name}}",
+    removeReference: "Remover referência {{name}}",
+  },
   settings: {
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho deste app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
@@ -18,9 +17,9 @@ const messages = {
   },
   chat: {
     archiveChat: "Arquivar chat",
-    archiveFailed: "Falha ao arquivar",
+    archiveFailed: "Não foi possível arquivar o chat.",
     chats: "Chats",
-    composerPlaceholder: "Pergunte ao agente...",
+    composerPlaceholder: "Pergunte qualquer coisa",
     emptyState: "Pergunte-me qualquer coisa",
     heroDescription:
       "Peça ao agente para inspecionar, explicar ou alterar este app.",
@@ -30,18 +29,35 @@ const messages = {
     inspectSuggestionCapabilities: "O que este app pode fazer?",
     inspectSuggestionHello: "Ajude-me a começar",
     newChat: "Novo chat",
-    optionsFor: "Opções para",
+    optionsFor: "Opções de chat para {{title}}",
     pinChat: "Fixar chat",
     pinned: "Fixados",
     recents: "Recentes",
+    retryPreviousRequest:
+      "Tente novamente minha solicitação anterior agora que o provedor do modelo está conectado.",
+    invalidHandoffOptions:
+      "O prompt foi salvo como rascunho, mas não foi possível restaurar as configurações do chat. Revise o prompt, o contexto e o modelo antes de enviá-lo novamente.",
+    recoveryDraftUnsaved:
+      "Estas alterações do rascunho não foram salvas. Se você recarregar este chat, poderá perdê-las.",
+    retryAttachmentUnavailable:
+      "O Chat não consegue reabrir este anexo para tentar novamente. Adicione uma URL de arquivo acessível e tente outra vez.",
     renameChat: "Renomear chat",
-    renameFailed: "Falha ao renomear",
-    renameThread: "Renomear conversa",
+    renameFailed: "Não foi possível renomear o chat.",
+    renameThread: "Renomear {{title}}",
     suggestionActions: "Mostre-me as ações disponíveis",
     suggestionCapabilities: "O que este app pode fazer?",
     suggestionCustomize: "Ajude-me a personalizar este app",
     unpinChat: "Desafixar chat",
     untitledChat: "Chat sem título",
+  },
+  home: {
+    communityTitle: "Fale com a gente",
+    docsAddAction: "Adicionar uma ação",
+    docsAddPage: "Adicionar uma página",
+    docsGettingStarted: "Primeiros passos",
+    docsKeyConcepts: "Conceitos principais",
+    docsTitle: "Documentação",
+    title: "Comece aqui",
   },
   navigation: {
     chat: "Chat",
@@ -49,6 +65,7 @@ const messages = {
     database: "Banco de dados",
     expandSidebar: "Expandir barra lateral",
     extensions: "Extensões",
+    home: "Início",
     navigation: "Navegação",
     navigationDescription: "Navegação principal",
     observability: "Observabilidade",

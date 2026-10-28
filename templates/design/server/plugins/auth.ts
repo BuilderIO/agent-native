@@ -1,19 +1,37 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { registerAuthPublicPaths } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+import {
+  clearBuilderIdentitySession,
+  getBuilderIdentitySession,
+  isBuilderIdentityEnabled,
+} from "../lib/builder-identity.js";
 
-export default createAuthPlugin({
+registerAuthPublicPaths(["/api/session-replay-storyboard"]);
+
+export default createToolkitAuthPlugin({
+  // Hosted inside Builder: Builder vouches for its own users (no Design-side
+  // accounts for them). It is additive: a request without the signed identity
+  // cookie resolves through Design's normal sessions and sign-in, so enabling
+  // it on a shared deployment cannot lock anyone else out. See
+  // server/lib/builder-identity.ts.
+  ...(isBuilderIdentityEnabled()
+    ? {
+        getAdditionalSession: getBuilderIdentitySession,
+        // It reads only the signed identity cookie, so pages that take no
+        // other credential, such as an MCP approval review, can use it too.
+        getAdditionalBrowserSession: getBuilderIdentitySession,
+        clearAdditionalSession: clearBuilderIdentitySession,
+        trustCustomEmailVerification: true,
+      }
+    : {}),
   workspaceAppAudience: "internal",
-  // Visual-edit, public design editor links, and presentation links can load
-  // without a session. Creating, mutating, generating, and sharing designs
-  // still go through authenticated actions.
   workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {
     appName: "Design",
-    screenshotPath: "/auth-marketing/design.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
-    learnMoreUrl: "https://agent-native.com/apps/design",
+    learnMoreUrl:
+      "https://agent-native.com/apps/design?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [
@@ -22,22 +40,15 @@ export default createAuthPlugin({
       "Export your work or share it with a link",
     ],
   },
-  // The coding-handoff bundle endpoint is intentionally public so external
-  // coding agents (over MCP) can fetch the raw design without a browser
-  // cookie. It is not actually open: GET /api/design-handoff/:id is gated by
-  // a signed, expiring handoff token bound to the design id (see
-  // server/routes/api/design-handoff/[id].get.ts — verifyShortLivedToken).
-  // publicPaths uses prefix matching, so this covers
-  // /api/design-handoff/<id>?token=... while keeping every other /api/* and
-  // /_agent-native/* route behind auth. The listed action routes are read-only;
-  // review comment mutations remain protected by action auth and resource ACLs.
   publicPaths: [
+    "/api/builder-identity/exchange",
     "/api/design-handoff",
     // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.
     DESIGN_AGENT_CONTEXT_ENDPOINT,
     "/__manifest",
     "/_agent-native/actions/get-design",
+    "/_agent-native/actions/get-design-access-status",
     "/_agent-native/actions/list-design-native-assets",
     "/_agent-native/actions/list-review-comments",
   ],

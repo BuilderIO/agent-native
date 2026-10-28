@@ -24,7 +24,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
-import type { Slide } from "@/context/DeckContext";
+import type { Slide, SlideAnimation } from "@/context/DeckContext";
 
 const slide: Slide = {
   id: "slide-1",
@@ -70,7 +70,7 @@ describe("AnimationsPanel", () => {
     const { rerender } = render(
       <AnimationsPanel
         slide={slide}
-        selectedTarget={selectedTarget}
+        selectedTargets={[selectedTarget]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,
@@ -94,13 +94,84 @@ describe("AnimationsPanel", () => {
           ...slide,
           animations: onUpdateSlide.mock.calls[0]?.[0]?.animations,
         }}
-        selectedTarget={selectedTarget}
+        selectedTargets={[selectedTarget]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,
     );
     expect(screen.getByRole("button", { name: /Appear/ })).toBeTruthy();
-    expect(screen.getByText("On click")).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "animations.trigger" }),
+    ).toBeTruthy();
+  });
+
+  it("adds every selected object, the first on click and the rest with previous", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          content: `<div class="fmd-slide"><h1>A</h1><p>B</p><p>C</p></div>`,
+        }}
+        selectedTargets={[
+          { elementIndex: 0, elementPath: [0], preview: "A" },
+          { elementIndex: 1, elementPath: [1], preview: "B" },
+          { elementIndex: 2, elementPath: [2], preview: "C" },
+        ]}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    const [{ animations }] = onUpdateSlide.mock.calls[0]!;
+    expect(
+      animations.map((a: SlideAnimation) => [a.elementPath, a.trigger]),
+    ).toEqual([
+      [[0], undefined],
+      [[1], "with-previous"],
+      [[2], "with-previous"],
+    ]);
+  });
+
+  it("says a refused add was not applied, not that the stored reveals are blocked", () => {
+    const onUpdateSlide = vi.fn();
+    const paragraphSlide = {
+      ...slide,
+      content: `<div class="fmd-slide"><div class="list"><p>First</p><p>Second</p></div></div>`,
+      animations: [
+        {
+          id: "list",
+          elementIndex: 0,
+          elementPath: [0, 0],
+          byParagraph: true,
+          type: "fade" as const,
+        },
+      ],
+    };
+    render(
+      <AnimationsPanel
+        slide={paragraphSlide}
+        selectedTargets={[
+          {
+            elementIndex: 0,
+            elementPath: [0],
+            preview: "First",
+          },
+        ]}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    expect(onUpdateSlide).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("animations.issueDuplicate");
+    expect(alert.textContent).toContain("animations.changeNotApplied");
+    expect(alert.textContent).not.toContain("animations.blocked");
   });
 
   it("persists the paragraph setting for an expanded transition", () => {
@@ -118,7 +189,7 @@ describe("AnimationsPanel", () => {
             },
           ],
         }}
-        selectedTarget={selectedTarget}
+        selectedTargets={[selectedTarget]}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}
       />,
@@ -131,5 +202,68 @@ describe("AnimationsPanel", () => {
         expect.objectContaining({ id: "animation-1", byParagraph: true }),
       ],
     });
+  });
+
+  it("saves removing one stored unresolved reveal while another stays unresolved", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          animations: [
+            { id: "gone-a", elementIndex: 0, elementPath: [7], type: "fade" },
+            { id: "gone-b", elementIndex: 0, elementPath: [8], type: "fade" },
+            { id: "ok", elementIndex: 1, elementPath: [1], type: "fade" },
+          ],
+        }}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Remove transition" })[0]!,
+    );
+
+    expect(onUpdateSlide).toHaveBeenCalledWith({
+      animations: [
+        expect.objectContaining({ id: "gone-b" }),
+        expect.objectContaining({ id: "ok" }),
+      ],
+    });
+    expect(screen.getByRole("alert").textContent).not.toContain(
+      "animations.changeNotApplied",
+    );
+  });
+
+  it("refuses a new unresolved reveal while stored unresolved reveals remain", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          animations: [
+            { id: "gone-a", elementIndex: 0, elementPath: [7], type: "fade" },
+            { id: "gone-b", elementIndex: 0, elementPath: [8], type: "fade" },
+          ],
+        }}
+        selectedTargets={[
+          {
+            elementIndex: 0,
+            elementPath: [9],
+            preview: "Missing",
+          },
+        ]}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    expect(onUpdateSlide).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("animations.issueStalePath");
+    expect(alert.textContent).toContain("animations.changeNotApplied");
   });
 });

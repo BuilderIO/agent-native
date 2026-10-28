@@ -342,8 +342,6 @@ export function PreRecordPanel({
     () => supportsBrowserTabCapture(),
     [],
   );
-  // Saved selections from the last visit. A `?mode=`/`?surface=` deep link
-  // (initialMode/initialDisplaySurface) still takes precedence over them.
   const savedPrefs = useMemo(() => loadRecorderPreferences(), []);
   const initialCaptureSetup = useMemo(() => {
     const requestedMode = initialMode ?? savedPrefs.mode ?? "screen+camera";
@@ -484,8 +482,6 @@ export function PreRecordPanel({
 
   useEffect(() => {
     if (!screenCaptureSupported) {
-      // This capability fallback is session-only so an unsupported device
-      // cannot overwrite the user's preferred desktop recording mode.
       setCaptureSetup(recorderSetupForMode("camera"));
       return;
     }
@@ -566,8 +562,6 @@ export function PreRecordPanel({
     }
   }, [micId, mics]);
 
-  // A temporarily missing device falls back to the runtime default without
-  // changing whether the camera is on.
   useEffect(() => {
     if (cameraId === "default") return;
     if (
@@ -578,8 +572,6 @@ export function PreRecordPanel({
     }
   }, [cameraId, cameras]);
 
-  // Persist deliberate picks only (not the resets above), so an unavailable
-  // device on load can't clobber the stored preference.
   const chooseMode = useCallback((value: RecordingMode) => {
     const next = recorderSetupForMode(recorderSetupModeFromBrowser(value));
     const nextMode = recorderSetupModeToBrowser(next.mode);

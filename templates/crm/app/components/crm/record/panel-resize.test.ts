@@ -11,7 +11,6 @@ describe("clampPanelPercent", () => {
   });
 
   it("holds the pane's 320px floor", () => {
-    // 10% of 1400 is 140px, below the 320px minimum.
     expect(clampPanelPercent(10, 1400)).toBeCloseTo((320 / 1400) * 100, 5);
   });
 
@@ -20,7 +19,6 @@ describe("clampPanelPercent", () => {
   });
 
   it("leaves the main pane its 350px minimum before honouring 60%", () => {
-    // 60% of 700 would leave the main pane 280px.
     expect(clampPanelPercent(60, 700)).toBeCloseTo((350 / 700) * 100, 5);
   });
 

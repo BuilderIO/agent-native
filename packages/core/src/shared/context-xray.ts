@@ -114,14 +114,11 @@ export interface ContextManifest {
   rawTokens: number;
   reclaimedTokens: number;
   tokenCountMethod: ContextTokenCountMethod;
-  /** Conversation-only total. Old manifests omit this and are conversation-only. */
   conversationTokens?: number;
-  /** System-prompt total. Old manifests omit this and have no system sections. */
   systemTokens?: number;
   source: ContextManifestSource;
   enforceable: boolean;
   segments: ContextManifestSegment[];
-  /** Optional for strict backward compatibility with persisted old manifests. */
   systemSections?: ContextManifestSystemSection[];
   url?: string;
 }

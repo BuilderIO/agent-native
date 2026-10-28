@@ -695,6 +695,103 @@ describe("verifyPendingStructureRuntime", () => {
     ).toEqual({ ok: false, failure: "missing-subject" });
   });
 
+  it("verifies a grouped before/after drop as one contiguous range", () => {
+    const applied = `<!doctype html><body><main>
+      <div id="a" data-agent-native-node-id="a">A</div>
+      <div id="b" data-agent-native-node-id="b">B</div>
+      <div id="anchor" data-agent-native-node-id="anchor">Anchor</div>
+    </main></body>`;
+    const original = `<!doctype html><body><main>
+      <div id="anchor" data-agent-native-node-id="anchor">Anchor</div>
+      <div id="a" data-agent-native-node-id="a">A</div>
+      <div id="b" data-agent-native-node-id="b">B</div>
+    </main></body>`;
+    const first = edit({
+      selector: '[data-agent-native-node-id="a"]',
+      sourceId: "a",
+      anchorSelector: '[data-agent-native-node-id="anchor"]',
+      anchorSourceId: "anchor",
+      placement: "before",
+      transactionId: "group-1",
+    });
+    const second = edit({
+      selector: '[data-agent-native-node-id="b"]',
+      sourceId: "b",
+      anchorSelector: '[data-agent-native-node-id="a"]',
+      anchorSourceId: "a",
+      placement: "after",
+      transactionId: "group-1",
+    });
+    const grouped = { ...second, groupedEdits: [first, second] };
+    expect(
+      verifyPendingStructuresRuntime({ home: { html: applied } }, [grouped]),
+    ).toEqual({
+      ok: true,
+    });
+    expect(
+      partitionPendingStructuresRuntime({ home: { html: applied } }, [grouped]),
+    ).toEqual({ verified: [grouped], remaining: [] });
+    expect(
+      verifyPendingStructuresRuntime({ home: { html: original } }, [grouped]),
+    ).toEqual({ ok: false, failure: "wrong-order" });
+
+    const groupedInside = {
+      ...grouped,
+      groupedEdits: [
+        {
+          ...first,
+          anchorSelector: "#grid",
+          anchorSourceId: "grid",
+          placement: "inside" as const,
+        },
+        {
+          ...second,
+          anchorSelector: "#grid",
+          anchorSourceId: "grid",
+          placement: "inside" as const,
+        },
+      ],
+    };
+    const gridHtml = `<!doctype html><body><section id="grid" data-agent-native-node-id="grid">
+      <div id="a" data-agent-native-node-id="a" style="grid-column:1 / 2;grid-row:1 / 2">A</div>
+      <div id="b" data-agent-native-node-id="b" style="grid-column:2 / 3;grid-row:1 / 2">B</div>
+    </section></body>`;
+    groupedInside.groupedEdits[0] = {
+      ...groupedInside.groupedEdits[0],
+      gridPlacement: { column: 1, columnEnd: 2, row: 1, rowEnd: 2 },
+    };
+    groupedInside.groupedEdits[1] = {
+      ...groupedInside.groupedEdits[1],
+      gridPlacement: { column: 2, columnEnd: 3, row: 1, rowEnd: 2 },
+    };
+    expect(
+      verifyPendingStructuresRuntime({ home: { html: gridHtml } }, [
+        groupedInside,
+      ]),
+    ).toEqual({ ok: true });
+    expect(
+      verifyPendingStructuresRuntime(
+        {
+          home: {
+            html: gridHtml.replace("grid-column:2 / 3", "grid-column:3 / 4"),
+          },
+        },
+        [groupedInside],
+      ),
+    ).toEqual({ ok: false, failure: "wrong-grid-placement" });
+
+    const nonContiguousGridHtml = gridHtml.replace(
+      '<div id="b"',
+      '<div id="gap" data-agent-native-node-id="gap" style="grid-column:2 / 3;grid-row:1 / 2">Gap</div>\n      <div id="b"',
+    );
+    expect(
+      partitionPendingStructuresRuntime(
+        { home: { html: nonContiguousGridHtml } },
+        [groupedInside],
+      ),
+    ).toEqual({ verified: [], remaining: [groupedInside] });
+  });
+
   it("drains each edit as soon as its screen proves the relationship", () => {
     const html = `<!doctype html><body><section data-agent-native-node-id="anchor"><div data-agent-native-node-id="subject">Subject</div></section></body>`;
     const first = edit({ screenId: "home" });
@@ -702,5 +799,39 @@ describe("verifyPendingStructureRuntime", () => {
     expect(
       partitionPendingStructuresRuntime({ home: { html } }, [first, second]),
     ).toEqual({ verified: [first], remaining: [second] });
+  });
+
+  it("accepts grid-area shorthand on displaced group members", () => {
+    const html = `<!doctype html><body><section id="grid" data-agent-native-node-id="grid">
+      <div id="subject" data-agent-native-node-id="subject" style="grid-area:1 / 1 / span 1 / span 1">Subject</div>
+      <div id="displaced" data-agent-native-node-id="displaced" style="grid-area:1 / 2 / span 1 / span 1">Displaced</div>
+    </section></body>`;
+    const first = edit({
+      anchorSelector: "#grid",
+      anchorSourceId: "grid",
+      placement: "inside",
+      gridPlacement: { column: 1, columnEnd: 2, row: 1, rowEnd: 2 },
+      transactionId: "grid-group",
+      gridDisplacements: [
+        {
+          selector: "#displaced",
+          sourceId: "displaced",
+          placement: { column: 2, columnEnd: 3, row: 1, rowEnd: 2 },
+        },
+      ],
+    });
+    const second = edit({
+      selector: "#displaced",
+      sourceId: "displaced",
+      anchorSelector: "#grid",
+      anchorSourceId: "grid",
+      placement: "inside",
+      gridPlacement: { column: 2, columnEnd: 3, row: 1, rowEnd: 2 },
+      transactionId: "grid-group",
+    });
+    const grouped = { ...second, groupedEdits: [first, second] };
+    expect(
+      verifyPendingStructuresRuntime({ home: { html } }, [grouped]),
+    ).toEqual({ ok: true });
   });
 });

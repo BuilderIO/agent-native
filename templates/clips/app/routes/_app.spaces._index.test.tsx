@@ -15,14 +15,17 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "navigation.noSpaces": "No spaces yet",
       "navigation.noSpacesAdminCta":
         "Ask an organization admin to create the first space.",
-      "createSpaceDialog.description": "Create a space for your team.",
+      "createSpaceDialog.description":
+        "Organize recordings by project or team so everyone can find the work that matters.",
       "createSpaceDialog.newSpace": "Create space",
     };
     return messages[key] ?? key;
   },
 }));
 
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/core/client/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/org")>()),
+  useOrg: () => ({ data: null }),
   useOrgRole: () => mocks.role,
 }));
 
@@ -56,7 +59,7 @@ describe("SpacesIndexRoute empty state", () => {
     const markup = renderSpaces();
 
     expect(markup).toContain(
-      "Ask an organization admin to create the first space.",
+      "Organize recordings by project or team so everyone can find the work that matters. Ask an organization admin to create the first space.",
     );
     expect(markup).not.toContain("Create space");
   });
@@ -67,6 +70,9 @@ describe("SpacesIndexRoute empty state", () => {
     const markup = renderSpaces();
 
     expect(markup).toContain("Create space");
+    expect(markup).toContain(
+      "Organize recordings by project or team so everyone can find the work that matters.",
+    );
     expect(markup).not.toContain(
       "Ask an organization admin to create the first space.",
     );

@@ -1,4 +1,4 @@
-import { ActionContractError } from "@agent-native/core";
+import { ActionContractError, embedApp } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { defineAction } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
@@ -8,18 +8,31 @@ import {
   suggestionActorKind,
   suggestionActorKindMatchesReceipt,
 } from "@agent-native/core/review";
-import createResourceSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
+import createResourceSuggestionProposal from "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal";
+import getResourceSuggestionProposalByCreationKey from "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key";
 import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
-import { contentSuggestionPath } from "../shared/suggestion-link.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import {
+  resolveDocumentTextEdits,
+  type DocumentTextEdit,
+} from "../shared/document-text-edits.js";
+import { canonicalizeNfm, nfmToDoc } from "../shared/nfm.js";
+import {
+  findReplaceSuggestionSummary,
+  markdownSuggestionOperation,
+  markdownSuggestionOperationsForFindReplace,
+  markdownSuggestionOperationSummary,
+} from "../shared/suggestion-diff.js";
+import {
+  contentSuggestionPath,
+  contentSuggestionReviewPath,
+} from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
-// The editor's suggestion anchors carry 32 characters of context on each side
-// so a rebased proposal can still find its place after unrelated edits.
 const ANCHOR_CONTEXT_CHARS = 32;
 
 const suggestDocumentEditSchema = z.object({
@@ -39,6 +52,13 @@ const suggestDocumentEditSchema = z.object({
     .max(200)
     .optional()
     .describe("Caller-generated stable key for one logical suggested edit."),
+  proposalId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Existing proposal ID for another edit in the same review pass. Reuse its summary.",
+    ),
   find: z
     .string()
     .optional()
@@ -115,6 +135,211 @@ export function buildMarkdownSuggestionOperation(args: {
   };
 }
 
+// Text between edge whitespace, as a stored body would spell it on its own:
+// a candidate that resolveOnStoredForm checks in place. An edge newline
+// separates blocks, which the stored form spells differently.
+function inStoredForm(text: string): string | undefined {
+  const core = text.trim();
+  if (!core) return text;
+  const start = text.indexOf(core);
+  const lead = text.slice(0, start);
+  const trail = text.slice(start + core.length);
+  if (lead.includes("\n") || trail.includes("\n")) return undefined;
+  return `${lead}${canonicalizeNfm(core)}${trail}`;
+}
+
+/** Characters `text` doesn't use, so the parse shows each only where it's put. */
+function unusedCharacters(text: string, count: number) {
+  const used = new Set(text.match(/[\uE000-\uF8FF]/g));
+  const unused: string[] = [];
+  for (let code = 0xe000; code <= 0xf8ff && unused.length < count; code += 1) {
+    const character = String.fromCharCode(code);
+    if (!used.has(character)) unused.push(character);
+  }
+  return unused.length === count ? unused : undefined;
+}
+
+/** What follows each probe every place the parse shows it, in text or an attribute. */
+function shownAfter(value: unknown, after: Map<string, string[]>) {
+  if (typeof value === "string")
+    for (let index = 0; index < value.length; index += 1)
+      after.get(value[index]!)?.push(value[index + 1] ?? "");
+  else if (value && typeof value === "object")
+    for (const child of Object.values(value)) shownAfter(child, after);
+}
+
+/**
+ * Reads backslashes as the parse does, parsing each text once. Code keeps a
+ * backslash as written, and so do a link's destination, except before a
+ * parenthesis, and a code block's language; elsewhere it escapes, and what
+ * it escapes at its line's start is a block marker. Only the parse can tell,
+ * and it is asked two ways, each blind where the other sees: a character the
+ * page doesn't use, put just before the backslash, shows followed by it
+ * wherever the parse kept it, but moves it off its line's start; deleting
+ * it deletes one shown backslash exactly when it was kept, unless a
+ * backslash before it takes over its escape.
+ */
+function backslashReader() {
+  const parsed = new Map<string, string>();
+  const parse = (text: string) => {
+    let json = parsed.get(text);
+    if (json === undefined)
+      parsed.set(text, (json = JSON.stringify(nfmToDoc(text))));
+    return json;
+  };
+  /**
+   * Whether the parse shows each backslash at `positions`, in order, as
+   * written; undefined when the page leaves too few characters to ask with.
+   */
+  const kept = (text: string, positions: number[]) => {
+    const probes = unusedCharacters(text, positions.length);
+    if (probes === undefined) return undefined;
+    /** What follows each probe asked about, and the parse it shows in. */
+    const ask = (asked: number[]) => {
+      let probed = "";
+      let from = 0;
+      for (const index of asked) {
+        probed += `${text.slice(from, positions[index])}${probes[index]}`;
+        from = positions[index]!;
+      }
+      const doc = nfmToDoc(`${probed}${text.slice(from)}`);
+      const after = new Map(
+        asked.map((index) => [probes[index]!, [] as string[]]),
+      );
+      shownAfter(doc, after);
+      return { json: JSON.stringify(doc), after };
+    };
+    const together = ask(positions.map((_, index) => index));
+    // A probe can change how another backslash reads (one between two frees
+    // the second to escape a backtick), so asking them all at once counts
+    // only when the page, its probes taken out, reads exactly as it did.
+    const alone =
+      positions.length > 1 &&
+      together.json.replace(new RegExp(`[${probes.join("")}]`, "g"), "") !==
+        parse(text);
+    return positions.map((at, index) => {
+      const next = (alone ? ask([index]) : together).after.get(probes[index]!)!;
+      if (!next.length || next.some((shown) => shown !== "\\")) return false;
+      const shown = parse(text);
+      // Each is parsed once, so it isn't kept.
+      const without = JSON.stringify(
+        nfmToDoc(`${text.slice(0, at)}${text.slice(at + 1)}`),
+      );
+      let same = 0;
+      while (same < without.length && shown[same] === without[same]) same += 1;
+      // JSON spells a shown backslash as two.
+      return (
+        shown.slice(same, same + 2) === "\\\\" &&
+        shown.slice(same + 2) === without.slice(same)
+      );
+    });
+  };
+  return {
+    kept,
+    /** Whether the backslashes before `index` escape the character there. */
+    escapes(text: string, index: number) {
+      let slashes = 0;
+      while (text[index - slashes - 1] === "\\") slashes += 1;
+      // Taking a kept backslash for an escape only refuses the match.
+      return slashes % 2 === 1 && kept(text, [index - 1])?.[0] !== true;
+    },
+  };
+}
+
+/**
+ * Where an agent's edit lands on a Page written through its live copy. Its
+ * body is stored in canonical form, so the agent's find can be its own
+ * spelling of stored text, such as `$60` for the stored `\$60`. A spelling
+ * means what it means in its place on the page, not on its own: a range
+ * qualifies only when the page with the agent's find put back there still
+ * spells the stored page, and the replacement is the canonical form of the
+ * page with the agent's replace there. A range never splits an escape.
+ */
+function resolveOnStoredForm(content: string, edit: DocumentTextEdit) {
+  const exact = resolveDocumentTextEdits(content, [edit]);
+  if (canonicalizeNfm(content) !== content) return exact;
+  const missing = {
+    ok: false as const,
+    error: { kind: "missing" as const, editIndex: 0, find: edit.find },
+  };
+  let found = exact;
+  if (!exact.ok && exact.error.kind === "missing") {
+    const find = inStoredForm(edit.find);
+    if (find === undefined || find === edit.find) return exact;
+    found = resolveDocumentTextEdits(content, [{ find, replace: "" }]);
+    if (!found.ok && found.error.kind === "missing") return exact;
+  }
+  if (!found.ok) return found;
+  const backslashes = backslashReader();
+  let { start, end } = found.ranges[0]!;
+  if (backslashes.escapes(content, start)) start -= 1;
+  if (
+    end > start &&
+    content[end - 1] === "\\" &&
+    backslashes.escapes(content, end)
+  )
+    return missing;
+  const placed = (text: string) =>
+    `${content.slice(0, start)}${text}${content.slice(end)}`;
+  if (canonicalizeNfm(placed(edit.find)) !== content) return missing;
+  // What a backslash escapes can depend on the rest of its line, so each one
+  // on the lines the edit touches must still read as it did.
+  const replaced = placed(edit.replace);
+  const lineStart = content.lastIndexOf("\n", start - 1) + 1;
+  const newline = content.indexOf("\n", end);
+  const lineEnd = newline === -1 ? content.length : newline;
+  const shift = edit.replace.length - (end - start);
+  const around: number[] = [];
+  for (const [first, last] of [
+    [lineStart, start],
+    [end, lineEnd],
+  ] as const)
+    for (let at = first; at < last; at += 1)
+      if (content[at] === "\\") around.push(at);
+  if (around.length) {
+    const before = backslashes.kept(content, around);
+    const after = backslashes.kept(
+      replaced,
+      around.map((at) => (at < start ? at : at + shift)),
+    );
+    if (
+      !before ||
+      !after ||
+      before.some((read, index) => read !== after[index])
+    )
+      return missing;
+  }
+  const after = canonicalizeNfm(replaced);
+  // Canonicalizing can respell text next to the replacement, so the range
+  // widens to every byte the change touches.
+  let prefix = 0;
+  while (
+    prefix < Math.min(content.length, after.length) &&
+    content[prefix] === after[prefix]
+  )
+    prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < Math.min(content.length, after.length) - prefix &&
+    content[content.length - 1 - suffix] === after[after.length - 1 - suffix]
+  )
+    suffix += 1;
+  const from = Math.min(start, prefix);
+  const to = Math.max(end, content.length - suffix);
+  return {
+    ok: true as const,
+    content: after,
+    ranges: [
+      {
+        find: content.slice(from, to),
+        replace: after.slice(from, after.length - (content.length - to)),
+        start: from,
+        end: to,
+      },
+    ],
+  };
+}
+
 function rejectedFind(
   error:
     | { kind: "missing"; editIndex: number; find: string }
@@ -155,20 +380,53 @@ export default defineAction({
   agentInputSchema: externalSuggestDocumentEditSchema,
   schema: suggestDocumentEditSchema,
   http: false,
+  // MCP Apps hosts embed this link as the inline review card. Every other
+  // caller gets a link that forwards to the suggestion on its page.
   link: ({ args, result }) => {
-    const suggestion = result as { suggestionId?: string };
+    const suggestion = result as {
+      suggestionId?: string;
+      suggestionIds?: string[];
+    };
     const resourceId =
       args.id ?? (result as { resourceId?: string }).resourceId;
     if (!suggestion.suggestionId || !resourceId) return null;
     return {
-      url: contentSuggestionPath(resourceId, suggestion.suggestionId),
-      label: "Open suggestion",
+      url: contentSuggestionReviewPath(
+        resourceId,
+        suggestion.suggestionIds ?? [suggestion.suggestionId],
+      ),
+      label: "Review suggestion",
     };
+  },
+  mcpApp: {
+    resource: embedApp({
+      title: "Review suggestion",
+      description:
+        "Show the suggested edit inline so the user can accept or reject it without leaving the conversation.",
+      iframeTitle: "Agent-Native Content",
+      openLabel: "Open in Content",
+      height: 520,
+    }),
   },
   run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
     if (!args.find) throw new Error("--find is required");
+    if (args.proposalId && !args.summary?.trim()) {
+      throw new ActionContractError(
+        "Appending to a proposal requires the same summary returned by its first suggested edit.",
+        { errorCode: "SUGGESTION_PROPOSAL_SUMMARY_REQUIRED", statusCode: 400 },
+      );
+    }
+    if (args.find === (args.replace ?? "")) {
+      throw new ActionContractError(
+        "The proposed replacement does not change the page.",
+        {
+          errorCode: "SUGGESTION_EDIT_NO_CHANGE",
+          statusCode: 400,
+        },
+      );
+    }
 
     const isExternalCaller =
       ctx?.caller === "tool" ||
@@ -183,9 +441,6 @@ export default defineAction({
     }
 
     const access = await resolveDocumentAccess(id);
-    // Mirror get-document's multi-organization resolver so the documented
-    // get-document → suggest-document-edit flow works for pages visible
-    // through a Content space in another organization.
     if (!access) {
       throw Object.assign(new Error(`Document "${id}" not found`), {
         statusCode: 404,
@@ -204,16 +459,15 @@ export default defineAction({
     }
     const existing = access.resource;
     const content = existing.content ?? "";
+    const suggestionContext = {
+      ...(ctx as ActionRunContext),
+      orgId:
+        access.authority?.orgId ?? existing.orgId ?? ctx?.orgId ?? undefined,
+    };
 
-    // A retried call with the same key must return the first receipt even when
-    // the page moved underneath it: rebuilding from current content would
-    // produce a different request hash and mask the original result. Only an
-    // identical find/replace edit counts as the same logical request.
     const effectiveSummary =
       args.summary?.trim() ||
-      (args.replace
-        ? `Replace "${args.find.slice(0, 80)}" with "${args.replace.slice(0, 80)}"`
-        : `Delete "${args.find.slice(0, 80)}"`);
+      findReplaceSuggestionSummary(args.find, args.replace ?? "");
     if (args.idempotencyKey) {
       await ensureSuggestionTables();
       const receipt = await getSuggestionByCreationKey(
@@ -230,8 +484,6 @@ export default defineAction({
           receipt.suggestion.resourceType !== "document" ||
           receipt.suggestion.resourceId !== id
         ) {
-          // The receipt may belong to a document this caller cannot read;
-          // never disclose its identity through a mismatch error.
           throw new ActionContractError(
             "This idempotencyKey was already used for a suggestion on a different page; use a fresh key.",
             {
@@ -241,6 +493,7 @@ export default defineAction({
           );
         }
         const sameEdit =
+          !args.proposalId &&
           receipt.suggestion.adapterKind === "content.document-markdown" &&
           (receipt.suggestion.operations?.length ?? 0) === 1 &&
           first?.targetId === "body" &&
@@ -273,46 +526,104 @@ export default defineAction({
           url: contentSuggestionPath(id, receipt.suggestion.id),
         };
       }
+      const groupedReceipt =
+        await getResourceSuggestionProposalByCreationKey.run(
+          { idempotencyKey: args.idempotencyKey },
+          suggestionContext,
+        );
+      if (groupedReceipt) {
+        const first = groupedReceipt.suggestions[0];
+        const sameEdit =
+          groupedReceipt.proposal.resourceType === "document" &&
+          groupedReceipt.proposal.resourceId === id &&
+          groupedReceipt.proposal.adapterKind === "content.document-markdown" &&
+          groupedReceipt.proposal.summary === effectiveSummary &&
+          (first?.metadata?.sourceProposalId ?? null) ===
+            (args.proposalId ?? null) &&
+          (!args.baseRevision || first?.baseRevision === args.baseRevision) &&
+          first?.metadata?.sourceFind === args.find &&
+          first?.metadata?.sourceReplace === (args.replace ?? "");
+        if (!first || !sameEdit) {
+          throw new ActionContractError(
+            "This idempotencyKey already created a different suggested edit; use a fresh key.",
+            {
+              errorCode: "SUGGESTION_EDIT_PROTOCOL_KEY_MISMATCH",
+              statusCode: 409,
+            },
+          );
+        }
+        return {
+          suggestionId: first.id,
+          suggestionIds: groupedReceipt.suggestions.map((item) => item.id),
+          proposalId: groupedReceipt.proposal.id,
+          status: first.status,
+          revision: first.revision,
+          threadId: first.threadId,
+          url: contentSuggestionPath(id, first.id),
+        };
+      }
     }
 
-    const resolved = resolveDocumentTextEdits(content, [
-      { find: args.find, replace: args.replace ?? "" },
-    ]);
+    const edit = { find: args.find, replace: args.replace ?? "" };
+    const resolved = (await isLiveBodyWriterPage(id))
+      ? resolveOnStoredForm(content, edit)
+      : resolveDocumentTextEdits(content, [edit]);
     if (!resolved.ok) rejectedFind(resolved.error);
     const range = resolved.ranges[0]!;
 
-    const operation = buildMarkdownSuggestionOperation({
-      content,
-      find: args.find,
-      replace: args.replace ?? "",
-      start: range.start,
-    });
+    // Where the stored form respells text beside the agent's change, the
+    // respelling is part of it: split into its own member, dropping an
+    // escape alone can turn the line into another block.
+    const operations =
+      range.find === edit.find && range.replace === edit.replace
+        ? markdownSuggestionOperationsForFindReplace({
+            before: content,
+            find: range.find,
+            replace: range.replace,
+            start: range.start,
+          })
+        : [markdownSuggestionOperation(content, resolved.content)].filter(
+            (operation) => operation !== null,
+          );
+    if (operations.length === 0) {
+      throw new ActionContractError(
+        "The proposed replacement does not change the page.",
+        {
+          errorCode: "SUGGESTION_EDIT_NO_CHANGE",
+          statusCode: 400,
+        },
+      );
+    }
 
     const summary = effectiveSummary;
 
-    const result = await createResourceSuggestion.run(
+    const grouped = await createResourceSuggestionProposal.run(
       {
         resourceType: "document",
         resourceId: id,
         adapterKind: "content.document-markdown",
-        // External callers pin the exact body they read; internal callers anchor
-        // to the body this action just resolved so the base is never stale-empty.
         baseRevision:
           args.baseRevision ||
           documentRevisionToken(existing.bodyRevision, content),
         summary,
+        proposalId: args.proposalId,
         idempotencyKey: args.idempotencyKey ?? crypto.randomUUID(),
-        operations: [operation],
+        suggestions: operations.map((operation, index) => ({
+          summary: markdownSuggestionOperationSummary(operation),
+          operations: [{ ...operation, ordinal: 0 }],
+          metadata:
+            index === 0
+              ? {
+                  sourceFind: args.find,
+                  sourceReplace: args.replace ?? "",
+                  sourceProposalId: args.proposalId ?? null,
+                }
+              : undefined,
+        })),
       },
-      // The document's own organization wins when it differs from the caller's
-      // active org, so the generic path's review access check resolves the same
-      // way the read above did.
-      {
-        ...(ctx as ActionRunContext),
-        orgId:
-          access.authority?.orgId ?? existing.orgId ?? ctx?.orgId ?? undefined,
-      },
+      suggestionContext,
     );
+    const first = grouped.suggestions[0]!;
 
     if (isExternalCaller) {
       track(
@@ -322,25 +633,21 @@ export default defineAction({
           template_name: "content",
           output_id: id,
           output_type: "document",
-          edit_count: 1,
+          edit_count: operations.length,
           refine_type: "suggested_edit",
         },
         ctx,
       );
     }
 
-    const suggestion = result as {
-      id: string;
-      status: string;
-      revision: number;
-      threadId: string;
-    };
     return {
-      suggestionId: suggestion.id,
-      status: suggestion.status,
-      revision: suggestion.revision,
-      threadId: suggestion.threadId,
-      url: contentSuggestionPath(id, suggestion.id),
+      suggestionId: first.id,
+      suggestionIds: grouped.suggestions.map((item) => item.id),
+      proposalId: grouped.proposal.id,
+      status: first.status,
+      revision: first.revision,
+      threadId: first.threadId,
+      url: contentSuggestionPath(id, first.id),
     };
   },
 });

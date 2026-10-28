@@ -9,7 +9,16 @@ const mocks = vi.hoisted(() => ({
   listWorkspaceApps: vi.fn(),
   currentOrgId: vi.fn((): string | null => null),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
+  delegatedOrgMember: false,
+  isOrgMember: vi.fn(async (_orgId: string, email: string) =>
+    email.toLowerCase().endsWith("@example.test"),
+  ),
   registerBuiltinEngines: vi.fn(),
+  dispatchConfig: {
+    adminEmails: [] as string[],
+    workspaceOwnerEmails: [] as string[],
+    defaultOwnerEmail: undefined as string | undefined,
+  },
 }));
 
 vi.mock("@agent-native/core/agent/engine", () => ({
@@ -19,6 +28,7 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   getAgentEngineEntry: vi.fn(() => null),
   isAgentEngineSettingConfigured: vi.fn(() => false),
   isStoredEngineUsable: vi.fn(() => false),
+  readDefaultAgentEngineSetting: (...args: any[]) => mocks.getSetting(...args),
   registerBuiltinEngines: () => mocks.registerBuiltinEngines(),
 }));
 
@@ -32,15 +42,63 @@ vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
 }));
 
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: (orgId: string, email: string) =>
+    mocks.isOrgMember(orgId, email),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  getAppConfig: () => ({ dispatch: mocks.dispatchConfig }),
+  getRequestContext: () =>
+    mocks.delegatedOrgMember
+      ? {
+          a2aIdentityAssurance: "org-member",
+          userEmail: mocks.currentOwnerEmail(),
+          orgId: mocks.currentOrgId(),
+        }
+      : undefined,
+  readOrgMemberRole: async (orgId: string, email: string) => {
+    const result = await mocks.execute({
+      sql: "SELECT role FROM org_members",
+      args: [orgId, email.toLowerCase()],
+    });
+    const role = result.rows[0]?.role;
+    if (mocks.delegatedOrgMember && (role === "owner" || role === "admin")) {
+      return "member";
+    }
+    return typeof role === "string" ? role : null;
+  },
+}));
+
 vi.mock("@agent-native/core/usage", () => ({
   builderCreditsFromCostCents: (cents: number) => cents / 4,
   getUsageSummary: (...args: any[]) => mocks.getUsageSummary(...args),
-  usageBillingForEngine: () => ({
-    unit: "usd",
-    label: "Estimated spend",
-    shortLabel: "Cost",
-    source: "estimated-provider-cost",
-  }),
+  usageBillingForEngine: (engineName?: string | null) =>
+    engineName === "builder"
+      ? {
+          unit: "builder-credits",
+          label: "Builder.io credit spend",
+          shortLabel: "Credits",
+          source: "builder-agent-credits",
+        }
+      : {
+          unit: "usd",
+          label: "Estimated spend",
+          shortLabel: "Cost",
+          source: "estimated-provider-cost",
+        },
+  MIXED_USAGE_BILLING: {
+    unit: "mixed",
+    label: "Builder credits and provider cost",
+    shortLabel: "Mixed",
+    source: "mixed-provider-usage",
+  },
+  UNKNOWN_USAGE_BILLING: {
+    unit: "unknown",
+    label: "Unknown billing unit",
+    shortLabel: "Unknown",
+    source: "unknown",
+  },
   isSelfScopedUsageRead: (ownerEmails: string[], viewerEmail: string) => {
     const viewer = viewerEmail.trim().toLowerCase();
     if (!viewer || ownerEmails.length !== 1) return false;
@@ -74,6 +132,10 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.currentOrgId.mockReturnValue(null);
   mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+  mocks.delegatedOrgMember = false;
+  mocks.dispatchConfig.adminEmails = [];
+  mocks.dispatchConfig.workspaceOwnerEmails = [];
+  mocks.dispatchConfig.defaultOwnerEmail = undefined;
 });
 
 describe("listDispatchUsageMetrics", () => {
@@ -92,6 +154,153 @@ describe("listDispatchUsageMetrics", () => {
     });
     expect(mocks.getUsageSummary).not.toHaveBeenCalled();
     expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
+  });
+
+  it.each(["customer@customer.example", "other@example.test"])(
+    "gives a non-admin the same lookup error whether or not %s is a member",
+    async (userEmail) => {
+      mocks.currentOrgId.mockReturnValue("org-a");
+      mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+      mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+
+      const error = await listDispatchUsageMetrics({
+        sinceDays: 7,
+        scope: "workspace",
+        userEmail,
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "usage_user_lookup_forbidden",
+        statusCode: 403,
+      });
+      expect((error as Error).message).toContain(
+        "own customer or billing actions",
+      );
+      expect(mocks.isOrgMember).not.toHaveBeenCalled();
+      expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+    },
+  );
+
+  it("treats a delegated owner as a member for another person's usage instead of reporting them outside the org", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.delegatedOrgMember = true;
+    mocks.execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    const error = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "workspace",
+      userEmail: "member@example.test",
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "usage_user_lookup_forbidden",
+      statusCode: 403,
+    });
+    expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
+  it("does not let a delegated org member read workspace usage as an owner", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.delegatedOrgMember = true;
+    mocks.execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    await expect(
+      listDispatchUsageMetrics({ scope: "workspace" }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "Only organization owners and admins can view workspace usage metrics.",
+    });
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes(
+          "SELECT email, role, joined_at",
+        ),
+      ),
+    ).toBe(false);
+    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+  });
+
+  it("does not let an environment admin assertion read workspace usage as an org member", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("platform-admin@example.test");
+    mocks.delegatedOrgMember = true;
+    mocks.dispatchConfig.adminEmails = ["platform-admin@example.test"];
+    mocks.execute.mockResolvedValue({ rows: [{ role: "owner" }] });
+
+    await expect(
+      listDispatchUsageMetrics({ scope: "workspace" }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "Only organization owners and admins can view workspace usage metrics.",
+    });
+    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+    expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
+  });
+
+  it("allows a configured deployment admin to view workspace metrics", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.dispatchConfig.workspaceOwnerEmails = ["Owner@Example.Test"];
+    mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+
+    const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
+
+    expect(metrics.access.viewerEmail).toBe("owner@example.test");
+    expect(metrics.access.role).toBe("member");
+  });
+
+  it("keeps legacy usage billing unknown without engine metadata", async () => {
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("unknown_calls")
+        ? { rows: [{ calls: 1, cost_x100: 1_000, unknown_calls: 1 }] }
+        : { rows: [] },
+    );
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 30,
+      scope: "me",
+    });
+
+    expect(metrics.billing.unit).toBe("unknown");
+    expect(mocks.getSetting).not.toHaveBeenCalled();
+  });
+
+  it("keeps known provider and Builder usage classified as mixed", async () => {
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("unknown_calls")
+        ? {
+            rows: [
+              {
+                calls: 2,
+                cost_x100: 2_000,
+                builder_calls: 1,
+                provider_calls: 1,
+                unknown_calls: 0,
+              },
+            ],
+          }
+        : { rows: [] },
+    );
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 30,
+      scope: "me",
+    });
+
+    expect(metrics.billing.unit).toBe("mixed");
+    expect(mocks.getSetting).not.toHaveBeenCalled();
   });
 
   it("returns empty metrics when usage storage bootstrap and reads fail", async () => {
@@ -290,6 +499,45 @@ describe("listDispatchUsageMetrics", () => {
     ).toBe(true);
   });
 
+  it("redirects a non-member userEmail to the app that owns customer data with a typed error", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const error = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "workspace",
+      userEmail: "customer@customer.example",
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "usage_user_not_org_member",
+      statusCode: 404,
+    });
+    expect((error as Error).message).toContain(
+      "customer@customer.example is not a member of this organization",
+    );
+    expect((error as Error).message).toContain(
+      "own customer or billing actions",
+    );
+    expect((error as Error).message).toContain("describe-workspace-apps");
+  });
+
   it("lets an app owner inspect aggregate adoption for their own app", async () => {
     const now = Date.now();
     mocks.currentOrgId.mockReturnValue("org-a");
@@ -467,9 +715,6 @@ describe("listDispatchUsageMetrics", () => {
         ),
       ),
     ).toBe(false);
-    // A workspace roll-up spans other members, so it must NOT admit rows whose
-    // organization is unknown — a member shared with another organization
-    // would otherwise have that spend claimed here.
     expect(
       mocks.execute.mock.calls.some(([query]) => {
         const sql = String((query as { sql?: string }).sql);
@@ -485,9 +730,6 @@ describe("listDispatchUsageMetrics", () => {
   });
 
   it("admits unattributed usage for a one-member workspace", async () => {
-    // selectedUserEmail is null here, but the effective owner list is exactly
-    // the viewer, so the read is self-scoped and must count their own
-    // unattributed spend.
     mocks.currentOrgId.mockReturnValue("org-a");
     mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
     mocks.getUsageSummary.mockResolvedValue(null);
@@ -758,7 +1000,7 @@ describe("listDispatchUsageMetrics", () => {
     ).toBe(true);
   });
 
-  it("returns monthly credits and workspace app creation rows from shared tables", async () => {
+  it("does not infer monthly credits from USD usage", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
     const firstUsageAt = Date.UTC(2026, 6, 1, 12);
@@ -853,7 +1095,7 @@ describe("listDispatchUsageMetrics", () => {
         month: "2026-07",
         ownerEmail: "member@example.test",
         costCents: 300,
-        credits: 75,
+        credits: null,
         calls: 2,
         chatCalls: 1,
         inputTokens: 40,
@@ -908,6 +1150,68 @@ describe("listDispatchUsageMetrics", () => {
         ownerEmail: "member@example.test",
         count: 2,
         appIds: ["app-one", "app-two"],
+      },
+    ]);
+  });
+
+  it("uses recorded Builder credits and estimates only unrecorded Builder rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00Z"));
+    const usageAt = Date.UTC(2026, 6, 1, 12);
+
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("AS builder_calls")) {
+        return {
+          rows: [{ builder_calls: 2, provider_calls: 0, unknown_calls: 0 }],
+        };
+      }
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+          ],
+        };
+      }
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
+        return {
+          rows: [
+            {
+              day_bucket: Math.floor(usageAt / 86_400_000),
+              owner_email: "owner@example.test",
+              cost_x100: 30_000,
+              builder_credits: 5,
+              builder_estimated_cost_x100: 400,
+              unclassified_calls: 0,
+              unpriced_builder_calls: 0,
+              calls: 2,
+              chat_calls: 1,
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({ scope: "workspace" });
+
+    expect(metrics.billing.unit).toBe("builder-credits");
+    expect(metrics.monthlyByUser).toMatchObject([
+      {
+        month: "2026-07",
+        ownerEmail: "owner@example.test",
+        costCents: 300,
+        credits: 6,
       },
     ]);
   });

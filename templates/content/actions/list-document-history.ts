@@ -9,6 +9,7 @@ import type {
   DocumentHistoryGroupKind,
   DocumentHistoryPage,
 } from "../shared/document-history.js";
+import { IMPORT_CONTENT_OPERATION } from "../shared/import/types.js";
 
 interface HistoryCursor {
   startedAt: string;
@@ -124,6 +125,17 @@ export default defineAction({
     const hasMore = rows.length > args.limit;
     const pageRows = rows.slice(0, args.limit);
     const last = pageRows[pageRows.length - 1];
+    const importSourceName = pageRows.some(
+      (row) => row.operation === IMPORT_CONTENT_OPERATION,
+    )
+      ? ((
+          await getDb()
+            .select({ sourceName: schema.documentImports.sourceName })
+            .from(schema.documentImports)
+            .where(eq(schema.documentImports.documentId, args.documentId))
+            .limit(1)
+        )[0]?.sourceName ?? null)
+      : null;
     return {
       groups: pageRows.map((row) => ({
         id: row.id,
@@ -132,6 +144,9 @@ export default defineAction({
         actorKind: row.actorKind as DocumentHistoryActorKind,
         origin: row.origin,
         operation: row.operation,
+        ...(row.operation === IMPORT_CONTENT_OPERATION
+          ? { importSourceName }
+          : {}),
         startedAt: row.startedAt as string,
         endedAt: row.endedAt as string,
         checkpointCount: row.checkpointCount,

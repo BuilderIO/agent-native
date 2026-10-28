@@ -86,6 +86,10 @@ description: "使い慣れた一貫性のある共有機能をフレームワー
 
 `admin` は NOT で所有権を変更します。共有付与とは異なり、リソースごとに所有者は依然として 1 人だけです。
 
+### グループ共有 {#group-grants}
+
+一部のリソースはグループ共有に対応しています。グループはリソースと同じ組織に属している必要があり、現在の各メンバーにそのリソースで選択した共有ロールが適用されます。グループでできることとできないことは、[組織、チーム、権限 → ユーザーグループ](/docs/organizations-teams-permissions#user-groups)を参照してください。
+
 ## 内容 {#covered}
 
 ユーザーが作成した作業を保存するすべてのテンプレートは、このモデルを使用します。具体的には:
@@ -120,10 +124,12 @@ description: "使い慣れた一貫性のある共有機能をフレームワー
 - ロールピッカーと削除コントロールを含む現在の許可のリスト。
 - 現在の表示設定を尊重するリンクのコピー ボタン。
 
+リソースを `Private` から `Organization` に変更すると、先に確認が表示されます。確認するまでは何も変わりません。キャンセルまたは Escape を押すと、現在のアクセスが維持されます。保存に失敗した場合、ダイアログにエラーが表示され、もう一度試せます。それ以外の可視性の変更はすぐに保存されます。この確認は共有 UI だけにあります。`set-resource-visibility` は変更されないため、エージェントやその他の呼び出し元はこれまでどおり可視性を直接変更でき、何が許可されるかは引き続きリソースの共有ポリシーが決めます。
+
 共有ボタンは単一のインポートです:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -132,6 +138,42 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 ```
 
 リストの場合、各行の横に `<VisibilityBadge visibility={row.visibility} />` をドロップすると、ユーザーが何がプライベートか共有かを一目で確認できるようになります。
+
+## 共有チャット {#shared-chats}
+
+エージェントのチャットスレッドも同じモデルを使います。新規または分岐したチャットは所有者のみに非公開で、チャットの共有は上記のルールに従います。
+
+履歴リストの各チャットには 2 つのフィールドがあり、行にチャットの所有者と、あなたに見える理由を表示できます。
+
+| フィールド    | 値                                                                                                                                           |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownerEmail`  | チャットの所有者。                                                                                                                           |
+| `accessBasis` | `owner`、`direct`（あなたの名前で付与された権限）、または `organization`。両方に該当する場合は `direct` が `organization` より優先されます。 |
+
+履歴リストと検索は `ownership` フィルターを受け付けます。
+
+- `all`（デフォルト）はアクセスできるすべてのチャットを一覧表示します。
+- `mine` は、組織と共有されている場合も含め、自分が所有するチャットを一覧表示します。
+- `shared` はアクセスできる、他の人が所有するチャットを一覧表示します。
+
+サーバーはページ分割の前に `ownership` を適用するため、`limit`、`offset`、`hasMore` はフィルター後のリストを表します。検索も同じフィルターを受け付けます。不明な値は `all` にフォールバックせず、400 で拒否されます。アクセスルールは変わらず、一覧表示でトランスクリプトが読み込まれることはありません。
+
+移行時の注意: 履歴一覧や検索を独自に呼び出す場合は、`limit` に正の整数、`offset` に非負の整数を指定するか、省略して既定値を使用してください。不正な形式の値は自動変換されず、HTTP 400 を返すようになりました。200 を超える有効な `limit` は 200 に制限されます。
+
+クライアントコードでは、`@agent-native/core/client` の `useChatThreadList()` が一度に 1 つのリストをページ分割して取得します。
+
+```tsx
+import { useChatThreadList } from "@agent-native/core/client";
+
+const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
+// shared.threads, shared.hasMore, shared.loadMore(), shared.error
+```
+
+`refreshOnThreadUpdates` の既定値は `true` です。`false` にすると、`notifyChatThreadsUpdated()` による再取得を無効にできます。初回読み込み、手動の `refresh()`、ページ分割、Activity 再開後の再読み込みは引き続き機能します。このオプションを変更しても読み込み済みの行は保持され、変更だけでリクエストが発生することはありません。
+
+リクエストが失敗すると `error` が設定され、すでに読み込まれた行は保持されます。空のリストに見えることはありません。`<ShareButton>` と `<ShareDialog>` は、保存後にマウント中のチャットリストを更新します。それ以外の方法でチャットの共有を変更した場合は、`notifyChatThreadsUpdated()` を呼び出して、マウント中のリストを再取得させてください。
+
+ピン留めは個人ごとです。共有チャットでも `pinnedAt` は呼び出し元のピン留めを示し、一覧と検索はこの値で並びます。`useChatThreads().pinThread(id, pinned)` は変更ありません。両フックは共有チャット用の `hideThread(id, hidden)` を提供します。非表示のチャットは `includeHidden: true` の場合のみ表示され、一覧と単一取得には本人の `hiddenAt` が含まれます。IDやリンクからは引き続き開けます。所有者は非表示ではなくアーカイブを使用します。名前変更とアーカイブは所有者のみ可能です。非表示の拒否は `ChatThreadMutationError`（`status`: 所有者は403、アクセス権なしは404）、成功は `true` です。HTTPは `POST /_agent-native/agent-chat/threads/:id/hide` に `{ hidden: boolean }` を渡し、一覧・検索は `includeHidden=1` を使用します。`chat-history` は `pin`、`unpin`、`hide`、`unhide` と `includeHidden: true` の検索に対応します。アクセス取消後は保存された状態も表示されず、チャット削除時に状態も削除されます。
 
 ## 同じモデル、エージェント、UI {#agent-and-ui}
 
@@ -321,3 +363,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**Authentication**](/docs/authentication) — セッション、組織、リクエストコンテキストへの ID の流れ
 - [**Extensions**](/docs/extensions#sharing) — サンドボックス化されたミニアプリサーフェスでの共有
 - [**Creating Templates**](/docs/creating-templates) — 新しいテンプレートのスキーマへの `ownableColumns` の組み込み
+
+## 共有チャット履歴
+
+`@agent-native/toolkit/app/chat/ownership-history` は、自分のチャットと共有されたチャットを別々に表示するサイドバー向けに `useOwnershipChatHistory()` と `OwnershipChatHistoryRail` を提供します。共有行には所有者とアクセス根拠が表示されます。各セクションは個別にページングされ、更新に失敗しても読み込み済みの行とローカル変更が保持されます。
+
+アクティブな空の下書きは、初回保存の完了を待つ間も選択して実行できます。保存が確認されるまでは、ピン留め、名前変更、アーカイブの操作を非表示にしてください。アダプターはこれらのコールバックが強制的に呼び出された場合も拒否します。`ownDraftRows` は所有する下書きの保存状態の根拠を提供し、サーバー一覧で所有が確認された行では通常の操作を引き続き利用できます。独自の `OwnDraftRow` 値では、サーバーに保存済みで現在のユーザーが所有することが確認された行に限り、任意の `persisted?: boolean` を `true` に設定します。メッセージ数やアクティブ ID から保存状態を推測しないでください。役割、プライバシー、アクティブな下書きが空であることは、それぞれ別の情報です。

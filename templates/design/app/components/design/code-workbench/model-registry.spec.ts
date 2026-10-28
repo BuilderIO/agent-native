@@ -1,16 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * model-registry.ts owns dirty tracking + external content application for
- * every open workbench buffer, but it does so against the real
- * `monaco-editor` package, which cannot load under vitest's default `node`
- * environment (see editor/StatusBar.test.ts for the same constraint). These
- * tests fake just enough of the `monaco-editor` module surface that
- * model-registry.ts touches — model creation/lookup, alternative version ids,
- * `pushEditOperations`, and `onDidChangeContent` — to exercise the real
- * dirty-tracking and external-content-replacement logic in isolation.
- */
-
 interface FakeRange {
   __range: true;
 }
@@ -54,8 +43,6 @@ class FakeModel {
     return { __range: true };
   }
 
-  /** Mirrors real Monaco: applies the edit and fires listeners synchronously
-   *  before returning, all still inside the alt-version-id bump. */
   pushEditOperations(
     _selections: unknown,
     edits: FakeEditOperation[],
@@ -69,8 +56,6 @@ class FakeModel {
     return null;
   }
 
-  /** Test helper simulating real user typing (bypasses pushEditOperations'
-   *  edit-list shape but fires the same synchronous notification contract). */
   simulateUserEdit(nextValue: string): void {
     this.value = nextValue;
     this.altVersionId += 1;
@@ -166,14 +151,6 @@ describe("WorkbenchModelRegistry", () => {
     });
 
     it("does not report dirty to a listener observing the synchronous pushEditOperations callback", () => {
-      // Regression test: Monaco's onDidChangeContent fires synchronously from
-      // inside pushEditOperations, before applyExternalContent updates
-      // savedAltVersionId on the next line. A dirty-tracking subscriber that
-      // ignores isApplyingExternalContent would see a stale isDirty()=true at
-      // that instant, even though the change was programmatic (an agent
-      // edit or a reload), not a real user edit. This is exactly the bug
-      // class that caused preview tabs to get incorrectly pinned when the
-      // agent edited a previewed file.
       const uri = makeUri("e.txt");
       const entry = modelRegistry.ensureModel(uri, "hello", "plaintext");
       const model = entry.model as unknown as FakeModel;
@@ -197,9 +174,6 @@ describe("WorkbenchModelRegistry", () => {
         observedDirty.push(modelRegistry.isDirty(uri));
       });
       modelRegistry.applyExternalContent(uri, "hello from the agent");
-      // A fast keystroke landing immediately after the external update must
-      // still be recognized as a real, dirty edit — it must not be swallowed
-      // as if it were part of the echo.
       model.simulateUserEdit("hello from the agent!");
       expect(observedDirty).toEqual([true]);
       expect(modelRegistry.isDirty(uri)).toBe(true);
@@ -232,10 +206,6 @@ describe("WorkbenchModelRegistry", () => {
     });
 
     it("does not overwrite an already-open model's content on repeat calls", () => {
-      // ensureModel is a "get or create": once a model exists, later calls
-      // (e.g. re-opening an already-open tab) must never silently discard
-      // whatever is currently in the buffer — reloadContent is the only
-      // sanctioned way to force a content replacement.
       const uri = makeUri("i.txt");
       const entry = modelRegistry.ensureModel(
         uri,

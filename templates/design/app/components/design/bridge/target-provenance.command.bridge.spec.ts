@@ -84,12 +84,17 @@ function runCommandFromHitTest(
   targetContent = destinationHtml,
 ) {
   const writes = new Map<string, string>();
+  const currentContentByScreenId = new Map([
+    ["source", sourceHtml],
+    ["target", targetContent],
+  ]);
   const historyEntries: unknown[] = [];
   runCrossScreenElementDrop(
     {
       applyFileContentUpdate: (fileId, content) => {
         const prepared = prepareCanonicalSourceContent(content, { fileId });
         writes.set(fileId, prepared.content);
+        currentContentByScreenId.set(fileId, prepared.content);
         return {
           status: "accepted",
           content: prepared.content,
@@ -102,7 +107,7 @@ function runCommandFromHitTest(
       codeLayerOwnerByNodeIdRef: { current: new Map() },
       designSourceType: "inline",
       getScreenContent: (screenId) =>
-        screenId === "source" ? sourceHtml : targetContent,
+        currentContentByScreenId.get(screenId) ?? "",
       id: undefined,
       overviewScreens: [
         {
@@ -171,8 +176,6 @@ describe("hit-test target provenance through the cross-screen command", () => {
           placement: "before",
         });
 
-        // A host may omit the optional pending ID while retaining the exact,
-        // revision-proven structural anchor selector from the hit-test reply.
         const { writes, historyEntries } = runCommandFromHitTest(packet, {
           duplicate: false,
           includePendingNodeId,

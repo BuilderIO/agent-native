@@ -19,16 +19,11 @@ import {
   AddResolutionError,
 } from "./add.js";
 
-/**
- * The real shipped blueprints directory: `packages/core/blueprints`. This file
- * lives at `src/cli/add.spec.ts`, so the package root is two levels up.
- */
 const REPO_BLUEPRINTS = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../blueprints",
 );
 
-/** Capture stdout/stderr passed through the injectable IO shim. */
 function capture() {
   let out = "";
   let err = "";
@@ -102,7 +97,6 @@ describe("add — shipped blueprints", () => {
       });
       expect(resolved.source).toMatchObject({ kind: "curated", name });
       expect(resolved.markdown).toContain("# Blueprint:");
-      // Each blueprint must reference the verification step and forbid secrets.
       expect(resolved.markdown.toLowerCase()).toContain("verify");
     }
   });
@@ -117,14 +111,10 @@ describe("resolveBlueprintsRoot", () => {
     const root = resolveBlueprintsRoot();
     expect(fs.existsSync(root)).toBe(true);
     expect(path.basename(root)).toBe("blueprints");
-    // The source resolver result must equal the real shipped directory.
     expect(path.resolve(root)).toBe(path.resolve(REPO_BLUEPRINTS));
   });
 
   it("works when the module is two levels under the package root (dist layout)", () => {
-    // Simulate the published layout: <pkg>/blueprints + <pkg>/dist/cli, and
-    // confirm the `../../blueprints` resolution (with upward-walk fallback)
-    // finds it. We assert via the override-free upward walk using a temp tree.
     const pkg = fs.mkdtempSync(path.join(os.tmpdir(), "an-pkg-"));
     tmpDirs.push(pkg);
     fs.mkdirSync(path.join(pkg, "blueprints", "provider"), { recursive: true });
@@ -134,8 +124,6 @@ describe("resolveBlueprintsRoot", () => {
     );
     fs.mkdirSync(path.join(pkg, "dist", "cli"), { recursive: true });
 
-    // The resolver walks up from the module dir; emulate by resolving relative
-    // to the simulated dist/cli location.
     const distCli = path.join(pkg, "dist", "cli");
     const viaRelative = path.resolve(distCli, "../../blueprints");
     expect(fs.existsSync(viaRelative)).toBe(true);
@@ -184,7 +172,6 @@ describe("resolveBlueprint", () => {
     expect(resolved.source).toMatchObject({ kind: "generic-url", url });
     expect(resolved.markdown).toContain(url);
     expect(resolved.markdown).toContain("Research seed");
-    // The provider generic guidance must mention the provider-api substrate.
     expect(resolved.markdown).toContain("provider-api");
   });
 
@@ -324,7 +311,6 @@ describe("runAdd (CLI entry)", () => {
     const code = runAdd(["bogus", "thing"], { ...c.io, root: root() });
     expect(code).toBe(1);
     expect(c.err).toContain("Unknown blueprint kind");
-    // The error must list what IS available.
     expect(c.err).toContain("provider");
     expect(c.out).toBe("");
   });

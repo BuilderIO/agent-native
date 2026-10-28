@@ -91,9 +91,6 @@ describe("delete-pin script", () => {
   });
 
   it("resolves without throwing for a malformed id (FileStore.delete() swallows the 'Invalid pin ID' error internally)", async () => {
-    // Unlike update-pin, FileStore.delete() computes the (validated) file
-    // path *inside* its own try/catch, so an invalid id is caught silently
-    // rather than propagating — this documents that asymmetry.
     chdirTmp();
     await expect(deletePin(["--id", "../escape"])).resolves.toBeUndefined();
   });

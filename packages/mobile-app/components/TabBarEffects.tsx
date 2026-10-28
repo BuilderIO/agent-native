@@ -1,4 +1,3 @@
-import { BlurView } from "expo-blur";
 import {
   createContext,
   useContext,
@@ -12,6 +11,8 @@ import {
   withSpring,
   type SharedValue,
 } from "react-native-reanimated";
+
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 const MINIMIZE_SPRING = { duration: 380, dampingRatio: 1 };
 
@@ -73,57 +74,18 @@ export function useMinimizeOnScroll() {
   });
 }
 
-type ProgressiveBlurProps = ViewProps & {
-  intensity?: number;
-  direction?: "top" | "bottom";
-};
-
-const BLUR_HEIGHTS = [
-  "100%",
-  "88%",
-  "76%",
-  "64%",
-  "54%",
-  "44%",
-  "36%",
-  "28%",
-  "22%",
-  "16%",
-] as const;
-
-export function ProgressiveBlur({
-  style,
-  intensity = 5,
-  direction = "top",
-  ...props
-}: ProgressiveBlurProps) {
-  const anchor = direction === "top" ? { top: 0 } : { bottom: 0 };
+export function TabBarBackgroundFade({ style, ...props }: ViewProps) {
+  const { background } = useMobileThemeColors();
   return (
-    <View pointerEvents="none" style={style} {...props}>
-      {BLUR_HEIGHTS.map((height) => (
-        <BlurView
-          intensity={intensity}
-          key={height}
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            height,
-            ...anchor,
-          }}
-          tint="dark"
-        />
-      ))}
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          experimental_backgroundImage: `linear-gradient(to ${direction === "top" ? "bottom" : "top"}, rgba(0,0,0,0.70) 0%, rgba(0,0,0,0.32) 42%, rgba(0,0,0,0.08) 68%, rgba(0,0,0,0) 88%)`,
-        }}
-      />
-    </View>
+    <View
+      {...props}
+      pointerEvents="none"
+      style={[
+        style,
+        {
+          experimental_backgroundImage: `linear-gradient(to top, ${background} 0%, transparent 100%)`,
+        },
+      ]}
+    />
   );
 }

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
@@ -17,6 +18,14 @@ export function favoritesSystemIds(userEmail: string) {
     personalContentSpaceId(normalizeContentSpaceEmail(userEmail)),
     "favorites",
   );
+}
+
+export function favoriteMembershipId(userEmail: string, documentId: string) {
+  const favoritesDatabaseId = favoritesSystemIds(userEmail).databaseId;
+  return `content_database_item_${createHash("sha256")
+    .update(`${favoritesDatabaseId}:${documentId}`)
+    .digest("hex")
+    .slice(0, 32)}`;
 }
 
 export async function favoriteDocumentIds(
@@ -38,6 +47,24 @@ export async function favoriteDocumentIds(
   return new Set(rows.map((row: { documentId: string }) => row.documentId));
 }
 
+export async function favoriteMembershipIds(
+  db: Db,
+  userEmail: string,
+  documentId: string,
+): Promise<string[]> {
+  const favoritesDatabaseId = favoritesSystemIds(userEmail).databaseId;
+  const rows = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, favoritesDatabaseId),
+        eq(schema.contentDatabaseItems.documentId, documentId),
+      ),
+    );
+  return rows.map((row: { id: string }) => row.id);
+}
+
 export async function setFavoriteMembership(args: {
   db: Db;
   userEmail: string;
@@ -48,7 +75,12 @@ export async function setFavoriteMembership(args: {
   const email = normalizeContentSpaceEmail(args.userEmail);
   const favoritesDatabaseId = favoritesSystemIds(email).databaseId;
   const [existing] = await args.db
-    .select({ id: schema.contentDatabaseItems.id })
+    .select({
+      id: schema.contentDatabaseItems.id,
+      position: schema.contentDatabaseItems.position,
+      createdAt: schema.contentDatabaseItems.createdAt,
+      updatedAt: schema.contentDatabaseItems.updatedAt,
+    })
     .from(schema.contentDatabaseItems)
     .where(
       and(
@@ -63,19 +95,46 @@ export async function setFavoriteMembership(args: {
         .delete(schema.contentDatabaseItems)
         .where(eq(schema.contentDatabaseItems.id, existing.id));
     }
-    return false;
+    return {
+      favorite: false,
+      changed: Boolean(existing),
+      membershipId:
+        existing?.id ?? favoriteMembershipId(email, args.documentId),
+      previous: existing ?? null,
+    };
   }
-  if (existing) return true;
+  if (existing)
+    return {
+      favorite: true,
+      changed: false,
+      membershipId: existing.id,
+      previous: existing,
+    };
 
+  // Trash, restore and permanent delete read and rewrite a page's
+  // memberships while they hold its row, and nothing else stops a favorite
+  // being added meanwhile: no collection lock covers Favorites. Outside a
+  // transaction this lock ends before the insert, so callers run this in one.
+  // A save locks the membership before the page, so a removal must not take
+  // this lock, and a caller holding the page locks the membership first.
+  // guard:allow-unscoped — the caller already access-checked the page; this waits out its lifecycle writes.
+  const [page] = await args.db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, args.documentId))
+    .for("share");
+  if (!page) {
+    throw new ActionContractError("Document not found.", {
+      errorCode: "DOCUMENT_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
   const [position] = await args.db
     .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, favoritesDatabaseId));
-  const id = `content_database_item_${createHash("sha256")
-    .update(`${favoritesDatabaseId}:${args.documentId}`)
-    .digest("hex")
-    .slice(0, 32)}`;
-  await args.db
+  const id = favoriteMembershipId(email, args.documentId);
+  const inserted = await args.db
     .insert(schema.contentDatabaseItems)
     .values({
       id,
@@ -87,6 +146,12 @@ export async function setFavoriteMembership(args: {
       createdAt: args.now,
       updatedAt: args.now,
     })
-    .onConflictDoNothing();
-  return true;
+    .onConflictDoNothing()
+    .returning({ id: schema.contentDatabaseItems.id });
+  return {
+    favorite: true,
+    changed: inserted.length > 0,
+    membershipId: id,
+    previous: null,
+  };
 }

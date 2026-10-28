@@ -44,8 +44,6 @@ describe("agent-native API surface switch", () => {
   });
 
   it("refuses a keepalive save without reaching the network", () => {
-    // Callers keep the work queued on `accepted: false`; a throw here would
-    // instead surface as a failed save that retries forever.
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     setAgentNativeApiDisabled("builder shell canvas");

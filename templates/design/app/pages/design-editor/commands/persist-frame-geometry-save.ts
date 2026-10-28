@@ -33,7 +33,7 @@ export interface PersistFrameGeometrySaveArgs {
   journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
   pendingFrameGeometryOperationsForUnloadRef: RefObject<PendingDesignDataOperations>;
   queryClient: QueryClient;
-  warnChangesWillRetry: () => void;
+  reportSaveFailure: (error: unknown) => void;
 }
 
 export function runPersistFrameGeometrySave(
@@ -49,7 +49,7 @@ export function runPersistFrameGeometrySave(
     journalOutboxEntry,
     pendingFrameGeometryOperationsForUnloadRef,
     queryClient,
-    warnChangesWillRetry,
+    reportSaveFailure,
   }: PersistFrameGeometrySaveArgs,
   pending: {
     geometryById: CanvasFrameGeometryById;
@@ -58,10 +58,6 @@ export function runPersistFrameGeometrySave(
   keepalive = false,
 ): boolean {
   if (!id || !canEditDesignRef.current) return false;
-  // Geometry-persist guard: refuse absurd per-frame geometry (see
-  // sanitizeCanvasFrameGeometryForPersist) so a corrupted transient
-  // zoom basis can never shred the persisted layout. The board frame
-  // is exempt — its surface is a legitimate 131k square.
   const { geometryById: safeGeometryById } =
     sanitizeCanvasFrameGeometryForPersist(
       pending.geometryById,
@@ -96,7 +92,7 @@ export function runPersistFrameGeometrySave(
     if (!attempt.accepted) return false;
     void attempt.completion
       .then(() => acknowledgeOutboxEntry(entry))
-      .catch(warnChangesWillRetry);
+      .catch(reportSaveFailure);
     return true;
   }
   if (dataOperations.length === 0) return true;

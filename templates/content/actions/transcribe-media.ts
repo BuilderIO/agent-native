@@ -1,7 +1,11 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { defineAction } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
@@ -16,6 +20,7 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
 import {
   assertAudioHasAudibleSignal,
   prepareAudioOnlyTranscriptionMedia,
@@ -355,8 +360,9 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
         `Builder transcription failed: ${builderError}. Groq fallback failed: ${groqError}`,
       );
     }
-    throw new Error(
-      `No media transcription provider is available. Connect Builder.io (free tier available) in Settings -> File uploads or configure GROQ_API_KEY. ${groqError}`,
+    fail(
+      `No media transcription provider is available. Use Builder.io (free tier available) in Settings -> File uploads or configure GROQ_API_KEY. ${groqError}`,
+      { errorCode: "transcription_provider_unavailable", statusCode: 424 },
     );
   }
 }
@@ -367,12 +373,14 @@ async function applyTranscriptToDocument({
   mediaType,
   placeholderText,
   transcript,
+  ctx,
 }: {
   documentId: string;
   mediaUrl: string;
   mediaType: MediaType;
   placeholderText?: string;
   transcript: string;
+  ctx: ActionRunContext | undefined;
 }): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
   const freshAccess = await assertAccess("document", documentId, "editor");
   const freshDoc = freshAccess.resource;
@@ -380,11 +388,6 @@ async function applyTranscriptToDocument({
   const content = freshDoc.content ?? "";
   let nextContent: string | null = null;
 
-  // Replace the placeholder if present; otherwise insert after the media block.
-  // The transcript reaches the live editor through the normal change-sync:
-  // update-document bumps updatedAt and the open editor reconciles the newer
-  // content into the Y.Doc (see the `real-time-collab` skill). No localhost
-  // collab push — that silently no-oped on serverless.
   if (placeholderText && content.includes(placeholderText)) {
     nextContent = content.replace(placeholderText, transcript);
   } else {
@@ -397,6 +400,12 @@ async function applyTranscriptToDocument({
   }
 
   if (nextContent && nextContent !== content) {
+    const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
+      cause: { ctx, operation: "transcribe-media" },
+      base: content,
+      candidate: nextContent,
+    });
+    if (wroteLiveCopy) return { sqlUpdated: true, collabUpdated: true };
     await updateDocument.run({ id: documentId, content: nextContent });
     return { sqlUpdated: true, collabUpdated: false };
   }
@@ -424,7 +433,7 @@ export default defineAction({
         "Exact placeholder text inside the already-created Transcript toggle. When provided, this action replaces it with the transcript.",
       ),
   }),
-  run: async ({ documentId, mediaUrl, mediaType, placeholderText }) => {
+  run: async ({ documentId, mediaUrl, mediaType, placeholderText }, ctx) => {
     const access = await assertAccess("document", documentId, "editor");
     assertMediaUrlInDocument({
       content: (access.resource.content as string | null) ?? "",
@@ -452,6 +461,7 @@ export default defineAction({
       mediaType,
       placeholderText,
       transcript,
+      ctx,
     });
 
     return {

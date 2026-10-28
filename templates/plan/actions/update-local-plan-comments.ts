@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -61,9 +61,10 @@ export default defineAction({
   },
   run: async (args) => {
     if (!isLocalPlanRuntime()) {
-      throw new Error(
-        "Local plan comments are only available in local Plan runtime.",
-      );
+      fail("Local plan comments are only available in local Plan runtime.", {
+        errorCode: "local_plan_runtime_required",
+        statusCode: 412,
+      });
     }
 
     const local = await readPlanLocalFolder({
@@ -78,8 +79,6 @@ export default defineAction({
       existing.map((comment) => [comment.id, comment]),
     );
 
-    // New comments (and replies) reuse the hosted row-builder for id minting,
-    // thread linkage, and metadata; existing ids fall through to the edit path.
     const inserts = args.comments.filter(
       (comment) => !comment.id || !existingById.has(comment.id),
     );
@@ -96,7 +95,6 @@ export default defineAction({
       now,
     });
     for (const row of insertedRows) {
-      // Local comments are always a one-way note to the agent.
       merged.set(row.id, {
         id: row.id,
         planId: row.planId,

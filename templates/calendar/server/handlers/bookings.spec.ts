@@ -103,11 +103,6 @@ describe("booking availability", () => {
   });
 
   it("offers no slots for a schedule window entirely inside a spring-forward DST gap", () => {
-    // 2026-03-08 is the US spring-forward transition: America/New_York
-    // clocks jump from 01:59:59 EST straight to 03:00:00 EDT, so a
-    // configured 02:00-03:00 window has no real wall-clock time in it.
-    // Pin "now" ahead of the outer beforeEach's July date so the
-    // notice/advance-window check doesn't also exclude these March slots.
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const config: AvailabilityConfig = {
       ...availabilityConfig(),
@@ -156,9 +151,6 @@ describe("booking availability", () => {
       conflictItems: [],
     });
 
-    // The window's real span is 01:30 EST to 04:00 EDT, i.e. 1.5 real hours
-    // (06:30Z-08:00Z) — 3 slots, none of them inside the nonexistent
-    // 02:00-03:00 local window.
     expect(slots.map((slot) => ({ start: slot.start, end: slot.end }))).toEqual(
       [
         { start: "2026-03-08T06:30:00.000Z", end: "2026-03-08T07:00:00.000Z" },
@@ -169,12 +161,6 @@ describe("booking availability", () => {
   });
 
   it("offers a slot after a non-hour DST gap instead of discarding the window", () => {
-    // 2026-10-04 is Australia/Lord_Howe's spring-forward transition, which
-    // advances clocks by only 30 minutes (01:59:59 -> 02:30:00), unlike most
-    // zones' 60-minute jump. A window starting inside that gap must resolve
-    // to the real 30-minute shift, not a hardcoded hour — otherwise the
-    // corrected start lands after the window's own (valid) end and the whole
-    // window is wrongly discarded.
     vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
     const config: AvailabilityConfig = {
       ...availabilityConfig(),
@@ -197,7 +183,6 @@ describe("booking availability", () => {
       conflictItems: [],
     });
 
-    // Real span is 02:30-02:45 local (15 real minutes) — one 15-minute slot.
     expect(slots.map((slot) => ({ start: slot.start, end: slot.end }))).toEqual(
       [{ start: "2026-10-03T15:30:00.000Z", end: "2026-10-03T15:45:00.000Z" }],
     );
@@ -230,12 +215,6 @@ describe("booking availability", () => {
   });
 
   it("does not discard an otherwise-valid day when a peer's padding day is skipped", () => {
-    // The owner's own day (2011-12-31, UTC) is perfectly valid. But scanning
-    // a peer host's schedule pads +/-1 day and walks calendar-date strings
-    // in the peer's own time zone (Pacific/Apia) to cover it, which passes
-    // straight through "2011-12-30" — a date string that zone's whole-day
-    // skip has no matching offset for. That padding day should simply
-    // contribute no schedule window, not blow up the owner's entire day.
     vi.setSystemTime(new Date("2011-11-01T00:00:00.000Z"));
     const fullWeek = {
       monday: { enabled: true, slots: [{ start: "00:00", end: "23:59" }] },
@@ -588,10 +567,6 @@ describe("booking availability", () => {
       calendars: {},
       errors: [{ email: "host@example.com", error: "invalid_grant" }],
     });
-    // getConflictItems fetches freeBusy and listEvents in parallel for
-    // performance, but the freeBusy-error path must still take priority and
-    // discard any listEvents data — even when listEvents "succeeds" with
-    // events that would otherwise produce conflict items.
     vi.mocked(googleCalendar.listEvents).mockResolvedValue({
       events: [
         {

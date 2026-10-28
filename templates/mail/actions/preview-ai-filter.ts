@@ -2,12 +2,13 @@ import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   aiFilterPreviewEmailSchema,
+  aiFilterPreviewFailureSchema,
   aiFilterPreviewMatchSchema,
   aiFilterPreviewRuleSchema,
 } from "@shared/ai-filter.js";
+import { aiPriorityEmailKey } from "@shared/ai-priority.js";
 import { z } from "zod";
 
-import { getAiFilterState } from "../server/lib/ai-filter.js";
 import { previewAutomationRules } from "../server/lib/automation-engine.js";
 import { listAutomationRules } from "../server/lib/automations.js";
 
@@ -29,30 +30,35 @@ export default defineAction({
     const emails = args.emails.filter(
       (email) => !email.isArchived && !email.isTrashed,
     );
-    const state = await getAiFilterState(ownerEmail);
-
     if (rules.length === 0 || emails.length === 0) {
       return {
         model: null,
+        evaluatedCount: 0,
+        failedCount: 0,
+        failures: [],
         rules,
         emails: emails.map((email) => ({ ...email, matches: [] })),
       };
     }
 
-    const { matches, model } = await previewAutomationRules(
-      emails,
-      rules,
-      ownerEmail,
-      state,
-    );
+    const evaluation = await previewAutomationRules(emails, rules, ownerEmail);
     return {
-      model,
+      model: evaluation.model,
+      evaluatedCount: evaluation.evaluatedCount,
+      failedCount: evaluation.failedCount,
+      failures: z
+        .array(aiFilterPreviewFailureSchema)
+        .parse(evaluation.failures),
       rules,
       emails: emails.map((email) => ({
         ...email,
         matches: z
           .array(aiFilterPreviewMatchSchema)
-          .parse(matches.get(email.id) ?? []),
+          .parse(
+            evaluation.matches.get(
+              aiPriorityEmailKey(email.accountEmail, email.id),
+            ) ?? [],
+          ),
       })),
     };
   },

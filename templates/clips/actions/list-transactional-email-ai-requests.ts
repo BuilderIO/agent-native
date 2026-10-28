@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray, ne, or } from "drizzle-orm";
+import { and, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -19,6 +20,9 @@ const MAX_CLAIMS = 10;
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 600;
 export const MAX_TRANSCRIPT_EXCERPT_LENGTH = 1_200;
+// boundedText collapses whitespace before slicing, so the SQL prefix must be
+// far longer than the excerpt or whitespace-heavy transcripts come back short.
+const TRANSCRIPT_FETCH_LENGTH = 20_000;
 
 export type TransactionalEmailContextPacket = {
   recordingId: string;
@@ -78,9 +82,6 @@ async function claimantMayClaim(
   if (normalizeEmail(job.requestedBy) !== claimantEmail) return false;
 
   const db = getDb();
-  // Resolve private/public/share access through one projected query. Org-visible
-  // rows use the authoritative by-ID resolver below so owner, membership,
-  // explicit-share, and federation semantics stay identical.
   const [accessibleCandidates, directShares, countedViews] = await Promise.all([
     db
       .select({
@@ -150,6 +151,7 @@ async function loadContextPackets(
   job: TransactionalEmailJob,
   enabledAt: string,
   accessCache: Map<string, Promise<boolean>>,
+  claimantEmail: string,
 ): Promise<
   [TransactionalEmailContextPacket, TransactionalEmailContextPacket] | null
 > {
@@ -163,6 +165,8 @@ async function loadContextPackets(
         title: schema.recordings.title,
         description: schema.recordings.description,
         visibility: schema.recordings.visibility,
+        ownerEmail: schema.recordings.ownerEmail,
+        expiresAt: schema.recordings.expiresAt,
       })
       .from(schema.recordings)
       .where(
@@ -186,7 +190,9 @@ async function loadContextPackets(
     db
       .select({
         recordingId: schema.recordingTranscripts.recordingId,
-        fullText: schema.recordingTranscripts.fullText,
+        fullText: sql<
+          string | null
+        >`left(${schema.recordingTranscripts.fullText}, ${TRANSCRIPT_FETCH_LENGTH})`,
       })
       .from(schema.recordingTranscripts)
       .where(
@@ -210,7 +216,13 @@ async function loadContextPackets(
       ),
   ]);
   const recordings = await filterFederatedRecordingAccess(
-    recordingCandidates,
+    recordingCandidates.filter(
+      (recording) =>
+        !isRecordingExpiredForViewer({
+          expiresAt: recording.expiresAt,
+          viewerIsOwner: normalizeEmail(recording.ownerEmail) === claimantEmail,
+        }),
+    ),
     accessCache,
   );
 
@@ -266,12 +278,13 @@ export async function claimTransactionalEmailAiRequests(
 ): Promise<{ requests: ClaimedTransactionalEmailAiRequest[] }> {
   const claimant = normalizeEmail(claimantEmail);
   const claimLimit = Math.min(Math.max(limit, 1), MAX_CLAIMS);
-  const config = await transactionalEmailStore.readConfig();
+  const [config, claimCandidates] = await Promise.all([
+    transactionalEmailStore.readConfig(),
+    transactionalEmailStore.listAiClaimCandidates(claimant),
+  ]);
   if (!config) return { requests: [] };
   const staleBefore = new Date(Date.now() - AI_DISPATCH_STALE_MS);
-  const candidates = (
-    await transactionalEmailStore.listJobs(["awaiting_ai", "ai_dispatched"])
-  ).filter(
+  const candidates = claimCandidates.filter(
     (job) =>
       isAiBackedType(job.type) &&
       (job.state === "awaiting_ai" ||
@@ -290,6 +303,7 @@ export async function claimTransactionalEmailAiRequests(
       candidate,
       config.enabledAt,
       accessCache,
+      claimant,
     );
     if (!contextPackets) continue;
     const claimed =

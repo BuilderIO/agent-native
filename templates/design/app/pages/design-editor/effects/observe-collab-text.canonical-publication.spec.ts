@@ -7,7 +7,10 @@ import { runPublishCanonicalContent } from "@/pages/design-editor/commands/publi
 import type { PendingLocalFileContent } from "@/pages/design-editor/editor-state";
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 
-import { runObserveCollabText } from "./observe-collab-text";
+import {
+  runObserveCollabText,
+  type ObserveCollabTextArgs,
+} from "./observe-collab-text";
 
 const FILE_ID = "screen-canonical-publication";
 const BEFORE =
@@ -212,6 +215,82 @@ describe("runObserveCollabText canonical publication", () => {
       content: userContent,
       startedAt: 1,
     });
+  });
+
+  it("lets remote collaboration remain authoritative while an upload save is pending", () => {
+    const doc = new Y.Doc();
+    const text = doc.getText("content");
+    text.insert(0, BEFORE);
+    const uploadContent = BEFORE.replace("Before", "Uploaded image pending");
+    const pendingLocalFileContentsRef = {
+      current: new Map<string, PendingLocalFileContent>([
+        [
+          FILE_ID,
+          {
+            content: uploadContent,
+            startedAt: 1,
+            deferCollabReconcile: true,
+          },
+        ],
+      ]),
+    };
+    const latestActiveContentRef = { current: BEFORE as string | null };
+    const lastLocalContentRef = { current: BEFORE as string | null };
+    const collabContentRef = { current: null as string | null };
+    const collabContentFileIdRef = { current: null as string | null };
+    const renderRevisionRef = { current: 0 };
+    const replacePreviewContent = vi.fn(() => "applied" as const);
+    const remoteSource = BEFORE.replace("Before", "Remote title");
+    const remoteCanonical = prepareCanonicalSourceContent(remoteSource, {
+      fileId: FILE_ID,
+      fileType: "html",
+    }).content;
+    const observeArgs: ObserveCollabTextArgs = {
+      activeFileId: FILE_ID,
+      agentActive: true,
+      documentFileContentRef: { current: null },
+      documentFileUpdatedAtRef: { current: null },
+      fileType: "html",
+      isSynced: true,
+      lastAppliedFileContentRef: { current: BEFORE },
+      lastAppliedFileUpdatedAtRef: { current: null },
+      lastLocalContentRef,
+      latestActiveContentRef,
+      pendingLocalFileContentsRef,
+      publishCanonicalContent: (_fileId, source, fileType) =>
+        prepareCanonicalSourceContent(source, {
+          fileId: FILE_ID,
+          fileType,
+        }).content,
+      recordExternalContentHistoryCheckpoint: vi.fn(),
+      replacePreviewContent,
+      setCollabContent: (next) => setRef(collabContentRef, next),
+      setCollabContentFileId: (next) => setRef(collabContentFileIdRef, next),
+      setContentRenderRevision: (next) => setRef(renderRevisionRef, next),
+      setHoveredElement: vi.fn(),
+      setSelectedElement: vi.fn(),
+      undoManagerRef: { current: null },
+      ydoc: doc,
+    };
+    const cleanup = runObserveCollabText(observeArgs);
+
+    doc.transact(() => {
+      text.delete(0, text.length);
+      text.insert(0, remoteSource);
+    }, "remote-agent-update");
+
+    expect(text.toJSON()).toBe(remoteSource);
+    expect(latestActiveContentRef.current).toBe(remoteCanonical);
+    expect(lastLocalContentRef.current).toBe(remoteCanonical);
+    expect(collabContentRef.current).toBe(remoteCanonical);
+    expect(collabContentFileIdRef.current).toBe(FILE_ID);
+    expect(replacePreviewContent).toHaveBeenCalledWith(remoteCanonical, null, {
+      forceFullDocument: true,
+    });
+    expect(latestActiveContentRef.current).not.toBe(uploadContent);
+
+    cleanup?.();
+    doc.destroy();
   });
 
   it("does not canonicalize URL-backed or non-HTML sources", () => {

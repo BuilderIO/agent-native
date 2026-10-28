@@ -108,6 +108,13 @@ beforeEach(() => {
 });
 
 describe("toggle-slide-comment-reaction", () => {
+  it("announces its change to every collaborator on the deck", () => {
+    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
+  });
+
   it("adds a reaction with commenter access and returns viewer state", async () => {
     const result = await run({
       commentId: "comment-1",

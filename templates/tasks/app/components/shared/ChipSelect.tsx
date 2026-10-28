@@ -223,7 +223,7 @@ export function ChipSelect({
               variant="ghost"
               size="sm"
               disabled={disabled || availableOptions.length === 0 || atLimit}
-              className="h-8 gap-1.5 px-2"
+              className="gap-1.5 px-2"
             >
               {resolvedAddButtonLabel}
               <IconChevronDown className="size-4" />

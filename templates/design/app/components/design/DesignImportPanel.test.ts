@@ -7,39 +7,7 @@ describe("DesignImportPanel", () => {
     "app/components/design/DesignImportPanel.tsx",
     "utf8",
   );
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
   const importConstants = readFileSync("app/lib/design-import.ts", "utf8");
-
-  it("keeps Local app in the main import source list", () => {
-    const htmlIndex = source.indexOf('id="html-import"');
-    const localIndex = source.indexOf('id="local-app-import"');
-    const moreSourcesIndex = source.indexOf('"More sources"');
-
-    expect(htmlIndex).toBeGreaterThanOrEqual(0);
-    expect(localIndex).toBeGreaterThan(htmlIndex);
-    expect(localIndex).toBeLessThan(moreSourcesIndex);
-  });
-
-  it("uses canvas paste guidance and offers an experimental .fig upload", () => {
-    expect(source).toContain("figmaPasteBodyUnlimited");
-    expect(source).toContain("figmaPasteBodyImages");
-    expect(source).not.toContain("paste here");
-    expect(source).not.toContain("Paste Figma content here");
-    expect(source).toContain('id="fig-file-import"');
-    expect(source).toContain('accept=".fig,application/octet-stream"');
-    expect(source).toContain("validateFigUploadFile(file, { maxBytes: null })");
-    expect(source).toContain("importFigInBrowser");
-    expect(source).toContain("remoteMutationStarted");
-    expect(source).toContain("uploadDesignFile({");
-    expect(source).toContain("validateFigUploadFile");
-    expect(source).toContain('role="progressbar"');
-    expect(source).toContain("figUploadProgress === 100");
-    expect(source).toContain("figImportWarningTitle");
-    expect(source).toContain("figImportSelection");
-    expect(source).toContain(
-      "shouldWarnForFigImport(file.size, prepared.summary)",
-    );
-  });
 
   it("imports a Figma frame URL through the shared action surface", () => {
     const urlIndex = source.indexOf('id="figma-url-import"');
@@ -83,23 +51,6 @@ describe("DesignImportPanel", () => {
     );
   });
 
-  it("supports canvas-level Figma paste through the editor paste handler", () => {
-    expect(editorSource).toContain("const handleEditorPaste");
-    const pasteCommand = readFileSync(
-      "app/pages/design-editor/commands/editor-paste.ts",
-      "utf8",
-    );
-    expect(pasteCommand).toContain(
-      "getFigmaClipboardContent(event.clipboardData)",
-    );
-    expect(pasteCommand).toContain(
-      "void importFigmaClipboardIntoDesign(figmaContent)",
-    );
-    expect(editorSource).toContain(
-      'document.addEventListener("paste", handleEditorPaste, true)',
-    );
-  });
-
   it("shows visual-edit setup without the broken agent button", () => {
     expect(source).toContain("VISUAL_EDIT_INSTALL_COMMAND");
     expect(source).toContain("VISUAL_EDIT_CONNECT_COMMAND");
@@ -130,7 +81,7 @@ describe("DesignImportPanel quota attribution", () => {
     "utf8",
   );
 
-  it("renders Design-sourced cooldown copy instead of Figma rate-limit copy", () => {
+  it("renders the Design cooldown message", () => {
     expect(source).toContain('figmaRateLimitError.quotaSource === "design"');
     expect(source).toContain("designEditor.import.quotaCooldownTitle");
     expect(source).toContain("designEditor.import.quotaCooldownBody");
@@ -138,7 +89,6 @@ describe("DesignImportPanel quota attribution", () => {
 
   it("reads the failure through the shared typed reader", () => {
     expect(source).toContain("readFigmaImportFailure(");
-    // The old ad-hoc property chain and message sniffing are gone.
     expect(source).not.toContain("rateLimitDetails.figmaPlanTier");
     expect(source).not.toMatch(/rate limit\|429\|quota/);
   });

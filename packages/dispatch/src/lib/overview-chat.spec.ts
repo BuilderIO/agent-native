@@ -28,6 +28,7 @@ describe("submitOverviewPrompt", () => {
   it("can submit to a mounted page chat without opening the sidebar", () => {
     const tabId = submitOverviewPrompt(" build a metrics app ", "auto", {
       openSidebar: false,
+      reuseEmptyTab: true,
       selectedEngine: "openai",
       selectedEffort: "high",
     });
@@ -37,6 +38,7 @@ describe("submitOverviewPrompt", () => {
       message: "build a metrics app",
       submit: true,
       newTab: true,
+      reuseEmptyTab: true,
       model: "auto",
       engine: "openai",
       effort: "high",

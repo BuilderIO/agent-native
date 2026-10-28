@@ -11,6 +11,7 @@ import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
 } from "../vite/agent-native-config-loader.js";
+import { readHostedHarnessBuildConfig } from "./hosted-harness-build-mode.js";
 
 export interface HostedHarnessPolicy {
   enabled: boolean;
@@ -30,6 +31,9 @@ export function isHostedHarnessEnvEnabled(
 export async function loadHostedHarnessConfig(
   cwd = process.cwd(),
 ): Promise<AgentNativeHarnessSetting | undefined> {
+  const build = readHostedHarnessBuildConfig();
+  if (build.recorded) return build.value;
+
   const production = process.env.NODE_ENV === "production";
   const config = await loadResolvedAgentNativeConfig(
     cwd,
@@ -51,8 +55,6 @@ export async function resolveHostedHarnessPolicy(options: {
     ? await getOrgSetting(options.orgId, HOSTED_HARNESS_ORG_SETTING_KEY)
     : null;
   const envEnabled = isHostedHarnessEnvEnabled();
-  // The deployment flag is the fleet-level default. An org setting is only
-  // needed when a deployment has not enabled the hosted harness globally.
   const organizationEnabled =
     envEnabled || organizationSetting?.enabled === true;
   const configEnabled = isHostedHarnessConfigured(config);

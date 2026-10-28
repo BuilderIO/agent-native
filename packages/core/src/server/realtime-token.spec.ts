@@ -48,7 +48,6 @@ describe("realtime-token mint endpoint", () => {
     mockSameOrigin.mockReturnValue(true);
     mockGetSession.mockResolvedValue({ email: "alice@example.com" });
     mockGetOrgContext.mockResolvedValue({ orgId: "org-1" });
-    // Async scoped resolver — proves the endpoint uses it, not a sync env read.
     mockResolveProjectId.mockResolvedValue("proj_scoped");
     mockRegisteredChannel.mockResolvedValue(null);
   });
@@ -77,7 +76,6 @@ describe("realtime-token mint endpoint", () => {
   it("marks every response uncacheable (private, no-store)", async () => {
     const ok = await invoke({ method: "GET" });
     expect(ok.e.headers["Cache-Control"]).toBe("private, no-store");
-    // ...including early-return paths.
     mockGetSession.mockResolvedValueOnce(null);
     const unauth = await invoke({ method: "GET" });
     expect(unauth.e.status).toBe(401);
@@ -109,7 +107,6 @@ describe("realtime-token mint endpoint", () => {
   });
 
   it("never self-registers for a pipeline app missing only its secret", async () => {
-    // A resolved project id means Builder already has this app's database.
     delete process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET;
     mockRegisteredChannel.mockResolvedValue({
       channelId: "rt_selfregistered",

@@ -7,8 +7,6 @@ import {
   SELECTION_TEXT_LIMIT,
 } from "./content-selection";
 
-// Minimal doc/heading/paragraph/text schema — enough to exercise the block and
-// heading lookups without pulling in the full editor.
 const schema = new Schema({
   nodes: {
     doc: { content: "block+" },
@@ -18,6 +16,15 @@ const schema = new Schema({
       attrs: { level: { default: 1 } },
     },
     paragraph: { group: "block", content: "text*" },
+    registryBlock: {
+      group: "block",
+      atom: true,
+      attrs: {
+        blockType: { default: null },
+        blockId: { default: null },
+        __raw: { default: null },
+      },
+    },
     text: {},
   },
   marks: {},
@@ -35,8 +42,6 @@ function mkDoc(
   );
 }
 
-/** Locate a text node's ProseMirror range by its content, so tests don't have
- *  to hand-compute open/close token offsets across sibling blocks. */
 function findTextRange(
   doc: PMNode,
   needle: string,
@@ -59,7 +64,6 @@ describe("captureBlockContext", () => {
       { type: "heading", text: "Section One" },
       { type: "paragraph", text: "Hello world foo" },
     ]);
-    // Position inside the paragraph's text ("world").
     const pos = doc.content.size - 5;
     const { blockText, heading } = captureBlockContext(doc, pos);
     expect(blockText).toBe("Hello world foo");
@@ -98,8 +102,6 @@ describe("buildContentSelectionPayload", () => {
     expect(payload.collapsed).toBe(false);
     expect(payload.selectedText).toBe("world");
     expect(payload.textTruncated).toBe(false);
-    // captureAnchor flattens text across block boundaries (see
-    // comment-anchors.ts), so the prefix can include the prior block's text.
     expect(payload.prefix).toBe("IntroHello ");
     expect(payload.suffix).toBe(" foo");
     expect(payload.heading).toBe("Intro");
@@ -115,5 +117,71 @@ describe("buildContentSelectionPayload", () => {
     const payload = buildContentSelectionPayload(doc, "doc1", from, to);
     expect(payload.textTruncated).toBe(true);
     expect(payload.selectedText).toHaveLength(SELECTION_TEXT_LIMIT);
+  });
+});
+
+describe("a selected block", () => {
+  function docWithClip(raw: string) {
+    return schema.node("doc", null, [
+      schema.node("heading", null, schema.text("Demo")),
+      schema.node("registryBlock", {
+        blockType: "clip-embed",
+        blockId: "clip-embed-1a2b3c4d",
+        __raw: raw,
+      }),
+      schema.node("paragraph", null, schema.text("After")),
+    ]);
+  }
+
+  function clipRange(doc: PMNode) {
+    let range: { from: number; to: number } | null = null;
+    doc.descendants((node, pos) => {
+      if (node.type.name === "registryBlock") {
+        range = { from: pos, to: pos + node.nodeSize };
+      }
+    });
+    return range!;
+  }
+
+  it("names a selected Clip block and the recording it plays", () => {
+    const doc = docWithClip(
+      '<ClipEmbed id="clip-embed-old" recordingId="rec_1" origin="link" />',
+    );
+    const { from, to } = clipRange(doc);
+    const payload = buildContentSelectionPayload(doc, "doc1", from, to);
+    expect(payload).toMatchObject({
+      documentId: "doc1",
+      collapsed: false,
+      selectedBlock: {
+        blockType: "clip-embed",
+        blockId: "clip-embed-1a2b3c4d",
+        recordingId: "rec_1",
+      },
+      heading: "Demo",
+    });
+    expect(payload.selectedText).toBeUndefined();
+  });
+
+  it("leaves out a recording id it can't read", () => {
+    const doc = docWithClip("<ClipEmbed />");
+    const { from, to } = clipRange(doc);
+    const payload = buildContentSelectionPayload(doc, "doc1", from, to);
+    expect(payload.selectedBlock).toEqual({
+      blockType: "clip-embed",
+      blockId: "clip-embed-1a2b3c4d",
+    });
+  });
+
+  it("doesn't call a text selection that runs over a block a selected block", () => {
+    const doc = docWithClip(
+      '<ClipEmbed id="x" recordingId="rec_1" origin="link" />',
+    );
+    const payload = buildContentSelectionPayload(
+      doc,
+      "doc1",
+      1,
+      doc.content.size - 1,
+    );
+    expect(payload.selectedBlock).toBeUndefined();
   });
 });

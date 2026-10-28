@@ -3,14 +3,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const installationStoreMocks = vi.hoisted(() => ({
   getActiveIntegrationInstallationByKey: vi.fn(),
 }));
+const fileUploadMocks = vi.hoisted(() => ({
+  findFileUploadProviderOwningUrl: vi.fn(),
+}));
 
 vi.mock("../installations-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../installations-store.js")>()),
   getActiveIntegrationInstallationByKey:
     installationStoreMocks.getActiveIntegrationInstallationByKey,
 }));
+vi.mock("../../file-upload/registry.js", () => ({
+  findFileUploadProviderOwningUrl:
+    fileUploadMocks.findFileUploadProviderOwningUrl,
+}));
 
-import { slackAdapter } from "./slack.js";
+import { resolveSlackBotTokenForIncoming, slackAdapter } from "./slack.js";
 
 const originalNodeEnv = process.env.NODE_ENV;
 
@@ -20,6 +27,7 @@ describe("slackAdapter", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     installationStoreMocks.getActiveIntegrationInstallationByKey.mockReset();
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockReset();
     process.env.NODE_ENV = originalNodeEnv;
     delete process.env.SLACK_BOT_TOKEN;
     delete process.env.SLACK_ALLOWED_TEAM_IDS;
@@ -112,9 +120,8 @@ describe("slackAdapter", () => {
       senderVerified: false,
       actorTrust: { memberType: "unknown", verified: false },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Immediately after the failure, the short negative cache absorbs retries.
     await adapter.hydrateIncomingIdentity?.({
       platform: "slack",
       externalThreadId: "A777:T777:D777:1.2",
@@ -125,10 +132,8 @@ describe("slackAdapter", () => {
       platformContext: { teamId: "T777" },
       timestamp: Date.now(),
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // Well before the 10-minute positive TTL, the lookup is re-attempted, so
-    // a transient users.info blip cannot fail-close this sender's identity.
     vi.setSystemTime(Date.now() + 31_000);
     await adapter.hydrateIncomingIdentity?.({
       platform: "slack",
@@ -139,6 +144,48 @@ describe("slackAdapter", () => {
       conversationType: "dm",
       platformContext: { teamId: "T777" },
       timestamp: Date.now(),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries a transient users.info transport failure before declining identity", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("cold Slack connection"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            user: {
+              name: "alice",
+              profile: {
+                email: "alice@example.test",
+                real_name: "Alice Example",
+              },
+            },
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = slackAdapter({
+      resolveBotToken: async () => "xoxb-example-not-real",
+    });
+
+    await expect(
+      adapter.hydrateIncomingIdentity?.({
+        platform: "slack",
+        externalThreadId: "A779:T779:D779:1.2",
+        text: "hello",
+        senderId: "U779",
+        tenantId: "T779",
+        conversationType: "dm",
+        platformContext: { teamId: "T779" },
+        timestamp: Date.now(),
+      }),
+    ).resolves.toMatchObject({
+      senderEmail: "alice@example.test",
+      senderVerified: true,
+      actorTrust: { memberType: "member", verified: true },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -775,6 +822,99 @@ describe("slackAdapter", () => {
     expect(calls).toEqual(["/api/auth.test", "/api/bots.info"]);
   });
 
+  it("hydrates a cached app-less token identity when a later event supplies an app id", async () => {
+    process.env.SLACK_BOT_TOKEN = "cache-hydration-token";
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url).pathname;
+        calls.push(path);
+        if (path.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T-CACHE", bot_id: "B-CACHE" }),
+          );
+        }
+        return new Response(
+          JSON.stringify({ ok: true, bot: { app_id: "A-CACHE" } }),
+        );
+      }),
+    );
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "T-CACHE:D-CACHE:1.2",
+      text: "hello",
+      tenantId: "T-CACHE",
+      timestamp: 1,
+      platformContext: { teamId: "T-CACHE" },
+    } as const;
+
+    await expect(resolveSlackBotTokenForIncoming(incoming)).resolves.toBe(
+      "cache-hydration-token",
+    );
+    await expect(
+      resolveSlackBotTokenForIncoming({
+        ...incoming,
+        platformContext: { teamId: "T-CACHE", apiAppId: "A-CACHE" },
+      }),
+    ).resolves.toBe("cache-hydration-token");
+    expect(calls).toEqual(["/api/auth.test", "/api/bots.info"]);
+  });
+
+  it("retries cached app-id hydration after a transient bots.info failure", async () => {
+    process.env.SLACK_BOT_TOKEN = "cache-hydration-retry-token";
+    const calls: string[] = [];
+    let botAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const path = new URL(url).pathname;
+        calls.push(path);
+        if (path.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T-RETRY", bot_id: "B-RETRY" }),
+          );
+        }
+        botAttempts += 1;
+        return new Response(
+          JSON.stringify(
+            botAttempts === 1
+              ? { ok: false, error: "temporarily_unavailable" }
+              : { ok: true, bot: { app_id: "A-RETRY" } },
+          ),
+        );
+      }),
+    );
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "T-RETRY:D-RETRY:1.2",
+      text: "hello",
+      tenantId: "T-RETRY",
+      timestamp: 1,
+      platformContext: { teamId: "T-RETRY" },
+    } as const;
+
+    await expect(resolveSlackBotTokenForIncoming(incoming)).resolves.toBe(
+      "cache-hydration-retry-token",
+    );
+    const appIncoming = {
+      ...incoming,
+      platformContext: { teamId: "T-RETRY", apiAppId: "A-RETRY" },
+    } as const;
+    await expect(
+      resolveSlackBotTokenForIncoming(appIncoming),
+    ).resolves.toBeUndefined();
+    await expect(resolveSlackBotTokenForIncoming(appIncoming)).resolves.toBe(
+      "cache-hydration-retry-token",
+    );
+    expect(calls).toEqual([
+      "/api/auth.test",
+      "/api/bots.info",
+      "/api/auth.test",
+      "/api/bots.info",
+    ]);
+  });
+
   it("hydrates bounded thread context, reactions, file references, and trust", async () => {
     const calls: URL[] = [];
     vi.stubGlobal(
@@ -1015,7 +1155,6 @@ describe("slackAdapter", () => {
         channel: "C123",
         thread_ts: "111.222",
         task_display_mode: "plan",
-        markdown_text: "I’m looking into this for you.",
         chunks: [
           {
             type: "plan_update",
@@ -1058,15 +1197,35 @@ describe("slackAdapter", () => {
       ]),
     );
     expect(
+      requests.filter((request) => request.method === "chat.appendStream"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          body: expect.not.objectContaining({
+            markdown_text: expect.anything(),
+          }),
+        }),
+      ]),
+    );
+    expect(
       requests.find((request) => request.method === "chat.stopStream"),
     ).toMatchObject({
       method: "chat.stopStream",
       body: {
         channel: "C123",
         ts: "999.000",
-        markdown_text: "Report complete.",
+        session_status: "closed",
+        chunks: expect.arrayContaining([
+          {
+            type: "markdown_text",
+            text: "Report complete.",
+          },
+        ]),
       },
     });
+    expect(
+      requests.find((request) => request.method === "chat.stopStream")?.body,
+    ).not.toHaveProperty("markdown_text");
   });
 
   it("resumes a Slack stream without starting a second task card", async () => {
@@ -1142,7 +1301,53 @@ describe("slackAdapter", () => {
     expect(
       requests.find((request) => request.method === "chat.stopStream"),
     ).toMatchObject({
-      body: expect.objectContaining({ ts: "999.003" }),
+      body: expect.objectContaining({
+        ts: "999.003",
+        session_status: "closed",
+      }),
+    });
+  });
+
+  it("closes a Slack stream session when terminal delivery fails", async () => {
+    const requests: Array<{ method: string; body: Record<string, any> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = new URL(url).pathname.split("/").at(-1)!;
+        requests.push({
+          method,
+          body: init?.body ? JSON.parse(String(init.body)) : {},
+        });
+        return new Response(
+          JSON.stringify(
+            method === "chat.startStream"
+              ? { ok: true, ts: "999.004" }
+              : { ok: true },
+          ),
+        );
+      }),
+    );
+    const progress = await slackAdapter({
+      resolveBotToken: async () => "managed-token",
+    }).startRunProgress?.({
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "build it",
+      senderId: "U123",
+      tenantId: "T123",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "111.222" },
+    });
+
+    await progress?.fail("The request failed.");
+
+    expect(
+      requests.find((request) => request.method === "chat.stopStream"),
+    ).toMatchObject({
+      body: expect.objectContaining({
+        ts: "999.004",
+        session_status: "closed",
+      }),
     });
   });
 
@@ -1868,6 +2073,243 @@ describe("slackAdapter", () => {
     expect(deliveryBodies).toHaveLength(1);
     expect(deliveryBodies[0].text).toBe("Response");
     expect(deliveryBodies[0].blocks).toEqual(blocks);
+  });
+
+  it("posts HTTPS Markdown images as Slack image blocks with their alt text", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue({
+      id: "builder",
+    });
+    const adapter = slackAdapter();
+    const formatted = adapter.formatAgentResponse?.(
+      "Before ![chart](https://example.test/chart.png) after ![private](http://example.test/private.png)",
+    );
+
+    expect(formatted?.text).not.toContain("https://example.test/chart.png");
+    expect(formatted?.text).toContain(
+      "!<http://example.test/private.png|private>",
+    );
+    expect(formatted?.platformContext.imageUrls).toEqual([
+      { url: "https://example.test/chart.png", alt: "chart" },
+    ]);
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+    await adapter.sendResponse?.(formatted!, {
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      text: "request",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "123.456" },
+    });
+    expect(delivered[0].blocks).toContainEqual(
+      expect.objectContaining({
+        type: "image",
+        image_url: "https://example.test/chart.png",
+        alt_text: "chart",
+      }),
+    );
+  });
+
+  it("sends image-only Markdown replies once as a Slack image block", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue({
+      id: "builder",
+    });
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage"))
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+    const adapter = slackAdapter();
+    const formatted = adapter.formatAgentResponse?.(
+      "![QR code](https://example.test/qr.png)",
+    )!;
+    await adapter.sendResponse?.(formatted, {
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      text: "request",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "123.456" },
+    });
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].text).toBe("QR code");
+    expect(delivered[0].blocks).toEqual([
+      {
+        type: "image",
+        image_url: "https://example.test/qr.png",
+        alt_text: "QR code",
+      },
+    ]);
+  });
+
+  it("builds first-message sections from the first chunk and preserves auxiliary blocks", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryBodies: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage")) {
+          deliveryBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+
+    const responseText = `${"first chunk ".repeat(450)}follow-up chunk`;
+    const blocks = [
+      { type: "section", text: { type: "mrkdwn", text: "full response" } },
+      {
+        type: "image",
+        image_url: "https://example.test/chart.png",
+        alt_text: "chart",
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Open thread" },
+            url: "https://example.test/thread",
+          },
+        ],
+      },
+    ];
+    await slackAdapter().sendResponse(
+      { text: responseText, platformContext: { blocks } },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "request",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(deliveryBodies).toHaveLength(2);
+    const firstSections = deliveryBodies[0].blocks.filter(
+      (block: any) => block.type === "section",
+    );
+    expect(firstSections[0].text.text.length).toBeLessThanOrEqual(3000);
+    expect(responseText.startsWith(firstSections[0].text.text)).toBe(true);
+    expect(
+      firstSections.map((block: any) => block.text.text).join(""),
+    ).not.toContain("follow-up chunk");
+    expect(deliveryBodies[0].blocks).toContainEqual(
+      expect.objectContaining({ type: "image", alt_text: "chart" }),
+    );
+    expect(deliveryBodies[0].blocks).toContainEqual(
+      expect.objectContaining({ type: "actions" }),
+    );
+    expect(deliveryBodies[1].text).toContain("follow-up chunk");
+    expect(deliveryBodies[1].blocks).toBeUndefined();
+  });
+
+  it("keeps unowned Markdown image URLs as links instead of loading them", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue(null);
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage"))
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+
+    const adapter = slackAdapter();
+    await adapter.sendResponse?.(
+      adapter.formatAgentResponse?.(
+        "![external](https://outside.example.test/image.png)",
+      )!,
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "request",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(
+      fileUploadMocks.findFileUploadProviderOwningUrl,
+    ).toHaveBeenCalledWith("https://outside.example.test/image.png");
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].text).toContain(
+      "Image: https://outside.example.test/image.png",
+    );
+    expect(delivered[0].blocks).not.toContainEqual(
+      expect.objectContaining({ type: "image" }),
+    );
+    expect(delivered[0].unfurl_media).toBe(false);
+  });
+
+  it("caps image blocks at Slack's 50-block limit", async () => {
+    fileUploadMocks.findFileUploadProviderOwningUrl.mockResolvedValue({
+      id: "builder",
+    });
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const delivered: any[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("chat.postMessage"))
+          delivered.push(JSON.parse(String(init?.body ?? "{}")));
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, ts: "123.456" })),
+        );
+      }),
+    );
+    const reply = Array.from(
+      { length: 55 },
+      (_, index) => `![Image ${index}](https://example.test/${index}.png)`,
+    ).join(" ");
+
+    await slackAdapter().sendResponse?.(
+      slackAdapter().formatAgentResponse?.(reply)!,
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "request",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].blocks).toHaveLength(50);
+    expect(
+      delivered[0].blocks.every((block: any) => block.type === "image"),
+    ).toBe(true);
+  });
+
+  it("does not send oversized Markdown image URLs as image blocks", async () => {
+    const formatted = slackAdapter().formatAgentResponse?.(
+      `![large](https://example.test/${"a".repeat(3_000)})`,
+    );
+
+    expect(formatted?.platformContext).not.toHaveProperty("imageUrls");
+    expect(formatted?.text).toContain("https://example.test/");
   });
 
   it("splits Slack section blocks by UTF-8 bytes, not JS character length", async () => {

@@ -1,14 +1,6 @@
-/**
- * hydrate-figma-paste-images.spec.ts
- *
- * Covers:
- *  - collectImageRefHashes: scan HTML for data-figma-image-ref hashes
- *  - hydrateImageRefsInHtml: replace url("about:blank") with real URLs in order
- *  - Action routing: no-refs early return, full resolution, partial resolution,
- *    no-figmaFileKey guard, Figma-returns-empty guard
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const mocks = vi.hoisted(() => ({
   db: {
@@ -51,7 +43,6 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
-// db query chain builder that always resolves to whatever rows array is set
 let dbRows: unknown[] = [];
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
@@ -83,10 +74,6 @@ import {
   hydrateImageRefsInHtml,
 } from "./hydrate-figma-paste-images.js";
 import action from "./hydrate-figma-paste-images.js";
-
-// ---------------------------------------------------------------------------
-// Pure HTML helpers
-// ---------------------------------------------------------------------------
 
 describe("collectImageRefHashes", () => {
   it("returns empty array for HTML with no data-figma-image-ref attrs", () => {
@@ -205,10 +192,6 @@ describe("hydrateImageRefsInHtml", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Action integration (with mocks)
-// ---------------------------------------------------------------------------
-
 const FILE_KEY = "testFileKey123";
 
 const SCREEN_METADATA_ROW = {
@@ -266,7 +249,12 @@ describe("hydrate-figma-paste-images action", () => {
 
     const result = await action.run({ fileId: "file-1" });
 
-    expect(result).toMatchObject({ resolved: 0, missing: 0, skipped: 0 });
+    expect(result).toMatchObject({
+      resolved: 0,
+      missing: 0,
+      skipped: 0,
+      _receipt: designOutputWriteReceipt("design-1", 0),
+    });
     expect(mocks.resolveImageFillRefs).not.toHaveBeenCalled();
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
   });
@@ -283,7 +271,11 @@ describe("hydrate-figma-paste-images action", () => {
 
     const result = await action.run({ fileId: "file-1" });
 
-    expect(result).toMatchObject({ resolved: 1, missing: 0 });
+    expect(result).toMatchObject({
+      resolved: 1,
+      missing: 0,
+      _receipt: designOutputWriteReceipt("design-1", 1),
+    });
     expect(mocks.resolveImageFillRefs).toHaveBeenCalledWith(FILE_KEY, [
       "abc123",
     ]);
@@ -305,7 +297,11 @@ describe("hydrate-figma-paste-images action", () => {
 
     const result = await action.run({ fileId: "file-1" });
 
-    expect(result).toMatchObject({ resolved: 0, missing: 1 });
+    expect(result).toMatchObject({
+      resolved: 0,
+      missing: 1,
+      _receipt: designOutputWriteReceipt("design-1", 0),
+    });
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
   });

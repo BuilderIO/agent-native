@@ -2,6 +2,7 @@ import {
   table,
   text,
   integer,
+  bigint,
   now,
   ownableColumns,
   createSharesTable,
@@ -19,8 +20,12 @@ export const documents = table("documents", {
   content: text("content").notNull().default(""),
   bodyRevision: integer("body_revision").notNull().default(0),
   collabBodyRevision: integer("collab_body_revision"),
-  // Stable semantic guidance for this page. Ancestry is computed at read time;
-  // never copy a parent's description here.
+  liveBodySwitchedAt: text("live_body_switched_at"),
+  // Set when someone sent the page back to its legacy writer, so the backfill
+  // leaves it there; a switch to the live copy clears it.
+  liveBodyOptedOutAt: text("live_body_opted_out_at"),
+  // `_collab_docs.version` the stored body was last derived from.
+  liveCopyVersion: integer("live_copy_version"),
   description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),
@@ -31,12 +36,42 @@ export const documents = table("documents", {
   sourcePath: text("source_path"),
   sourceRootPath: text("source_root_path"),
   sourceUpdatedAt: text("source_updated_at"),
+  creationRequestDigest: text("creation_request_digest"),
+  creationCreativeContext: text("creation_creative_context"),
   trashedAt: text("trashed_at"),
   trashRootId: text("trash_root_id"),
+  trashedBy: text("trashed_by"),
+  trashOrigin: text("trash_origin"),
+  trashParentId: text("trash_parent_id"),
+  createdBy: text("created_by"),
+  updatedBy: text("updated_by"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
 });
+
+export const privateIconReferences = table(
+  "content_private_icon_references",
+  {
+    elementType: text("element_type").notNull(),
+    elementId: text("element_id").notNull(),
+    assetId: text("asset_id").notNull(),
+    documentId: text("document_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reference) => [
+    uniqueIndex("content_private_icon_reference_element_unique").on(
+      reference.elementType,
+      reference.elementId,
+    ),
+    index("content_private_icon_reference_asset_idx").on(reference.assetId),
+    index("content_private_icon_reference_document_idx").on(
+      reference.documentId,
+    ),
+  ],
+);
 
 export const contentSpaces = table(
   "content_spaces",
@@ -98,6 +133,7 @@ export const documentVersions = table(
     documentId: text("document_id").notNull(),
     title: text("title").notNull(),
     content: text("content").notNull(),
+    bodyRevision: integer("body_revision"),
     chatContext: text("chat_context"),
     actorEmail: text("actor_email"),
     actorKind: text("actor_kind"),
@@ -123,7 +159,38 @@ export const documentVersions = table(
       version.createdAt,
       version.id,
     ),
+    index("document_versions_owner_document_body_revision_idx").on(
+      version.ownerEmail,
+      version.documentId,
+      version.bodyRevision,
+    ),
   ],
+);
+
+/**
+ * Where an imported page came from. The original file stays in private blob
+ * storage for the page's lifetime so a better importer can re-run it. Undo
+ * compares the page's state with what the import wrote before trashing it, and
+ * a retried import must match the request that wrote these rows.
+ */
+export const documentImports = table(
+  "document_imports",
+  {
+    documentId: text("document_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    importId: text("import_id").notNull(),
+    requestSha256: text("request_sha256").notNull(),
+    sourceName: text("source_name").notNull(),
+    sourceFormat: text("source_format").notNull(),
+    sourceBytes: integer("source_bytes").notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    originalBlob: text("original_blob").notNull(),
+    importedTitle: text("imported_title").notNull(),
+    importedStateSha256: text("imported_state_sha256").notNull(),
+    reportJson: text("report_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (row) => [index("document_imports_import_idx").on(row.importId)],
 );
 
 export const documentPreviewDrafts = table(
@@ -136,10 +203,13 @@ export const documentPreviewDrafts = table(
     title: text("title").notNull(),
     content: text("content").notNull(),
     baseDocumentUpdatedAt: text("base_document_updated_at"),
+    baseContentHash: text("base_content_hash"),
     loadedContentWasEmpty: integer("loaded_content_was_empty")
       .notNull()
       .default(0),
     deferredReason: text("deferred_reason"),
+    editorSessionId: text("editor_session_id"),
+    editGeneration: integer("edit_generation"),
     version: integer("version").notNull().default(1),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -158,34 +228,121 @@ export const documentPreviewDrafts = table(
   ],
 );
 
-export const documentComments = table("document_comments", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  documentId: text("document_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  content: text("content").notNull(),
-  quotedText: text("quoted_text"),
-  anchorPrefix: text("anchor_prefix"),
-  anchorSuffix: text("anchor_suffix"),
-  anchorStartOffset: integer("anchor_start_offset"),
-  mentionsJson: text("mentions_json"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  submissionSource: text("submission_source"),
-  submissionRunId: text("submission_run_id"),
-  actorKind: text("actor_kind"),
-  resolved: integer("resolved").notNull().default(0),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-  notionCommentId: text("notion_comment_id"),
-  // Notion's grouping id for a comment thread (a top-level comment and all
-  // its replies share one discussion_id). Stored on the local comment so
-  // sync-notion-comments can create replies with `discussion_id` instead of
-  // `parent`, which is what makes Notion thread them under the existing
-  // discussion instead of creating unrelated top-level comments.
-  notionDiscussionId: text("notion_discussion_id"),
-});
+export const documentPreviewDraftSettlements = table(
+  "document_preview_draft_settlements",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    editorSessionId: text("editor_session_id").notNull(),
+    settledGeneration: integer("settled_generation").notNull(),
+    discardedGeneration: integer("discarded_generation"),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (settlement) => [
+    uniqueIndex("document_preview_draft_settlements_scope_unique").on(
+      settlement.ownerEmail,
+      settlement.orgId,
+      settlement.documentId,
+      settlement.editorSessionId,
+    ),
+    index("document_preview_draft_settlements_document_idx").on(
+      settlement.ownerEmail,
+      settlement.orgId,
+      settlement.documentId,
+    ),
+  ],
+);
+
+export const documentComments = table(
+  "document_comments",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    documentId: text("document_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    content: text("content").notNull(),
+    quotedText: text("quoted_text"),
+    anchorPrefix: text("anchor_prefix"),
+    anchorSuffix: text("anchor_suffix"),
+    anchorStartOffset: integer("anchor_start_offset"),
+    /**
+     * A thread on one Property value rather than body text. Set on the root
+     * comment only; the name and value are what they were when it was written,
+     * so the thread keeps its meaning after the value changes or the Property
+     * is deleted.
+     */
+    propertyId: text("property_id"),
+    propertyName: text("property_name"),
+    propertyValue: text("property_value"),
+    /**
+     * The Blocks field tab a thread sits in, when it isn't the page body. Null
+     * means the body, so comments written before tabs had comments stay there.
+     * Set on every comment in the thread (replies copy the root's); the name is
+     * what the field was called when the thread started, so a deleted tab's
+     * threads still read as that tab.
+     */
+    fieldId: text("field_id"),
+    fieldName: text("field_name"),
+    /**
+     * The block a thread is about as a whole, such as a video, on its root
+     * comment; such a thread quotes no text. The type names the block after
+     * it is deleted.
+     */
+    blockId: text("block_id"),
+    blockType: text("block_type"),
+    mentionsJson: text("mentions_json"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    submissionSource: text("submission_source"),
+    submissionRunId: text("submission_run_id"),
+    submissionThreadId: text("submission_thread_id"),
+    actorKind: text("actor_kind"),
+    authorModel: text("author_model"),
+    authorEffort: text("author_effort"),
+    resolved: integer("resolved").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    notionCommentId: text("notion_comment_id"),
+    notionDiscussionId: text("notion_discussion_id"),
+  },
+  (comment) => [
+    index("document_comments_document_idx").on(
+      comment.documentId,
+      comment.ownerEmail,
+    ),
+  ],
+);
+
+/**
+ * One person's emoji reaction on one Page comment. Access follows the
+ * comment's document; a person reacts with each emoji at most once.
+ */
+export const documentCommentReactions = table(
+  "document_comment_reactions",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    documentId: text("document_id").notNull(),
+    commentId: text("comment_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    reaction: text("reaction").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reaction) => [
+    uniqueIndex("document_comment_reactions_actor_unique").on(
+      reaction.commentId,
+      reaction.actorEmail,
+      reaction.reaction,
+    ),
+    index("document_comment_reactions_document_idx").on(
+      reaction.ownerEmail,
+      reaction.documentId,
+    ),
+  ],
+);
 
 export const commentAiRequests = table(
   "comment_ai_requests",
@@ -198,6 +355,14 @@ export const commentAiRequests = table(
     rootCommentId: text("root_comment_id").notNull(),
     fieldId: text("field_id").notNull(),
     intent: text("intent").notNull(),
+    submittedMode: text("submitted_mode").notNull().default("reply"),
+    instructions: text("instructions").notNull().default(""),
+    submittedProvider: text("submitted_provider"),
+    submittedModel: text("submitted_model"),
+    submittedEngine: text("submitted_engine"),
+    classificationThreadId: text("classification_thread_id"),
+    classificationTurnId: text("classification_turn_id"),
+    continuationOfRequestId: text("continuation_of_request_id"),
     status: text("status").notNull().default("queued"),
     threadDigest: text("thread_digest").notNull(),
     snapshotJson: text("snapshot_json").notNull(),
@@ -205,8 +370,16 @@ export const commentAiRequests = table(
     suggestionRevision: text("suggestion_revision").notNull(),
     runId: text("run_id"),
     agentThreadId: text("agent_thread_id"),
+    agentTurnId: text("agent_turn_id"),
+    submittedThreadDigest: text("submitted_thread_digest"),
+    submittedSnapshotJson: text("submitted_snapshot_json"),
+    model: text("model"),
+    engine: text("engine"),
+    activeAttemptId: text("active_attempt_id"),
+    attemptCount: integer("attempt_count").notNull().default(0),
     resultJson: text("result_json"),
     payloadJson: text("payload_json"),
+    errorCode: text("error_code"),
     error: text("error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
@@ -214,11 +387,47 @@ export const commentAiRequests = table(
   (request) => [
     uniqueIndex("comment_ai_requests_active_thread_idx")
       .on(request.documentId, request.threadId, request.requesterEmail)
-      .where(sql`${request.status} IN ('queued', 'running')`),
+      .where(
+        sql`${request.status} IN ('classifying', 'classified', 'queued', 'running')`,
+      ),
+    uniqueIndex("comment_ai_requests_active_comment_idx")
+      .on(request.documentId, request.rootCommentId)
+      .where(
+        sql`${request.status} IN ('classifying', 'classified', 'queued', 'running', 'refreshing')`,
+      ),
     index("comment_ai_requests_document_requester_idx").on(
       request.documentId,
       request.requesterEmail,
     ),
+  ],
+);
+
+export const commentAiAttempts = table(
+  "comment_ai_attempts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    requestId: text("request_id").notNull(),
+    attemptNumber: integer("attempt_number").notNull(),
+    status: text("status").notNull().default("reasoning"),
+    sourceRevision: text("source_revision").notNull(),
+    suggestionRevision: text("suggestion_revision").notNull(),
+    threadDigest: text("thread_digest").notNull(),
+    snapshotJson: text("snapshot_json").notNull(),
+    payloadJson: text("payload_json"),
+    runId: text("run_id"),
+    model: text("model"),
+    errorCode: text("error_code"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (attempt) => [
+    uniqueIndex("comment_ai_attempts_request_number_unique").on(
+      attempt.requestId,
+      attempt.attemptNumber,
+    ),
+    index("comment_ai_attempts_request_idx").on(attempt.requestId),
   ],
 );
 
@@ -232,10 +441,6 @@ export const documentSyncLinks = table("document_sync_links", {
   lastPulledRemoteUpdatedAt: text("last_pulled_remote_updated_at"),
   lastPushedLocalUpdatedAt: text("last_pushed_local_updated_at"),
   lastKnownRemoteUpdatedAt: text("last_known_remote_updated_at"),
-  // Hash of the canonical content that is currently identical on both sides.
-  // Content-based change detection is immune to timestamp jitter and the
-  // normalization mismatches that previously caused no-op syncs to look like
-  // real edits (the root of the bidirectional drift).
   lastSyncedContentHash: text("last_synced_content_hash"),
   lastError: text("last_error"),
   warningsJson: text("warnings_json"),
@@ -277,6 +482,7 @@ export const documentPropertyDefinitions = table(
     name: text("name").notNull(),
     type: text("type").notNull(),
     description: text("description").notNull().default(""),
+    icon: text("icon"),
     visibility: text("visibility").notNull().default("always_show"),
     optionsJson: text("options_json").notNull().default("{}"),
     position: integer("position").notNull().default(0),
@@ -314,10 +520,6 @@ export const contentDatabases = table(
     // two aliasing primaries. NULL means there is currently no primary Blocks
     // field (never seeded, or the primary was intentionally deleted).
     primaryBlocksPropertyId: text("primary_blocks_property_id"),
-    // 1 once a database has been seeded with its primary Blocks field at least
-    // once. Distinguishes "never seeded" (legacy database needing backfill) from
-    // "primary intentionally deleted" (seeded once, then removed — must NOT be
-    // reseeded). See delete-document-property.
     blocksSeeded: integer("blocks_seeded").notNull().default(0),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull().default(now()),
@@ -364,9 +566,6 @@ export const contentDatabaseItems = table(
   ],
 );
 
-// Opt-in stable-key claims are the durable concurrency fence for configured
-// natural-key upserts. Ordinary property editing stays independent until a
-// text property is explicitly selected as the database's natural key.
 export const contentDatabaseItemKeyClaims = table(
   "content_database_item_key_claims",
   {
@@ -411,6 +610,93 @@ export const contentDatabaseBodyHydrationQueue = table(
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
+);
+
+export const contentTrashPurgePlans = table(
+  "content_trash_purge_plans",
+  {
+    id: text("id").primaryKey(),
+    actorEmail: text("actor_email").notNull(),
+    orgId: text("org_id"),
+    mode: text("mode").notNull(),
+    spaceId: text("space_id"),
+    filtersJson: text("filters_json").notNull().default("{}"),
+    state: text("state").notNull().default("ready"),
+    scopeTokenHash: text("scope_token_hash").notNull(),
+    eligibleCount: integer("eligible_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (plan) => [index("content_trash_purge_plans_actor_idx").on(plan.actorEmail)],
+);
+
+export const contentTrashPurgePlanItems = table(
+  "content_trash_purge_plan_items",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id").notNull(),
+    unitId: text("unit_id").notNull(),
+    rootDocumentId: text("root_document_id").notNull(),
+    documentId: text("document_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    title: text("title").notNull(),
+    spaceId: text("space_id"),
+    expectedTrashedAt: text("expected_trashed_at").notNull(),
+    expectedParentId: text("expected_parent_id"),
+    expectedScopeFingerprint: text("expected_scope_fingerprint").notNull(),
+    ancestorUnitIdsJson: text("ancestor_unit_ids_json").notNull().default("[]"),
+    survivorEffect: text("survivor_effect"),
+    eligibility: text("eligibility").notNull(),
+    blocker: text("blocker"),
+    outcome: text("outcome").notNull().default("pending"),
+    outcomeDetail: text("outcome_detail"),
+    completedAt: text("completed_at"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (item) => [
+    uniqueIndex("content_trash_purge_plan_items_plan_document_unique").on(
+      item.planId,
+      item.documentId,
+    ),
+    index("content_trash_purge_plan_items_plan_unit_idx").on(
+      item.planId,
+      item.unitId,
+    ),
+  ],
+);
+
+export const contentTrashPurgeOperations = table(
+  "content_trash_purge_operations",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    orgId: text("org_id"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status").notNull().default("queued"),
+    eligibleCount: integer("eligible_count").notNull().default(0),
+    deletedCount: integer("deleted_count").notNull().default(0),
+    blockedCount: integer("blocked_count").notNull().default(0),
+    conflictedCount: integer("conflicted_count").notNull().default(0),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: text("lease_expires_at"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    completedAt: text("completed_at"),
+  },
+  (operation) => [
+    uniqueIndex("content_trash_purge_operations_actor_key_unique").on(
+      operation.actorEmail,
+      operation.idempotencyKey,
+    ),
+    uniqueIndex("content_trash_purge_operations_plan_unique").on(
+      operation.planId,
+    ),
+    index("content_trash_purge_operations_plan_idx").on(operation.planId),
+  ],
 );
 
 export const contentDatabaseSources = table("content_database_sources", {
@@ -528,6 +814,24 @@ export const contentDatabaseSourceExecutions = table(
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
+);
+
+export const contentDatabaseBuilderBlobCleanup = table(
+  "content_database_builder_blob_cleanup",
+  {
+    blobReference: text("blob_reference").primaryKey(),
+    createdAt: text("created_at").notNull().default(now()),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at")
+      .notNull()
+      .default("1970-01-01T00:00:00.000Z"),
+  },
+  (cleanup) => [
+    index("content_database_builder_blob_cleanup_due_idx").on(
+      cleanup.nextAttemptAt,
+      cleanup.createdAt,
+    ),
+  ],
 );
 
 export const contentDatabaseSourceExecutionClaims = table(
@@ -662,22 +966,131 @@ export const documentEditReceipts = table(
   ],
 );
 
+export const documentBrowserSaveAttempts = table(
+  "document_browser_save_attempts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    attemptId: text("attempt_id").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (attempt) => [
+    uniqueIndex("document_browser_save_attempts_scope_unique").on(
+      attempt.documentId,
+      attempt.actorEmail,
+      attempt.orgId,
+      attempt.attemptId,
+    ),
+    index("document_browser_save_attempts_owner_document_idx").on(
+      attempt.ownerEmail,
+      attempt.documentId,
+    ),
+  ],
+);
+
+export const documentBodyIntents = table(
+  "document_body_intents",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    writerId: text("writer_id").notNull(),
+    operationId: text("operation_id").notNull(),
+    candidateHash: text("candidate_hash"),
+    metadataHash: text("metadata_hash"),
+    generation: integer("generation"),
+    authoredBaseRevision: integer("authored_base_revision").notNull(),
+    committedRevision: integer("committed_revision").notNull(),
+    displacedCheckpointId: text("displaced_checkpoint_id"),
+    affectedBlockIndexesJson: text("affected_block_indexes_json")
+      .notNull()
+      .default("[]"),
+    canonicalChanged: boolean("canonical_changed").notNull().default(false),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (intent) => [
+    uniqueIndex("document_body_intents_document_writer_operation_unique").on(
+      intent.documentId,
+      intent.writerId,
+      intent.operationId,
+    ),
+    index("document_body_intents_owner_document_revision_idx").on(
+      intent.ownerEmail,
+      intent.documentId,
+      intent.committedRevision,
+    ),
+  ],
+);
+
+/**
+ * For each switched-page commit, how to turn the body it stored back into
+ * the one it replaced at `bodyRevision`, so an edit made on a body History
+ * never recorded can be placed on it exactly. Bounded per page.
+ */
+export const documentBodySteps = table(
+  "document_body_steps",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    documentId: text("document_id").notNull(),
+    bodyRevision: integer("body_revision").notNull(),
+    startOffset: integer("start_offset").notNull(),
+    endOffset: integer("end_offset").notNull(),
+    text: text("text").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (step) => [
+    index("document_body_steps_document_revision_idx").on(
+      step.documentId,
+      step.bodyRevision,
+    ),
+  ],
+);
+
 export const documentPropertyValues = table("document_property_values", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   documentId: text("document_id").notNull(),
   propertyId: text("property_id").notNull(),
   valueJson: text("value_json").notNull().default("null"),
+  /**
+   * Goes up on every change to the value, set by a database trigger from one
+   * shared sequence; NULL until the value first changes. Read it through
+   * _property-generations.ts, which treats NULL as 0.
+   */
+  generation: bigint("generation", { mode: "number" }),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
-// Independent backing store for ADDITIONAL "Blocks" property fields. The
-// default/primary Blocks field ("Content") is backed by `documents.content`
-// (so the existing TipTap/Yjs editor, collab, and existing data migrate for
-// free). Every other Blocks field on a row gets its OWN content here, keyed by
-// (documentId, propertyId) — guaranteeing no two Blocks fields ever alias the
-// same content. Stored as markdown, same shape as `documents.content`.
+/**
+ * One row per page and property whose value has been deleted, holding a
+ * generation from the same sequence as the values. A trigger writes it, so a
+ * cleared value can't make an old generation current again; see
+ * _property-generations.ts. Its primary key is (document_id, property_id);
+ * deleting a property or collection clears its tombstones by property_id.
+ */
+export const documentPropertyValueTombstones = table(
+  "document_property_value_tombstones",
+  {
+    documentId: text("document_id").notNull(),
+    propertyId: text("property_id").notNull(),
+    generation: bigint("generation", { mode: "number" }).notNull(),
+  },
+  (tombstone) => [
+    index("document_property_value_tombstones_property_idx").on(
+      tombstone.propertyId,
+      tombstone.documentId,
+    ),
+  ],
+);
+
 export const documentBlockFieldContents = table(
   "document_block_field_contents",
   {
@@ -691,9 +1104,6 @@ export const documentBlockFieldContents = table(
   },
 );
 
-// Stable identity and revision boundary for one database Blocks property. The
-// Markdown body remains in documents.content or document_block_field_contents;
-// this row binds the ordered identity sidecar to those exact bytes.
 export const documentBlockFields = table(
   "document_block_fields",
   {
@@ -718,9 +1128,6 @@ export const documentBlockFields = table(
   ],
 );
 
-// Ordered block identity index plus bounded tombstones. This is deliberately
-// not an actor-aware history log: it records only current nodes and the minimum
-// deleted fragment needed for editor undo to recover the same logical ID.
 export const documentBlocks = table(
   "document_blocks",
   {
@@ -747,6 +1154,90 @@ export const documentBlocks = table(
       block.sortIndex,
     ),
     index("document_blocks_parent_idx").on(block.parentId),
+  ],
+);
+
+/**
+ * An owner-registered URL that receives a signed POST when something changes
+ * on one database's rows or on one page. The signing secret lives in app
+ * secrets under `secret_key`; this row keeps only the reference.
+ */
+export const contentWebhooks = table(
+  "content_webhooks",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    /** "database" (every row of `scope_id`) or "document" (one page). */
+    scopeType: text("scope_type").notNull(),
+    scopeId: text("scope_id").notNull(),
+    url: text("url").notNull(),
+    eventsJson: text("events_json").notNull(),
+    /** Null delivers changes to every property. */
+    propertyIdsJson: text("property_ids_json"),
+    description: text("description"),
+    secretScope: text("secret_scope").notNull(),
+    secretScopeId: text("secret_scope_id").notNull(),
+    secretKey: text("secret_key").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (webhook) => [
+    index("content_webhooks_scope_idx").on(webhook.scopeType, webhook.scopeId),
+    index("content_webhooks_creator_idx").on(
+      webhook.createdBy,
+      webhook.createdAt,
+    ),
+  ],
+);
+
+/**
+ * The outbox: one row per event per webhook, written in the same transaction
+ * as the change it reports, so an event exists exactly when its change
+ * committed. The row id is the event id receivers dedupe on; every retry
+ * sends it again.
+ */
+export const contentWebhookDeliveries = table(
+  "content_webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    /** BIGSERIAL: for one page and property, a later commit has a larger value. */
+    sequence: bigint("sequence", { mode: "number" }),
+    webhookId: text("webhook_id").notNull(),
+    eventType: text("event_type").notNull(),
+    documentId: text("document_id").notNull(),
+    databaseId: text("database_id"),
+    /** The event body without `id`, `webhookId`, and `sequence`. */
+    payloadJson: text("payload_json").notNull(),
+    /** "pending" until a 2xx ("delivered") or the last retry ("failed"). */
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: text("next_attempt_at").notNull(),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: text("lease_expires_at"),
+    lastStatusCode: integer("last_status_code"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    deliveredAt: text("delivered_at"),
+  },
+  (delivery) => [
+    index("content_webhook_deliveries_due_idx").on(
+      delivery.status,
+      delivery.nextAttemptAt,
+    ),
+    index("content_webhook_deliveries_webhook_idx").on(
+      delivery.webhookId,
+      delivery.sequence,
+    ),
+    // content_webhook_deliveries_lease_idx, a partial index on pending rows'
+    // (webhook_id, lease_expires_at), is in migration 131 only.
+    index("content_webhook_deliveries_settled_idx").on(
+      delivery.status,
+      delivery.updatedAt,
+    ),
+    index("content_webhook_deliveries_document_idx").on(delivery.documentId),
   ],
 );
 

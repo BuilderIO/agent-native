@@ -1,26 +1,16 @@
-/**
- * Add a comment to a recording at a specific video timestamp.
- *
- * For new threads, omit threadId/parentId. For replies, pass both.
- *
- * Usage:
- *   pnpm action add-comment --recordingId=<id> --content="Nice moment" --videoTimestampMs=12345
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 const mentionSchema = z.object({
@@ -42,7 +32,9 @@ export default defineAction({
       .int()
       .min(0)
       .default(0)
-      .describe("Video time (ms) the comment is attached to"),
+      .describe(
+        "Video time (ms) of the frame the comment is about, stored as given",
+      ),
     threadId: z
       .string()
       .trim()
@@ -65,18 +57,7 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
-    // Commenting is open to any signed-in viewer with access to the
-    // recording, not just an explicitly-granted "commenter" role — the
-    // `authorEmail` check below is what actually requires an account.
-    const access = await assertAccess("recording", args.recordingId, "viewer");
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
+    await assertCommentAccess(args.recordingId);
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {
@@ -101,7 +82,6 @@ export default defineAction({
     const parentId = args.parentId?.trim() ?? null;
     const now = new Date().toISOString();
 
-    // Look up recording's organization so the comment denormalizes it.
     const [rec] = await db
       .select({ organizationId: schema.recordings.organizationId })
       .from(schema.recordings)
@@ -139,10 +119,6 @@ export default defineAction({
       rec.organizationId,
     );
 
-    // Floor to the nearest second so nearby comments land on the same
-    // timestamp bucket for scrubber grouping and the playback overlay.
-    const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
-
     await db.insert(schema.recordingComments).values({
       id,
       recordingId: args.recordingId,
@@ -153,7 +129,7 @@ export default defineAction({
       authorName,
       content: args.content,
       mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-      videoTimestampMs,
+      videoTimestampMs: args.videoTimestampMs,
       createdAt: now,
       updatedAt: now,
     });
@@ -172,7 +148,7 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
-      `Added comment to recording ${args.recordingId} @ ${videoTimestampMs}ms (thread: ${threadId})`,
+      `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
     );
 
     return { id, threadId, notified };

@@ -1,3 +1,5 @@
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
 export interface ParsedDocxSection {
   heading: string;
   content: string;
@@ -144,15 +146,10 @@ async function loadMammoth(): Promise<{
   convertToHtml(input: { buffer: Buffer }): Promise<{ value: string }>;
   extractRawText(input: { buffer: Buffer }): Promise<{ value: string }>;
 }> {
-  const moduleName = "mammoth";
-  try {
-    return (await import(moduleName)) as {
+  return loadOptionalPeer("mammoth", async () => {
+    return (await import("mammoth")) as {
       convertToHtml(input: { buffer: Buffer }): Promise<{ value: string }>;
       extractRawText(input: { buffer: Buffer }): Promise<{ value: string }>;
     };
-  } catch {
-    throw new Error(
-      "Structured DOCX parsing requires the optional mammoth dependency.",
-    );
-  }
+  });
 }

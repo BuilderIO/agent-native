@@ -152,8 +152,6 @@ describe("optimistic cell write", () => {
     const next = patchRecordValues(payload, "r1", "stage", "won");
     expect(next?.records[0]?.values.stage).toBe("won");
     expect(next?.records[1]).toBe(payload.records[1]);
-    // Rollback is restoring the previous payload — which is only safe because
-    // the patch did not mutate it.
     expect(payload).toEqual(snapshot);
   });
 

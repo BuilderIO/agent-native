@@ -1,4 +1,7 @@
-import { SimpleTextAttachmentAdapter } from "@assistant-ui/react";
+import {
+  SimpleTextAttachmentAdapter,
+  type PendingAttachment,
+} from "@assistant-ui/react";
 
 const BASE_DOCUMENT_ATTACHMENT_ACCEPT = [
   "application/pdf",
@@ -73,6 +76,20 @@ export const TEXT_ATTACHMENT_ACCEPT = [
 ].join(",");
 
 export const MAX_TEXT_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+const MAX_REQUEST_BODY_BYTES = 4.5 * 1024 * 1024;
+const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
+
+export const MAX_ESTIMATED_BODY_BYTES =
+  MAX_REQUEST_BODY_BYTES - MAX_NON_ATTACHMENT_BODY_BYTES;
+
+export function estimateAttachmentBodyBytes(values: string[]): number {
+  const encodedBytes = new TextEncoder();
+  const jsonBytes = values.reduce(
+    (sum, value) => sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
+    0,
+  );
+  return jsonBytes * 1.15;
+}
 
 export function formatOversizedTextAttachmentError(
   name: string,
@@ -99,18 +116,18 @@ export function formatAttachmentError(
 }
 
 export class TextAttachmentAdapter extends SimpleTextAttachmentAdapter {
-  public accept = TEXT_ATTACHMENT_ACCEPT;
+  public override accept = TEXT_ATTACHMENT_ACCEPT;
 
-  public async add(state: { file: File }) {
+  public override async add(state: { file: File }): Promise<PendingAttachment> {
     if (state.file.size > MAX_TEXT_ATTACHMENT_BYTES) {
       throw new Error(
         formatOversizedTextAttachmentError(state.file.name, state.file.size),
       );
     }
-    return super.add(state);
+    return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
 
-  public async send(
+  public override async send(
     attachment: Parameters<SimpleTextAttachmentAdapter["send"]>[0],
   ) {
     if (attachment.file.size > MAX_TEXT_ATTACHMENT_BYTES) {

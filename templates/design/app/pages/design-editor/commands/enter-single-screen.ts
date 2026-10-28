@@ -43,6 +43,11 @@ export interface EnterSingleScreenArgs {
 
 export interface EnterSingleScreenOptions {
   mode?: EditorMode;
+  /**
+   * Moving between screens inside Interact keeps the device the person picked
+   * instead of re-deriving it from the new screen's own size.
+   */
+  keepInteractDevice?: boolean;
 }
 
 export function runEnterSingleScreen(
@@ -108,21 +113,16 @@ export function runEnterSingleScreen(
     (!fileId || fileId === activeFileId)
   ) {
     if (fileId && fileId === activeFileId) {
-      // Re-focusing the screen that's already active is a deliberate
-      // "reset view" affordance (e.g. re-clicking the same screen's
-      // Interact button) — reset to the default zoom rather than
-      // restoring the remembered one, mirroring the previous behavior.
       setScreenZoom(FOCUSED_SCREEN_ZOOM);
     }
-    // The early return used to swallow a requested mode change, so
-    // re-clicking a screen after closing Interact left it in whatever
-    // mode it had drifted to instead of reopening the responsive view.
     setMode(entryMode);
-    setInteractDeviceName(nextInteractDevice.name);
-    setInteractDeviceSize({
-      width: nextInteractDevice.width,
-      height: nextInteractDevice.height,
-    });
+    if (!options?.keepInteractDevice) {
+      setInteractDeviceName(nextInteractDevice.name);
+      setInteractDeviceSize({
+        width: nextInteractDevice.width,
+        height: nextInteractDevice.height,
+      });
+    }
     return;
   }
   viewModeRef.current = "single";
@@ -130,17 +130,7 @@ export function runEnterSingleScreen(
   pendingOverviewLayerSelectionRef.current = null;
   clearPendingOverviewLayerSelectionTimer();
   setCreatedOverviewLayerSelection(null);
-  // P5/vector-edit: MultiScreenCanvas (the only place the vectorEdit
-  // overlay renders) unmounts on leaving overview, so an active
-  // vector-edit session has nothing left to render into — clear it
-  // rather than leaving a stale/orphaned session in memory that would
-  // resurface if the user returns to overview later.
   setVectorEditingState(null);
-  // Per-screen zoom memory: restore the target screen's last-remembered
-  // zoom (recorded by the screenZoomByIdRef effect above) instead of
-  // always resetting to FOCUSED_SCREEN_ZOOM, so leaving and re-entering a
-  // screen preserves where the user left off. Falls back to
-  // FOCUSED_SCREEN_ZOOM for a screen's first visit.
   const restoredZoom = resolveScreenEntryZoom(
     targetFileId,
     screenZoomByIdRef.current,
@@ -155,16 +145,16 @@ export function runEnterSingleScreen(
     setHoveredElement(null);
     setActiveTool("move");
     setScreenZoom(restoredZoom);
-    setInteractDeviceName(nextInteractDevice.name);
-    setInteractDeviceSize({
-      width: nextInteractDevice.width,
-      height: nextInteractDevice.height,
-    });
+    if (!options?.keepInteractDevice) {
+      setInteractDeviceName(nextInteractDevice.name);
+      setInteractDeviceSize({
+        width: nextInteractDevice.width,
+        height: nextInteractDevice.height,
+      });
+    }
     setViewMode("single");
   };
 
-  // The root snapshot keeps the old right inspector above Interact's new top
-  // bar during the cross-fade, briefly covering its actions and dimensions.
   if (entryMode === "interact") {
     enterScreen();
   } else {

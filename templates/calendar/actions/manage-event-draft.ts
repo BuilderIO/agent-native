@@ -1,7 +1,9 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
+  compareAndSetAppState,
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
@@ -38,18 +40,13 @@ function draftKey(id: string) {
   return `${DRAFT_PREFIX}${id}`;
 }
 
-/**
- * Deep link that reopens an unsent calendar event draft.
- *
- * The link is an opaque pointer (draft id + date only). The full draft —
- * title, attendees, description, location — lives in the
- * `calendar-draft-{id}` app-state row written by this action, so the
- * calendar reads it from there on render. We deliberately do NOT inline the
- * draft contents into the URL: external MCP hosts (ChatGPT / Claude)
- * surface this link in their UI, the host LLM can see and remember query
- * strings, and shared / exported chat transcripts would otherwise leak
- * private meeting content.
- */
+function failDraftIdTaken(id: string): never {
+  fail(
+    `Calendar event draft "${id}" already exists; use action "update" to change it, or omit id to create a new draft.`,
+    { errorCode: "calendar_draft_id_taken", statusCode: 409 },
+  );
+}
+
 function eventDraftDeepLink(draft: CalendarEventDraft): string {
   return buildDeepLink({
     app: "calendar",
@@ -71,6 +68,15 @@ function setIfPresent<T extends keyof CalendarEventDraft>(
 }
 
 export default defineAction({
+  mcpTool: true,
+  needsApproval: (args, ctx) =>
+    args.action === "delete-all" && isOutsideAgentCall(ctx),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   description:
     "Create, update, or delete an unsent calendar invite draft. Opening a draft shows a visible placeholder on the calendar with the event detail editor so the user can review it before creating/sending.",
   schema: z.object({
@@ -215,16 +221,14 @@ export default defineAction({
 
     const rawId = args.id || `draft-${Date.now()}`;
     const id = sanitizeDraftId(rawId) ?? `draft-${Date.now()}`;
-    const existing =
-      action === "update"
-        ? ((await readAppState(
-            draftKey(id),
-          )) as unknown as CalendarEventDraft | null)
-        : null;
+    const existing = (await readAppState(
+      draftKey(id),
+    )) as unknown as CalendarEventDraft | null;
 
     if (action === "update" && !existing) {
       throw new Error(`Calendar event draft "${id}" not found`);
     }
+    if (action === "create" && existing) failDraftIdTaken(id);
 
     const now = new Date().toISOString();
     const draft: CalendarEventDraft = {
@@ -303,10 +307,16 @@ export default defineAction({
     });
     Object.assign(draft, reminderFields);
 
-    await writeAppState(
-      draftKey(id),
-      draft as unknown as Record<string, unknown>,
-    );
+    const record = draft as unknown as Record<string, unknown>;
+    if (action === "create") {
+      // Insert only if the key is still free, so two creates racing on one
+      // ID can't overwrite each other.
+      if (!(await compareAndSetAppState(draftKey(id), null, record))) {
+        failDraftIdTaken(id);
+      }
+    } else {
+      await writeAppState(draftKey(id), record);
+    }
 
     return {
       id,

@@ -1,14 +1,8 @@
-/**
- * The inbox sync engine: keeps `mail_inbox_threads` fresh from Gmail via a
- * resumable full sync (first run) followed by incremental `history.list`
- * deltas. Gmail traffic per call is bounded — history.list (2 units) plus
- * batched threads.get for changed threads only — instead of the live
- * messages.list page every list/count used to cost (see google-api.ts's
- * quota bucket / cooldown for why that mattered).
- */
 import type { InboxSyncAccountStatus } from "@shared/inbox-threads.js";
 
 import {
+  GmailQuotaCooldownError,
+  gmailGetLabel,
   gmailGetProfile,
   gmailListHistory,
   gmailListLabels,
@@ -19,27 +13,45 @@ import {
   getClientForConnectedAccount,
   getConnectedAccountsWithErrors,
   getHeader,
+  invalidateHistoryCacheForAccount,
   invalidateListCacheForOwner,
   isPermanentRefreshError,
   parseAddressList,
   parseEmailAddress,
 } from "./google-auth.js";
 import { classifyAutomated } from "./inbox-classify.js";
+import { pushWatchState, steadyPollMaxAgeMs } from "./inbox-push-watch.js";
 import {
-  assertSyncClaimHeld,
+  hasOutstandingSyncWork,
+  mergeSyncStatuses,
+  retryBackoffMs,
+  retryDue,
+  statusFromRow,
+  withCorruptState,
+} from "./inbox-status.js";
+import {
+  appendHydratePendingIds,
   claimSyncAccount,
-  deleteInboxThreadRow,
+  countInboxThreads,
+  tryDeleteInboxThreadRow,
   ensureSyncAccountRow,
+  INBOX_THREAD_CAP,
   markThreadsOutOfInboxBeforeSync,
   patchSyncAccount,
+  purgeArchivedInboxThreadRows,
+  readInboxPushGeneration,
+  readInboxThreadIds,
   readSyncAccounts,
   releaseSyncAccount,
   resetSyncAccountProgress,
   SyncClaimLostError,
+  trimInboxThreadRows,
   upsertInboxThreadRows,
+  withSyncClaim,
   type CachedGmailLabel,
   type SyncAccountPatch,
   type SyncAccountRow,
+  type SyncDegraded,
   type ThreadUpsertInput,
 } from "./inbox-store.js";
 
@@ -47,12 +59,34 @@ const DEFAULT_MAX_AGE_MS = 15_000;
 const DEFAULT_BUDGET_MS = 6_000;
 const CLAIM_TTL_MS = 90_000;
 const LABELS_TTL_MS = 5 * 60 * 1000;
-const FULL_SYNC_PAGE_SIZE = 100;
+const EAGER_PAGE_SIZE = 50;
+// Use interactive quota for the 74-thread eager slice so its first backfill page still fits.
+const EAGER_COMPLETION_SIZE = 24;
+// 49 reads and one threads.list call use 1,970 of the 2,000-unit backfill budget.
+const BACKFILL_PAGE_SIZE = 49;
+const RECONCILE_PAGE_SIZE = 500;
+const RECONCILE_HYDRATE_SIZE = 45;
+const RECONCILE_MAX_PASSES = 2;
+const HISTORY_PAGE_SIZE = 50;
+const ARCHIVE_HISTORY_PAGE_SIZE = 500;
+const INBOX_HISTORY_TYPES = [
+  "messageAdded",
+  "messageDeleted",
+  "labelAdded",
+  "labelRemoved",
+];
+const ARCHIVE_HISTORY_TYPES = ["labelRemoved", "messageDeleted"];
+// Thread reads one incremental step may make: 70 x 40 units plus the two
+// 2-unit history reads stays under the 3,000-unit incremental lane.
+const STEP_THREAD_READS = 70;
+// Of those, the share archive verification keeps when new mail also waits.
+const VERIFY_MIN_SHARE = 20;
+// Reads each step reserves, per list, for threads that failed before, so a
+// steady backlog of new mail cannot starve their retries.
+const RETRY_SHARE = 5;
+const CACHE_LOOKUP_CHUNK = 500;
 const HYDRATE_CHUNK = 50;
 
-// Requested on every thread hydrate (full + incremental) — the fields
-// classifyAutomated and the row derivation need without paying for `full`
-// format (bodies).
 const METADATA_HEADERS = [
   "From",
   "To",
@@ -67,13 +101,31 @@ const METADATA_HEADERS = [
   "Feedback-ID",
 ];
 
+type SyncStepResult = {
+  status: InboxSyncAccountStatus;
+  changed: boolean;
+  retryAfterSeconds?: number;
+  restartedFullSync?: boolean;
+};
+
+export type SyncInboxAccountProgress = InboxSyncAccountStatus & {
+  changed: boolean;
+  pushGeneration: number;
+  lastPushGeneration: number;
+  pushPending: boolean;
+  retryAfterSeconds?: number;
+};
+
+export type SyncInboxResult = {
+  accounts: SyncInboxAccountProgress[];
+};
+
 function boundedErrorMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   // Never let a token leak into last_error via an echoed Authorization header.
   return msg.replace(/Bearer [^\s"]+/gi, "Bearer [redacted]").slice(0, 240);
 }
 
-/** Fenced progress write: throws {@link SyncClaimLostError} instead of silently no-oping. */
 async function patchProgress(
   ownerEmail: string,
   accountEmail: string,
@@ -86,26 +138,76 @@ async function patchProgress(
   if (!updated) throw new SyncClaimLostError(accountEmail);
 }
 
-function statusFromRow(row: SyncAccountRow): InboxSyncAccountStatus {
-  if (row.status === "needs_reauth" || row.status === "error") {
-    return {
-      accountEmail: row.accountEmail,
-      state: row.status,
-      lastSyncedAt: row.lastSyncedAt,
-      error: row.lastError ?? undefined,
-    };
+// Error class only (never a message, id or address): what a degraded status
+// reports so callers can tell it apart from success.
+function failureKind(error: unknown): string {
+  if (typeof error === "string") {
+    const http = /HTTP (\d{3})/.exec(error);
+    return http ? `http_${http[1]}` : "gmail_read_failed";
   }
+  return error instanceof Error ? error.name || "error" : "error";
+}
+
+function cachedGmailLabels(result: any): CachedGmailLabel[] {
+  return (result.labels ?? []).map((label: any) => ({
+    id: label.id,
+    name: label.name,
+    type: label.type,
+    color: label.color?.backgroundColor,
+    messagesTotal: label.messagesTotal,
+    messagesUnread: label.messagesUnread,
+    threadsTotal: label.threadsTotal,
+    threadsUnread: label.threadsUnread,
+  }));
+}
+
+function inboxThreadTotal(labels: CachedGmailLabel[]): number {
+  const rawTotal = labels.find(
+    (label) => label.id.toUpperCase() === "INBOX",
+  )?.threadsTotal;
+  const total = Number(rawTotal);
+  if (rawTotal == null || !Number.isSafeInteger(total) || total < 0) {
+    throw new Error("Gmail did not return a valid INBOX thread total");
+  }
+  return total;
+}
+
+async function readFreshInboxTotal(
+  accessToken: string,
+): Promise<{ labels: CachedGmailLabel[]; total: number; updatedAt: number }> {
+  const labels = cachedGmailLabels(
+    await gmailListLabels(accessToken, "backfill"),
+  );
+  const inboxLabel = await gmailGetLabel(accessToken, "INBOX", "backfill");
+  const detailedInbox = cachedGmailLabels({ labels: [inboxLabel] })[0];
+  const existingInboxIndex = labels.findIndex(
+    (label) => label.id.toUpperCase() === "INBOX",
+  );
+  if (existingInboxIndex >= 0) {
+    labels[existingInboxIndex] = {
+      ...labels[existingInboxIndex],
+      ...detailedInbox,
+    };
+  } else {
+    labels.push(detailedInbox);
+  }
+  return { labels, total: inboxThreadTotal(labels), updatedAt: Date.now() };
+}
+
+function reconciliationStatus(
+  accountEmail: string,
+  lastSyncedAt: number,
+  error?: string,
+): InboxSyncAccountStatus {
   return {
-    accountEmail: row.accountEmail,
-    state: row.historyId == null ? "initial" : "ready",
-    lastSyncedAt: row.lastSyncedAt,
+    accountEmail,
+    state: error ? "error" : "ready",
+    lastSyncedAt,
+    ...(error ? { error } : {}),
+    backfillPending: true,
   };
 }
 
-// Self-address set for the "latest received message" pick. Must include the
-// account being synced explicitly: a managed-only workspace grant has no
-// per-user OAuth row; the selected account must remain present even when the
-// workspace account inventory is incomplete.
 async function connectedEmailsLower(
   ownerEmail: string,
   accountEmail: string,
@@ -124,11 +226,24 @@ function messageLabels(m: any): string[] {
   return m.labelIds || [];
 }
 
-/**
- * Turns one Gmail thread (format=metadata) into an upsertable row, or null
- * for a degenerate thread with no usable messages (never upserted — any
- * stale row for it should be dropped by the caller instead).
- */
+// A 2xx batch part is only evidence about a thread if it has the shape of one:
+// a messages array of message objects whose labelIds, when present, is an array
+// (Gmail omits it for an unlabeled message). A null body or a malformed thread
+// is a failed read, never proof that the thread was archived or is gone.
+function isReadableThread(data: unknown): boolean {
+  const thread = data as { messages?: unknown } | null;
+  if (!thread || typeof thread !== "object") return false;
+  const messages = thread.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  return messages.every((message) => {
+    if (!message || typeof message !== "object") return false;
+    const labelIds = (message as { labelIds?: unknown }).labelIds;
+    return labelIds === undefined || Array.isArray(labelIds);
+  });
+}
+
+const MALFORMED_RESPONSE = "malformed_response";
+
 function deriveRowFromThread(
   thread: any,
   ownerEmail: string,
@@ -160,10 +275,6 @@ function deriveRowFromThread(
     if (labels.includes("INBOX") && !labels.includes("TRASH")) inInbox = true;
   }
 
-  // Classification target: the latest message NOT sent from one of the
-  // owner's own connected accounts, so replying to your own thread never
-  // reclassifies it. Falls back to the latest message if every message in
-  // the thread was self-sent.
   const bySentDateDesc = [...relevant].sort(
     (a, b) => Number(b.internalDate ?? 0) - Number(a.internalDate ?? 0),
   );
@@ -182,9 +293,6 @@ function deriveRowFromThread(
     fromEmail: from.email,
   });
 
-  // metadata format omits `parts` on most responses — this only ever
-  // reports true when Gmail happens to include them; false means "unknown",
-  // never a guess.
   const hasAttachments = relevant.some((m) =>
     (m.payload?.parts || []).some((p: any) => !!p.filename),
   );
@@ -202,6 +310,8 @@ function deriveRowFromThread(
     latestDate: Number(latest.internalDate ?? Date.now()),
     latestMessageId: latest.id ?? null,
     subject: getHeader(latest.payload?.headers, "Subject"),
+    // Stored HTML-escaped, as Gmail returns it; inboxRowToItem decodes it.
+    // Decoding here too would turn a sender's literal "&lt;" into "<".
     snippet: thread.snippet ?? latest.snippet ?? "",
     fromName: from.name,
     fromEmail: from.email,
@@ -216,43 +326,6 @@ function deriveRowFromThread(
   };
 }
 
-/** Hydrates thread ids in chunks of ≤50; a per-thread 404 is skipped (the thread never existed as a row). */
-async function hydrateThreads(
-  accessToken: string,
-  ids: string[],
-  ownerEmail: string,
-  accountEmail: string,
-  connected: Set<string>,
-): Promise<ThreadUpsertInput[]> {
-  const rows: ThreadUpsertInput[] = [];
-  for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
-    const chunk = ids.slice(i, i + HYDRATE_CHUNK);
-    const readStartedAt = Date.now();
-    const results = await gmailBatchGetThreads(
-      accessToken,
-      chunk,
-      "metadata",
-      METADATA_HEADERS,
-    );
-    for (const part of results) {
-      if (part.error) {
-        if (/HTTP 404/.test(part.error)) continue;
-        throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
-      }
-      const derived = deriveRowFromThread(
-        part.data,
-        ownerEmail,
-        accountEmail,
-        connected,
-        readStartedAt,
-      );
-      if (derived) rows.push(derived);
-    }
-  }
-  return rows;
-}
-
-/** Same as hydrateThreads, but a 404 means "delete the existing row" (incremental path — the thread was known before). */
 async function hydrateAndApply(
   accessToken: string,
   ids: string[],
@@ -260,17 +333,26 @@ async function hydrateAndApply(
   accountEmail: string,
   connected: Set<string>,
   claimId: string,
+  lane: "interactive" | "incremental" | "backfill",
+  // Ids whose delete the write guard skipped (a row updated after the read).
+  // Required: dropping them would leave the stale row cached for good.
+  requeueSkipped: (threadIds: string[]) => Promise<void> | void,
+  onChanged?: () => void,
+  // When given, a thread whose read fails (not a 404) is recorded here with its
+  // failure kind and the rest still apply, instead of the whole call throwing.
+  failed?: Map<string, string>,
 ): Promise<void> {
-  const upserts: ThreadUpsertInput[] = [];
-  const deletes: Array<{ id: string; readStartedAt: number }> = [];
   for (let i = 0; i < ids.length; i += HYDRATE_CHUNK) {
     const chunk = ids.slice(i, i + HYDRATE_CHUNK);
     const readStartedAt = Date.now();
+    const upserts: ThreadUpsertInput[] = [];
+    const deletes: Array<{ id: string; readStartedAt: number }> = [];
     const results = await gmailBatchGetThreads(
       accessToken,
       chunk,
       "metadata",
       METADATA_HEADERS,
+      lane,
     );
     for (const part of results) {
       if (part.error) {
@@ -278,7 +360,20 @@ async function hydrateAndApply(
           deletes.push({ id: part.id, readStartedAt });
           continue;
         }
+        if (failed) {
+          failed.set(part.id, failureKind(part.error));
+          continue;
+        }
         throw new Error(`Gmail thread ${part.id} fetch failed: ${part.error}`);
+      }
+      if (!isReadableThread(part.data)) {
+        if (failed) {
+          failed.set(part.id, MALFORMED_RESPONSE);
+          continue;
+        }
+        throw new Error(
+          `Gmail thread ${part.id} returned a malformed response`,
+        );
       }
       const derived = deriveRowFromThread(
         part.data,
@@ -290,13 +385,29 @@ async function hydrateAndApply(
       if (derived) upserts.push(derived);
       else deletes.push({ id: part.id, readStartedAt });
     }
+    const skipped = await withSyncClaim(
+      ownerEmail,
+      accountEmail,
+      claimId,
+      async (tx) => {
+        if (upserts.length > 0) await upsertInboxThreadRows(upserts, tx);
+        const skippedIds: string[] = [];
+        for (const { id, readStartedAt } of deletes) {
+          const outcome = await tryDeleteInboxThreadRow(
+            ownerEmail,
+            accountEmail,
+            id,
+            readStartedAt,
+            tx,
+          );
+          if (outcome === "skipped") skippedIds.push(id);
+        }
+        return skippedIds;
+      },
+    );
+    if (skipped.length > 0) await requeueSkipped(skipped);
+    if (upserts.length > 0 || deletes.length > 0) onChanged?.();
   }
-  // Fenced immediately before this step's row writes: a claim lost to a
-  // newer worker during the Gmail round trips above must not land here.
-  await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-  if (upserts.length > 0) await upsertInboxThreadRows(upserts);
-  for (const { id, readStartedAt } of deletes)
-    await deleteInboxThreadRow(ownerEmail, accountEmail, id, readStartedAt);
 }
 
 async function runFullSyncStep(
@@ -304,19 +415,26 @@ async function runFullSyncStep(
   accountEmail: string,
   accessToken: string,
   row: SyncAccountRow,
-  deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
-): Promise<InboxSyncAccountStatus> {
+  onChanged?: () => void,
+): Promise<SyncStepResult> {
+  const initialSync = row.historyId == null;
   let fullSyncHistoryId = row.fullSyncHistoryId;
   let fullSyncStartedAt = row.fullSyncStartedAt;
+  let listed = row.fullSyncListedCount;
   if (fullSyncHistoryId == null) {
-    const profile = await gmailGetProfile(accessToken);
+    const profile = await gmailGetProfile(
+      accessToken,
+      initialSync ? "interactive" : "incremental",
+    );
     fullSyncHistoryId = String(profile.historyId);
     fullSyncStartedAt = Date.now();
+    listed = 0;
     await patchProgress(ownerEmail, accountEmail, claimId, {
       fullSyncHistoryId,
       fullSyncStartedAt,
+      fullSyncListedCount: 0,
     });
   }
 
@@ -326,132 +444,676 @@ async function runFullSyncStep(
     accountEmail,
     connectedAccountEmails,
   );
-
-  while (Date.now() < deadline) {
-    const page = await gmailListThreads(accessToken, {
+  const completingEagerSlice = row.historyId == null && pageToken != null;
+  const lane = initialSync ? "interactive" : "backfill";
+  const pageSize = initialSync
+    ? completingEagerSlice
+      ? EAGER_COMPLETION_SIZE
+      : EAGER_PAGE_SIZE
+    : BACKFILL_PAGE_SIZE;
+  const page = await gmailListThreads(
+    accessToken,
+    {
       q: "in:inbox",
-      maxResults: FULL_SYNC_PAGE_SIZE,
+      maxResults: Math.min(pageSize, INBOX_THREAD_CAP - listed),
       pageToken,
-    });
-    const ids: string[] = (page.threads ?? []).map((t: any) => t.id);
-    if (ids.length > 0) {
-      const rows = await hydrateThreads(
-        accessToken,
-        ids,
-        ownerEmail,
-        accountEmail,
-        connected,
-      );
-      // Fenced immediately before the page's row writes: a claim lost to a
-      // newer worker during the Gmail round trips above must not land here.
-      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
-      await upsertInboxThreadRows(rows);
-    }
-    pageToken = page.nextPageToken;
-    await patchProgress(ownerEmail, accountEmail, claimId, {
-      fullSyncPageToken: pageToken ?? null,
-    });
+    },
+    lane,
+  );
+  const ids: string[] = (page.threads ?? []).map((thread: any) => thread.id);
+  if (ids.length > 0) {
+    await hydrateAndApply(
+      accessToken,
+      ids,
+      ownerEmail,
+      accountEmail,
+      connected,
+      claimId,
+      lane,
+      (skipped) =>
+        appendHydratePendingIds(ownerEmail, accountEmail, claimId, skipped),
+      onChanged,
+    );
+  }
 
-    if (!pageToken) {
-      await assertSyncClaimHeld(ownerEmail, accountEmail, claimId);
+  // Gmail lists newest first, so stopping at the cap keeps the newest threads.
+  // The token is dropped on the same step, so a capped walk never resumes.
+  listed += ids.length;
+  const truncated = listed >= INBOX_THREAD_CAP && Boolean(page.nextPageToken);
+  const nextPageToken = truncated ? null : (page.nextPageToken ?? null);
+  const syncedAt = Date.now();
+  if (initialSync && !completingEagerSlice && nextPageToken) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncPageToken: nextPageToken,
+      fullSyncListedCount: listed,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: {
+        accountEmail,
+        state: "initial",
+        lastSyncedAt: syncedAt,
+        backfillPending: true,
+      },
+      changed: ids.length > 0,
+    };
+  }
+
+  // Only the first full sync sets the cursors. A backfill step runs after the
+  // incremental step in the same call and holds the pre-incremental row, so
+  // writing its cursor back would rewind history.
+  const cursors = initialSync
+    ? { historyId: fullSyncHistoryId, archiveHistoryId: null }
+    : {};
+  if (nextPageToken) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      ...cursors,
+      fullSyncPageToken: nextPageToken,
+      fullSyncHistoryId,
+      fullSyncStartedAt,
+      fullSyncListedCount: listed,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: {
+        accountEmail,
+        state: "ready",
+        lastSyncedAt: syncedAt,
+        backfillPending: true,
+      },
+      changed: ids.length > 0,
+    };
+  }
+
+  // A capped walk is only the newest slice of the inbox, so there is no full
+  // Gmail total to reconcile against: skip the label snapshot and reconcile.
+  const snapshot = truncated ? null : await readFreshInboxTotal(accessToken);
+  // The cached inbox is a lower bound when the walk stopped at the cap or the
+  // trim had to drop rows: Gmail has more than the cache holds.
+  let capped = truncated;
+  if (fullSyncStartedAt != null) {
+    await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
       await markThreadsOutOfInboxBeforeSync(
         ownerEmail,
         accountEmail,
         fullSyncStartedAt!,
+        tx,
       );
-      await patchProgress(ownerEmail, accountEmail, claimId, {
-        historyId: fullSyncHistoryId,
-        fullSyncPageToken: null,
-        fullSyncHistoryId: null,
-        fullSyncStartedAt: null,
-        lastError: null,
-        lastSyncedAt: Date.now(),
-      });
-      return { accountEmail, state: "ready", lastSyncedAt: Date.now() };
-    }
+      const trimmed = await trimInboxThreadRows(
+        ownerEmail,
+        accountEmail,
+        INBOX_THREAD_CAP,
+        tx,
+      );
+      if (trimmed > 0) capped = true;
+    });
+    onChanged?.();
   }
-
-  // Budget exhausted mid-walk. The page token is already persisted above,
-  // so the next call resumes from here.
+  const localInboxTotal = snapshot
+    ? await countInboxThreads(ownerEmail, accountEmail)
+    : 0;
+  const reconciled = !snapshot || localInboxTotal === snapshot.total;
   await patchProgress(ownerEmail, accountEmail, claimId, {
+    ...cursors,
+    fullSyncPageToken: null,
+    fullSyncHistoryId: null,
+    fullSyncStartedAt: null,
+    fullSyncPhase: reconciled ? null : "reconcile",
+    fullSyncReconcilePageToken: reconciled ? null : "",
+    fullSyncReconcilePendingIds: reconciled ? null : [],
+    fullSyncReconcilePasses: reconciled ? 0 : 1,
+    fullSyncListedCount: 0,
+    inboxCapped: capped,
+    ...(snapshot
+      ? { labels: snapshot.labels, labelsUpdatedAt: snapshot.updatedAt }
+      : {}),
     lastError: null,
-    lastSyncedAt: Date.now(),
+    lastSyncedAt: syncedAt,
   });
-  return { accountEmail, state: "initial", lastSyncedAt: Date.now() };
+  return {
+    status: reconciled
+      ? {
+          accountEmail,
+          state: "ready",
+          lastSyncedAt: syncedAt,
+          ...(capped ? { reachedCap: true } : {}),
+        }
+      : reconciliationStatus(accountEmail, syncedAt),
+    changed: true,
+  };
 }
 
+async function finishReconciliationPass(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+  row: SyncAccountRow,
+  claimId: string,
+  listedAtCap: boolean,
+): Promise<SyncStepResult> {
+  const snapshot = await readFreshInboxTotal(accessToken);
+  if (listedAtCap && snapshot.total > INBOX_THREAD_CAP) {
+    // The listing stopped at the cap with more inbox behind it, so Gmail's
+    // total no longer matches the local slice; finish without the comparison.
+    // An inbox of exactly the cap is a complete listing and compares below.
+    const syncedAt = Date.now();
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncPhase: null,
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: null,
+      fullSyncReconcilePasses: 0,
+      fullSyncHistoryId: null,
+      fullSyncStartedAt: null,
+      fullSyncListedCount: 0,
+      inboxCapped: true,
+      labels: snapshot.labels,
+      labelsUpdatedAt: snapshot.updatedAt,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: {
+        accountEmail,
+        state: "ready",
+        lastSyncedAt: syncedAt,
+        reachedCap: true,
+      },
+      changed: true,
+    };
+  }
+  const localInboxTotal = await countInboxThreads(ownerEmail, accountEmail);
+  const syncedAt = Date.now();
+  const matches = localInboxTotal === snapshot.total;
+  if (matches) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      inboxCapped: false,
+      fullSyncListedCount: 0,
+      fullSyncPhase: null,
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: null,
+      fullSyncReconcilePasses: 0,
+      fullSyncHistoryId: null,
+      fullSyncStartedAt: null,
+      labels: snapshot.labels,
+      labelsUpdatedAt: snapshot.updatedAt,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: { accountEmail, state: "ready", lastSyncedAt: syncedAt },
+      changed: true,
+    };
+  }
+
+  if (row.fullSyncReconcilePasses < RECONCILE_MAX_PASSES) {
+    const passes = row.fullSyncReconcilePasses + 1;
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncPhase: "reconcile",
+      fullSyncReconcilePageToken: "",
+      fullSyncReconcilePendingIds: [],
+      fullSyncReconcilePasses: passes,
+      fullSyncListedCount: 0,
+      labels: snapshot.labels,
+      labelsUpdatedAt: snapshot.updatedAt,
+      lastError: null,
+      lastSyncedAt: syncedAt,
+    });
+    return {
+      status: reconciliationStatus(accountEmail, syncedAt),
+      changed: true,
+    };
+  }
+
+  console.warn("[inbox-sync] Inbox reconciliation ended with count mismatch", {
+    accountEmail,
+    localInboxTotal,
+    gmailInboxTotal: snapshot.total,
+  });
+  await patchProgress(ownerEmail, accountEmail, claimId, {
+    fullSyncListedCount: 0,
+    fullSyncPhase: null,
+    fullSyncReconcilePageToken: null,
+    fullSyncReconcilePendingIds: null,
+    fullSyncReconcilePasses: 0,
+    fullSyncHistoryId: null,
+    fullSyncStartedAt: null,
+    labels: snapshot.labels,
+    labelsUpdatedAt: snapshot.updatedAt,
+    lastError: null,
+    lastSyncedAt: syncedAt,
+  });
+  return {
+    status: { accountEmail, state: "ready", lastSyncedAt: syncedAt },
+    changed: true,
+  };
+}
+
+async function runReconciliationStep(
+  ownerEmail: string,
+  accountEmail: string,
+  accessToken: string,
+  row: SyncAccountRow,
+  claimId: string,
+  connectedAccountEmails?: readonly string[],
+  onChanged?: () => void,
+): Promise<SyncStepResult> {
+  let pendingIds = row.fullSyncReconcilePendingIds ?? [];
+  let nextPageToken = row.fullSyncReconcilePageToken;
+  let listed = row.fullSyncListedCount;
+  let idsToHydrate = pendingIds.slice(0, RECONCILE_HYDRATE_SIZE);
+
+  if (pendingIds.length === 0 && nextPageToken === null) {
+    return finishReconciliationPass(
+      ownerEmail,
+      accountEmail,
+      accessToken,
+      row,
+      claimId,
+      listed >= INBOX_THREAD_CAP,
+    );
+  }
+
+  if (pendingIds.length === 0) {
+    const page = (await gmailListThreads(
+      accessToken,
+      {
+        q: "in:inbox",
+        maxResults: Math.min(RECONCILE_PAGE_SIZE, INBOX_THREAD_CAP - listed),
+        pageToken: nextPageToken || undefined,
+      },
+      "backfill",
+    )) as {
+      threads?: Array<{ id?: string | null }>;
+      nextPageToken?: string | null;
+    };
+    const pageIds = [
+      ...new Set(
+        (page.threads ?? []).flatMap((thread) =>
+          typeof thread.id === "string" ? [thread.id] : [],
+        ),
+      ),
+    ];
+    const localIds = await readInboxThreadIds(
+      ownerEmail,
+      accountEmail,
+      pageIds,
+    );
+    pendingIds = pageIds.filter((id) => !localIds.has(id));
+    listed += pageIds.length;
+    nextPageToken =
+      listed >= INBOX_THREAD_CAP ? null : (page.nextPageToken ?? null);
+    idsToHydrate = pendingIds.slice(0, RECONCILE_HYDRATE_SIZE);
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncReconcilePageToken: nextPageToken,
+      fullSyncReconcilePendingIds: pendingIds,
+      fullSyncListedCount: listed,
+    });
+  }
+
+  if (idsToHydrate.length > 0) {
+    const connected = await connectedEmailsLower(
+      ownerEmail,
+      accountEmail,
+      connectedAccountEmails,
+    );
+    await hydrateAndApply(
+      accessToken,
+      idsToHydrate,
+      ownerEmail,
+      accountEmail,
+      connected,
+      claimId,
+      "backfill",
+      (skipped) =>
+        appendHydratePendingIds(ownerEmail, accountEmail, claimId, skipped),
+      onChanged,
+    );
+    pendingIds = pendingIds.slice(idsToHydrate.length);
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      fullSyncReconcilePendingIds: pendingIds,
+    });
+  }
+
+  if (pendingIds.length === 0 && nextPageToken === null) {
+    const verifiedRow = {
+      ...row,
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: [],
+    };
+    return finishReconciliationPass(
+      ownerEmail,
+      accountEmail,
+      accessToken,
+      verifiedRow,
+      claimId,
+      listed >= INBOX_THREAD_CAP,
+    );
+  }
+
+  return {
+    status: reconciliationStatus(accountEmail, Date.now()),
+    changed: idsToHydrate.length > 0,
+  };
+}
+
+// Null means the stream constrains nothing: it finished and reported neither a
+// head nor any records. An unfinished stream with no records holds the cursor.
+function streamWatermark(
+  page: { historyId?: unknown },
+  caughtUp: boolean,
+  lastRecordId: string | null,
+  startHistoryId: string,
+): string | null {
+  if (!caughtUp) return lastRecordId ?? startHistoryId;
+  if (page.historyId != null) return String(page.historyId);
+  return lastRecordId;
+}
+
+// Two history streams share one cursor. The inbox stream uses Gmail's labelId
+// filter, so only messages that carry INBOX are returned and new mail that skips
+// the inbox (auto-archive filters) never reaches threads.get. Gmail's docs do not
+// say whether an INBOX removal is still returned under that filter, so the
+// archive stream reads label removals unfiltered and only uses their thread ids
+// to delete rows. It never fetches a thread.
 async function runIncrementalSyncStep(
   ownerEmail: string,
   accountEmail: string,
   accessToken: string,
   row: SyncAccountRow,
-  deadline: number,
   claimId: string,
   connectedAccountEmails?: readonly string[],
-): Promise<InboxSyncAccountStatus> {
-  // Gmail's response `historyId` is the mailbox's *current* id, identical on
-  // every page, so it is only a safe watermark once every page has been
-  // consumed. When the budget runs out mid-way we persist the last processed
-  // record's own id instead; records arrive in ascending order, so the next
-  // call resumes exactly there rather than skipping the unread pages.
-  let pageToken: string | undefined;
-  let lastRecordId: string | null = null;
-  let caughtUp = false;
-  let currentHistoryId: string | null = null;
-  do {
-    let history: any;
-    try {
-      history = await gmailListHistory(accessToken, {
-        startHistoryId: row.historyId!,
-        maxResults: 500,
-        pageToken,
+  onChanged?: () => void,
+): Promise<SyncStepResult> {
+  const readStartedAt = Date.now();
+  let inboxHistory: any;
+  let archiveHistory: any;
+  // Each stream keeps its own cursor, so a lagging archive stream never makes
+  // the inbox stream reread events it already applied.
+  const archiveStart = row.archiveHistoryId ?? row.historyId!;
+  try {
+    [inboxHistory, archiveHistory] = await Promise.all([
+      gmailListHistory(
+        accessToken,
+        {
+          startHistoryId: row.historyId!,
+          historyTypes: INBOX_HISTORY_TYPES,
+          labelId: "INBOX",
+          maxResults: HISTORY_PAGE_SIZE,
+        },
+        "incremental",
+      ),
+      gmailListHistory(
+        accessToken,
+        {
+          startHistoryId: archiveStart,
+          historyTypes: ARCHIVE_HISTORY_TYPES,
+          maxResults: ARCHIVE_HISTORY_PAGE_SIZE,
+        },
+        "incremental",
+      ),
+    ]);
+  } catch (err: any) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/\(404\)/.test(message)) {
+      const reset = await resetSyncAccountProgress(ownerEmail, accountEmail, {
+        claimId,
       });
-    } catch (err: any) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (/\(404\)/.test(message)) {
-        // Gmail expired our watermark (commonly after >7 days without a
-        // sync) — the only recovery is a fresh full sync. Fenced like every
-        // other progress write in this claimed step.
-        const reset = await resetSyncAccountProgress(ownerEmail, accountEmail, {
-          claimId,
+      if (!reset) throw new SyncClaimLostError(accountEmail);
+      const freshRow: SyncAccountRow = {
+        ...row,
+        historyId: null,
+        archiveHistoryId: null,
+        fullSyncPageToken: null,
+        fullSyncHistoryId: null,
+        fullSyncStartedAt: null,
+        fullSyncPhase: null,
+        fullSyncReconcilePageToken: null,
+        fullSyncReconcilePendingIds: null,
+        fullSyncReconcilePasses: 0,
+        fullSyncListedCount: 0,
+        archivePendingIds: [],
+        hydratePendingIds: [],
+        degraded: { hydrate: [], verify: [], kind: null },
+      };
+      const restarted = await runFullSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        freshRow,
+        claimId,
+        connectedAccountEmails,
+        onChanged,
+      );
+      return { ...restarted, restartedFullSync: true };
+    }
+    throw err;
+  }
+
+  const inboxRecords = inboxHistory.history ?? [];
+  let lastInboxRecordId: string | null = null;
+  const threadIds = new Set<string>();
+  for (const record of inboxRecords) {
+    if (record?.id != null) lastInboxRecordId = String(record.id);
+    for (const bucket of [
+      record.messagesAdded,
+      record.messagesDeleted,
+      record.labelsAdded,
+      record.labelsRemoved,
+    ]) {
+      for (const entry of bucket ?? []) {
+        if (entry?.message?.threadId) threadIds.add(entry.message.threadId);
+      }
+    }
+  }
+
+  let lastArchiveRecordId: string | null = null;
+  const archivedThreadIds = new Set<string>();
+  for (const record of archiveHistory.history ?? []) {
+    if (record?.id != null) lastArchiveRecordId = String(record.id);
+    for (const entry of record.labelsRemoved ?? []) {
+      const threadId = entry?.message?.threadId;
+      if (threadId && (entry.labelIds ?? []).includes("INBOX")) {
+        archivedThreadIds.add(threadId);
+      }
+    }
+    for (const entry of record.messagesDeleted ?? []) {
+      if (entry?.message?.threadId)
+        archivedThreadIds.add(entry.message.threadId);
+    }
+  }
+  // A finished stream moves its cursor to its own head, an unfinished one to
+  // its last record. Everything either stream returned is queued in the pending
+  // lists below before the cursors move, so neither stream skips an event.
+  const inboxCaughtUp = !inboxHistory.nextPageToken;
+  const archiveCaughtUp = !archiveHistory.nextPageToken;
+  const historyId =
+    streamWatermark(
+      inboxHistory,
+      inboxCaughtUp,
+      lastInboxRecordId,
+      row.historyId!,
+    ) ?? row.historyId!;
+  const archiveHistoryId =
+    streamWatermark(
+      archiveHistory,
+      archiveCaughtUp,
+      lastArchiveRecordId,
+      archiveStart,
+    ) ?? archiveStart;
+
+  // One message losing INBOX, or being deleted, does not remove a thread: the
+  // row is deleted only when a minimal read shows no message in it still
+  // carries INBOX (a 404 means the thread is gone). A thread the inbox stream
+  // returned is hydrated anyway, and a thread with no cached in-inbox row has
+  // nothing to delete.
+  // Threads that failed before queue last and stay out of the pending lists,
+  // which hold only work the next step will attempt. They are retried on an
+  // exponential backoff, so a permanent failure is attempted only when due.
+  const stepNow = Date.now();
+  const priorFailedHydrate = new Set(row.degraded.hydrate);
+  const priorFailedVerify = new Set(row.degraded.verify);
+  const dueDegradedHydrate = row.degraded.hydrate.filter((id) =>
+    retryDue(row.degraded, "h", id, stepNow),
+  );
+  const dueDegradedVerify = row.degraded.verify.filter((id) =>
+    retryDue(row.degraded, "v", id, stepNow),
+  );
+  const hydrateQueue = [
+    ...new Set([...row.hydratePendingIds, ...threadIds, ...dueDegradedHydrate]),
+  ];
+  const archiveCandidates = [
+    ...new Set([
+      ...row.archivePendingIds,
+      ...archivedThreadIds,
+      ...dueDegradedVerify,
+    ]),
+  ];
+  // Failing verify ids that are not due this step are looked up too, so one
+  // whose row is gone can be dropped now rather than when its retry comes due.
+  const cacheLookupIds = [
+    ...new Set([...archiveCandidates, ...row.degraded.verify]),
+  ];
+  const cachedCandidates = new Set<string>();
+  for (let i = 0; i < cacheLookupIds.length; i += CACHE_LOOKUP_CHUNK) {
+    for (const threadId of await readInboxThreadIds(
+      ownerEmail,
+      accountEmail,
+      cacheLookupIds.slice(i, i + CACHE_LOOKUP_CHUNK),
+    )) {
+      cachedCandidates.add(threadId);
+    }
+  }
+  // A candidate that is also being hydrated is settled by the hydrated payload
+  // (an archived thread is written out of the inbox), so it is not read twice.
+  // It stays an archive candidate until that hydration succeeds, so a failed
+  // hydration cannot lose the archive event.
+  const hydrateQueueSet = new Set(hydrateQueue);
+  const archiveOverlap = archiveCandidates.filter(
+    (threadId) =>
+      hydrateQueueSet.has(threadId) && cachedCandidates.has(threadId),
+  );
+  const verifyQueue = archiveCandidates.filter(
+    (threadId) =>
+      !hydrateQueueSet.has(threadId) && cachedCandidates.has(threadId),
+  );
+
+  // Every thread read costs 40 units of the 3,000-unit incremental lane and the
+  // two history reads cost 4, so one step reads at most STEP_THREAD_READS
+  // threads. Hydration goes first, but verification always keeps a share so a
+  // steady stream of new mail cannot starve archive handling. What does not fit
+  // waits in the pending lists.
+  const hydrateRetry = hydrateQueue.filter((id) => priorFailedHydrate.has(id));
+  const hydrateFresh = hydrateQueue.filter((id) => !priorFailedHydrate.has(id));
+  const verifyRetry = verifyQueue.filter((id) => priorFailedVerify.has(id));
+  const verifyFresh = verifyQueue.filter((id) => !priorFailedVerify.has(id));
+  const retryHydrateReads = Math.min(RETRY_SHARE, hydrateRetry.length);
+  const retryVerifyReads = Math.min(RETRY_SHARE, verifyRetry.length);
+  const freshBudget = STEP_THREAD_READS - retryHydrateReads - retryVerifyReads;
+  const hydrateFreshNow = hydrateFresh.slice(
+    0,
+    verifyFresh.length > 0 ? freshBudget - VERIFY_MIN_SHARE : freshBudget,
+  );
+  const verifyFreshNow = verifyFresh.slice(
+    0,
+    freshBudget - hydrateFreshNow.length,
+  );
+  // Reads fresh work left unused go to more retries, hydration first.
+  let spare = freshBudget - hydrateFreshNow.length - verifyFreshNow.length;
+  const extraHydrate = Math.min(spare, hydrateRetry.length - retryHydrateReads);
+  spare -= extraHydrate;
+  const extraVerify = Math.min(spare, verifyRetry.length - retryVerifyReads);
+  const hydrateNow = [
+    ...hydrateFreshNow,
+    ...hydrateRetry.slice(0, retryHydrateReads + extraHydrate),
+  ];
+  const verifyNow = [
+    ...verifyFreshNow,
+    ...verifyRetry.slice(0, retryVerifyReads + extraVerify),
+  ];
+  const hydrateNowSet = new Set(hydrateNow);
+  const verifyNowSet = new Set(verifyNow);
+
+  // Record the cursors and every unprocessed id before any thread read, so a
+  // quota failure or crash mid-step retries the pending ids instead of
+  // replaying the same history page.
+  await patchProgress(ownerEmail, accountEmail, claimId, {
+    historyId,
+    archiveHistoryId,
+    archiveHistoryPending: !archiveCaughtUp,
+    // Stays set until the inbox stream is drained, so the account is never
+    // treated as steady mid catch-up.
+    historyPending: !inboxCaughtUp,
+    hydratePendingIds: hydrateQueue.filter((id) => !priorFailedHydrate.has(id)),
+    archivePendingIds: [
+      ...verifyQueue.filter((id) => !priorFailedVerify.has(id)),
+      ...archiveOverlap,
+    ],
+  });
+
+  const archivedOnly: string[] = [];
+  const stillInbox: string[] = [];
+  // A candidate whose read fails is isolated: it goes to the back of the queue
+  // and the step carries on, so one bad thread cannot block verification of
+  // the rest or hydration of new mail. A quota cooldown ends verification for
+  // this step and leaves the candidates where they were.
+  const verifyFailed = new Map<string, string>();
+  let verifyCooledDown = false;
+  if (verifyNow.length > 0) {
+    let verification: Awaited<ReturnType<typeof gmailBatchGetThreads>> = [];
+    try {
+      verification = await gmailBatchGetThreads(
+        accessToken,
+        verifyNow,
+        "minimal",
+        undefined,
+        "incremental",
+      );
+    } catch (error) {
+      if (error instanceof GmailQuotaCooldownError) {
+        verifyCooledDown = true;
+      } else {
+        const kind = failureKind(error);
+        console.warn("[inbox-sync] archive verification batch failed", {
+          kind,
         });
-        if (!reset) throw new SyncClaimLostError(accountEmail);
-        const freshRow: SyncAccountRow = {
-          ...row,
-          historyId: null,
-          fullSyncPageToken: null,
-          fullSyncHistoryId: null,
-          fullSyncStartedAt: null,
-        };
-        return runFullSyncStep(
-          ownerEmail,
-          accountEmail,
-          accessToken,
-          freshRow,
-          deadline,
-          claimId,
-          connectedAccountEmails,
-        );
+        for (const id of verifyNow) verifyFailed.set(id, kind);
       }
-      throw err;
     }
-
-    const threadIds = new Set<string>();
-    for (const record of history.history ?? []) {
-      if (record?.id != null) lastRecordId = String(record.id);
-      for (const bucket of [
-        record.messagesAdded,
-        record.messagesDeleted,
-        record.labelsAdded,
-        record.labelsRemoved,
-      ]) {
-        for (const entry of bucket ?? []) {
-          if (entry?.message?.threadId) threadIds.add(entry.message.threadId);
+    for (const part of verification) {
+      if (part.error) {
+        if (/HTTP 404/.test(part.error)) {
+          archivedOnly.push(part.id);
+        } else {
+          console.warn("[inbox-sync] archive verification read failed", {
+            error: boundedErrorMessage(part.error),
+          });
+          verifyFailed.set(part.id, failureKind(part.error));
         }
+        continue;
       }
+      if (!isReadableThread(part.data)) {
+        verifyFailed.set(part.id, MALFORMED_RESPONSE);
+        continue;
+      }
+      const keeps = part.data.messages.some((message: any) =>
+        (message.labelIds ?? []).includes("INBOX"),
+      );
+      if (keeps) stillInbox.push(part.id);
+      else archivedOnly.push(part.id);
     }
+  }
 
-    if (threadIds.size > 0) {
+  // A thread that fails to hydrate goes to the back of the queue; a failure of
+  // the whole read (quota, network) is rethrown only after the archive cleanup
+  // and the pending lists below are saved, so it cannot block either.
+  const hydrateFailed = new Map<string, string>();
+  // Deletes the write guard skipped: requeued so the stale row is retried.
+  const hydrateSkipped: string[] = [];
+  let hydrateError: unknown = null;
+  if (hydrateNow.length > 0) {
+    try {
       const connected = await connectedEmailsLower(
         ownerEmail,
         accountEmail,
@@ -459,54 +1121,204 @@ async function runIncrementalSyncStep(
       );
       await hydrateAndApply(
         accessToken,
-        [...threadIds],
+        hydrateNow,
         ownerEmail,
         accountEmail,
         connected,
         claimId,
+        "incremental",
+        (skipped) => {
+          hydrateSkipped.push(...skipped);
+        },
+        onChanged,
+        hydrateFailed,
       );
+    } catch (error) {
+      if (error instanceof SyncClaimLostError) throw error;
+      hydrateError = error;
     }
-
-    currentHistoryId =
-      history.historyId != null ? String(history.historyId) : null;
-    pageToken = history.nextPageToken || undefined;
-    caughtUp = !pageToken;
-    if (lastRecordId) {
-      await patchProgress(ownerEmail, accountEmail, claimId, {
-        historyId: lastRecordId,
-      });
-    }
-  } while (pageToken && Date.now() < deadline);
-
-  if (!caughtUp) {
-    await patchProgress(ownerEmail, accountEmail, claimId, {
-      lastError: null,
-      lastSyncedAt: Date.now(),
-    });
-    return { accountEmail, state: "initial", lastSyncedAt: Date.now() };
   }
 
-  await patchProgress(ownerEmail, accountEmail, claimId, {
-    historyId: currentHistoryId ?? lastRecordId ?? row.historyId!,
-    lastError: null,
-    lastSyncedAt: Date.now(),
+  // Archived rows are deleted at once on an archive event. Rows the inbox stream
+  // wrote as archived are short-lived, so every step purges the expired ones.
+  // Only new in-inbox rows can push the account past the cap, so the trim runs
+  // when the inbox stream changed.
+  const archiveSkipped: string[] = [];
+  let trimmedByCap = 0;
+  await withSyncClaim(ownerEmail, accountEmail, claimId, async (tx) => {
+    for (const threadId of archivedOnly) {
+      const removed = await tryDeleteInboxThreadRow(
+        ownerEmail,
+        accountEmail,
+        threadId,
+        readStartedAt,
+        tx,
+      );
+      if (removed === "skipped") archiveSkipped.push(threadId);
+    }
+    await purgeArchivedInboxThreadRows(
+      ownerEmail,
+      accountEmail,
+      Date.now(),
+      tx,
+    );
+    if (hydrateNow.length > 0) {
+      trimmedByCap = await trimInboxThreadRows(
+        ownerEmail,
+        accountEmail,
+        INBOX_THREAD_CAP,
+        tx,
+      );
+    }
   });
-  return { accountEmail, state: "ready", lastSyncedAt: Date.now() };
+  if (archivedOnly.length > 0) onChanged?.();
+
+  // Verified threads that still have INBOX mail are refreshed on the next step,
+  // which keeps this step inside its read budget. Untried queue entries that
+  // had failed before go back to the degraded lists with the new failures.
+  // After a whole-read failure the ids just tried go behind the untried ones,
+  // so a batch that keeps failing cannot hold the front of the retry order.
+  const hydrateUntried = [
+    ...hydrateQueue.filter((id) => !hydrateNowSet.has(id)),
+    ...(hydrateError ? hydrateNow : []),
+  ];
+  const verifyUntried = [
+    ...(verifyCooledDown ? verifyNow : []),
+    ...verifyQueue.filter((id) => !verifyNowSet.has(id)),
+  ];
+  const hydratePendingIds = [
+    ...new Set([
+      ...hydrateUntried.filter((id) => !priorFailedHydrate.has(id)),
+      ...stillInbox,
+      ...hydrateSkipped,
+    ]),
+  ];
+  // Overlap ids leave the archive list only once their hydration succeeded.
+  const hydrateSucceeded = (id: string) =>
+    hydrateNowSet.has(id) && !hydrateError && !hydrateFailed.has(id);
+  const archivePendingIds = [
+    ...verifyUntried.filter((id) => !priorFailedVerify.has(id)),
+    ...archiveSkipped,
+    ...archiveOverlap.filter((id) => !hydrateSucceeded(id)),
+  ];
+  const failureKinds = [...hydrateFailed.values(), ...verifyFailed.values()];
+  // Failing ids that were not due this step wait where they were; ids that
+  // failed again get the next, longer wait.
+  const queuedHydrate = new Set(hydrateQueue);
+  const queuedVerify = new Set(verifyQueue);
+  const degradedHydrate = [
+    ...new Set([
+      ...row.degraded.hydrate.filter((id) => !queuedHydrate.has(id)),
+      ...hydrateUntried.filter((id) => priorFailedHydrate.has(id)),
+      ...hydrateFailed.keys(),
+    ]),
+  ];
+  // A failing verify id with no cached in-inbox row left (trimmed or purged)
+  // has nothing to verify or delete, so it leaves the degraded list. A failing
+  // hydrate id leaves only when its read confirms the thread is gone (404),
+  // which is already the case: it is then neither untried nor failed.
+  const degradedVerify = [
+    ...new Set([
+      ...row.degraded.verify.filter((id) => !queuedVerify.has(id)),
+      ...verifyUntried.filter((id) => priorFailedVerify.has(id)),
+      ...verifyFailed.keys(),
+    ]),
+  ].filter((id) => cachedCandidates.has(id));
+  const attempts: NonNullable<SyncDegraded["attempts"]> = {};
+  for (const [list, ids, failed] of [
+    ["h", degradedHydrate, hydrateFailed],
+    ["v", degradedVerify, verifyFailed],
+  ] as const) {
+    for (const id of ids) {
+      const key = `${list}:${id}`;
+      const previous = row.degraded.attempts?.[key];
+      if (failed.has(id)) {
+        const count = (previous?.count ?? 0) + 1;
+        attempts[key] = { count, nextAt: stepNow + retryBackoffMs(count) };
+      } else if (previous) {
+        attempts[key] = previous;
+      }
+    }
+  }
+  const degraded: SyncDegraded = {
+    hydrate: degradedHydrate,
+    verify: degradedVerify,
+    kind: failureKinds[failureKinds.length - 1] ?? row.degraded.kind,
+    attempts,
+  };
+  const corruptCount = Object.keys(row.corrupt).length;
+  const degradedCount =
+    degraded.hydrate.length + degraded.verify.length + corruptCount;
+  const syncedAt = Date.now();
+  if (hydrateError) {
+    await patchProgress(ownerEmail, accountEmail, claimId, {
+      hydratePendingIds,
+      archivePendingIds,
+      degraded,
+      ...(trimmedByCap > 0 ? { inboxCapped: true } : {}),
+    });
+    throw hydrateError;
+  }
+  await patchProgress(ownerEmail, accountEmail, claimId, {
+    hydratePendingIds,
+    archivePendingIds,
+    degraded,
+    ...(trimmedByCap > 0 ? { inboxCapped: true } : {}),
+    lastError: null,
+    lastSyncedAt: syncedAt,
+  });
+  return {
+    status: {
+      accountEmail,
+      state: inboxCaughtUp && archiveCaughtUp ? "ready" : "initial",
+      lastSyncedAt: syncedAt,
+      ...(row.inboxCapped || trimmedByCap > 0 ? { reachedCap: true } : {}),
+      // Full-sync flags come from the step that runs them; the caller adds them
+      // when this step is the only one that ran.
+      ...(hydratePendingIds.length > 0 ||
+      archivePendingIds.some((id) => !degraded.hydrate.includes(id)) ||
+      !archiveCaughtUp
+        ? { backfillPending: true }
+        : {}),
+      // Threads that keep failing are reported as degraded, not as pending
+      // work, so status says "pending" only for what the next step attempts.
+      ...(degradedCount > 0
+        ? {
+            degraded: {
+              count: degradedCount,
+              kind:
+                corruptCount > 0
+                  ? "corrupt_state"
+                  : (degraded.kind ?? "unknown"),
+            },
+          }
+        : {}),
+    },
+    changed: hydrateNow.length > 0 || archivedOnly.length > 0,
+  };
+}
+
+function isGmailAuthRejection(err: unknown): boolean {
+  return (err as { status?: unknown } | null)?.status === 401;
 }
 
 async function failAccount(
   row: SyncAccountRow,
   claimId: string,
   err: unknown,
+  afterTokenRefresh = false,
 ): Promise<InboxSyncAccountStatus> {
   const message = boundedErrorMessage(err);
   const raw = err instanceof Error ? err.message : String(err);
-  const status: SyncAccountRow["status"] = isPermanentRefreshError(raw)
-    ? "needs_reauth"
-    : "error";
-  // Fenced: a claim already lost to a newer worker must not stomp its
-  // progress with this stale failure. If the fence no-ops, releaseSyncAccount
-  // below (also fenced) no-ops too — nothing left to reconcile.
+  // Only Google refusing the refresh itself, or rejecting a token it has just
+  // minted, proves the credential is dead; a 401 on an older token does not.
+  const status: SyncAccountRow["status"] =
+    isPermanentRefreshError(raw) ||
+    (afterTokenRefresh && isGmailAuthRejection(err))
+      ? "needs_reauth"
+      : "error";
+  invalidateHistoryCacheForAccount(row.accountEmail);
+  invalidateListCacheForOwner(row.ownerEmail);
   await patchSyncAccount(
     row.ownerEmail,
     row.accountEmail,
@@ -522,6 +1334,23 @@ async function failAccount(
   };
 }
 
+function progressFromStatus(
+  status: InboxSyncAccountStatus,
+  pushGeneration: number,
+  lastPushGeneration: number,
+  changed = false,
+  retryAfterSeconds?: number,
+): SyncInboxAccountProgress {
+  return {
+    ...status,
+    changed,
+    pushGeneration,
+    lastPushGeneration,
+    pushPending: pushGeneration > lastPushGeneration,
+    ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+  };
+}
+
 export async function syncInboxAccount(
   ownerEmail: string,
   accountEmail: string,
@@ -529,48 +1358,61 @@ export async function syncInboxAccount(
     budgetMs?: number;
     force?: boolean;
     connectedAccountEmails?: readonly string[];
+    pushGeneration?: number;
+    /** Internal: this attempt runs on a token refreshed after a 401. */
+    afterTokenRefresh?: boolean;
   },
-): Promise<InboxSyncAccountStatus> {
+): Promise<SyncInboxAccountProgress> {
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
   const deadline = Date.now() + budgetMs;
 
-  await ensureSyncAccountRow(ownerEmail, accountEmail);
+  const existing = await ensureSyncAccountRow(ownerEmail, accountEmail);
+  const targetPushGeneration =
+    opts?.pushGeneration ??
+    (await readInboxPushGeneration(ownerEmail, accountEmail));
+  // Google rejected this credential: syncing it again only repeats the 401.
+  // Reconnecting (or an explicit resync) clears the state.
+  if (existing.status === "needs_reauth") {
+    return progressFromStatus(
+      statusFromRow(existing),
+      targetPushGeneration,
+      existing.lastPushGeneration,
+    );
+  }
   const claim = await claimSyncAccount(ownerEmail, accountEmail, CLAIM_TTL_MS);
   if (!claim) {
     const current = (await readSyncAccounts(ownerEmail)).find(
       (r) => r.accountEmail === accountEmail.toLowerCase(),
     );
-    return current
-      ? statusFromRow(current)
-      : { accountEmail, state: "initial", lastSyncedAt: null };
+    return progressFromStatus(
+      current
+        ? statusFromRow(current)
+        : { accountEmail, state: "initial", lastSyncedAt: null },
+      await readInboxPushGeneration(ownerEmail, accountEmail),
+      current?.lastPushGeneration ?? 0,
+    );
   }
 
   let row = claim.row;
+  let changed = false;
   try {
-    let client: { accessToken: string; email: string } | null;
-    try {
-      client = await getClientForConnectedAccount(ownerEmail, accountEmail);
-    } catch (err) {
-      return await failAccount(row, claim.claimId, err);
-    }
+    const client = await getClientForConnectedAccount(ownerEmail, accountEmail);
     if (!client) {
-      return await failAccount(
-        row,
-        claim.claimId,
-        new Error("Google account not connected"),
-      );
+      throw new Error("Google account not connected");
     }
     const accessToken = client.accessToken;
 
-    // Labels: refresh + persist independently of thread sync, so a later
-    // thread-sync failure below never loses a label refresh that already
-    // succeeded.
     const labelsStale =
       opts?.force ||
       row.labelsUpdatedAt == null ||
       Date.now() - row.labelsUpdatedAt > LABELS_TTL_MS;
-    if (labelsStale && Date.now() < deadline) {
-      const result = await gmailListLabels(accessToken);
+    if (
+      labelsStale &&
+      row.historyId != null &&
+      row.fullSyncPhase !== "reconcile" &&
+      Date.now() < deadline
+    ) {
+      const result = await gmailListLabels(accessToken, "incremental");
       const labels: CachedGmailLabel[] = (result.labels ?? []).map(
         (l: any) => ({
           id: l.id,
@@ -584,52 +1426,252 @@ export async function syncInboxAccount(
         }),
       );
       const labelsUpdatedAt = Date.now();
-      await patchSyncAccount(ownerEmail, accountEmail, {
+      await patchProgress(ownerEmail, accountEmail, claim.claimId, {
         labels,
         labelsUpdatedAt,
       });
       row = { ...row, labels, labelsUpdatedAt };
+      changed = true;
     }
 
-    const accountStatus =
-      row.historyId == null
-        ? await runFullSyncStep(
-            ownerEmail,
-            accountEmail,
-            accessToken,
-            row,
-            deadline,
-            claim.claimId,
-            opts?.connectedAccountEmails,
-          )
-        : await runIncrementalSyncStep(
-            ownerEmail,
-            accountEmail,
-            accessToken,
-            row,
-            deadline,
-            claim.claimId,
-            opts?.connectedAccountEmails,
-          );
+    if (Date.now() >= deadline) {
+      await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, "idle");
+      const latest = (await readSyncAccounts(ownerEmail)).find(
+        (account) => account.accountEmail === accountEmail.toLowerCase(),
+      );
+      return progressFromStatus(
+        latest
+          ? statusFromRow(latest)
+          : { accountEmail, state: "initial", lastSyncedAt: row.lastSyncedAt },
+        await readInboxPushGeneration(ownerEmail, accountEmail),
+        latest?.lastPushGeneration ?? row.lastPushGeneration,
+        changed,
+      );
+    }
 
+    let syncResult: SyncStepResult;
+    // True while the status is the incremental step's alone, so it still has to
+    // carry the full-sync flags no later step reports.
+    let incrementalAlone = false;
+    if (row.fullSyncPhase === "reconcile") {
+      syncResult = await runIncrementalSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        row,
+        claim.claimId,
+        opts?.connectedAccountEmails,
+        () => {
+          changed = true;
+        },
+      );
+      incrementalAlone = !syncResult.restartedFullSync;
+      if (!syncResult.restartedFullSync && Date.now() < deadline) {
+        incrementalAlone = false;
+        const incrementalResult = syncResult;
+        const reconciliationResult = await runReconciliationStep(
+          ownerEmail,
+          accountEmail,
+          accessToken,
+          row,
+          claim.claimId,
+          opts?.connectedAccountEmails,
+          () => {
+            changed = true;
+          },
+        );
+        syncResult = {
+          ...reconciliationResult,
+          status: mergeSyncStatuses(
+            incrementalResult.status,
+            reconciliationResult.status,
+          ),
+          changed: incrementalResult.changed || reconciliationResult.changed,
+        };
+      }
+    } else if (row.historyId == null) {
+      syncResult = await runFullSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        row,
+        claim.claimId,
+        opts?.connectedAccountEmails,
+        () => {
+          changed = true;
+        },
+      );
+    } else {
+      syncResult = await runIncrementalSyncStep(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        row,
+        claim.claimId,
+        opts?.connectedAccountEmails,
+        () => {
+          changed = true;
+        },
+      );
+      incrementalAlone = !syncResult.restartedFullSync;
+      if (
+        !syncResult.restartedFullSync &&
+        row.fullSyncPageToken != null &&
+        Date.now() < deadline
+      ) {
+        incrementalAlone = false;
+        const incrementalResult = syncResult;
+        const backfillResult = await runFullSyncStep(
+          ownerEmail,
+          accountEmail,
+          accessToken,
+          row,
+          claim.claimId,
+          opts?.connectedAccountEmails,
+          () => {
+            changed = true;
+          },
+        );
+        syncResult = {
+          ...backfillResult,
+          status: mergeSyncStatuses(
+            incrementalResult.status,
+            backfillResult.status,
+          ),
+          changed: incrementalResult.changed || backfillResult.changed,
+        };
+      }
+    }
+
+    const accountStatus: InboxSyncAccountStatus = withCorruptState(
+      incrementalAlone &&
+        (row.fullSyncPageToken != null || row.fullSyncPhase === "reconcile")
+        ? { ...syncResult.status, backfillPending: true }
+        : syncResult.status,
+      row.corrupt,
+    );
+    changed ||= syncResult.changed;
     const dbStatus: SyncAccountRow["status"] =
       accountStatus.state === "error" || accountStatus.state === "needs_reauth"
         ? accountStatus.state
         : "idle";
-    await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
+    if (syncResult.changed) invalidateHistoryCacheForAccount(accountEmail);
     invalidateListCacheForOwner(ownerEmail);
-    return accountStatus;
-  } catch (err) {
-    if (err instanceof SyncClaimLostError) {
-      // A newer worker already owns this account's row — this worker's
-      // progress is stale by definition, so report "still syncing" and stop
-      // quietly rather than calling failAccount (which would stomp the new
-      // worker's row with an unfenced status write) or releaseSyncAccount
-      // (a no-op anyway: our claimId no longer matches).
-      return { accountEmail, state: "initial", lastSyncedAt: row.lastSyncedAt };
+    if (
+      accountStatus.state === "ready" &&
+      targetPushGeneration > row.lastPushGeneration
+    ) {
+      await patchProgress(ownerEmail, accountEmail, claim.claimId, {
+        lastPushGeneration: targetPushGeneration,
+      });
     }
-    return await failAccount(row, claim.claimId, err);
+    await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, dbStatus);
+    const latest = (await readSyncAccounts(ownerEmail)).find(
+      (account) => account.accountEmail === accountEmail.toLowerCase(),
+    );
+    return progressFromStatus(
+      accountStatus,
+      await readInboxPushGeneration(ownerEmail, accountEmail),
+      latest?.lastPushGeneration ?? row.lastPushGeneration,
+      changed,
+    );
+  } catch (err) {
+    if (err instanceof GmailQuotaCooldownError) {
+      await releaseSyncAccount(ownerEmail, accountEmail, claim.claimId, "idle");
+      const latest = (await readSyncAccounts(ownerEmail)).find(
+        (account) => account.accountEmail === accountEmail.toLowerCase(),
+      );
+      const status: InboxSyncAccountStatus = {
+        ...statusFromRow(latest ?? row),
+        state: "initial",
+      };
+      return progressFromStatus(
+        status,
+        await readInboxPushGeneration(ownerEmail, accountEmail),
+        latest?.lastPushGeneration ?? row.lastPushGeneration,
+        changed,
+        err.details.retryAfterSeconds,
+      );
+    }
+    if (err instanceof SyncClaimLostError) {
+      invalidateHistoryCacheForAccount(accountEmail);
+      invalidateListCacheForOwner(ownerEmail);
+      const latest = (await readSyncAccounts(ownerEmail)).find(
+        (account) => account.accountEmail === accountEmail.toLowerCase(),
+      );
+      return progressFromStatus(
+        latest
+          ? statusFromRow(latest)
+          : { accountEmail, state: "initial", lastSyncedAt: row.lastSyncedAt },
+        await readInboxPushGeneration(ownerEmail, accountEmail),
+        latest?.lastPushGeneration ?? row.lastPushGeneration,
+        changed,
+      );
+    }
+    let failure = err;
+    if (isGmailAuthRejection(err) && !opts?.afterTokenRefresh) {
+      // Google can retire an access token before its stated expiry: refresh
+      // it once and retry on the fresh token before judging the credential.
+      let refreshed = false;
+      try {
+        await getClientForConnectedAccount(ownerEmail, accountEmail, {
+          forceRefresh: true,
+        });
+        refreshed = true;
+      } catch (refreshError) {
+        failure = refreshError;
+      }
+      if (refreshed) {
+        await releaseSyncAccount(
+          ownerEmail,
+          accountEmail,
+          claim.claimId,
+          "idle",
+        );
+        const retried = await syncInboxAccount(ownerEmail, accountEmail, {
+          ...opts,
+          budgetMs: Math.max(0, deadline - Date.now()),
+          afterTokenRefresh: true,
+        });
+        return changed ? { ...retried, changed: true } : retried;
+      }
+    }
+    const status = await failAccount(
+      row,
+      claim.claimId,
+      failure,
+      opts?.afterTokenRefresh,
+    );
+    return progressFromStatus(
+      status,
+      await readInboxPushGeneration(ownerEmail, accountEmail),
+      row.lastPushGeneration,
+      changed,
+    );
   }
+}
+
+/**
+ * A steady account synced inside the freshness window needs no Gmail call.
+ * Initial sync, backfill, and a pending push must still advance one step per
+ * call, so they never count as fresh even when the last step was recent.
+ */
+function isFreshSteadyAccount(
+  row: SyncAccountRow,
+  pushGeneration: number,
+  now: number,
+  maxAgeMs: number,
+): boolean {
+  return (
+    row.historyId != null &&
+    row.status === "idle" &&
+    row.fullSyncPageToken == null &&
+    row.fullSyncPhase == null &&
+    !hasOutstandingSyncWork(row, now) &&
+    row.lastPushGeneration >= pushGeneration &&
+    row.lastSyncedAt != null &&
+    now - row.lastSyncedAt < maxAgeMs
+  );
 }
 
 export async function ensureInboxFresh(
@@ -639,8 +1681,6 @@ export async function ensureInboxFresh(
   const maxAgeMs = opts?.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS;
 
-  // The structured account result keeps usable OAuth accounts available when
-  // a managed workspace grant cannot be resolved, while surfacing that gap.
   const { accounts, errors: lookupErrors } =
     await getConnectedAccountsWithErrors(ownerEmail);
   const requested = opts?.accountEmails?.length
@@ -660,20 +1700,21 @@ export async function ensureInboxFresh(
   const statuses = await Promise.all(
     emails.map(async (accountEmail) => {
       const row = await ensureSyncAccountRow(ownerEmail, accountEmail);
-      const fresh =
-        row.lastSyncedAt != null && now - row.lastSyncedAt < maxAgeMs;
-      if (fresh) return statusFromRow(row);
+      const pushGeneration = await readInboxPushGeneration(
+        ownerEmail,
+        accountEmail,
+      );
+      if (isFreshSteadyAccount(row, pushGeneration, now, maxAgeMs)) {
+        return statusFromRow(row);
+      }
       try {
-        // Accounts run concurrently and share nothing — each has its own
-        // token bucket in google-api.ts, so there's no reason to serialize.
-        return await syncInboxAccount(ownerEmail, accountEmail, {
+        const result = await syncInboxAccount(ownerEmail, accountEmail, {
           budgetMs,
           connectedAccountEmails: accounts,
+          pushGeneration,
         });
+        return result;
       } catch (err) {
-        // Belt-and-suspenders: syncInboxAccount already records failures on
-        // the row and never throws, but a single account's bug must never
-        // take the whole call down.
         return {
           accountEmail,
           state: "error" as const,
@@ -694,6 +1735,92 @@ export async function ensureInboxFresh(
   ];
 }
 
+export async function syncInbox(
+  ownerEmail: string,
+  opts?: { accountEmails?: string[]; budgetMs?: number; force?: boolean },
+): Promise<SyncInboxResult> {
+  const { accounts, errors: lookupErrors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
+  const requested = opts?.accountEmails?.length
+    ? new Set(opts.accountEmails.map((email) => email.toLowerCase()))
+    : null;
+  const emails = accounts
+    .map((email) => email.toLowerCase())
+    .filter((email) => !requested || requested.has(email));
+  const relevantLookupErrors =
+    requested && [...requested].every((email) => emails.includes(email))
+      ? []
+      : lookupErrors;
+
+  const progress = await Promise.all(
+    emails.map(async (accountEmail) => {
+      const row = await ensureSyncAccountRow(ownerEmail, accountEmail);
+      const pushGeneration = await readInboxPushGeneration(
+        ownerEmail,
+        accountEmail,
+      );
+      const now = Date.now();
+      // A manual refresh forces a sync; a pending push already fails the
+      // steady check, so it is never held back by the poll window.
+      if (
+        !opts?.force &&
+        isFreshSteadyAccount(
+          row,
+          pushGeneration,
+          now,
+          steadyPollMaxAgeMs(row, now),
+        )
+      ) {
+        return progressFromStatus(
+          statusFromRow(row),
+          pushGeneration,
+          row.lastPushGeneration,
+        );
+      }
+      const synced = await syncInboxAccount(ownerEmail, accountEmail, {
+        budgetMs: opts?.budgetMs ?? 1_800,
+        connectedAccountEmails: accounts,
+        force: opts?.force,
+      });
+      return { ...synced, pushWatch: pushWatchState(row, now) };
+    }),
+  );
+  const disconnected = requested
+    ? [...requested]
+        .filter((email) => !emails.includes(email))
+        .map((accountEmail) =>
+          progressFromStatus(
+            {
+              accountEmail,
+              state: "error",
+              lastSyncedAt: null,
+              error: "Account is not connected",
+            },
+            0,
+            0,
+          ),
+        )
+    : [];
+  return {
+    accounts: [
+      ...progress,
+      ...disconnected,
+      ...relevantLookupErrors.map(({ email, error }) =>
+        progressFromStatus(
+          {
+            accountEmail: email,
+            state: "error",
+            lastSyncedAt: null,
+            error: boundedErrorMessage(error),
+          },
+          0,
+          0,
+        ),
+      ),
+    ],
+  };
+}
+
 export async function resetInboxSync(
   ownerEmail: string,
   accountEmail?: string,
@@ -702,9 +1829,6 @@ export async function resetInboxSync(
     await resetSyncAccountProgress(ownerEmail, accountEmail);
     return;
   }
-  // Same "which accounts exist" source as ensureInboxFresh — a managed
-  // grant has no sync-account row until its first ensureInboxFresh call, so
-  // resetting only existing readSyncAccounts rows would silently skip it.
   const { accounts: emails, errors } =
     await getConnectedAccountsWithErrors(ownerEmail);
   await Promise.all(

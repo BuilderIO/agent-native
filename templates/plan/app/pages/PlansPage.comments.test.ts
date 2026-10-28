@@ -1122,15 +1122,12 @@ describe("plan comment thread UI model", () => {
       accessStatusPaused: false,
       accessDenied: false,
     };
-    // A paused read (offline at mount, or tab blurred mid-retry) never errors
-    // and never resolves — must show the retryable card, not the skeleton.
     expect(shouldShowPlanLoadError({ ...base, planQueryPaused: true })).toBe(
       true,
     );
     expect(shouldShowPlanLoadError({ ...base, accessStatusPaused: true })).toBe(
       true,
     );
-    // A genuinely in-flight initial load keeps the skeleton (no regression).
     expect(
       shouldShowPlanLoadError({
         ...base,
@@ -1138,13 +1135,10 @@ describe("plan comment thread UI model", () => {
         planQueryPaused: true,
       }),
     ).toBe(false);
-    // Real errors and access denials still show the card.
     expect(shouldShowPlanLoadError({ ...base, planQueryError: true })).toBe(
       true,
     );
     expect(shouldShowPlanLoadError({ ...base, accessDenied: true })).toBe(true);
-    // Background refetches should not replace a settled error/access card with
-    // the first-load skeleton.
     expect(
       shouldShowPlanLoadError({
         ...base,
@@ -1159,7 +1153,6 @@ describe("plan comment thread UI model", () => {
         accessDenied: true,
       }),
     ).toBe(true);
-    // An access denial that hasn't settled yet should not flash the card.
     expect(
       shouldShowPlanLoadError({
         ...base,
@@ -1167,7 +1160,6 @@ describe("plan comment thread UI model", () => {
         accessStatusInitialPending: true,
       }),
     ).toBe(false);
-    // Healthy / local / already-loaded states never show the card.
     expect(shouldShowPlanLoadError(base)).toBe(false);
     expect(shouldShowPlanLoadError({ ...base, hasBundle: true })).toBe(false);
     expect(shouldShowPlanLoadError({ ...base, localPlanMode: true })).toBe(

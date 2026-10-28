@@ -5,8 +5,6 @@ const PROVIDER_CREDENTIAL_KEY_ALIASES: Record<
   hubspot: {
     HUBSPOT_ACCESS_TOKEN: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_SECRET_KEY"],
     HUBSPOT_PRIVATE_APP_TOKEN: ["HUBSPOT_ACCESS_TOKEN", "HUBSPOT_SECRET_KEY"],
-    // This alias is only considered after the connection has been identified
-    // as HubSpot. Key names alone never identify a provider.
     HUBSPOT_SECRET_KEY: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
   },
 };

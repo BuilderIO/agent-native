@@ -5,11 +5,17 @@ import {
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -147,6 +153,11 @@ describe("createH3SSRHandler", () => {
         method: "GET",
         userAgent: undefined,
         tags: { renderMode: "anonymous-public", surface: "ssr" },
+        extra: {
+          failureContext: expect.objectContaining({
+            route: "/recaps/recap_test",
+          }),
+        },
       });
     } finally {
       consoleError.mockRestore();
@@ -155,10 +166,6 @@ describe("createH3SSRHandler", () => {
   });
 
   it("keeps the dev 500 body printable when the error names a Vite virtual module", async () => {
-    // Vite ids virtual modules with a leading NUL, and module-resolution errors
-    // carry that id verbatim. A raw NUL in the body makes curl (and some proxies)
-    // treat the only useful line as binary — but the NUL is part of the real id,
-    // so it has to survive as a visible escape rather than be dropped.
     const error = new Error(
       "Failed to load url /app/routes/chat.$threadId.tsx in \0virtual:react-router/server-build. Does the file exist?",
     );
@@ -304,6 +311,31 @@ describe("createH3SSRHandler", () => {
     );
   });
 
+  it("keeps a root-only workspace app at its root instead of bouncing to /home", async () => {
+    resetAppConfigForTests();
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "adoption";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "adoption", path: "/adoption", homePath: "/" },
+    ]);
+    try {
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("<html><head></head><body>app</body></html>", {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/"));
+      const html = await response.text();
+
+      expect(html).not.toContain("data-agent-native-auth-redirect");
+      expect(html).toContain('"appHomePath":"/"');
+    } finally {
+      delete process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+      delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+    }
+  });
+
   it("narrows Netlify query variation on public SSR HTML", async () => {
     process.env.SITE_ID = "site-test";
     mocks.requestHandler.mockResolvedValueOnce(
@@ -316,6 +348,179 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/"));
 
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("normalizes recovery paths and revalidates recovery aliases in browsers", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const recoveryUrls = [
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}?${CHUNK_RECOVERY_QUERY_PARAM}=first&tab=one`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}?${CHUNK_RECOVERY_QUERY_PARAM}=second&tab=two`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}/?${CHUNK_RECOVERY_QUERY_PARAM}=last&tab=four`,
+      `/?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&tab=three`,
+    ];
+
+    for (const recoveryUrl of recoveryUrls) {
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("<html><head></head><body>ok</body></html>", {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      const response = await handler(createEvent(recoveryUrl));
+      const isRecoveryAlias = recoveryUrl.includes(CHUNK_RECOVERY_PATH_SUFFIX);
+      expect(response.headers.get("cache-control")).toBe(
+        isRecoveryAlias
+          ? CHUNK_RECOVERY_BROWSER_CACHE_CONTROL
+          : DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      );
+      expect(response.headers.get("cdn-cache-control")).toBe(
+        isRecoveryAlias
+          ? "no-store"
+          : DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
+      );
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        isRecoveryAlias
+          ? "no-store"
+          : DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+      );
+      expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+    }
+
+    expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page?");
+    expect(mocks.requestHandler.mock.calls[1]?.[0].url).toContain("/page?");
+    expect(mocks.requestHandler.mock.calls[2]?.[0].url).toContain("/page/?");
+  });
+
+  it("normalizes recovery aliases before React Router data suffixes", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const recoveryUrls = [
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}.data`,
+      `/page${CHUNK_RECOVERY_PATH_SUFFIX}/_.data`,
+    ];
+
+    for (const recoveryUrl of recoveryUrls) {
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("loader data", {
+          headers: { "content-type": "text/x-script" },
+        }),
+      );
+      const response = await handler(createEvent(recoveryUrl));
+
+      expect(response.headers.get("cache-control")).toBe(
+        CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      );
+      expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        "no-store",
+      );
+    }
+
+    expect(mocks.requestHandler.mock.calls[0]?.[0].url).toContain("/page.data");
+    expect(mocks.requestHandler.mock.calls[1]?.[0].url).toContain(
+      "/page/_.data",
+    );
+  });
+
+  it("preserves a bounded cache variant for the exact legacy recovery marker", async () => {
+    process.env.SITE_ID = "site-test";
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const legacyUrl = `/page?${CHUNK_RECOVERY_QUERY_PARAM}=${CHUNK_RECOVERY_QUERY_VALUE}&tab=one`;
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const legacyResponse = await handler(createEvent(legacyUrl));
+
+    expect(legacyResponse.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyResponse.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyResponse.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
+    expect(legacyResponse.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const arbitraryResponse = await handler(
+      createEvent(`/page?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary&tab=one`),
+    );
+
+    expect(arbitraryResponse.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitraryResponse.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const duplicateMarkerResponse = await handler(
+      createEvent(
+        `/page?${CHUNK_RECOVERY_QUERY_PARAM}=1&${CHUNK_RECOVERY_QUERY_PARAM}=1`,
+      ),
+    );
+
+    expect(duplicateMarkerResponse.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(duplicateMarkerResponse.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+  });
+
+  it("preserves disabled SSR caching for recovery aliases", async () => {
+    process.env.AGENT_NATIVE_SSR_CACHE = "off";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent(`/page${CHUNK_RECOVERY_PATH_SUFFIX}`),
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["cdn-cache-control"],
+    );
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+      DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+    );
+  });
+
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response('{"private":true}', {
+        headers: {
+          "cache-control": "private, no-store",
+          "content-type": "application/json",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent(`/private-json${CHUNK_RECOVERY_PATH_SUFFIX}`),
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expectNoDefaultCdnCacheHeaders(response);
   });
 
   it("preserves full Netlify query variation for marked public redirects", async () => {
@@ -484,8 +689,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Auth makes no difference: SSR .data is hard-cached for everyone, so an
-    // authenticated request gets the exact same public SWR headers as anonymous.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -516,8 +719,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // The framework hard-caches SSR .data for everyone: a route can no longer
-    // opt .data into private/no-store, even when the request is authenticated.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -602,8 +803,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Auth makes no difference: SSR HTML is hard-cached for everyone, so a
-    // request with a session cookie gets the same public SWR headers as anonymous.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -635,9 +834,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // The SSR handler does not read the request session, so a loader that calls
-    // getRequestUserEmail() sees undefined — the HTML is impersonal and safe to
-    // hard-cache for everyone.
     expect(await response.text()).toContain("anonymous");
     expect(mocks.getSession).not.toHaveBeenCalled();
     expectDefaultSsrCacheHeaders(response);
@@ -666,8 +862,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // No per-user data is baked into the .data response — getRequestUserEmail()
-    // returns undefined even with a session cookie — so it is publicly cached.
     expect(await response.text()).toContain('"email":null');
     expect(mocks.getSession).not.toHaveBeenCalled();
     expectDefaultSsrCacheHeaders(response);
@@ -726,8 +920,6 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(
       createEvent("/docs", "GET", {
-        // Even with an auth cookie alongside anonymous ones, SSR is still the
-        // impersonal public shell — no cookie combination changes the policy.
         headers: { cookie: "an_docs_session=anon; an_session=1" },
       }),
     );
@@ -752,16 +944,12 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/"));
 
-    // Anonymous: enforce the public SWR default even if the route said private.
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
     );
   });
 
   it("overrides a route-provided Cache-Control on authenticated HTML with the public SWR policy", async () => {
-    // A route may try to set its own Cache-Control even when the request carries
-    // an auth cookie, but the framework hard-caches SSR HTML for everyone, so
-    // the route-provided policy is overridden with the public SWR default.
     mocks.requestHandler.mockResolvedValueOnce(
       new Response("<html><head></head><body>shared</body></html>", {
         headers: {
@@ -778,7 +966,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // Route tried to opt out; the framework still enforces the public SWR policy.
     expectDefaultSsrCacheHeaders(response);
     expect(response.headers.get("cache-control")).toBe(
       DEFAULT_SSR_CACHE_CONTROL,
@@ -835,7 +1022,6 @@ describe("createH3SSRHandler", () => {
       createEvent("/inbox?embedded=1&__an_embed_token=signed"),
     );
 
-    // An embed token in the request does not pin a session for SSR.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });
@@ -857,7 +1043,6 @@ describe("createH3SSRHandler", () => {
       }),
     );
 
-    // An Authorization header in the request does not pin a session for SSR.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });
@@ -875,7 +1060,6 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/inbox?_session=mobile-token"));
 
-    // A mobile session query credential does not pin a session for SSR.
     expect(mocks.getSession).not.toHaveBeenCalled();
     expect(await response.text()).toContain("anonymous");
   });
@@ -910,6 +1094,35 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('src="/docs/app.js"');
   });
+
+  it("strips the mount from React Router's root data URL", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/docs.data"));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("GET /.data");
+  });
+
+  it.each(["/docs.data?_routes=root", "/docs.data#root"])(
+    "does not re-prefix mounted root data redirects with %s",
+    async (location) => {
+      process.env.APP_BASE_PATH = "/docs";
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { location } }),
+      );
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/docs.data"));
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(location);
+      expect(new URL(mocks.requestHandler.mock.calls[0][0].url).pathname).toBe(
+        "/.data",
+      );
+    },
+  );
 
   it("uses APP_BASE_PATH in React Router's mounted hydration context", async () => {
     process.env.APP_BASE_PATH = "/analytics";
@@ -1033,8 +1246,6 @@ describe("createH3SSRHandler", () => {
       const response = await handler(createEvent("/"));
 
       expectCacheHeaders(response, DISABLED_SSR_CACHE_HEADERS["cache-control"]);
-      // Opting out of caching must not turn the shell personal: cookies are
-      // still stripped and the response still cannot vary by credentials.
       expect(response.headers.get("set-cookie")).toBeNull();
       expect(response.headers.get("vary")).toBe("Accept-Encoding");
     });
@@ -1110,10 +1321,6 @@ describe("createH3SSRHandler", () => {
     });
 
     it("caches a 404 shell so dead links stop re-invoking the function", async () => {
-      // These carried `no-cache` and were never stored, so the SAME dead URL
-      // cost a full cold render every time. Netlify runs one request per
-      // container, so a crawler walking dead links drained the concurrency
-      // pool every other site on the account shares.
       mocks.requestHandler.mockResolvedValueOnce(
         new Response("<html><body>not found</body></html>", {
           status: 404,
@@ -1129,8 +1336,6 @@ describe("createH3SSRHandler", () => {
     });
 
     it("never caches a 5xx shell", async () => {
-      // A transient failure pinned at the edge for the stale-while-revalidate
-      // window turns a blip into an outage.
       mocks.requestHandler.mockResolvedValueOnce(
         new Response("<html><body>boom</body></html>", {
           status: 503,
@@ -1174,7 +1379,6 @@ describe("createH3SSRHandler", () => {
 
         const response = await handler(createEvent("/"));
 
-        // Fail safe: a typo must not silently disable the CDN.
         expectDefaultSsrCacheHeaders(response);
         expect(response.headers.get("cache-control")).not.toBe(
           DISABLED_SSR_CACHE_HEADERS["cache-control"],

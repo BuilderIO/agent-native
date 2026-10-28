@@ -5,10 +5,13 @@ const mocks = vi.hoisted(() => ({
     kind: "auth-plugin",
     options,
   })),
+  registerAuthPublicPaths: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   createAuthPlugin: mocks.createAuthPlugin,
+  registerAuthPublicPaths: mocks.registerAuthPublicPaths,
+  registerDelegatedBuilderCredentials: vi.fn(),
 }));
 
 import authPlugin from "./auth.js";
@@ -28,6 +31,7 @@ describe("design auth plugin", () => {
       expect.objectContaining({
         publicPaths: expect.arrayContaining([
           "/_agent-native/actions/get-design",
+          "/_agent-native/actions/get-design-access-status",
           "/_agent-native/actions/list-design-native-assets",
           "/_agent-native/actions/list-review-comments",
         ]),
@@ -43,6 +47,16 @@ describe("design auth plugin", () => {
     );
   });
 
+  it("registers only the storyboard upload route for its own A2A verifier", () => {
+    expect(mocks.registerAuthPublicPaths).toHaveBeenCalledOnce();
+    expect(mocks.registerAuthPublicPaths).toHaveBeenCalledWith([
+      "/api/session-replay-storyboard",
+    ]);
+
+    const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
+    expect(options.publicPaths).not.toContain("/api/session-replay-storyboard");
+  });
+
   it("does not expose review comment mutations", () => {
     const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
 
@@ -54,5 +68,29 @@ describe("design auth plugin", () => {
         "/_agent-native/actions/delete-review-comment",
       ]),
     );
+  });
+
+  it("adds Builder identity without replacing Design's own sessions", async () => {
+    vi.resetModules();
+    vi.stubEnv("BUILDER_IDENTITY", "1");
+    mocks.createAuthPlugin.mockClear();
+    try {
+      const { getBuilderIdentitySession } =
+        await import("../lib/builder-identity.js");
+      await import("./auth.js");
+      const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
+      // A custom getSession would take over every session and the sign-in
+      // routes, locking out everyone who is not a Builder user.
+      expect(options.getSession).toBeUndefined();
+      expect(options.getBrowserSession).toBeUndefined();
+      expect(options.getAdditionalSession).toBe(getBuilderIdentitySession);
+      expect(options.getAdditionalBrowserSession).toBe(
+        getBuilderIdentitySession,
+      );
+      expect(options.clearAdditionalSession).toBeTypeOf("function");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 });

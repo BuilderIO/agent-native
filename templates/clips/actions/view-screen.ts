@@ -1,15 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads `navigation` application state and fetches the relevant context
- * (recording + transcript + comments if viewing a recording, folder contents
- * if on library/shared-with-me, space list if on spaces, etc.). Returns a single JSON
- * snapshot the agent can reason over.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
@@ -34,12 +22,31 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import {
+  activeUploadFromContent,
+  contentPageUrls,
+  uploadedFromContent,
+  uploadFromTrashedPage,
+} from "../server/lib/content-uploads.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
+import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import {
+  isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
+} from "../server/lib/recording-page-access.js";
+import {
   getActiveOrganizationId,
   ownerEmailMatches,
   parseSpaceIds,
+  sameOwnerEmail,
 } from "../server/lib/recordings.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
+import { getAgentClipReadiness } from "../shared/agent-context.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import {
+  isEmbedBackedRecording,
+  recordingEmbedProvider,
+} from "../shared/embed-provider.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
@@ -59,13 +66,19 @@ function mapRecording(r: any) {
     id: r.id,
     title: r.title,
     description: r.description,
-    thumbnailUrl: r.thumbnailUrl,
+    thumbnailUrl: listingThumbnailUrl(r),
     durationMs: r.durationMs,
     status: r.status,
     visibility: r.visibility,
     ownerEmail: r.ownerEmail,
     sourceAppName: r.sourceAppName,
-    sourceProvider: r.sourceAppName === "Loom" ? "loom" : null,
+    sourceProvider:
+      recordingEmbedProvider(r) ?? (r.sourceAppName === "Loom" ? "loom" : null),
+    // Embed-backed clips play in another service's player; Clips has no
+    // frames for them. A hosted clip has none until it is ready.
+    framesAvailable:
+      !isEmbedBackedRecording(r) &&
+      getAgentClipReadiness(r.status).state === "ready",
     folderId: r.folderId,
     spaceIds: parseSpaceIds(r.spaceIds),
     hasAudio: Boolean(r.hasAudio),
@@ -83,7 +96,7 @@ function mapRecording(r: any) {
 
 async function fetchRecording(id: string) {
   const db = getDb();
-  const [row] = await db
+  const rows = await db
     .select()
     .from(schema.recordings)
     .where(
@@ -97,7 +110,16 @@ async function fetchRecording(id: string) {
         ),
       ),
     );
-  return row ? mapRecording(row) : null;
+  const row = rows.values().next().value;
+  if (!row) return null;
+  const viewerIsOwner = sameOwnerEmail(row.ownerEmail, getRequestUserEmail());
+  if (
+    isRecordingTrashedForViewer({ trashedAt: row.trashedAt, viewerIsOwner }) ||
+    isRecordingExpiredForViewer({ expiresAt: row.expiresAt, viewerIsOwner })
+  ) {
+    return null;
+  }
+  return mapRecording(row);
 }
 
 async function fetchTranscript(recordingId: string) {
@@ -117,6 +139,7 @@ async function fetchTranscript(recordingId: string) {
     recordingId: t.recordingId,
     language: t.language,
     status: t.status,
+    source: t.source,
     fullText: t.fullText,
     segments,
   };
@@ -182,16 +205,20 @@ async function fetchBugReportSummary(recordingId: string) {
 async function fetchLibrary({
   folderId,
   shared = false,
+  fromContent = false,
   organizationId,
 }: {
   folderId?: string;
   shared?: boolean;
+  /** The caller's uploads from Content pages, which Library leaves out. */
+  fromContent?: boolean;
   organizationId?: string | null;
 }) {
   const db = getDb();
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
   const conditions = [
+    recordingExpiryQuery(ownerEmail).available,
     agentRecordingAccessFilter(
       schema.recordings,
       schema.recordingShares,
@@ -200,6 +227,7 @@ async function fetchLibrary({
     ),
     isNull(schema.recordings.archivedAt),
     isNull(schema.recordings.trashedAt),
+    not(uploadFromTrashedPage()),
   ];
   if (shared) {
     conditions.push(
@@ -212,13 +240,9 @@ async function fetchLibrary({
     if (organizationId) {
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
+    if (fromContent) conditions.push(activeUploadFromContent());
+    else if (!folderId) conditions.push(not(uploadedFromContent()));
   }
-  // Meeting recordings are transcript-only and live on /meetings, so keep them
-  // out of clip library views. Promise.resolve assimilates the lazy proxy from
-  // create-get-db.ts to the real instance without issuing a query; the subquery
-  // must be built off *that*. Building it off `db` hands an unresolved chain to
-  // notInArray(), which reads `.getSQL()` synchronously on a cold-start proxy.
-  // The subquery filters NULLs so NOT IN doesn't collapse to empty.
   const resolvedDb = await Promise.resolve(db);
   const meetingRecordingIds = resolvedDb
     .select({ id: schema.meetings.recordingId })
@@ -239,7 +263,7 @@ async function fetchLibrary({
     title: r.title,
     durationMs: r.durationMs,
     status: r.status,
-    thumbnailUrl: r.thumbnailUrl,
+    thumbnailUrl: listingThumbnailUrl(r),
     folderId: r.folderId,
     updatedAt: r.updatedAt,
   }));
@@ -270,8 +294,6 @@ async function fetchFoldersForSpace(spaceId: string | null) {
 }
 
 async function fetchSpaces(organizationId: string | null) {
-  // No active org -> don't leak cross-tenant spaces. The org switcher in the
-  // UI is responsible for prompting the user to choose an organization.
   if (!organizationId) return [];
   const db = getDb();
   const rows = await db
@@ -319,8 +341,6 @@ async function fetchUpcomingMeetings() {
     )
     .orderBy(asc(schema.meetings.scheduledStart))
     .limit(10);
-  // Pre-fetch participants for all upcoming meetings so the agent can see
-  // attendees without a follow-up call. Cheap: top 10 meetings.
   const ids = rows.map((m) => m.id);
   const participantsByMeeting = new Map<
     string,
@@ -400,27 +420,14 @@ async function fetchMeetingDetail(meetingId: string) {
     .from(schema.meetingActionItems)
     .where(eq(schema.meetingActionItems.meetingId, meetingId));
 
-  let recording: { id: string; title: string } | null = null;
-  let transcriptSnippet: string | null = null;
-  if (meeting.recordingId) {
-    const [rec] = await db
-      .select({
-        id: schema.recordings.id,
-        title: schema.recordings.title,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, meeting.recordingId))
-      .limit(1);
-    recording = rec ?? null;
-    const [tr] = await db
-      .select({ fullText: schema.recordingTranscripts.fullText })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, meeting.recordingId))
-      .limit(1);
-    if (tr?.fullText) {
-      transcriptSnippet = tr.fullText.slice(0, 2000);
-    }
-  }
+  const linked = await loadMeetingRecordingContent(
+    meeting,
+    getRequestUserEmail(),
+  );
+  const recording = linked.recording
+    ? { id: linked.recording.id, title: linked.recording.title }
+    : null;
+  const transcriptSnippet = linked.transcript?.fullText.slice(0, 2000) ?? null;
 
   return {
     meeting: {
@@ -471,7 +478,6 @@ async function fetchRecentDictations() {
     durationMs: d.durationMs,
     source: d.source,
     targetApp: d.targetApp,
-    // First 200 chars only — the list view doesn't need the full body.
     preview: (d.fullText ?? "").slice(0, 200),
     hasCleanedText: Boolean(d.cleanedText),
   }));
@@ -511,7 +517,10 @@ async function addRecordingContext(
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =
     await Promise.all([
       fetchTranscript(recordingId),
-      fetchComments(recordingId),
+      recording.enableComments ||
+      sameOwnerEmail(recording.ownerEmail, getRequestUserEmail())
+        ? fetchComments(recordingId)
+        : [],
       fetchBrowserDiagnosticsSummary(recordingId),
       fetchBugReportSummary(recordingId),
     ]);
@@ -521,6 +530,7 @@ async function addRecordingContext(
       recordingId: transcript.recordingId,
       language: transcript.language,
       status: transcript.status,
+      source: transcript.source,
       fullText: transcript.fullText,
       segments: transcript.segments,
     });
@@ -550,8 +560,6 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    // Scoped to the requesting browser tab so each tab exposes the clip it is
-    // showing, falling back to the global key for CLI/external agents.
     const navigation = (await readAppStateForCurrentTab(
       "navigation",
     )) as NavigationState | null;
@@ -603,6 +611,21 @@ export default defineAction({
         screen.shared = {
           count: recordings.length,
           recordings,
+        };
+        break;
+      }
+      case "from-content": {
+        const recordings = await fetchLibrary({
+          fromContent: true,
+          organizationId,
+        });
+        const pages = await contentPageUrls(recordings.map((r) => r.id));
+        screen.fromContent = {
+          count: recordings.length,
+          recordings: recordings.map((recording) => ({
+            ...recording,
+            contentPageUrl: pages.get(recording.id) ?? null,
+          })),
         };
         break;
       }
@@ -670,11 +693,10 @@ export default defineAction({
       }
       case "bug-report-done": {
         if (nav.recordingId) {
-          const [recording, bugReportSummary] = await Promise.all([
-            fetchRecording(nav.recordingId),
-            fetchBugReportSummary(nav.recordingId),
-          ]);
-          if (recording) screen.recording = recording;
+          const recording = await fetchRecording(nav.recordingId);
+          if (!recording) break;
+          const bugReportSummary = await fetchBugReportSummary(nav.recordingId);
+          screen.recording = recording;
           if (bugReportSummary) screen.bugReport = bugReportSummary;
         }
         break;

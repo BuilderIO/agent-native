@@ -15,6 +15,7 @@ import {
   factoryAutomationRunHistoryKey,
   isLegacyFactoryAutomationPath,
 } from "./factory-scope.js";
+import { WORKFLOW_JOB_APP_ID } from "./factory-workflow-runner.js";
 
 export type FactoryAutomationDefinition = {
   name: string;
@@ -28,6 +29,19 @@ function jobBelongsToFactory(path: string, factoryId: string): boolean {
   if (nested) return nested[1] === factoryId;
   return (
     factoryId === DEFAULT_FACTORY_ID && isLegacyFactoryAutomationPath(path)
+  );
+}
+
+// Core's recovery rule admits a Factory file whose appId is missing or
+// `factory`. A workflow job's own appId is neither, so it is checked as the
+// file it would be without one: same folder, same organization owner.
+function isFactoryJob(meta: JobFrontmatter, resource: Resource): boolean {
+  const { appId, ...withoutAppId } = meta;
+  const recoverable =
+    appId?.trim() === WORKFLOW_JOB_APP_ID ? withoutAppId : meta;
+  return (
+    recoveredFactoryOwnerOrgId(recoverable, resource.path, resource.owner) !==
+    null
   );
 }
 
@@ -62,11 +76,6 @@ export function factoryIdFromAutomationName(name: string): string | null {
   return null;
 }
 
-/**
- * Load Factory jobs by their stored path. Membership is the folder (or the
- * default-factory `jobs/factory-*.md` convention), not `domain` / `triggerType`.
- * A scheduler status write that dropped those tags must not hide the job.
- */
 export async function listFactoryAutomationDefinitions(
   orgId: string,
   factoryId: string,
@@ -90,11 +99,7 @@ export async function listFactoryAutomationDefinitions(
         body,
       };
     })
-    .filter(
-      ({ resource, meta }) =>
-        recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) !==
-        null,
-    )
+    .filter(({ resource, meta }) => isFactoryJob(meta, resource))
     .sort((a, b) => a.resource.path.localeCompare(b.resource.path));
 }
 
@@ -113,7 +118,7 @@ export async function findFactoryAutomationByResourceId(
   orgId: string,
   resourceId: string,
 ): Promise<(FactoryAutomationDefinition & { factoryId: string }) | null> {
-  const { listFactoryDefinitions } = await import("../factory-graph/store.js");
+  const { listFactoryDefinitions } = await import("./factory-definitions.js");
   const { DEFAULT_FACTORY_ID, readAutomationFactoryId } =
     await import("./factory-scope.js");
   const factories = await listFactoryDefinitions(orgId);

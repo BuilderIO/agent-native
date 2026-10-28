@@ -1,11 +1,3 @@
-/**
- * Attach product bug-report metadata to a recording.
- *
- * The recording itself remains the shareable/access-controlled resource. This
- * action stores only redacted context that helps support and agents reproduce
- * the issue alongside the captured video, transcript, and browser diagnostics.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -13,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { redactBrowserDiagnosticString } from "../shared/browser-diagnostics.js";
 import { BUG_REPORT_SEVERITIES } from "../shared/bug-report.js";
 
@@ -90,7 +83,9 @@ export default defineAction({
     metadata: metadataSchema,
   }),
   run: async (args) => {
-    const access = await assertAccess("recording", args.recordingId, "editor");
+    const access = assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
     const rec = access.resource as any;
     const db = getDb();
     const now = new Date().toISOString();

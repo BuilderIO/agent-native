@@ -1,8 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconPhotoPlus, IconX } from "@tabler/icons-react";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -18,7 +21,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+import type { StyleChangeMeta } from "../edit-panel/style-change-types";
 
 export type ImageFitMode = "fill" | "fit" | "crop" | "tile";
 
@@ -38,6 +41,38 @@ type UploadImageResult = {
   url?: string;
   error?: string;
 };
+
+let nextImageUploadRequestId = 0;
+let nextUnscopedImageUploadTargetId = 0;
+const imageUploadRequestsByTarget = new Map<
+  string,
+  { latestId: number; pendingIds: Set<number> }
+>();
+
+function beginImageUpload(targetKey: string): number {
+  const requestId = ++nextImageUploadRequestId;
+  const current = imageUploadRequestsByTarget.get(targetKey) ?? {
+    latestId: requestId,
+    pendingIds: new Set<number>(),
+  };
+  current.latestId = requestId;
+  current.pendingIds.add(requestId);
+  imageUploadRequestsByTarget.set(targetKey, current);
+  return requestId;
+}
+
+function isLatestImageUpload(targetKey: string, requestId: number): boolean {
+  return imageUploadRequestsByTarget.get(targetKey)?.latestId === requestId;
+}
+
+function finishImageUpload(targetKey: string, requestId: number): void {
+  const current = imageUploadRequestsByTarget.get(targetKey);
+  if (!current) return;
+  current.pendingIds.delete(requestId);
+  if (current.pendingIds.size === 0) {
+    imageUploadRequestsByTarget.delete(targetKey);
+  }
+}
 
 const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
   { mode: "fill", label: "Fill" }, // i18n-ignore image fit mode
@@ -83,15 +118,6 @@ function imageFitMarker(fit: ImageFitMode): string {
   return `/* agent-native-image-fit:${fit} */`;
 }
 
-/**
- * Build the CSS `background` shorthand for an image fill.
- * Maps the design editor's fit semantics onto background-size / background-repeat:
- *  - Fill → cover, no-repeat
- *  - Fit  → contain, no-repeat
- *  - Crop → cover, no-repeat (cropped to the box; identical CSS to Fill but
- *           kept distinct so the selection round-trips)
- *  - Tile → auto, repeat
- */
 export function imageFillToCss(value: ImageFillValue): string {
   const url = value.url.trim();
   if (!url) return "transparent";
@@ -163,10 +189,6 @@ export function imageFillToBackgroundStyles(
   }
 }
 
-// Matches url() in three forms:
-//   group 1 — double-quoted:  url("...anything...")
-//   group 2 — single-quoted:  url('...anything...')
-//   group 3 — unquoted:       url(...no-parens-or-quotes...)
 const URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/i;
 
 function normalizeCssLayer(value: string | undefined): string {
@@ -226,7 +248,6 @@ function inferFitFromBackgroundStyles(
   return null;
 }
 
-/** Extract the URL + fit mode from CSS background input, if present. */
 export function parseImageFillCss(value: string): ImageFillValue | null;
 export function parseImageFillCss(
   value: ImageFillBackgroundStyles,
@@ -244,11 +265,6 @@ export function parseImageFillCss(
   if (marker) return { url, fit: marker };
   const inferredFit = inferFitFromBackgroundStyles(styles);
   if (inferredFit) return { url, fit: inferredFit };
-  // Heuristic fallback when no marker comment is present (e.g. CSS pasted from
-  // DevTools or Figma inspect). Note: "crop" and "fill" produce identical CSS
-  // (center / cover no-repeat), so external CSS without the marker comment will
-  // always parse as "fill". Crop mode is only recoverable via the proprietary
-  // agent-native-image-fit marker written by imageFillToCss.
   let fit: ImageFitMode = "fill";
   const backgroundImage = styles.backgroundImage;
   if (/contain/i.test(backgroundImage)) fit = "fit";
@@ -269,11 +285,10 @@ export function mergeImageFitDraft(
   return { ...value, url: urlDraft.trim(), fit };
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────────
-
 export interface ImageFillControlsProps {
   value: ImageFillValue;
-  onChange: (value: ImageFillValue) => void;
+  onChange: (value: ImageFillValue, meta?: StyleChangeMeta) => void;
+  uploadTargetKey?: string;
   disabled?: boolean;
   className?: string;
 }
@@ -281,21 +296,46 @@ export interface ImageFillControlsProps {
 export function ImageFillControls({
   value,
   onChange,
+  uploadTargetKey,
   disabled = false,
   className,
 }: ImageFillControlsProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadImages =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
+  const fileStorageMissing =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
+
+  useEffect(() => {
+    if (canUploadImages) setStorageSetupOpen(false);
+  }, [canUploadImages]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [urlDraft, setUrlDraft] = useState(value.url);
   const urlDraftRef = useRef(value.url);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  // Guard re-syncing the draft from an external value change while the field
-  // is focused (mirrors ScrubInput's `focused` pattern): without this, an
-  // incoming prop update while the user is mid-typing a URL — e.g. a
-  // selection-driven re-render, or another control committing a sibling
-  // style in the same patch — clobbers their in-progress keystrokes.
   const [focused, setFocused] = useState(false);
+  const latestValueRef = useRef(value);
+  const latestOnChangeRef = useRef(onChange);
+  const latestUploadTargetKeyRef = useRef(uploadTargetKey);
+  const activeUploadRequestIdRef = useRef(0);
+  const fallbackUploadTargetKeyRef = useRef<string | null>(null);
+  const unmountedRef = useRef(false);
+  if (!fallbackUploadTargetKeyRef.current) {
+    fallbackUploadTargetKeyRef.current = `unscoped-image-upload-${++nextUnscopedImageUploadTargetId}`;
+  }
+  latestValueRef.current = value;
+  latestOnChangeRef.current = onChange;
+  latestUploadTargetKeyRef.current = uploadTargetKey;
+
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (focused) return;
@@ -304,12 +344,33 @@ export function ImageFillControls({
   }, [focused, value.url]);
 
   const commitUrl = () => {
-    onChange({ ...value, url: urlDraftRef.current.trim() });
+    const url = urlDraftRef.current.trim();
+    if (url === value.url) return;
+    onChange({ ...value, url });
+  };
+
+  const requestImageUpload = () => {
+    if (disabled || uploadingImage) return;
+    if (canUploadImages) fileInputRef.current?.click();
+    else setStorageSetupOpen(true);
   };
 
   const handleFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file || !canUploadImages) return;
+    input.value = "";
+    const uploadTargetKey =
+      latestUploadTargetKeyRef.current ?? fallbackUploadTargetKeyRef.current!;
+    const uploadRequestId = beginImageUpload(uploadTargetKey);
+    activeUploadRequestIdRef.current = uploadRequestId;
+    const onChangeAtStart = latestOnChangeRef.current;
+    const valueAtStart = latestValueRef.current;
+    const isCurrentLocalUpload = () =>
+      !unmountedRef.current &&
+      activeUploadRequestIdRef.current === uploadRequestId &&
+      (latestUploadTargetKeyRef.current ??
+        fallbackUploadTargetKeyRef.current) === uploadTargetKey;
     setUploadingImage(true);
     setUploadError(null);
     try {
@@ -319,31 +380,56 @@ export function ImageFillControls({
         filename: file.name,
       })) as UploadImageResult;
       if (result.url) {
-        urlDraftRef.current = result.url;
-        setUrlDraft(result.url);
-        onChange({ ...value, url: result.url });
+        if (isLatestImageUpload(uploadTargetKey, uploadRequestId)) {
+          const canUseLatestTargetState = isCurrentLocalUpload();
+          const onChange = canUseLatestTargetState
+            ? latestOnChangeRef.current
+            : onChangeAtStart;
+          const value = canUseLatestTargetState
+            ? latestValueRef.current
+            : valueAtStart;
+          if (canUseLatestTargetState) {
+            urlDraftRef.current = result.url;
+            setUrlDraft(result.url);
+          }
+          onChange(
+            { ...value, url: result.url },
+            { requirePersistedSourceAcceptance: true },
+          );
+        }
       } else {
-        setUploadError(
-          result.error ||
-            "File storage is not configured. Connect an upload provider before using local images.",
-        );
+        if (
+          isCurrentLocalUpload() &&
+          isLatestImageUpload(uploadTargetKey, uploadRequestId)
+        ) {
+          setUploadError(
+            result.error ||
+              "File storage is not configured. Connect an upload provider before using local images.",
+          );
+        }
       }
     } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : t("common.genericError"),
-      );
+      if (
+        isCurrentLocalUpload() &&
+        isLatestImageUpload(uploadTargetKey, uploadRequestId)
+      ) {
+        setUploadError(
+          error instanceof Error ? error.message : t("common.genericError"),
+        );
+      }
     } finally {
-      setUploadingImage(false);
-      // Allow re-selecting the same file later.
-      event.target.value = "";
+      finishImageUpload(uploadTargetKey, uploadRequestId);
+      if (isCurrentLocalUpload()) {
+        setUploadingImage(false);
+      }
     }
   };
 
   return (
-    <div className={cn("space-y-1.5 px-3 pt-2 pb-2", className)}>
-      {/* ── Preview / drop target ─────────────────────────────────────────── */}
+    <div className={cn("space-y-2 px-3 py-3", className)}>
+      {/* ── Preview ───────────────────────────────────────────────────────── */}
       <div
-        className="relative h-24 w-full overflow-hidden rounded-md border border-border/60"
+        className="relative h-40 w-full overflow-hidden rounded-md border border-border/60"
         style={{
           backgroundImage: value.url
             ? `url("${escapeForQuotedUrl(value.url.trim())}")`
@@ -360,14 +446,6 @@ export function ImageFillControls({
           backgroundPosition: value.fit === "tile" ? "top left" : "center",
         }}
       >
-        {!value.url && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-foreground">
-            <IconPhotoPlus className="size-5" />
-            <span className="text-[10px]">
-              {"Upload or paste a URL" /* i18n-ignore */}
-            </span>
-          </div>
-        )}
         {value.url && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -389,89 +467,95 @@ export function ImageFillControls({
         )}
       </div>
 
-      {/* ── URL input + upload ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-1">
-        <Input
-          value={urlDraft}
-          disabled={disabled}
-          placeholder={"Image URL" /* i18n-ignore */}
-          aria-label={"Image URL" /* i18n-ignore */}
-          spellCheck={false}
-          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
-          onChange={(event) => {
-            urlDraftRef.current = event.target.value;
-            setUrlDraft(event.target.value);
-          }}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            setFocused(false);
+      {/* ── Image URL ─────────────────────────────────────────────────────── */}
+      <Input
+        value={urlDraft}
+        disabled={disabled}
+        placeholder={"Image URL" /* i18n-ignore */}
+        aria-label={"Image URL" /* i18n-ignore */}
+        spellCheck={false}
+        className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
+        onChange={(event) => {
+          urlDraftRef.current = event.target.value;
+          setUrlDraft(event.target.value);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          commitUrl();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
             commitUrl();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitUrl();
-              event.currentTarget.blur();
-            }
-          }}
-        />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={disabled || uploadingImage}
-              aria-label={"Upload image" /* i18n-ignore */}
-              onClick={() => fileInputRef.current?.click()}
-              className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                (disabled || uploadingImage) &&
-                  "pointer-events-none opacity-40",
-              )}
-            >
-              <IconPhotoPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{"Upload image" /* i18n-ignore */}</TooltipContent>
-        </Tooltip>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleFilePick}
-        />
+            event.currentTarget.blur();
+          }
+        }}
+      />
+
+      {/* ── Choose image, Fit ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled || uploadingImage}
+          onClick={requestImageUpload}
+          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] px-2 !text-[11px] font-normal shadow-none"
+        >
+          {t("editPanel.colorPicker.chooseImage")}
+        </Button>
+        <Select
+          value={value.fit}
+          onValueChange={(v) =>
+            onChange(
+              mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
+            )
+          }
+          disabled={disabled}
+        >
+          <SelectTrigger
+            aria-label={"Fill" /* i18n-ignore image fit selector */}
+            className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="!text-[11px]">
+            {FIT_MODES.map(({ mode, label }) => (
+              <SelectItem key={mode} value={mode} className="!text-[11px]">
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        disabled={!canUploadImages}
+        onChange={handleFilePick}
+      />
       {uploadError && (
         <p className="text-[10px] leading-snug text-destructive">
           {uploadError}
         </p>
       )}
 
-      {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
-      <Select
-        value={value.fit}
-        onValueChange={(v) =>
-          onChange(
-            mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
-          )
+      <FileStorageSetupPopover
+        open={
+          storageSetupOpen &&
+          (fileStorageMissing || !fileUploadStatus.isSuccess)
         }
-        disabled={disabled}
-      >
-        <SelectTrigger
-          aria-label={"Fill" /* i18n-ignore image fit selector */}
-          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className="!text-[11px]">
-          {FIT_MODES.map(({ mode, label }) => (
-            <SelectItem key={mode} value={mode} className="!text-[11px]">
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void fileUploadStatus.refetch()}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
     </div>
   );
 }

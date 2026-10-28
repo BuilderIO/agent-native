@@ -1,9 +1,6 @@
 name: Clips Desktop Release
-
-# Release channels for the Clips Tauri menu-bar app are separate from the main
-# Electron desktop app and from each other. Pushes to main build Nightly;
-# production is released deliberately through workflow_dispatch. Each channel
-# has its own app identifier, release tag namespace, and updater pointer.
+run-name: >-
+  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -29,6 +26,11 @@ on:
         description: "Exact source commit to build for a coordinated release"
         required: false
         type: string
+      coordinator_run_id:
+        description: Release coordinator ID used to reconcile a transient dispatch failure
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -97,9 +99,9 @@ jobs:
         with:
           ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -145,7 +147,7 @@ jobs:
           echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=${CLANG_RUNTIME}" >> "$GITHUB_ENV"
 
       - name: Rust cache
-        uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           workspaces: ${{ env.TAURI_APP_PATH }}/src-tauri
 
@@ -329,27 +331,49 @@ jobs:
           fs.writeFileSync(cargoPath, updatedCargo);
           NODE
 
+      - name: Install NASM for x86_64 ffmpeg sidecar
+        if: runner.os == 'macOS'
+        shell: bash
+        run: if ! command -v nasm >/dev/null 2>&1; then brew install nasm; fi
+
+      - name: Prepare macOS ffmpeg sidecars
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        run: |
+          CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
+          CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
+
+      - name: Create universal macOS ffmpeg sidecar
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.TAURI_APP_PATH }}/src-tauri
+        shell: bash
+        run: |
+          lipo -create \
+            binaries/ffmpeg-aarch64-apple-darwin \
+            binaries/ffmpeg-x86_64-apple-darwin \
+            -output binaries/ffmpeg-universal-apple-darwin
+          chmod +x binaries/ffmpeg-universal-apple-darwin
+          lipo binaries/ffmpeg-universal-apple-darwin -verify_arch arm64 x86_64
+
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Tauri signing — REQUIRED for the updater to accept downloaded
-          # bundles. See templates/clips/desktop/README.md for key setup.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS codesign + notarize (reuses the Electron app's Apple creds).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: W3PMF2T3MW
-          # Sentry error reporting for the Tauri native process and webview.
           CLIPS_DESKTOP_SENTRY_DSN: ${{ secrets.CLIPS_DESKTOP_SENTRY_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           CLIPS_DESKTOP_SENTRY_CLIENT_KEY: ${{ secrets.CLIPS_DESKTOP_SENTRY_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           CLIPS_DESKTOP_SENTRY_PROJECT_ID: ${{ secrets.CLIPS_DESKTOP_SENTRY_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           CLIPS_DESKTOP_SENTRY_INGEST_HOST: ${{ secrets.CLIPS_DESKTOP_SENTRY_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           CLIPS_DESKTOP_SENTRY_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+          VITE_CLIPS_DEFAULT_SERVER_URL: ${{ env.RELEASE_CHANNEL == 'nightly' && 'https://beta.clips.agent-native.com' || '' }}
         with:
           projectPath: ${{ env.TAURI_APP_PATH }}
           tagName: ${{ env.RELEASE_TAG_PREFIX }}__VERSION__

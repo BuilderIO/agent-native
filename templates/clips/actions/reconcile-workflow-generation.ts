@@ -1,13 +1,26 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
+import {
+  abortTurnByRefDurably,
+  getActiveRunForThreadAsync,
+  getRunStatus,
+  getRunTurnRef,
+} from "@agent-native/core/server";
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { WorkflowKindSchema } from "../shared/workflow.js";
+import {
+  isWorkflowRequester,
+  matchesWorkflowRequest,
+  workflowGenerationStaleAt,
+  WorkflowKindSchema,
+  workflowSessionTabId,
+} from "../shared/workflow.js";
 
 const WorkflowStateSchema = z
   .object({
@@ -16,6 +29,8 @@ const WorkflowStateSchema = z
     content: z.string().optional(),
     recordingId: z.string().optional(),
     requestedAt: z.string().optional(),
+    requestId: z.string().min(1).optional(),
+    requestedBy: z.string().optional(),
     tabId: z.string().optional(),
     claimedAt: z.string().optional(),
   })
@@ -24,12 +39,20 @@ const WorkflowStateSchema = z
 const WorkflowRequestSchema = z
   .object({
     requestedAt: z.string(),
+    requestId: z.string().min(1).optional(),
+    requestedBy: z.string().optional(),
     deliveredAt: z.string().optional(),
     deliveredTabId: z.string().optional(),
   })
   .passthrough();
 
 const CLAIM_LEASE_MS = 30_000;
+const TERMINAL_RUN_STATUSES = [
+  "completed",
+  "truncated",
+  "errored",
+  "aborted",
+] as const;
 
 export default defineAction({
   description:
@@ -41,14 +64,59 @@ export default defineAction({
       "release",
       "mark-delivered",
       "consume",
+      "settle",
+      "settle-terminal",
+      "reject",
       "stop",
     ]),
     recordingId: z.string().min(1),
     requestedAt: z.string().min(1),
+    requestId: z.string().min(1).optional(),
     tabId: z.string().min(1),
+    stopReason: z.enum(["cancelled", "timed_out"]).optional(),
+    terminalRunId: z.string().min(1).optional(),
   }),
-  run: async ({ operation, recordingId, requestedAt, tabId }) => {
-    await assertAccess("recording", recordingId, "viewer");
+  run: async (
+    {
+      operation,
+      recordingId,
+      requestedAt,
+      requestId,
+      tabId,
+      stopReason,
+      terminalRunId,
+    },
+    ctx,
+  ) => {
+    if (stopReason !== undefined && operation !== "stop") {
+      fail("A workflow stop reason is only valid when stopping a session", {
+        errorCode: "invalid_workflow_generation_stop_reason",
+        statusCode: 400,
+      });
+    }
+    if (terminalRunId !== undefined && operation !== "settle-terminal") {
+      fail("A terminal run ID is only valid when settling a terminal session", {
+        errorCode: "invalid_workflow_generation_terminal_run",
+        statusCode: 400,
+      });
+    }
+    await assertAccess(
+      "recording",
+      recordingId,
+      operation === "stop" ? "editor" : "viewer",
+    );
+
+    if (
+      ["track", "settle", "settle-terminal", "reject", "stop"].includes(
+        operation,
+      ) &&
+      tabId !== workflowSessionTabId(recordingId, requestedAt, requestId)
+    ) {
+      fail("Invalid workflow generation session", {
+        errorCode: "invalid_workflow_generation_session",
+        statusCode: 400,
+      });
+    }
 
     const requestKey = `clips-ai-request-${recordingId}`;
     if (operation === "mark-delivered" || operation === "consume") {
@@ -62,7 +130,9 @@ export default defineAction({
       if (!parsedRequest.success) {
         throw new Error(`Invalid workflow request state for ${recordingId}`);
       }
-      if (parsedRequest.data.requestedAt !== requestedAt) {
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
         return operation === "consume"
           ? {
               reconciled: false,
@@ -73,6 +143,46 @@ export default defineAction({
               reconciled: false,
               delivered: true,
               reason: "newer-request" as const,
+            };
+      }
+      const stateKey = `clips-workflow-${recordingId}`;
+      const rawState = await readAppState(stateKey);
+      let workflowState: z.infer<typeof WorkflowStateSchema> | null = null;
+      if (rawState !== null) {
+        const parsedState = WorkflowStateSchema.safeParse(rawState);
+        if (!parsedState.success) {
+          // guard:allow-bare-error — invariant: Clips workflow actions write this state shape.
+          throw new Error(
+            `Invalid generated workflow state for ${recordingId}`,
+          );
+        }
+        workflowState = parsedState.data;
+        if (!isWorkflowRequester(workflowState.requestedBy, ctx?.userEmail)) {
+          return operation === "consume"
+            ? {
+                reconciled: false,
+                consumed: false,
+                reason: "not-requester" as const,
+              }
+            : {
+                reconciled: false,
+                delivered: false,
+                reason: "not-requester" as const,
+              };
+        }
+      } else if (
+        !isWorkflowRequester(parsedRequest.data.requestedBy, ctx?.userEmail)
+      ) {
+        return operation === "consume"
+          ? {
+              reconciled: false,
+              consumed: false,
+              reason: "not-requester" as const,
+            }
+          : {
+              reconciled: false,
+              delivered: false,
+              reason: "not-requester" as const,
             };
       }
       if (operation === "mark-delivered") {
@@ -87,18 +197,10 @@ export default defineAction({
           };
         }
 
-        const stateKey = `clips-workflow-${recordingId}`;
-        const rawState = await readAppState(stateKey);
-        if (rawState === null) {
+        if (rawState === null || workflowState === null) {
           return { reconciled: false, delivered: false, reason: "missing" };
         }
-        const parsedState = WorkflowStateSchema.safeParse(rawState);
-        if (!parsedState.success) {
-          throw new Error(
-            `Invalid generated workflow state for ${recordingId}`,
-          );
-        }
-        if (parsedState.data.status !== "generating") {
+        if (workflowState.status !== "generating") {
           const consumed = await compareAndSetAppState(
             requestKey,
             rawRequest,
@@ -119,8 +221,8 @@ export default defineAction({
               };
         }
         if (
-          parsedState.data.requestedAt !== requestedAt ||
-          parsedState.data.tabId !== tabId
+          !matchesWorkflowRequest(workflowState, { requestedAt, requestId }) ||
+          workflowState.tabId !== tabId
         ) {
           return {
             reconciled: false,
@@ -175,10 +277,55 @@ export default defineAction({
     }
 
     const state = parsedState.data;
-    if (state.status !== "generating") {
-      return { reconciled: false, reason: "terminal" as const };
+    if (
+      operation === "track" &&
+      !isWorkflowRequester(state.requestedBy, ctx?.userEmail)
+    ) {
+      return { reconciled: false, reason: "not-requester" as const };
     }
-    if (state.requestedAt !== requestedAt) {
+    if (state.status !== "generating") {
+      if (operation !== "track") {
+        return { reconciled: false, reason: "terminal" as const };
+      }
+      // A run can finish or be failed by the session monitor before its
+      // request was consumed; without this the bridge re-tracks it forever.
+      const rawRequest = await readAppState(requestKey);
+      if (rawRequest === null) {
+        return {
+          reconciled: false,
+          tracked: false,
+          consumed: true,
+          reason: "terminal" as const,
+        };
+      }
+      const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+      if (!parsedRequest.success) {
+        // guard:allow-bare-error — invariant: generate-workflow writes this shape
+        throw new Error(`Invalid workflow request state for ${recordingId}`);
+      }
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
+        return {
+          reconciled: false,
+          tracked: false,
+          consumed: true,
+          reason: "terminal" as const,
+        };
+      }
+      const consumed = await compareAndSetAppState(
+        requestKey,
+        rawRequest,
+        null,
+      );
+      return {
+        reconciled: false,
+        tracked: false,
+        consumed,
+        reason: consumed ? ("terminal" as const) : ("stale" as const),
+      };
+    }
+    if (!matchesWorkflowRequest(state, { requestedAt, requestId })) {
       return { reconciled: false, reason: "newer-request" as const };
     }
 
@@ -209,7 +356,9 @@ export default defineAction({
       if (!parsedRequest.success) {
         throw new Error(`Invalid workflow request state for ${recordingId}`);
       }
-      if (parsedRequest.data.requestedAt !== requestedAt) {
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
         return { reconciled: false, reason: "newer-request" as const };
       }
 
@@ -222,7 +371,19 @@ export default defineAction({
         ? { reconciled: false, tracked: true }
         : { reconciled: false, tracked: false, reason: "stale" as const };
     }
-    if (state.tabId !== tabId) {
+    const settlingUnclaimedWorkflow =
+      operation === "settle" && state.tabId === undefined;
+    if (
+      settlingUnclaimedWorkflow &&
+      !isWorkflowRequester(state.requestedBy, ctx?.userEmail)
+    ) {
+      return { reconciled: false, reason: "not-requester" as const };
+    }
+    if (
+      operation !== "stop" &&
+      state.tabId !== tabId &&
+      !settlingUnclaimedWorkflow
+    ) {
       return operation === "release"
         ? {
             reconciled: false,
@@ -230,6 +391,188 @@ export default defineAction({
             reason: "different-run" as const,
           }
         : { reconciled: false, reason: "different-run" as const };
+    }
+    if (operation === "reject") {
+      if (!isWorkflowRequester(state.requestedBy, ctx?.userEmail)) {
+        return { reconciled: false, reason: "not-requester" as const };
+      }
+
+      const rawRequest = await readAppState(requestKey);
+      if (rawRequest === null) {
+        return { reconciled: false, reason: "request-missing" as const };
+      }
+      const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+      if (!parsedRequest.success) {
+        // guard:allow-bare-error — invariant: only Clips workflow actions write this state.
+        throw new Error(`Invalid workflow request state for ${recordingId}`);
+      }
+      if (
+        !matchesWorkflowRequest(parsedRequest.data, { requestedAt, requestId })
+      ) {
+        return { reconciled: false, reason: "newer-request" as const };
+      }
+      if (
+        !isWorkflowRequester(parsedRequest.data.requestedBy, ctx?.userEmail)
+      ) {
+        return { reconciled: false, reason: "not-requester" as const };
+      }
+      if (parsedRequest.data.deliveredAt || parsedRequest.data.deliveredTabId) {
+        return { reconciled: false, reason: "delivered" as const };
+      }
+
+      const activeRun = await getActiveRunForThreadAsync(tabId);
+      if (
+        activeRun &&
+        (activeRun.status === "running" ||
+          activeRun.inFlight ||
+          activeRun.awaitingRedispatch ||
+          activeRun.hasInFlightWork)
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
+      if (
+        activeRun &&
+        !TERMINAL_RUN_STATUSES.includes(
+          activeRun.status as (typeof TERMINAL_RUN_STATUSES)[number],
+        )
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
+      if (activeRun?.status !== "errored") {
+        return { reconciled: false, reason: "rejection-unverified" as const };
+      }
+
+      const nextState = {
+        ...rawState,
+        status: "failed",
+        failedAt: new Date().toISOString(),
+        failureReason: "session-rejected",
+      };
+      const reconciled = await compareAndSetManyAppState([
+        { key: stateKey, expectedValue: rawState, nextValue: nextState },
+        { key: requestKey, expectedValue: rawRequest, nextValue: null },
+      ]);
+      return reconciled
+        ? { reconciled: true }
+        : { reconciled: false, reason: "stale" as const };
+    }
+    if (operation === "stop") {
+      if (!isWorkflowRequester(state.requestedBy, ctx?.userEmail)) {
+        return { reconciled: false, reason: "not-requester" as const };
+      }
+      // Persisted claims can be stale; the canonical ID above scopes this abort.
+      await abortTurnByRefDurably(
+        tabId,
+        backgroundAgentTurnIdForReceipt(tabId, tabId),
+        stopReason ?? "workflow-session-ended",
+      );
+    }
+    if (operation === "settle" || operation === "settle-terminal") {
+      const activeRun = await getActiveRunForThreadAsync(tabId);
+      const expireIfStale = async () => {
+        const staleAt = workflowGenerationStaleAt(state);
+        if (staleAt === null || staleAt > Date.now()) return null;
+
+        const expiredState = {
+          ...rawState,
+          status: "failed",
+          failedAt: new Date().toISOString(),
+          failureReason: "session-expired",
+        };
+        const rawRequest = await readAppState(requestKey);
+        if (rawRequest === null) {
+          const reconciled = await compareAndSetAppState(
+            stateKey,
+            rawState,
+            expiredState,
+          );
+          return reconciled
+            ? { reconciled: true, expired: true }
+            : { reconciled: false, reason: "stale" as const };
+        }
+        const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+        if (!parsedRequest.success) {
+          // guard:allow-bare-error — invariant: generate-workflow writes this shape.
+          throw new Error(`Invalid workflow request state for ${recordingId}`);
+        }
+        if (
+          settlingUnclaimedWorkflow &&
+          !isWorkflowRequester(parsedRequest.data.requestedBy, ctx?.userEmail)
+        ) {
+          return { reconciled: false, reason: "not-requester" as const };
+        }
+        if (
+          !matchesWorkflowRequest(parsedRequest.data, {
+            requestedAt,
+            requestId,
+          })
+        ) {
+          return { reconciled: false, reason: "newer-request" as const };
+        }
+        const reconciled = await compareAndSetManyAppState([
+          { key: stateKey, expectedValue: rawState, nextValue: expiredState },
+          { key: requestKey, expectedValue: rawRequest, nextValue: null },
+        ]);
+        return reconciled
+          ? { reconciled: true, expired: true }
+          : { reconciled: false, reason: "stale" as const };
+      };
+      if (!activeRun && operation === "settle") {
+        return (
+          (await expireIfStale()) ?? {
+            reconciled: false,
+            reason: "run-not-found" as const,
+          }
+        );
+      }
+      if (
+        activeRun &&
+        (activeRun.status === "running" ||
+          activeRun.inFlight ||
+          activeRun.awaitingRedispatch ||
+          activeRun.hasInFlightWork)
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
+      if (
+        activeRun &&
+        !TERMINAL_RUN_STATUSES.includes(
+          activeRun.status as (typeof TERMINAL_RUN_STATUSES)[number],
+        )
+      ) {
+        return { reconciled: false, reason: "in-progress" as const };
+      }
+      if (operation === "settle-terminal") {
+        if (!terminalRunId) {
+          fail("A terminal run ID is required to settle a terminal session", {
+            errorCode: "missing_workflow_generation_terminal_run",
+            statusCode: 400,
+          });
+        }
+        const [runRef, runStatus] = await Promise.all([
+          getRunTurnRef(terminalRunId),
+          getRunStatus(terminalRunId),
+        ]);
+        if (
+          !runRef ||
+          runRef.threadId !== tabId ||
+          runRef.turnId !== backgroundAgentTurnIdForReceipt(tabId, tabId)
+        ) {
+          return (
+            (await expireIfStale()) ?? {
+              reconciled: false,
+              reason: "run-not-found" as const,
+            }
+          );
+        }
+        if (
+          !TERMINAL_RUN_STATUSES.includes(
+            runStatus as (typeof TERMINAL_RUN_STATUSES)[number],
+          )
+        ) {
+          return { reconciled: false, reason: "in-progress" as const };
+        }
+      }
     }
     if (operation === "release") {
       const untrackedState = { ...rawState };
@@ -245,11 +588,17 @@ export default defineAction({
         : { reconciled: false, released: false, reason: "stale" as const };
     }
 
-    const reconciled = await compareAndSetAppState(stateKey, rawState, {
+    const nextState = {
       ...rawState,
       status: "failed",
       failedAt: new Date().toISOString(),
-    });
+      ...(stopReason ? { failureReason: stopReason } : {}),
+    };
+    const reconciled = await compareAndSetAppState(
+      stateKey,
+      rawState,
+      nextState,
+    );
     return reconciled
       ? { reconciled: true }
       : { reconciled: false, reason: "stale" as const };

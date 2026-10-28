@@ -14,18 +14,12 @@ import {
 } from "./runtime-authority.ts";
 import * as runtimeAuthority from "./runtime-authority.ts";
 
-/**
- * This is the only orchestration layer allowed to turn an authority profile
- * into a live disposable lease. Profiles and journals are intentionally JSON;
- * provider credentials are ambient execution inputs and never profile fields.
- */
 export type TrustedAuthorityProfile = {
   version: 1;
   workspace: string;
   enabled: boolean;
   leasePrefix: "trusted-acceptance-";
   runtime: Omit<TrustedRuntimeConfig, "tombstone"> & {
-    /** Base64 is an inert, prebuilt tombstone ZIP; it is not credential material. */
     tombstone: { sha256: string; zipBase64: string };
   };
   members: Array<{
@@ -34,7 +28,6 @@ export type TrustedAuthorityProfile = {
     artifactDirectory: string;
     withdrawnDirectoryMember?: boolean;
   }>;
-  /** Optional trusted infrastructure, never a candidate app member. */
   directoryFixture?: {
     origin: string;
     netlifyAccountId: string;
@@ -69,7 +62,6 @@ export type ControllerExecution = {
   deployDirectoryArtifact?: (
     fixture: NonNullable<TrustedAuthorityProfile["directoryFixture"]>,
   ) => Promise<void>;
-  /** The lease is redacted and is the exact controller-owned lease for this run. */
   runStableHarness: (
     lease: RuntimeLease,
     signal: AbortSignal,
@@ -225,7 +217,6 @@ function stableAcceptanceUrl(value: string): boolean {
   }
 }
 
-/** Pure validation used by dry workflow commands; it neither reads env nor calls a provider. */
 export function validateTrustedAuthorityProfile(
   profile: TrustedAuthorityProfile,
   options: { requireEnabled?: boolean } = {},
@@ -486,10 +477,6 @@ async function withDeadline<T>(
   }
 }
 
-/**
- * Provider writes that may already have been accepted must settle before the
- * cleanup tombstone is placed. Abort is observed only after that barrier.
- */
 export async function settleBeforeCleanup(
   operations: readonly Promise<unknown>[],
   signal: AbortSignal,
@@ -500,7 +487,6 @@ export async function settleBeforeCleanup(
   if (rejected?.status === "rejected") throw rejected.reason;
 }
 
-/** Runs only after a trusted workflow has verified inert artifact provenance. */
 export async function executeTrustedAcceptance(
   profile: TrustedAuthorityProfile,
   execution: ControllerExecution,
@@ -526,7 +512,6 @@ export async function executeTrustedAcceptance(
   try {
     const acquired = await authority.acquire(execution.ttlMs);
     lease = acquired.lease;
-    // Secrets remain in the acquire return value only; no controller output receives it.
     if (profile.directoryFixture && execution.deployDirectoryArtifact)
       await execution.deployDirectoryArtifact(profile.directoryFixture);
     for (const member of profile.members)
@@ -588,7 +573,6 @@ export async function executeTrustedAcceptance(
   return completedReceipt;
 }
 
-/** In-process trusted-runner seam; it accepts only an opaque redacted lease. */
 export async function updateTrustedAcceptanceDirectoryScenario(
   profile: TrustedAuthorityProfile,
   lease: RuntimeLease,
@@ -608,7 +592,6 @@ export async function updateTrustedAcceptanceDirectoryScenario(
   ).updateDirectoryScenario(lease, "withdraw-member");
 }
 
-/** Discovery is injected so providers can be reconciled without candidate code or stored credentials. */
 export async function reapTrustedAcceptanceLeases(
   profile: TrustedAuthorityProfile,
   execution: ReaperExecution,
@@ -650,7 +633,6 @@ function requiredAmbientCredentials(): Record<string, string> {
   ) as Record<string, string>;
 }
 
-/** Management credentials are read only from the protected process environment. */
 export function createAmbientRuntimeProviders(): RuntimeProviders {
   const credentials = requiredAmbientCredentials();
   const boundedFetch: typeof fetch = (input, init) =>

@@ -23,12 +23,13 @@ import type {
 } from "@/pages/design-editor/pending-edits";
 import {
   buildPendingVisualStyleRevertPatches,
+  pendingLiveStructureEditsFromEdit,
   pendingStructureEditSourcePaths,
 } from "@/pages/design-editor/pending-edits";
 import {
   partitionPendingStructuresRuntime,
   type RuntimeStructureVerificationFailure,
-  verifyPendingStructureRuntime,
+  verifyPendingStructuresRuntime,
 } from "@/pages/design-editor/pending-structure-verification";
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
@@ -54,6 +55,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingStructureVerificationStatus: PendingStructureVerificationStatus;
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
+  allowPromptOnly?: boolean;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
@@ -100,6 +102,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   pendingStructureVerificationStatus,
   pendingVisualStyleEdits,
   pendingVisualStylePrompt,
+  allowPromptOnly = false,
   setActiveLeftPanel,
   setApplyingViaHost,
   setPendingAgentHandoffBusy,
@@ -113,7 +116,8 @@ export async function runApplyPendingVisualStylesWithAgent({
 }: ApplyPendingVisualStylesWithAgentArgs) {
   if (
     pendingVisualStyleEdits.length === 0 &&
-    pendingLiveNonStyleEdits.length === 0
+    pendingLiveNonStyleEdits.length === 0 &&
+    !allowPromptOnly
   ) {
     return;
   }
@@ -184,7 +188,7 @@ export async function runApplyPendingVisualStylesWithAgent({
             t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
           );
         }, HOST_TURN_START_TIMEOUT_MS);
-      } else finalizeWithoutStructureVerification();
+      } else if (!allowPromptOnly) finalizeWithoutStructureVerification();
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
       return;
@@ -254,9 +258,6 @@ export async function runApplyPendingVisualStylesWithAgent({
       const initialSources = await readWithHardDeadline(
         Promise.all(
           Array.from(sourceTargets.values()).map(async (source) => {
-            // read-local-file declares `http: { method: "GET" }`, so a
-            // default POST is refused with 405 and every Apply preflight
-            // fails before it reads a single baseline hash.
             const result = (await callAction(
               "read-local-file",
               {
@@ -335,7 +336,10 @@ export async function runApplyPendingVisualStylesWithAgent({
               .map((edit) => {
                 const snapshot = runtimeSnapshots[edit.screenId];
                 return snapshot
-                  ? verifyPendingStructureRuntime(snapshot.html, edit)
+                  ? verifyPendingStructuresRuntime(
+                      { [edit.screenId]: snapshot },
+                      pendingLiveStructureEditsFromEdit(edit),
+                    )
                   : undefined;
               })
               .find((result) => result && !result.ok);
@@ -353,13 +357,15 @@ export async function runApplyPendingVisualStylesWithAgent({
                 (edit) => edit.kind !== "structure" || !verifiedSet.has(edit),
               ),
             );
-            const structureAcks = runtimeResult.verified
-              .filter((edit) => Boolean(edit.requestId))
-              .map((edit) => ({
-                screenId: edit.screenId,
-                requestId: edit.requestId!,
-                applied: true,
-              }));
+            const structureAcks = runtimeResult.verified.flatMap((edit) =>
+              pendingLiveStructureEditsFromEdit(edit)
+                .filter((member) => Boolean(member.requestId))
+                .map((member) => ({
+                  screenId: member.screenId,
+                  requestId: member.requestId!,
+                  applied: true,
+                })),
+            );
             if (structureAcks.length > 0) {
               setPendingStructureAckRequest({
                 requestId: Date.now() + Math.random(),
@@ -408,9 +414,6 @@ export async function runApplyPendingVisualStylesWithAgent({
               if (!verificationRuntimeMounted) {
                 verificationRuntimeMounted = true;
               }
-              // A source write gets a fresh hidden iframe. Reusing the same
-              // request key can leave the old document mounted and its
-              // snapshot race with the next write.
               pendingStructureVerificationSnapshotsRef.current.delete(
                 session.requestId,
               );

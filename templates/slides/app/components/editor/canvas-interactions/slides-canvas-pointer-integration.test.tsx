@@ -7,9 +7,10 @@ import {
 } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { SlidePointerTarget } from "../slide-pointer-target";
 import {
   createSlidesCanvasGestureController,
-  resolveSlidesCanvasPointerIntent,
+  resolveSlidesCanvasTargetIntent,
 } from "./slides-canvas-adapter";
 
 function SelectedTextObjectHarness() {
@@ -23,14 +24,16 @@ function SelectedTextObjectHarness() {
   > | null>(null);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const intent = resolveSlidesCanvasPointerIntent({
-      hasSelectedObject: selected,
-      targetWithinSelectedObject: true,
-      targetContainsSelectedObject: false,
-      pointerWithinMoveBand: false,
-      targetIsEditableText: true,
-    });
-    if (intent !== "move-object-body") return;
+    const textHit: SlidePointerTarget = {
+      kind: "object",
+      object: event.currentTarget,
+      hit: "text",
+      textRoot: event.currentTarget,
+      cursor: "text",
+      hoverOutline: null,
+      grab: "edit",
+    };
+    if (resolveSlidesCanvasTargetIntent(textHit) !== "move-object-body") return;
 
     originRef.current = position;
     const controller = createSlidesCanvasGestureController({
@@ -105,8 +108,6 @@ describe("mounted selected text body interaction", () => {
     fireEvent.pointerDown(object, { button: 0, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(object, { clientX: 50, clientY: 30 });
     fireEvent.pointerUp(object, { clientX: 50, clientY: 30 });
-    // Text interiors are not move candidates. The browser owns the pointer
-    // stream so a drag can select text instead of moving the block.
     fireEvent.click(object);
 
     expect(object.style.left).toBe("0px");
@@ -114,7 +115,6 @@ describe("mounted selected text body interaction", () => {
     expect(object.getAttribute("data-selected")).toBe("true");
     expect(object.getAttribute("data-editing")).toBe("true");
 
-    // A subsequent stationary click remains in text editing as well.
     fireEvent.pointerDown(object, { button: 0, clientX: 50, clientY: 30 });
     fireEvent.pointerUp(object, { clientX: 50, clientY: 30 });
     fireEvent.click(object);

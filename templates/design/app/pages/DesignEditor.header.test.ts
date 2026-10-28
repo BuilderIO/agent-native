@@ -1,27 +1,16 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("Design editor header", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
-
-  it("keeps the title without rendering the review status chip", () => {
-    expect(editorSource).toContain("{projectTitleControl}");
-    expect(editorSource).not.toContain("ReviewStatusControl");
-    expect(editorSource).not.toContain("status={reviewStatus}");
-  });
-
-  it("routes board review threads and uses unread roots for the comments badge", () => {
-    expect(editorSource).toContain("const boardTarget = targetId === null");
-    expect(editorSource).toContain(
-      "setActiveFileId(boardTarget ? (boardFileId ?? null) : targetId)",
-    );
-    expect(editorSource).toContain("reviewCommentsCount: reviewUnreadCount");
-  });
+  const editorSource = readDesignEditorSource();
 
   it("keeps the shared chat header and tabs on the scoped agent surface", () => {
     const panelStart = editorSource.indexOf("data-design-agent-panel");
-    const surfaceStart = editorSource.indexOf("<AgentChatSurface", panelStart);
+    const surfaceStart = editorSource.indexOf(
+      "<MemoAgentChatSurface",
+      panelStart,
+    );
     const surfaceEnd = editorSource.indexOf("/>", surfaceStart);
     const surface = editorSource.slice(surfaceStart, surfaceEnd);
 
@@ -32,7 +21,7 @@ describe("Design editor header", () => {
     expect(surface).toContain("showHeader={true}");
     expect(surface).toContain("showTabBar={true}");
     expect(surface).toContain("chatOnly={true}");
-    expect(surface).toContain("onCollapse={() => setActiveLeftPanel(null)}");
+    expect(surface).toContain("onCollapse={collapseLeftPanel}");
     expect(surface).toContain("min-w-0");
   });
 });

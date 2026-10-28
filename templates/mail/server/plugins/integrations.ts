@@ -1,15 +1,16 @@
 import {
-  autoDiscoverActions,
   createIntegrationsPlugin,
+  loadActionsFromStaticRegistry,
   slackAdapter,
 } from "@agent-native/core/server";
 
+import actionsRegistry from "../../.generated/actions-registry.js";
 import {
   beforeMailIntegrationProcess,
   resolveMailIntegrationOwner,
 } from "../lib/mail-integrations.js";
 
-const actions = await autoDiscoverActions(import.meta.url);
+const actions = loadActionsFromStaticRegistry(actionsRegistry);
 delete actions["send-email"];
 
 const MAIL_INTEGRATION_SYSTEM_PROMPT = `You are the Agent-Native Mail assistant responding from Slack.

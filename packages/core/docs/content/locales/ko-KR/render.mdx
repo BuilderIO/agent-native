@@ -1,15 +1,161 @@
 ---
 title: "Render"
-description: "Localized pointer to the the Nitro render-com preset."
+description: "독립 실행형 Agent-Native 앱을 Node.js 웹 서비스로 Render에 배포합니다."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Render
 
-Read the [English Render guide](/docs/render) for the build steps and
-provider-specific production configuration.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`render-com`.
+Render가 앱을 웹 서비스로 호스팅하므로 서버를 설정하거나 계속 실행해 둘 필요가 없습니다. Render는 [Node.js 가이드](/docs/node-js)에서 설명하는 것과 같은 Node.js 서버를 실행하고, Git 저장소에서 이를 빌드하며, 앱에 HTTPS가 적용된 공개 주소를 제공합니다.
+
+이 가이드는 독립 실행형 앱 하나를 처음부터 배포하는 과정을 안내합니다. 앱을 만들어 Git 저장소에 푸시하고, 프로덕션 데이터베이스와 인증 시크릿을 지정하고, 데이터베이스를 준비한 다음, 앱을 빌드하고 실행하는 Render 웹 서비스를 만듭니다.
+
+<Callout tone="info">
+
+Node.js `22.22+`가 필요합니다.
+
+</Callout>
+
+Render 계정과 GitHub, GitLab, Bitbucket 중 한 곳의 저장소도 필요합니다. 이 가이드의 명령은 자신의 컴퓨터에서 실행하세요. 앱의 빌드와 실행은 Render가 저장소에서 진행합니다.
+
+## 1단계: 앱 만들기 {#step-1-create-the-app}
+
+새 독립 실행형 앱을 만듭니다. 아래 예시는 Chat 템플릿으로 앱을 만들지만, 어떤 템플릿으로든 시작할 수 있습니다. 앱 폴더로 이동한 뒤 의존성을 설치하세요. `corepack enable`은 앱이 기대하는 `pnpm` 버전을 활성화하므로 `pnpm`을 직접 설치할 필요가 없습니다.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+원한다면 `my-app`을 원하는 앱 이름으로 바꾸세요. 이 가이드의 나머지 부분은 앱 폴더 안에 있다고 가정합니다.
+
+Render는 Git 저장소에서 앱을 빌드하므로, 계속하기 전에 앱 폴더를 GitHub, GitLab, Bitbucket 중 한 곳의 새 저장소에 푸시하세요. 빌드는 `pnpm-lock.yaml` 파일에 적힌 정확한 버전을 설치하므로 이 파일도 함께 커밋하세요.
+
+<Callout tone="info">
+
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
+## 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
+
+앱은 프로덕션 설정을 환경 변수에서 읽습니다.
+
+| 변수                 | 필수   | 용도                                          |
+| -------------------- | ------ | --------------------------------------------- |
+| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
+| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
+| `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
+
+아래의 export 명령을 실행하면 이 셸에서 이후 명령이 동작합니다. 배포하기 전에 같은 변수를 호스트의 프로젝트 또는 서비스 환경 설정에도 저장하세요. Render에 저장하는 방법은 4단계에서 설명합니다.
+
+### 데이터베이스 URL {#database-url}
+
+로컬 개발 중에는 `DATABASE_URL`이 설정되지 않으면 앱이 로컬 데이터베이스에 데이터를 저장합니다. 배포된 앱에는 배포 후에도 데이터를 유지하는 실제 PostgreSQL 데이터베이스가 필요합니다. Render는 배포하거나 재시작할 때마다 서비스의 파일을 교체하므로 데이터베이스는 웹 서비스 밖에 있어야 합니다. 프로바이더에서 연결 문자열을 복사해 export하세요.
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[데이터베이스 프로바이더 가이드](/docs/neon)에서 프로바이더별로 연결 문자열을 찾는 위치를 확인할 수 있습니다. Render Postgres도 사용할 수 있습니다. 여기서는 외부 연결 문자열을 사용하고, 웹 서비스 설정에서는 내부 연결 문자열을 사용하세요.
+
+<Callout tone="warning">
+
+Neon, Supabase, Amazon RDS 등 영구적인 PostgreSQL 프로바이더를 선택하세요.
+
+</Callout>
+
+### 인증 시크릿 {#auth-secret}
+
+이 값은 한 번만 생성하고 배포할 때마다 바꾸지 마세요.
+
+앱은 `BETTER_AUTH_SECRET`을 사용해 사용자 세션에 서명합니다. 이 값이 바뀌면 로그인한 모든 사용자가 로그아웃됩니다. 아래 명령은 임의의 값을 생성합니다.
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+생성한 값은 비밀번호 관리자처럼 안전한 곳에 저장하세요. 배포할 때마다 같은 값을 사용합니다.
+
+### 공개 URL {#public-url}
+
+선택 사항입니다. 사용자 지정 도메인, 리버스 프록시, 또는 고정된 공개 origin이 필요한 인증이나 OAuth 흐름을 사용할 때 설정하세요.
+
+`BETTER_AUTH_URL`은 사용자가 앱에 접속하는 공개 주소입니다. 이 값이 없으면 앱은 들어오는 요청마다 자신의 주소를 판단합니다. Render가 제공하는 주소에서는 대개 문제가 없지만, 사용자 지정 도메인을 연결할 때는 로그인 링크와 OAuth 리디렉션이 그 도메인을 사용하도록 이 값을 설정하세요.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 3단계: 마이그레이션 {#step-3-migrate}
+
+마이그레이션은 앱에 필요한 테이블을 데이터베이스에 만들고 업데이트합니다. 첫 배포 전에 이 명령을 실행하세요.
+
+```bash
+pnpm migrate:production
+```
+
+이 명령은 자신의 컴퓨터에서 실행되며, 2단계에서 export한 `DATABASE_URL`로 프로덕션 데이터베이스에 연결합니다. 앱을 업그레이드한 뒤에는 새 버전을 배포하기 전에 다시 실행하세요.
+
+유료 Render 인스턴스에서는 대신 서비스의 **Pre-Deploy Command**를 `pnpm migrate:production`으로 설정할 수 있습니다. 그러면 Render가 각 배포가 공개되기 전에 마이그레이션을 실행합니다. Pre-Deploy Command는 Free 인스턴스 유형에서는 사용할 수 없습니다.
+
+## 4단계: 웹 서비스 만들기 {#step-4-create-the-web-service}
+
+Render 대시보드에서 새 **Web Service**를 만들고 1단계의 저장소를 연결합니다. 다음 설정을 사용하세요.
+
+| 설정          | 값                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Language      | `Node`                                                                                    |
+| Branch        | `main`처럼 배포에 사용할 브랜치                                                           |
+| Build Command | `corepack enable && pnpm install --frozen-lockfile && NITRO_PRESET=render_com pnpm build` |
+| Start Command | `node .output/server/index.mjs`                                                           |
+
+Build Command는 앱의 `pnpm` 버전을 활성화하고, `pnpm-lock.yaml`에 적힌 의존성을 설치한 뒤 앱을 빌드합니다. `NITRO_PRESET=render_com`은 Node.js 가이드와 같은 Node.js 서버를 자체 정적 파일도 제공하도록 설정해 빌드합니다. Start Command는 그 서버를 실행합니다. Render는 사용할 포트를 `PORT` 환경 변수로 서버에 알려 주며, 서버는 이 값을 자동으로 읽습니다.
+
+**Environment Variables**에서 2단계에서 export한 값으로 `DATABASE_URL`과 `BETTER_AUTH_SECRET`을 추가합니다. `BETTER_AUTH_URL`을 설정했다면 같은 방법으로 추가하세요.
+
+Render는 `NODE_VERSION` 환경 변수, `.node-version` 또는 `.nvmrc` 파일, `package.json`의 `engines` 필드 순서로 확인해 Node.js 버전을 고릅니다. 새 서비스는 기본적으로 위의 요구 사항을 충족하는 버전을 사용합니다. 버전을 고정하려면 `NODE_VERSION`을 추가하고, 예를 들어 값을 `24`로 지정하세요.
+
+## 5단계: 배포 {#step-5-deploy}
+
+<Steps>
+
+### 인스턴스 유형 선택하기
+
+웹 서비스의 인스턴스 유형을 고릅니다. 앱을 시험해 보는 용도라면 Free 인스턴스 유형으로 충분합니다. 앱이 즉시 응답해야 하거나 3단계의 Pre-Deploy Command를 사용하려면 유료 인스턴스 유형을 선택하세요.
+
+### 웹 서비스 만들기
+
+웹 서비스를 만듭니다. Render가 저장소에서 앱을 빌드하고 시작합니다. 첫 빌드는 몇 분 정도 걸리며, 서비스 로그에서 진행 상황을 확인할 수 있습니다.
+
+### 앱 열기
+
+배포가 끝나면 대시보드에 `onrender.com`으로 끝나는 앱 주소가 표시됩니다. 그 주소를 열고 첫 계정을 만듭니다.
+
+</Steps>
+
+Free 인스턴스 유형에서는 15분 동안 트래픽이 없으면 Render가 서비스를 일시 중지합니다. 그러면 다음 방문 시 서비스가 다시 시작되는 동안 1분 정도 기다려야 합니다.
+
+## 업데이트 배포하기 {#deploy-updates}
+
+Render는 4단계에서 선택한 브랜치에 푸시할 때마다 다시 배포합니다. 새 버전을 배포하려면 먼저 마이그레이션을 실행한 다음 푸시하세요.
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+서비스 설정과 저장한 변수는 그대로 유지되므로 4단계를 반복할 필요가 없습니다.
+
+## 다음 단계 {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 직접 관리하는 머신에서 같은 서버를 실행합니다
+- [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록
+- [**배포**](/docs/deployment) - 호스팅 대상과 사전 요구 사항을 비교합니다

@@ -25,6 +25,8 @@ export interface DocumentHistoryGroup {
   actorKind: DocumentHistoryActorKind;
   origin: string | null;
   operation: string | null;
+  /** File name an `import-content` group created this page from. */
+  importSourceName?: string | null;
   startedAt: string;
   endedAt: string;
   checkpointCount: number;

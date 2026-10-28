@@ -102,6 +102,44 @@ describe("emails handler Gmail label listing", () => {
   });
 });
 
+describe("emails handler thread cache scope", () => {
+  it("resolves mailbox access before cache lookup and keys stored messages by mailbox", () => {
+    const section = handlerSection(emailsHandlerSource(), "getThreadMessages");
+    const accountResolution = section.indexOf(
+      "resolvedAccount = await resolveAccountEmail(accountEmail, email)",
+    );
+    const cacheLookup = section.indexOf(
+      "threadCacheKey(email, threadId, resolvedAccount)",
+    );
+    const cacheWrite = section.indexOf(
+      "threadCacheKey(email, threadId, acctEmail)",
+    );
+
+    expect(accountResolution).toBeGreaterThanOrEqual(0);
+    expect(cacheLookup).toBeGreaterThan(accountResolution);
+    expect(cacheWrite).toBeGreaterThan(cacheLookup);
+    expect(section).toContain("if (resolvedAccount)");
+  });
+});
+
+describe("emails handler force refresh", () => {
+  it("fences list caches before and after resolving account tokens", () => {
+    const section = handlerSection(emailsHandlerSource(), "listEmails");
+    const tokenResolution = section.indexOf("await getAccountTokens(email);");
+    const listInvalidations = [
+      ...section.matchAll(/invalidateListCacheForOwner\(email\);/g),
+    ].map((match) => match.index ?? -1);
+    const historyInvalidation = section.indexOf(
+      "invalidateHistoryCacheForAccount(account.email);",
+    );
+
+    expect(tokenResolution).toBeGreaterThanOrEqual(0);
+    expect(listInvalidations).toHaveLength(2);
+    expect(listInvalidations[0]).toBeLessThan(tokenResolution);
+    expect(listInvalidations[1]).toBeGreaterThan(historyInvalidation);
+  });
+});
+
 describe("emails handler connected-account mutation errors", () => {
   it("returns structured account-resolution and refresh failures before Gmail mutations", () => {
     const source = emailsHandlerSource();

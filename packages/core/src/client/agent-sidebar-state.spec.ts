@@ -2,12 +2,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_SIDEBAR_WIDTH_STEP,
   consumeAgentSidebarUrlOpenOverride,
   clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
   getAgentSidebarMaxWidth,
+  getAgentSidebarState,
   getAgentSidebarOpenPreferenceKey,
   getAgentSidebarWideWidth,
+  snapAgentSidebarWidth,
   getInitialAgentSidebarOpen,
   hasChatThreadDeepLink,
   requestAgentSidebarOpen,
@@ -33,26 +37,93 @@ function stubMatchMedia(matches: boolean) {
   );
 }
 
+function resetLocalStorage() {
+  const values = new Map<string, string>();
+  const storage = {
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  vi.stubGlobal("localStorage", storage);
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
+
+function resetSessionStorage() {
+  const values = new Map<string, string>();
+  const storage = {
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+  };
+  vi.stubGlobal("sessionStorage", storage);
+  Object.defineProperty(window, "sessionStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
+
+function stubUnreadableSessionStorage() {
+  const storage = {
+    clear: () => {
+      throw new Error("session storage unavailable");
+    },
+    getItem: () => {
+      throw new Error("session storage unavailable");
+    },
+    setItem: () => {
+      throw new Error("session storage unavailable");
+    },
+    removeItem: () => {
+      throw new Error("session storage unavailable");
+    },
+  };
+  vi.stubGlobal("sessionStorage", storage);
+  Object.defineProperty(window, "sessionStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
+
 describe("agent sidebar width presets", () => {
   it("uses 75% of the desktop viewport for the wide preset", () => {
     expect(getAgentSidebarWideWidth(1440)).toBe(1080);
     expect(getAgentSidebarWideWidth(1024)).toBe(768);
   });
 
-  it("keeps the existing 700px drag ceiling below the wide preset", () => {
-    expect(getAgentSidebarMaxWidth(800)).toBe(700);
+  it("keeps the wide preset on the 8px grid", () => {
+    expect(getAgentSidebarWideWidth(1000)).toBe(744);
+    expect(getAgentSidebarWideWidth(1366)).toBe(1024);
+    expect(snapAgentSidebarWidth(381)).toBe(384);
+    expect(snapAgentSidebarWidth(379)).toBe(376);
+  });
+
+  it("keeps the 704px drag ceiling below the wide preset", () => {
+    expect(getAgentSidebarMaxWidth(800)).toBe(704);
     expect(getAgentSidebarMaxWidth(1440)).toBe(1080);
   });
 
   it("clamps manual widths to the responsive maximum", () => {
     expect(clampAgentSidebarWidth(1200, 1024)).toBe(768);
-    expect(clampAgentSidebarWidth(100, 1440)).toBe(280);
+    expect(clampAgentSidebarWidth(100, 1440)).toBe(320);
+  });
+});
+
+describe("agent sidebar width floor", () => {
+  it("keeps the floor on the 8px grid", () => {
+    expect(AGENT_SIDEBAR_MIN_WIDTH).toBe(320);
+    expect(AGENT_SIDEBAR_MIN_WIDTH % AGENT_SIDEBAR_WIDTH_STEP).toBe(0);
   });
 });
 
 describe("getInitialAgentSidebarOpen", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    resetLocalStorage();
+    resetSessionStorage();
     window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
   });
@@ -89,6 +160,18 @@ describe("getInitialAgentSidebarOpen", () => {
     window.history.replaceState(null, "", "/?agentSidebar=open");
 
     expect(getInitialAgentSidebarOpen(false)).toBe(true);
+  });
+
+  it("ignores both explicit URL values when URL overrides are ignored", () => {
+    window.history.replaceState(null, "", "/?agentSidebar=open");
+    expect(
+      getInitialAgentSidebarOpen(false, undefined, { ignoreUrlOverride: true }),
+    ).toBe(false);
+
+    window.history.replaceState(null, "", "/?agentSidebar=closed");
+    expect(
+      getInitialAgentSidebarOpen(true, undefined, { ignoreUrlOverride: true }),
+    ).toBe(true);
   });
 
   it("does not auto-open default-closed sidebars from saved state", () => {
@@ -183,11 +266,233 @@ describe("getInitialAgentSidebarOpen", () => {
     expect(window.location.pathname).toBe("/inbox");
     expect(window.location.search).toBe("?threadId=t1");
   });
+
+  it("retains a consumed explicit open hint for a default-closed remount", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(window.location.search).toBe("");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+  });
+
+  it("scopes consumed explicit open hints by sidebar storage key", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+    expect(getInitialAgentSidebarOpen(false, "content")).toBe(false);
+  });
+
+  it("clears consumed explicit open intent when the user closes the sidebar", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+
+    expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(true);
+
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("does not reopen after a user close when session intent clearing is denied", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    vi.spyOn(window.sessionStorage, "removeItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+
+    expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(false);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("gives an explicit URL close priority and clears consumed open intent", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+
+    window.history.replaceState(null, "", "/overview?agentSidebar=closed");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(false);
+    expect(window.location.search).toBe("");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("keeps an explicit URL close when session intent clearing is denied", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    window.history.replaceState(null, "", "/overview?agentSidebar=closed");
+    vi.spyOn(window.sessionStorage, "removeItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(false);
+    expect(window.location.search).toBe("?agentSidebar=closed");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+    window.history.replaceState(null, "", "/overview");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("retains explicit URL open behavior on mobile after consumption", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    stubMatchMedia(true);
+
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+  });
+
+  it("keeps an explicit open hint when session storage is unreadable", () => {
+    stubUnreadableSessionStorage();
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(window.location.search).toBe("?agentSidebar=open");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+    window.history.replaceState(null, "", "/overview");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("keeps an explicit open hint when session storage denies writes", () => {
+    window.history.replaceState(null, "", "/overview?agentSidebar=open");
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(window.location.search).toBe("?agentSidebar=open");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+    window.history.replaceState(null, "", "/overview");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("lets a user close an open URL hint whose storage write failed", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+
+    const seenOverrides: Array<boolean | null> = [];
+    const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
+      seenOverrides.push(consumeAgentSidebarUrlOpenOverride("dispatch"));
+    });
+    try {
+      expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(true);
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+
+      window.history.pushState(null, "", "/overview?keep=2#section");
+    } finally {
+      unsubscribe();
+    }
+
+    expect(seenOverrides).toEqual([null, null]);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("keeps a closed URL hint when a user close cannot be persisted", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+
+    vi.spyOn(window.sessionStorage, "removeItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("local storage write denied");
+    });
+
+    expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(false);
+    expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+    expect(window.location.hash).toBe("#section");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(false);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("keeps a close after a consumed open intent when both storage writes fail", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+    expect(window.location.search).toBe("?keep=1");
+    vi.spyOn(window.sessionStorage, "removeItem").mockImplementation(() => {
+      throw new Error("session storage write denied");
+    });
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("local storage write denied");
+    });
+
+    expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(false);
+    expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+    expect(window.location.hash).toBe("#section");
+    expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(false);
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(false);
+  });
+
+  it("keeps an explicit open fallback when saving a user open fails without a URL hint", () => {
+    window.history.replaceState(null, "", "/overview?keep=1#section");
+    vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
+      throw new Error("local storage write denied");
+    });
+    expect(setAgentSidebarOpenPreference(true, "dispatch")).toBe(false);
+    expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+    expect(window.location.hash).toBe("#section");
+    expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+  });
+
+  it("lets a user reopen after a failed close replaced a stale open URL hint", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?keep=1&agentSidebar=open#section",
+    );
+    const localStorageWrite = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("local storage write denied");
+      });
+    const seenOverrides: Array<boolean | null> = [];
+    const unsubscribe = subscribeAgentSidebarUrlChanges(() => {
+      seenOverrides.push(consumeAgentSidebarUrlOpenOverride("dispatch"));
+    });
+    try {
+      expect(consumeAgentSidebarUrlOpenOverride("dispatch")).toBe(true);
+      expect(window.location.search).toBe("?keep=1&agentSidebar=open");
+
+      expect(setAgentSidebarOpenPreference(false, "dispatch")).toBe(false);
+      expect(window.location.search).toBe("?keep=1&agentSidebar=closed");
+      expect(seenOverrides).toEqual([false]);
+
+      localStorageWrite.mockRestore();
+      expect(setAgentSidebarOpenPreference(true, "dispatch")).toBe(true);
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#section");
+      expect(seenOverrides).toEqual([false, null]);
+      expect(getInitialAgentSidebarOpen(false, "dispatch")).toBe(true);
+    } finally {
+      unsubscribe();
+      localStorageWrite.mockRestore();
+    }
+  });
 });
 
 describe("dispatchAgentSidebarStateChange", () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    resetLocalStorage();
+    resetSessionStorage();
     window.history.replaceState(null, "", "/");
     stubMatchMedia(false);
   });
@@ -210,5 +515,20 @@ describe("dispatchAgentSidebarStateChange", () => {
     });
 
     window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, listener);
+  });
+
+  it("remembers the last announced state for controls that mount later", () => {
+    dispatchAgentSidebarStateChange({ open: true, source: "app", mode: "app" });
+    expect(getAgentSidebarState()).toEqual({
+      open: true,
+      source: "app",
+      mode: "app",
+    });
+    dispatchAgentSidebarStateChange({
+      open: false,
+      source: "app",
+      mode: "app",
+    });
+    expect(getAgentSidebarState()?.open).toBe(false);
   });
 });

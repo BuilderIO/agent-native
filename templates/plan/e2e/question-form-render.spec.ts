@@ -1,11 +1,5 @@
 import { test, expect, type Page, type APIResponse } from "@playwright/test";
 
-/*
- * QUESTION FORM RENDERING — plan editor should show the respondent-facing
- * question UI in the document. The schema/config form is still available from
- * the corner edit button, but it must not replace the block body inline.
- */
-
 const CREATE_ACTION = "/_agent-native/actions/create-visual-plan";
 
 type PlanBlock = {
@@ -157,12 +151,10 @@ test.describe("question blocks render answer UI in the plan editor", () => {
         node.getByRole("button", { name: "Send to agent" }),
       ).toBeVisible();
 
-      // The inline body must not be the admin/config editor.
       await expect(node.getByText("SUBMIT BUTTON")).toHaveCount(0);
       await expect(node.getByText("QUESTION 1")).toHaveCount(0);
       await expect(node.getByText("MODE")).toHaveCount(0);
 
-      // The config editor still exists, but only behind the explicit panel.
       await node.hover();
       await node
         .getByRole("button", {

@@ -1,44 +1,44 @@
 import {
-  applyVisualEdit,
   buildCodeLayerProjection,
+  codeLayerNodeWithStableSourceId,
   resolveCodeLayerTarget,
+  type CodeLayerProjection,
+  type CodeLayerSource,
   type EditIntentTarget,
   type CodeLayerNode,
-  wrapBareTextLeavesInHtml,
 } from "@shared/code-layer";
-import { parseCssColor, rgbaToCss, rgbaToHex } from "@shared/color-utils";
+import { gamutOf, parseWideColor } from "@shared/color-spaces";
 import {
-  gradientStopWithFillOpacity,
-  readGradientFillOpacity,
-} from "@shared/gradient-opacity";
+  isWideGamutNotation,
+  normalizeCssColor,
+  parseCssColor,
+  parseCssColorExtended,
+  rgbaToHex,
+} from "@shared/color-utils";
+import { commonPrefixLength, commonSuffixLength } from "@shared/string-diff";
 
+import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
-import {
-  buildSolidFillLayer,
-  joinCssLayers,
-  isLayerHiddenBySize,
-  parseGradientLayer,
-  parseSolidFillLayer,
-  splitCssLayers,
-} from "./fill-gradient-helpers";
 
 export interface DocumentColorSourceFile {
   id: string;
   content: string;
 }
 
-// Matches hex (#rgb/#rgba/#rrggbb/#rrggbbaa), legacy comma-separated RGB and
-// HSL function color literals in CSS declaration values. Modern
-// space-separated `rgb(R G B [/ A])` and DOM-resolved formats (oklch,
-// color(display-p3 ...)) are intentionally out of scope: `parseCssColor` (the
-// non-DOM parser, safe to run in a plain Node/vitest environment) doesn't
-// resolve them, and pulling in the canvas-based `parseCssColorExtended`
-// resolver would make this helper impure/untestable without jsdom.
+// oklch() and color(display-p3|srgb ...) are matched only when they hold no
+// nested parentheses, so a relative color or var() is never cut in half.
 const CSS_COLOR_TOKEN_PATTERN =
-  /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)/gi;
+  /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b|(?:rgb|hsl)a?\([^)]*\)|\boklch\([^()]*\)|\bcolor\(\s*(?:display-p3|srgb)\s[^()]*\)/gi;
 
 interface ColorTokenSpan {
   value: string;
+  start: number;
+  end: number;
+  property: string;
+  inStyleBlock: boolean;
+}
+
+interface SourceRange {
   start: number;
   end: number;
 }
@@ -49,11 +49,34 @@ interface DeclarationValueSpan {
   start: number;
 }
 
-const STYLE_ATTRIBUTE_PATTERN =
-  /\sstyle\s*=\s*(?:"([\s\S]*?)"|'([\s\S]*?)'|([^\s>]+))/gi;
+const SVG_PRESENTATION_COLOR_ATTRIBUTES = new Set([
+  "color",
+  "fill",
+  "flood-color",
+  "lighting-color",
+  "solid-color",
+  "stop-color",
+  "stroke",
+]);
+
+function maskSourceRanges(
+  content: string,
+  ranges: readonly SourceRange[],
+): string {
+  let masked = "";
+  let cursor = 0;
+  for (const { start, end } of ranges) {
+    masked +=
+      content.slice(cursor, start) +
+      content.slice(start, end).replace(/[^\r\n]/g, " ");
+    cursor = end;
+  }
+  return masked + content.slice(cursor);
+}
 
 function maskCssComments(css: string): string {
-  const masked = css.split("");
+  if (!css.includes("/*")) return css;
+  const comments: SourceRange[] = [];
   let quote: string | null = null;
   let escaped = false;
   for (let index = 0; index < css.length; index += 1) {
@@ -77,18 +100,10 @@ function maskCssComments(css: string): string {
     if (character !== "/" || css[index + 1] !== "*") continue;
     const end = css.indexOf("*/", index + 2);
     const commentEnd = end < 0 ? css.length : end + 2;
-    for (
-      let commentIndex = index;
-      commentIndex < commentEnd;
-      commentIndex += 1
-    ) {
-      if (css[commentIndex] !== "\r" && css[commentIndex] !== "\n") {
-        masked[commentIndex] = " ";
-      }
-    }
+    comments.push({ start: index, end: commentEnd });
     index = commentEnd - 1;
   }
-  return masked.join("");
+  return maskSourceRanges(css, comments);
 }
 
 interface HtmlTagSpan {
@@ -96,9 +111,16 @@ interface HtmlTagSpan {
   value: string;
 }
 
+interface HtmlAttributeSpan {
+  name: string;
+  value: string;
+  valueStart: number;
+}
+
 interface StyleBlockSpan {
   start: number;
   value: string;
+  closeEnd: number;
 }
 
 function htmlStartTagName(tag: string): string | null {
@@ -113,7 +135,10 @@ function rawTextClosingTag(tagName: string): RegExp {
   return new RegExp(`</${tagName}(?=[\\s/>])[^>]*>`, "gi");
 }
 
-function htmlTagSpans(content: string): HtmlTagSpan[] {
+function htmlTagSpans(content: string): {
+  tags: HtmlTagSpan[];
+  unterminatedStart: number;
+} {
   const tags: HtmlTagSpan[] = [];
   let start = -1;
   let quote: string | null = null;
@@ -138,12 +163,55 @@ function htmlTagSpans(content: string): HtmlTagSpan[] {
       start = -1;
     }
   }
-  return tags;
+  return { tags, unterminatedStart: start };
 }
 
-function styleBlockSpans(content: string): StyleBlockSpan[] {
+function htmlAttributeSpans(tag: string, offset: number): HtmlAttributeSpan[] {
+  const attributes: HtmlAttributeSpan[] = [];
+  let cursor = tag.indexOf("<") + 1;
+  if (tag[cursor] === "/") cursor += 1;
+  while (/[\w:-]/.test(tag[cursor] ?? "")) cursor += 1;
+
+  while (cursor < tag.length) {
+    while (/\s|\//.test(tag[cursor] ?? "")) cursor += 1;
+    if (!tag[cursor] || tag[cursor] === ">") break;
+
+    const nameStart = cursor;
+    while (!/[\s=/>]/.test(tag[cursor] ?? "")) cursor += 1;
+    const name = tag.slice(nameStart, cursor).toLowerCase();
+    if (!name) {
+      cursor += 1;
+      continue;
+    }
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    if (tag[cursor] !== "=") continue;
+
+    cursor += 1;
+    while (/\s/.test(tag[cursor] ?? "")) cursor += 1;
+    const quote = tag[cursor] === '"' || tag[cursor] === "'" ? tag[cursor] : "";
+    if (quote) cursor += 1;
+    const valueStart = cursor;
+    if (quote) {
+      while (cursor < tag.length && tag[cursor] !== quote) cursor += 1;
+    } else {
+      while (cursor < tag.length && !/[\s>]/.test(tag[cursor] ?? ""))
+        cursor += 1;
+    }
+    attributes.push({
+      name,
+      value: tag.slice(valueStart, cursor),
+      valueStart: offset + valueStart,
+    });
+    if (quote && tag[cursor] === quote) cursor += 1;
+  }
+  return attributes;
+}
+
+function styleBlockSpans(
+  content: string,
+  tags: HtmlTagSpan[],
+): StyleBlockSpan[] {
   const blocks: StyleBlockSpan[] = [];
-  const tags = htmlTagSpans(content);
   const closingTag = rawTextClosingTag("style");
   let tagIndex = 0;
   let searchStart = 0;
@@ -157,11 +225,12 @@ function styleBlockSpans(content: string): StyleBlockSpan[] {
     closingTag.lastIndex = openingEnd;
     const closingMatch = closingTag.exec(content);
     if (!closingMatch) break;
+    searchStart = closingMatch.index + closingMatch[0].length;
     blocks.push({
       start: openingEnd,
       value: content.slice(openingEnd, closingMatch.index),
+      closeEnd: searchStart,
     });
-    searchStart = closingMatch.index + closingMatch[0].length;
     while (tagIndex < tags.length && tags[tagIndex].start < searchStart) {
       tagIndex += 1;
     }
@@ -186,14 +255,13 @@ function htmlTagEnd(content: string, start: number): number {
   return -1;
 }
 
-function maskNonRenderedHtml(content: string): string {
-  const masked = content.split("");
+function maskNonRenderedHtml(content: string): {
+  masked: string;
+  ranges: SourceRange[];
+} {
+  const ranges: SourceRange[] = [];
   const maskRange = (start: number, end: number) => {
-    for (let index = start; index < end; index += 1) {
-      if (content[index] !== "\r" && content[index] !== "\n") {
-        masked[index] = " ";
-      }
-    }
+    ranges.push({ start, end });
   };
 
   let cursor = 0;
@@ -237,7 +305,7 @@ function maskNonRenderedHtml(content: string): string {
     if (tagName !== "style") maskRange(start, closingEnd);
     cursor = closingEnd;
   }
-  return masked.join("");
+  return { masked: maskSourceRanges(content, ranges), ranges };
 }
 
 function cssPropertyName(property: string): string {
@@ -416,8 +484,8 @@ function readCssIdentifier(
   return name ? { end: cursor, name: name.toLowerCase() } : null;
 }
 
-function isInsideUrl(value: string, index: number): boolean {
-  const functions: boolean[] = [];
+function isInsideExcludedColorFunction(value: string, index: number): boolean {
+  const functions: string[] = [];
   let quote: string | null = null;
   let escaped = false;
   for (let cursor = 0; cursor < index; ) {
@@ -442,7 +510,7 @@ function isInsideUrl(value: string, index: number): boolean {
       const identifier = readCssIdentifier(value, cursor, index);
       if (identifier) {
         if (value[identifier.end] === "(") {
-          functions.push(identifier.name === "url");
+          functions.push(identifier.name);
           cursor = identifier.end + 1;
           continue;
         }
@@ -456,94 +524,366 @@ function isInsideUrl(value: string, index: number): boolean {
       continue;
     }
     if (character === "(") {
-      functions.push(false);
+      functions.push("");
       cursor += 1;
       continue;
     }
     if (character === ")") functions.pop();
     cursor += 1;
   }
-  return functions.includes(true);
+  return functions.some((name) => name === "url" || name === "var");
 }
 
 function colorTokenSpansInCss(
   css: string,
-  offset = 0,
-  properties?: ReadonlySet<string>,
+  offset: number,
+  inStyleBlock: boolean,
 ): ColorTokenSpan[] {
   const tokens: ColorTokenSpan[] = [];
   const maskedCss = maskCssComments(css);
   declarationValueSpans(maskedCss, offset).forEach(
     ({ property, value, start }) => {
-      if (properties && !properties.has(property)) return;
-      const matcher = new RegExp(CSS_COLOR_TOKEN_PATTERN.source, "gi");
-      for (const match of value.matchAll(matcher)) {
-        const token = match[0];
-        const relativeStart = match.index ?? 0;
-        if (isInsideUrl(value, relativeStart)) continue;
-        tokens.push({
-          value: token,
-          start: start + relativeStart,
-          end: start + relativeStart + token.length,
-        });
-      }
+      tokens.push(
+        ...colorTokenSpansInValue(value, start, property, inStyleBlock),
+      );
     },
   );
   return tokens;
 }
 
-function colorTokenSpansInHtml(
-  content: string,
-  properties?: ReadonlySet<string>,
+function colorTokenSpansInValue(
+  value: string,
+  offset: number,
+  property: string,
+  inStyleBlock: boolean,
 ): ColorTokenSpan[] {
-  const maskedContent = maskNonRenderedHtml(content);
-  const styleBlocks = styleBlockSpans(maskedContent);
   const tokens: ColorTokenSpan[] = [];
-
-  for (const { start: tagOffset, value: tag } of htmlTagSpans(maskedContent)) {
-    if (/^<\/?(?:script|noscript|style)\b/i.test(tag)) continue;
-    for (const attribute of tag.matchAll(STYLE_ATTRIBUTE_PATTERN)) {
-      const value = attribute[1] ?? attribute[2] ?? attribute[3] ?? "";
-      const valueOffset =
-        tagOffset + (attribute.index ?? 0) + attribute[0].indexOf(value);
-      tokens.push(...colorTokenSpansInCss(value, valueOffset, properties));
-    }
+  const matcher = new RegExp(CSS_COLOR_TOKEN_PATTERN.source, "gi");
+  for (const match of value.matchAll(matcher)) {
+    const token = match[0];
+    const relativeStart = match.index ?? 0;
+    if (isInsideExcludedColorFunction(value, relativeStart)) continue;
+    tokens.push({
+      value: token,
+      start: offset + relativeStart,
+      end: offset + relativeStart + token.length,
+      property,
+      inStyleBlock,
+    });
   }
-
-  for (const block of styleBlocks) {
-    tokens.push(...colorTokenSpansInCss(block.value, block.start, properties));
-  }
-
-  return tokens.sort((left, right) => left.start - right.start);
+  return tokens;
 }
 
+function tagColorTokens(
+  tagOffset: number,
+  tag: string,
+  svgDepth: number,
+): { tokens: ColorTokenSpan[]; svgDepth: number } {
+  const tokens: ColorTokenSpan[] = [];
+  if (/^<\/?(?:script|noscript|style)\b/i.test(tag)) {
+    return { tokens, svgDepth };
+  }
+  const tagName = htmlStartTagName(tag);
+  const closesSvg = /^<\/\s*svg\b/i.test(tag);
+  const opensSvg = tagName === "svg" && !closesSvg;
+  const insideSvg = svgDepth > 0 || opensSvg;
+  let nextSvgDepth = svgDepth;
+  if (opensSvg && !/\/\s*>$/.test(tag)) nextSvgDepth += 1;
+  if (tagName && !closesSvg) {
+    const attributes = htmlAttributeSpans(tag, tagOffset);
+    const styledProperties = new Set<string>();
+    for (const attribute of attributes) {
+      if (attribute.name !== "style") continue;
+      declarationValueSpans(maskCssComments(attribute.value)).forEach(
+        ({ property }) => styledProperties.add(property),
+      );
+    }
+    for (const attribute of attributes) {
+      if (attribute.name === "style") {
+        tokens.push(
+          ...colorTokenSpansInCss(attribute.value, attribute.valueStart, false),
+        );
+      } else if (
+        insideSvg &&
+        SVG_PRESENTATION_COLOR_ATTRIBUTES.has(attribute.name) &&
+        !styledProperties.has(attribute.name)
+      ) {
+        tokens.push(
+          ...colorTokenSpansInValue(
+            attribute.value,
+            attribute.valueStart,
+            attribute.name,
+            false,
+          ),
+        );
+      }
+    }
+  }
+  if (closesSvg) nextSvgDepth = Math.max(0, nextSvgDepth - 1);
+  return { tokens, svgDepth: nextSvgDepth };
+}
+
+interface ColorTokenScan {
+  tokens: ColorTokenSpan[];
+  tags: Array<SourceRange & { svgDepth: number }>;
+  maskedRanges: SourceRange[];
+  styleBlocks: SourceRange[];
+  unterminatedTagStart: number;
+  patchable: boolean;
+}
+
+function scanColorTokens(content: string): ColorTokenScan {
+  colorTokenScanCounts.full += 1;
+  const { masked, ranges: maskedRanges } = maskNonRenderedHtml(content);
+  const { tags: tagSpans, unterminatedStart } = htmlTagSpans(masked);
+  const tokens: ColorTokenSpan[] = [];
+  const tags: ColorTokenScan["tags"] = [];
+  let svgDepth = 0;
+  for (const { start, value } of tagSpans) {
+    tags.push({ start, end: start + value.length, svgDepth });
+    const read = tagColorTokens(start, value, svgDepth);
+    tokens.push(...read.tokens);
+    svgDepth = read.svgDepth;
+  }
+  const blocks = styleBlockSpans(masked, tagSpans);
+  for (const block of blocks) {
+    tokens.push(...colorTokenSpansInCss(block.value, block.start, true));
+  }
+  tokens.sort((left, right) => left.start - right.start);
+  return {
+    tokens,
+    tags,
+    maskedRanges,
+    styleBlocks: blocks.map((block) => ({
+      start: block.start,
+      end: block.start + block.value.length,
+    })),
+    unterminatedTagStart: unterminatedStart,
+    // Patching assumes the tag scan and the masking pass step over the same
+    // tags; markup-like CSS text inside a style block breaks that.
+    patchable: blocks.every((block) => {
+      const closing = tags[firstSpanAtOrAfter(tags, block.start)];
+      return (
+        closing?.start === block.start + block.value.length &&
+        closing.end === block.closeEnd
+      );
+    }),
+  };
+}
+
+function firstSpanAtOrAfter(spans: SourceRange[], offset: number): number {
+  let low = 0;
+  let high = spans.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (spans[middle]!.start < offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+// Rescans only the tag, text run, or style block one edit touched; null means
+// the edit could change how the rest of the document tokenizes.
+function patchColorTokenScan(
+  before: string,
+  content: string,
+): ColorTokenScan | null {
+  const base = colorTokenScans.get(before);
+  if (!base?.patchable) return null;
+  const start = commonPrefixLength(before, content);
+  const suffix = commonSuffixLength(
+    before,
+    content,
+    Math.min(before.length, content.length) - start,
+  );
+  const removedEnd = before.length - suffix;
+  const delta = content.length - before.length;
+  if (
+    before.slice(start, removedEnd).includes("<") ||
+    content.slice(start, content.length - suffix).includes("<") ||
+    before[start - 1] === "<" ||
+    (base.unterminatedTagStart >= 0 && base.unterminatedTagStart < start) ||
+    base.maskedRanges.some(
+      (range) => range.start < removedEnd && start < range.end,
+    )
+  ) {
+    return null;
+  }
+
+  const block = base.styleBlocks.find(
+    (candidate) => candidate.start <= start && start <= candidate.end,
+  );
+  const tag = base.tags[firstSpanAtOrAfter(base.tags, start) - 1];
+  let region: SourceRange = { start, end: removedEnd };
+  let regionTokens: ColorTokenSpan[] = [];
+  let regionTags: ColorTokenScan["tags"] = [];
+  let styleBlocks = base.styleBlocks;
+  if (block) {
+    region = block;
+    regionTokens = colorTokenSpansInCss(
+      content.slice(block.start, block.end + delta),
+      block.start,
+      true,
+    );
+    styleBlocks = styleBlocks.map((candidate) =>
+      candidate === block ? { ...block, end: block.end + delta } : candidate,
+    );
+  } else if (tag && tag.end > start) {
+    const previousTag = before.slice(tag.start, tag.end);
+    const tagName = htmlStartTagName(previousTag);
+    const nextEnd = htmlTagEnd(content, tag.start);
+    const nextTag = content.slice(tag.start, nextEnd);
+    if (
+      !tagName ||
+      htmlStartTagName(nextTag) !== tagName ||
+      removedEnd >= tag.end ||
+      nextEnd !== tag.end + delta ||
+      /\/\s*>$/.test(previousTag) !== /\/\s*>$/.test(nextTag)
+    ) {
+      return null;
+    }
+    region = tag;
+    regionTokens = tagColorTokens(tag.start, nextTag, tag.svgDepth).tokens;
+    regionTags = [{ ...tag, end: nextEnd }];
+  }
+
+  colorTokenScanCounts.patched += 1;
+  const shift = <T extends SourceRange>(range: T): T =>
+    delta === 0 || range.start < region.end
+      ? range
+      : { ...range, start: range.start + delta, end: range.end + delta };
+  return {
+    tokens: [
+      ...base.tokens.slice(0, firstSpanAtOrAfter(base.tokens, region.start)),
+      ...regionTokens,
+      ...base.tokens
+        .slice(firstSpanAtOrAfter(base.tokens, region.end))
+        .map(shift),
+    ],
+    tags: [
+      ...base.tags.slice(0, firstSpanAtOrAfter(base.tags, region.start)),
+      ...regionTags,
+      ...base.tags.slice(firstSpanAtOrAfter(base.tags, region.end)).map(shift),
+    ],
+    maskedRanges: base.maskedRanges.map(shift),
+    styleBlocks: styleBlocks.map(shift),
+    unterminatedTagStart:
+      base.unterminatedTagStart >= region.end
+        ? base.unterminatedTagStart + delta
+        : base.unterminatedTagStart,
+    patchable: true,
+  };
+}
+
+// Selection colors and the palette re-read each screen on every render, and
+// tokenizing a large imported screen costs hundreds of ms. Callers only read.
+const COLOR_TOKEN_CACHE_MAX_CHARS = 8_000_000;
+const colorTokenScans = new Map<string, ColorTokenScan>();
+const colorTokenScanContentByFile = new Map<string, string>();
+let colorTokenScanChars = 0;
+const colorTokenScanCounts = { full: 0, patched: 0 };
+
+export function _colorTokenScanCountsForTests(): {
+  full: number;
+  patched: number;
+} {
+  return { ...colorTokenScanCounts };
+}
+
+function colorTokenScan(content: string, fileId?: string): ColorTokenScan {
+  let scan = colorTokenScans.get(content);
+  if (scan) {
+    colorTokenScans.delete(content);
+  } else {
+    const previous =
+      fileId === undefined
+        ? undefined
+        : colorTokenScanContentByFile.get(fileId);
+    scan =
+      (previous === undefined
+        ? null
+        : patchColorTokenScan(previous, content)) ?? scanColorTokens(content);
+    colorTokenScanChars += content.length;
+  }
+  colorTokenScans.set(content, scan);
+  if (fileId !== undefined) colorTokenScanContentByFile.set(fileId, content);
+  while (
+    colorTokenScanChars > COLOR_TOKEN_CACHE_MAX_CHARS &&
+    colorTokenScans.size > 1
+  ) {
+    const oldest = colorTokenScans.keys().next().value!;
+    colorTokenScans.delete(oldest);
+    colorTokenScanChars -= oldest.length;
+    for (const [id, scanned] of colorTokenScanContentByFile) {
+      if (scanned === oldest) colorTokenScanContentByFile.delete(id);
+    }
+  }
+  return scan;
+}
+
+export type DocumentColorCountCache = Map<
+  string,
+  { content: string; counts: Map<string, number> }
+>;
+
+export function documentFileColorCounts(
+  file: DocumentColorSourceFile,
+  cache: DocumentColorCountCache,
+): Map<string, number> {
+  const cached = cache.get(file.id);
+  if (cached?.content === file.content) return cached.counts;
+  const counts = new Map<string, number>();
+  for (const { value: token } of colorTokenScan(file.content, file.id).tokens) {
+    const hex = documentColorHex(token);
+    if (hex) counts.set(hex, (counts.get(hex) ?? 0) + 1);
+  }
+  cache.set(file.id, { content: file.content, counts });
+  return counts;
+}
+
+const documentColorHexByToken = new Map<string, string | null>();
+
 /**
- * Extracts a document-wide color palette from raw file contents: every
- * distinct color literal (hex/rgb/hsl) found in CSS declarations in the
- * given files, normalized to uppercase hex, deduped, and ordered by
- * descending frequency (most-used colors first) so the most relevant swatches
- * lead the grid. Capped at `limit` entries — real designs can reference many
- * more distinct color strings than are useful to show as quick-pick swatches.
- *
- * Pure and DOM-free so it can run against any file content (server-rendered,
- * cached, or live) and is unit-testable without jsdom.
+ * A palette entry for a color token: sRGB colors as #RRGGBB, and a color
+ * outside sRGB as authored, so it is never flattened into its sRGB fallback.
  */
+export function paletteColorValue(value: string): string | null {
+  const wide = parseWideColor(value.trim());
+  if (wide?.kind === "ok" && gamutOf(wide.color.linear) !== "srgb") {
+    return normalizeCssColor(value);
+  }
+  const parsed = parseCssColor(value);
+  return parsed ? rgbaToHex(parsed) : null;
+}
+
+function documentColorHex(token: string): string | null {
+  let hex = documentColorHexByToken.get(token);
+  if (hex === undefined) {
+    const parsed = parseCssColor(token);
+    hex = parsed && parsed.a !== 0 ? paletteColorValue(token) : null;
+    if (hex && !isWideGamutNotation(hex)) hex = hex.toUpperCase();
+    if (documentColorHexByToken.size >= 4096) documentColorHexByToken.clear();
+    documentColorHexByToken.set(token, hex);
+  }
+  return hex;
+}
+
 export function extractDocumentColorPalette(
   files: DocumentColorSourceFile[],
   limit = 24,
+  cache: DocumentColorCountCache = new Map(),
 ): string[] {
   const countByHex = new Map<string, number>();
+  const fileIds = new Set<string>();
   for (const file of files) {
+    fileIds.add(file.id);
     if (!file.content) continue;
-    for (const { value: token } of colorTokenSpansInHtml(file.content)) {
-      const parsed = parseCssColor(token);
-      if (!parsed) continue;
-      // Skip fully transparent tokens — not a meaningful "document color"
-      // swatch (matches selectionColorValues' same filter below).
-      if (parsed.a === 0) continue;
-      const hex = rgbaToHex(parsed).toUpperCase();
-      countByHex.set(hex, (countByHex.get(hex) ?? 0) + 1);
+    for (const [hex, count] of documentFileColorCounts(file, cache)) {
+      countByHex.set(hex, (countByHex.get(hex) ?? 0) + count);
     }
+  }
+  for (const fileId of cache.keys()) {
+    if (!fileIds.has(fileId)) cache.delete(fileId);
   }
   return Array.from(countByHex.entries())
     .sort((a, b) => b[1] - a[1])
@@ -560,51 +900,23 @@ export interface SelectionColorValue {
   layerIndex?: number;
 }
 
-export interface SelectionColorScope {
-  fileId: string;
-  content: string;
-  sourceId?: string;
-  selector?: string;
-  wholeDocument?: boolean;
-}
-
-export interface SelectionFillPaint {
-  kind: "solid" | "gradient" | "image" | "unknown";
-  value: string;
-  source: string;
-  property: string;
-  layerIndex?: number;
-  opacity?: number;
-  hidden?: boolean;
-  size?: string;
-  repeat?: string;
-  position?: string;
-}
-
-export interface SelectionFillModel {
-  state: "empty" | "common" | "mixed";
-  stacks: SelectionFillPaint[][];
-  targets: SelectionFillTargetStack[];
-  scopeConflict?: boolean;
-}
-
-export interface SelectionFillTargetStack {
+export interface SelectionColorTarget {
   fileId: string;
   nodeId: string;
   selector: string;
-  channel: "background" | "text" | "vector";
-  stack: SelectionFillPaint[];
+  tag: string;
 }
 
-export interface SelectionFillStyleUpdate {
+export interface SelectionColorScope {
   fileId: string;
   content: string;
-}
-
-export interface SelectionFillStyleRewriteResult {
-  status: "applied" | "conflict" | "unsupported";
-  updates: SelectionFillStyleUpdate[];
-  message?: string;
+  // The editor's projection of exactly `content`; an evicted build would
+  // otherwise cost a full re-parse on every selection.
+  projection?: CodeLayerProjection;
+  source?: CodeLayerSource;
+  sourceId?: string;
+  selector?: string;
+  wholeDocument?: boolean;
 }
 
 export interface SelectionColorRange {
@@ -643,7 +955,11 @@ function cssColorTokens(value: string): string[] {
 }
 
 function colorKey(value: string): string {
-  const parsed = parseCssColor(value);
+  // Two wide colors can share an sRGB fallback; they are still two colors.
+  if (isWideGamutNotation(value)) {
+    return (normalizeCssColor(value) ?? value).toLowerCase();
+  }
+  const parsed = parseCssColorExtended(value);
   return parsed
     ? rgbaToHex(parsed, true).toUpperCase()
     : value.trim().toLowerCase();
@@ -698,11 +1014,12 @@ function addStyleColors(
 
 function scopeNodeRange(
   scope: SelectionColorScope,
+  content = scope.content,
 ): SelectionColorRange | null {
   if (scope.wholeDocument) {
-    return { start: 0, end: scope.content.length };
+    return { start: 0, end: content.length };
   }
-  const node = resolveSelectionScopeNode(scope);
+  const node = resolveSelectionScopeNode(scope, content);
   const source = node?.source;
   return source ? { start: source.start, end: source.end } : null;
 }
@@ -718,9 +1035,15 @@ function resolveSelectionScope(scope: SelectionColorScope): {
   projection: ReturnType<typeof buildCodeLayerProjection>;
   node: CodeLayerNode | null;
 } {
+  const known =
+    scope.projection && scope.sourceId
+      ? codeLayerNodeWithStableSourceId(scope.projection, scope.sourceId)
+      : null;
+  if (known) return { projection: scope.projection!, node: known };
   const { projection, resolution } = resolveCodeLayerTarget(
     scope.content,
     selectionScopeTarget(scope),
+    { source: scope.source },
   );
   return {
     projection,
@@ -730,31 +1053,65 @@ function resolveSelectionScope(scope: SelectionColorScope): {
 
 function resolveSelectionScopeNode(
   scope: SelectionColorScope,
+  content = scope.content,
 ): CodeLayerNode | null {
-  return resolveSelectionScope(scope).node;
+  return resolveSelectionScope(
+    content === scope.content
+      ? scope
+      : { ...scope, content, projection: undefined },
+  ).node;
 }
 
 function mergedScopeRanges(
   scopes: SelectionColorScope[],
   requireEveryScope = false,
+  content?: string,
 ): SelectionColorRange[] | null {
-  const resolvedRanges = scopes.map(scopeNodeRange);
+  const resolvedRanges = scopes.map((scope) => scopeNodeRange(scope, content));
   if (requireEveryScope && resolvedRanges.some((range) => range === null)) {
     return null;
   }
   const ranges = resolvedRanges
     .filter((range): range is SelectionColorRange => range !== null)
     .sort((left, right) => left.start - right.start);
+  return mergeSelectionColorRanges(ranges);
+}
+
+function mergeSelectionColorRanges(
+  ranges: SelectionColorRange[],
+): SelectionColorRange[] {
   const merged: SelectionColorRange[] = [];
-  ranges.forEach((range) => {
-    const previous = merged[merged.length - 1];
-    if (!previous || range.start > previous.end) {
-      merged.push({ ...range });
-    } else {
-      previous.end = Math.max(previous.end, range.end);
-    }
-  });
+  [...ranges]
+    .sort((left, right) => left.start - right.start)
+    .forEach((range) => {
+      const previous = merged[merged.length - 1];
+      if (!previous || range.start > previous.end) {
+        merged.push({ ...range });
+      } else {
+        previous.end = Math.max(previous.end, range.end);
+      }
+    });
   return merged;
+}
+
+function colorTokenSpansWithinRanges(
+  scan: ColorTokenScan,
+  ranges: SelectionColorRange[],
+  include: (token: ColorTokenSpan) => boolean,
+): ColorTokenSpan[] {
+  const within: ColorTokenSpan[] = [];
+  for (const range of mergeSelectionColorRanges(ranges)) {
+    for (
+      let index = firstSpanAtOrAfter(scan.tokens, range.start);
+      index < scan.tokens.length;
+      index += 1
+    ) {
+      const token = scan.tokens[index]!;
+      if (token.start >= range.end) break;
+      if (token.end <= range.end && include(token)) within.push(token);
+    }
+  }
+  return within;
 }
 
 export function selectionColorScopeRanges(
@@ -778,56 +1135,19 @@ export function replaceSelectionColorsInHtml(
   from: string,
   to: string,
 ): string | null {
-  return replaceScopedColorTokensInHtml(content, scopes, from, to);
-}
-
-export function replaceSelectionFillColorsInHtml(
-  content: string,
-  scopes: SelectionColorScope[],
-  from: string,
-  to: string,
-): string | null {
-  return replaceScopedColorTokensInHtml(
-    content,
-    scopes,
-    from,
-    to,
-    GROUP_FILL_COLOR_PROPERTIES,
-  );
-}
-
-const GROUP_FILL_COLOR_PROPERTIES = new Set([
-  "background",
-  "background-color",
-  "background-image",
-  "color",
-  "fill",
-  "stop-color",
-  "--boolean-mask-fill",
-]);
-
-function replaceScopedColorTokensInHtml(
-  content: string,
-  scopes: SelectionColorScope[],
-  from: string,
-  to: string,
-  properties?: ReadonlySet<string>,
-): string | null {
   const target = colorKey(from);
-  const ranges = mergedScopeRanges(scopes, true);
+  const ranges = mergedScopeRanges(scopes, true, content);
   if (!ranges || ranges.length === 0) return null;
   let next = content;
-  for (let index = ranges.length - 1; index >= 0; index -= 1) {
-    const range = ranges[index];
-    if (!range) continue;
-    let segment = content.slice(range.start, range.end);
-    const tokens = colorTokenSpansInHtml(segment, properties);
-    for (let tokenIndex = tokens.length - 1; tokenIndex >= 0; tokenIndex -= 1) {
-      const token = tokens[tokenIndex];
-      if (!token || colorKey(token.value) !== target) continue;
-      segment = `${segment.slice(0, token.start)}${to}${segment.slice(token.end)}`;
-    }
-    next = `${next.slice(0, range.start)}${segment}${next.slice(range.end)}`;
+  const tokens = colorTokenSpansWithinRanges(
+    colorTokenScan(content, scopes[0]?.fileId),
+    ranges,
+    () => true,
+  ).filter(({ value }) => colorKey(value) === target);
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index];
+    if (!token) continue;
+    next = `${next.slice(0, token.start)}${to}${next.slice(token.end)}`;
   }
   return next;
 }
@@ -835,22 +1155,35 @@ function replaceScopedColorTokensInHtml(
 export function selectionColorValues(
   element: ElementInfo | ElementInfo[],
   scopes: SelectionColorScope[] = [],
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead,
 ): SelectionColorValue[] {
   const elements = Array.isArray(element) ? element : [element];
   const values = new Map<string, SelectionColorValue>();
-  const rangesByFile = selectionColorScopeRanges(scopes);
 
-  // Source ranges are the authoritative selection-wide scan. They include
-  // every literal in descendants, including nodes beyond the bridge's compact
-  // runtime payload. Computed values fill in colors supplied by shared CSS.
-  for (const [fileId, ranges] of rangesByFile) {
-    const scope = scopes.find((candidate) => candidate.fileId === fileId);
-    if (!scope) continue;
-    for (const range of ranges) {
-      const content = scope.content.slice(range.start, range.end);
-      colorTokenSpansInHtml(content).forEach(({ value: token }) =>
-        addColorValue(values, "color", token),
-      );
+  const scanGroups = new Map<
+    string,
+    Array<{ content: string; ranges: SelectionColorRange[] }>
+  >();
+  for (const scope of scopes) {
+    const range = scopeNodeRange(scope);
+    if (!range) continue;
+    const groups = scanGroups.get(scope.fileId) ?? [];
+    const group = groups.find(
+      (candidate) => candidate.content === scope.content,
+    );
+    if (group) group.ranges.push(range);
+    else groups.push({ content: scope.content, ranges: [range] });
+    scanGroups.set(scope.fileId, groups);
+  }
+  for (const [fileId, groups] of scanGroups) {
+    for (const group of groups) {
+      for (const { value: token } of colorTokenSpansWithinRanges(
+        colorTokenScan(group.content, fileId),
+        group.ranges,
+        (token) => !token.inStyleBlock,
+      )) {
+        addColorValue(values, "color", token);
+      }
     }
   }
 
@@ -860,9 +1193,21 @@ export function selectionColorValues(
       current.portableStyleSnapshot?.nodes.forEach((node) =>
         addStyleColors(values, node.styles, true),
       );
+      const subtree =
+        current.styleSnapshotReadOnDemand && readSubtreeColorStyles
+          ? readSubtreeColorStyles(current)
+          : undefined;
+      if (subtree?.status === "captured" || subtree?.status === "truncated") {
+        subtree.nodes.forEach((styles) => addStyleColors(values, styles, true));
+      } else if (subtree?.status === "failed") {
+        console.warn(
+          "Could not read the colors under the selection",
+          current.selector,
+        );
+      }
       if (current.htmlContent) {
-        colorTokenSpansInHtml(current.htmlContent).forEach(({ value: token }) =>
-          addColorValue(values, "color", token),
+        scanColorTokens(current.htmlContent).tokens.forEach(
+          ({ value: token }) => addColorValue(values, "color", token),
         );
       }
     }
@@ -871,973 +1216,61 @@ export function selectionColorValues(
   return Array.from(values.values());
 }
 
-export function selectionFillColorValues(
-  scopes: SelectionColorScope[],
-): SelectionColorValue[] {
-  const model = selectionFillModel(scopes);
-  const commonStack = model.stacks[0];
-  if (
-    model.state !== "common" ||
-    !commonStack ||
-    commonStack.some((paint) => paint.kind !== "solid")
-  ) {
-    return [];
-  }
-  return commonStack.map((paint) => ({
-    property: "fill",
-    value: paint.value,
-    count: model.stacks.length,
-    ...(paint.opacity === undefined || paint.opacity === 100
-      ? {}
-      : { opacity: paint.opacity }),
-    ...(paint.hidden ? { hidden: true } : {}),
-  }));
-}
-
-export function selectionFillInspectorStyles(
-  model: SelectionFillModel,
-): Record<string, string> {
-  const stack = model.stacks[0] ?? [];
-  if (model.state === "mixed") {
-    return { backgroundColor: "transparent", backgroundImage: "Mixed" };
-  }
-  if (
-    stack.some((paint) => paint.kind === "unknown") ||
-    stack.some((paint) => paint.kind === "image" && paint.source.trim() === "")
-  ) {
-    return { backgroundColor: "transparent", backgroundImage: "Mixed" };
-  }
-
-  const basePaint = stack[stack.length - 1];
-  const hasSolidBase = basePaint?.kind === "solid";
-  const imagePaints = hasSolidBase ? stack.slice(0, -1) : stack;
-  const backgroundColor = hasSolidBase
-    ? inspectorSolidPaintValue(basePaint)
-    : "transparent";
-
-  return {
-    backgroundColor,
-    backgroundImage: imagePaints.length
-      ? joinCssLayers(
-          imagePaints.map((paint) => inspectorImagePaintValue(paint)),
-        )
-      : "none",
-    backgroundSize: imagePaints.length
-      ? joinCssLayers(
-          imagePaints.map((paint) =>
-            paint.hidden ? "0px 0px" : (paint.size ?? "auto"),
-          ),
-        )
-      : "auto",
-    backgroundRepeat: imagePaints.length
-      ? joinCssLayers(imagePaints.map((paint) => paint.repeat ?? "no-repeat"))
-      : "repeat",
-    backgroundPosition: imagePaints.length
-      ? joinCssLayers(imagePaints.map((paint) => paint.position ?? "0% 0%"))
-      : "0% 0%",
-  };
-}
-
-export function selectionFillAddedStyles(
-  model: SelectionFillModel,
-  mostRecentFillColor?: string,
-): { styles: Record<string, string>; open: "base" | "layer" } {
-  const stack = model.stacks[0] ?? [];
-  if (model.state === "common" && stack.length > 0) {
-    // guard:allow-raw-color - Authored default overlay paint is independent of the editor theme.
-    const black = parseCssColor("rgba(0, 0, 0, 0.2)");
-    if (!black) throw new Error("The default fill color is invalid.");
-    const newPaint: SelectionFillPaint = {
-      kind: "solid",
-      value: rgbaToCss({ ...black, a: 1 }),
-      source: rgbaToCss(black),
-      property: "backgroundImage",
-      layerIndex: 0,
-      opacity: 20,
-    };
-    return {
-      styles: selectionFillInspectorStyles({
-        ...model,
-        stacks: [[newPaint, ...stack], ...model.stacks.slice(1)],
-      }),
-      open: "layer",
-    };
-  }
-
-  const recent = mostRecentFillColor && parseCssColor(mostRecentFillColor);
-  // guard:allow-raw-color - New artwork starts with white paint when no recent paint exists.
-  const color = recent ? rgbaToCss(recent) : "#ffffff";
-  const paint = solidFillPaint(color, "backgroundColor");
-  if (!paint) throw new Error("The default fill color is invalid.");
-  return {
-    styles: selectionFillInspectorStyles({
-      ...model,
-      state: "common",
-      stacks: model.stacks.map(() => [paint]),
-    }),
-    open: "base",
-  };
-}
-
-export function rewriteSelectionFillStyles(
-  scopes: SelectionColorScope[],
-  styles: Record<string, string>,
-): SelectionFillStyleRewriteResult {
-  const byFile = new Map<string, SelectionColorScope[]>();
-  scopes.forEach((scope) => {
-    byFile.set(scope.fileId, [...(byFile.get(scope.fileId) ?? []), scope]);
-  });
-  if (byFile.size === 0 || scopes.some((scope) => scope.wholeDocument)) {
-    return {
-      status: "conflict",
-      updates: [],
-      message: "Group Fill needs a selected source-backed Group.", // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-    };
-  }
-
-  const requestedStack = fillStackFromInspectorStyles(styles);
-  if (!requestedStack) {
-    return {
-      status: "unsupported",
-      updates: [],
-      message: // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-        "This Group fill type cannot be applied to every selected layer.",
-    };
-  }
-
-  const updates: SelectionFillStyleUpdate[] = [];
-  for (const [fileId, fileScopes] of byFile) {
-    const content = fileScopes[0]?.content;
-    if (!content || fileScopes.some((scope) => scope.content !== content)) {
-      return {
-        status: "conflict",
-        updates: [],
-        message: "The selected Group source changed before its fill was saved.", // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-      };
-    }
-
-    if (
-      fileScopes.some(
-        (scope) => !scope.wholeDocument && !resolveSelectionScopeNode(scope),
-      )
-    ) {
-      return {
-        status: "conflict",
-        updates: [],
-        message: "A selected Group no longer resolves uniquely in its source.", // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-      };
-    }
-
-    const currentModel = selectionFillModel(fileScopes);
-    if (
-      currentModel.targets.length === 0 ||
-      currentModel.targets.some((target) =>
-        target.stack.some((paint) => paint.kind === "unknown"),
-      )
-    ) {
-      return {
-        status: "unsupported",
-        updates: [],
-        message: // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-          "A selected layer uses a fill that Group Fill cannot edit safely.",
-      };
-    }
-
-    const projection = buildCodeLayerProjection(content);
-    const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
-    const textNodeIds = new Set<string>();
-    for (const target of currentModel.targets) {
-      if (target.channel !== "text") continue;
-      const node = nodesById.get(target.nodeId);
-      if (!node?.source) {
-        return {
-          status: "unsupported",
-          updates: [],
-          message: "Group Fill could not find a text paint target.", // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-        };
-      }
-      if (
-        node.children.length > 0 &&
-        !richTextDescendantsCanInheritGroupFill(node, nodesById)
-      ) {
-        return {
-          status: "unsupported",
-          updates: [],
-          message: "Group Fill cannot safely replace a nested text fill.", // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-        };
-      }
-      if (
-        node.children.length === 0 &&
-        !hasTextPaintMarker(node) &&
-        (backgroundPaints(node).length > 0 || node.classes.length > 0)
-      ) {
-        textNodeIds.add(node.id);
-      }
-    }
-
-    let nextContent = content;
-    if (textNodeIds.size > 0) {
-      const wrapped = wrapBareTextLeavesInHtml(nextContent, {
-        targetNodeIds: [...textNodeIds],
-      });
-      if (!wrapped.changed) {
-        return {
-          status: "unsupported",
-          updates: [],
-          message: // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-            "Group Fill could not create a separate editable text paint.",
-        };
-      }
-      nextContent = wrapped.content;
-    }
-
-    const editableModel = selectionFillModel(
-      fileScopes.map((scope) => ({ ...scope, content: nextContent })),
-    );
-    const nextProjection = buildCodeLayerProjection(nextContent);
-    const editableNodes = new Map(
-      nextProjection.nodes.map((node) => [node.id, node]),
-    );
-    const writes: Array<[string, string]> = [
-      ["background-color", styles.backgroundColor || "transparent"],
-      ["background-image", styles.backgroundImage || "none"],
-      ["background-size", styles.backgroundSize || "auto"],
-      ["background-repeat", styles.backgroundRepeat || "repeat"],
-      ["background-position", styles.backgroundPosition || "0% 0%"],
-    ];
-
-    for (const target of editableModel.targets) {
-      const node = editableNodes.get(target.nodeId);
-      if (!node?.source) {
-        return {
-          status: "conflict",
-          updates: [],
-          message: // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-            "A selected Group fill target no longer exists in its source.",
-        };
-      }
-      const isClippedText =
-        hasTextPaintMarker(node) ||
-        node.style["background-clip"] === "text" ||
-        node.style["-webkit-background-clip"] === "text";
-      const isText = target.channel === "text" || isClippedText;
-      let paintWrites: Array<[string, string]>;
-      if (target.channel === "vector") {
-        if (
-          requestedStack.length > 1 ||
-          requestedStack.some((paint) => paint.kind !== "solid")
-        ) {
-          return {
-            status: "unsupported",
-            updates: [],
-            message: "Layered Group fills are not supported on SVG shapes yet.", // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-          };
-        }
-        const paint = requestedStack[0];
-        paintWrites = [
-          ["fill", paint ? inspectorSolidPaintValue(paint) : "transparent"],
-        ];
-      } else if (isText) {
-        if (
-          requestedStack.some(
-            (paint) => paint.kind === "unknown" || paint.kind === "image",
-          )
-        ) {
-          return {
-            status: "unsupported",
-            updates: [],
-            message: "This Group paint cannot be clipped to text safely.", // i18n-ignore internal refusal detail; UI shows localized groupFillApplyFailed
-          };
-        }
-        paintWrites = [
-          ...writes,
-          ["background-clip", "text"],
-          ["-webkit-background-clip", "text"],
-          ["color", "transparent"],
-          ["-webkit-text-fill-color", "transparent"],
-        ];
-      } else {
-        paintWrites = writes;
-      }
-
-      for (const [property, value] of paintWrites) {
-        const patch = applyVisualEdit(nextContent, {
-          kind: "style",
-          target: editTargetForFillNode(node),
-          property,
-          value,
-        });
-        if (patch.result.status !== "applied") {
-          return {
-            status: "unsupported",
-            updates: [],
-            message: patch.result.message,
-          };
-        }
-        nextContent = patch.content;
-      }
-    }
-    updates.push({ fileId, content: nextContent });
-  }
-
-  return { status: "applied", updates };
-}
-
-function editTargetForFillNode(node: CodeLayerNode): EditIntentTarget {
-  const stableNodeId = [
-    node.dataAttributes["data-agent-native-node-id"],
-    node.dataAttributes["data-code-layer-id"],
-    node.dataAttributes["data-layer-id"],
-    node.dataAttributes["data-builder-id"],
-    node.dataAttributes["data-loc"],
-    typeof node.attributes.id === "string" ? node.attributes.id : undefined,
-  ].find((value): value is string => Boolean(value));
-  return {
-    ...(stableNodeId ? { nodeId: stableNodeId } : {}),
-    selector: node.path,
-  };
-}
-
-function richTextDescendantsCanInheritGroupFill(
-  node: CodeLayerNode,
-  nodesById: ReadonlyMap<string, CodeLayerNode>,
-): boolean {
-  const pending = [...node.children];
-  while (pending.length > 0) {
-    const id = pending.pop();
-    if (!id) continue;
-    const child = nodesById.get(id);
-    if (!child) return false;
-    const style = child.style as Record<string, string | undefined>;
-    if (style["-webkit-text-fill-color"] !== undefined) return false;
-    pending.push(...child.children);
-  }
-  return true;
-}
-
-function fillStackFromInspectorStyles(
-  styles: Record<string, string>,
-): SelectionFillPaint[] | null {
-  if (
-    styles.backgroundColor === "Mixed" ||
-    styles.backgroundImage === "Mixed"
-  ) {
-    return null;
-  }
-  const sizeLayers = splitCssLayers(styles.backgroundSize ?? "");
-  const repeatLayers = splitCssLayers(styles.backgroundRepeat ?? "");
-  const positionLayers = splitCssLayers(styles.backgroundPosition ?? "");
-  const imageLayers = splitCssLayers(styles.backgroundImage ?? "");
-  const paints = imageLayers
-    .filter((layer) => layer.toLowerCase() !== "none")
-    .map((layer, index) =>
-      canonicalPaintLayer(
-        layer,
-        "backgroundImage",
-        index,
-        isLayerHiddenBySize(sizeLayers[index]),
-        sizeLayers[index] ?? "auto",
-        repeatLayers[index] ?? "repeat",
-        positionLayers[index] ?? "0% 0%",
-      ),
-    );
-  if (paints.some((paint) => paint.kind === "unknown")) return null;
-  const baseColor = styles.backgroundColor?.trim();
-  if (baseColor && !/^(?:transparent|none)$/i.test(baseColor)) {
-    const basePaint = solidFillPaint(baseColor, "backgroundColor");
-    if (!basePaint) return null;
-    paints.push(basePaint);
-  }
-  return paints;
-}
-
-function inspectorSolidPaintValue(paint: SelectionFillPaint): string {
-  if (paint.kind !== "solid") return "transparent";
-  if (paint.hidden) {
-    return gradientStopWithFillOpacity(paint.value, paint.opacity ?? 0);
-  }
-  const color = parseCssColor(paint.value);
-  if (!color) return paint.source;
-  const opacity = paint.opacity ?? 100;
-  if (opacity === 0) return rgbaToCss({ ...color, a: 0 });
-  return rgbaToCss({ ...color, a: (opacity / 100) * color.a });
-}
-
-function inspectorImagePaintValue(paint: SelectionFillPaint): string {
-  if (paint.kind === "solid") {
-    const base = parseCssColor(paint.value);
-    const color = base
-      ? rgbaToCss({
-          ...base,
-          a: ((paint.opacity ?? 100) / 100) * base.a,
-        })
-      : paint.source;
-    return buildSolidFillLayer(color);
-  }
-  return paint.source;
-}
-
-function selectedNodesForFillScope(
+function selectionColorNodesForScope(
   scope: SelectionColorScope,
-): CodeLayerNode[] | null {
-  const { projection, node: root } = resolveSelectionScope(scope);
+): CodeLayerNode[] {
+  const { projection, node: root } = scope.wholeDocument
+    ? {
+        projection:
+          scope.projection ??
+          buildCodeLayerProjection(scope.content, {
+            source: scope.source,
+          }),
+        node: null,
+      }
+    : resolveSelectionScope(scope);
   if (scope.wholeDocument) return projection.nodes;
-  if (!root) return null;
+  if (!root) return [];
 
-  const byId = new Map(projection.nodes.map((node) => [node.id, node]));
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
   const selected: CodeLayerNode[] = [];
-  const visit = (node: CodeLayerNode, include: boolean) => {
-    if (include) selected.push(node);
-    if (
-      node.dataAttributes["data-an-primitive"] === "boolean" ||
-      SVG_PAINT_SCAFFOLD_TAGS.has(node.tag.toLowerCase())
-    ) {
-      return;
-    }
-    node.children.forEach((id) => {
-      const child = byId.get(id);
-      if (child) visit(child, true);
+  const visit = (node: CodeLayerNode) => {
+    selected.push(node);
+    node.children.forEach((childId) => {
+      const child = nodesById.get(childId);
+      if (child) visit(child);
     });
   };
-  const isGroupRoot = root.dataAttributes["data-agent-native-group"] === "true";
-  visit(root, !isGroupRoot);
+  visit(root);
   return selected;
 }
 
-const SVG_PAINT_SCAFFOLD_TAGS = new Set(["defs", "mask", "clippath", "symbol"]);
-
-function hasVisibleSvgUse(node: CodeLayerNode, content: string): boolean {
-  if (!node.source) return false;
-  const source = content.slice(node.source.start, node.source.end);
-  const ancestors: string[] = [];
-  const tokens = source.matchAll(/<!--[\s\S]*?-->|<[^>]*>/g);
-  for (const token of tokens) {
-    const raw = token[0];
-    if (!raw || raw.startsWith("<!--") || raw.startsWith("<!")) continue;
-    const closing = /^<\s*\/\s*([\w:-]+)/.exec(raw);
-    if (closing) {
-      const tag = closing[1]?.toLowerCase();
-      if (tag) {
-        const index = ancestors.lastIndexOf(tag);
-        if (index >= 0) ancestors.length = index;
-      }
-      continue;
-    }
-    const opening = /^<\s*([\w:-]+)/.exec(raw);
-    const tag = opening?.[1]?.toLowerCase();
-    if (!tag) continue;
-    if (
-      tag === "use" &&
-      !ancestors.some((ancestor) => SVG_PAINT_SCAFFOLD_TAGS.has(ancestor))
-    ) {
-      return true;
-    }
-    if (!/\/\s*>$/.test(raw)) ancestors.push(tag);
-  }
-  return false;
-}
-
-function isInsideUnpaintedScaffold(
-  node: CodeLayerNode,
-  byId: ReadonlyMap<string, CodeLayerNode>,
-): boolean {
-  let current: CodeLayerNode | undefined = node;
-  while (current) {
-    if (SVG_PAINT_SCAFFOLD_TAGS.has(current.tag.toLowerCase())) return true;
-    current = current.parentId ? byId.get(current.parentId) : undefined;
-  }
-  return false;
-}
-
-function solidFillPaint(
-  value: string,
-  property: string,
-  layerIndex?: number,
-): SelectionFillPaint | null {
-  const stored = readGradientFillOpacity([{ color: value }]);
-  const colorValue = stored.stops[0]?.color ?? value;
-  const color = parseCssColor(colorValue);
-  if (!color) return null;
-  const opacity =
-    stored.opacity !== 100 ? stored.opacity : Math.round(color.a * 100);
-  const isHidden =
-    stored.opacity === 0 && /^color-mix\(in srgb,/i.test(value.trim());
-  return {
-    kind: "solid",
-    value: rgbaToCss({ ...color, a: 1 }),
-    source: value,
-    property,
-    ...(layerIndex === undefined ? {} : { layerIndex }),
-    opacity,
-    ...(isHidden ? { hidden: true } : {}),
-  };
-}
-
-function canonicalPaintLayer(
-  layer: string,
-  property: string,
-  layerIndex: number,
-  hidden = false,
-  size?: string,
-  repeat?: string,
-  position?: string,
-): SelectionFillPaint {
-  const solid = parseSolidFillLayer(layer);
-  if (solid) {
-    const paint = solidFillPaint(solid, property, layerIndex);
-    return {
-      kind: "solid",
-      value: paint?.value ?? solid,
-      source: layer,
-      property,
-      layerIndex,
-      opacity: paint?.opacity ?? 100,
-      ...(paint?.hidden || hidden ? { hidden: true } : {}),
-      ...(size ? { size } : {}),
-      ...(repeat ? { repeat } : {}),
-      ...(position ? { position } : {}),
-    };
-  }
-  const gradient = parseGradientLayer(layer);
-  if (gradient) {
-    return {
-      kind: "gradient",
-      value: JSON.stringify(gradient),
-      source: layer,
-      property,
-      layerIndex,
-      opacity: gradient.opacity ?? 100,
-      ...(hidden ? { hidden: true } : {}),
-      ...(size ? { size } : {}),
-      ...(repeat ? { repeat } : {}),
-      ...(position ? { position } : {}),
-    };
-  }
-  if (/(?:url|image-set|cross-fade)\s*\(/i.test(layer)) {
-    return {
-      kind: "image",
-      value: layer.trim().replace(/\s+/g, " "),
-      source: layer,
-      property,
-      layerIndex,
-      ...(hidden ? { hidden: true } : {}),
-      ...(size ? { size } : {}),
-      ...(repeat ? { repeat } : {}),
-      ...(position ? { position } : {}),
-    };
-  }
-  return {
-    kind: "unknown",
-    value: layer.trim().replace(/\s+/g, " "),
-    source: layer,
-    property,
-    layerIndex,
-    ...(hidden ? { hidden: true } : {}),
-    ...(size ? { size } : {}),
-    ...(repeat ? { repeat } : {}),
-    ...(position ? { position } : {}),
-  };
-}
-
-function backgroundPaints(node: CodeLayerNode): SelectionFillPaint[] {
-  const style = node.style as Record<string, string | undefined>;
-  const basePaints: SelectionFillPaint[] = [];
-  const shorthand = style.background?.trim();
-  const backgroundColor = style["background-color"]?.trim();
-
-  if (backgroundColor) {
-    const solid = solidFillPaint(backgroundColor, "backgroundColor");
-    if (solid) basePaints.push(solid);
-  } else if (
-    shorthand &&
-    !/(?:url|(?:linear|radial|conic)-gradient|image-set)\s*\(/i.test(shorthand)
-  ) {
-    const solid = solidFillPaint(shorthand, "backgroundColor");
-    if (solid) basePaints.push(solid);
-  }
-
-  const backgroundImage = style["background-image"]?.trim();
-  const imageLayers = backgroundImage
-    ? splitCssLayers(backgroundImage)
-    : shorthand &&
-        /(?:url|(?:linear|radial|conic)-gradient|image-set)\s*\(/i.test(
-          shorthand,
-        )
-      ? splitCssLayers(shorthand)
-      : [];
-  const sizeLayers = splitCssLayers(style["background-size"] ?? "");
-  const repeatLayers = splitCssLayers(style["background-repeat"] ?? "");
-  const positionLayers = splitCssLayers(style["background-position"] ?? "");
-  const imagePaints: SelectionFillPaint[] = [];
-  imageLayers.forEach((layer, index) => {
-    if (layer.toLowerCase() === "none") return;
-    imagePaints.push(
-      canonicalPaintLayer(
-        layer,
-        "backgroundImage",
-        index,
-        isLayerHiddenBySize(sizeLayers[index]),
-        sizeLayers[index] ?? "auto",
-        repeatLayers[index] ?? "repeat",
-        positionLayers[index] ?? "0% 0%",
-      ),
-    );
-  });
-
-  return [...imagePaints, ...basePaints];
-}
-
-function inheritedTextColor(
-  node: CodeLayerNode,
-  byId: ReadonlyMap<string, CodeLayerNode>,
-): string | null {
-  let current: CodeLayerNode | undefined = node;
-  while (current) {
-    const color = (current.style as Record<string, string | undefined>).color;
-    if (color && color !== "inherit") return color;
-    current = current.parentId ? byId.get(current.parentId) : undefined;
-  }
-  // guard:allow-raw-color - Source text-color fallback, not editor chrome.
-  return "#000000";
-}
-
-function isGeometricFillTarget(node: CodeLayerNode): boolean {
-  const style = node.style as Record<string, string | undefined>;
-  const primitive = node.dataAttributes["data-an-primitive"];
-  return (
-    ["rectangle", "ellipse", "circle", "oval", "frame", "image"].includes(
-      primitive ?? "",
-    ) ||
-    Boolean(
-      (style.width || style.height) &&
-      (style.position === "absolute" || node.tag === "svg"),
-    )
-  );
-}
-
-function nodeFillTargetStacks(
-  nodes: CodeLayerNode[],
-  projectionNodes: CodeLayerNode[],
-  fileId: string,
-  content: string,
-): SelectionFillTargetStack[] {
-  const byId = new Map(projectionNodes.map((node) => [node.id, node]));
-  const selectedIds = new Set(nodes.map((node) => node.id));
-  const targets: SelectionFillTargetStack[] = [];
-
-  for (const node of nodes) {
-    if (isInsideUnpaintedScaffold(node, byId)) continue;
-    if (node.tag.toLowerCase() === "use") {
-      targets.push({
-        fileId,
-        nodeId: node.id,
-        selector: node.selector,
-        channel: "vector",
-        stack: [
-          {
-            kind: "unknown",
-            value: "svg-use",
-            source: "svg-use",
-            property: "fill",
-          },
-        ],
-      });
-      continue;
-    }
-    const style = node.style as Record<string, string | undefined>;
-    const primitive = node.dataAttributes["data-an-primitive"];
-    const isBooleanResult = primitive === "boolean";
-    if (
-      node.tag === "svg" &&
-      !isBooleanResult &&
-      hasVisibleSvgUse(node, content)
-    ) {
-      targets.push({
-        fileId,
-        nodeId: node.id,
-        selector: node.selector,
-        channel: "vector",
-        stack: [
-          {
-            kind: "unknown",
-            value: "svg-use",
-            source: "svg-use",
-            property: "fill",
-          },
-        ],
-      });
-      continue;
-    }
-    if (
-      node.tag === "svg" &&
-      !primitive &&
-      hasUnsupportedGenericSvgPaint(node, content)
-    ) {
-      targets.push({
-        fileId,
-        nodeId: node.id,
-        selector: node.selector,
-        channel: "vector",
-        stack: [
-          {
-            kind: "unknown",
-            value: "unsupported-svg-paint",
-            source: "unsupported-svg-paint",
-            property: "fill",
-          },
-        ],
-      });
-      continue;
-    }
-    if (node.tag === "svg") {
-      const vectorFill =
-        style["--boolean-mask-fill"] ??
-        style.fill ??
-        (typeof node.attributes.fill === "string"
-          ? node.attributes.fill
-          : undefined);
-      if (isBooleanResult || typeof vectorFill === "string") {
-        const paint =
-          typeof vectorFill === "string"
-            ? solidFillPaint(vectorFill, "fill")
-            : null;
-        targets.push({
-          fileId,
-          nodeId: node.id,
-          selector: node.selector,
-          channel: "vector",
-          stack:
-            typeof vectorFill === "string" && !paint
-              ? [
-                  {
-                    kind: "unknown",
-                    value: vectorFill,
-                    source: vectorFill,
-                    property: "fill",
-                  },
-                ]
-              : paint
-                ? [paint]
-                : [],
-        });
-      }
-      // Internal Boolean operands and mask <use> nodes are not user fills.
-      // Treat the visible result as one SVG paint target.
-      if (
-        isBooleanResult ||
-        primitive === "boolean-operand" ||
-        typeof vectorFill === "string"
-      ) {
-        continue;
-      }
-    }
-    const explicitFill = [
-      "background",
-      "background-color",
-      "background-image",
-      "fill",
-    ].some((property) => Object.prototype.hasOwnProperty.call(style, property));
-    const hasTextPaintChild = hasTextPaintChildNode(node, byId);
-    const isGeometric = isGeometricFillTarget(node);
-    const hasBackgroundTarget =
-      !hasTextPaintChild &&
-      (explicitFill || (isGeometric && !node.paintsOwnText));
-
-    if (hasBackgroundTarget) {
-      const hasExternalPaint =
-        node.classes.length > 0 &&
-        !explicitFill &&
-        (style.width !== undefined || style.height !== undefined);
-      const paints = hasExternalPaint
-        ? [
-            {
-              kind: "unknown" as const,
-              value: "external-style",
-              source: "external-style",
-              property: "backgroundImage",
-            },
-          ]
-        : backgroundPaints(node);
-      targets.push({
-        fileId,
-        nodeId: node.id,
-        selector: node.selector,
-        channel: "background",
-        stack: paints,
-      });
-    }
-
-    const textIsBackgroundClipped =
-      style["background-clip"] === "text" ||
-      style["-webkit-background-clip"] === "text";
-    const hasSelectedTextPaintAncestor = (() => {
-      let parent = node.parentId ? byId.get(node.parentId) : undefined;
-      while (parent) {
-        if (
-          selectedIds.has(parent.id) &&
-          parent.paintsOwnText &&
-          !hasTextPaintChildNode(parent, byId)
-        ) {
-          return true;
-        }
-        parent = parent.parentId ? byId.get(parent.parentId) : undefined;
-      }
-      return false;
-    })();
-    if (
-      node.paintsOwnText &&
-      !hasTextPaintChild &&
-      !textIsBackgroundClipped &&
-      !hasSelectedTextPaintAncestor
-    ) {
-      const color = inheritedTextColor(node, byId);
-      const paint = color ? solidFillPaint(color, "color") : null;
-      targets.push({
-        fileId,
-        nodeId: node.id,
-        selector: node.selector,
-        channel: "text",
-        stack: paint ? [paint] : [],
-      });
-    }
-  }
-
-  return targets;
-}
-
-function hasTextPaintChildNode(
-  node: CodeLayerNode,
-  byId: ReadonlyMap<string, CodeLayerNode>,
-): boolean {
-  return node.children.some((childId) => {
-    const child = byId.get(childId);
-    return child ? hasTextPaintMarker(child) : false;
-  });
-}
-
-function hasTextPaintMarker(node: CodeLayerNode): boolean {
-  return Object.prototype.hasOwnProperty.call(node.attributes, "data-an-text");
-}
-
-const SVG_VISIBLE_SHAPE_TAGS = new Set([
-  "circle",
-  "ellipse",
-  "line",
-  "path",
-  "polygon",
-  "polyline",
-  "rect",
-]);
-
-function hasUnsupportedGenericSvgPaint(
-  node: CodeLayerNode,
-  content: string,
-): boolean {
-  if (!node.source) return true;
-  if (node.classes.length > 0) return true;
-
-  const source = content.slice(node.source.start, node.source.end);
-  const ancestors: string[] = [];
-  const shapes: string[] = [];
-  for (const token of source.matchAll(/<!--[\s\S]*?-->|<[^>]*>/g)) {
-    const raw = token[0];
-    if (!raw || raw.startsWith("<!--") || raw.startsWith("<!")) continue;
-    const closing = /^<\s*\/\s*([\w:-]+)/.exec(raw);
-    if (closing) {
-      const tag = closing[1]?.toLowerCase();
-      if (tag) {
-        const index = ancestors.lastIndexOf(tag);
-        if (index >= 0) ancestors.length = index;
-      }
-      continue;
-    }
-    const tag = /^<\s*([\w:-]+)/.exec(raw)?.[1]?.toLowerCase();
-    if (!tag) continue;
-    if (ancestors.some((ancestor) => SVG_PAINT_SCAFFOLD_TAGS.has(ancestor))) {
-      if (!/\/\s*>$/.test(raw)) ancestors.push(tag);
-      continue;
-    }
-    if (
-      tag === "use" ||
-      tag === "g" ||
-      tag === "image" ||
-      tag === "text" ||
-      tag === "foreignobject" ||
-      tag === "style"
-    ) {
-      return true;
-    }
-    if (SVG_VISIBLE_SHAPE_TAGS.has(tag)) {
-      if (ancestors.length !== 1 || ancestors[0] !== "svg") return true;
-      if (/\sclass\s*=/.test(raw)) return true;
-      shapes.push(raw);
-    }
-    if (!/\/\s*>$/.test(raw)) ancestors.push(tag);
-  }
-
-  return shapes.length !== 1;
-}
-
-export function selectionFillModel(
+export function selectionColorTargets(
   scopes: SelectionColorScope[],
-): SelectionFillModel {
-  const targets: SelectionFillTargetStack[] = [];
+  color: string,
+): SelectionColorTarget[] {
+  const target = colorKey(color);
+  const targets: SelectionColorTarget[] = [];
+  const seen = new Set<string>();
   for (const scope of scopes) {
-    const projection = scope.wholeDocument
-      ? buildCodeLayerProjection(scope.content)
-      : resolveSelectionScope(scope).projection;
-    const selected = selectedNodesForFillScope(scope);
-    if (!selected) {
-      return {
-        state: "mixed",
-        stacks: [],
-        targets: [],
-        scopeConflict: true,
-      };
+    for (const node of selectionColorNodesForScope(scope)) {
+      const source = node.source;
+      if (!source) continue;
+      const openingTag = scope.content.slice(source.openStart, source.openEnd);
+      const matches = scanColorTokens(openingTag).tokens.some(
+        ({ value }) => colorKey(value) === target,
+      );
+      if (!matches) continue;
+      const key = `${scope.fileId}:${node.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push({
+        fileId: scope.fileId,
+        nodeId: node.id,
+        selector: node.selector,
+        tag: node.tag,
+      });
     }
-    targets.push(
-      ...nodeFillTargetStacks(
-        selected,
-        projection.nodes,
-        scope.fileId,
-        scope.content,
-      ),
-    );
   }
-  const stacks = targets.map((target) => target.stack);
-  if (stacks.length === 0) {
-    return { state: "empty", stacks: [], targets: [] };
-  }
-
-  const paintSignature = (stack: SelectionFillPaint[]) =>
-    JSON.stringify(
-      stack.map(({ kind, value, hidden, opacity, size, repeat, position }) => ({
-        kind,
-        value,
-        hidden,
-        opacity,
-        ...(kind === "solid"
-          ? {}
-          : {
-              size: size === "auto" ? undefined : size,
-              repeat: repeat === "repeat" ? undefined : repeat,
-              position: position === "0% 0%" ? undefined : position,
-            }),
-      })),
-    );
-  const signature = paintSignature(stacks[0] ?? []);
-  return {
-    state: stacks.every((stack) => paintSignature(stack) === signature)
-      ? "common"
-      : "mixed",
-    stacks,
-    targets,
-  };
-}
-
-/** Uppercase 6-char hex (no #) for a CSS color, matching the design editor's row readout. */
-export function selectionDisplayHex(value: string): string {
-  const parsed = parseCssColor(value);
-  if (!parsed) return value.replace(/^#/, "").toUpperCase();
-  return rgbaToHex(parsed).replace(/^#/, "").toUpperCase();
+  return targets;
 }

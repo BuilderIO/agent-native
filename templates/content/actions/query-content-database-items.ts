@@ -1,20 +1,30 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import type {
-  ContentDatabaseItemsPageResponse,
+  ContentDatabaseItemsPagePayload,
+  ContentDatabaseNavigationPageResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
+import { compactContentDatabaseResponse } from "../shared/database-row-properties.js";
+import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import {
+  getContentDatabaseNavigationPage,
+  MAX_NAVIGATION_EXPAND_IDS,
+} from "./_database-navigation.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
+  compactContentDatabaseRowsFor,
+  contentDatabaseCompactRowsSchema,
   contentDatabaseTableQuerySchema,
   getContentDatabasePageResponse,
   resolveContentDatabaseRead,
 } from "./_database-utils.js";
+import { refreshGitHubSourceBeforeRead } from "./_github-source-freshness.js";
 
 export default defineAction({
   description:
-    "Query one ordered and filtered page of a content collection without reopening its metadata.",
+    "Query one ordered and filtered page of a content collection without reopening its metadata. Pass compactRows: true to get each row's property values by propertyId, with the definitions once in the top-level properties.",
   schema: z.object({
     databaseId: z.string().optional().describe("Collection ID"),
     documentId: z.string().optional().describe("Collection document/page ID"),
@@ -26,39 +36,140 @@ export default defineAction({
       .optional(),
     offset: z.coerce.number().int().min(0).optional(),
     tableQuery: contentDatabaseTableQuerySchema,
+    navigation: z
+      .object({
+        parentId: z
+          .string()
+          .nullable()
+          .describe(
+            "null for roots, or the exact immediate parent document ID",
+          ),
+        sort: z
+          .enum(["custom", "name", "created", "last_edited"])
+          .default("custom")
+          .describe("Sidebar order; defaults to custom"),
+        viewId: z
+          .string()
+          .optional()
+          .describe("Personal View ID used for custom order"),
+        cursor: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Opaque cursor returned by the previous matching page"),
+        expand: z
+          .array(z.string().min(1))
+          .max(MAX_NAVIGATION_EXPAND_IDS)
+          .optional()
+          .describe(
+            "Expanded document IDs, most important first; each one this read returns comes back with its first child page in branches, and branchesTruncated is true when the cap left any out",
+          ),
+      })
+      .optional()
+      .describe(
+        "Bounded Files navigation query. parentId is required and must be null for roots or an exact immediate parent ID.",
+      ),
+    compactRows: contentDatabaseCompactRowsSchema,
   }),
   http: { method: "GET" },
   readOnly: true,
   agentTool: false,
-  run: async ({
-    databaseId,
-    documentId,
-    limit,
-    offset,
-    tableQuery,
-  }): Promise<
-    ContentDatabaseItemsPageResponse | ContentDatabaseUnavailableResponse
-  > => {
-    const resolved = await resolveContentDatabaseRead({
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  run: async (
+    {
       databaseId,
       documentId,
-    });
+      limit,
+      offset,
+      tableQuery,
+      navigation,
+      compactRows,
+    },
+    ctx,
+  ): Promise<
+    | ContentDatabaseItemsPagePayload
+    | ContentDatabaseUnavailableResponse
+    | ContentDatabaseNavigationPageResponse
+  > => {
+    if (navigation && (offset !== undefined || tableQuery !== undefined)) {
+      fail("Files navigation does not support offset or table constraints.", {
+        errorCode: "unsupported_navigation_query",
+        statusCode: 400,
+      });
+    }
+    const userEmail = ctx?.userEmail;
+    if (navigation && limit !== undefined && limit > 20) {
+      fail("Files navigation supports at most 20 items per page.", {
+        errorCode: "navigation_limit_exceeded",
+        statusCode: 400,
+      });
+    }
+    // A person's saved order is theirs alone, so it is read while the
+    // database's access check runs; it is used only if that check passes.
+    // The check answers first: an unavailable database returns its typed
+    // response even when the saved order cannot be read.
+    const [resolved, [earlyOverrides]] = await Promise.all([
+      resolveContentDatabaseRead({ databaseId, documentId }),
+      Promise.allSettled(
+        navigation && userEmail && databaseId
+          ? [readPersonalDatabaseViewOverrides(userEmail, databaseId)]
+          : [],
+      ),
+    ]);
     if (!resolved.available) return resolved;
 
-    const page = await getContentDatabasePageResponse(resolved.database.id, {
-      // This action is the bounded table replacement path; unlike the legacy
-      // database response, an omitted limit must not turn it into a full read.
+    if (navigation) {
+      if (!userEmail) throw new Error("Not authenticated.");
+      if (earlyOverrides?.status === "rejected") throw earlyOverrides.reason;
+      return getContentDatabaseNavigationPage({
+        database: resolved.database,
+        userEmail,
+        overrides: earlyOverrides
+          ? earlyOverrides.value
+          : await readPersonalDatabaseViewOverrides(
+              userEmail,
+              resolved.database.id,
+            ),
+        parentId: navigation.parentId,
+        sort: navigation.sort,
+        viewId: navigation.viewId,
+        limit: limit ?? 20,
+        cursor: navigation.cursor,
+        expand: navigation.expand,
+      });
+    }
+
+    let database = resolved.database;
+    if (await refreshGitHubSourceBeforeRead(database.id)) {
+      const reread = await resolveContentDatabaseRead({
+        databaseId: database.id,
+      });
+      if (!reread.available) return reread;
+      database = reread.database;
+    }
+    const page = await getContentDatabasePageResponse(database.id, {
       limit: limit ?? 100,
       offset,
       tableQuery,
-      database: resolved.database,
+      database,
     });
-    return {
+    const rows = {
       items: page.items,
       source: page.source,
       sources: page.sources,
       pagination: page.pagination,
       tableQueryMode: page.tableQueryMode,
     };
+    if (!compactContentDatabaseRowsFor(ctx, compactRows)) return rows;
+    // Compact rows name their Properties by ID, so the page sends the
+    // definitions once.
+    return compactContentDatabaseResponse({
+      ...rows,
+      properties: page.properties,
+    });
   },
 });

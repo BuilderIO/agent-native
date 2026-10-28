@@ -10,24 +10,39 @@ import { cn } from "@/lib/utils";
 
 interface TagInputProps {
   value: string[];
+  autoFocus?: boolean;
+  initialDraft?: string;
+  onDraftChange?: (draft: string) => void;
+  onDismiss?: (reason: "escape" | "blur") => void;
   suggestions?: string[];
   placeholder?: string;
   onChange: (next: string[]) => void;
   className?: string;
+  "aria-label"?: string;
 }
 
 export function TagInput({
   value,
+  autoFocus,
+  initialDraft = "",
+  onDraftChange,
+  onDismiss,
   suggestions = [],
   placeholder = "Add tag…",
   onChange,
   className,
+  "aria-label": ariaLabel,
 }: TagInputProps) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [showDrop, setShowDrop] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const normalized = draft.trim();
+
+  function updateDraft(next: string) {
+    setDraft(next);
+    onDraftChange?.(next);
+  }
 
   const filtered = useMemo(() => {
     const lower = normalized.toLowerCase();
@@ -42,11 +57,11 @@ export function TagInput({
     const t = tag.trim();
     if (!t) return;
     if (value.includes(t)) {
-      setDraft("");
+      updateDraft("");
       return;
     }
     onChange([...value, t]);
-    setDraft("");
+    updateDraft("");
   }
 
   function removeTag(tag: string) {
@@ -57,6 +72,10 @@ export function TagInput({
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       addTag(draft);
+    } else if (e.key === "Escape" && onDismiss) {
+      e.preventDefault();
+      e.stopPropagation();
+      onDismiss("escape");
     } else if (e.key === "Backspace" && !draft && value.length > 0) {
       onChange(value.slice(0, -1));
     }
@@ -69,7 +88,19 @@ export function TagInput({
           <div
             role="group"
             className="flex flex-wrap items-center gap-1 min-h-[2.25rem] rounded-md border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-ring"
+            onPointerDown={(event) => {
+              if (event.target !== inputRef.current) event.preventDefault();
+            }}
             onClick={() => inputRef.current?.focus()}
+            onBlur={(event) => {
+              if (
+                !event.currentTarget.contains(
+                  event.relatedTarget as Node | null,
+                )
+              ) {
+                onDismiss?.("blur");
+              }
+            }}
           >
             {value.map((tag) => (
               <span
@@ -82,6 +113,7 @@ export function TagInput({
                   className="rounded-full hover:bg-primary/20 p-0.5"
                   onClick={(e) => {
                     e.stopPropagation();
+                    inputRef.current?.focus();
                     removeTag(tag);
                   }}
                 >
@@ -91,14 +123,16 @@ export function TagInput({
             ))}
             <input
               ref={inputRef}
+              autoFocus={autoFocus}
               value={draft}
               onChange={(e) => {
-                setDraft(e.target.value);
+                updateDraft(e.target.value);
                 setShowDrop(true);
               }}
               onFocus={() => setShowDrop(true)}
               onBlur={() => setTimeout(() => setShowDrop(false), 100)}
               onKeyDown={handleKeyDown}
+              aria-label={ariaLabel}
               placeholder={value.length === 0 ? placeholder : ""}
               className="flex-1 min-w-[8rem] bg-transparent text-sm outline-none"
             />

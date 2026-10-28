@@ -407,10 +407,6 @@ export interface ContextSearchResult {
   score: number;
   canonicalUrl: string | null;
   mimeType: string | null;
-  /**
-   * Present when the pinned version carries a native artifact, so a caller can
-   * tell that get-context-item returns real code rather than only a snippet.
-   */
   nativeArtifact: { app: string; format: string } | null;
 }
 
@@ -555,7 +551,6 @@ export interface CreativeContextMembershipPreview {
   preview?: Record<string, unknown>;
 }
 
-/** Public submission summary deliberately omits staging and native capability data. */
 export interface CreativeContextSubmissionSummary {
   id: string;
   contextId: string;

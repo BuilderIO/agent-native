@@ -1,0 +1,929 @@
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
+
+const REPOSITORY_PART_MEDIA_TYPE = "application/x-agent-native-repository-part";
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+export function failedRunIdsWithError(runs: unknown): Set<string> {
+  return new Set(
+    (Array.isArray(runs) ? runs : []).flatMap((value) => {
+      const run = record(value);
+      return run?.status === "failed" &&
+        record(run.error) &&
+        typeof run.id === "string"
+        ? [run.id]
+        : [];
+    }),
+  );
+}
+
+export function isRenderedRunNotStartedNotice(
+  value: unknown,
+  failedRunIds: ReadonlySet<string>,
+): boolean {
+  const entry = message(value);
+  const metadata = record(entry?.metadata);
+  return (
+    entry?.role === "assistant" &&
+    record(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
+    typeof metadata?.runId === "string" &&
+    failedRunIds.has(metadata.runId)
+  );
+}
+
+function message(value: unknown): Record<string, unknown> | undefined {
+  const outer = record(value);
+  return record(outer?.message) ?? outer;
+}
+
+export function threadMessageRecord(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  return message(value);
+}
+
+function parts(value: Record<string, unknown>): Record<string, unknown>[] {
+  const content = value.parts ?? value.content;
+  const values = Array.isArray(content)
+    ? content
+    : typeof content === "string"
+      ? [{ type: "text", text: content }]
+      : [];
+  return values.flatMap((part) => {
+    const entry = record(part);
+    if (!entry) return [];
+    return entry.type === "tool-call"
+      ? [
+          {
+            type: "data",
+            mediaType: REPOSITORY_PART_MEDIA_TYPE,
+            data: entry,
+          },
+        ]
+      : [entry];
+  });
+}
+
+function explicitRunId(value: Record<string, unknown>): string | undefined {
+  const runId = record(value.metadata)?.runId;
+  return typeof runId === "string" ? runId : undefined;
+}
+
+function isTerminalAssistant(value: Record<string, unknown>): boolean {
+  const status = value.status;
+  const type = record(status)?.type;
+  return (
+    status === "complete" ||
+    status === "error" ||
+    type === "complete" ||
+    type === "error" ||
+    type === "incomplete"
+  );
+}
+
+function foldedRunIds(value: Record<string, unknown>): string[] {
+  const custom = record(record(value.metadata)?.custom);
+  const folded = Array.isArray(custom?.foldedRunIds)
+    ? custom.foldedRunIds.filter(
+        (runId): runId is string => typeof runId === "string",
+      )
+    : [];
+  const runId = explicitRunId(value);
+  return [...new Set([...folded, ...(runId ? [runId] : [])])];
+}
+
+function eventRunIds(
+  events: unknown,
+  runs: unknown,
+): {
+  activeByMessageId: Map<string, Set<string>>;
+  inheritedByMessageId: Map<string, Set<string>>;
+  claimedByMessageId: Map<string, Set<string>>;
+} {
+  const activeByMessageId = new Map<string, Set<string>>();
+  const inheritedByMessageId = new Map<string, Set<string>>();
+  const claimedByMessageId = new Map<string, Set<string>>();
+  const remember = (
+    target: Map<string, Set<string>>,
+    messageId: unknown,
+    runId: unknown,
+  ) => {
+    if (typeof messageId !== "string" || typeof runId !== "string") return;
+    const ids = target.get(messageId) ?? new Set<string>();
+    ids.add(runId);
+    target.set(messageId, ids);
+  };
+  for (const value of Array.isArray(events) ? events : []) {
+    const event = record(value);
+    const eventMessage = record(event?.message);
+    if (
+      (event?.type === "message.created" ||
+        event?.type === "message.completed") &&
+      eventMessage?.role === "assistant"
+    ) {
+      const messageId = eventMessage.id ?? event?.messageId;
+      remember(activeByMessageId, messageId, event?.runId);
+      remember(claimedByMessageId, messageId, event?.runId);
+    }
+  }
+  for (const value of Array.isArray(runs) ? runs : []) {
+    const run = record(value);
+    remember(activeByMessageId, run?.activeMessageId, run?.id);
+    remember(claimedByMessageId, run?.activeMessageId, run?.id);
+    if (
+      run?.status !== "completed" &&
+      run?.status !== "failed" &&
+      run?.status !== "cancelled"
+    ) {
+      remember(inheritedByMessageId, run?.inheritedMessageId, run?.id);
+      remember(claimedByMessageId, run?.inheritedMessageId, run?.id);
+    }
+  }
+  return { activeByMessageId, inheritedByMessageId, claimedByMessageId };
+}
+
+function eventMessageIdsByRun(
+  runIdsByMessageId: Map<string, Set<string>>,
+): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>();
+  for (const [messageId, runIds] of runIdsByMessageId) {
+    for (const runId of runIds) {
+      const messageIds = result.get(runId) ?? new Set<string>();
+      messageIds.add(messageId);
+      result.set(runId, messageIds);
+    }
+  }
+  return result;
+}
+
+function assistantRunId(
+  value: Record<string, unknown>,
+  activeRunIdsByMessageId: Map<string, Set<string>>,
+  inferredRunId?: string,
+  inheritedRunIdsByMessageId?: Map<string, Set<string>>,
+): string | undefined {
+  if (value.role !== "assistant") return undefined;
+  const activeRunIds =
+    typeof value.id === "string"
+      ? activeRunIdsByMessageId.get(value.id)
+      : undefined;
+  if (activeRunIds?.size === 1) return [...activeRunIds][0];
+  if (activeRunIds?.size) return explicitRunId(value);
+
+  const explicit = explicitRunId(value);
+  if (explicit) return explicit;
+
+  const inheritedRunIds =
+    typeof value.id === "string"
+      ? inheritedRunIdsByMessageId?.get(value.id)
+      : undefined;
+  if (inheritedRunIds?.size === 1) return [...inheritedRunIds][0];
+  if (inheritedRunIds?.size) return undefined;
+  return inferredRunId;
+}
+
+function text(
+  value: Record<string, unknown>,
+  ignoreNonTextParts = false,
+): string | undefined {
+  if (value.role !== "assistant") return undefined;
+  const messageParts = parts(value);
+  if (
+    !ignoreNonTextParts &&
+    messageParts.some(
+      (part) =>
+        part.type !== "text" &&
+        part.type !== "reasoning" &&
+        !(
+          part.type === "data" &&
+          part.mediaType === REPOSITORY_PART_MEDIA_TYPE &&
+          record(part.data)?.type === "tool-call"
+        ),
+    )
+  ) {
+    return undefined;
+  }
+  return messageParts
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text as string)
+    .join("");
+}
+
+function reasoning(value: Record<string, unknown>): string {
+  return parts(value)
+    .flatMap((part) =>
+      part.type === "reasoning" && typeof part.text === "string"
+        ? [part.text]
+        : [],
+    )
+    .join("");
+}
+
+function isPrefixCompatible(left: string, right: string): boolean {
+  return left.startsWith(right) || right.startsWith(left);
+}
+
+function isRepeatedAnswerSnapshot(
+  answer: string,
+  candidateText: string,
+): boolean {
+  if (!answer || !candidateText.startsWith(answer)) return false;
+  let offset = answer.length;
+  let repeatedAnswers = 0;
+  while (offset < candidateText.length) {
+    while (
+      offset < candidateText.length &&
+      /\s/u.test(candidateText[offset]!)
+    ) {
+      offset += 1;
+    }
+    if (offset === candidateText.length) return repeatedAnswers > 0;
+    if (!candidateText.startsWith(answer, offset)) {
+      return false;
+    }
+    offset += answer.length;
+    repeatedAnswers += 1;
+  }
+  return repeatedAnswers > 0;
+}
+
+function rootToolCalls(
+  value: Record<string, unknown>,
+): Record<string, unknown>[] {
+  return parts(value).flatMap((part) => {
+    if (part.type !== "data" || part.mediaType !== REPOSITORY_PART_MEDIA_TYPE) {
+      return [];
+    }
+    const data = record(part.data);
+    return data?.type === "tool-call" ? [data] : [];
+  });
+}
+
+function sameToolCallIdentity(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  const id = (call: Record<string, unknown>) =>
+    typeof call.toolCallId === "string" ? call.toolCallId : call.id;
+  const name = (call: Record<string, unknown>) =>
+    typeof call.toolName === "string" ? call.toolName : call.name;
+  const args = (call: Record<string, unknown>) =>
+    Object.prototype.hasOwnProperty.call(call, "args") ? call.args : call.input;
+  const hasArgs = (call: Record<string, unknown>) =>
+    Object.prototype.hasOwnProperty.call(call, "args") ||
+    Object.prototype.hasOwnProperty.call(call, "input");
+  return (
+    typeof id(left) === "string" &&
+    id(left) === id(right) &&
+    typeof name(left) === "string" &&
+    name(left) === name(right) &&
+    hasArgs(left) &&
+    hasArgs(right) &&
+    sameValue(args(left), args(right))
+  );
+}
+
+function snapshotAdditionalContentIsRepresented(
+  root: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+): boolean {
+  const candidateReasoning = reasoning(candidate);
+  if (candidateReasoning && candidateReasoning !== reasoning(root)) {
+    return false;
+  }
+  const rootCalls = rootToolCalls(root);
+  return rootToolCalls(candidate).every((candidateCall) =>
+    rootCalls.some((rootCall) => sameToolCallIdentity(rootCall, candidateCall)),
+  );
+}
+
+function snapshotRepresentsRootContent(
+  root: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+  toolMessageIds?: Set<string>,
+): boolean {
+  const rootCalls = rootToolCalls(root);
+  const candidateCalls = rootToolCalls(candidate);
+  if (
+    rootCalls.every((rootCall) =>
+      candidateCalls.some((candidateCall) =>
+        sameToolCallIdentity(rootCall, candidateCall),
+      ),
+    )
+  ) {
+    return true;
+  }
+  return (
+    rootCalls.length > 0 &&
+    rootToolCalls(candidate).length === 0 &&
+    typeof candidate.id === "string" &&
+    toolMessageIds?.size === 1 &&
+    toolMessageIds.has(candidate.id) &&
+    snapshotAdditionalContentIsRepresented(root, candidate)
+  );
+}
+
+function splitSnapshotGroupMatch(
+  root: Record<string, unknown>,
+  candidates: Record<string, unknown>[],
+  toolMessageIds: Set<string> | undefined,
+): Record<string, unknown> | undefined {
+  const rootText = text(root);
+  const rootCalls = rootToolCalls(root);
+  if (!rootText || rootCalls.length === 0) return undefined;
+
+  const textCandidates = candidates.filter(
+    (candidate) =>
+      text(candidate) === rootText &&
+      snapshotAdditionalContentIsRepresented(root, candidate),
+  );
+  if (textCandidates.length !== 1) return undefined;
+
+  const textCandidate = textCandidates[0]!;
+  const callPartsMatch = rootCalls.every((rootCall) =>
+    candidates.some((candidate) => {
+      if (
+        candidate.id === textCandidate.id ||
+        !snapshotAdditionalContentIsRepresented(root, candidate)
+      ) {
+        return false;
+      }
+      const candidateText = text(candidate);
+      return (
+        (!candidateText || isPrefixCompatible(rootText, candidateText)) &&
+        rootToolCalls(candidate).some((candidateCall) =>
+          sameToolCallIdentity(rootCall, candidateCall),
+        )
+      );
+    }),
+  );
+  const indexedToolMessagesMatch =
+    toolMessageIds !== undefined &&
+    toolMessageIds.size > 0 &&
+    [...toolMessageIds].every(
+      (messageId) =>
+        messageId !== textCandidate.id &&
+        candidates.some(
+          (candidate) =>
+            candidate.id === messageId &&
+            rootToolCalls(candidate).length === 0 &&
+            snapshotAdditionalContentIsRepresented(root, candidate),
+        ),
+    );
+
+  return callPartsMatch || indexedToolMessagesMatch ? textCandidate : undefined;
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameValue(value, right[index]))
+    );
+  }
+  const leftRecord = record(left);
+  const rightRecord = record(right);
+  if (!leftRecord || !rightRecord) return false;
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] &&
+        sameValue(leftRecord[key], rightRecord[key]),
+    )
+  );
+}
+
+function representedToolCallMessageIds(
+  value: Record<string, unknown>,
+  toolCalls: unknown,
+): Set<string> | undefined {
+  const calls = rootToolCalls(value);
+  const byId = new Map(
+    (Array.isArray(toolCalls) ? toolCalls : []).flatMap((entry) => {
+      const call = record(entry);
+      return typeof call?.id === "string" ? [[call.id, call] as const] : [];
+    }),
+  );
+  const messageIds = new Set<string>();
+  for (const rootCall of calls) {
+    const id =
+      typeof rootCall.toolCallId === "string"
+        ? rootCall.toolCallId
+        : typeof rootCall.id === "string"
+          ? rootCall.id
+          : undefined;
+    const call = id ? byId.get(id) : undefined;
+    // A tool call's identity is its id, name, and args. Never compare results:
+    // the stored root keeps the model-facing text while the snapshot output is
+    // the structured chat-UI result, so one call never compares equal and its
+    // reply renders twice.
+    if (
+      !call ||
+      (typeof rootCall.toolName === "string" &&
+        rootCall.toolName !== call.name) ||
+      (Object.prototype.hasOwnProperty.call(rootCall, "args") &&
+        !sameValue(rootCall.args, call.input))
+    ) {
+      return undefined;
+    }
+    if (typeof call.messageId !== "string") return undefined;
+    messageIds.add(call.messageId);
+  }
+  return messageIds;
+}
+
+function contentMatches(
+  root: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+  toolMessageIds: Set<string> | undefined,
+): boolean {
+  const rootText = text(root);
+  const candidateText = text(candidate);
+  if (rootText === undefined || candidateText === undefined) return false;
+  const sameText = Boolean(
+    rootText && candidateText && isPrefixCompatible(rootText, candidateText),
+  );
+  const reasoningMatches = Boolean(
+    reasoning(root) && reasoning(root) === reasoning(candidate),
+  );
+  const toolCallMatch = Boolean(
+    typeof candidate.id === "string" && toolMessageIds?.has(candidate.id),
+  );
+  // Matching text alone must not hide the root's durable tool-call parts.
+  if (
+    rootToolCalls(root).length > 0 &&
+    !snapshotRepresentsRootContent(root, candidate, toolMessageIds)
+  ) {
+    return false;
+  }
+  return (
+    (sameText && (rootText.length > 0 || candidateText.length > 0)) ||
+    (reasoningMatches && !rootText && !candidateText) ||
+    (toolCallMatch && !rootText && !candidateText)
+  );
+}
+
+function snapshotGroupRepresentsRootToolCalls(
+  root: Record<string, unknown>,
+  candidates: Record<string, unknown>[],
+  toolMessageIds: Set<string> | undefined,
+): boolean {
+  const rootCalls = rootToolCalls(root);
+  if (
+    rootCalls.every((rootCall) =>
+      candidates.some((candidate) =>
+        rootToolCalls(candidate).some((candidateCall) =>
+          sameToolCallIdentity(rootCall, candidateCall),
+        ),
+      ),
+    )
+  ) {
+    return true;
+  }
+  return (
+    rootCalls.length > 0 &&
+    toolMessageIds !== undefined &&
+    toolMessageIds.size > 0 &&
+    [...toolMessageIds].every((messageId) =>
+      candidates.some(
+        (candidate) =>
+          candidate.id === messageId &&
+          rootToolCalls(candidate).length === 0 &&
+          snapshotAdditionalContentIsRepresented(root, candidate),
+      ),
+    )
+  );
+}
+
+function foldedProjectionMatch(
+  root: Record<string, unknown>,
+  snapshotMessagesByRunId: Map<string, Record<string, unknown>[]>,
+  foldedIds: string[],
+  messageIdsByRun: Map<string, Set<string>>,
+  toolMessageIds: Set<string> | undefined,
+): Record<string, unknown> | undefined {
+  if (foldedIds.length < 2) return undefined;
+  const groups = foldedIds.map((runId) =>
+    (snapshotMessagesByRunId.get(runId) ?? []).filter(
+      (candidate) => candidate.id !== root.id,
+    ),
+  );
+  const presentIndices = groups.flatMap((group, index) =>
+    group.length > 0 ? [index] : [],
+  );
+  if (presentIndices.length === 0) return undefined;
+  const first = presentIndices[0]!;
+  const last = presentIndices.at(-1)!;
+  if (last - first + 1 !== presentIndices.length) return undefined;
+
+  const projectedText = groups
+    .slice(first, last + 1)
+    .flatMap((group, index) => {
+      const runId = foldedIds[first + index]!;
+      if (
+        group.some(
+          (candidate) =>
+            explicitRunId(candidate) !== runId &&
+            messageIdsByRun.get(runId)?.size !== 1,
+        )
+      ) {
+        return [undefined];
+      }
+      return group.map((candidate) => text(candidate, true));
+    });
+  if (projectedText.some((value) => value === undefined)) return undefined;
+  const candidateText = projectedText.join("");
+  const rootText = text(root);
+  if (!rootText || !candidateText) return undefined;
+  if (
+    !snapshotGroupRepresentsRootToolCalls(
+      root,
+      groups.slice(first, last + 1).flat(),
+      toolMessageIds,
+    )
+  ) {
+    return undefined;
+  }
+  const candidate =
+    [...(groups[last] ?? [])].reverse().find((entry) => text(entry, true)) ??
+    groups[last]?.at(-1);
+  if (!candidate) return undefined;
+  if (isTerminalAssistant(root)) {
+    return candidateText.startsWith(rootText) ||
+      rootText.startsWith(candidateText) ||
+      (last === foldedIds.length - 1 && rootText.endsWith(candidateText))
+      ? candidate
+      : undefined;
+  }
+  const isPrefix = first === 0 && rootText.startsWith(candidateText);
+  const isSuffix =
+    last === foldedIds.length - 1 && rootText.endsWith(candidateText);
+  return isPrefix || isSuffix ? candidate : undefined;
+}
+
+function sharedFoldedRootMatch(
+  snapshot: Record<string, unknown>,
+  claimedRunIds: Set<string>,
+  rootMessages: Record<string, unknown>[],
+  toolCalls: unknown,
+  takenRootIds: ReadonlySet<string>,
+): { rootId: string; rootContentRepresented: boolean } | undefined {
+  if (claimedRunIds.size < 2) return undefined;
+  let matched: { rootId: string; rootContentRepresented: boolean } | undefined;
+  for (const root of rootMessages) {
+    if (root.role !== "assistant" || typeof root.id !== "string") continue;
+    if (takenRootIds.has(root.id)) continue;
+    const folded = foldedRunIds(root);
+    if (
+      folded.length < 2 ||
+      folded.length !== claimedRunIds.size ||
+      !folded.every((runId) => claimedRunIds.has(runId))
+    ) {
+      continue;
+    }
+    const toolMessageIds = representedToolCallMessageIds(root, toolCalls);
+    const rootContentRepresented = contentMatches(
+      root,
+      snapshot,
+      toolMessageIds,
+    );
+    const rootText = text(root);
+    const snapshotText = text(snapshot);
+    const duplicateTextOnly = Boolean(
+      rootText &&
+      (snapshotText === rootText ||
+        (isTerminalAssistant(root) &&
+          snapshotText &&
+          rootText.startsWith(snapshotText))) &&
+      snapshotAdditionalContentIsRepresented(root, snapshot),
+    );
+    const canHydrateSnapshot =
+      duplicateTextOnly &&
+      snapshotRepresentsRootContent(root, snapshot, toolMessageIds);
+    if (!rootContentRepresented && !duplicateTextOnly) {
+      continue;
+    }
+    if (matched) return undefined;
+    matched = {
+      rootId: root.id,
+      rootContentRepresented: rootContentRepresented || canHydrateSnapshot,
+    };
+  }
+  return matched;
+}
+
+/** AgentKit messages that represent durable root assistant messages. */
+export function projectRootAssistantMessages(input: {
+  rootMessages: unknown;
+  snapshotMessages: unknown;
+  events?: unknown;
+  runs?: unknown;
+  toolCalls?: unknown;
+}): {
+  representedRootMessageIds: Set<string>;
+  snapshotMessageIdsByRootMessageId: Map<string, string>;
+  snapshotRunIdsByMessageId: Map<string, string>;
+  supersededSnapshotMessageIds: Set<string>;
+} {
+  const rootMessages = Array.isArray(input.rootMessages)
+    ? input.rootMessages.flatMap((value) => {
+        const entry = message(value);
+        return entry ? [entry] : [];
+      })
+    : [];
+  const snapshotMessages = Array.isArray(input.snapshotMessages)
+    ? input.snapshotMessages.flatMap((value) => {
+        const entry = message(value);
+        return entry ? [entry] : [];
+      })
+    : [];
+  const runClaims = eventRunIds(input.events, input.runs);
+  const { activeByMessageId, inheritedByMessageId, claimedByMessageId } =
+    runClaims;
+  const messageIdsByRun = eventMessageIdsByRun(claimedByMessageId);
+  const snapshotUserIdsByRun = new Map<string, string | null>();
+  for (const root of rootMessages) {
+    if (root.role !== "user") continue;
+    const custom = record(record(root.metadata)?.custom);
+    const snapshotId =
+      typeof custom?.agentKitMessageId === "string"
+        ? custom.agentKitMessageId
+        : typeof root.id === "string"
+          ? root.id
+          : undefined;
+    const runId = custom?.submittedRunId;
+    if (!snapshotId || typeof runId !== "string") continue;
+    snapshotUserIdsByRun.set(
+      snapshotId,
+      snapshotUserIdsByRun.has(snapshotId) ? null : runId,
+    );
+  }
+  const snapshotUserCounts = new Map<string, number>();
+  for (const candidate of snapshotMessages) {
+    if (candidate.role !== "user" || typeof candidate.id !== "string") continue;
+    snapshotUserCounts.set(
+      candidate.id,
+      (snapshotUserCounts.get(candidate.id) ?? 0) + 1,
+    );
+  }
+  for (const [snapshotId, runId] of snapshotUserIdsByRun) {
+    if (snapshotUserCounts.get(snapshotId) !== 1 || runId === null) {
+      snapshotUserIdsByRun.delete(snapshotId);
+    }
+  }
+  const snapshotMessagesByRunId = new Map<string, Record<string, unknown>[]>();
+  const snapshotRunIdsByMessageId = new Map<string, string>();
+  const sharedSnapshotIds = new Set<string>();
+  let submittedRunId: string | undefined;
+  for (const candidate of snapshotMessages) {
+    if (candidate.role === "user") {
+      const candidateRunId =
+        typeof candidate.id === "string"
+          ? snapshotUserIdsByRun.get(candidate.id)
+          : undefined;
+      submittedRunId =
+        typeof candidateRunId === "string" ? candidateRunId : undefined;
+      continue;
+    }
+    if (candidate.role !== "assistant") continue;
+    const eventRunIds =
+      typeof candidate.id === "string"
+        ? activeByMessageId.get(candidate.id)
+        : undefined;
+    const inferredRunId =
+      !eventRunIds?.size && !explicitRunId(candidate)
+        ? submittedRunId
+        : undefined;
+    const runId = assistantRunId(
+      candidate,
+      activeByMessageId,
+      inferredRunId,
+      inheritedByMessageId,
+    );
+    const claimedRunIds =
+      typeof candidate.id === "string"
+        ? claimedByMessageId.get(candidate.id)
+        : undefined;
+    if (
+      typeof candidate.id === "string" &&
+      !explicitRunId(candidate) &&
+      claimedRunIds !== undefined &&
+      claimedRunIds.size > 1
+    ) {
+      sharedSnapshotIds.add(candidate.id);
+    }
+    if (!runId || typeof candidate.id !== "string") {
+      continue;
+    }
+    if (inferredRunId) snapshotRunIdsByMessageId.set(candidate.id, runId);
+    const candidates = snapshotMessagesByRunId.get(runId);
+    if (candidates) candidates.push(candidate);
+    else snapshotMessagesByRunId.set(runId, [candidate]);
+  }
+  const represented = new Set<string>();
+  const directMatches = new Map<string, string>();
+  const rootAssistantCountsByRun = new Map<string, number>();
+  for (const root of rootMessages) {
+    const runId = assistantRunId(root, activeByMessageId);
+    if (!runId) continue;
+    rootAssistantCountsByRun.set(
+      runId,
+      (rootAssistantCountsByRun.get(runId) ?? 0) + 1,
+    );
+  }
+  const supersededSnapshotMessageIds = new Set<string>();
+  for (const root of rootMessages) {
+    if (root.role !== "assistant" || typeof root.id !== "string") continue;
+    const runId = assistantRunId(root, activeByMessageId);
+    if (!runId) continue;
+    const toolMessageIds = representedToolCallMessageIds(root, input.toolCalls);
+    const sameRunCandidates = (snapshotMessagesByRunId.get(runId) ?? []).filter(
+      (candidate) => candidate.id !== root.id,
+    );
+    const sameRunMatches = sameRunCandidates.filter((candidate) =>
+      contentMatches(root, candidate, toolMessageIds),
+    );
+    const rootText = text(root);
+    const exactTextMatches = sameRunMatches.filter(
+      (candidate) => rootText !== undefined && text(candidate) === rootText,
+    );
+    const duplicateCandidates =
+      rootText && isTerminalAssistant(root)
+        ? sameRunCandidates.filter((candidate) => {
+            const candidateText = text(candidate);
+            return (
+              candidateText === rootText ||
+              Boolean(
+                candidateText &&
+                isRepeatedAnswerSnapshot(rootText, candidateText),
+              )
+            );
+          })
+        : [];
+    const splitGroupMatch =
+      rootText && isTerminalAssistant(root)
+        ? splitSnapshotGroupMatch(root, sameRunCandidates, toolMessageIds)
+        : undefined;
+    if (splitGroupMatch && typeof splitGroupMatch.id === "string") {
+      represented.add(root.id);
+      directMatches.set(root.id, splitGroupMatch.id);
+      for (const candidate of duplicateCandidates) {
+        if (candidate.id === splitGroupMatch.id) continue;
+        const candidateText = text(candidate);
+        if (
+          candidateText &&
+          snapshotAdditionalContentIsRepresented(root, candidate) &&
+          typeof candidate.id === "string"
+        ) {
+          supersededSnapshotMessageIds.add(candidate.id);
+        }
+      }
+      continue;
+    }
+    if (
+      rootText &&
+      isTerminalAssistant(root) &&
+      rootAssistantCountsByRun.get(runId) === 1 &&
+      duplicateCandidates.length > 0
+    ) {
+      const matchingCandidate = exactTextMatches.find(
+        (candidate) =>
+          snapshotRepresentsRootContent(root, candidate, toolMessageIds) &&
+          snapshotAdditionalContentIsRepresented(root, candidate),
+      );
+      if (matchingCandidate && typeof matchingCandidate.id === "string") {
+        represented.add(root.id);
+        directMatches.set(root.id, matchingCandidate.id);
+      }
+      for (const candidate of duplicateCandidates) {
+        if (matchingCandidate && candidate.id === matchingCandidate.id) {
+          continue;
+        }
+        const candidateText = text(candidate);
+        if (
+          candidateText &&
+          snapshotAdditionalContentIsRepresented(root, candidate) &&
+          typeof candidate.id === "string"
+        ) {
+          supersededSnapshotMessageIds.add(candidate.id);
+        }
+      }
+      continue;
+    }
+    const matchingCandidates =
+      rootText && isTerminalAssistant(root)
+        ? sameRunMatches.filter((candidate) => {
+            const candidateText = text(candidate);
+            return (
+              !candidateText ||
+              !isRepeatedAnswerSnapshot(rootText, candidateText)
+            );
+          })
+        : sameRunMatches;
+    const fallbackExactMatches = matchingCandidates.filter(
+      (candidate) => rootText !== undefined && text(candidate) === rootText,
+    );
+    const candidateMatches =
+      fallbackExactMatches.length > 0
+        ? fallbackExactMatches
+        : matchingCandidates;
+    const matchingCandidate = candidateMatches[0];
+    const exactTextMatch =
+      matchingCandidate !== undefined &&
+      rootText !== undefined &&
+      text(matchingCandidate) === rootText;
+    const clientCanMatchPartial =
+      matchingCandidate !== undefined &&
+      (explicitRunId(matchingCandidate) === runId ||
+        (typeof matchingCandidate.id === "string" &&
+          (snapshotRunIdsByMessageId.get(matchingCandidate.id) === runId ||
+            (claimedByMessageId.get(matchingCandidate.id)?.size === 1 &&
+              messageIdsByRun.get(runId)?.size === 1))));
+    if (
+      candidateMatches.length === 1 &&
+      (exactTextMatch ||
+        (sameRunCandidates.length === 1 && clientCanMatchPartial))
+    ) {
+      represented.add(root.id);
+      if (typeof matchingCandidate.id === "string") {
+        directMatches.set(root.id, matchingCandidate.id);
+      }
+      continue;
+    }
+    const foldedMatch = foldedProjectionMatch(
+      root,
+      snapshotMessagesByRunId,
+      foldedRunIds(root),
+      messageIdsByRun,
+      toolMessageIds,
+    );
+    if (foldedMatch && typeof foldedMatch.id === "string") {
+      represented.add(root.id);
+    }
+  }
+  const matchedSharedRootIds = new Set(represented);
+  for (const snapshotId of sharedSnapshotIds) {
+    const snapshot = snapshotMessages.find(
+      (candidate) => candidate.id === snapshotId,
+    );
+    const claimed = claimedByMessageId.get(snapshotId);
+    if (!snapshot || !claimed) continue;
+    const match = sharedFoldedRootMatch(
+      snapshot,
+      claimed,
+      rootMessages,
+      input.toolCalls,
+      matchedSharedRootIds,
+    );
+    if (!match) continue;
+    matchedSharedRootIds.add(match.rootId);
+    if (match.rootContentRepresented) {
+      represented.add(match.rootId);
+      directMatches.set(match.rootId, snapshotId);
+    } else {
+      supersededSnapshotMessageIds.add(snapshotId);
+    }
+  }
+  const directMatchCountBySnapshotId = new Map<string, number>();
+  for (const snapshotId of directMatches.values()) {
+    directMatchCountBySnapshotId.set(
+      snapshotId,
+      (directMatchCountBySnapshotId.get(snapshotId) ?? 0) + 1,
+    );
+  }
+  const snapshotMessageIdsByRootMessageId = new Map<string, string>();
+  for (const [rootId, snapshotId] of directMatches) {
+    if (directMatchCountBySnapshotId.get(snapshotId) !== 1) {
+      represented.delete(rootId);
+      continue;
+    }
+    snapshotMessageIdsByRootMessageId.set(rootId, snapshotId);
+  }
+  return {
+    representedRootMessageIds: represented,
+    snapshotMessageIdsByRootMessageId,
+    snapshotRunIdsByMessageId,
+    supersededSnapshotMessageIds,
+  };
+}
+
+/** Root assistant IDs represented by the AgentKit snapshot. */
+export function representedRootAssistantMessageIds(input: {
+  rootMessages: unknown;
+  snapshotMessages: unknown;
+  events?: unknown;
+  runs?: unknown;
+  toolCalls?: unknown;
+}): Set<string> {
+  return projectRootAssistantMessages(input).representedRootMessageIds;
+}

@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// fetchLibrary() runs the recordings query, the meetings subquery, and the
-// folders query off the same mock db, so from() tells them apart by a column
-// only that table has. Hoisted so the vi.mock factories below (which vitest
-// lifts above the imports) can read them.
+const context = vi.hoisted(() => ({
+  navigation: { view: "library", recordingId: "rec-test" },
+  recording: null as Record<string, unknown> | null,
+  email: "viewer@example.com",
+  role: null as "owner" | "editor" | null,
+  childReads: vi.fn(),
+}));
+
 const TABLES = vi.hoisted(() => ({
   recordings: {
     id: "recordings.id",
@@ -15,6 +19,7 @@ const TABLES = vi.hoisted(() => ({
     updatedAt: "recordings.updatedAt",
   },
   meetings: { recordingId: "meetings.recordingId" },
+  recordingBugReports: { recordingId: "bugReports.recordingId" },
   folders: {
     ownerEmail: "folders.ownerEmail",
     spaceId: "folders.spaceId",
@@ -30,22 +35,46 @@ const mockRecordingsWhere = vi.hoisted(() =>
 );
 const mockMeetingsWhere = vi.hoisted(() =>
   vi.fn((condition: unknown) => ({
-    // A drizzle query-builder chain, deliberately never awaited: notInArray()
-    // compiles it to `NOT IN (SELECT ...)`. `resolvedDb` marks which db
-    // instance it was built off.
     kind: "meetings-subquery",
     condition,
     resolvedDb: true,
   })),
 );
 
-/**
- * The real drizzle instance the lazy proxy resolves to. Chains replayed
- * through the proxy land here, and so does anything built off `await db`.
- */
 const makeRealDb = vi.hoisted(() => () => ({
   select: (_projection?: unknown) => ({
     from: (table: any) => {
+      if (context.recording) {
+        if (table === TABLES.recordings) {
+          return { where: async () => [context.recording] };
+        }
+        context.childReads(table);
+        const rows =
+          table === TABLES.recordingBugReports
+            ? [
+                {
+                  projectId: "fake-project",
+                  title: "Fake report",
+                  severity: "low",
+                },
+              ]
+            : table === "recordingComments"
+              ? [
+                  {
+                    id: "comment-test",
+                    content: "Fake discussion",
+                    authorEmail: "author@example.com",
+                  },
+                ]
+              : [];
+        return {
+          where: () =>
+            Object.assign(Promise.resolve(rows), {
+              orderBy: async () => rows,
+              limit: async () => rows,
+            }),
+        };
+      }
       if (table && "recordingId" in table) return { where: mockMeetingsWhere };
       if (table && "position" in table) {
         return { where: () => ({ orderBy: async () => [] }) };
@@ -55,14 +84,6 @@ const makeRealDb = vi.hoisted(() => () => ({
   }),
 }));
 
-/**
- * Mirrors createLazyProxy() in packages/core/src/db/create-get-db.ts: on a
- * cold-start request getDb() hands back a proxy that records the chain and
- * replays it once the driver finishes loading. Awaiting it with no chain
- * yields the real instance. Reading `getSQL`/`shouldOmitSQLParens` — which is
- * what drizzle does synchronously to duck-type an SQL entity — throws, because
- * an unresolved chain cannot answer that probe correctly.
- */
 const makeLazyProxy = vi.hoisted(
   () =>
     function makeLazyProxy(
@@ -108,9 +129,6 @@ const makeLazyProxy = vi.hoisted(
 
 const mockNotInArray = vi.hoisted(() =>
   vi.fn((column: unknown, values: unknown) => {
-    // drizzle-orm's isSQLWrapper() reads `.getSQL` off the value synchronously,
-    // without awaiting (drizzle-orm/sql/sql.js). Reproduce that probe so an
-    // unresolved chain fails here exactly as it does in production.
     const probed =
       values !== null && values !== undefined
         ? typeof (values as any).getSQL
@@ -126,16 +144,16 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: async () => null,
   readAppStateForCurrentTab: async (key: string) =>
-    key === "navigation" ? { view: "library" } : null,
+    key === "navigation" ? context.navigation : null,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => "viewer@example.com",
+  getRequestUserEmail: () => context.email,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ kind: "access-filter" }),
-  resolveAccess: async () => null,
+  resolveAccess: async () => (context.role ? { role: context.role } : null),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -154,15 +172,21 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  // Always the cold-start proxy — the state every first request after a
-  // serverless cold boot sees.
   getDb: () => makeLazyProxy(makeRealDb()),
   schema: {
     meetings: TABLES.meetings,
     folders: TABLES.folders,
     recordings: TABLES.recordings,
     recordingShares: "recordingShares",
+    recordingContentBindings: {
+      recordingId: "bindings.recordingId",
+      origin: "bindings.origin",
+    },
     recordingViewers: "recordingViewers",
+    recordingComments: "recordingComments",
+    recordingTranscripts: { recordingId: "transcripts.recordingId" },
+    recordingBrowserDiagnostics: { recordingId: "diagnostics.recordingId" },
+    recordingBugReports: TABLES.recordingBugReports,
   },
 }));
 
@@ -178,6 +202,14 @@ vi.mock("../server/lib/recordings.js", () => ({
     email,
   }),
   parseSpaceIds: vi.fn(),
+  sameOwnerEmail: (
+    a: string | null | undefined,
+    b: string | null | undefined,
+  ) => a?.toLowerCase() === b?.toLowerCase(),
+}));
+
+vi.mock("../server/lib/user-identities.js", () => ({
+  hydrateCommentAuthorNames: async (rows: unknown[]) => rows,
 }));
 
 vi.mock("../shared/browser-diagnostics.js", () => ({
@@ -193,22 +225,17 @@ import action from "./view-screen";
 describe("view-screen library view on a cold start", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    context.recording = null;
+    context.role = null;
+    context.navigation.view = "library";
   });
 
   it("builds the meeting-exclusion subquery off a resolved db, not the lazy proxy", async () => {
-    // Regression: fetchLibrary() used to build the meetings subquery straight
-    // off the `db` returned by getDb() and hand that still-unresolved chain to
-    // notInArray(). On a cold-start request getDb() returns the lazy proxy, and
-    // drizzle probes the embedded value with `.getSQL()` synchronously — which
-    // the proxy cannot answer. Awaiting `db` first resolves it to the real
-    // instance, so the chain handed to notInArray() is always a real one.
     await expect(action.run({})).resolves.toBeTypeOf("string");
 
     expect(mockNotInArray).toHaveBeenCalledTimes(1);
     const [column, values] = mockNotInArray.mock.calls[0]!;
     expect(column).toBe("recordings.id");
-    // "undefined" means the drizzle duck-type probe read the property without
-    // throwing; a lazy proxy throws on that read instead.
     expect((mockNotInArray.mock.results[0]!.value as any).probed).toBe(
       "undefined",
     );
@@ -216,16 +243,11 @@ describe("view-screen library view on a cold start", () => {
   });
 
   it("excludes meeting recordings database-side rather than materializing ids", async () => {
-    // The other direction: an earlier revision awaited the meeting rows into a
-    // plain string[] and bound every id as a query parameter. That grows with
-    // the whole meetings table and can hit PostgreSQL parameter limits, so the
-    // value must stay a query-builder chain.
     await action.run({});
 
     const [, values] = mockNotInArray.mock.calls[0]!;
     expect(Array.isArray(values)).toBe(false);
     expect((values as any).kind).toBe("meetings-subquery");
-    // NULL recordingIds are filtered in SQL, so NOT IN can't collapse to empty.
     expect((values as any).condition).toEqual({
       kind: "is-not-null",
       column: TABLES.meetings.recordingId,
@@ -244,4 +266,133 @@ describe("view-screen library view on a cold start", () => {
       }),
     );
   });
+});
+
+describe("view-screen recording access", () => {
+  let recording: Record<string, unknown>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    context.navigation.view = "recording";
+    context.email = "viewer@example.com";
+    context.role = null;
+    recording = {
+      id: "rec-test",
+      title: "Fake recording",
+      ownerEmail: "owner@example.com",
+      status: "ready",
+      enableComments: true,
+      trashedAt: null,
+      expiresAt: null,
+    };
+    context.recording = recording;
+  });
+
+  it.each([
+    { trashedAt: "2026-01-01T00:00:00Z" },
+    { expiresAt: "2020-01-01T00:00:00Z" },
+  ])("withholds recording context after access ends: %j", async (settings) => {
+    Object.assign(recording, settings);
+    const screen = JSON.parse(await action.run({}));
+    expect(screen.recording).toBeUndefined();
+    expect(screen.comments).toBeUndefined();
+    expect(screen.transcript).toBeUndefined();
+    expect(context.childReads).not.toHaveBeenCalled();
+  });
+
+  it.each(["viewer@example.com", "owner@example.com"])(
+    "applies owner visibility to disabled comments for %s",
+    async (email) => {
+      context.email = email;
+      recording.enableComments = false;
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.recording.id).toBe("rec-test");
+      expect(
+        screen.comments.map((comment: { content: string }) => comment.content),
+      ).toEqual(email === "owner@example.com" ? ["Fake discussion"] : []);
+      if (email !== "owner@example.com") {
+        expect(context.childReads).not.toHaveBeenCalledWith(
+          "recordingComments",
+        );
+      }
+    },
+  );
+
+  it.each([
+    { trashedAt: "2026-01-01T00:00:00Z" },
+    { expiresAt: "2020-01-01T00:00:00Z" },
+  ])(
+    "withholds completed bug-report context after access ends: %j",
+    async (settings) => {
+      context.navigation.view = "bug-report-done";
+      context.role = "editor";
+      Object.assign(recording, settings);
+
+      const screen = JSON.parse(await action.run({}));
+
+      expect(screen.recording).toBeUndefined();
+      expect(screen.bugReport).toBeUndefined();
+      expect(context.childReads).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      email: "owner@example.com",
+      role: "owner" as const,
+      trashedAt: "2026-01-01T00:00:00Z",
+      expiresAt: null,
+    },
+    {
+      email: "owner@example.com",
+      role: "owner" as const,
+      trashedAt: null,
+      expiresAt: "2020-01-01T00:00:00Z",
+    },
+    {
+      email: "viewer@example.com",
+      role: "editor" as const,
+      trashedAt: null,
+      expiresAt: null,
+    },
+  ])(
+    "keeps authorized completed bug-report context: %j",
+    async ({ email, role, ...settings }) => {
+      context.navigation.view = "bug-report-done";
+      context.email = email;
+      context.role = role;
+      Object.assign(recording, settings);
+
+      const screen = JSON.parse(await action.run({}));
+
+      expect(screen.recording.id).toBe("rec-test");
+      expect(screen.bugReport).toMatchObject({
+        title: "Fake report",
+        projectId: "fake-project",
+      });
+    },
+  );
+
+  it.each([
+    {
+      email: "owner@example.com",
+      trashedAt: "2026-01-01T00:00:00Z",
+      expiresAt: null,
+    },
+    {
+      email: "owner@example.com",
+      trashedAt: null,
+      expiresAt: "2020-01-01T00:00:00Z",
+    },
+    { email: "viewer@example.com", trashedAt: null, expiresAt: null },
+  ])(
+    "keeps owner previews and restored viewer context: %j",
+    async ({ email, ...settings }) => {
+      context.email = email;
+      Object.assign(recording, settings);
+      const screen = JSON.parse(await action.run({}));
+      expect(screen.recording.id).toBe("rec-test");
+      expect(screen.comments[0].content).toBe("Fake discussion");
+    },
+  );
 });

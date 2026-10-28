@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
+import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 import type { PendingTask } from "./pending-tasks-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -12,14 +13,13 @@ const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const grantThreadUserShareMock = vi.hoisted(() => vi.fn());
 const setThreadSourceIfMissingMock = vi.hoisted(() => vi.fn());
 const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
-const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
+const getJevContextCredentialsMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
-// The integration run goes through the resume wrapper. Delegate to the loop
-// mock so every assertion below still reads the options the loop was called
-// with.
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
+const filterInitialEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
@@ -30,9 +30,15 @@ const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
 const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const insertAuditEventMock = vi.hoisted(() =>
+  vi.fn<typeof import("../audit/store.js").insertAuditEvent>(),
+);
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const flushRunEventsMock = vi.hoisted(() => vi.fn(async () => {}));
+const captureRunControlMock = vi.hoisted(() => vi.fn());
+const captureDirectRunnerControlMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
@@ -48,6 +54,7 @@ const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
 );
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
+const preloadJevContextWithStatusMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -79,7 +86,19 @@ vi.mock("../agent/durable-background.js", () => ({
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   appendDurableContinuationContext: appendDurableContinuationContextMock,
-  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
+  runAgentLoopDirectWithSoftTimeout: (
+    opts: unknown,
+    _softTimeoutMs: unknown,
+    _timeoutOptions: unknown,
+    control: unknown,
+  ) => {
+    captureDirectRunnerControlMock(control);
+    return runAgentLoopMock(opts);
+  },
+}));
+
+vi.mock("../server/agent-chat/prompt-resources.js", () => ({
+  preloadJevContextWithStatus: preloadJevContextWithStatusMock,
 }));
 
 vi.mock("./integration-campaigns-store.js", () => ({
@@ -110,16 +129,9 @@ vi.mock("./integration-durable-dispatch.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgA2ASecret: getOrgA2ASecretMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
-// `filterInitialEngineTools`'s own filtering semantics are covered directly
-// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
-// rather than via `vi.importActual` on the real module, which would pull in
-// production-agent.ts's full module graph (e.g. its module-scope
-// `registerBuiltinEngines()` call) and conflict with the narrower engine
-// mock below. This only needs to prove webhook-handler.ts WIRES the filter
-// with the right inputs, not re-prove the filter's own correctness.
 function fakeFilterInitialEngineTools(
   tools: Array<{ name: string }>,
   initialToolNames?: string[],
@@ -140,13 +152,15 @@ function fakeFilterInitialEngineTools(
 }
 
 vi.mock("../agent/production-agent.js", () => ({
+  getJevContextCredentials: getJevContextCredentialsMock,
   resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
-  filterInitialEngineTools: fakeFilterInitialEngineTools,
+  filterInitialEngineTools: filterInitialEngineToolsMock,
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
+  registerBuiltinEngines: vi.fn(),
   getConfiguredEngineNameForRequest: getConfiguredEngineNameForRequestMock,
   getStoredModelForEngine: getStoredModelForEngineMock,
   normalizeModelForEngine: (
@@ -193,10 +207,27 @@ vi.mock("../usage/store.js", () => ({
   recordUsage: vi.fn(),
 }));
 
-vi.mock("../agent/run-manager.js", () => ({
+vi.mock("../audit/store.js", () => ({
+  insertAuditEvent: insertAuditEventMock,
+}));
+
+vi.mock("../agent/run-manager.js", async () => ({
+  ...(await vi.importActual<typeof import("../agent/run-manager.js")>(
+    "../agent/run-manager.js",
+  )),
   startRun: startRunMock.mockImplementation(
     (runId, threadId, runFn, onComplete) => {
       const events: any[] = [];
+      const controller = new AbortController();
+      const control = {
+        turnSignal: controller.signal,
+        chunkSignal: controller.signal,
+        chunkBoundaryReason: () => null,
+        beginChunk: () => controller.signal,
+        flushEvents: flushRunEventsMock,
+      };
+      captureRunControlMock.mockReturnValue(control);
+      captureRunControlMock(control);
       const send = (event: any) => {
         events.push({
           id: `event-${events.length + 1}`,
@@ -205,7 +236,7 @@ vi.mock("../agent/run-manager.js", () => ({
           createdAt: Date.now(),
         });
       };
-      Promise.resolve(runFn(send, new AbortController().signal))
+      Promise.resolve(runFn(send, controller.signal, control))
         .then(() =>
           onComplete?.({
             runId,
@@ -309,6 +340,15 @@ function pendingTask(
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    flushRunEventsMock.mockReset();
+    flushRunEventsMock.mockResolvedValue(undefined);
+    insertAuditEventMock.mockResolvedValue(undefined);
+    preloadJevContextWithStatusMock.mockResolvedValue({
+      context: "",
+      relevantAppsContext:
+        '<relevant-apps><app id="qr">QR profile</app></relevant-apps>',
+      status: "ok",
+    });
     createIntegrationCampaignMock.mockResolvedValue({
       id: "campaign-qa",
       integrationTaskId: "task-qa",
@@ -347,16 +387,27 @@ describe("integration webhook handler engine resolution", () => {
     grantThreadUserShareMock.mockResolvedValue(undefined);
     setThreadSourceIfMissingMock.mockResolvedValue(false);
     isInBackgroundFunctionRuntimeMock.mockReturnValue(false);
-    resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-qa",
+    });
     getOrgA2ASecretMock.mockResolvedValue(null);
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: undefined,
       apiKeyEnvVar: undefined,
     });
+    getJevContextCredentialsMock.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: null,
+    });
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
     actionsToEngineToolsMock.mockReturnValue([]);
+    filterInitialEngineToolsMock.mockImplementation(
+      fakeFilterInitialEngineTools,
+    );
     listIntegrationUsageBudgetsMock.mockResolvedValue([]);
     reserveIntegrationUsageBudgetMock.mockResolvedValue({
       allowed: true,
@@ -394,11 +445,6 @@ describe("integration webhook handler engine resolution", () => {
     }
   });
 
-  // CI runs this suite with a much longer transform/import phase than local
-  // (~28s vs ~7s observed on 2026-05-11), which left the per-test 5s budget
-  // too tight for the full processIntegrationTask pipeline. Bumping these two
-  // mock-heavy run-loop tests to 15s avoids flake without masking real perf
-  // regressions: the test bodies still finish in well under a second locally.
   it(
     "releases reserved budgets when thread setup fails",
     { timeout: 15_000 },
@@ -425,6 +471,7 @@ describe("integration webhook handler engine resolution", () => {
         }),
       ).rejects.toThrow("thread setup failed");
 
+      expect(insertAuditEventMock).toHaveBeenCalledOnce();
       expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
       expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({ budgetId: "budget-org" }),
@@ -468,12 +515,6 @@ describe("integration webhook handler engine resolution", () => {
         principalType: "service",
       });
 
-      // objectContaining, not an exact match: `runOptions` is handed to
-      // startRun by reference and deliberately mutated afterwards (model and
-      // engineName are filled in inside the run callback so run-manager's
-      // terminal event can read them in its `.finally()`), and it also carries
-      // attemptCount. This assertion is about which soft-timeout ceiling was
-      // chosen, so it pins those two fields and stays agnostic to the rest.
       expect(startRunMock).toHaveBeenLastCalledWith(
         expect.any(String),
         expect.any(String),
@@ -491,6 +532,52 @@ describe("integration webhook handler engine resolution", () => {
         }),
         expect.anything(),
       );
+    },
+  );
+
+  it(
+    "flushes events before writes and shares run control with the recoverable driver",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const order: string[] = [];
+      flushRunEventsMock.mockImplementationOnce(async () => {
+        order.push("flush");
+      });
+      runAgentLoopMock.mockImplementationOnce(async (opts) => {
+        await opts.beforeWrite();
+        order.push("write");
+        opts.send({ type: "text", text: "done" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const control = captureRunControlMock.mock.results.at(-1)?.value;
+      expect(control).toBeDefined();
+      expect(runAgentLoopMock.mock.calls[0]?.[0].beforeWrite).toBe(
+        control.flushEvents,
+      );
+      expect(captureDirectRunnerControlMock.mock.calls[0]?.[0]).toBe(control);
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        expect.objectContaining({
+          executionLease: true,
+          recoverChunkBoundaries: true,
+        }),
+      );
+      expect(order).toEqual(["flush", "write"]);
+      expect(flushRunEventsMock).toHaveBeenCalledOnce();
     },
   );
 
@@ -695,11 +782,26 @@ describe("integration webhook handler engine resolution", () => {
         updatedAt: Date.now(),
         completedAt: null,
       };
+      getJevContextCredentialsMock.mockResolvedValueOnce({
+        apiKey: "owner-jev-key",
+        personalApiKey: undefined,
+        directApiKey: "owner-jev-key",
+        builderAuth: null,
+      });
 
       await processIntegrationTask(task, {
         adapter: createAdapter(sendResponse),
         systemPrompt: "system",
-        actions: {},
+        actions: {
+          "call-agent": {
+            tool: {
+              name: "call-agent",
+              description: "delegate",
+              inputSchema: {},
+            },
+            run: vi.fn(),
+          },
+        },
         model: "claude-sonnet-4-6",
         apiKey: "",
         ownerEmail: task.ownerEmail,
@@ -721,8 +823,21 @@ describe("integration webhook handler engine resolution", () => {
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
           maxOutputTokens: 64_000,
-          reasoningEffort: "high",
-          systemPrompt: expect.stringContaining("<runtime-context>"),
+          reasoningEffort: undefined,
+          systemPrompt: expect.stringContaining("QR profile"),
+        }),
+      );
+      expect(preloadJevContextWithStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appDiscoveryOnly: true,
+          appRequest: expect.stringContaining("hello from slack"),
+          owner: task.ownerEmail,
+          orgId: "org-qa",
+          workspaceAppsEnabled: true,
+          apiKey: "owner-jev-key",
+          personalApiKey: undefined,
+          directApiKey: "owner-jev-key",
+          builderAuth: null,
         }),
       );
       const engineUserText =
@@ -871,6 +986,7 @@ describe("integration webhook handler engine resolution", () => {
       const complete = vi.fn(async () => {
         throw new Error("chat.stopStream transport failed");
       });
+      const fail = vi.fn(async () => undefined);
       const adapter = {
         ...createAdapter(sendResponse),
         startRunProgress: async () => ({
@@ -878,6 +994,7 @@ describe("integration webhook handler engine resolution", () => {
           responseTargetRef: "stream-qa",
           onEvent: vi.fn(async () => undefined),
           complete,
+          fail,
         }),
       };
       runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
@@ -900,6 +1017,9 @@ describe("integration webhook handler engine resolution", () => {
       expect(complete).toHaveBeenCalledWith(
         expect.objectContaining({ text: "completed once" }),
         { idempotencyKey: "integration-response:task-qa" },
+      );
+      expect(fail).toHaveBeenCalledWith(
+        "I couldn't update the live response, but I posted the final result in this thread.",
       );
       expect(sendResponse).toHaveBeenCalledOnce();
       expect(sendResponse).toHaveBeenCalledWith(
@@ -1595,6 +1715,64 @@ describe("integration webhook handler engine resolution", () => {
         apiKeyEnvVar: "OPENAI_API_KEY",
         model: "gpt-5.2",
       });
+    },
+  );
+
+  it(
+    "preserves confirmed personal scope through the integration engine resolver",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "organization",
+        orgId: "org-after-enqueue",
+      });
+      getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
+        const { getRequestContext } =
+          await import("../server/request-context.js");
+        expect(getRequestContext()).toMatchObject({
+          userEmail: "personal+qa@example.com",
+          orgScope: "personal",
+        });
+        return "anthropic";
+      });
+
+      const task = pendingTask({
+        ownerEmail: "personal+qa@example.com",
+        orgId: null,
+        payload: JSON.stringify({
+          incoming: {
+            platform: "fake",
+            externalThreadId: "thread-personal",
+            text: "hello",
+            platformContext: {},
+            timestamp: 1001,
+          },
+          principalType: "user",
+        }),
+      });
+
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "",
+        ownerEmail: task.ownerEmail,
+      });
+
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "",
+      });
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      const stagedPayload = JSON.parse(
+        stageTaskDeliveryPayloadMock.mock.calls.at(-1)![1],
+      );
+      expect(stagedPayload).toMatchObject({ orgScope: "personal" });
     },
   );
 
@@ -3371,11 +3549,101 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("discovers and invokes a deferred app action during a messaging turn", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const actual = await vi.importActual<
+      typeof import("../agent/production-agent.js")
+    >("../agent/production-agent.js");
+    actionsToEngineToolsMock.mockImplementation(actual.actionsToEngineTools);
+    filterInitialEngineToolsMock.mockImplementation(
+      actual.filterInitialEngineTools,
+    );
+    runAgentLoopMock.mockImplementationOnce(actual.runAgentLoop);
+    const deferredRun = vi.fn(async () => "deferred result");
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (seenTools.length <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `call-${seenTools.length}`,
+                name:
+                  seenTools.length === 1 ? "tool-search" : "deferred-action",
+                input: seenTools.length === 1 ? { query: "deferred" } : {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The deferred action completed." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    resolveEngineMock.mockResolvedValueOnce(engine);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const action = {
+      tool: {
+        description: "App action",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      run: async () => "ok",
+    };
+    await processIntegrationTask(pendingTask({ id: "task-deferred-action" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      engine,
+      actions: {
+        starter: action,
+        "deferred-action": {
+          ...action,
+          tool: { ...action.tool, description: "Deferred app action" },
+          run: deferredRun,
+        },
+        "call-agent": action,
+      },
+      initialToolNames: ["starter"],
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    await runAgentLoopMock.mock.results[0].value;
+    expect(seenTools).toHaveLength(3);
+    expect(seenTools[0]).toEqual(
+      expect.arrayContaining(["starter", "tool-search", "call-agent"]),
+    );
+    expect(seenTools[0]).not.toContain("deferred-action");
+    expect(seenTools[1]).toContain("deferred-action");
+    expect(deferredRun).toHaveBeenCalledOnce();
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "The deferred action completed." }),
+      expect.any(Object),
+      expect.any(Object),
+    );
+  });
+
   it("defers framework-added tools behind tool-search on the first engine request while keeping template actions and initial defaults", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    // Only this test needs a real-shaped action->tool conversion — every
-    // other test in this file relies on the `[]` stub set in `beforeEach`
-    // and doesn't inspect `tools`/`availableTools`.
     actionsToEngineToolsMock.mockImplementation(
       (actionsMap: Record<string, { tool: { description: string } }>) =>
         Object.keys(actionsMap).map((name) => ({
@@ -3405,8 +3673,6 @@ describe("integration webhook handler engine resolution", () => {
         "call-agent": noopTool("Delegate to another A2A agent"),
         "list-integration-memory": noopTool("List integration memory"),
       },
-      // Mirrors what `createIntegrationsPlugin` passes: the app's own
-      // action names, not the framework additions merged into `actions`.
       initialToolNames: ["template-action"],
       apiKey: "test-key",
       ownerEmail: "dispatch+qa@integration.local",
@@ -3423,22 +3689,15 @@ describe("integration webhook handler engine resolution", () => {
       .map((tool: { name: string }) => tool.name)
       .sort();
 
-    // Deferred framework additions never reach the first request...
     expect(firstRequestToolNames).not.toContain("call-agent");
     expect(firstRequestToolNames).not.toContain("list-integration-memory");
-    // ...but the template action, and tool-search itself, do.
     expect(firstRequestToolNames).toEqual(["template-action", "tool-search"]);
-    // ...while the full registry (used for mid-run tool-search expansion)
-    // still contains everything, so the model can discover and call the
-    // deferred tools after a tool-search hit.
     expect(availableToolNames).toEqual([
       "call-agent",
       "list-integration-memory",
       "template-action",
       "tool-search",
     ]);
-    // The executable registry passed through for real tool dispatch must
-    // also include tool-search so a model-issued call to it can run.
     expect(Object.keys(call.actions).sort()).toEqual([
       "call-agent",
       "list-integration-memory",

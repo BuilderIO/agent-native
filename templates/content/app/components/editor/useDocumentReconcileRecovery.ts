@@ -25,6 +25,30 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
+// After typing overtakes an automatic save, the next one waits for a pause,
+// as the editor's autosave does, but never longer than the cap.
+const AUTOMATIC_SAVE_IDLE_MS = 1_000;
+const AUTOMATIC_SAVE_MAX_WAIT_MS = 5_000;
+
+async function untilTypingPauses(getIdentity: () => string): Promise<void> {
+  const deadline = Date.now() + AUTOMATIC_SAVE_MAX_WAIT_MS;
+  let identity = getIdentity();
+  for (;;) {
+    const wait = Math.min(AUTOMATIC_SAVE_IDLE_MS, deadline - Date.now());
+    if (wait <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    const next = getIdentity();
+    if (next === identity) return;
+    identity = next;
+  }
+}
+
+interface AutomaticSave {
+  generation: number;
+  newerBase: ReconcileSaveBase | null;
+  saved: Promise<boolean>;
+}
+
 export function useDocumentReconcileRecovery({
   save,
   retain,
@@ -50,6 +74,7 @@ export function useDocumentReconcileRecovery({
   const current = stateRef ?? internalStateRef;
   const generation = useRef(0);
   const inFlight = useRef(false);
+  const automaticSave = useRef<AutomaticSave | null>(null);
   const callbacks = useRef({
     save,
     retain,
@@ -173,63 +198,52 @@ export function useDocumentReconcileRecovery({
     [current, latestDraft, publish, retainLatest],
   );
 
-  const resolveAutomatically = useCallback(
+  const saveAutomatically = useCallback(
     async (
+      run: AutomaticSave,
       initialDraft: ReconcileRecoveryDraft,
       base: ReconcileSaveBase,
     ): Promise<boolean> => {
-      if (current.current || inFlight.current) {
-        generation.current += 1;
-        publish({
-          reason: current.current?.reason ?? "conflict",
-          ...initialDraft,
-          saving: false,
-        });
-        try {
-          if (callbacks.current.retain)
-            await callbacks.current.retain(initialDraft);
-        } catch {
-          const latest = current.current;
-          if (latest)
-            publish({ ...latest, reason: "save-failed", saving: false });
-        }
-        return false;
-      }
       inFlight.current = true;
-      const started = generation.current;
+      const started = run.generation;
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
-      let attempts = 0;
+      let refused = false;
       try {
-        while (
-          generation.current === started &&
-          !current.current &&
-          attempts < 3
-        ) {
-          attempts += 1;
+        while (generation.current === started && !current.current) {
+          if (run.newerBase) {
+            // A refusal can come from the page a newer merge handed over,
+            // which the editor already holds, so that page gets the next
+            // attempt.
+            draft = latestDraft();
+            saveBase = run.newerBase;
+            run.newerBase = null;
+          } else if (refused) {
+            await retainLatest();
+            // A newer merge can hand its page over while the draft is retained.
+            if (run.newerBase) continue;
+            if (generation.current === started && !current.current) {
+              publish({ reason: "conflict", ...latestDraft(), saving: false });
+            }
+            return false;
+          }
           const identity = callbacks.current.getSaveIdentity();
           const persisted = await callbacks.current.save(draft, saveBase);
           if (generation.current !== started || current.current) {
             await retainLatest();
             return false;
           }
-          if (!persisted) {
-            await retainLatest();
-            publish({
-              reason: "conflict",
-              ...latestDraft(),
-              saving: false,
-            });
-            return false;
-          }
-          if (callbacks.current.getSaveIdentity() === identity) return true;
+          if (persisted && callbacks.current.getSaveIdentity() === identity)
+            return true;
+          // A save that landed while typing continued is not a retry: counting
+          // those turns steady typing in another tab into a conflict notice.
+          refused = !persisted;
+          if (persisted)
+            await untilTypingPauses(() => callbacks.current.getSaveIdentity());
           draft = latestDraft();
           saveBase = undefined;
         }
         await retainLatest();
-        if (generation.current === started && !current.current) {
-          publish({ reason: "conflict", ...latestDraft(), saving: false });
-        }
         return false;
       } catch {
         if (generation.current === started && !current.current) {
@@ -247,9 +261,57 @@ export function useDocumentReconcileRecovery({
         return false;
       } finally {
         inFlight.current = false;
+        if (automaticSave.current === run) automaticSave.current = null;
       }
     },
     [current, latestDraft, publish, retainLatest],
+  );
+
+  const resolveAutomatically = useCallback(
+    async (
+      initialDraft: ReconcileRecoveryDraft,
+      base: ReconcileSaveBase,
+    ): Promise<boolean> => {
+      const running = automaticSave.current;
+      if (
+        running &&
+        running.generation === generation.current &&
+        !current.current
+      ) {
+        // Another tab's edit merged while this tab's merge is still saving.
+        // The running save sends the editor's text against this newer page
+        // next; starting a second save here would cancel the first and show
+        // an edit that merged cleanly as a conflict.
+        running.newerBase = base;
+        return running.saved;
+      }
+      if (current.current || inFlight.current) {
+        generation.current += 1;
+        publish({
+          reason: current.current?.reason ?? "conflict",
+          ...initialDraft,
+          saving: false,
+        });
+        try {
+          if (callbacks.current.retain)
+            await callbacks.current.retain(initialDraft);
+        } catch {
+          const latest = current.current;
+          if (latest)
+            publish({ ...latest, reason: "save-failed", saving: false });
+        }
+        return false;
+      }
+      const run: AutomaticSave = {
+        generation: generation.current,
+        newerBase: null,
+        saved: Promise.resolve(false),
+      };
+      automaticSave.current = run;
+      run.saved = saveAutomatically(run, initialDraft, base);
+      return run.saved;
+    },
+    [current, publish, saveAutomatically],
   );
 
   const resolveChoice = useCallback(

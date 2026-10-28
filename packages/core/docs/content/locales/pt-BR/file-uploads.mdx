@@ -129,6 +129,8 @@ S3 (AWS S3, Cloudflare R2, MinIO e similares). Conecte-o com variáveis de
 ambiente ou pela lista de integração da barra lateral. Nenhum código é
 necessário. Veja [Integração](/docs/onboarding).
 
+As configurações, a lista de integração e o Video storage do Clips mostram o mesmo formulário de armazenamento. Ele salva os valores `S3_*` como segredos do espaço de trabalho, e somente proprietários e administradores da organização podem salvá-los ou limpá-los. A Public URL é obrigatória, a menos que o provedor `s3` registrado defina `publicBaseUrlOptional: true` (o Clips faz isso, porque lê as gravações por meio de solicitações assinadas). **Clear credentials** pede confirmação e depois exclui todas as chaves de armazenamento salvas. Os arquivos existentes ficam no bucket. O agente faz o mesmo com as ações `get-file-storage` e `manage-file-storage`.
+
 Registre um provedor personalizado apenas para um tipo diferente de back-end.
 Este exemplo faz upload por meio de uma API HTTP genérica usando `fetch()`:
 

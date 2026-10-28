@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getDbExec: vi.fn(),
   resourcePutIfAbsent: vi.fn(),
   sharedResourceOwner: vi.fn(),
+  readOrgMemberRole: vi.fn(),
   currentOrgId: vi.fn(),
   currentOwnerEmail: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/db", () => ({
-  getDbExec: mocks.getDbExec,
+vi.mock("@agent-native/core/server", () => ({
+  readOrgMemberRole: mocks.readOrgMemberRole,
 }));
 
 vi.mock("@agent-native/core/resources/store", () => ({
@@ -29,17 +29,14 @@ import action from "./connect-external-agent.js";
 describe("connect-external-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.currentOrgId.mockReturnValue(null);
+    mocks.currentOrgId.mockReturnValue("org_1");
     mocks.currentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.readOrgMemberRole.mockResolvedValue("admin");
     mocks.sharedResourceOwner.mockReturnValue("shared-owner");
     mocks.resourcePutIfAbsent.mockResolvedValue({ id: "resource_1" });
   });
 
   it("rejects a malformed endpoint URL with a clean validation error instead of an unhandled throw", async () => {
-    // Regression for the markdown-link-artifact input reported in feedback:
-    // `https://api.github.com](https://api.github.com` used to reach `new
-    // URL(...)` uncaught, which the action HTTP transport can only render as
-    // a generic 500 "Internal server error".
     const malformedUrl = "https://api.github.com](https://api.github.com";
 
     let caught: unknown;
@@ -50,7 +47,7 @@ describe("connect-external-agent action", () => {
     }
 
     expect(isActionContractError(caught)).toBe(true);
-    expect((caught as Error).message).toMatch(/valid url/i);
+    expect((caught as Error).message).toMatch(/https/i);
     expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
@@ -66,7 +63,100 @@ describe("connect-external-agent action", () => {
     }
 
     expect(isActionContractError(caught)).toBe(true);
-    expect((caught as Error).message).toMatch(/http:\/\/ or https:\/\//i);
+    expect((caught as Error).message).toMatch(/https/i);
+  });
+
+  it("rejects localhost HTTP endpoints", async () => {
+    let caught: unknown;
+    try {
+      await action.run({
+        url: "http://localhost:3000",
+        scope: "personal",
+      } as never);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isActionContractError(caught)).toBe(true);
+    expect((caught as Error).message).toMatch(/https/i);
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://127.0.0.1",
+    "https://10.0.0.8",
+    "https://192.168.1.2",
+    "https://[::1]",
+    "https://user:pass@agent.example.com",
+  ])("rejects unsafe endpoint %s without writing", async (url) => {
+    let caught: unknown;
+    try {
+      await action.run({ url, scope: "personal" } as never);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isActionContractError(caught)).toBe(true);
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("requires an active organization for shared agents before any writes", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+    let caught: unknown;
+    try {
+      await action.run({
+        url: "https://agent.example.com",
+        scope: "shared",
+      } as never);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isActionContractError(caught)).toBe(true);
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
+    expect(mocks.sharedResourceOwner).not.toHaveBeenCalled();
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("requires an owner or admin actor for shared agents before writing", async () => {
+    mocks.currentOrgId.mockReturnValue("org_1");
+    mocks.readOrgMemberRole.mockResolvedValue("member");
+
+    let caught: unknown;
+    try {
+      await action.run({
+        url: "https://agent.example.com",
+        scope: "shared",
+      } as never);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isActionContractError(caught)).toBe(true);
+    expect((caught as { statusCode?: number }).statusCode).toBe(403);
+    expect(mocks.sharedResourceOwner).not.toHaveBeenCalled();
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("lets organization members create personal connections without shared-agent admin access", async () => {
+    mocks.currentOrgId.mockReturnValue("org_1");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.com");
+
+    const result = await action.run({
+      url: "https://agent.example.com",
+      name: "Personal Agent",
+      scope: "personal",
+    } as never);
+
+    expect(result.status).toBe("created");
+    expect(result.scope).toBe("personal");
+    expect(mocks.readOrgMemberRole).not.toHaveBeenCalled();
+    expect(mocks.resourcePutIfAbsent).toHaveBeenCalledWith(
+      "member@example.com",
+      "remote-agents/personal-agent.json",
+      expect.any(String),
+      "application/json",
+    );
   });
 
   it("connects a well-formed https endpoint", async () => {
@@ -79,10 +169,25 @@ describe("connect-external-agent action", () => {
     expect(mocks.resourcePutIfAbsent).toHaveBeenCalled();
   });
 
+  it("does not let an asserted owner register a shared agent without an admin role", async () => {
+    mocks.currentOrgId.mockReturnValue("org-1");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.readOrgMemberRole.mockResolvedValue("member");
+
+    await expect(
+      action.run({
+        url: "https://agent.example.com",
+        scope: "shared",
+      } as never),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.readOrgMemberRole).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.com",
+    );
+    expect(mocks.resourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
   it("rejects a concurrent duplicate connect as a clean 409, not an overwrite", async () => {
-    // resourcePutIfAbsent returns null when another request already won the
-    // same path; connect-external-agent must surface that as a conflict
-    // instead of silently treating it as success.
     mocks.resourcePutIfAbsent.mockResolvedValue(null);
 
     let caught: unknown;

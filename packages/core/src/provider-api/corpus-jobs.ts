@@ -16,7 +16,12 @@ import {
   type ProviderCorpusJobStatus,
 } from "./corpus-jobs-store.js";
 import type { ProviderApiMethod, ProviderApiRequestArgs } from "./index.js";
-import { getStagedDatasetRows } from "./staged-datasets-store.js";
+import { setBodyValueAtPath } from "./request-body.js";
+import {
+  getStagedDatasetMeta,
+  getStagedDatasetRows,
+  stagedDatasetVersion,
+} from "./staged-datasets-store.js";
 
 type ProviderCorpusRuntime = {
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
@@ -698,9 +703,26 @@ async function runBatchSearch(
   const batch = normalizeBatch(job.batch);
   const request = job.request as ProviderRequest;
   const search = job.search as SearchConfig;
-  const sourceItems = await loadBatchSourceItems(job, batch);
+  const { items: sourceItems, version: sourceVersion } =
+    await loadBatchSourceItems(job, batch);
   const totalSourceItems = sourceItems.length;
   let nextIndex = numberValue(job.checkpoint.nextIndex, 0);
+  // The saved position is an index into one version of the input dataset. If it
+  // was re-staged since this job began, the same index points at other rows, so
+  // resuming would skip or repeat records.
+  // A saved position with no pinned version (a job paused before versions were
+  // recorded) cannot be checked, so it fails closed like a mismatch.
+  const pinnedVersion = job.checkpoint.sourceVersion;
+  if (
+    sourceVersion !== null &&
+    (typeof pinnedVersion === "string"
+      ? pinnedVersion !== sourceVersion
+      : nextIndex > 0)
+  ) {
+    throw new Error(
+      `Input dataset ${batch.inputDatasetId} was re-staged after this job started, or its version was never recorded, so the saved position cannot be trusted to point at the same rows. Start a new job from the current dataset.`,
+    );
+  }
   let batchesThisCall = 0;
   let itemsThisCall = 0;
   let current = job;
@@ -731,6 +753,7 @@ async function runBatchSearch(
           ...job.checkpoint,
           nextIndex,
           sourceItemCount: totalSourceItems,
+          sourceVersion,
         },
         provider.quota,
       );
@@ -769,6 +792,7 @@ async function runBatchSearch(
           ...job.checkpoint,
           nextIndex,
           sourceItemCount: totalSourceItems,
+          sourceVersion,
           stoppedReason: status === "completed" ? "completed" : "budget",
         },
         batchesProcessed: current.batchesProcessed + 1,
@@ -787,6 +811,7 @@ async function runBatchSearch(
     ...job.checkpoint,
     nextIndex,
     sourceItemCount: totalSourceItems,
+    sourceVersion,
     stoppedReason: "budget",
   });
 }
@@ -847,6 +872,11 @@ async function callProvider(
       `Provider request failed (${status}): ${stringifyBrief(detail, 500)}`,
     );
   }
+  if (response.truncated === true) {
+    throw new Error(
+      `Provider response was cut at the response size limit, so this page is incomplete and would be recorded as empty. Lower the page size or fields, or add a filter in the job request.`,
+    );
+  }
   return {
     body:
       response.json ??
@@ -857,14 +887,35 @@ async function callProvider(
 async function loadBatchSourceItems(
   job: ProviderCorpusJobRecord,
   batch: Required<BatchConfig>,
-): Promise<unknown[]> {
-  if (batch.items.length > 0) return batch.items;
-  if (!batch.inputDatasetId) return [];
-  return getStagedDatasetRows({
+): Promise<{ items: unknown[]; version: string | null }> {
+  if (batch.items.length > 0) return { items: batch.items, version: null };
+  if (!batch.inputDatasetId) return { items: [], version: null };
+  const scope = {
     id: batch.inputDatasetId,
     appId: job.appId,
     ownerEmail: job.ownerEmail,
-  });
+  };
+  const notFound = () =>
+    new Error(
+      `Input dataset ${batch.inputDatasetId} was not found. It may have been evicted to make room for newer staged data; stage it again and restart the job.`,
+    );
+  // Rows and metadata are separate reads. A result only counts when the dataset
+  // has the same version on both sides of the row read: an empty read cannot
+  // tell "no items" from "evicted or replaced mid-read" (the job would pause as
+  // a normal budget stop), and a non-empty one could belong to a newer version
+  // than the one the checkpoint pins.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const before = await getStagedDatasetMeta(scope);
+    if (!before) throw notFound();
+    const items = await getStagedDatasetRows(scope);
+    const after = await getStagedDatasetMeta(scope);
+    if (!after) throw notFound();
+    const version = stagedDatasetVersion(after);
+    if (version === stagedDatasetVersion(before)) return { items, version };
+  }
+  throw new Error(
+    `Input dataset ${batch.inputDatasetId} kept changing while it was being read. Stage it once more and restart the job.`,
+  );
 }
 
 function cleanRequest(request: ProviderRequest): ProviderApiRequestArgs {
@@ -906,7 +957,7 @@ function buildPaginatedRequest(
       query = { ...query, [pagination.cursorParam]: state.cursor };
     }
     if (pagination.cursorBodyPath) {
-      body = setAtPath(body, pagination.cursorBodyPath, state.cursor);
+      body = setBodyValueAtPath(body, pagination.cursorBodyPath, state.cursor);
     }
   }
   return { ...request, query, body };
@@ -924,7 +975,7 @@ function buildBatchRequest(
     query = { ...query, [batch.itemQueryParam]: payload };
   }
   if (batch.itemBodyPath) {
-    body = setAtPath(body, batch.itemBodyPath, values);
+    body = setBodyValueAtPath(body, batch.itemBodyPath, values);
   }
   return { ...request, query, body };
 }
@@ -1347,27 +1398,6 @@ function getAtPath(value: unknown, path: string | undefined): unknown {
     current = (current as Record<string, unknown>)[part];
   }
   return current;
-}
-
-function setAtPath(base: unknown, path: string, value: unknown): unknown {
-  const parts = pathParts(path);
-  if (!parts.length) return value;
-  const root =
-    base && typeof base === "object" && !Array.isArray(base)
-      ? (JSON.parse(JSON.stringify(base)) as Record<string, unknown>)
-      : {};
-  let current = root;
-  for (const part of parts.slice(0, -1)) {
-    const existing = current[part];
-    const next =
-      existing && typeof existing === "object" && !Array.isArray(existing)
-        ? { ...(existing as Record<string, unknown>) }
-        : {};
-    current[part] = next;
-    current = next;
-  }
-  current[parts[parts.length - 1]!] = value;
-  return root;
 }
 
 interface TextField {

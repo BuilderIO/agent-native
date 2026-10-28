@@ -9,6 +9,192 @@ governingArtifactRevision: content-suggested-edits-shape-r7
 
 # Content Suggested Edits parity
 
+The September 24 database-item follow-up at the end governs the current bounded
+repair. Earlier parity and review-flow records remain in force for their own
+scopes; they do not expand this follow-up.
+
+## September 22: comment paste and optimistic review follow-up
+
+This addendum shapes Alice's two reported failures on branch
+`t3code/fix-comment-paste-optimism`, inspected at `5c5db870bf`. Alice's
+subsequent `$work` invocation authorized implementation and verification on the
+current branch. On September 23, she invoked `$land` for a PR and explicitly
+excluded merging. Earlier non-conflicting acceptance assertions remain in force;
+this addendum does not reopen the historical Work envelopes below. This existing
+brief is the governing checkpoint.
+
+### September 22 Work result
+
+The current branch now transfers submitted comment and reply drafts into one
+operation-identified optimistic entry and clears the matching composer
+immediately. Definite failures restore the submitted text without overwriting a
+newer draft; ambiguous outcomes retain the optimistic entry for reconciliation.
+Content's anchored pending-comment handoff uses the same operation identity as
+Core review create/reply, and Core create/reply retries are idempotent for an
+exact actor, resource, thread and payload. The shared Core review hooks now
+project create, reply, edit, resolve/reopen, delete and suggestion decisions
+locally with operation-scoped rollback. Content suggestion decisions gate only
+the affected suggestion.
+
+Focused Content draft/sidebar coverage passes 77 tests. Focused Core review
+client, panel, store and action coverage passes, including delayed responses,
+out-of-order rollback, safe retry and delete-restore generation. Core and
+Content typechecks and the affected package builds pass. The Content changelog
+and Core changeset record the user-visible and publishable-package changes.
+Independent bounded review found and closed a consecutive-mutation callback
+race by moving panel and suggestion-decision cleanup to per-invocation
+`mutateAsync` `finally` blocks. Its final pass found no remaining material
+correctness issue. A manually reused reply operation UUID with a changed routing
+target remains a non-blocking hardening case; the UI creates a unique UUID and
+retries the same variables for one logical submission.
+
+CO-02 through CO-05 have focused automated evidence at the changed boundaries.
+Alice reproduced the paste failure on another website and explicitly removed
+CO-01 from this Content PR's acceptance on September 23. Content uses a native
+textarea and does not intercept Cmd+V or `paste`; the Agent-Native desktop host
+also leaves V unhandled. T3's host-level shortcut behavior remains separate.
+A local preview replay was attempted on September 22, but the collaborative
+preview client could not navigate to the restarted local server. The passing
+component interaction tests remain the UI evidence from that Work pass; final
+real-interface Content QA is still required before PR readiness.
+
+### Evidence and remaining reproduction
+
+- Alice's September 22 screenshot shows one pending reply with **Saving...**
+  and the same submitted text still in the disabled composer. It does not show
+  two persisted comments.
+- `CommentsSidebar.tsx:1022-1053` and `:1063-1094` retain the root/reply draft
+  until `createComment.mutateAsync` resolves. `use-comments.ts:420-460` already
+  inserts an optimistic comment before persistence. The composer remains bound
+  to the original draft (`CommentsSidebar.tsx:2636-2658`). These lifecycles
+  explain the pictured duplicate presentation and unnecessary wait.
+- Ordinary edit has the same delayed editor completion in
+  `CommentEntry.tsx:228-254`. Ordinary resolve/reopen already have operation
+  overlays and rollback in `use-comments.ts`; preserve that machinery.
+- Suggestion replies share `ThreadView` and `CommentComposer` with ordinary
+  comments, but use `useReplyReviewComment` and clear on success
+  (`CommentsSidebar.tsx:2118,2200-2223`). Core `use-review.ts` create/reply,
+  update, resolve, delete and suggestion decision hooks do not supply optimistic
+  overlays. The generic action hook invalidates every action query on success
+  (`packages/core/src/client/use-action.ts:1100-1110`).
+- The usable suggestion donor in this checkout is the local draft-to-saved
+  presentation in `DocumentEditor.tsx:3883-3954`: local operations stay visible
+  while durable identities arrive. The current decision handler still waits
+  for the action and globally gates decisions (`:4949-4998`). Do not assume the
+  user's more recent suggestion fixes are present here: identify their exact
+  revision before porting, and reuse them if available.
+- `CommentComposer` is a controlled native textarea with no paste override or
+  Cmd+V interception. Its keyboard handler consumes mention/navigation/submit
+  keys, not V. The separate Agent-Native Desktop webview also lets V pass
+  through; it is not evidence about T3's host. T3's Mac clipboard/keyboard
+  forwarding is the leading hypothesis, not a reproduced cause.
+- Browser discovery found no CUA surfaces. T3's separate preview tools were
+  available, but there was no attached Content tab or authenticated session;
+  opening the candidate localhost URL produced a browser error. No real
+  document was edited or commented on. Physical Mac Cmd+V remains unverified.
+- Vitest could not start because dependencies are absent (`vitest` not found).
+  The disposable deferred-mutation component diagnostic is under root `.tmp/`;
+  an unexecuted test is not reproduction evidence. Required UI proof below
+  remains open regardless of source-level diagnostics.
+- Executed source-control-flow reproduction:
+  `node --experimental-strip-types .tmp/comment-handler-deferred.repro.ts`.
+  It extracts the actual root/reply handlers, strips TypeScript with Node and
+  executes them with deferred mutation dependencies. Both retain their draft
+  after the mocked optimistic insertion and clear it only after resolution:
+  reply `"Reply text" -> ""`, root `"Root text" -> ""`. This confirms handler
+  ordering; it is not a rendered-UI or real-network reproduction. The command,
+  harness and output are recorded in `.tmp/comment-reply-optimism.repro.md`.
+
+### Proposed repair and shared ownership
+
+Operate / document reviewers / submit feedback and continue / type the next
+reply or review the next change.
+
+1. Give the existing comment draft store one operation-aware submission
+   lifecycle, used by root comments, ordinary replies/edits and suggestion
+   replies. Capture text, mentions, draft revision, document/thread identity
+   and operation ID; transfer the submitted draft to one optimistic entry and
+   clear or close its composer in the same local transition. Target 100 ms,
+   maximum 400 ms, independent of server response time. Preserve focus and
+   anchors; a new root switches from its pending anchor to the optimistic thread
+   without two cards or an identity jump.
+2. Keep submitted snapshots separate from the next editable draft. A late
+   success must never clear newer typing or another document/account's draft.
+   A definite failure rolls back only that operation and exposes its retained
+   text for recovery without overwriting newer work. Unknown save outcomes stay
+   visibly unconfirmed and reconcile/retry using the same operation ID.
+   Repeated Enter must not issue duplicate writes; pending work in one thread
+   must not freeze other threads. Release completed snapshot state.
+3. Share operation identity, pending overlays, reconciliation and recovery
+   helpers at the existing Core review client boundary, with small adapters for
+   Content's `document_comments` and Core review comments. Keep their existing
+   actions, access rules and storage ownership. Reuse Content's proven overlay
+   behavior instead of building a second independent implementation. Add a
+   compatible operation/idempotency key to Core create/reply actions if needed;
+   body-text matching cannot identify server echoes or safe retries.
+4. Continue using one thread shell and reply composer in inline, compact and
+   history presentations. Adapt the shared Core `ReviewThreadPanel` submission
+   lifecycle where it consumes the changed hooks; share behavior without
+   replacing Content's anchored layout with a separate panel. Preserve mentions,
+   author attribution, keyboard selection and responsive draft continuity.
+5. Apply local completion and operation-scoped rollback to create/reply/edit,
+   resolve/reopen/delete, suggestion creation/amendment and accept/reject.
+   Retain immediate local suggestion previews, and let unrelated decisions
+   proceed. Render a reversible local decision projection; only the validated
+   server result may commit canonical document/Yjs changes. Stale/conflict
+   results restore discoverable pending/conflict state and never overwrite new
+   document text. Preserve idempotency and observed revision checks.
+6. Include existing reaction, unread and mute controls in the review-flow
+   consistency check; move their local mutation-variable projections into the
+   shared state where needed so inline/history views agree. Scope invalidation
+   to affected resources and dependent review data. Copy-link and AI generation
+   retain truthful completion: an acknowledgement must not claim a clipboard
+   write, generated reply, or saved edit succeeded before it did.
+7. Superseded for this Content PR by Alice's September 23 cross-site
+   reproduction and decision to leave the T3 shortcut issue aside. The
+   original diagnostic plan was to compare physical Mac Cmd+V,
+   context-menu Paste, and an ordinary input in the same embedded browser while
+   observing focus, keydown, paste and input events. If T3 drops paste, repair
+   its focused-browser clipboard forwarding in the owning T3 source. If paste
+   reaches Content but fails there, repair the demonstrated shared input
+   boundary. Do not add per-comment clipboard readers or request new clipboard
+   permissions to compensate for an event that never arrives. The T3 source
+   location and deployable Mac build must be identified before that edit.
+
+This is a contract repair for `content.comment.page-owned` and
+`content.revision.suggestions`, under `content.feature.collaborate-in-context`
+and `content.feature.review-changes-in-place`. No table migration to unify the
+two comment models, new feature flag, rich-comment redesign, or unrelated app
+rollout is proposed. Shared Core consumers receive focused regression checks.
+Do not mark either broad product capability verified from this bounded repair.
+
+### Cumulative acceptance for this follow-up
+
+| ID    | Observable result                                                                                                                                                                                                                                                          |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CO-01 | Superseded for this Content PR on September 23 after Alice reproduced the shortcut failure on another website and elected to leave the T3 issue aside. The original Mac paste assertion remains a separate T3 concern.                                                     |
+| CO-02 | With the save response held for several seconds, Enter on a root comment or a second reply immediately shows exactly one submitted entry and clears/closes the matching composer. No duplicate text, disabled submitted draft, card jump or duplicate persistence appears. |
+| CO-03 | Ordinary and suggestion replies use the same submission behavior in inline, compact and history views. New typing remains editable during a save; late success preserves that typing through view/thread switches.                                                         |
+| CO-04 | Edit, resolve, reopen, delete, suggestion create/amend and accept/reject acknowledge locally within 400 ms. Only conflicting controls are gated; another thread or independent suggestion stays usable. Reactions/unread/mute agree across views.                          |
+| CO-05 | Rejection, offline state and timeout preserve recoverable submitted text and newer drafts. Retry/reconciliation does not duplicate a committed comment; stale fetches and out-of-order acknowledgements do not resurrect, erase or duplicate entries.                      |
+| CO-06 | Suggestion conflict leaves canonical text intact and the affected proposal discoverable. Successful decisions reconcile without flashing old content or clobbering concurrent typing; reload and a second client show the durable result.                                  |
+| CO-07 | Enter submits once, Shift+Enter adds a line, mention selection and IME composition do not submit accidentally, and Escape/focus/selection survive responsive remounts. Author, mentions, target, access and agent action behavior remain intact.                           |
+
+Work should first identify/reuse the newer suggestion fix revision, run the
+deferred-response repro on current code, then implement the shared lifecycle
+and its adapters. Run existing draft/composer/sidebar/CommentEntry/mutation
+tests plus focused Core review/action idempotency and suggestion tests. Add
+meaningful delayed-response, stale-refetch, failure and identity regressions;
+format source, typecheck affected packages, add a Core changeset if applicable,
+and record the Content changelog. Any new UI copy includes configured locales
+and both i18n guards; include the Content product-impact check.
+
+Final real-interface Content QA uses a private task-owned fixture, including
+desktop/compact/history and delayed, failed, stale and warm-peer cases above.
+Independence is preferred with same-context custody. Bind evidence to the actual
+build and clean up fixtures. The separate T3 shortcut concern is excluded by
+Alice's September 23 correction.
+
 ## September 12 beta repair plan
 
 ### September 14 reconciliation: follow-up recovery repair
@@ -360,6 +546,12 @@ Persona: a writer/commenter proposing exact edits, an authorized reviewing edito
 **R44 — centered review group with independent reading width (September 10, Alice; confirmed after video and screenshot feedback).** When inline comments are visible, center the entire title/body column + gap + comment-card group within the available page area beside the navigation sidebar. The margin before the title/body column must equal the margin after the cards. Keep title and body aligned at the same normal reading width; comments may shift their position but must never squeeze them. Consume spare outer margins before collapsing cards. When the unchanged reading column and cards cannot fit together, collapse to indicators and compact review, and center the document alone. Only a viewport too narrow for the document itself may reduce its reading width. Measure available page space after navigation, agent sidebars and split view, not the full browser width. Preserve full-width database views, drafts, selection, and review state across transitions.
 
 R44 acceptance: with inline cards, the text column is 640px wide, the column-to-card gap is 24px, and the visible cards are 296px wide; the resulting 960px group has equal outer margins. The current desktop fit boundary is 1088px of available page width, leaving 64px on either side. Verify equal margins and matching title/paragraph widths at both wide and near-boundary sizes. Below the fit boundary, verify compact review and unchanged 640px text width while the document alone still fits; verify ordinary narrowing only after that. Short lines naturally end before the column edge—measure paragraph bounds or use sufficient text rather than treating visible text endings as column boundaries. Opening compact review must not reflow the document. No comment visibility or resize operation may mutate document text or decide a suggestion.
+
+**R45 — opening the page-actions menu preserves the exact visible editor selection ([September 21 Clips report](https://clips.agent-native.com/r/5VDEhRg1c3Ro); corrected after live fixture reproduction on September 21; extends A01, A09, R35–R36).** Given a writer has selected an exact text range in the ordinary Page editor, clicking the top-right three-dot button must open the menu while that same range remains selected. The acceptance checkpoint is the open-menu state before the writer chooses any command: the browser-visible highlight, browser anchor/focus range, and editor selection must still identify the original range. Moving focus into the menu must not widen the selection to its containing paragraph or list item, collapse it, reverse it, or replace it with another range. Restoration after the menu closes or after Suggest edits is chosen does not satisfy this checkpoint. Keyboard-open menus must retain normal menu focus and arrow-key operation while preserving the editor range; pointer-open menus may leave focus in either the editor or menu so long as the menu remains usable and the exact selection remains visibly stable.
+
+Choosing Suggest edits must still enter Suggesting with that same anchor/head range selected in the remounted suggestion editor, so the user's first replacement applies only to the material they selected. Preserve forward and backward selections, inline marks, hard breaks, and a collapsed caret; do not fall back to the containing paragraph when a range cannot be mapped. Closing the menu or choosing Undo, Redo, Copy page link, Pin, Info, Version history, or Export must not mutate editor selection or document content. The existing editor-isolation remount remains required; selection is handed across that boundary rather than keeping the canonical editor alive.
+
+R45 proof: on the current fixture, double-click `note` in `Write a note, plan, or draft.` and verify the selection is exactly `note`; click the three-dot button and, while the menu is still open and before invoking an item, verify it is still exactly `note`. The September 21 reproduction measured `note` before the click and `Write a note, plan, or draft.` afterward, establishing the failing boundary. Capture this open-menu checkpoint through the real interface in the in-app browser or equivalent Chromium surface, then repeat it with a backward drag selection and keyboard menu activation. Only after those checks pass, choose Suggest edits and verify the exact range survives the remount; cancel/exit without typing and verify canonical Markdown remains byte-identical. Add a mounted regression at the DocumentToolbar/DocumentEditor selection handoff, but do not treat a post-Suggest restoration test, DOM-only dispatch, or click-only happy-dom assertion as proof of the open-menu behavior. Existing BubbleToolbar selection-retention behavior is a sibling control, not a second implementation target.
 
 **R43 — shared review visibility (September 10, Alice).** Hide comments and highlights also hides in-page suggestion decorations. Showing them restores both. This is presentation only: retain proposal state, drafts, discussion history and accurate anchor metadata; hiding must not accept, reject or discard edits.
 
@@ -1022,6 +1214,241 @@ status: return-to-shape
 invalidation-banner: WORK PAUSED — RETURNING TO SHAPE
 ```
 
-## Next step
+## Existing parity acceptance next step (separate scope)
 
 Execute r5 H1–H18 in the owning task, repair failures under the unchanged A/R assertions, mark affected evidence stale and rerun. Record the final exact artifact and every remaining gap in this document. No new Work invocation or independent human tester is required. Full acceptance remains open until the cumulative story, including role/agent/live-peer and deployed evidence boundaries, is demonstrated.
+
+## September 24 follow-up: suggestions on database-item Pages
+
+Revision: database-item-suggestions-r1. Status: shaped; implementation and acceptance pending.
+
+### Outcome and scope
+
+A person opening an ordinary, locally owned database-item Page can choose
+**Suggest edits**, propose supported changes to its primary page body, and
+review those changes just as on a standalone Page. Collection membership alone
+must not remove this capability. The same shared Actions support agent proposals.
+
+This follow-up covers the full-page editor and database preview. It reuses the
+existing supported text/block/inline-format operations and review lifecycle.
+Secondary Blocks fields and collection properties do not gain suggestions;
+secondary body editors must be read-only while suggesting. A collection context
+with no available primary body must not offer a misleading suggesting mode.
+Collection container Pages, inline-database bodies, externally linked/source-owned
+Pages, and existing access restrictions retain their current boundaries.
+No new feature flag or schema is planned. This repair does not inherit the
+historical first-release default-off rollout plan above.
+
+Product context: `content.object.page`, `content.revision.suggestions`, and
+`content.feature.review-changes-in-place`. A collection row is a Page; this is
+a repair to that shared behavior, not a new document type.
+
+### Evidence and implementation approach
+
+Source inspected: `origin/main` at `d4d91eb159d56d03b8f0a79a10bd7f64bdc67008`
+(September 24). At shaping time, the worktree HEAD was older and lacked the implementation.
+Before Work, recheck the merged implementation and current branch; do not
+implement against the September 3 feature scaffold. Branch switching,
+rebasing, and other branch movement require the user's explicit authorization.
+
+1. Remove the ordinary-membership veto from `_suggestion-eligibility.ts` and its
+   `get-document.ts` / `list-documents.ts` callers. Remove only the now-unused
+   membership checks; preserve access, source, collection-container and body
+   restrictions. Keep get/list eligibility consistent.
+2. Remove the same veto from proposal validation and acceptance in
+   `server/lib/suggested-edits.ts`. Retain external-link checks, exact revision
+   checks, structural validation, stale handling, and access enforcement.
+   Reuse the existing transaction: it already locks primary Blocks fields for
+   all memberships, persists their identities, writes body/history, and persists
+   Yjs and sync state together. Prove this on ordinary memberships rather than
+   introducing a parallel mutation path or granting collection-schema access.
+3. Wire suggesting state through `DocumentEditor` / `DocumentBlockFields` so
+   secondary editors cannot save canonical body changes in this mode. Today
+   `editorCanEdit` is independent of suggesting, and secondary fields save directly.
+   Resolve the visible primary-body target before enabling mode; handle loading,
+   unavailable properties, missing primary fields and collection-context changes
+   explicitly. Preserve pre-existing pending saves when entering mode without
+   treating subsequent typing as a direct edit. Reuse the shared toolbar and
+   primary suggestion editor in full-page and preview; do not add a second composer.
+4. Update targeted regression coverage, the relevant Content product evidence,
+   and the app changelog. Update localized copy together if any copy changes.
+   Scope should stay in Content; a necessary Core change needs a changeset and
+   proportional independent technical review.
+
+### Acceptance story
+
+Use disposable native Pages and a collection with a primary Content field, an
+extra Blocks field, and a normal property. Include a Page in two collections,
+an equivalent standalone Page, and commenter/editor/viewer sessions. Do not
+modify the user's article to prove acceptance.
+
+| ID     | Observable assertion                                                                                                                                                                                                                                                                                                            |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DSI-01 | An eligible row opened from its collection, direct link, or preview offers Suggest edits. Owner/editor/commenter can propose; viewer cannot. Reload and navigation preserve correct eligibility.                                                                                                                                |
+| DSI-02 | Enter suggesting and perform the existing supported text insertion, deletion, replacement, block and inline-format operations. Proposals are reviewable; canonical content in another session stays unchanged until acceptance.                                                                                                 |
+| DSI-03 | Accept one proposal and reject another. Exactly the accepted change appears in the Page and its primary Content representation across both memberships and live clients; comments, decisions and history survive reload. Properties and secondary body values remain unchanged.                                                 |
+| DSI-04 | During suggesting, secondary Blocks fields cannot directly save typed changes. Entering mode with a pending direct save preserves that prior edit. Missing/unavailable primary body, failed property loads, and context changes never expose an editable wrong target or falsely active mode.                                   |
+| DSI-05 | Agent creation through suggest-document-edit uses the same proposal and review path. Duplicate requests/decisions apply once; overlapping edits and permission changes give an explicit conflict/denial without overwriting newer content. Failed acceptance leaves body, field identities, disposition and history consistent. |
+| DSI-06 | Standalone-page suggestions still work. Collection containers, inline-database bodies and source-owned/externally linked Pages retain their existing exclusions. Ordinary direct editing resumes after leaving suggesting.                                                                                                      |
+| DSI-07 | The complete full-page and preview flow works through visible controls and keyboard, with correct focus and no clipped review controls at desktop and a supported narrow viewport.                                                                                                                                              |
+
+### Proof and handoff
+
+Extend `actions/content-database-lifecycle.db.test.ts` for matching get/list
+eligibility; `actions/suggest-document-edit.db.test.ts` for agent proposal parity;
+`server/lib/suggested-edits.db.test.ts` and `.spec.ts` for ordinary and multiple
+memberships, atomic application, history, conflicts and retries. Extend existing
+`DocumentBlockFields`, toolbar and suggestion-isolation tests for DSI-04. Run
+the explicit database suites (the fast suite does not include them), Content
+typechecking, formatting and applicable repository guards. Reuse existing tests
+where they already prove an unaffected invariant.
+
+Before integration, execute DSI-01 through DSI-07 through the real Content UI
+under the human-qa skill, with supporting Action/database assertions where needed.
+Independence is preferred; same-context custody is allowed. Obtain bounded
+independent technical review of authorization and transactional/body isolation.
+Record the tested build, fixture cleanup, representative final UI evidence and
+any failed assertions here. API success alone does not establish UI acceptance.
+If pre-integration proof cannot be established, surface the missing decision;
+do not silently defer required acceptance until after merge.
+
+Destination: this repository's current task branch for implementation, then
+Content Beta through the separately authorized normal integration/deployment
+workflow. No runtime, deployment or production-data changes are authorized by
+this Shape. Next action is implementation of this follow-up against current
+code, followed by the frozen acceptance story above.
+
+### September 24 Work evidence
+
+The current task branch merged `origin/main` with Alice's explicit permission,
+then removed the database-row suggestion veto. Eligibility now requires a
+primary Blocks target for rows; collection containers and metadata-only rows
+remain excluded. Proposal and acceptance check that target, and acceptance
+uses the existing canonical body/primary-field/Yjs transaction. Suggesting
+keeps secondary Blocks fields read-only while allowing saves queued before
+entry to complete. An empty body can now produce its first suggested text block.
+
+Seven focused Content suites pass (135 tests), and direct Content TypeScript
+checking passes. An independent bounded review found and closed the pending
+save, draft-availability, and metadata-only/container gaps. In a task-owned
+local Content instance, an empty collection row offered Suggest edits in
+preview; submitting its first line left the canonical body empty, and accepting
+the review item populated the body. The accepted content persisted on the full
+page after navigation. The full-page menu also offered Suggest edits at an
+800-pixel viewport without clipping. The separate nonempty-row proposal and
+acceptance path also persisted after reload. These are sampled real-interface
+checks for DSI-01, DSI-02, DSI-03, and DSI-07. A second preview proposal was
+rejected and left the canonical body unchanged. After adding a secondary Blocks
+field, its editor became read-only during suggesting and editable on exit,
+while its existing value stayed visible. Collection containers had no Suggest
+edits menu item. Adding that secondary field initially failed because the UI
+sent Blocks options excluded by the property's action schema; omitting those
+options lets the action create the field with its own safe default. The
+disposable collection and its two rows were moved to local Trash. A targeted
+permanent-delete attempt remains pending in the local Trash UI, so that local
+data has not been verified purged. No fixture was created on Content Beta.
+Role, multi-membership, conflict, and additional formatting cases have
+automated coverage where added but have not all been replayed through the UI.
+
+`guard:i18n-changed-copy` passes. `guard:i18n-catalogs` and
+`guard:content-product-docs` fail on repository-wide Windows path/line-ending
+baseline mismatches unrelated to this diff. The aggregate `pnpm guards`
+runner exits before checks with Node `spawn EINVAL` on this Windows host.
+The targeted `DocumentProperties.test.ts` suite passes (24 tests); its
+source-layout companion has one Windows CRLF-sensitive assertion failure.
+Before integration, finish the full DSI-01–07 real-interface matrix and run
+the affected repository guards in a working CI environment.
+
+### September 24–25 UI acceptance replay
+
+Tested the committed `d38eb1a8b5` build through a task-owned local Content
+server in Chromium, using disposable Pages, two ordinary collections, and
+separate owner, editor, commenter, and viewer accounts. The shared Page was
+attached to both collections. No beta or user article was changed.
+
+| Assertion | Observed result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DSI-01    | The row offered Suggest edits in collection preview and full page, from a direct link and after reload. Owner, editor, and commenter had the action with access to both row and collection; viewer did not. A row-only share left collection properties unavailable and did not expose Suggest edits.                                                                                                                                                                                                                                                                                                                                                   |
+| DSI-02    | Insert, delete, inline bold, and a new block produced review cards. A second live session retained the canonical body until acceptance. An attempted replacement was rejected and left the body unchanged.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| DSI-03    | Accepted changes appeared once in the other live session and through both collection memberships after reload. Rejected changes did not appear. Resolved cards and version history survived reload. The Text property (`Metadata baseline`) and secondary Blocks value (`Secondary only`) remained unchanged.                                                                                                                                                                                                                                                                                                                                           |
+| DSI-04    | Secondary Blocks was read-only in Suggesting and editable on exit. A secondary Blocks edit was followed immediately by entering Suggesting; its `set-document-property` request succeeded and `Queued secondary` survived reload. Removing Collection B's primary Blocks field hid Suggest edits in that context while Collection A remained eligible; navigating into the unavailable context exited Suggesting. Aborting the Collection A property-load request displayed Retry and hid Suggest edits; retry restored the editor. A deliberately delayed network response retains mounted regression coverage rather than a browser timing assertion. |
+| DSI-05    | Browser-exposed `suggest-document-edit` created a pending review card. Replaying its idempotency key returned the same suggestion and thread. A viewer's action call was denied. Two full replacement proposals for the same base text were reviewed in sequence: the first accepted, the second displayed Conflict, and the body retained the first choice. The earlier partially overlapping proposals safely rebased to `Conflict. Agent.`; they were not used as the conflict assertion. Transactional failure and field-identity details retain database-test coverage rather than a browser fault-injection assertion.                            |
+| DSI-06    | Standalone suggestion and subsequent ordinary editing worked. Collection containers and disposable source-owned, inline-database, and externally linked Pages omitted Suggest edits.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| DSI-07    | Full-page and preview menus, review cards, accept/reject controls, and keyboard menu activation worked. At 800 × 700, the full-page menu and collection preview menu remained visible and unclipped; the compact preview's Comments panel showed its pending card and reachable Accept/Reject controls.                                                                                                                                                                                                                                                                                                                                                 |
+
+The seven original fixture documents and collection Pages were moved to local
+Trash. The collection and shared row were briefly restored for the compact
+preview check; the restored shared row then returned as Document unavailable
+because its membership was absent, so a new disposable compact row was used.
+That row, the shared row, and the collection were returned to Trash afterward.
+An exact seven-item permanent-purge plan found all eligible, but the app's
+WebMCP approval gate rejected execution with `approval_required`; no broad
+Trash purge was attempted. The three disposable local test accounts remain in
+the local development database. The earlier Work fixtures described above also
+remain unverified in Trash.
+
+After merging the newer `origin/main` into this task branch, a fresh local
+collection row again showed Suggest edits in its preview, accepted an empty-body
+insertion through the Comments card, and displayed the accepted body. That
+two-item smoke fixture was returned to Trash. Seven focused Content suites
+passed (168 tests), as did Content typechecking and the focused adapter rerun
+after updating two query-count assertions. The Windows aggregate guard runner
+still exits with `spawn EINVAL`; catalog and product-doc guards report the
+previously observed path/baseline errors on this host, so CI is needed for
+their final result.
+
+PR review identified an active-draft permission-loss trap. In a fresh
+collection-row fixture, a commenter typed an unsaved suggestion, then the
+owner downgraded both row and collection access to Viewer. The attempted
+suggestion save was denied; the editor kept the exact draft visible and offered
+Copy my unsaved text and Discard draft. Copy succeeded, Discard exited
+Suggesting, and the canonical body remained empty at revision 0. The fixture
+was returned to local Trash. This replay exercises the repaired failure path
+on the same Content row surface.
+
+The next PR review found that the generic suggestion action accepted a Page
+share while ignoring access to the ordinary collection supplying its primary
+Blocks field. The proposal and acceptance paths now require an accessible
+ordinary membership; a private Files system container remains an internal
+body context for a standalone shared Page. Direct and list reads select an
+accessible eligible membership consistently when a Page also belongs to a
+metadata-only collection. Database regressions verify row-only action denial,
+eligibility after a collection share, and stable context-free selection. Nine
+focused Content suites pass (183 tests), along with Content typechecking.
+
+Follow-up review found that direct Page reads and the document list resolved
+collection access once per membership. They now use one access-scoped batch
+query for the distinct collection Pages. It also found a draft-recovery gap
+when the primary Blocks field vanished during Suggesting; the existing
+Copy/Discard banner now covers any unavailable suggestion body target. Ten
+focused suites pass (300 tests), including the editor layout suite, and Content
+typechecking passes.
+
+In a fresh collection-row preview, an unsaved suggestion remained recoverable
+after its only Blocks property was deleted in a second Chromium tab. The open
+preview displayed Copy my unsaved text and Discard draft; Discard exited
+Suggesting. The disposable collection and row were moved to local Trash.
+
+The final review pass also identified sequential membership access during
+proposal and acceptance, a membership insert race during acceptance, and a
+soft-deleted collection Page that could appear standalone. Eligibility now
+batches direct access checks within the transaction and uses transaction-aware
+organization membership checks and Content-space resolution for remaining
+collection Pages. The same batch resolver supplies Page reads and suggestions,
+including access through a non-active organization and a validated Content
+space, while excluding an unrelated user. Acceptance takes a transaction-scoped
+exclusive lock on the membership table after locking the Page and before capturing the memberships whose
+primary fields it reconciles; the Page row lock alone cannot exclude inserts
+because membership rows have no Page foreign key. Proposal
+and acceptance both exclude soft-deleted collection containers. A targeted
+database regression covers deleted containers and another covers non-active
+organization access. A final acceptance regression removes the eligible field
+between authorization and the membership lock; the transaction rejects it and
+keeps the canonical body unchanged. The affected Content database suites and
+document discovery suite pass locally (92 tests), along with Content typechecking.
+A final regression also covers accepting a standalone Page with no collection
+membership, which must not require a primary Blocks field.
+The locked membership recheck also rejects a Page that gains an ordinary
+collection membership between authorization and the lock.
+The membership lock is acquired without waiting after the Page lock; a competing
+membership write returns a retryable suggestion conflict instead of deadlocking.

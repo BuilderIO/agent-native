@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   assertDelegatedPolicyId,
   assertJobExecutionTargetFields,
+  assertJobRunnerTarget,
   buildJobResourceContent,
   classifyJobResource,
+  droppedJobFrontmatterKeys,
   isRecoveredFactoryJob,
   jobBelongsToApp,
   recoveredFactoryOwnerOrgId,
@@ -37,7 +39,11 @@ describe("job resource frontmatter", () => {
       createdBy: "alice@example.com",
       orgId: "org-1",
       runAs: "creator",
+      mcpManaged: true,
       lastRun: "2026-07-29T16:00:00.000Z",
+      lastHistoryId: "firing-history-1",
+      lastRunManual: true,
+      lastRunAdvanceSchedule: false,
       lastStatus: "error",
       lastError: 'Provider said "no"\nretry later',
       nextRun: "2026-07-30T16:00:00.000Z",
@@ -47,6 +53,7 @@ describe("job resource frontmatter", () => {
       deliveryThreadRef: "1785343277.030909",
       deliveryTenantId: "T012345",
       model: "claude-sonnet-4-5",
+      reasoningEffort: "high",
       maxIterations: 32,
       maxRunInputTokens: 1_000_000,
       mcpTools: ["mcp__calendar__list_events"],
@@ -62,6 +69,64 @@ describe("job resource frontmatter", () => {
       hasExplicitTriggerType: true,
       triggerType: "schedule",
     });
+  });
+
+  it("round-trips a job runner id and keeps it through a scheduler patch", () => {
+    const meta: JobFrontmatter = {
+      schedule: "*/15 * * * *",
+      enabled: true,
+      triggerType: "schedule",
+      runner: "workflow",
+      createdBy: "alice@example.com",
+      nextRun: "2026-07-30T16:00:00.000Z",
+    };
+
+    const content = buildJobResourceContent(meta, "Runs the saved workflow.");
+    expect(parseJobResource(content).meta).toEqual(meta);
+
+    const patched = patchJobFrontmatterFields(content, {
+      lastStatus: "running",
+    });
+    expect(parseJobResource(patched).meta.runner).toBe("workflow");
+    expect(droppedJobFrontmatterKeys(content, patched)).toEqual([]);
+  });
+
+  it("refuses a runner that also targets an execution host", () => {
+    expect(() =>
+      assertJobRunnerTarget({
+        runner: "workflow",
+        executionHostId: "remote-device-laptop",
+      }),
+    ).toThrow(/cannot also target an execution host/);
+    expect(() =>
+      buildJobResourceContent(
+        {
+          schedule: "*/15 * * * *",
+          enabled: true,
+          runner: "workflow",
+          executionHostId: "remote-device-laptop",
+        },
+        "Runs the saved workflow.",
+      ),
+    ).toThrow(/cannot also target an execution host/);
+    expect(() => assertJobRunnerTarget({ runner: "workflow" })).not.toThrow();
+    expect(() =>
+      assertJobRunnerTarget({ executionHostId: "remote-device-laptop" }),
+    ).not.toThrow();
+  });
+
+  it("drops an unrecognized stored reasoningEffort value instead of parsing it", () => {
+    const content = [
+      "---",
+      'schedule: "0 * * * *"',
+      "enabled: true",
+      "reasoningEffort: extreme",
+      "---",
+      "",
+      "Run it.",
+    ].join("\n");
+    const parsed = parseJobResource(content);
+    expect(parsed.meta.reasoningEffort).toBeUndefined();
   });
 
   it("rejects unbounded execution targets and delegated policy IDs", () => {
@@ -232,6 +297,36 @@ Legacy webhook.`).meta.webhookToken,
     ).toBe(meta.webhookToken);
   });
 
+  it("round-trips a canonical manual automation without automatic trigger fields", () => {
+    const content = buildJobResourceContent(
+      {
+        schedule: "",
+        enabled: true,
+        triggerType: "manual",
+        mode: "agentic",
+        createdBy: "alice@example.com",
+        runAs: "creator",
+      },
+      "Run only when requested.",
+    );
+
+    expect(content).toContain("triggerType: manual");
+    expect(content).not.toMatch(/^(event|condition|nextRun):/m);
+    expect(parseJobResource(content)).toMatchObject({
+      meta: {
+        schedule: "",
+        enabled: true,
+        triggerType: "manual",
+      },
+      body: "Run only when requested.",
+      classification: {
+        kind: "automation",
+        hasExplicitTriggerType: true,
+        triggerType: "manual",
+      },
+    });
+  });
+
   it("distinguishes legacy jobs from explicit scheduled automations", () => {
     const legacy = `---
 schedule: "0 9 * * *"
@@ -292,6 +387,36 @@ Run the job.`),
     expect(jobBelongsToApp({}, "mail")).toBe(true);
   });
 
+  it("claims a job under an additional app id only for the app that lists it", () => {
+    const workflowJob = { orgId: "org-1", appId: "factory-workflows" };
+    expect(jobBelongsToApp(workflowJob, "factory")).toBe(false);
+    expect(jobBelongsToApp(workflowJob, "factory", ["factory-workflows"])).toBe(
+      true,
+    );
+    expect(
+      jobBelongsToApp(workflowJob, "factory", [" factory-workflows "]),
+    ).toBe(true);
+    expect(jobBelongsToApp(workflowJob, "factory", ["calendar"])).toBe(false);
+    expect(
+      jobBelongsToApp(workflowJob, "factory", [
+        "calendar",
+        "factory-workflows",
+      ]),
+    ).toBe(true);
+    expect(jobBelongsToApp(workflowJob, null, ["factory-workflows"])).toBe(
+      false,
+    );
+    expect(
+      jobBelongsToApp({ orgId: "org-1", appId: "factory" }, "factory", [
+        "factory-workflows",
+      ]),
+    ).toBe(true);
+    expect(
+      jobBelongsToApp({ orgId: "org-1" }, "factory", ["factory-workflows"]),
+    ).toBe(false);
+    expect(jobBelongsToApp({}, "mail", ["factory-workflows"])).toBe(true);
+  });
+
   it("recovers Factory-folder org jobs that lost appId for Factory only", () => {
     const path = "jobs/factories/demo-factory/factory-slack-feedback.md";
     const orgOwner = "__organization__:org-1";
@@ -332,5 +457,95 @@ Run the job.`),
     expect(recoveredFactoryOwnerOrgId({ orgId: "org-2" }, path, orgOwner)).toBe(
       null,
     );
+  });
+});
+
+describe("droppedJobFrontmatterKeys", () => {
+  const factoryJob = [
+    "---",
+    'schedule: "*/5 * * * *"',
+    "enabled: true",
+    "triggerType: schedule",
+    "orgId: org-1",
+    'lastRun: "2026-10-05T17:00:00.000Z"',
+    "lastStatus: success",
+    'nextRun: "2026-10-05T17:05:00.000Z"',
+    "source: slack",
+    "slackChannelId: C123",
+    "displayName: slack-feedback",
+    "promptVersion: 2",
+    "---",
+    "",
+    "Triage the channel.",
+  ].join("\n");
+
+  it("reports configuration a rewrite removed", () => {
+    const rewritten = [
+      "---",
+      'schedule: "*/5 * * * *"',
+      "enabled: true",
+      "orgId: org-1",
+      'lastRun: "2026-10-05T17:05:00.000Z"',
+      "lastStatus: running",
+      "---",
+      "",
+      "Triage the channel.",
+    ].join("\n");
+
+    expect(droppedJobFrontmatterKeys(factoryJob, rewritten)).toEqual([
+      "triggerType",
+      "source",
+      "slackChannelId",
+      "displayName",
+      "promptVersion",
+    ]);
+  });
+
+  it("does not count scheduler bookkeeping as lost configuration", () => {
+    const afterRun = patchJobFrontmatterFields(factoryJob, {
+      lastRun: undefined,
+      lastStatus: undefined,
+      nextRun: undefined,
+    });
+
+    expect(droppedJobFrontmatterKeys(factoryJob, afterRun)).toEqual([]);
+  });
+
+  it("reports nothing for an in-place patch of other fields", () => {
+    const patched = patchJobFrontmatterFields(factoryJob, {
+      enabled: false,
+      lastStatus: "running",
+    });
+
+    expect(droppedJobFrontmatterKeys(factoryJob, patched)).toEqual([]);
+  });
+
+  it("reports every configuration field when the frontmatter itself is gone", () => {
+    expect(droppedJobFrontmatterKeys(factoryJob, "Just a body.")).toEqual([
+      "schedule",
+      "enabled",
+      "triggerType",
+      "orgId",
+      "source",
+      "slackChannelId",
+      "displayName",
+      "promptVersion",
+    ]);
+  });
+
+  it("ignores a file that had no frontmatter to lose", () => {
+    expect(droppedJobFrontmatterKeys("A run log.", factoryJob)).toEqual([]);
+  });
+
+  it("reads CRLF frontmatter the same way", () => {
+    const crlf = factoryJob.replace(/\n/g, "\r\n");
+    const stripped = crlf
+      .split("\r\n")
+      .filter((line) => !line.startsWith("slackChannelId"))
+      .join("\r\n");
+
+    expect(droppedJobFrontmatterKeys(crlf, stripped)).toEqual([
+      "slackChannelId",
+    ]);
   });
 });

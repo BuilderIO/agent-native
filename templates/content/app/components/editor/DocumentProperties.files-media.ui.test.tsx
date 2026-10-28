@@ -5,9 +5,20 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const setPropertyMutation = vi.hoisted(() => ({
-  mutateAsync: vi.fn(async () => ({})),
-  isPending: false,
+const { setPropertyMutation, uploadStatus } = vi.hoisted(() => ({
+  setPropertyMutation: {
+    mutateAsync: vi.fn(async () => ({})),
+    isPending: false,
+  },
+  uploadStatus: {
+    current: {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false } as { configured: boolean } | undefined,
+      refetch: vi.fn(),
+    },
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -21,6 +32,60 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     return key;
   },
 }));
+
+vi.mock("@agent-native/core/client/uploads", () => ({
+  useFileUploadStatus: () => uploadStatus.current,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", async () => {
+  const { createElement } = await import("react");
+  return {
+    FileStorageSetupPopover: ({
+      open,
+      status,
+      onRetry,
+      onOpenChange,
+    }: {
+      open: boolean;
+      status?: string;
+      onRetry?: () => void;
+      onOpenChange: (open: boolean, reason?: string) => void;
+    }) =>
+      open
+        ? createElement(
+            "div",
+            { "data-testid": "file-storage-setup-popover" },
+            status === "unavailable"
+              ? createElement(
+                  "span",
+                  {},
+                  "onboarding.fileStorage.statusUnavailable",
+                )
+              : null,
+            status === "unavailable"
+              ? createElement(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: onRetry,
+                    "data-testid": "file-storage-retry",
+                  },
+                  "common.retry",
+                )
+              : null,
+            createElement(
+              "button",
+              {
+                type: "button",
+                onClick: () => onOpenChange(false, "dismiss"),
+                "data-testid": "file-storage-dismiss",
+              },
+              "dismiss",
+            ),
+          )
+        : null,
+  };
+});
 
 vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-document-properties")>()),
@@ -63,6 +128,13 @@ describe("files and media property editor", () => {
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
     setPropertyMutation.mutateAsync.mockClear();
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: false },
+      refetch: vi.fn(),
+    };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -83,6 +155,7 @@ describe("files and media property editor", () => {
   afterEach(() => {
     act(() => root.unmount());
     document.body.replaceChildren();
+    vi.unstubAllGlobals();
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = false;
@@ -120,4 +193,142 @@ describe("files and media property editor", () => {
       ],
     });
   });
+
+  it("shows storage setup only after an image upload is requested", async () => {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Edit Image"]',
+    );
+    await act(async () => trigger?.click());
+
+    expect(
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).toBeNull();
+    const uploadButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.properties.upload",
+    );
+    expect(uploadButton).not.toBeNull();
+    await act(async () => uploadButton?.click());
+    expect(
+      container.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).not.toBeNull();
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input?.disabled).toBe(true);
+    if (input) {
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        value: [new File(["image"], "photo.png", { type: "image/png" })],
+      });
+      await act(async () => input.dispatchEvent(new Event("change")));
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(setPropertyMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not upload a queued image after storage setup is dismissed", async () => {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Edit Image"]',
+    );
+    await act(async () => trigger?.click());
+
+    const uploadButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "editor.properties.upload",
+    );
+    await act(async () => uploadButton?.click());
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    Object.defineProperty(input!, "files", {
+      configurable: true,
+      value: [new File(["image"], "photo.png", { type: "image/png" })],
+    });
+    await act(async () => input!.dispatchEvent(new Event("change")));
+
+    await act(async () =>
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="file-storage-dismiss"]',
+        )
+        ?.click(),
+    );
+
+    uploadStatus.current = {
+      isSuccess: true,
+      isError: false,
+      isFetching: false,
+      data: { configured: true },
+      refetch: vi.fn(),
+    };
+    await act(async () => {
+      root.render(
+        <PropertyValuePopover
+          property={imageProperty}
+          documentId="document"
+          databaseDocumentId="database-document"
+          portalled={false}
+        >
+          Existing image
+        </PropertyValuePopover>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(setPropertyMutation.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["loading", false],
+    ["error", true],
+  ] as const)(
+    "shows retry instead of setup when file storage status is %s",
+    async (_state, isError) => {
+      const refetch = vi.fn();
+      uploadStatus.current = {
+        isSuccess: false,
+        isError,
+        isFetching: !isError,
+        data: undefined,
+        refetch,
+      };
+      const trigger = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Edit Image"]',
+      );
+      await act(async () => trigger?.click());
+
+      expect(
+        container.querySelector('[data-testid="file-storage-setup-popover"]'),
+      ).toBeNull();
+      expect(
+        container.querySelector<HTMLInputElement>('input[type="file"]')
+          ?.disabled,
+      ).toBe(true);
+      expect(document.body.textContent).not.toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+      const uploadButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => button.textContent === "editor.properties.upload");
+      await act(async () => uploadButton?.click());
+      expect(document.body.textContent).toContain(
+        "onboarding.fileStorage.statusUnavailable",
+      );
+
+      await act(async () => {
+        document.body
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="file-storage-retry"]',
+          )
+          ?.click();
+      });
+
+      expect(refetch).toHaveBeenCalledOnce();
+    },
+  );
 });

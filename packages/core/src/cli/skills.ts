@@ -1,14 +1,9 @@
-/**
- * `agent-native skills` is the friendly install surface for app-backed skills.
- * The lower-level `app-skill` commands remain the packaging primitives; this
- * command handles the common "install Assets for my agent" path in one step.
- */
-
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -16,6 +11,7 @@ import {
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
 import { docsUrl } from "../shared/docs-url.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   buildAppSkillPack,
   ensureAppSkill,
@@ -25,21 +21,30 @@ import {
   type LoadedAppSkillManifest,
 } from "./app-skill.js";
 import {
+  readConnectClientPreferences,
   resolveClients,
   runConnect,
+  supportsRemoteMcpOAuth,
   writeConnectClientPreferences,
 } from "./connect.js";
 import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
+import {
+  detectInstalledClients,
+  isHomeDirectory,
+} from "./installed-clients.js";
 import { CLIENTS, configPathFor, type ClientId } from "./mcp-config-writers.js";
 import {
   installScreenMemoryForClient,
   resolveScreenMemoryStoreDir,
 } from "./mcp.js";
-import { PR_VISUAL_RECAP_SETUP, writePrVisualRecapWorkflow } from "./recap.js";
-import { setupAgentSymlinks } from "./setup-agents.js";
+import {
+  createAgentSymlink,
+  prepareAgentSymlink,
+  setupAgentSymlinks,
+} from "./setup-agents.js";
 import {
   ASSETS_SKILL_MD,
   AN_COMMAND_MD,
@@ -56,17 +61,37 @@ import {
   REWIND_SKILL_MD,
   TURN_INTO_APP_ATTACHMENTS_REFERENCE_MD,
   TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
+  TURN_INTO_APP_LOCAL_RUN_AND_DEPLOY_REFERENCE_MD,
   TURN_INTO_APP_OPENAI_YAML,
+  TURN_INTO_APP_REVIEW_LOOP_REFERENCE_MD,
   TURN_INTO_APP_SKILL_MD,
+  TURN_INTO_APP_SOURCE_BRIEF_REFERENCE_MD,
   TURN_INTO_APP_SPREADSHEET_SOURCE_REFERENCE_MD,
+  TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
+  TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
+  TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
+  TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
   VISUALIZE_REPO_SKILL_MD,
   WIREFRAME_REFERENCE_MD,
 } from "./skills-content/index.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
+import { applyTemplateLayer, readTemplateLayer } from "./template-layer.js";
+import { allTemplateNames } from "./templates-meta.js";
 import {
-  linkDefaultWorkspaceSkills,
+  CLIPS_TEMPLATE_SHARED_SKILLS,
+  CHAT_STARTER_SKILLS,
+  DEFAULT_TEMPLATE_SHARED_SKILLS,
+  DISPATCH_TEMPLATE_SHARED_SKILLS,
+  DOMAIN_TEMPLATE_SHARED_SKILLS,
+  FACTORY_TEMPLATE_SHARED_SKILLS,
+  BUILDER_CODE_STARTER_SKILLS,
+  HEADLESS_TEMPLATE_SHARED_SKILLS,
+  WORKSPACE_SKILLS,
+} from "./workspace-skill-policy.js";
+import {
+  linkWorkspaceSkills,
   removeCopiedFrameworkSkills,
 } from "./workspacify.js";
 
@@ -323,10 +348,6 @@ export const BUILT_IN_APP_SKILLS = {
       "visual-recap": VISUAL_RECAP_SKILL_MD,
       "visualize-repo": VISUALIZE_REPO_SKILL_MD,
     },
-    // Sibling reference files materialized alongside each skill's SKILL.md
-    // (progressive disclosure). Keyed by skill name -> relative path -> content.
-    // Both plan skills ship the same canonical wireframe-quality reference; the
-    // canvas / document-quality / exemplar references are visual-plan only.
     extraFiles: {
       "visual-plan": {
         "references/wireframe.md": WIREFRAME_REFERENCE_MD,
@@ -449,6 +470,14 @@ export const BUILT_IN_APP_SKILLS = {
         "references/fresh-project.md": TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD,
         "references/spreadsheet-source.md":
           TURN_INTO_APP_SPREADSHEET_SOURCE_REFERENCE_MD,
+        "references/local-run-and-deploy.md":
+          TURN_INTO_APP_LOCAL_RUN_AND_DEPLOY_REFERENCE_MD,
+        "references/review-loop.md": TURN_INTO_APP_REVIEW_LOOP_REFERENCE_MD,
+        "references/source-brief.md": TURN_INTO_APP_SOURCE_BRIEF_REFERENCE_MD,
+        "references/ui-archetypes.md": TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
+        "references/ui-direction.md": TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
+        "references/ui-palettes.md": TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
+        "references/where-it-runs.md": TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD,
         "agents/openai.yaml": TURN_INTO_APP_OPENAI_YAML,
       },
     },
@@ -457,7 +486,7 @@ export const BUILT_IN_APP_SKILLS = {
       id: "turn-into-app",
       displayName: "Turn Into App",
       description:
-        "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
+        "Turn a thread, skill, spreadsheet, or Claude/ChatGPT project into a visual Agent-Native app. Local code agents build, run, and screenshot-review it; Claude and ChatGPT on the web hand a bounded source brief to Builder through Dispatch.",
       hosted: {
         url: "https://dispatch.agent-native.com",
         mcpUrl: "https://dispatch.agent-native.com/mcp",
@@ -501,11 +530,6 @@ export const BUILT_IN_APP_SKILLS = {
     skillMarkdown: string;
     skillName: string;
     extraSkills?: Record<string, string>;
-    /**
-     * Extra sibling files materialized alongside a skill's SKILL.md, for
-     * progressive disclosure (e.g. `references/wireframe.md`). Keyed by skill
-     * name, then by skill-relative path -> file content.
-     */
     extraFiles?: Record<string, Record<string, string>>;
     localOnly?: boolean;
     screenMemoryMcp?: boolean;
@@ -651,11 +675,6 @@ const SKILL_INSTRUCTION_PROMPT_CLIENTS: SkillInstructionClientId[] = [
   "codex",
   "claude-code",
 ];
-// Clients that don't write their own instruction files but READ the shared
-// `.agents/skills` path the codex install writes. In instructions/local-files
-// mode they resolve to that shared-agents install instead of being dropped, so
-// `--client cursor --mode local-files` (etc.) installs the skills they read
-// rather than failing with an empty client set.
 const SHARED_AGENTS_READER_CLIENTS = new Set<SkillInstructionClientId>([
   "cursor",
   "opencode",
@@ -670,6 +689,9 @@ const SKILL_INSTRUCTION_CLIENT_LABELS: Record<
   "claude-code-cli": "Claude Code",
   codex: "Shared .agents skills",
   cowork: "MCP only",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  "github-copilot": "GitHub Copilot",
   pi: "Pi",
 };
 const SKILL_INSTRUCTION_CLIENT_HINTS: Record<SkillInstructionClientId, string> =
@@ -681,6 +703,9 @@ const SKILL_INSTRUCTION_CLIENT_HINTS: Record<SkillInstructionClientId, string> =
     codex:
       "Project scope writes .agents skills/commands for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents; user scope writes Codex's ~/.codex skills/commands.",
     cowork: "MCP only",
+    cursor: "Uses shared project .agents skills and commands.",
+    opencode: "Uses shared project .agents skills and commands.",
+    "github-copilot": "Uses shared project .agents skills and commands.",
     pi: "Project scope writes .agents/skills plus .pi/prompts; user scope writes ~/.agents/skills plus ~/.pi/agent/prompts.",
   };
 
@@ -702,48 +727,12 @@ export interface ParsedSkillsArgs {
   printJson: boolean;
   instructions: boolean;
   mcp: boolean;
-  /**
-   * Run the browser/device auth flow after registering a hosted MCP connector
-   * so the user does not hit an OAuth wall on the first tool call. Default true;
-   * `--no-connect` opts out and leaves authentication for the host/`agent-native
-   * connect`.
-   */
   connect: boolean;
-  /**
-   * Optional MCP URL override. When set, the skill's hosted MCP connector is
-   * registered against this URL instead of the built-in hosted default — e.g.
-   * an ngrok tunnel, a local dev origin, or a self-hosted deployment.
-   */
   mcpUrl?: string;
-  /**
-   * Storage/backend mode for app-backed skills that support install modes. The
-   * field name is kept for CLI/API compatibility with the original Plan-only
-   * implementation.
-   */
   planMode?: PlanInstallMode;
-  /**
-   * When installing the visual-plan skill, also write the PR Visual Recap
-   * GitHub Action workflow into `.github/workflows/` so PRs get automatic
-   * recaps. Only applies to the `visual-plan` target.
-   */
   withGithubAction?: boolean;
-  /**
-   * Set once the PR Visual Recap workflow decision has already been made up
-   * front (in `runSkills`, before any install/registration) so the per-target
-   * `addAgentNativeSkill` doesn't prompt for it again mid-flow. The chosen
-   * value lands in `withGithubAction`.
-   */
   githubActionResolved?: boolean;
-  /**
-   * Plain skill repos can add a managed AGENTS.md / CLAUDE.md block for skills
-   * that only become automatic through project instructions.
-   */
   updateInstructions?: boolean;
-  /**
-   * When `--with-github-action` is set and the existing workflow file differs
-   * from the bundled template, overwrite it. Without this flag the command
-   * refuses and prints a message.
-   */
   force?: boolean;
 }
 
@@ -760,23 +749,8 @@ export interface SkillsAddResult {
   local?: boolean;
   scriptPath?: string;
   written?: string[];
-  /**
-   * True when the install also kicked off (or prepared) the browser/device auth
-   * flow for the hosted MCP connector. False when connect was skipped
-   * (`--no-connect`, no-auth skills, or non-interactive without a connect step).
-   */
   connected?: boolean;
-  /**
-   * The exact `npx @agent-native/core@latest connect <url>` command to run when interactive auth
-   * was skipped (non-interactive shell / CI). Empty when connect ran inline or
-   * was not needed.
-   */
   connectCommand?: string;
-  /**
-   * When `--with-github-action` installed the PR Visual Recap workflow, the
-   * repo-relative path it was written to (and whether it overwrote an existing
-   * file).
-   */
   githubActionPath?: string;
   githubActionExisted?: boolean;
   githubActionSuggestedCommand?: string;
@@ -828,9 +802,16 @@ interface SkillInstallState {
 interface ScaffoldGuidanceState {
   kind: "workspace-core" | "standalone";
   displayName: string;
-  templateName: "workspace-core" | "headless" | "default";
+  templateName:
+    | "workspace-core"
+    | "headless"
+    | "default"
+    | "chat"
+    | "builder-code-starter";
   path: string;
   sourcePath: string;
+  additionalSourcePaths?: string[];
+  allowedSkills: readonly string[];
   projectRoot: string;
   workspaceRoot?: string;
   sharedPackageDir?: string;
@@ -857,6 +838,7 @@ export type SkillsCatalogMode = "agent-native" | "all";
 export interface PublicSkillCatalogEntry {
   name: string;
   description?: string;
+  installerGroup?: string;
 }
 
 interface ConnectSpinner {
@@ -866,39 +848,13 @@ interface ConnectSpinner {
 
 export interface RunSkillsOptions {
   baseDir?: string;
-  /**
-   * Which skills appear in the shared add/list picker. `agent-native` is the
-   * core CLI surface; `all` is used by @agent-native/skills to append public
-   * skill-repo entries while keeping every prompt and install decision here.
-   */
   catalogMode?: SkillsCatalogMode;
-  /**
-   * The plain skills repo/source to install when a public catalog entry is
-   * selected. @agent-native/skills usually passes the materialized source root.
-   */
   publicSkillSource?: string;
-  /**
-   * Public skill-repo entries discovered by @agent-native/skills. Core owns the
-   * user-facing flow; the wrapper owns materializing the broader catalog.
-   */
   publicSkillEntries?: PublicSkillCatalogEntry[];
-  /**
-   * Built-in Agent-Native skill prompt/list entries to hide for wrapper CLIs.
-   * Direct installs by explicit name still work; this only controls discovery.
-   */
   hiddenBuiltInSkillTargets?: string[];
   isInteractive?: () => boolean;
   log?: (message: string) => void;
-  /**
-   * Optional output hook for the embedded `agent-native connect` transcript.
-   * Defaults to `log`; the clack-based CLI uses this to render the multi-line
-   * auth details as one continuous guide block instead of separate status logs.
-   */
   connectLog?: (message: string) => void;
-  /**
-   * Optional spinner factory for the embedded connect flow. The default CLI only
-   * enables this for real TTYs so captured/test output stays deterministic.
-   */
   createConnectSpinner?: () => ConnectSpinner | undefined;
   promptClients?: (
     context: SkillsClientPromptContext,
@@ -922,19 +878,10 @@ export interface RunSkillsOptions {
     args: string[],
     options?: RunCommandOptions,
   ) => Promise<number>;
-  /**
-   * Injectable connect/auth entrypoint (defaults to the real `agent-native
-   * connect`). Tests stub this so the install flow does not perform a real
-   * browser/device OAuth round-trip.
-   */
   runConnect?: (args: string[]) => Promise<void>;
+  listenForSignInSkip?: (skip: () => void) => () => void;
+  detectInstalledClients?: (candidates: readonly ClientId[]) => ClientId[];
   installScreenMemory?: typeof installScreenMemoryForClient;
-  /**
-   * Best-effort install-funnel telemetry. Created once per `runSkills` run and
-   * threaded through resolution/install/connect so each `track` is fire-and-
-   * forget and never blocks or throws into the install flow. Absent when
-   * `addAgentNativeSkill` is called directly (e.g. tests).
-   */
   telemetry?: CliTelemetry;
 }
 
@@ -949,7 +896,9 @@ interface SkillsClientPromptContext {
 }
 
 interface SkillsTargetPromptContext {
+  message?: string;
   initialTargets: string[];
+  required?: boolean;
   options: Array<{ value: string; label: string; hint: string }>;
 }
 
@@ -971,8 +920,12 @@ function normalizeKnownSkillTarget(
   value: string | undefined,
 ): BuiltInAppSkillId | undefined {
   const key = value?.trim().toLowerCase();
-  if (!key) return undefined;
-  return BUILT_IN_APP_SKILL_ALIASES[key];
+  if (!key || !Object.hasOwn(BUILT_IN_APP_SKILL_ALIASES, key)) {
+    return undefined;
+  }
+  return BUILT_IN_APP_SKILL_ALIASES[
+    key as keyof typeof BUILT_IN_APP_SKILL_ALIASES
+  ];
 }
 
 function isKnownSkill(value: string | undefined): boolean {
@@ -1025,7 +978,9 @@ function preflightResolvedRewindTargets(
 
 function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
-): boolean {
+): entry is (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] & {
+  localOnly: true;
+} {
   return Boolean(entry && "localOnly" in entry && entry.localOnly);
 }
 
@@ -1054,10 +1009,6 @@ function builtInExtraSkills(
   return "extraSkills" in entry && entry.extraSkills ? entry.extraSkills : {};
 }
 
-/**
- * Sibling reference files for a skill (skill name -> relative path -> content),
- * materialized alongside its SKILL.md for progressive disclosure.
- */
 function builtInExtraFiles(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId],
 ): Record<string, Record<string, string>> {
@@ -1070,12 +1021,6 @@ function builtInSkillNames(
   return [entry.skillName, ...Object.keys(builtInExtraSkills(entry))];
 }
 
-/**
- * When a target names a single skill that lives inside a multi-skill bundle
- * (the plan bundle ships `visual-plan`, `visual-recap`, and `visualize-repo`),
- * restrict the install to just that skill. The bundle aliases (`visual-plans`,
- * `plannotate`, …) return undefined so they install every skill in the bundle.
- */
 function builtInOnlySkillNames(target: string): string[] | undefined {
   const normalized = target.trim().toLowerCase();
   if (normalized === "visual-plan") return ["visual-plan"];
@@ -1213,6 +1158,20 @@ function skillFilesForBuiltIn(
   options: { planMode?: PlanInstallMode; mcpUrl?: string } = {},
 ): Record<string, SkillFolderBundle> {
   const entry = BUILT_IN_APP_SKILLS[appSkillId];
+  if (
+    appSkillId === "visual-plans" &&
+    (!builtInExtraSkills(entry)["visual-recap"]?.trim() ||
+      !builtInExtraFiles(entry)["visual-plan"]?.[
+        "references/connection.md"
+      ]?.trim() ||
+      !builtInExtraFiles(entry)["visual-recap"]?.[
+        "references/connection.md"
+      ]?.trim())
+  ) {
+    throw new Error(
+      "The visual-plan skill bundle is missing required skill or connection reference content.",
+    );
+  }
   const skills: Record<string, string> = {
     [entry.skillName]: applyInstallModeToSkillMarkdown(entry.skillMarkdown, {
       appSkillId,
@@ -1334,7 +1293,7 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function defaultContentLocalFilesAppConfig(): Record<string, unknown> {
+function defaultContentLocalFilesAppConfig() {
   return {
     mode: "local-files",
     roots: [
@@ -1404,10 +1363,11 @@ function mergeContentLocalFilesManifest(
   const apps = isJsonRecord(manifest.apps) ? { ...manifest.apps } : {};
   const contentApp = isJsonRecord(apps.content) ? { ...apps.content } : {};
   const defaults = defaultContentLocalFilesAppConfig();
-  if (!Array.isArray(contentApp.roots) || contentApp.roots.length === 0) {
-    contentApp.roots = defaults.roots;
-  }
-  contentApp.roots = contentApp.roots.map((root: unknown) => {
+  const roots =
+    Array.isArray(contentApp.roots) && contentApp.roots.length > 0
+      ? contentApp.roots
+      : defaults.roots;
+  contentApp.roots = roots.map((root: unknown) => {
     if (!isJsonRecord(root) || typeof root.path !== "string") return root;
     const source = isJsonRecord(root.source) ? root.source : {};
     return {
@@ -1467,11 +1427,6 @@ function writeContentLocalFilesManifest(
   return manifestPath;
 }
 
-/**
- * The skills directory a built-in skill's instructions are copied into for a
- * given agent + scope. Mirrors the layout the skills installer uses so
- * `skills status` / `skills update` find the folders again.
- */
 function builtInSkillsRootForAgent(
   agent: string,
   scope: "project" | "user",
@@ -1502,7 +1457,7 @@ function builtInSkillsRootForAgent(
   return path.join(home, ".claude", "skills");
 }
 
-function builtInCommandsRootForAgent(
+export function builtInCommandsRootForAgent(
   agent: string,
   scope: "project" | "user",
   baseDir: string,
@@ -1568,12 +1523,6 @@ $ARGUMENTS
   return null;
 }
 
-/**
- * Write a built-in skill's instruction folders straight into each client's
- * skills directory. Built-in skills ship their SKILL.md inside this package, so
- * there is no need to shell out to the separate @agent-native/skills installer
- * (which would have to be published to npm first). Returns the written folders.
- */
 type BuiltInInstructionInstallInput = {
   appSkillId: BuiltInAppSkillId;
   onlySkillNames?: string[];
@@ -1685,7 +1634,7 @@ function restoreInstallPaths(
   snapshots: InstallPathSnapshot[],
   boundary: string,
 ): void {
-  for (const snapshot of snapshots.toReversed()) {
+  for (const snapshot of snapshots.slice().reverse()) {
     fs.rmSync(snapshot.target, { recursive: true, force: true });
     if (snapshot.existed) {
       fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
@@ -1849,17 +1798,29 @@ function corePackageRootDir(): string {
   return path.resolve(here, "../..");
 }
 
-function bundledScaffoldSkillsDir(
-  templateName: ScaffoldGuidanceState["templateName"],
-): string {
-  return path.join(
+const layeredScaffoldSkillsDirs = new Map<string, string>();
+
+function bundledScaffoldSkillsDir(templateName: string): string {
+  const templateDir = path.join(
     corePackageRootDir(),
     "src",
     "templates",
     templateName,
-    ".agents",
-    "skills",
   );
+  const layer = readTemplateLayer(templateDir);
+  if (!layer) return path.join(templateDir, ".agents", "skills");
+  // A layer stores its skills as patches over the base's, so the copies
+  // `skills update` installs have to be assembled first.
+  const cached = layeredScaffoldSkillsDirs.get(templateName);
+  if (cached) return cached;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-layer-skills-"));
+  const skillsDir = path.join(root, ".agents", "skills");
+  fs.cpSync(bundledScaffoldSkillsDir(layer.base), skillsDir, {
+    recursive: true,
+  });
+  applyTemplateLayer(templateDir, layer, root, { only: ".agents/skills" });
+  layeredScaffoldSkillsDirs.set(templateName, skillsDir);
+  return skillsDir;
 }
 
 function readJsonRecord(file: string): Record<string, unknown> | undefined {
@@ -1912,9 +1873,16 @@ function hasAgentNativeCoreDependency(
   return false;
 }
 
+interface ScaffoldGuidancePolicy {
+  templateName: string;
+  sourceTemplate: ScaffoldGuidanceState["templateName"];
+  additionalSourceTemplates?: readonly string[];
+  skills: readonly string[];
+}
+
 function markedScaffoldGuidanceTemplate(
   pkg: Record<string, unknown> | undefined,
-): "headless" | "default" | undefined {
+): ScaffoldGuidancePolicy | undefined {
   const agentNative = pkg?.["agent-native"];
   if (
     !agentNative ||
@@ -1927,10 +1895,72 @@ function markedScaffoldGuidanceTemplate(
   if (!scaffold || typeof scaffold !== "object" || Array.isArray(scaffold)) {
     return undefined;
   }
-  const frameworkSkills = (scaffold as Record<string, unknown>).frameworkSkills;
-  return frameworkSkills === "headless" || frameworkSkills === "default"
-    ? frameworkSkills
-    : undefined;
+  const scaffoldData = scaffold as Record<string, unknown>;
+  const templateName =
+    typeof scaffoldData.template === "string" ? scaffoldData.template : "";
+  const frameworkSkills = scaffoldData.frameworkSkills;
+  if (
+    frameworkSkills === "headless" &&
+    (templateName === "headless" || templateName === "blank")
+  ) {
+    return {
+      templateName,
+      sourceTemplate: "headless",
+      skills: HEADLESS_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (frameworkSkills !== "default") return undefined;
+  if (templateName === "chat") {
+    return {
+      templateName,
+      sourceTemplate: "chat",
+      skills: CHAT_STARTER_SKILLS,
+    };
+  }
+  if (templateName === "builder-code-starter") {
+    return {
+      templateName,
+      sourceTemplate: "builder-code-starter",
+      skills: BUILDER_CODE_STARTER_SKILLS,
+    };
+  }
+  if (templateName === "dispatch") {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      skills: DISPATCH_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (templateName === "factory") {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      additionalSourceTemplates: ["factory"],
+      skills: FACTORY_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (templateName === "clips") {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      skills: CLIPS_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (allTemplateNames().includes(templateName)) {
+    return {
+      templateName,
+      sourceTemplate: "workspace-core",
+      skills: DOMAIN_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  if (templateName === "default" || !templateName) {
+    return {
+      templateName: "default",
+      sourceTemplate: "default",
+      skills: DEFAULT_TEMPLATE_SHARED_SKILLS,
+    };
+  }
+  return undefined;
 }
 
 function findWorkspaceCorePackageDir(
@@ -1978,9 +2008,9 @@ function findGeneratedWorkspace(startDir: string):
   return undefined;
 }
 
-function detectStandaloneScaffoldTemplate(
+function detectStandaloneScaffoldPolicy(
   projectRoot: string,
-): "headless" | "default" | undefined {
+): ScaffoldGuidancePolicy | undefined {
   const pkg = readPackageJson(projectRoot);
   if (!hasAgentNativeCoreDependency(pkg)) return undefined;
   if (!fs.existsSync(path.join(projectRoot, ".agents", "skills"))) {
@@ -1994,22 +2024,60 @@ function detectStandaloneScaffoldTemplate(
   const hasHeadlessHello = fs.existsSync(
     path.join(projectRoot, "actions", "hello.ts"),
   );
-  if (!hasAppDir && hasHeadlessHello) return "headless";
+  if (!hasAppDir && hasHeadlessHello) {
+    return {
+      templateName: "headless",
+      sourceTemplate: "headless",
+      skills: HEADLESS_TEMPLATE_SHARED_SKILLS,
+    };
+  }
 
   const looksLikeDefaultTemplate =
     fs.existsSync(path.join(projectRoot, "app", "routes", "database.tsx")) &&
     fs.existsSync(path.join(projectRoot, "app", "routes", "_index.tsx")) &&
     fs.existsSync(path.join(projectRoot, "actions", "view-screen.ts"));
-  return looksLikeDefaultTemplate ? "default" : undefined;
+  return looksLikeDefaultTemplate
+    ? {
+        templateName: "default",
+        sourceTemplate: "default",
+        skills: DEFAULT_TEMPLATE_SHARED_SKILLS,
+      }
+    : undefined;
 }
 
 function listImmediateSkillDirs(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => {
+      if (entry.isDirectory()) return true;
+      if (!entry.isSymbolicLink()) return false;
+      return fs.statSync(path.join(dir, entry.name)).isDirectory();
+    })
     .map((entry) => entry.name)
     .sort();
+}
+
+function scaffoldSkillSourcesToSync(
+  sourceRoots: readonly string[],
+  allowedSkills: readonly string[],
+): Array<{ skill: string; sourceRoot: string }> {
+  const allowed = new Set(allowedSkills);
+  const sources = new Map<string, string>();
+  for (const sourceRoot of sourceRoots) {
+    for (const skill of listImmediateSkillDirs(sourceRoot)) {
+      if (allowed.has(skill) && !sources.has(skill)) {
+        sources.set(skill, sourceRoot);
+      }
+    }
+  }
+  return [...sources]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([skill, sourceRoot]) => ({ skill, sourceRoot }));
+}
+
+function existingScaffoldSkillNames(targetRoot: string): Set<string> {
+  return new Set(listImmediateSkillDirs(targetRoot));
 }
 
 function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
@@ -2025,12 +2093,15 @@ function skillDirContentsMatch(sourceDir: string, targetDir: string): boolean {
 }
 
 function scaffoldGuidanceCurrent(
-  sourceRoot: string,
+  sourceRoots: readonly string[],
   targetRoot: string,
+  allowedSkills: readonly string[],
 ): boolean {
-  const skills = listImmediateSkillDirs(sourceRoot);
-  if (skills.length === 0) return false;
-  return skills.every((skill) =>
+  const existing = existingScaffoldSkillNames(targetRoot);
+  const skills = scaffoldSkillSourcesToSync(sourceRoots, allowedSkills).filter(
+    ({ skill }) => existing.has(skill),
+  );
+  return skills.every(({ skill, sourceRoot }) =>
     skillDirContentsMatch(
       path.join(sourceRoot, skill),
       path.join(targetRoot, skill),
@@ -2049,6 +2120,7 @@ function collectScaffoldGuidanceStates(
   const workspace = findGeneratedWorkspace(baseDir);
   if (workspace) {
     const sourcePath = bundledScaffoldSkillsDir("workspace-core");
+    const sourcePaths = [sourcePath];
     const targetPath = path.join(
       workspace.sharedPackageDir,
       ".agents",
@@ -2062,40 +2134,67 @@ function collectScaffoldGuidanceStates(
         templateName: "workspace-core",
         path: targetPath,
         sourcePath,
+        additionalSourcePaths: [],
+        allowedSkills: WORKSPACE_SKILLS,
         projectRoot: workspace.workspaceRoot,
         workspaceRoot: workspace.workspaceRoot,
         sharedPackageDir: workspace.sharedPackageDir,
-        current: scaffoldGuidanceCurrent(sourcePath, targetPath),
-        skillCount: listImmediateSkillDirs(sourcePath).length,
+        current: scaffoldGuidanceCurrent(
+          sourcePaths,
+          targetPath,
+          WORKSPACE_SKILLS,
+        ),
+        skillCount: scaffoldSkillSourcesToSync(
+          sourcePaths,
+          WORKSPACE_SKILLS,
+        ).filter(({ skill }) =>
+          existingScaffoldSkillNames(targetPath).has(skill),
+        ).length,
       },
     ];
   }
 
-  const templateName = detectStandaloneScaffoldTemplate(baseDir);
-  if (!templateName) return [];
-  const sourcePath = bundledScaffoldSkillsDir(templateName);
+  const policy = detectStandaloneScaffoldPolicy(baseDir);
+  if (!policy) return [];
+  const sourcePath = bundledScaffoldSkillsDir(policy.sourceTemplate);
+  const additionalSourcePaths =
+    policy.additionalSourceTemplates?.map(bundledScaffoldSkillsDir) ?? [];
+  const sourcePaths = [sourcePath, ...additionalSourcePaths];
   const targetPath = path.join(baseDir, ".agents", "skills");
-  if (!fs.existsSync(sourcePath)) return [];
+  if (!sourcePaths.some((source) => fs.existsSync(source))) return [];
   return [
     {
       kind: "standalone",
-      displayName: `Generated ${templateName} app framework skills`,
-      templateName,
+      displayName: `Generated ${policy.templateName} app framework skills`,
+      templateName: policy.sourceTemplate,
       path: targetPath,
       sourcePath,
+      additionalSourcePaths,
+      allowedSkills: policy.skills,
       projectRoot: baseDir,
-      current: scaffoldGuidanceCurrent(sourcePath, targetPath),
-      skillCount: listImmediateSkillDirs(sourcePath).length,
+      current: scaffoldGuidanceCurrent(sourcePaths, targetPath, policy.skills),
+      skillCount: scaffoldSkillSourcesToSync(sourcePaths, policy.skills).filter(
+        ({ skill }) => existingScaffoldSkillNames(targetPath).has(skill),
+      ).length,
     },
   ];
 }
 
 function copyScaffoldGuidanceSkills(
-  sourceRoot: string,
+  sourceRoots: readonly string[],
   targetRoot: string,
+  allowedSkills: readonly string[],
+  onlyExistingTargetSkills = true,
 ): void {
   fs.mkdirSync(targetRoot, { recursive: true });
-  for (const skill of listImmediateSkillDirs(sourceRoot)) {
+  const existing = onlyExistingTargetSkills
+    ? existingScaffoldSkillNames(targetRoot)
+    : undefined;
+  for (const { skill, sourceRoot } of scaffoldSkillSourcesToSync(
+    sourceRoots,
+    allowedSkills,
+  )) {
+    if (existing && !existing.has(skill)) continue;
     const targetSkillDir = path.join(targetRoot, skill);
     if (
       fs.existsSync(targetSkillDir) &&
@@ -2106,9 +2205,12 @@ function copyScaffoldGuidanceSkills(
     fs.rmSync(targetSkillDir, { recursive: true, force: true });
     fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
       recursive: true,
+      dereference: true,
     });
   }
 }
+
+export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };
 
 function updateScaffoldGuidanceStates(
   states: ScaffoldGuidanceState[],
@@ -2118,7 +2220,11 @@ function updateScaffoldGuidanceStates(
   for (const state of states) {
     if (state.current) continue;
     if (!dryRun) {
-      copyScaffoldGuidanceSkills(state.sourcePath, state.path);
+      copyScaffoldGuidanceSkills(
+        [state.sourcePath, ...(state.additionalSourcePaths ?? [])],
+        state.path,
+        state.allowedSkills,
+      );
     }
     updated.push({
       ...state,
@@ -2140,23 +2246,20 @@ function ensureWorkspaceRootSkillsLink(
   const target = path.relative(agentsDir, sharedSkillsDir);
 
   fs.mkdirSync(agentsDir, { recursive: true });
-  try {
-    const stat = fs.lstatSync(linkPath);
-    if (stat.isSymbolicLink()) {
-      if (fs.readlinkSync(linkPath) === target) return;
-      fs.unlinkSync(linkPath);
-    } else {
-      copyScaffoldGuidanceSkills(sharedSkillsDir, linkPath);
-      return;
-    }
-  } catch {}
+  const state = prepareAgentSymlink(linkPath, target, "dir");
+  if (state === "matches") return;
+  if (state === "occupied") {
+    copyScaffoldGuidanceSkills(
+      [sharedSkillsDir],
+      linkPath,
+      listImmediateSkillDirs(sharedSkillsDir),
+      false,
+    );
+    return;
+  }
 
   try {
-    fs.symlinkSync(
-      target,
-      linkPath,
-      process.platform === "win32" ? "junction" : "dir",
-    );
+    createAgentSymlink(target, linkPath, "dir");
   } catch {
     try {
       fs.cpSync(sharedSkillsDir, linkPath, { recursive: true });
@@ -2172,7 +2275,12 @@ function refreshCopiedClaudeSkills(projectRoot: string): void {
   }
   try {
     if (fs.lstatSync(claudeSkillsDir).isSymbolicLink()) return;
-    copyScaffoldGuidanceSkills(agentsSkillsDir, claudeSkillsDir);
+    copyScaffoldGuidanceSkills(
+      [agentsSkillsDir],
+      claudeSkillsDir,
+      listImmediateSkillDirs(agentsSkillsDir),
+      false,
+    );
   } catch {}
 }
 
@@ -2197,11 +2305,20 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
           if (!entry.isDirectory()) continue;
           const appDir = path.join(appsDir, entry.name);
           if (fs.existsSync(path.join(appDir, "package.json"))) {
+            const existingAppSkills = existingScaffoldSkillNames(
+              path.join(appDir, ".agents", "skills"),
+            );
             const preserved = new Set([
               ...removeCopiedFrameworkSkills(appDir, {
                 workspaceRoot: state.workspaceRoot,
               }),
-              ...linkDefaultWorkspaceSkills(appDir, state.workspaceRoot),
+              ...linkWorkspaceSkills(
+                appDir,
+                state.workspaceRoot,
+                WORKSPACE_SKILLS.filter((skill) =>
+                  existingAppSkills.has(skill),
+                ),
+              ),
             ]);
             if (preserved.size > 0) {
               console.warn(
@@ -2340,22 +2457,6 @@ function updateSkillInstallStates(
   return updated;
 }
 
-function normalizeClientIds(values: unknown): ClientId[] {
-  if (!Array.isArray(values)) return [];
-  const seen = new Set<ClientId>();
-  const out: ClientId[] = [];
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const id = value.toLowerCase();
-    if (!(CLIENTS as string[]).includes(id)) continue;
-    const client = id as ClientId;
-    if (seen.has(client)) continue;
-    seen.add(client);
-    out.push(client);
-  }
-  return out;
-}
-
 function isMcpClientId(value: SkillInstructionClientId): value is ClientId {
   return (CLIENTS as string[]).includes(value);
 }
@@ -2404,6 +2505,23 @@ function skillsClients(installsMcp: boolean): SkillInstructionClientId[] {
   return installsMcp ? SKILLS_CLIENTS : SKILL_INSTRUCTION_PROMPT_CLIENTS;
 }
 
+// Preselect the clients saved last time, else the ones installed here. Every
+// preselected client without remote MCP OAuth (Codex, Cowork) adds a browser
+// sign-in to the install.
+function initialSkillsClients(
+  installsMcp: boolean,
+  options: RunSkillsOptions,
+): SkillInstructionClientId[] {
+  if (!installsMcp) return skillsClients(installsMcp);
+  const saved = (readConnectClientPreferences() ?? []).filter((client) =>
+    SKILLS_CLIENTS.includes(client),
+  );
+  if (saved.length > 0) return saved;
+  const detect = options.detectInstalledClients ?? detectInstalledClients;
+  const installed = detect(SKILLS_CLIENTS);
+  return installed.length > 0 ? installed : ["claude-code"];
+}
+
 function filterSkillsClients(
   clients: SkillInstructionClientId[],
   installsMcp: boolean,
@@ -2414,10 +2532,6 @@ function filterSkillsClients(
         isMcpClientId(client) && SKILLS_CLIENTS.includes(client),
     );
   }
-  // Instructions/local-files mode: keep the first-class instruction writers, and
-  // map shared-`.agents` readers (cursor/opencode/github-copilot/cowork) onto
-  // the shared-agents install (codex) so they install the skills they read
-  // rather than being silently dropped to an empty set.
   const out: SkillInstructionClientId[] = [];
   for (const client of clients) {
     const resolved = SKILL_INSTRUCTION_CLIENTS.includes(client)
@@ -2539,6 +2653,7 @@ function publicSkillEntries(
     .map((entry) => ({
       name: entry.name.trim().toLowerCase(),
       description: entry.description,
+      installerGroup: entry.installerGroup?.trim().toLowerCase(),
     }))
     .filter((entry) => {
       if (!entry.name || isKnownSkill(entry.name) || seen.has(entry.name)) {
@@ -2557,12 +2672,18 @@ function publicSkillNames(options: RunSkillsOptions): Set<string> {
 function publicSkillPromptOptions(
   options: RunSkillsOptions,
 ): SkillsTargetPromptContext["options"] {
-  return publicSkillEntries(options).map((entry) => ({
-    value: entry.name,
-    label: entry.name,
-    hint:
-      entry.description ?? "Public skill from the BuilderIO skills catalog.",
-  }));
+  return publicSkillEntries(options).map((entry) => {
+    const description =
+      entry.description ?? "Public skill from the BuilderIO skills catalog.";
+    return {
+      value: entry.name,
+      label: entry.name,
+      hint:
+        entry.installerGroup === entry.name
+          ? `${description} Select to choose the full group or a subset.`
+          : description,
+    };
+  });
 }
 
 function skillPromptOptions(
@@ -2729,7 +2850,7 @@ async function promptForPlanMcpUrl(): Promise<string | null> {
     placeholder: "https://my-plan-app.example.com",
     validate(value) {
       try {
-        resolveMcpUrlOverride(value);
+        resolveMcpUrlOverride(value ?? "");
         return undefined;
       } catch (err: any) {
         return err?.message ?? "Enter a valid http:// or https:// URL.";
@@ -2763,11 +2884,12 @@ async function promptForSkills(
   const clack = await import("@clack/prompts");
   const result = await clack.multiselect({
     message:
+      context.message ??
       "Which Agent-Native skills do you want to install?\n" +
-      "  (space toggles, enter confirms)",
+        "  (space toggles, enter confirms)",
     options: context.options,
     initialValues: context.initialTargets,
-    required: true,
+    required: context.required ?? true,
   });
   if (clack.isCancel(result)) {
     clack.cancel("Cancelled.");
@@ -2796,7 +2918,7 @@ async function resolveSkillsClients(
     }
     return clients;
   }
-  const initialClients = skillsClients(installsMcp);
+  const initialClients = initialSkillsClients(installsMcp, options);
   const prompt = options.promptClients ?? promptForClients;
   const selected = normalizeSkillInstructionClientIds(
     await prompt({
@@ -2958,8 +3080,6 @@ async function resolveSkillTargets(
   }
   const prompt = options.promptSkills ?? promptForSkills;
   const promptOptions = skillPromptOptions(options);
-  // The interactive multiselect skill picker is about to be shown (no --skill /
-  // target passed and we are interactive) — record the funnel "prompted" step.
   options.telemetry?.track("skills_cli skills prompted", {
     availableCount: promptOptions.length,
     available: promptOptions.map((option) => option.value).join(","),
@@ -2969,7 +3089,45 @@ async function resolveSkillTargets(
     options: promptOptions,
   });
   if (!selected || selected.length === 0) return null;
-  return resolveSelectedSkillTargets(selected, options);
+
+  const publicEntries = publicSkillEntries(options);
+  const selectedTargets = new Set(selected);
+  for (const group of publicEntries.filter(
+    (entry) =>
+      entry.installerGroup === entry.name && selected.includes(entry.name),
+  )) {
+    const members = publicEntries.filter(
+      (entry) =>
+        entry.installerGroup === group.name && entry.name !== group.name,
+    );
+    if (members.length === 0) continue;
+
+    const groupLabel = group.name.replace(/^./, (character) =>
+      character.toUpperCase(),
+    );
+    const groupSelection = await prompt({
+      message:
+        `Which ${groupLabel} skills do you want to install?\n` +
+        "  (all selected; deselect any you want to skip)",
+      initialTargets: members.map((entry) => entry.name),
+      required: false,
+      options: members.map((entry) => ({
+        value: entry.name,
+        label: entry.name,
+        hint:
+          entry.description ??
+          "Public skill from the BuilderIO skills catalog.",
+      })),
+    });
+    if (!groupSelection) return null;
+    const memberNames = new Set(members.map((entry) => entry.name));
+    for (const memberName of memberNames) selectedTargets.delete(memberName);
+    for (const memberName of groupSelection) {
+      if (memberNames.has(memberName)) selectedTargets.add(memberName);
+    }
+  }
+
+  return resolveSelectedSkillTargets([...selectedTargets], options);
 }
 
 export function parseSkillsArgs(argv: string[]): ParsedSkillsArgs {
@@ -3293,12 +3451,6 @@ async function runCommand(
   });
 }
 
-/**
- * Resolve a `--mcp-url` override into the `{ url, mcpUrl }` pair the manifest
- * expects. Accepts a bare origin (`https://x.ngrok-free.dev`) — appending the
- * standard `/mcp` path — or a full MCP URL already ending in `/mcp` or the
- * legacy `/_agent-native/mcp` path.
- */
 function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
   let parsed: URL;
   try {
@@ -3320,7 +3472,6 @@ function resolveMcpUrlOverride(input: string): { url: string; mcpUrl: string } {
   return { url: origin, mcpUrl };
 }
 
-/** Return a copy of the install target with its hosted MCP URL overridden. */
 function withMcpUrlOverride(
   target: SkillInstallTarget,
   input: string,
@@ -3474,11 +3625,6 @@ async function addPlainSkillRepo(
   };
 }
 
-/**
- * Whether we can run the interactive browser/device auth flow. CI and
- * non-TTY shells must not block on a browser approval, so we skip the inline
- * flow there and surface the exact `agent-native connect` command instead.
- */
 function canRunInteractiveConnect(options: RunSkillsOptions): boolean {
   if (options.isInteractive) return options.isInteractive();
   if (process.env.AGENT_NATIVE_NO_PROMPT === "1") return false;
@@ -3520,7 +3666,6 @@ async function runWithConnectSpinner<T>(
   }
 }
 
-/** Build the `npx @agent-native/core@latest connect <url> --client … --scope …` command. */
 function connectCommandFor(
   hostedUrl: string,
   clients: ClientId[],
@@ -3538,15 +3683,16 @@ function connectCommandFor(
   return commandString("npx", args);
 }
 
-/**
- * Authenticate the freshly-registered hosted MCP connector so the user does not
- * hit the OAuth wall on their first tool call. Reuses the existing
- * `agent-native connect` flow (OAuth-capable clients get URL-only config plus a
- * `/mcp` authenticate prompt; Codex / Cowork run the browser device-code flow).
- * In non-interactive shells we skip the inline flow and return the command to
- * run instead. Failures here are non-fatal: the connector is already registered,
- * so the user can authenticate later.
- */
+// The skill and its MCP config are written before the sign-in starts, so
+// Ctrl+C there skips only the sign-in: the install has succeeded, and any
+// other selected skills still install.
+function listenForSigintSignInSkip(skip: () => void): () => void {
+  process.once("SIGINT", skip);
+  return () => {
+    process.removeListener("SIGINT", skip);
+  };
+}
+
 async function connectAfterEnsure(
   installTarget: SkillInstallTarget,
   clients: ClientId[],
@@ -3557,8 +3703,6 @@ async function connectAfterEnsure(
   const authMode = installTarget.loaded.manifest.auth?.mode ?? "oauth";
   const connectCommand = connectCommandFor(hostedUrl, clients, parsed.scope);
 
-  // Skills whose connector needs no auth (e.g. open/local-only) never need the
-  // connect step.
   if (authMode === "none") {
     return { connected: false, connectCommand: "" };
   }
@@ -3572,12 +3716,27 @@ async function connectAfterEnsure(
 
   const authMessage = `Authenticating ${installTarget.displayName}…`;
   const connectLog = options.connectLog ?? options.log;
+  const signInClients = clients.filter(
+    (client) => !supportsRemoteMcpOAuth(client),
+  );
+  if (signInClients.length > 0) {
+    const labels = signInClients.map((client) => CLIENT_LABELS[client]);
+    const who =
+      labels.length === 1
+        ? `${labels[0]} needs`
+        : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)} need`;
+    connectLog?.(
+      `${who} a one-time sign-in in your browser. It's optional: ` +
+        `${installTarget.displayName} is already installed, so you can press ` +
+        `Ctrl+C to skip it and finish later with: ${connectCommand}`,
+    );
+  }
   const spinner = options.createConnectSpinner?.();
   let spinnerActive = false;
   let wroteAuthMessage = false;
   const clearSpinner = () => {
     if (!spinnerActive) return;
-    spinner.clear();
+    spinner?.clear();
     spinnerActive = false;
   };
   const writeAuthMessage = () => {
@@ -3585,11 +3744,28 @@ async function connectAfterEnsure(
     connectLog?.(authMessage);
     wroteAuthMessage = true;
   };
+  // Aborting stops the device flow's waits and requests, so runConnect
+  // returns instead of polling until the code expires.
+  const skipController = new AbortController();
+  const signInSkipped = () => skipController.signal.aborted;
   const writeConnectLog = (message: string) => {
     clearSpinner();
     writeAuthMessage();
     connectLog?.(message);
   };
+  // After a skip, the aborted wait's error would only repeat it.
+  const writeConnectError = (message: string) => {
+    if (!signInSkipped()) writeConnectLog(message);
+  };
+  // Registered before the spinner starts so it runs ahead of the spinner's
+  // own SIGINT listener.
+  const stopListeningForSkip = (
+    options.listenForSignInSkip ?? listenForSigintSignInSkip
+  )(() => {
+    if (signInSkipped()) return;
+    skipController.abort();
+    clearSpinner();
+  });
   if (spinner) {
     spinner.start(authMessage);
     spinnerActive = true;
@@ -3597,6 +3773,26 @@ async function connectAfterEnsure(
     writeAuthMessage();
   }
   options.telemetry?.track("skills_cli connect started");
+  // runConnect reports a failed sign-in only through process.exitCode, so
+  // it starts clear here and is read once runConnect returns.
+  const exitCodeBeforeConnect = process.exitCode;
+  process.exitCode = undefined;
+  let connectFailed = false;
+  // Clears the device flow's "Waiting for approval…" line, which Ctrl+C
+  // leaves behind whether or not the sign-in had finished.
+  const clearWaitingLine = () => {
+    if (signInSkipped() && process.stdout.isTTY) {
+      process.stdout.write("\r\x1b[K");
+    }
+  };
+  const skippedResult = () => {
+    clearWaitingLine();
+    connectLog?.(
+      `Sign-in skipped. ${installTarget.displayName} is installed; ` +
+        `to finish the sign-in later, run: ${connectCommand}`,
+    );
+    return { connected: false, connectCommand };
+  };
   try {
     const connectArgs = [
       hostedUrl,
@@ -3611,19 +3807,36 @@ async function connectAfterEnsure(
       await runConnect(connectArgs, {
         isInteractive: options.isInteractive,
         logOut: writeConnectLog,
-        logErr: writeConnectLog,
+        logErr: writeConnectError,
+        fetchImpl: (input, init) =>
+          fetch(input, {
+            ...init,
+            signal: init?.signal
+              ? AbortSignal.any([init.signal, skipController.signal])
+              : skipController.signal,
+          }),
+        sleep: (ms) => delay(ms, undefined, { signal: skipController.signal }),
         withBrowserOpenSpinner: (message, openBrowser) =>
           runWithConnectSpinner(options, message, openBrowser),
       });
     }
+    connectFailed = Boolean(process.exitCode);
+    if (connectFailed && signInSkipped()) return skippedResult();
+    // runConnect returns normally after a failed sign-in, so the catch below
+    // reports it the same way as a thrown error.
+    if (connectFailed) throw new Error("sign-in failed");
+    // A Ctrl+C that lands here came after the sign-in finished. It only cut
+    // short an optional step, such as the Plans publish token.
+    clearWaitingLine();
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
+    connectFailed = Boolean(process.exitCode);
+    if (signInSkipped()) return skippedResult();
     clearSpinner();
     writeAuthMessage();
-    // Non-fatal: the MCP connector is registered. Surface the manual command.
     options.telemetry?.track("skills_cli connect failed", {
       error: err?.message ?? String(err),
     });
@@ -3632,6 +3845,13 @@ async function connectAfterEnsure(
         `Run it later with: ${connectCommand}`,
     );
     return { connected: false, connectCommand };
+  } finally {
+    stopListeningForSkip();
+    // Skipping isn't a failure; only a sign-in that failed on its own keeps
+    // runConnect's exit code.
+    if (signInSkipped() || !connectFailed) {
+      process.exitCode = exitCodeBeforeConnect;
+    }
   }
 }
 
@@ -3652,9 +3872,6 @@ export async function addAgentNativeSkill(
     );
   }
   const knownTarget = normalizeKnownSkillTarget(target);
-  // For multi-skill bundles (the plan bundle), a single-skill target installs
-  // only that skill. `installsRecap` controls the PR Visual Recap github-action
-  // offer, which is only relevant when the recap skill is part of the install.
   const onlySkillNames = knownTarget
     ? builtInOnlySkillNames(target)
     : undefined;
@@ -3886,19 +4103,12 @@ export async function addAgentNativeSkill(
           );
         }
       } else if (knownTarget && builtInInstructionInput) {
-        // Built-in skills ship their instructions inside this package, so copy
-        // the skill folders straight into each client's skills directory. This
-        // avoids shelling out to the separate @agent-native/skills installer
-        // (which would need to be published to npm to run via npx).
         instructionsWritten = installBuiltInInstructions(
           builtInInstructionInput,
         );
         instructionSource = instructionsWritten[0];
         commands.push(...instructionsWritten.map((dir) => `write ${dir}`));
       } else {
-        // External app-skill manifests / plain skill repos still go through the
-        // standalone installer, which knows how to pack adapters and fetch
-        // remote skill collections.
         instructionSource = installTarget.materializeInstructions(tmpRoot);
         const args = [
           "--yes",
@@ -3936,7 +4146,6 @@ export async function addAgentNativeSkill(
       commands.push(`write ${localManifestPath}`);
     }
 
-    // Rewind reports completion only after both local writes succeed.
     if (!installsScreenMemoryMcp) {
       options.telemetry?.track("skills_cli install completed", {
         skills: installTarget.skillNames.join(","),
@@ -3988,10 +4197,6 @@ export async function addAgentNativeSkill(
           skills: installTarget.skillNames.join(","),
         });
 
-        // One-step install + authenticate: after registering a hosted MCP
-        // connector, kick off the existing connect/device-code flow so the user
-        // does not hit an OAuth wall on the first tool call. `--no-connect`
-        // opts out; non-interactive shells get the exact command to run.
         if (parsed.connect) {
           const result = await connectAfterEnsure(
             installTarget,
@@ -4019,8 +4224,6 @@ export async function addAgentNativeSkill(
       }
     }
 
-    // `--with-github-action`: also drop the PR Visual Recap workflow into the
-    // repo so PRs get automatic recaps. Only meaningful for the plan family.
     let withGithubAction = Boolean(parsed.withGithubAction);
     let githubActionPath: string | undefined;
     let githubActionExisted: boolean | undefined;
@@ -4030,9 +4233,6 @@ export async function addAgentNativeSkill(
       !withGithubAction &&
       !fs.existsSync(prVisualRecapWorkflowPath(baseDir))
     ) {
-      // Normally the recap decision is made up front in `runSkills` (so it's
-      // resolved here). Only prompt inline when a direct caller invoked
-      // addAgentNativeSkill without going through that up-front step.
       if (!parsed.githubActionResolved && shouldPrompt(parsed, options)) {
         const prompt = options.promptGithubAction ?? promptForGithubAction;
         const choice = await prompt({
@@ -4058,6 +4258,10 @@ export async function addAgentNativeSkill(
           "--with-github-action only applies to the visual-recap skill; skipping the workflow.",
         );
       } else {
+        const { writePrVisualRecapWorkflow } = await loadOptionalPeer(
+          "@agent-native/recap-cli",
+          () => import("@agent-native/recap-cli"),
+        );
         const writeResult = writePrVisualRecapWorkflow(baseDir, {
           force: Boolean(parsed.force),
         });
@@ -4375,11 +4579,6 @@ function runSkillsStatusOrUpdate(
   process.stdout.write(`${rows.join("\n")}\n`);
 }
 
-/**
- * Resolve the CLI version the same way `index.ts` does — read it from the
- * package.json two levels up from the compiled module (dist/cli/skills.js →
- * ../../package.json). Best-effort: falls back to "unknown".
- */
 function readCliVersion(): string {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
@@ -4459,17 +4658,9 @@ export async function runSkills(
     return;
   }
 
-  // `@agent-native/skills` now delegates its interactive install to this
-  // function. For plain skill repos we still shell out to
-  // `npx @agent-native/skills@latest add …`; this env guard tells that child process
-  // to run its OWN headless installer instead of bouncing back into core,
-  // which would otherwise be an infinite skills → core → skills loop.
   const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
   process.env.AGENT_NATIVE_SKILLS_DIRECT = "1";
 
-  // Best-effort install-funnel telemetry. Created once per run and flushed in a
-  // finally so events send on success, error, and cancellation — the CLI is
-  // short-lived, so flushing before exit is essential or the events never send.
   const startedAt = Date.now();
   const telemetryTarget =
     options.telemetry ??
@@ -4536,9 +4727,6 @@ export async function runSkills(
     telemetry.track("skills_cli skills selected", {
       selected: targets.join(","),
       selectedCount: targets.length,
-      // Best-effort "took everything offered" signal: compare against the
-      // interactive picker's option count (the plan sub-skills collapse into a
-      // single bundle target, so this is approximate, like the standalone CLI).
       selectedAll: targets.length === skillPromptOptions(options).length,
       preselected,
     });
@@ -4606,8 +4794,19 @@ export async function runSkills(
     });
 
     // Ask where to install (project vs user) unless an explicit --scope was
-    // passed or we are running non-interactively.
-    if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
+    // passed or we are running non-interactively. The home directory is not a
+    // project: project scope there writes ~/.mcp.json, which Claude Code then
+    // offers as a new MCP server in every folder under it.
+    if (
+      !parsed.scopeExplicit &&
+      shouldPrompt(parsed, options) &&
+      isHomeDirectory(options.baseDir ?? process.cwd())
+    ) {
+      parsed.scope = "user";
+      options.log?.(
+        "Installing for your user account, so the skills work in every folder.",
+      );
+    } else if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
       const promptScope = options.promptScope ?? promptForScope;
       const scope = await promptScope({ initialScope: "project" });
       if (!scope) {
@@ -4639,10 +4838,6 @@ export async function runSkills(
       parsed.updateInstructions = choice === true;
     }
 
-    // Decide the optional PR Visual Recap GitHub Action UP FRONT — before any
-    // install or MCP registration — so every prompt is answered before we touch
-    // disk. The choice is threaded into each install via `withGithubAction` +
-    // `githubActionResolved` (so addAgentNativeSkill doesn't re-prompt mid-flow).
     const recapBaseDir = options.baseDir ?? process.cwd();
     const anyRecapTarget =
       targets.some((target) => {
@@ -4687,8 +4882,6 @@ export async function runSkills(
       );
     }
 
-    // The add flow succeeded for every target — record the funnel completion
-    // before printing output (output below cannot fail the install).
     const completedSkills = [
       ...new Set(results.flatMap((result) => result.skillNames)),
     ];
@@ -4750,11 +4943,6 @@ export async function runSkills(
           .filter((command): command is string => Boolean(command)),
       ),
     ];
-    const authLine = authConnected
-      ? "Authentication: completed."
-      : pendingConnectCommands.length
-        ? `Authentication: pending — run ${pendingConnectCommands.join(" && ")}`
-        : "";
     const githubActions = [
       ...new Set(
         results
@@ -4762,8 +4950,16 @@ export async function runSkills(
           .filter((p): p is string => Boolean(p)),
       ),
     ];
+    const recapSetup = githubActions.length
+      ? (
+          await loadOptionalPeer(
+            "@agent-native/recap-cli",
+            () => import("@agent-native/recap-cli"),
+          )
+        ).PR_VISUAL_RECAP_SETUP
+      : [];
     const githubActionLine = githubActions.length
-      ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${PR_VISUAL_RECAP_SETUP.join("\n  ")}`
+      ? `PR Visual Recap workflow: wrote ${githubActions.join(", ")}.\nNext: run ${prVisualRecapSetupCommand()} to configure GitHub secrets/variables, or set them manually:\n  ${recapSetup.join("\n  ")}`
       : "";
     const githubActionSuggestions = [
       ...new Set(
@@ -4803,9 +4999,6 @@ export async function runSkills(
       `Installed ${installedNames} skill${results.length === 1 ? "" : "s"}`,
     );
 
-    // OAuth clients (Claude Code) can finish auth in-host via /mcp, not only by
-    // running the connect command — surface that on the no-connect/pending path
-    // so a hosted install isn't left looking "done but unauthenticated".
     if (
       !authConnected &&
       mcpClients.some(
@@ -4820,7 +5013,6 @@ export async function runSkills(
       );
     }
 
-    // GitHub Action follow-ups — kept as exact, copy-pasteable command lines.
     for (const line of [githubActionLine, githubActionSuggestionLine].filter(
       Boolean,
     )) {

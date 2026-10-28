@@ -1,0 +1,2061 @@
+import {
+  hostedHarnessAgentOption,
+  isHostedHarnessConfigured,
+  isHostedHarnessRuntime,
+  normalizeHostedHarnessRuntimes,
+  type HostedHarnessRuntime,
+} from "@agent-native/core/agent/harness/hosted";
+import {
+  AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  cancelAgentChatSubmit,
+  claimAgentChatSubmit,
+  claimAgentChatOpenRequest,
+  parseSubmitChatMessage,
+  reportAgentChatSubmitResult,
+  consumeAgentSidebarUrlOpenOverride,
+  clampAgentSidebarWidth,
+  dispatchAgentSidebarStateChange,
+  getAgentSidebarMaxWidth,
+  getAgentSidebarState,
+  getInitialAgentSidebarOpen,
+  getAgentSidebarWideWidth,
+  setAgentSidebarOpenPreference,
+  subscribeAgentSidebarUrlChanges,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
+} from "@agent-native/core/client/agent-chat";
+import {
+  AGENT_CHAT_VIEW_TRANSITION_CLASS,
+  getAgentChatViewTransitionStyle,
+  startAgentChatViewTransition,
+} from "@agent-native/core/client/agent-chat";
+import {
+  AGENT_SIDEBAR_WIDTH_STEP,
+  snapAgentSidebarWidth,
+} from "@agent-native/core/client/agent-sidebar-state";
+import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
+import { writeClientAppState } from "@agent-native/core/client/application-state";
+import { isAgentNativeDesktop } from "@agent-native/core/client/auth/auth-page-helpers";
+import {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
+  buildAppChatSidebarStateMessage,
+  isPerAppChatStorageKey,
+  requestPerAppChatCommand,
+  usePerAppChatState,
+} from "@agent-native/core/client/hooks";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { shouldParentFrameOwnAgentPanel } from "@agent-native/core/client/host";
+import {
+  getFramePostMessageTargetOrigin,
+  isTrustedBuilderMessage,
+  isTrustedFrameMessage,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding";
+import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding";
+import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
+import { cn } from "@agent-native/toolkit/utils";
+import { IconLayoutSidebarRight } from "@tabler/icons-react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  lazy,
+  Suspense,
+} from "react";
+import { flushSync } from "react-dom";
+
+import { setComposerReferenceEventTarget } from "../../composer/runtime-adapters.js";
+import { Skeleton } from "../../ui/skeleton.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
+import type { BuilderConnectTransport } from "../settings/index.js";
+import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
+import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
+import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
+import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
+import {
+  AGENT_CHAT_RUNNING_EVENT,
+  AGENT_PANEL_OPEN_SETTINGS_EVENT,
+  AGENT_PANEL_PREPARE_EVENT,
+  AGENT_PANEL_SET_MODE_EVENT,
+  getAgentChatNavigationKey,
+  type AgentChatNavigationKey,
+  isAgentPanelChatShortcut,
+  isAgentSidebarToggleShortcut,
+  agentPanelShortcutSelectionText,
+  shouldHandleAgentSidebarToggle,
+} from "./agent-sidebar-events.js";
+import {
+  ScreenRefreshBoundary,
+  SettingsReturnPathRecorder,
+  URLSync,
+} from "./agent-sidebar-url-sync.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
+import type { AssistantChatProps } from "./chat/surface-types.js";
+import type { MultiTabAssistantChatProps } from "./MultiTabAssistantChat.js";
+import "@agent-native/core/client/mcp-app-host";
+
+export function preloadAgentChatSurface(): Promise<void> {
+  // Desktop shells call this unconditionally on mount; loading here would defeat on-demand chat.
+  return Promise.resolve();
+}
+
+const panelImportErrors = new Set<unknown>();
+const isPanelImportError = (error: unknown) => panelImportErrors.has(error);
+const AgentSidebarPanel = lazy(() =>
+  import("./AgentSidebarPanel.js")
+    .then((m) => ({
+      default: m.AgentSidebarPanel,
+    }))
+    .catch((error: unknown) => {
+      panelImportErrors.add(error);
+      throw error;
+    }),
+);
+
+const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
+const FirstRunOnboarding = lazy(() =>
+  import("../onboarding/FirstRunOnboarding.js").then((m) => ({
+    default: m.FirstRunOnboarding,
+  })),
+);
+
+type AgentPanelStyle = React.CSSProperties & {
+  "--agent-sidebar-background"?: string;
+  "--agent-sidebar-closed-transform"?: string;
+  "--agent-sidebar-inner-closed-transform"?: string;
+  "--agent-sidebar-min-width"?: string;
+  "--agent-sidebar-width"?: string;
+  viewTransitionName?: string;
+};
+
+type PendingPanelEvent = {
+  event: Event;
+  order: number;
+  referenceTargetId?: string | null;
+  targetId?: string | null;
+  navigation?: AgentChatNavigationKey;
+  reference?: PendingPanelEvent;
+};
+
+const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
+const SIDEBAR_DRAWER_KEY = "agent-native-sidebar-wide-drawer";
+const SIDEBAR_DRAWER_PLACEHOLDER_KEY =
+  "agent-native-sidebar-drawer-placeholder-width";
+const SIDEBAR_ANIMATION_MS = 260;
+const AGENT_SIDEBAR_DEFAULT_WIDTH = 384;
+const SIDEBAR_OVERLAY_Z_INDEX = 70;
+const SIDEBAR_DRAWER_Z_INDEX = 80;
+const SIDEBAR_DRAWER_VIEW_TRANSITION_NAME = "agent-native-sidebar-drawer";
+function ResizeHandle({
+  position,
+  width,
+  maxWidth,
+  onDrag,
+  onKeyboardResize,
+  onResizeStart,
+  onResizeEnd,
+}: {
+  position: "left" | "right";
+  width: number;
+  maxWidth: number;
+  /** Total pointer travel since the drag started, in width terms. */
+  onDrag: (offset: number) => void;
+  onKeyboardResize: (delta: number) => void;
+  onResizeStart: () => void;
+  onResizeEnd: () => void;
+}) {
+  const t = useT();
+  const dragStartX = useRef<number | null>(null);
+  const onResizeEndRef = useRef(onResizeEnd);
+  onResizeEndRef.current = onResizeEnd;
+  const toWidthDelta = (dx: number) => (position === "left" ? dx : -dx);
+
+  // Closing the panel mid-drag unmounts the handle before pointerup arrives.
+  useEffect(
+    () => () => {
+      if (dragStartX.current !== null) onResizeEndRef.current();
+    },
+    [],
+  );
+
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragStartX.current === null) return;
+    dragStartX.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onResizeEnd();
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t("agentChat.agentPanel.resizePanel")}
+      aria-valuenow={width}
+      aria-valuemin={AGENT_SIDEBAR_MIN_WIDTH}
+      aria-valuemax={maxWidth}
+      tabIndex={0}
+      className="agent-sidebar-resize-handle relative z-20 w-px shrink-0 cursor-col-resize touch-none select-none bg-transparent transition-colors hover:bg-border focus-visible:bg-ring focus-visible:outline-none active:bg-border"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragStartX.current = event.clientX;
+        onResizeStart();
+      }}
+      onPointerMove={(event) => {
+        if (dragStartX.current === null) return;
+        onDrag(toWidthDelta(event.clientX - dragStartX.current));
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
+      onKeyDown={(event) => {
+        if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          const target =
+            event.key === "Home" ? AGENT_SIDEBAR_MIN_WIDTH : maxWidth;
+          onKeyboardResize(target - width);
+          return;
+        }
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const dx =
+          event.key === "ArrowLeft"
+            ? -AGENT_SIDEBAR_WIDTH_STEP
+            : AGENT_SIDEBAR_WIDTH_STEP;
+        onKeyboardResize(toWidthDelta(dx));
+      }}
+    />
+  );
+}
+
+const MOBILE_SIDEBAR_QUERY = "(max-width: 767px)";
+// A newer navigation replacing or closing an older one is routine, not a fault.
+const EXPECTED_CANCELLATION_REASONS = new Set([
+  "navigation-closed",
+  "navigation-superseded",
+]);
+
+function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
+  const message = buildAppChatSidebarStateMessage(open);
+  for (const frame of document.querySelectorAll("iframe")) {
+    frame.contentWindow?.postMessage(message, "*");
+  }
+}
+
+function parentFrameTargetOrigin(): string {
+  return getFramePostMessageTargetOrigin() ?? window.location.origin;
+}
+
+export interface AgentSidebarProps {
+  children: React.ReactNode;
+  enabled?: boolean;
+  screenRefreshEnabled?: boolean;
+  /** @deprecated Use screenRefreshEnabled when disabling this boundary. */
+  screenRefreshOnlyWhenPanelActive?: boolean;
+  emptyStateText?: string;
+  mcpSuggestionExcludedIntegrationIds?: AssistantChatProps["mcpSuggestionExcludedIntegrationIds"];
+  suggestions?: AssistantChatProps["suggestions"];
+  dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
+  composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
+  composerSlot?: AssistantChatProps["composerSlot"];
+  composerContextProvider?: AssistantChatProps["composerContextProvider"];
+  onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
+  imageModelMenu?: AssistantChatProps["imageModelMenu"];
+  availableAgents?: AssistantChatProps["availableAgents"];
+  availableModels?: AssistantChatProps["availableModels"];
+  modelListLoading?: AssistantChatProps["modelListLoading"];
+  selectedAgent?: AssistantChatProps["selectedAgent"];
+  onAgentChange?: AssistantChatProps["onAgentChange"];
+  onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
+  onConnectProvider?: AssistantChatProps["onConnectProvider"];
+  builderConnectTransport?: BuilderConnectTransport;
+  runtime?: AssistantChatProps["runtime"];
+  adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
+  threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
+  emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
+  onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
+  defaultSidebarWidth?: number;
+  /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
+  sidebarWidth?: number;
+  position?: "left" | "right";
+  /** Render the open panel over content even above the mobile breakpoint. */
+  forceOverlay?: boolean;
+  defaultOpen?: boolean;
+  disableChatShortcut?: boolean;
+  showCollapseButton?: boolean;
+  animateMobile?: boolean;
+  animateDesktop?: boolean;
+  chatViewTransition?: boolean;
+  chatViewTransitionHandoff?: boolean;
+  storageKey?: string;
+  defaultMode?: "chat" | "cli";
+  restoreActiveThread?: boolean;
+  openStorageKey?: string;
+  apiUrl?: string;
+  agentChatSurface?: AgentChatSurfaceKind;
+  desktopIdentityUnauthenticated?: AssistantChatProps["desktopIdentityUnauthenticated"];
+  desktopIdentityAuthenticated?: AssistantChatProps["desktopIdentityAuthenticated"];
+  showTabBar?: MultiTabAssistantChatProps["showTabBar"];
+  suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
+  composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
+  showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
+  setupCardOwner?: AssistantChatProps["setupCardOwner"];
+  showGuidedQuestions?: AssistantChatProps["showGuidedQuestions"];
+  openOnChatRunning?: boolean;
+  onFullscreenRequest?: (threadId?: string) => void;
+  onOpenSettings?: (section?: string) => void;
+  onNewCliTab?: () => void;
+  onNewUiTab?: () => void;
+  renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
+  newTabMode?: "ui" | "cli";
+  newCliTabLabel?: string;
+  newUiTabLabel?: string;
+  scope?: import("@agent-native/core/client/agent-chat").ChatThreadScope | null;
+  chatHistory?: AssistantChatProps["chatHistory"];
+  toggleScopeId?: string;
+  isolateHistoryByScope?: boolean;
+  /** @deprecated Scope context now appears inside the composer. */
+  showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
+  browserTabId?: string;
+  threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
+  agentPageHref?: string;
+  suppressFirstRunOnboarding?: boolean;
+  thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
+  showModelSelector?: AssistantChatProps["showModelSelector"];
+  chatOnly?: boolean;
+}
+
+interface HostedHarnessStatus {
+  enabled: boolean;
+  runtimes: HostedHarnessRuntime[];
+}
+
+export function AgentSidebar({
+  children,
+  enabled = true,
+  screenRefreshEnabled = true,
+  screenRefreshOnlyWhenPanelActive,
+  emptyStateText,
+  mcpSuggestionExcludedIntegrationIds,
+  defaultMode = "chat",
+  suggestions,
+  dynamicSuggestions,
+  composerToolbarSlot,
+  composerSlot,
+  composerContextProvider,
+  onComposerTextChange,
+  imageModelMenu,
+  availableAgents,
+  availableModels,
+  modelListLoading,
+  selectedAgent,
+  onAgentChange,
+  onConnectLocalRuntime,
+  onConnectProvider,
+  builderConnectTransport,
+  runtime,
+  adapterReloadKey,
+  threadFooterSlot,
+  defaultSidebarWidth,
+  sidebarWidth,
+  position,
+  forceOverlay = false,
+  defaultOpen,
+  disableChatShortcut = false,
+  showCollapseButton = true,
+  animateMobile = true,
+  animateDesktop = true,
+  chatViewTransition = false,
+  chatViewTransitionHandoff = false,
+  storageKey,
+  openStorageKey,
+  restoreActiveThread = true,
+  apiUrl,
+  agentChatSurface,
+  desktopIdentityUnauthenticated,
+  desktopIdentityAuthenticated,
+  showTabBar = true,
+  suppressInlineOpenApp,
+  composerPlaceholder,
+  showMissingApiKeySetup,
+  setupCardOwner,
+  showGuidedQuestions,
+  openOnChatRunning = false,
+  onFullscreenRequest,
+  onOpenSettings,
+  onNewCliTab,
+  onNewUiTab,
+  renderCliTab,
+  newTabMode = "ui",
+  newCliTabLabel,
+  newUiTabLabel,
+  scope,
+  chatHistory,
+  toggleScopeId,
+  isolateHistoryByScope = false,
+  showScopeBadge,
+  browserTabId,
+  threadUrlSync,
+  agentPageHref,
+  suppressFirstRunOnboarding = false,
+  thinkingDisplay,
+  showModelSelector,
+  chatOnly = true,
+}: AgentSidebarProps) {
+  const resolvedBrowserTabId =
+    browserTabId ??
+    (typeof window === "undefined" ? undefined : getBrowserTabId());
+  useRegisterAgentChatSurface(enabled);
+  const desktopHostedHarnessConfigured =
+    isAgentNativeDesktop() &&
+    isHostedHarnessConfigured(injectedAgentNativeConfig().harness);
+  const hostedHarnessQuery = useActionQuery<HostedHarnessStatus>(
+    "get-hosted-harness-config" as never,
+    undefined,
+    { enabled: desktopHostedHarnessConfigured },
+  );
+  const hostedHarnessStatus = hostedHarnessQuery.data;
+  const hostedHarnessEnabled =
+    desktopHostedHarnessConfigured && hostedHarnessStatus?.enabled === true;
+  const hostedHarnessRuntimes = useMemo(
+    () =>
+      hostedHarnessEnabled
+        ? normalizeHostedHarnessRuntimes(hostedHarnessStatus?.runtimes)
+        : [],
+    [hostedHarnessEnabled, hostedHarnessStatus?.runtimes],
+  );
+  const hostedHarnessUi = hostedHarnessEnabled;
+  const hostedHarnessStorageKey = `agent-native-hosted-harness${storageKey ? `:${storageKey}` : ""}`;
+  const [hostedHarnessRuntime, setHostedHarnessRuntime] =
+    useState<HostedHarnessRuntime>("claude-code");
+  const hostedHarnessAgentOptions = useMemo(
+    () => hostedHarnessRuntimes.map(hostedHarnessAgentOption),
+    [hostedHarnessRuntimes],
+  );
+  const effectiveAvailableAgents = hostedHarnessEnabled
+    ? [
+        ...hostedHarnessAgentOptions,
+        ...(availableAgents ?? []).filter(
+          (agent) => !isHostedHarnessRuntime(agent.id),
+        ),
+      ]
+    : availableAgents;
+  const effectiveSelectedAgent = hostedHarnessEnabled
+    ? hostedHarnessRuntime
+    : selectedAgent;
+  const effectiveOnAgentChange = hostedHarnessEnabled
+    ? (agent: string) => {
+        if (isHostedHarnessRuntime(agent)) {
+          setHostedHarnessRuntime(agent);
+        }
+        onAgentChange?.(agent);
+      }
+    : onAgentChange;
+  const effectivePosition = position ?? "right";
+  const effectiveDefaultOpen = defaultOpen ?? hostedHarnessUi;
+  const effectiveShowTabBar = hostedHarnessUi || showTabBar;
+  const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;
+  const sidebarOpenStorageKey = openStorageKey ?? storageKey;
+  const isPerAppChatSidebar = isPerAppChatStorageKey(sidebarOpenStorageKey);
+  const perAppChatState = usePerAppChatState(!isPerAppChatSidebar);
+  const isPerAppChatHosted =
+    !isPerAppChatSidebar && perAppChatState.hosted === true;
+  const onboardingPreviewMode = useOnboardingPreviewMode();
+  const firstRunOnboardingGateOwnsSurface =
+    useFirstRunOnboardingGateOwnsSurface();
+  const showFirstRunOnboarding =
+    !firstRunOnboardingGateOwnsSurface &&
+    !suppressFirstRunOnboarding &&
+    (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
+  const requestedWidth =
+    defaultSidebarWidth ?? sidebarWidth ?? AGENT_SIDEBAR_DEFAULT_WIDTH;
+  // A host's default width is still held to the panel's floor and ceiling.
+  const initialWidth = clampAgentSidebarWidth(
+    Number.isFinite(requestedWidth)
+      ? requestedWidth
+      : AGENT_SIDEBAR_DEFAULT_WIDTH,
+  );
+  const [open, setOpen] = useState(
+    () =>
+      openOnChatRunning ||
+      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey, {
+        ignoreUrlOverride: !enabled,
+      }),
+  );
+  const openRef = useRef(open);
+  const [entryAnimated, setEntryAnimated] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
+  const [width, setWidth] = useState(initialWidth);
+  const [isWideDrawer, setIsWideDrawer] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(SIDEBAR_DRAWER_KEY) === "true";
+    } catch {
+      // coercion-ok: the drawer defaults to the normal inline presentation when storage is unavailable.
+      return false;
+    }
+  });
+  const [drawerPlaceholderWidth, setDrawerPlaceholderWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_DRAWER_PLACEHOLDER_KEY);
+      const parsed = saved ? Number.parseInt(saved, 10) : Number.NaN;
+      if (Number.isFinite(parsed)) return clampAgentSidebarWidth(parsed);
+    } catch {
+      // coercion-ok: the normal sidebar width is a safe placeholder fallback.
+    }
+    return initialWidth;
+  });
+  const drawerExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia(MOBILE_SIDEBAR_QUERY).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_SIDEBAR_QUERY);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      if (saved) {
+        const n = Number.parseInt(saved, 10);
+        if (Number.isFinite(n))
+          setWidth(clampAgentSidebarWidth(snapAgentSidebarWidth(n)));
+      }
+    } catch {
+      // coercion-ok: unavailable storage leaves the in-memory default width intact.
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (drawerExitTimerRef.current !== null) {
+        clearTimeout(drawerExitTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const setOpenCurrent = useCallback(
+    (next: boolean | ((prev: boolean) => boolean)) => {
+      const value = typeof next === "function" ? next(openRef.current) : next;
+      openRef.current = value;
+      setOpen(value);
+      return value;
+    },
+    [],
+  );
+  const setOpenPersisted = useCallback(
+    (
+      next: boolean | ((prev: boolean) => boolean),
+      { requested = true }: { requested?: boolean } = {},
+    ) => {
+      if (!enabled) return;
+      if (requested) setEntryAnimated(true);
+      const value = setOpenCurrent(next);
+      setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
+    },
+    [enabled, setOpenCurrent, sidebarOpenStorageKey],
+  );
+  const autoOpen = useCallback(() => {
+    if (openRef.current) return;
+    setEntryAnimated(true);
+    setOpenCurrent(true);
+  }, [setOpenCurrent]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(hostedHarnessStorageKey);
+      if (saved && isHostedHarnessRuntime(saved)) {
+        setHostedHarnessRuntime(saved);
+      }
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+      // The picker falls back to Claude Code when storage is unavailable.
+    }
+  }, [hostedHarnessStorageKey]);
+
+  useEffect(() => {
+    if (!hostedHarnessEnabled || hostedHarnessRuntimes.length === 0) return;
+    const next = hostedHarnessRuntimes.includes(hostedHarnessRuntime)
+      ? hostedHarnessRuntime
+      : hostedHarnessRuntimes[0];
+    if (!next) return;
+    if (next !== hostedHarnessRuntime) setHostedHarnessRuntime(next);
+    try {
+      localStorage.setItem(hostedHarnessStorageKey, next);
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+      // The selected runtime remains in memory for this tab.
+    }
+  }, [
+    hostedHarnessEnabled,
+    hostedHarnessRuntimes,
+    hostedHarnessRuntime,
+    hostedHarnessStorageKey,
+  ]);
+
+  const applyUrlOpenOverride = useCallback(() => {
+    const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
+    if (override !== null) setOpenPersisted(override, { requested: false });
+  }, [setOpenPersisted, sidebarOpenStorageKey]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    applyUrlOpenOverride();
+    return subscribeAgentSidebarUrlChanges(applyUrlOpenOverride);
+  }, [applyUrlOpenOverride, enabled]);
+
+  useEffect(() => {
+    if (enabled && openOnChatRunning && !isPerAppChatHosted) autoOpen();
+  }, [autoOpen, enabled, isPerAppChatHosted, openOnChatRunning]);
+
+  const [frameCodeMode, setFrameCodeMode] = useState(() =>
+    shouldParentFrameOwnAgentPanel(),
+  );
+  const [frameSidebarOpen, setFrameSidebarOpen] = useState(false);
+  const [hasFrameSidebarState, setHasFrameSidebarState] = useState(false);
+  const [backgroundPanelActive, setBackgroundPanelActive] = useState(false);
+  const [hasPendingPanelEvents, setHasPendingPanelEvents] = useState(false);
+  const [runningTabIds, setRunningTabIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const ownsPanel =
+    enabled &&
+    !isPerAppChatHosted &&
+    !presentationMode &&
+    (!frameCodeMode || !shouldParentFrameOwnAgentPanel());
+  const shouldMountPanel =
+    ownsPanel &&
+    (open ||
+      backgroundPanelActive ||
+      runningTabIds.size > 0 ||
+      hasPendingPanelEvents);
+  const panelReadyRef = useRef(false);
+  const panelLoadFailedRef = useRef(false);
+  const composerReadyRef = useRef(false);
+  const composerElementRef = useRef<HTMLElement | null>(null);
+  const panelElementRef = useRef<HTMLDivElement>(null);
+  const pendingPanelEvents = useRef<PendingPanelEvent[]>([]);
+  const pendingPanelControls = useRef<PendingPanelEvent[]>([]);
+  const pendingEventOrder = useRef(0);
+  const replayingPanelEvent = useRef<Event | null>(null);
+  const drainScheduled = useRef(false);
+  const activeNavigations = useRef(new Map<AgentChatNavigationKey, Event>());
+  const committedNavigations = useRef(new Set<AgentChatNavigationKey>());
+  const committedReferenceTargetId = useRef<string | null>(null);
+  const getReferenceTargetId = useCallback(
+    () =>
+      panelElementRef.current
+        ?.querySelector("[data-agent-chat-reference-target]")
+        ?.getAttribute("data-agent-chat-reference-target") ?? null,
+    [],
+  );
+  const isReferenceTargetReady = useCallback(
+    (targetId: string | null) => {
+      const element = composerElementRef.current;
+      return (
+        composerReadyRef.current &&
+        element !== null &&
+        panelElementRef.current !== null &&
+        panelElementRef.current.contains(element) &&
+        targetId === getReferenceTargetId() &&
+        (element
+          .closest("[data-agent-chat-reference-target]")
+          ?.getAttribute("data-agent-chat-reference-target") ?? null) ===
+          targetId
+      );
+    },
+    [getReferenceTargetId],
+  );
+  const drainPendingPanelEvents = useCallback(() => {
+    if (drainScheduled.current) return;
+    drainScheduled.current = true;
+    queueMicrotask(() => {
+      try {
+        while (panelReadyRef.current) {
+          const head = pendingPanelEvents.current[0];
+          const referenceBlocked =
+            head &&
+            isComposerReferenceEvent(head.event) &&
+            !isReferenceTargetReady(head.referenceTargetId ?? null);
+          const navigation =
+            activeNavigations.current.size > 0 || referenceBlocked
+              ? pendingPanelEvents.current.find((pending) =>
+                  isPanelNavigationEvent(pending.event),
+                )
+              : undefined;
+          if (referenceBlocked && navigation) {
+            const superseded = new Set(
+              pendingPanelEvents.current.filter((pending) => {
+                const submit =
+                  pending.event instanceof MessageEvent
+                    ? parseSubmitChatMessage(pending.event)
+                    : null;
+                return (
+                  pending.order < navigation.order &&
+                  !isPanelNavigationEvent(pending.event) &&
+                  !submit?.targetTabId
+                );
+              }),
+            );
+            // Cancel before navigation can deliver a prefill that would overtake the reference.
+            cancelPendingEventsRef.current(
+              (pending) => superseded.has(pending),
+              "navigation-superseded",
+            );
+            continue;
+          }
+          const conversation = navigation ?? head;
+          const control = pendingPanelControls.current[0];
+          const conversationReady =
+            conversation &&
+            (isPanelNavigationEvent(conversation.event) ||
+              activeNavigations.current.size === 0) &&
+            (!isComposerReferenceEvent(conversation.event) ||
+              isReferenceTargetReady(conversation.referenceTargetId ?? null));
+          const queue =
+            control &&
+            (!conversationReady || control.order < conversation.order)
+              ? pendingPanelControls.current
+              : conversationReady
+                ? pendingPanelEvents.current
+                : null;
+          if (!queue) break;
+          const pending =
+            queue === pendingPanelControls.current ? control : conversation;
+          if (!pending) break;
+          const { event } = pending;
+          const index = queue.indexOf(pending);
+          if (index >= 0) queue.splice(index, 1);
+          if (isComposerReferenceEvent(event) && composerElementRef.current)
+            setComposerReferenceEventTarget(event, composerElementRef.current);
+          replayingPanelEvent.current = event;
+          // Reference insertion must commit before a following submission reads its context.
+          flushSync(() => window.dispatchEvent(event));
+        }
+      } finally {
+        replayingPanelEvent.current = null;
+        drainScheduled.current = false;
+        setHasPendingPanelEvents(
+          pendingPanelEvents.current.length +
+            pendingPanelControls.current.length +
+            activeNavigations.current.size >
+            0,
+        );
+      }
+    });
+  }, [isReferenceTargetReady]);
+  const preparePendingEventCancellation = useCallback(
+    (
+      matches: (pending: PendingPanelEvent) => boolean,
+      reason: string | ((pending: PendingPanelEvent) => string),
+    ) => {
+      const cancelled: PendingPanelEvent[] = [];
+      for (const queue of [
+        pendingPanelEvents.current,
+        pendingPanelControls.current,
+      ]) {
+        for (let index = queue.length - 1; index >= 0; index--) {
+          if (matches(queue[index])) {
+            cancelled.push(...queue.splice(index, 1));
+          }
+        }
+      }
+      cancelled.sort((a, b) => a.order - b.order);
+      const publish = () => {
+        for (const pending of cancelled) {
+          const submit =
+            pending.event instanceof MessageEvent
+              ? parseSubmitChatMessage(pending.event)
+              : null;
+          if (submit) claimAgentChatSubmit(submit.submitMessageId);
+          else if (isPanelNavigationEvent(pending.event))
+            claimAgentChatOpenRequest(getAgentChatNavigationKey(pending.event));
+        }
+        for (const pending of cancelled) {
+          const cancellationReason =
+            typeof reason === "string" ? reason : reason(pending);
+          const submit =
+            pending.event instanceof MessageEvent
+              ? parseSubmitChatMessage(pending.event)
+              : null;
+          if (submit) {
+            reportAgentChatSubmitResult(
+              submit.submitMessageId,
+              false,
+              cancellationReason,
+            );
+            cancelAgentChatSubmit(submit.submitMessageId);
+          } else if (!EXPECTED_CANCELLATION_REASONS.has(cancellationReason)) {
+            console.warn("[agent-chat] cancelled retained conversation event", {
+              type: pending.event.type,
+              reason: cancellationReason,
+            });
+          }
+        }
+        drainPendingPanelEvents();
+      };
+      return publish;
+    },
+    [drainPendingPanelEvents],
+  );
+  const cancelPendingEvents = useCallback(
+    (matches: (pending: PendingPanelEvent) => boolean, reason: string) =>
+      preparePendingEventCancellation(matches, reason)(),
+    [preparePendingEventCancellation],
+  );
+  const onReferenceTargetChange = useCallback(
+    (
+      targetId = committedReferenceTargetId.current ?? getReferenceTargetId(),
+      navigations: Event[] = [],
+    ) => {
+      if (targetId !== null) {
+        committedReferenceTargetId.current = targetId;
+        const committed = new Set(navigations.map(getAgentChatNavigationKey));
+        for (const key of committed) committedNavigations.current.add(key);
+        for (const pending of pendingPanelEvents.current) {
+          if (
+            pending.navigation === undefined ||
+            committed.has(pending.navigation)
+          ) {
+            if (pending.referenceTargetId === null)
+              pending.referenceTargetId = targetId;
+            else if (
+              pending.targetId == null &&
+              !pending.reference &&
+              !isComposerReferenceEvent(pending.event) &&
+              !isPanelNavigationEvent(pending.event)
+            )
+              pending.targetId = targetId;
+          }
+        }
+        const cancelled = new Set(
+          pendingPanelEvents.current.filter((pending) => {
+            const submit =
+              pending.event instanceof MessageEvent
+                ? parseSubmitChatMessage(pending.event)
+                : null;
+            if (submit?.targetTabId) return false;
+            const recipient =
+              pending.referenceTargetId ??
+              pending.reference?.referenceTargetId ??
+              pending.targetId;
+            return typeof recipient === "string" && recipient !== targetId;
+          }),
+        );
+        if (cancelled.size > 0)
+          cancelPendingEvents(
+            (pending) => cancelled.has(pending),
+            "reference-target-changed",
+          );
+      }
+      drainPendingPanelEvents();
+    },
+    [getReferenceTargetId, cancelPendingEvents, drainPendingPanelEvents],
+  );
+  const cancelPendingEventsRef = useRef(cancelPendingEvents);
+  cancelPendingEventsRef.current = cancelPendingEvents;
+  useEffect(
+    () => () => {
+      panelReadyRef.current = false;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
+      activeNavigations.current.clear();
+      committedNavigations.current.clear();
+      cancelPendingEventsRef.current(() => true, "panel-unmounted");
+    },
+    [],
+  );
+  const onNavigationChange = useCallback<
+    NonNullable<MultiTabAssistantChatProps["onNavigationChange"]>
+  >(
+    (event, outcome) => {
+      const key = getAgentChatNavigationKey(event);
+      if (outcome === "started") {
+        committedNavigations.current.delete(key);
+        activeNavigations.current.set(key, event);
+        setHasPendingPanelEvents(true);
+        return;
+      }
+      activeNavigations.current.delete(key);
+      committedNavigations.current.delete(key);
+      if (outcome !== "selected") {
+        cancelPendingEvents(
+          (pending) => pending.navigation === key,
+          `navigation-${outcome}`,
+        );
+      }
+      drainPendingPanelEvents();
+    },
+    [cancelPendingEvents, drainPendingPanelEvents],
+  );
+  const onPanelLoadFailed = useCallback(() => {
+    panelLoadFailedRef.current = true;
+    panelReadyRef.current = false;
+    composerReadyRef.current = false;
+    composerElementRef.current = null;
+    cancelPendingEvents(() => true, "panel-load-failed");
+    setHasPendingPanelEvents(false);
+    setBackgroundPanelActive(false);
+  }, [cancelPendingEvents]);
+  const onTabsClosing = useCallback<
+    NonNullable<MultiTabAssistantChatProps["onTabsClosing"]>
+  >(
+    (tabIds, outcome) => {
+      const closed = new Set(tabIds);
+      const closedNavigations = new Set(
+        [
+          ...activeNavigations.current.values(),
+          ...pendingPanelEvents.current
+            .filter((pending) => isPanelNavigationEvent(pending.event))
+            .map((pending) => pending.event),
+        ]
+          .filter((event) =>
+            closed.has((event as CustomEvent).detail?.threadId),
+          )
+          .map(getAgentChatNavigationKey),
+      );
+      return preparePendingEventCancellation(
+        (pending) => {
+          if (
+            closedNavigations.has(getAgentChatNavigationKey(pending.event)) ||
+            (pending.navigation !== undefined &&
+              closedNavigations.has(pending.navigation))
+          )
+            return true;
+          const targetId =
+            pending.referenceTargetId ??
+            pending.targetId ??
+            pending.reference?.referenceTargetId;
+          return typeof targetId === "string" && closed.has(targetId);
+        },
+        (pending) =>
+          pending.navigation !== undefined &&
+          closedNavigations.has(pending.navigation)
+            ? `navigation-${outcome}`
+            : "target-tab-closed",
+      );
+    },
+    [preparePendingEventCancellation],
+  );
+  const onPanelReadyChange = useCallback(
+    (ready: boolean) => {
+      panelReadyRef.current = ready;
+      if (!ready) return;
+      onReferenceTargetChange();
+    },
+    [onReferenceTargetChange],
+  );
+
+  useEffect(() => {
+    const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
+    if (frameOwned && !hasFrameSidebarState && !isPerAppChatHosted) return;
+    dispatchAgentSidebarStateChange({
+      open:
+        enabled &&
+        (isPerAppChatHosted
+          ? perAppChatState.open
+          : !presentationMode && (frameOwned ? frameSidebarOpen : open)),
+      source: frameOwned ? "frame" : "app",
+      mode: frameOwned ? "code" : "app",
+    });
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    open,
+    presentationMode,
+    hasFrameSidebarState,
+    isPerAppChatHosted,
+    perAppChatState.open,
+    enabled,
+  ]);
+
+  useEffect(() => {
+    if (!isPerAppChatSidebar) return;
+
+    const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
+    if (frameOwned && !hasFrameSidebarState) return;
+
+    const openState =
+      enabled && !presentationMode && (frameOwned ? frameSidebarOpen : open);
+    const message = buildAppChatSidebarStateMessage(openState);
+
+    window.dispatchEvent(
+      new CustomEvent(APP_CHAT_SIDEBAR_STATE_EVENT, {
+        detail: message.data,
+      }),
+    );
+    postPerAppChatSidebarStateToEmbeddedFrames(openState);
+
+    const handleStateRequest = (event: MessageEvent) => {
+      if (event.data?.type !== APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE) return;
+      const frame = Array.from(document.querySelectorAll("iframe")).find(
+        (candidate) => candidate.contentWindow === event.source,
+      );
+      if (!frame) return;
+      frame.contentWindow?.postMessage(message, event.origin || "*");
+    };
+
+    window.addEventListener("message", handleStateRequest);
+    return () => window.removeEventListener("message", handleStateRequest);
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    hasFrameSidebarState,
+    isPerAppChatSidebar,
+    open,
+    presentationMode,
+    enabled,
+  ]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const preparePanel = () => setBackgroundPanelActive(true);
+    const handleChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const tabId =
+        typeof detail?.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+
+      if (detail?.isRunning === true) {
+        if (openOnChatRunning && !isPerAppChatHosted) autoOpen();
+        setRunningTabIds((prev) => {
+          const next = new Set(prev);
+          next.add(tabId);
+          return next;
+        });
+        return;
+      }
+
+      if (detail?.isRunning === false) {
+        setRunningTabIds((prev) => {
+          if (!prev.has(tabId)) return prev;
+          const next = new Set(prev);
+          next.delete(tabId);
+          return next;
+        });
+        setBackgroundPanelActive(false);
+      }
+    };
+
+    window.addEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
+    window.addEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
+    return () => {
+      window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
+      window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
+    };
+  }, [
+    autoOpen,
+    enabled,
+    isPerAppChatHosted,
+    openOnChatRunning,
+    setOpenCurrent,
+    setOpenPersisted,
+  ]);
+
+  // Child composers announce readiness in passive effects, including ownership remounts.
+  useLayoutEffect(() => {
+    if (!ownsPanel) {
+      panelReadyRef.current = false;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
+      return;
+    }
+    const retainEvent = (event: Event, queue: PendingPanelEvent[]) => {
+      event.stopImmediatePropagation();
+      const queued =
+        event instanceof MessageEvent
+          ? new MessageEvent("message", {
+              data: event.data,
+              origin: event.origin,
+              source: event.source,
+            })
+          : new CustomEvent(event.type, {
+              detail: (event as CustomEvent).detail,
+            });
+      const precedingNavigation = [...pendingPanelEvents.current]
+        .reverse()
+        .find((pending) => isPanelNavigationEvent(pending.event));
+      const precedingNavigationKey = precedingNavigation
+        ? getAgentChatNavigationKey(precedingNavigation.event)
+        : [...activeNavigations.current.keys()].at(-1);
+      const navigation =
+        precedingNavigationKey !== undefined &&
+        !committedNavigations.current.has(precedingNavigationKey)
+          ? precedingNavigationKey
+          : undefined;
+      const recipient =
+        committedReferenceTargetId.current ?? getReferenceTargetId();
+      const reference = [...pendingPanelEvents.current]
+        .reverse()
+        .find(
+          (pending) =>
+            isPanelNavigationEvent(pending.event) ||
+            isComposerReferenceEvent(pending.event),
+        );
+      const submit =
+        queued instanceof MessageEvent ? parseSubmitChatMessage(queued) : null;
+      queue.push({
+        event: queued,
+        order: pendingEventOrder.current++,
+        referenceTargetId: isComposerReferenceEvent(event)
+          ? navigation
+            ? null
+            : recipient
+          : undefined,
+        navigation:
+          submit?.targetTabId || isPanelNavigationEvent(event)
+            ? undefined
+            : navigation,
+        targetId:
+          submit?.targetTabId ??
+          (navigation ||
+          isPanelNavigationEvent(event) ||
+          isComposerReferenceEvent(event)
+            ? undefined
+            : reference && isComposerReferenceEvent(reference.event)
+              ? undefined
+              : recipient),
+        reference:
+          !isPanelNavigationEvent(event) &&
+          !submit?.targetTabId &&
+          reference &&
+          isComposerReferenceEvent(reference.event)
+            ? reference
+            : undefined,
+      });
+      if (panelLoadFailedRef.current) {
+        cancelPendingEvents(() => true, "panel-load-failed");
+        return;
+      }
+      setHasPendingPanelEvents(true);
+      setBackgroundPanelActive(true);
+      onReferenceTargetChange();
+    };
+    const shouldRetainEvent = (event: Event, ready: boolean) =>
+      event !== replayingPanelEvent.current &&
+      (!ready ||
+        pendingPanelEvents.current.length > 0 ||
+        pendingPanelControls.current.length > 0);
+    const replayAfterMount = (type: string, event: Event) => {
+      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
+      retainEvent(event, pendingPanelControls.current);
+      if (type === AGENT_PANEL_OPEN_SETTINGS_EVENT) {
+        setOpenPersisted(true);
+      }
+    };
+
+    const handleSetMode = (event: Event) => {
+      replayAfterMount(AGENT_PANEL_SET_MODE_EVENT, event);
+    };
+    const handleOpenSettings = (event: Event) => {
+      replayAfterMount(AGENT_PANEL_OPEN_SETTINGS_EVENT, event);
+    };
+
+    const handleOpenThread = (event: Event) => {
+      const key = getAgentChatNavigationKey(event);
+      if (
+        event !== replayingPanelEvent.current &&
+        (activeNavigations.current.has(key) ||
+          pendingPanelEvents.current.some(
+            (pending) =>
+              isPanelNavigationEvent(pending.event) &&
+              getAgentChatNavigationKey(pending.event) === key,
+          ))
+      ) {
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
+      retainEvent(event, pendingPanelEvents.current);
+    };
+    const handleReference = (event: Event) => {
+      if (
+        !shouldRetainEvent(
+          event,
+          activeNavigations.current.size === 0 &&
+            isReferenceTargetReady(getReferenceTargetId()),
+        )
+      ) {
+        if (event !== replayingPanelEvent.current && composerElementRef.current)
+          setComposerReferenceEventTarget(event, composerElementRef.current);
+        return;
+      }
+      retainEvent(event, pendingPanelEvents.current);
+    };
+    const handleComposerReady = (event: Event) => {
+      const element = (event as CustomEvent).detail;
+      if (
+        !(element instanceof HTMLElement) ||
+        !panelElementRef.current?.contains(element)
+      )
+        return;
+      composerReadyRef.current = true;
+      composerElementRef.current = element;
+      drainPendingPanelEvents();
+    };
+    const handleComposerUnavailable = (event: Event) => {
+      if ((event as CustomEvent).detail !== composerElementRef.current) return;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        !isTrustedFrameMessage(event) &&
+        !(isComposerReferenceEvent(event) && isTrustedBuilderMessage(event))
+      )
+        return;
+      if (
+        !shouldRetainEvent(
+          event,
+          isComposerReferenceEvent(event)
+            ? activeNavigations.current.size === 0 &&
+                isReferenceTargetReady(getReferenceTargetId())
+            : panelReadyRef.current && activeNavigations.current.size === 0,
+        )
+      ) {
+        if (
+          isComposerReferenceEvent(event) &&
+          event !== replayingPanelEvent.current &&
+          composerElementRef.current
+        )
+          setComposerReferenceEventTarget(event, composerElementRef.current);
+        return;
+      }
+      if (
+        ![
+          "agentNative.submitChat",
+          AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+        ].includes(event.data?.type)
+      )
+        return;
+      retainEvent(event, pendingPanelEvents.current);
+    };
+
+    window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode, true);
+    window.addEventListener(
+      AGENT_PANEL_OPEN_SETTINGS_EVENT,
+      handleOpenSettings,
+      true,
+    );
+    window.addEventListener("agent-chat:open-thread", handleOpenThread, true);
+    window.addEventListener("agent-task-open", handleOpenThread, true);
+    window.addEventListener("message", handleMessage, true);
+    window.addEventListener(
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+      handleReference,
+      true,
+    );
+    window.addEventListener(
+      "agentNative:composer-reference-ready",
+      handleComposerReady,
+    );
+    window.addEventListener(
+      "agentNative:composer-reference-unavailable",
+      handleComposerUnavailable,
+    );
+    return () => {
+      window.removeEventListener(
+        AGENT_PANEL_SET_MODE_EVENT,
+        handleSetMode,
+        true,
+      );
+      window.removeEventListener(
+        AGENT_PANEL_OPEN_SETTINGS_EVENT,
+        handleOpenSettings,
+        true,
+      );
+      window.removeEventListener(
+        "agent-chat:open-thread",
+        handleOpenThread,
+        true,
+      );
+      window.removeEventListener("agent-task-open", handleOpenThread, true);
+      window.removeEventListener("message", handleMessage, true);
+      window.removeEventListener(
+        AGENT_CHAT_INSERT_REFERENCE_EVENT,
+        handleReference,
+        true,
+      );
+      window.removeEventListener(
+        "agentNative:composer-reference-ready",
+        handleComposerReady,
+      );
+      window.removeEventListener(
+        "agentNative:composer-reference-unavailable",
+        handleComposerUnavailable,
+      );
+    };
+  }, [
+    ownsPanel,
+    setOpenPersisted,
+    cancelPendingEvents,
+    drainPendingPanelEvents,
+    getReferenceTargetId,
+    onReferenceTargetChange,
+    isReferenceTargetReady,
+  ]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const toggleHandler = (event: Event) => {
+      if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
+      const sidebarIsOpen = isPerAppChatHosted
+        ? perAppChatState.open
+        : frameCodeMode && shouldParentFrameOwnAgentPanel()
+          ? frameSidebarOpen
+          : open;
+      if (focusOnOpen && !sidebarIsOpen) {
+        focusAgentChat();
+        return;
+      }
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("toggle");
+        return;
+      }
+      if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
+        window.parent.postMessage(
+          { type: "agentNative.toggleSidebar" },
+          parentFrameTargetOrigin(),
+        );
+      } else {
+        setOpenPersisted((prev) => !prev);
+      }
+    };
+    const openHandler = (event: Event) => {
+      const focusOnOpen =
+        (event as CustomEvent<{ focus?: unknown }>).detail?.focus === true;
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand(
+          "open",
+          focusOnOpen ? { focus: true } : undefined,
+        );
+        return;
+      }
+      if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
+        window.parent.postMessage(
+          {
+            type: "agentNative.toggleSidebar",
+            data: { open: true, ...(focusOnOpen ? { focus: true } : {}) },
+          },
+          parentFrameTargetOrigin(),
+        );
+      } else {
+        setOpenPersisted(true);
+        if (focusOnOpen) focusAgentChatComposer();
+      }
+    };
+    const closeHandler = () => {
+      if (isPerAppChatHosted) {
+        requestPerAppChatCommand("close");
+        return;
+      }
+      if (frameCodeMode && shouldParentFrameOwnAgentPanel()) {
+        window.parent.postMessage(
+          { type: "agentNative.toggleSidebar", data: { open: false } },
+          parentFrameTargetOrigin(),
+        );
+      } else {
+        setOpenPersisted(false);
+      }
+    };
+    window.addEventListener("agent-panel:toggle", toggleHandler);
+    window.addEventListener("agent-panel:open", openHandler);
+    window.addEventListener("agent-panel:close", closeHandler);
+    return () => {
+      window.removeEventListener("agent-panel:toggle", toggleHandler);
+      window.removeEventListener("agent-panel:open", openHandler);
+      window.removeEventListener("agent-panel:close", closeHandler);
+    };
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    enabled,
+    isPerAppChatHosted,
+    open,
+    perAppChatState.open,
+    setOpenPersisted,
+    toggleScopeId,
+  ]);
+
+  useEffect(() => {
+    if (!enabled || window.parent === window) return;
+
+    function handleMessage(event: MessageEvent) {
+      if (event.data?.type !== "agentNative.sidebarMode") return;
+      if (event.source !== window.parent || !isTrustedFrameMessage(event))
+        return;
+      const {
+        mode,
+        appMode,
+        width: frameWidth,
+        open: frameOpen,
+        wide: frameWide,
+        placeholderWidth: framePlaceholderWidth,
+      } = event.data.data || {};
+      if (mode === "code") {
+        setFrameCodeMode(true);
+        setFrameSidebarOpen(frameOpen !== false);
+        setHasFrameSidebarState(true);
+        setOpenPersisted(false, { requested: false });
+      } else if (mode === "app") {
+        setFrameCodeMode(false);
+        setFrameSidebarOpen(false);
+        setHasFrameSidebarState(true);
+        setOpenPersisted(frameOpen !== false, { requested: false });
+        if (
+          typeof frameWidth === "number" &&
+          Number.isFinite(frameWidth) &&
+          frameWidth >= AGENT_SIDEBAR_MIN_WIDTH &&
+          frameWidth <= getAgentSidebarMaxWidth()
+        ) {
+          setWidth(frameWidth);
+        }
+        if (frameWide === true || frameWide === false) {
+          setIsWideDrawer(frameWide);
+          if (
+            typeof framePlaceholderWidth === "number" &&
+            Number.isFinite(framePlaceholderWidth) &&
+            framePlaceholderWidth >= AGENT_SIDEBAR_MIN_WIDTH &&
+            framePlaceholderWidth <= getAgentSidebarMaxWidth()
+          ) {
+            setDrawerPlaceholderWidth(framePlaceholderWidth);
+          }
+        }
+        if (
+          appMode === "cli" ||
+          appMode === "resources" ||
+          appMode === "chat"
+        ) {
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:set-mode", {
+              detail: { mode: appMode },
+            }),
+          );
+        }
+      }
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [enabled, setOpenPersisted]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isAgentSidebarToggleShortcut(e)) {
+        e.preventDefault();
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
+        );
+        return;
+      }
+      if (!disableChatShortcut && isAgentPanelChatShortcut(e)) {
+        e.preventDefault();
+        let selectionText = "";
+        try {
+          selectionText = agentPanelShortcutSelectionText(e);
+        } catch {
+          // coercion-ok: selection capture is optional; the shortcut still opens chat.
+        }
+        if (selectionText) {
+          void writeClientAppState(
+            "pending-selection-context",
+            { text: selectionText, capturedAt: Date.now() },
+            { keepalive: true },
+          ).catch(() => {});
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:selection-attached", {
+              detail: { text: selectionText, length: selectionText.length },
+            }),
+          );
+        }
+        focusAgentChat();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [disableChatShortcut, enabled]);
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type !== "agentNative.presentationMode") return;
+      if (event.source !== window.parent || !isTrustedFrameMessage(event))
+        return;
+      setPresentationMode(event.data.data?.active === true);
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const dragStartWidthRef = useRef(width);
+  const persistWidth = useCallback((next: number) => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+    } catch {
+      // coercion-ok: the in-memory width update already applied; persistence is optional.
+    }
+  }, []);
+  const handleDrag = useCallback((offset: number) => {
+    const next = clampAgentSidebarWidth(
+      snapAgentSidebarWidth(dragStartWidthRef.current + offset),
+    );
+    widthRef.current = next;
+    setWidth(next);
+  }, []);
+  const handleKeyboardResize = useCallback(
+    (delta: number) => {
+      const next = clampAgentSidebarWidth(
+        snapAgentSidebarWidth(widthRef.current + delta),
+      );
+      widthRef.current = next;
+      setWidth(next);
+      persistWidth(next);
+    },
+    [persistWidth],
+  );
+  const [drawerMorphing, setDrawerMorphing] = useState(false);
+  const runDrawerMorph = useCallback((apply: () => void) => {
+    flushSync(() => setDrawerMorphing(true));
+    const settle = () => setDrawerMorphing(false);
+    const transition = startAgentChatViewTransition(apply);
+    if (!transition) {
+      settle();
+      return;
+    }
+    transition.finished.then(settle, settle);
+  }, []);
+  const snapTo75Percent = useCallback(() => {
+    if (drawerExitTimerRef.current !== null) {
+      clearTimeout(drawerExitTimerRef.current);
+      drawerExitTimerRef.current = null;
+    }
+    const next = getAgentSidebarWideWidth();
+    const placeholder = isWideDrawer ? drawerPlaceholderWidth : width;
+    const apply = () => {
+      setDrawerPlaceholderWidth(placeholder);
+      setIsWideDrawer(true);
+      setWidth(next);
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+        localStorage.setItem(SIDEBAR_DRAWER_KEY, "true");
+        localStorage.setItem(
+          SIDEBAR_DRAWER_PLACEHOLDER_KEY,
+          String(placeholder),
+        );
+        // coercion-ok: the drawer remains applied in memory when storage is unavailable.
+      } catch {}
+    };
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer, width]);
+  const exitWideDrawer = useCallback(() => {
+    if (!isWideDrawer || drawerExitTimerRef.current !== null) return;
+    const next = drawerPlaceholderWidth;
+    const apply = () => {
+      setWidth(next);
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+        localStorage.setItem(SIDEBAR_DRAWER_KEY, "false");
+        // coercion-ok: the normal sidebar remains applied in memory when storage is unavailable.
+      } catch {}
+      drawerExitTimerRef.current = setTimeout(() => {
+        drawerExitTimerRef.current = null;
+        setIsWideDrawer(false);
+      }, SIDEBAR_ANIMATION_MS + 32);
+    };
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer]);
+  const handleResizeStart = useCallback(() => {
+    dragStartWidthRef.current = widthRef.current;
+    setIsResizing(true);
+  }, []);
+  const handleResizeEnd = useCallback(() => {
+    setIsResizing(false);
+    persistWidth(widthRef.current);
+  }, [persistWidth]);
+
+  const isLeft = effectivePosition === "left";
+  const isOverlay = isMobile || forceOverlay;
+  const wideDrawerEnabled = isWideDrawer && !isOverlay;
+  const mobileAnimationEnabled =
+    !presentationMode && isOverlay && animateMobile;
+  const desktopAnimationEnabled =
+    !presentationMode && !isOverlay && effectiveAnimateDesktop;
+  const sidebarAnimationEnabled =
+    mobileAnimationEnabled || desktopAnimationEnabled;
+  const [renderAnimatedPanel, setRenderAnimatedPanel] =
+    useState(shouldMountPanel);
+
+  useEffect(() => {
+    if (!sidebarAnimationEnabled) {
+      setRenderAnimatedPanel(shouldMountPanel);
+      return;
+    }
+
+    let unmountTimer: number | undefined;
+
+    if (shouldMountPanel) {
+      setRenderAnimatedPanel(true);
+    } else {
+      unmountTimer = window.setTimeout(() => {
+        setRenderAnimatedPanel(false);
+      }, SIDEBAR_ANIMATION_MS);
+    }
+
+    return () => {
+      if (unmountTimer !== undefined) {
+        window.clearTimeout(unmountTimer);
+      }
+    };
+  }, [shouldMountPanel, sidebarAnimationEnabled]);
+
+  const shouldRenderPanel =
+    ownsPanel &&
+    (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
+  const panelOpen = enabled && open && shouldMountPanel;
+  const panelLayout = isOverlay
+    ? forceOverlay && !isMobile
+      ? "overlay"
+      : "mobile"
+    : wideDrawerEnabled
+      ? "drawer"
+      : "desktop";
+  const showResizeHandle = !isOverlay && !wideDrawerEnabled && panelOpen;
+
+  let panelStyle: AgentPanelStyle;
+  if (isOverlay) {
+    panelStyle = {
+      position: "fixed",
+      top: 0,
+      [isLeft ? "left" : "right"]: 0,
+      height: "100%",
+      width,
+      maxWidth: "85vw",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
+      zIndex: SIDEBAR_OVERLAY_Z_INDEX,
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
+      background: "var(--agent-sidebar-background)",
+      borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
+      borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
+      display: mobileAnimationEnabled || panelOpen ? "flex" : "none",
+      "--agent-sidebar-closed-transform": `translateX(${isLeft ? "-" : ""}calc(100% + 1px))`,
+      pointerEvents: mobileAnimationEnabled && !panelOpen ? "none" : undefined,
+    };
+  } else if (wideDrawerEnabled) {
+    panelStyle = {
+      position: "fixed",
+      top: 0,
+      [isLeft ? "left" : "right"]: 0,
+      height: "100%",
+      width,
+      maxWidth: "100vw",
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
+      zIndex: SIDEBAR_DRAWER_Z_INDEX,
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
+      background: "var(--agent-sidebar-background)",
+      borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
+      borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
+      display: "flex",
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
+    };
+  } else {
+    panelStyle = {
+      "--agent-sidebar-width": `${width}px`,
+      "--agent-sidebar-min-width": `${AGENT_SIDEBAR_MIN_WIDTH}px`,
+      "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
+      background: "var(--agent-sidebar-background)",
+      width: desktopAnimationEnabled ? undefined : width,
+      maxHeight: "var(--agent-native-viewport-height, 100vh)",
+      zIndex: hostedHarnessUi ? SIDEBAR_OVERLAY_Z_INDEX : undefined,
+      borderLeft:
+        !panelOpen || isLeft || showResizeHandle
+          ? "none"
+          : "1px solid hsl(var(--border))",
+      borderRight:
+        !panelOpen || !isLeft || showResizeHandle
+          ? "none"
+          : "1px solid hsl(var(--border))",
+      display: desktopAnimationEnabled || panelOpen ? "flex" : "none",
+      pointerEvents: desktopAnimationEnabled && !panelOpen ? "none" : undefined,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
+    };
+  }
+
+  const sidebar = shouldRenderPanel ? (
+    <>
+      {showResizeHandle && !isLeft && (
+        <ResizeHandle
+          position={effectivePosition}
+          width={width}
+          maxWidth={getAgentSidebarMaxWidth()}
+          onDrag={handleDrag}
+          onKeyboardResize={handleKeyboardResize}
+          onResizeStart={handleResizeStart}
+          onResizeEnd={handleResizeEnd}
+        />
+      )}
+      <div
+        className={cn(
+          "agent-sidebar-panel agent-kit-density flex shrink-0 flex-col overflow-hidden antialiased",
+          chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,
+        )}
+        data-agent-sidebar-animation={
+          wideDrawerEnabled
+            ? "drawer"
+            : mobileAnimationEnabled
+              ? "mobile"
+              : desktopAnimationEnabled
+                ? "desktop"
+                : undefined
+        }
+        data-agent-sidebar-layout={panelLayout}
+        data-agent-sidebar-entry={entryAnimated ? undefined : "instant"}
+        data-agent-sidebar-position={effectivePosition}
+        data-agent-native-hosted-harness-ui={
+          hostedHarnessUi ? "desktop" : undefined
+        }
+        data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+        data-agent-sidebar-per-app-chat={
+          isPerAppChatSidebar ? "true" : undefined
+        }
+        data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+        data-agent-sidebar-chat-handoff={
+          chatViewTransitionHandoff ? "true" : undefined
+        }
+        style={
+          chatViewTransition
+            ? getAgentChatViewTransitionStyle(panelStyle)
+            : panelStyle
+        }
+        inert={sidebarAnimationEnabled && !panelOpen ? true : undefined}
+        aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
+      >
+        <div
+          ref={panelElementRef}
+          className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
+        >
+          <LazyChunkErrorBoundary
+            fallback={<LazyChunkRetryFallback />}
+            shouldHandleError={isPanelImportError}
+            onError={onPanelLoadFailed}
+          >
+            <Suspense
+              fallback={
+                <div
+                  aria-hidden="true"
+                  className="flex min-h-0 flex-1 flex-col gap-3 p-3"
+                >
+                  <Skeleton className="h-8 w-full" />
+                  <div className="flex-1" />
+                  <Skeleton className="h-28 w-full rounded-xl" />
+                </div>
+              }
+            >
+              <AgentSidebarPanel
+                onReadyChange={onPanelReadyChange}
+                onReferenceTargetChange={onReferenceTargetChange}
+                onNavigationChange={onNavigationChange}
+                onTabsClosing={onTabsClosing}
+                emptyStateText={emptyStateText}
+                mcpSuggestionExcludedIntegrationIds={
+                  mcpSuggestionExcludedIntegrationIds
+                }
+                suggestions={suggestions}
+                dynamicSuggestions={dynamicSuggestions}
+                suggestionPlacement="context-chips"
+                composerToolbarSlot={composerToolbarSlot}
+                composerSlot={composerSlot}
+                composerContextProvider={composerContextProvider}
+                onComposerTextChange={onComposerTextChange}
+                imageModelMenu={imageModelMenu}
+                availableAgents={effectiveAvailableAgents}
+                availableModels={availableModels}
+                modelListLoading={modelListLoading}
+                selectedAgent={effectiveSelectedAgent}
+                onAgentChange={effectiveOnAgentChange}
+                hostedHarness={hostedHarnessEnabled}
+                onConnectProvider={onConnectProvider}
+                builderConnectTransport={builderConnectTransport}
+                onConnectLocalRuntime={onConnectLocalRuntime}
+                runtime={runtime}
+                adapterReloadKey={adapterReloadKey}
+                threadFooterSlot={threadFooterSlot}
+                apiUrl={apiUrl}
+                agentChatSurface={agentChatSurface}
+                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+                showTabBar={effectiveShowTabBar}
+                suppressInlineOpenApp={suppressInlineOpenApp}
+                composerPlaceholder={composerPlaceholder}
+                showMissingApiKeySetup={showMissingApiKeySetup}
+                setupCardOwner={setupCardOwner}
+                showGuidedQuestions={showGuidedQuestions}
+                missingApiKeySetupLayout="sidebar"
+                defaultMode={defaultMode}
+                onCollapse={() => setOpenPersisted(false)}
+                showCollapseButton={showCollapseButton}
+                onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
+                isWideDrawer={isOverlay ? false : isWideDrawer}
+                onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
+                onFullViewRequest={onFullscreenRequest}
+                onOpenSettings={onOpenSettings}
+                onNewCliTab={onNewCliTab}
+                onNewUiTab={onNewUiTab}
+                renderCliTab={renderCliTab}
+                newTabMode={newTabMode}
+                newCliTabLabel={newCliTabLabel}
+                newUiTabLabel={newUiTabLabel}
+                storageKey={storageKey}
+                restoreActiveThread={restoreActiveThread}
+                scope={scope}
+                chatHistory={chatHistory}
+                isolateHistoryByScope={isolateHistoryByScope}
+                showScopeBadge={showScopeBadge}
+                browserTabId={resolvedBrowserTabId}
+                threadUrlSync={threadUrlSync}
+                agentPageHref={agentPageHref}
+                thinkingDisplay={thinkingDisplay}
+                showModelSelector={showModelSelector}
+                chatOnly={chatOnly}
+              />
+            </Suspense>
+          </LazyChunkErrorBoundary>
+        </div>
+      </div>
+      {showResizeHandle && isLeft && (
+        <ResizeHandle
+          position={effectivePosition}
+          width={width}
+          maxWidth={getAgentSidebarMaxWidth()}
+          onDrag={handleDrag}
+          onKeyboardResize={handleKeyboardResize}
+          onResizeStart={handleResizeStart}
+          onResizeEnd={handleResizeEnd}
+        />
+      )}
+    </>
+  ) : null;
+
+  const drawerPlaceholder =
+    wideDrawerEnabled && !presentationMode && panelOpen ? (
+      <div
+        aria-hidden="true"
+        className="agent-sidebar-drawer-placeholder shrink-0"
+        data-agent-sidebar-placeholder="true"
+        style={{ width: drawerPlaceholderWidth + 1 }}
+      />
+    ) : null;
+
+  return (
+    <AgentSidebarOnboardingContext.Provider value>
+      {showFirstRunOnboarding && (
+        <Suspense fallback={null}>
+          <FirstRunOnboarding />
+        </Suspense>
+      )}
+      <div
+        className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
+        data-agent-sidebar-position={effectivePosition}
+        data-agent-native-hosted-harness-ui={
+          hostedHarnessUi ? "desktop" : undefined
+        }
+        data-agent-native-hosted-chat={isPerAppChatHosted ? "true" : undefined}
+        data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+      >
+        {/* Overlay backdrop — tapping it closes the sidebar */}
+        {isOverlay &&
+          !isPerAppChatHosted &&
+          !presentationMode &&
+          enabled &&
+          (mobileAnimationEnabled ? shouldRenderPanel : open) && (
+            <div
+              className={cn(
+                "agent-sidebar-backdrop fixed inset-0 bg-background/45 backdrop-blur-[1px]",
+                mobileAnimationEnabled && !panelOpen && "pointer-events-none",
+              )}
+              data-agent-sidebar-animation={
+                mobileAnimationEnabled ? "mobile" : undefined
+              }
+              data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+              data-agent-sidebar-entry={entryAnimated ? undefined : "instant"}
+              style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
+              onClick={() => setOpenPersisted(false)}
+            />
+          )}
+        {/* URLSync writes the current URL to application-state so the agent
+          sees what page/filters the user is on, and applies URL-update
+          commands the agent writes via `set-search-params` / `set-url`. */}
+        <SettingsReturnPathRecorder />
+        {enabled ? <URLSync browserTabId={resolvedBrowserTabId} /> : null}
+        {isResizing ? (
+          <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
+        ) : null}
+        {isLeft && !presentationMode ? sidebar : null}
+        {isLeft && !presentationMode ? drawerPlaceholder : null}
+        <div
+          className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
+          data-agent-sidebar-main-position={effectivePosition}
+          data-agent-sidebar-main-state={
+            !isOverlay && !presentationMode && panelOpen ? "open" : "closed"
+          }
+          data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+        >
+          {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
+            counter, remounting only the main content subtree so it re-fetches
+            its data. The sidebar above stays mounted, preserving chat state. */}
+          <ScreenRefreshBoundary
+            active={
+              screenRefreshEnabled &&
+              (screenRefreshOnlyWhenPanelActive === false || shouldMountPanel)
+            }
+          >
+            {children}
+          </ScreenRefreshBoundary>
+        </div>
+        {!isLeft && !presentationMode ? drawerPlaceholder : null}
+        {!isLeft && !presentationMode ? sidebar : null}
+      </div>
+    </AgentSidebarOnboardingContext.Provider>
+  );
+}
+
+export function focusAgentChat() {
+  void preloadAgentChatSurface();
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:set-mode", {
+      detail: { mode: "chat" },
+    }),
+  );
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+  );
+  focusAgentChatComposer();
+}
+
+function isComposerReferenceEvent(event: Event): boolean {
+  return (
+    event.type === AGENT_CHAT_INSERT_REFERENCE_EVENT ||
+    (event instanceof MessageEvent &&
+      event.data?.type === AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE)
+  );
+}
+
+function isPanelNavigationEvent(event: Event): boolean {
+  return (
+    event.type === "agent-chat:open-thread" || event.type === "agent-task-open"
+  );
+}
+
+function focusAgentChatComposer() {
+  const focusComposer = (attempt = 0) => {
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
+    const panel = document.querySelector(
+      ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
+        ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
+    );
+    const composer = panel?.querySelector<HTMLElement>(
+      ".ProseMirror, textarea",
+    );
+    if (
+      composer &&
+      composer.getAttribute("contenteditable") !== "false" &&
+      !composer.hasAttribute("disabled")
+    ) {
+      composer.focus();
+      return;
+    }
+    if (attempt < 40) {
+      window.setTimeout(() => focusComposer(attempt + 1), 50);
+    }
+  };
+  // ponytail: retry for 2s so a slow body chunk can still receive shortcut focus.
+  requestAnimationFrame(() => focusComposer());
+}
+
+export function AgentToggleButton({
+  className,
+  icon,
+  showWhenOpen = false,
+}: {
+  className?: string;
+  icon?: React.ReactNode;
+  showWhenOpen?: boolean;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(() => getAgentSidebarState()?.open ?? false);
+  useEffect(() => {
+    // The panel may have announced its state between render and subscribe.
+    const current = getAgentSidebarState();
+    if (current) setOpen(current.open);
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (detail && typeof detail.open === "boolean") setOpen(detail.open);
+    };
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+    return () =>
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handler);
+  }, []);
+  if (open && !showWhenOpen) return null;
+  return (
+    <DesignSystemTooltip
+      trigger={
+        <button
+          type="button"
+          aria-label={t("agentPanel.toggleAgent")}
+          aria-pressed={open}
+          data-state={open ? "open" : "closed"}
+          onClick={() =>
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:toggle", {
+                detail: { focus: true },
+              }),
+            )
+          }
+          className={cn(
+            "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            open && "bg-accent text-foreground",
+            className,
+          )}
+        >
+          {icon ?? <IconLayoutSidebarRight size={16} aria-hidden />}
+        </button>
+      }
+      content={t("agentPanel.toggleAgent")}
+      delayMs={200}
+    />
+  );
+}

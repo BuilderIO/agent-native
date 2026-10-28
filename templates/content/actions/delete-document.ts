@@ -1,11 +1,27 @@
-import { defineAction } from "@agent-native/core/action";
+import { createHash } from "node:crypto";
+
+import {
+  ActionContractError,
+  defineAction,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { deleteDocumentImports } from "../server/lib/document-imports.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
+  isBuilderPrivatePayloadBoundToSource,
+} from "./_builder-cms-blob-custody.js";
+import { assertNoActiveBuilderSourceExecutions } from "./_builder-source-execution-guard.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -13,7 +29,22 @@ import {
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
+import { setupError } from "./_database-setup-mutation.js";
+import {
+  assertPageLifecycleTarget,
+  claimDocumentLifecycleIntent,
+  finishDocumentLifecycleIntent,
+  lockLifecycleDocument,
+  parseDocumentLifecycleInput,
+  refreshAfterDocumentLifecycle,
+  usesDocumentLifecycleProtocol,
+} from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import {
+  assertSourceAllowsPageEdit,
+  releaseRestoredPagesFromGitHubCollections,
+} from "./_document-source.js";
+import { lockDocumentRows, sortRowIds } from "./_row-lock-order.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -26,7 +57,160 @@ export class PermanentDeleteScopeChangedError extends Error {
 type PermanentDeleteScope = {
   documentIds: string[];
   ownedDatabaseIds: string[];
+  trashRootId?: string;
 };
+
+export async function fingerprintPermanentDeleteScope(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+) {
+  return (
+    await inspectPermanentDeleteRelationships(db, documentIds, ownerEmail)
+  ).fingerprint;
+}
+
+export async function inspectPermanentDeleteRelationships(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+) {
+  const sortedDocumentIds = [...documentIds].sort();
+  const databases = sortedDocumentIds.length
+    ? await db
+        .select({
+          id: schema.contentDatabases.id,
+          documentId: schema.contentDatabases.documentId,
+          systemRole: schema.contentDatabases.systemRole,
+        })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            inArray(schema.contentDatabases.documentId, sortedDocumentIds),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          ),
+        )
+    : [];
+  const databaseIds = databases.map(({ id }) => id);
+  const [documents, childRelationships, memberships, sources] =
+    await Promise.all([
+      db
+        .select({
+          id: schema.documents.id,
+          sourceMode: schema.documents.sourceMode,
+        })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, sortedDocumentIds),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        ),
+      sortedDocumentIds.length
+        ? db
+            .select({
+              id: schema.documents.id,
+              title: schema.documents.title,
+              ownerEmail: schema.documents.ownerEmail,
+              parentId: schema.documents.parentId,
+              trashRootId: schema.documents.trashRootId,
+              trashedAt: schema.documents.trashedAt,
+            })
+            .from(schema.documents)
+            .where(and(inArray(schema.documents.parentId, sortedDocumentIds)))
+        : Promise.resolve([]),
+      db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          databaseId: schema.contentDatabaseItems.databaseId,
+          documentId: schema.contentDatabaseItems.documentId,
+          ownerEmail: schema.contentDatabaseItems.ownerEmail,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            or(
+              inArray(
+                schema.contentDatabaseItems.documentId,
+                sortedDocumentIds,
+              ),
+              databaseIds.length
+                ? inArray(schema.contentDatabaseItems.databaseId, databaseIds)
+                : undefined,
+            ),
+          ),
+        ),
+      databaseIds.length
+        ? db
+            .select({
+              id: schema.contentDatabaseSources.id,
+              databaseId: schema.contentDatabaseSources.databaseId,
+              syncState: schema.contentDatabaseSources.syncState,
+            })
+            .from(schema.contentDatabaseSources)
+            .where(
+              and(
+                inArray(schema.contentDatabaseSources.databaseId, databaseIds),
+                eq(schema.contentDatabaseSources.ownerEmail, ownerEmail),
+              ),
+            )
+        : Promise.resolve([]),
+    ]);
+  const externalMemberIds = memberships
+    .map((membership) => membership.documentId)
+    .filter((id) => !sortedDocumentIds.includes(id));
+  const membershipSurvivors = externalMemberIds.length
+    ? await db
+        .select({
+          id: schema.documents.id,
+          title: schema.documents.title,
+          ownerEmail: schema.documents.ownerEmail,
+          trashedAt: schema.documents.trashedAt,
+        })
+        .from(schema.documents)
+        .where(and(inArray(schema.documents.id, externalMemberIds)))
+    : [];
+  const byId = <T extends { id: string }>(rows: T[]) =>
+    [...rows].sort((left, right) => left.id.localeCompare(right.id));
+  const normalizedOwner = ownerEmail.toLowerCase();
+  const inaccessibleRelationship =
+    childRelationships.some(
+      (row) => row.ownerEmail.toLowerCase() !== normalizedOwner,
+    ) ||
+    memberships.some(
+      (row) => row.ownerEmail.toLowerCase() !== normalizedOwner,
+    ) ||
+    membershipSurvivors.length !== new Set(externalMemberIds).size ||
+    membershipSurvivors.some(
+      (row) => row.ownerEmail.toLowerCase() !== normalizedOwner,
+    );
+  const fingerprint = createHash("sha256")
+    .update(
+      JSON.stringify({
+        documents: byId(documents),
+        childRelationships: byId(childRelationships),
+        databases: byId(databases),
+        memberships: byId(memberships),
+        membershipSurvivors: byId(membershipSurvivors),
+        sources: byId(sources),
+      }),
+    )
+    .digest("hex");
+  return {
+    fingerprint,
+    inaccessibleRelationship,
+    survivingChildren: childRelationships.filter(
+      (row) =>
+        row.ownerEmail.toLowerCase() === normalizedOwner &&
+        !documentIds.includes(row.id),
+    ),
+    membershipSurvivors: membershipSurvivors.filter(
+      (row) => row.ownerEmail.toLowerCase() === normalizedOwner,
+    ),
+    memberships,
+    databases,
+  };
+}
 
 function hasSameIds(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
@@ -191,14 +375,16 @@ async function selectMembershipIdsForDatabases(
   return rows.map((row) => row.id);
 }
 
+// One walk for every root: roots nested in each other's subtrees, as an
+// import's pages are, would otherwise be walked once per ancestor.
 async function collectDocumentSubtreeForDelete(
   db: ReturnType<typeof getDb>,
-  rootId: string,
+  rootIds: readonly string[],
   ownerEmail: string,
 ) {
-  const documentIds = new Set([rootId]);
+  const documentIds = new Set(rootIds);
   const ownedDatabaseIds = new Set<string>();
-  let frontier = [rootId];
+  let frontier = [...documentIds];
 
   while (frontier.length > 0) {
     const next = new Set<string>();
@@ -252,6 +438,7 @@ async function collectDocumentSubtreeForDelete(
 
 async function lockPermanentDeleteScope(
   db: ReturnType<typeof getDb>,
+  ownerEmail: string,
   collectScope: () => Promise<PermanentDeleteScope>,
 ) {
   const initialScope = await collectScope();
@@ -309,29 +496,223 @@ async function lockPermanentDeleteScope(
   ) {
     throw new PermanentDeleteScopeChangedError();
   }
-  return lockedScope;
+  // The children too: the delete detaches those in other Trash groups.
+  const lockedPageIds = new Set(
+    await lockDocumentRows(db, [
+      ...lockedScope.documentIds,
+      ...(await selectChildDocumentIds(
+        db,
+        lockedScope.documentIds,
+        ownerEmail,
+      )),
+    ]),
+  );
+  // A move can change the scope while this waits on one of those pages.
+  const finalScope = await collectScope();
+  if (
+    !hasSameIds(lockedScope.documentIds, finalScope.documentIds) ||
+    !hasSameIds(lockedScope.ownedDatabaseIds, finalScope.ownedDatabaseIds) ||
+    (await selectChildDocumentIds(db, finalScope.documentIds, ownerEmail)).some(
+      (childId) => !lockedPageIds.has(childId),
+    )
+  ) {
+    throw new PermanentDeleteScopeChangedError();
+  }
+  return finalScope;
 }
 
-export async function lockDatabasesForTrash(
+async function selectChildDocumentIds(
   db: ReturnType<typeof getDb>,
-  id: string,
+  parentIds: string[],
   ownerEmail: string,
 ) {
-  const subtree = await collectDocumentSubtreeForDelete(db, id, ownerEmail);
-  const memberships = await selectMembershipsForDocuments(
-    db,
-    subtree.documentIds,
-  );
-  const databaseIds = [
-    ...new Set([
-      ...memberships.map((membership) => membership.databaseId),
+  const rows: Array<{ id: string }> = [];
+  for (const batch of chunks(parentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.ownerEmail, ownerEmail),
+            inArray(schema.documents.parentId, batch),
+          ),
+        )),
+    );
+  }
+  return rows.map((row) => row.id);
+}
+
+export type LifecycleGroupLocks = {
+  databaseIds: ReadonlySet<string>;
+  documentIds: ReadonlySet<string>;
+  /** Restore only: every membership of the locked collections. */
+  membershipIds?: ReadonlySet<string>;
+};
+
+const RESTORE_ATTEMPTS = 3;
+
+/**
+ * Runs a restore transaction again when its collections' memberships changed
+ * while it locked them. Restore locks the memberships it reads before its
+ * pages, so renumbering refuses one added after that rather than lock it out
+ * of order. A favorite added to a sibling meanwhile is the usual cause, and a
+ * fresh read includes it.
+ */
+export async function retryRestoreOnMembershipChange<T>(
+  restore: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await restore();
+    } catch (error) {
+      if (
+        !isActionContractError(error) ||
+        error.errorCode !== "DATABASE_MEMBERSHIPS_CHANGED"
+      )
+        throw error;
+      if (attempt >= RESTORE_ATTEMPTS)
+        throw new ActionContractError(
+          "Collection rows kept changing while restoring. Retry.",
+          {
+            errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
+            statusCode: 409,
+            details: { retryable: true, attempts: attempt },
+          },
+        );
+    }
+  }
+}
+
+type LifecycleRoot = { id: string; ownerEmail: string };
+
+async function collectTrashScope(
+  db: ReturnType<typeof getDb>,
+  roots: readonly LifecycleRoot[],
+) {
+  const rootIdsByOwner = new Map<string, string[]>();
+  for (const root of roots) {
+    const rootIds = rootIdsByOwner.get(root.ownerEmail) ?? [];
+    rootIds.push(root.id);
+    rootIdsByOwner.set(root.ownerEmail, rootIds);
+  }
+  const documentIds: string[] = [];
+  const databaseIds: string[] = [];
+  for (const [ownerEmail, rootIds] of rootIdsByOwner) {
+    const subtree = await collectDocumentSubtreeForDelete(
+      db,
+      rootIds,
+      ownerEmail,
+    );
+    const memberships = await selectMembershipsForDocuments(
+      db,
+      subtree.documentIds,
+    );
+    documentIds.push(...subtree.documentIds);
+    databaseIds.push(
       ...subtree.ownedDatabaseIds,
-    ]),
-  ].sort();
+      ...memberships.map((membership) => membership.databaseId),
+    );
+  }
+  return { documentIds, databaseIds };
+}
+
+async function selectMembershipsOfDatabases(
+  db: ReturnType<typeof getDb>,
+  databaseIds: string[],
+) {
+  const rows: Array<{ id: string; documentId: string }> = [];
+  for (const batch of chunks(databaseIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.databaseId, batch))),
+    );
+  }
+  return rows;
+}
+
+/**
+ * Locks every row a Trash move or restore writes, in Content's row-lock order
+ * (`_row-lock-order.ts`): the group's collections, then, for a restore, the
+ * memberships it renumbers, then the pages. Trash writes no membership, so it
+ * locks none. Taking a membership after a page is what deadlocked a restore
+ * against an edit, which locks memberships before the page.
+ *
+ * A restore's group is every page with the root's trashRootId, which can
+ * differ from the root's current subtree once a member moves.
+ */
+export async function lockLifecycleGroup(
+  db: ReturnType<typeof getDb>,
+  args: {
+    operation: "trash" | "restore";
+    roots: LifecycleRoot[];
+    alsoLockDatabaseIds?: readonly string[];
+    alsoLockDocumentIds?: readonly string[];
+  },
+): Promise<LifecycleGroupLocks> {
+  const collectScope = async () => {
+    const scopes = [];
+    if (args.operation === "trash") {
+      scopes.push(await collectTrashScope(db, args.roots));
+    } else {
+      for (const root of args.roots) {
+        scopes.push(await collectRestoreScope(db, root.id, root.ownerEmail));
+      }
+    }
+    const documentIds = new Set<string>();
+    const databaseIds = new Set<string>();
+    for (const scope of scopes) {
+      for (const id of scope.documentIds) documentIds.add(id);
+      for (const id of scope.databaseIds) databaseIds.add(id);
+    }
+    return { documentIds, databaseIds };
+  };
+
+  const initialScope = await collectScope();
+  const databaseIds = sortRowIds([
+    ...initialScope.databaseIds,
+    ...(args.alsoLockDatabaseIds ?? []),
+  ]);
   for (const databaseId of databaseIds) {
     await lockContentDatabaseMutation(db, databaseId);
   }
-  return new Set(databaseIds);
+  const lockedDatabaseIds = new Set(databaseIds);
+
+  const scope = await collectScope();
+  if ([...scope.databaseIds].some((id) => !lockedDatabaseIds.has(id))) {
+    setupError(
+      "LIFECYCLE_SCOPE_CHANGED",
+      args.operation === "trash"
+        ? "The pages changed while moving to Trash. Retry."
+        : "The Trash item changed while restoring. Retry.",
+    );
+  }
+
+  const documentIds = [
+    ...scope.documentIds,
+    ...args.roots.map((root) => root.id),
+    ...(args.alsoLockDocumentIds ?? []),
+  ];
+  let membershipIds: Set<string> | undefined;
+  if (args.operation === "restore") {
+    // Every membership's page, not just those the collection parents now:
+    // renumbering picks its pages when it runs, and a move can reparent one
+    // in between without locking the collection.
+    const memberships = await selectMembershipsOfDatabases(db, databaseIds);
+    membershipIds = new Set(memberships.map((membership) => membership.id));
+    await lockDatabaseMemberships(db, [...membershipIds]);
+    documentIds.push(...memberships.map((membership) => membership.documentId));
+  }
+  return {
+    databaseIds: lockedDatabaseIds,
+    documentIds: new Set(await lockDocumentRows(db, documentIds)),
+    ...(membershipIds ? { membershipIds } : {}),
+  };
 }
 
 export async function trashDocumentSubtree(
@@ -339,21 +720,23 @@ export async function trashDocumentSubtree(
   id: string,
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
-  lockedDatabaseIds?: ReadonlySet<string>,
+  locks: LifecycleGroupLocks,
+  origin?: string,
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
-    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
-  if (lockedDatabaseIds) {
-    const memberships = await selectMembershipsForDocuments(db, documentIds);
-    const unlockedDatabaseId = [
-      ...new Set([
-        ...ownedDatabaseIds,
-        ...memberships.map((membership) => membership.databaseId),
-      ]),
-    ].find((databaseId) => !lockedDatabaseIds.has(databaseId));
-    if (unlockedDatabaseId) {
-      throw new Error("Document subtree changed; retry deletion.");
-    }
+    await collectDocumentSubtreeForDelete(db, [id], ownerEmail);
+  const memberships = await selectMembershipsForDocuments(db, documentIds);
+  if (
+    [
+      ...ownedDatabaseIds,
+      ...memberships.map((membership) => membership.databaseId),
+    ].some((databaseId) => !locks.databaseIds.has(databaseId)) ||
+    documentIds.some((documentId) => !locks.documentIds.has(documentId))
+  ) {
+    setupError(
+      "LIFECYCLE_SCOPE_CHANGED",
+      "The pages changed while moving to Trash. Retry.",
+    );
   }
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
@@ -432,7 +815,14 @@ export async function trashDocumentSubtree(
   for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
-      .set({ trashedAt, trashRootId: id, updatedAt: trashedAt })
+      .set({
+        trashedAt,
+        trashRootId: id,
+        trashedBy: getRequestUserEmail() ?? null,
+        trashOrigin: origin ?? null,
+        trashParentId: sql`${schema.documents.parentId}`,
+        updatedAt: trashedAt,
+      })
       .where(
         and(
           inArray(schema.documents.id, batch),
@@ -455,61 +845,75 @@ export async function trashDocumentSubtree(
   return activeDocumentIds;
 }
 
+async function collectRestoreScope(
+  db: ReturnType<typeof getDb>,
+  rootId: string,
+  ownerEmail: string,
+) {
+  const documentIds = (
+    await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.trashRootId, rootId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+  ).map((document) => document.id);
+  const memberships = await selectMembershipsForDocuments(db, documentIds);
+  const ownedDatabases = await selectOwnedDatabaseIds(
+    db,
+    documentIds,
+    ownerEmail,
+  );
+  return {
+    documentIds,
+    databaseIds: [
+      ...new Set([
+        ...ownedDatabases.map((database) => database.id),
+        ...memberships.map((membership) => membership.databaseId),
+      ]),
+    ].sort(),
+  };
+}
+
 export async function restoreDocumentSubtree(
   db: ReturnType<typeof getDb>,
   rootId: string,
   ownerEmail: string,
+  lockedGroup?: LifecycleGroupLocks,
 ): Promise<string[]> {
-  const collectRestoreScope = async () => {
-    const documentIds = (
-      await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.trashRootId, rootId),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        )
-    ).map((document) => document.id);
-    const memberships = await selectMembershipsForDocuments(db, documentIds);
-    const ownedDatabaseIds = (
-      await selectOwnedDatabaseIds(db, documentIds, ownerEmail)
-    ).map((database) => database.id);
-    return { documentIds, memberships, ownedDatabaseIds };
-  };
-
-  const initialScope = await collectRestoreScope();
-  if (initialScope.documentIds.length === 0) return [];
-  const lockedDatabaseIds = [
-    ...new Set([
-      ...initialScope.ownedDatabaseIds,
-      ...initialScope.memberships.map((membership) => membership.databaseId),
-    ]),
-  ].sort();
-  for (const databaseId of lockedDatabaseIds) {
-    await lockContentDatabaseMutation(db, databaseId);
-  }
-
-  const restoreScope = await collectRestoreScope();
-  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
-  const unlockedDatabaseId = [
-    ...new Set([
-      ...restoreScope.ownedDatabaseIds,
-      ...restoreScope.memberships.map((membership) => membership.databaseId),
-    ]),
-  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
-  if (unlockedDatabaseId) {
-    throw new Error("Document restore scope changed; retry restoration.");
-  }
-  await lockDatabaseMemberships(
-    db,
-    await selectMembershipIdsForDatabases(db, lockedDatabaseIds),
-  );
-
+  const locks =
+    lockedGroup ??
+    (await lockLifecycleGroup(db, {
+      operation: "restore",
+      roots: [{ id: rootId, ownerEmail }],
+    }));
+  const restoreScope = await collectRestoreScope(db, rootId, ownerEmail);
   const documentIds = restoreScope.documentIds;
   if (documentIds.length === 0) return [];
+  if (
+    restoreScope.databaseIds.some(
+      (databaseId) => !locks.databaseIds.has(databaseId),
+    ) ||
+    documentIds.some((documentId) => !locks.documentIds.has(documentId))
+  ) {
+    setupError(
+      "LIFECYCLE_SCOPE_CHANGED",
+      "The Trash item changed while restoring. Retry.",
+    );
+  }
+
   const now = new Date().toISOString();
+  // First, so the restore takes a GitHub collection's lock before it writes
+  // any page, in the same order a sync does.
+  const releasedFrom = await releaseRestoredPagesFromGitHubCollections(
+    db,
+    documentIds,
+    ownerEmail,
+    now,
+  );
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db
       .update(schema.documents)
@@ -533,14 +937,15 @@ export async function restoreDocumentSubtree(
   }
 
   const databaseIds = [
-    ...new Set(
-      (
+    ...new Set([
+      ...(
         await db
           .select({ databaseId: schema.contentDatabaseItems.databaseId })
           .from(schema.contentDatabaseItems)
           .where(inArray(schema.contentDatabaseItems.documentId, documentIds))
       ).map((item) => item.databaseId),
-    ),
+      ...releasedFrom,
+    ]),
   ];
   for (const databaseId of databaseIds) {
     const [database] = await db
@@ -553,7 +958,8 @@ export async function restoreDocumentSubtree(
         ),
       )
       .limit(1);
-    if (database) await renumberDatabaseRows(db, database, now);
+    if (database)
+      await renumberDatabaseRows(db, database, now, locks.membershipIds);
   }
 
   return documentIds;
@@ -573,41 +979,32 @@ export async function deleteDocumentRecursive(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  return db.transaction((tx) =>
+  const deletedBlobReferences = new Set<string>();
+  const deleted = await db.transaction((tx) =>
     deleteDocumentRootsRecursive(
       tx as unknown as ReturnType<typeof getDb>,
       [id],
       ownerEmail,
+      deletedBlobReferences,
     ),
   );
+  for (const reference of deletedBlobReferences) {
+    await cleanupBuilderPrivatePayload(reference, "deleted document source");
+  }
+  return deleted;
 }
 
 export async function deleteDocumentRootsRecursive(
   db: ReturnType<typeof getDb>,
   rootIds: string[],
   ownerEmail: string,
+  deletedBlobReferences: Set<string>,
 ): Promise<string[]> {
-  const collectScope = async () => {
-    const documentIds = new Set<string>();
-    const ownedDatabaseIds = new Set<string>();
-    for (const rootId of rootIds) {
-      const scope = await collectDocumentSubtreeForDelete(
-        db,
-        rootId,
-        ownerEmail,
-      );
-      for (const documentId of scope.documentIds) documentIds.add(documentId);
-      for (const databaseId of scope.ownedDatabaseIds) {
-        ownedDatabaseIds.add(databaseId);
-      }
-    }
-    return {
-      documentIds: [...documentIds],
-      ownedDatabaseIds: [...ownedDatabaseIds],
-    };
-  };
+  const collectScope = () =>
+    collectDocumentSubtreeForDelete(db, rootIds, ownerEmail);
   const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
     db,
+    ownerEmail,
     collectScope,
   );
   return deleteCollectedDocuments(
@@ -615,6 +1012,7 @@ export async function deleteDocumentRootsRecursive(
     documentIds,
     ownedDatabaseIds,
     ownerEmail,
+    deletedBlobReferences,
   );
 }
 
@@ -623,6 +1021,7 @@ async function deleteCollectedDocuments(
   documentIds: string[],
   ownedDatabaseIds: string[],
   ownerEmail: string,
+  deletedBlobReferences: Set<string>,
 ): Promise<string[]> {
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
@@ -657,8 +1056,8 @@ async function deleteCollectedDocuments(
     );
   });
 
-  // Delete database membership/schema, sync links, versions, shares, then documents.
   await deleteWhereIn(sourceIds, async (sourceIdBatch) => {
+    await assertNoActiveBuilderSourceExecutions(db, sourceIdBatch);
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(
@@ -667,11 +1066,30 @@ async function deleteCollectedDocuments(
           sourceIdBatch,
         ),
       );
-    await db
+    const deletedExecutions = await db
       .delete(schema.contentDatabaseSourceExecutions)
       .where(
         inArray(schema.contentDatabaseSourceExecutions.sourceId, sourceIdBatch),
-      );
+      )
+      .returning({
+        ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+        sourceId: schema.contentDatabaseSourceExecutions.sourceId,
+        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+      });
+    for (const row of deletedExecutions) {
+      const reference = builderExecutionPayloadReference(row.payloadJson);
+      if (
+        reference &&
+        isBuilderPrivatePayloadBoundToSource(
+          reference,
+          row.ownerEmail,
+          row.sourceId,
+        )
+      ) {
+        deletedBlobReferences.add(reference);
+        await enqueueBuilderPrivatePayloadCleanup(db, reference);
+      }
+    }
     await db
       .delete(schema.contentDatabaseSourceChangeReviews)
       .where(
@@ -701,6 +1119,15 @@ async function deleteCollectedDocuments(
       .delete(schema.documentPropertyValues)
       .where(
         inArray(schema.documentPropertyValues.propertyId, propertyIdBatch),
+      );
+    // After the values: deleting them records a tombstone for each one.
+    await db
+      .delete(schema.documentPropertyValueTombstones)
+      .where(
+        inArray(
+          schema.documentPropertyValueTombstones.propertyId,
+          propertyIdBatch,
+        ),
       );
     await db
       .delete(schema.documentBlockFieldContents)
@@ -749,6 +1176,15 @@ async function deleteCollectedDocuments(
           eq(schema.documentPropertyValues.ownerEmail, ownerEmail),
         ),
       );
+    // After the values: deleting them records a tombstone for each one.
+    await db
+      .delete(schema.documentPropertyValueTombstones)
+      .where(
+        inArray(
+          schema.documentPropertyValueTombstones.documentId,
+          documentIdBatch,
+        ),
+      );
     await db
       .delete(schema.documentBlockFieldContents)
       .where(
@@ -776,9 +1212,6 @@ async function deleteCollectedDocuments(
     await db
       .delete(schema.contentDatabases)
       .where(inArray(schema.contentDatabases.id, databaseIdBatch));
-    // Receipts deliberately have no database foreign key. Removing them after
-    // the database row closes the race with a migration that already holds the
-    // row lock and commits its receipt before this deletion can continue.
     await db
       .delete(schema.contentDatabaseMigrationReceipts)
       .where(
@@ -790,6 +1223,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await deleteDocumentImports(db, documentIdBatch);
     await db
       .delete(schema.documentSyncLinks)
       .where(
@@ -804,6 +1238,14 @@ async function deleteCollectedDocuments(
         and(
           inArray(schema.documentVersions.documentId, documentIdBatch),
           eq(schema.documentVersions.ownerEmail, ownerEmail),
+        ),
+      );
+    await db
+      .delete(schema.documentBodySteps)
+      .where(
+        and(
+          inArray(schema.documentBodySteps.documentId, documentIdBatch),
+          eq(schema.documentBodySteps.ownerEmail, ownerEmail),
         ),
       );
     await db
@@ -825,6 +1267,13 @@ async function deleteCollectedDocuments(
     await db
       .delete(schema.documentShares)
       .where(inArray(schema.documentShares.resourceId, documentIdBatch));
+    // Webhook events about these pages, sent or waiting, carry their values
+    // and comments, so they go too; the webhooks stay for the rest.
+    await db
+      .delete(schema.contentWebhookDeliveries)
+      .where(
+        inArray(schema.contentWebhookDeliveries.documentId, documentIdBatch),
+      );
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
@@ -845,38 +1294,88 @@ export async function deleteTrashedDocumentSubtree(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
+  deletedBlobReferences: Set<string>,
+  frozen?: ReadonlyArray<{
+    documentId: string;
+    expectedTrashedAt: string;
+    expectedParentId: string | null;
+  }>,
+  expectedScopeFingerprint?: string,
 ): Promise<string[]> {
+  let rootSeen = false;
   const collectScope = async () => {
     const [root] = await db
-      .select({ id: schema.documents.id })
+      .select({
+        id: schema.documents.id,
+        trashRootId: schema.documents.trashRootId,
+      })
       .from(schema.documents)
       .where(
         and(
           eq(schema.documents.id, id),
           eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.trashRootId, id),
           isNotNull(schema.documents.trashedAt),
         ),
       )
       .limit(1);
     if (!root) {
+      // In Trash a moment ago: it was restored while this waited on a lock.
+      if (rootSeen) throw new PermanentDeleteScopeChangedError();
       throw new Error(
         "Document must be in Trash and be a Trash root before permanent deletion",
       );
     }
+    rootSeen = true;
 
-    const documentIds = (
-      await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.ownerEmail, ownerEmail),
-            eq(schema.documents.trashRootId, id),
-            isNotNull(schema.documents.trashedAt),
-          ),
-        )
-    ).map((document) => document.id);
+    const group = await db
+      .select({
+        id: schema.documents.id,
+        trashedAt: schema.documents.trashedAt,
+        parentId: schema.documents.parentId,
+      })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, ownerEmail),
+          eq(schema.documents.trashRootId, root.trashRootId ?? root.id),
+          isNotNull(schema.documents.trashedAt),
+        ),
+      );
+    const byParent = new Map<string, typeof group>();
+    for (const document of group) {
+      if (!document.parentId) continue;
+      const children = byParent.get(document.parentId) ?? [];
+      children.push(document);
+      byParent.set(document.parentId, children);
+    }
+    const documents: typeof group = [];
+    const pending = [id];
+    while (pending.length) {
+      const documentId = pending.pop()!;
+      const document = group.find((item) => item.id === documentId);
+      if (!document) continue;
+      documents.push(document);
+      pending.push(...(byParent.get(documentId) ?? []).map((item) => item.id));
+    }
+    const documentIds = documents.map((document) => document.id);
+    if (
+      frozen &&
+      (!hasSameIds(
+        documentIds,
+        frozen.map((item) => item.documentId),
+      ) ||
+        frozen.some((item) => {
+          const current = documents.find(
+            (document) => document.id === item.documentId,
+          );
+          return (
+            current?.trashedAt !== item.expectedTrashedAt ||
+            current?.parentId !== item.expectedParentId
+          );
+        }))
+    ) {
+      throw new PermanentDeleteScopeChangedError();
+    }
     const ownedDatabaseIds = await selectOwnedDatabaseIds(
       db,
       documentIds,
@@ -893,17 +1392,38 @@ export async function deleteTrashedDocumentSubtree(
       (document) => !documentIdSet.has(document.id) && !document.trashedAt,
     );
     if (activeOutsideScope) {
+      if (expectedScopeFingerprint) {
+        throw new PermanentDeleteScopeChangedError();
+      }
       throw new Error(
         "Database contains an active row outside this Trash item",
       );
     }
-    return { documentIds, ownedDatabaseIds };
+    return {
+      documentIds,
+      ownedDatabaseIds,
+      trashRootId: root.trashRootId ?? root.id,
+    };
   };
 
-  const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
+  const {
+    documentIds,
+    ownedDatabaseIds,
+    trashRootId = id,
+  } = await lockPermanentDeleteScope(db, ownerEmail, collectScope);
+
+  const relationships = await inspectPermanentDeleteRelationships(
     db,
-    collectScope,
+    documentIds,
+    ownerEmail,
   );
+  if (
+    relationships.inaccessibleRelationship ||
+    (expectedScopeFingerprint &&
+      relationships.fingerprint !== expectedScopeFingerprint)
+  ) {
+    throw new PermanentDeleteScopeChangedError();
+  }
 
   await db
     .update(schema.documents)
@@ -914,7 +1434,7 @@ export async function deleteTrashedDocumentSubtree(
         inArray(schema.documents.parentId, documentIds),
         or(
           isNull(schema.documents.trashRootId),
-          ne(schema.documents.trashRootId, id),
+          ne(schema.documents.trashRootId, trashRootId),
         ),
       ),
     );
@@ -924,20 +1444,122 @@ export async function deleteTrashedDocumentSubtree(
     documentIds,
     ownedDatabaseIds,
     ownerEmail,
+    deletedBlobReferences,
   );
 }
 
-export default defineAction({
-  description:
-    "Move a document and all its children to Trash. Use permanently-delete-document to destroy an item already in Trash.",
-  schema: z.object({
+const guardedTrashSchema = z
+  .object({
+    id: z.string().min(1).describe("Page ID to move to Trash"),
+    expectedUpdatedAt: z
+      .string()
+      .min(1)
+      .describe(
+        "The page's exact updatedAt from your latest get-document, list-documents, search-documents, or view-screen read",
+      ),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe("Unique intent key; reuse unchanged after a lost response"),
+  })
+  .strict();
+
+const legacyTrashSchema = z
+  .object({
     id: z.string().optional().describe("Document ID (required)"),
     databaseDocumentId: z
       .string()
       .optional()
       .describe("Collection page the deletion was initiated from"),
-  }),
-  run: async (args) => {
+    activeDocumentId: z
+      .string()
+      .optional()
+      .describe(
+        "Currently open document, used only to return an explicit navigation outcome.",
+      ),
+  })
+  .strict();
+
+async function trashDocumentWithReceipt(
+  input: z.infer<typeof guardedTrashSchema>,
+  origin: string | undefined,
+) {
+  const access = await assertDocumentMutationAccess(input.id, "admin", "id");
+  assertSourceAllowsPageEdit(access.resource, "trash");
+  const ownerEmail = access.resource.ownerEmail as string;
+  const result = await getDb().transaction(async (transaction) => {
+    const tx = transaction as unknown as ReturnType<typeof getDb>;
+    const locks = await lockLifecycleGroup(tx, {
+      operation: "trash",
+      roots: [{ id: input.id, ownerEmail }],
+    });
+    const before = await lockLifecycleDocument(tx, input.id, ownerEmail);
+    const { claim, replay } = await claimDocumentLifecycleIntent(
+      tx,
+      "delete-document",
+      input.id,
+      input.idempotencyKey,
+      input,
+    );
+    if (replay) return replay;
+    await assertPageLifecycleTarget(tx, input.id, "delete-document");
+    if (before.trashedAt)
+      return finishDocumentLifecycleIntent(tx, claim, "unchanged", before, []);
+    if (before.updatedAt !== input.expectedUpdatedAt)
+      setupError(
+        "DOCUMENT_REVISION_CONFLICT",
+        "The page changed after you read it. Read it again, confirm it should still be trashed, and retry with its current updatedAt.",
+      );
+    const affected = await trashDocumentSubtree(
+      tx,
+      input.id,
+      ownerEmail,
+      undefined,
+      locks,
+      origin,
+    );
+    const after = await lockLifecycleDocument(tx, input.id, ownerEmail);
+    if (!after.trashedAt || after.trashRootId !== input.id)
+      setupError(
+        "READBACK_UNAVAILABLE",
+        "The page could not be verified in Trash, so the change was rolled back.",
+      );
+    return finishDocumentLifecycleIntent(tx, claim, "trashed", after, affected);
+  });
+  await refreshAfterDocumentLifecycle(result.receipt);
+  return { success: true, ...result.value, receipt: result.receipt };
+}
+
+export default defineAction({
+  changeResource: (input, result) =>
+    // Taking a page out of Favorites leaves the page itself unchanged.
+    typeof result === "object" && result !== null && "removed" in result
+      ? null
+      : documentChangeResource(input.id),
+  description:
+    "Move one page and all its sub-pages to recoverable Trash, guarded by the page's exact updatedAt and an idempotency key. Returns a receipt with the affected page ids and the Trash root to restore. Collections use delete-content-database.",
+  mcpTool: true,
+  mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  agentInputSchema: guardedTrashSchema,
+  schema: z.union([guardedTrashSchema, legacyTrashSchema]),
+  run: async (input, ctx) => {
+    if (usesDocumentLifecycleProtocol(input, ctx))
+      return trashDocumentWithReceipt(
+        parseDocumentLifecycleInput(
+          guardedTrashSchema,
+          input,
+          "Agent page deletes require id, the page's exact updatedAt as expectedUpdatedAt, and idempotencyKey.",
+        ),
+        ctx?.caller,
+      );
+    const args = input as z.infer<typeof legacyTrashSchema>;
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -990,6 +1612,7 @@ export default defineAction({
 
     const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
+    assertSourceAllowsPageEdit(existing, "trash");
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })
       .from(schema.contentDatabases)
@@ -999,22 +1622,33 @@ export default defineAction({
     }
     const deleted = await db.transaction(async (tx) => {
       const transactionDb = tx as unknown as ReturnType<typeof getDb>;
-      const lockedDatabaseIds = await lockDatabasesForTrash(
-        transactionDb,
-        id,
-        existing.ownerEmail as string,
-      );
+      const ownerEmail = existing.ownerEmail as string;
+      const locks = await lockLifecycleGroup(transactionDb, {
+        operation: "trash",
+        roots: [{ id, ownerEmail }],
+      });
       return trashDocumentSubtree(
         transactionDb,
         id,
-        existing.ownerEmail as string,
+        ownerEmail,
         undefined,
-        lockedDatabaseIds,
+        locks,
+        ctx?.caller,
       );
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { success: true, deleted: deleted.length };
+    return {
+      success: true,
+      deleted: deleted.length,
+      activeTargetDeleted: args.activeDocumentId
+        ? deleted.includes(args.activeDocumentId)
+        : false,
+      navigationPath:
+        args.activeDocumentId && deleted.includes(args.activeDocumentId)
+          ? "/home"
+          : null,
+    };
   },
 });

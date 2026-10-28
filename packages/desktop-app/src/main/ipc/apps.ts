@@ -16,7 +16,6 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import * as AppStore from "../app-store";
 
 export interface AppsIpcDeps {
-  /** Ids of currently-running managed local dev-server child processes. */
   getManagedDesktopAppIds: () => string[];
   stopManagedDesktopApp: (appId: string) => void;
   refreshDesktopShortcutBindings: () => void;
@@ -35,7 +34,6 @@ export interface AppsIpcDeps {
   loadWorkspaceApps?: () => Promise<DesktopWorkspaceAppListResult>;
 }
 
-/** Registers the app-config (chat-first app rail) CRUD and creation IPC handlers. */
 export function registerAppsIpc(deps: AppsIpcDeps): void {
   const {
     getManagedDesktopAppIds,

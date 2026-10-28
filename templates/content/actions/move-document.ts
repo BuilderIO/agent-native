@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { ActionContractError, defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import type { Visibility } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
@@ -6,15 +6,24 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertDocumentMetadataDatabaseScope,
+  lockDocumentMetadataDatabase,
+  nextDocumentMetadataUpdatedAt,
+} from "../server/lib/document-metadata-updated-at.js";
+import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import { movePageToSpace } from "./_move-page-to-space.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 async function assertParentIsNotDescendant({
   db,
@@ -27,31 +36,28 @@ async function assertParentIsNotDescendant({
   id: string;
   parentId: string | null | undefined;
 }) {
-  if (!parentId) return;
-  const queue = [id];
+  // Walks up from the new parent, one query per level rather than one per
+  // page under the moved page: this runs while the move holds its locks.
   const visited = new Set<string>();
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    if (visited.has(currentId)) continue;
+  let currentId = parentId ?? null;
+  while (currentId && !visited.has(currentId)) {
+    if (currentId === id) {
+      throw new ActionContractError(
+        "A document cannot be moved under one of its children",
+        { errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT", statusCode: 400 },
+      );
+    }
     visited.add(currentId);
-
-    const children = await db
-      .select({ id: schema.documents.id })
+    const [current] = await db
+      .select({ parentId: schema.documents.parentId })
       .from(schema.documents)
       .where(
         and(
+          eq(schema.documents.id, currentId),
           eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.parentId, currentId),
         ),
       );
-
-    for (const child of children) {
-      if (child.id === parentId) {
-        throw new Error("A document cannot be moved under one of its children");
-      }
-      queue.push(child.id);
-    }
+    currentId = current?.parentId ?? null;
   }
 }
 
@@ -136,22 +142,18 @@ function rootSectionFilter(document: {
   );
 }
 
-async function resolveSiblingPositionsAfterMove({
+function selectSiblings({
   db,
   ownerEmail,
-  id,
   parentId,
   rootSection,
-  position,
 }: {
   db: ReturnType<typeof getDb>;
   ownerEmail: string;
-  id: string;
   parentId: string | null;
   rootSection: { visibility: Visibility; orgId?: string | null };
-  position: number;
 }) {
-  const siblings = await db
+  return db
     .select({
       id: schema.documents.id,
       position: schema.documents.position,
@@ -170,14 +172,43 @@ async function resolveSiblingPositionsAfterMove({
             sql`parent_id IS NULL`,
           ),
     );
-  const siblingsWithoutActive = siblings
-    .filter((document) => document.id !== id)
-    .sort(
-      (a, b) =>
-        a.position - b.position ||
-        a.title.localeCompare(b.title) ||
-        a.id.localeCompare(b.id),
-    );
+}
+
+function siblingsInOrder(
+  siblings: Array<{ id: string; position: number; title: string }>,
+) {
+  return [...siblings].sort(
+    (a, b) =>
+      a.position - b.position ||
+      a.title.localeCompare(b.title) ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+async function resolveSiblingPositionsAfterMove({
+  db,
+  ownerEmail,
+  id,
+  parentId,
+  rootSection,
+  position,
+}: {
+  db: ReturnType<typeof getDb>;
+  ownerEmail: string;
+  id: string;
+  parentId: string | null;
+  rootSection: { visibility: Visibility; orgId?: string | null };
+  position: number;
+}) {
+  const siblings = await selectSiblings({
+    db,
+    ownerEmail,
+    parentId,
+    rootSection,
+  });
+  const siblingsWithoutActive = siblingsInOrder(
+    siblings.filter((document) => document.id !== id),
+  );
   const nextIndex = Math.max(
     0,
     Math.min(position, siblingsWithoutActive.length),
@@ -193,8 +224,27 @@ async function resolveSiblingPositionsAfterMove({
   }));
 }
 
+function documentMoveResult(doc: typeof schema.documents.$inferSelect) {
+  return {
+    id: doc.id,
+    urlPath: `/page/${doc.id}`,
+    spaceId: doc.spaceId,
+    parentId: doc.parentId,
+    title: doc.title,
+    content: doc.content,
+    icon: doc.icon,
+    position: doc.position,
+    isFavorite: parseDocumentFavorite(doc.isFavorite),
+    hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+    visibility: doc.visibility,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  };
+}
+
 export default defineAction({
-  description: "Move a document to a parent and/or position in the page tree.",
+  description:
+    "Move a document to a parent and/or position in the page tree. Pass spaceId to move the page and all its sub-pages into another Content space: the caller becomes the owner, access resets to the destination's (org-wide for an organization space, private otherwise, or the new parent's sharing), and existing shares and public access are removed. Pages containing collections, collection rows, local-folder files, and Notion- or Builder-linked pages cannot change space.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     parentId: z
@@ -209,21 +259,53 @@ export default defineAction({
       .int()
       .optional()
       .describe("Sort position among siblings"),
+    spaceId: z
+      .string()
+      .optional()
+      .describe(
+        "Destination Content space ID from list-content-spaces. When it differs from the page's space, the page and its sub-pages move there, at the top level or under parentId (a page in that space you own).",
+      ),
   }),
   run: async (args) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
-    if (args.parentId === undefined && args.position === undefined) {
-      throw new Error("--parentId or --position is required");
+    if (
+      args.parentId === undefined &&
+      args.position === undefined &&
+      args.spaceId === undefined
+    ) {
+      throw new Error("--parentId, --position, or --spaceId is required");
     }
     if (args.parentId === id) {
-      throw new Error("A document cannot be moved under itself");
+      throw new ActionContractError("A document cannot be moved under itself", {
+        errorCode: "DOCUMENT_MOVE_UNDER_DESCENDANT",
+        statusCode: 400,
+      });
     }
 
     const access = await assertDocumentMutationAccess(id, "editor", "id");
     const existing = access.resource;
+    if (
+      (args.spaceId && args.spaceId !== existing.spaceId) ||
+      (args.parentId !== undefined && args.parentId !== existing.parentId)
+    ) {
+      assertSourceAllowsPageEdit(existing, "move");
+    }
     const ownerEmail = existing.ownerEmail as string;
     const db = getDb();
+
+    if (args.spaceId && args.spaceId !== existing.spaceId) {
+      const { document: doc, titleFlush } = await movePageToSpace({
+        root: existing as any,
+        spaceId: args.spaceId,
+        parentId: args.parentId ?? null,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return {
+        ...documentMoveResult(doc),
+        ...(titleFlush ? { titleFlush } : {}),
+      };
+    }
 
     const updatedAt = new Date().toISOString();
     const updates: Record<string, unknown> = {
@@ -238,13 +320,22 @@ export default defineAction({
           "parentId",
         );
         if (parentAccess.resource.ownerEmail !== ownerEmail) {
-          throw new Error("Parent document must belong to the same owner");
+          throw new ActionContractError(
+            "Parent document must belong to the same owner",
+            { errorCode: "PARENT_OWNER_MISMATCH", statusCode: 409 },
+          );
         }
         if (parentAccess.resource.spaceId !== existing.spaceId) {
-          throw new Error("Parent document must be in the same Content space");
+          throw new ActionContractError(
+            "Parent document must be in the same Content space",
+            { errorCode: "PARENT_SPACE_MISMATCH", statusCode: 409 },
+          );
         }
         if (!sameRootSection(parentAccess.resource, existing)) {
-          throw new Error("Parent document must be in the same section");
+          throw new ActionContractError(
+            "Parent document must be in the same section",
+            { errorCode: "PARENT_SECTION_MISMATCH", statusCode: 409 },
+          );
         }
         await assertParentIsNotDescendant({
           db,
@@ -258,22 +349,183 @@ export default defineAction({
 
     const targetParentId =
       args.parentId !== undefined ? args.parentId : existing.parentId;
-    const blockDatabaseIdToDetach =
-      args.parentId !== undefined
-        ? await preflightBlockDatabaseOwnershipClearance({
-            db,
-            documentId: id,
-            ownerEmail,
-            parentId: args.parentId,
-          })
-        : null;
+    if (args.parentId !== undefined) {
+      await preflightBlockDatabaseOwnershipClearance({
+        db,
+        documentId: id,
+        ownerEmail,
+        parentId: args.parentId,
+      });
+    }
     let normalizedSiblingPositions: Array<{
       id: string;
       position: number;
     }> | null = null;
+    let appendToParent = false;
 
     const runMoveTransaction = () =>
       db.transaction(async (tx) => {
+        let blockDatabaseIdToDetach: string | null = null;
+        // The renumbering was read before these locks. A sibling that left,
+        // joined or was reordered since would get a position from the old
+        // order.
+        const assertSiblingsUnchanged = async () => {
+          if (!normalizedSiblingPositions) return;
+          const expected = normalizedSiblingPositions
+            .map((document) => document.id)
+            .filter((siblingId) => siblingId !== id);
+          const current = siblingsInOrder(
+            await selectSiblings({
+              db: tx,
+              ownerEmail,
+              parentId: targetParentId,
+              rootSection: existing,
+            }),
+          )
+            .map((document) => document.id)
+            .filter((siblingId) => siblingId !== id);
+          if (
+            current.length !== expected.length ||
+            current.some((siblingId, index) => siblingId !== expected[index])
+          ) {
+            throw new ActionContractError(
+              "The document's move scope changed. Read it again and retry.",
+              { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+            );
+          }
+        };
+        // A reorder keeps the page's parent, so it must still be the one the
+        // renumbering was read under.
+        const assertPageInScope = async () => {
+          const current = (
+            await assertDocumentMutationAccess(id, "editor", "id")
+          ).resource;
+          assertEditableDocument(current);
+          if (
+            current.ownerEmail !== ownerEmail ||
+            current.spaceId !== existing.spaceId ||
+            !sameRootSection(current, existing) ||
+            (args.parentId === undefined &&
+              (current.parentId ?? null) !== (existing.parentId ?? null))
+          ) {
+            throw new ActionContractError(
+              "The document's move scope changed. Read it again and retry.",
+              { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+            );
+          }
+          return current;
+        };
+        // The moved page, its new parent and every sibling it renumbers, in
+        // id order. Locking the parent makes a concurrent Trash or delete of
+        // it finish first, so the check below sees it.
+        const pageIds = [
+          id,
+          ...(args.parentId ? [args.parentId] : []),
+          ...(normalizedSiblingPositions ?? []).map((document) => document.id),
+        ];
+        if (args.parentId !== undefined) {
+          await lockOwnerPageTree(tx, ownerEmail);
+          const lockedDatabaseId = await lockDocumentMetadataDatabase({
+            db: tx,
+            documentId: id,
+            ownerEmail,
+          });
+          await lockDocumentRows(tx, pageIds);
+          await assertSiblingsUnchanged();
+          const current = await assertPageInScope();
+          if (args.parentId) {
+            const [parent] = await tx
+              .select({
+                trashedAt: schema.documents.trashedAt,
+                spaceId: schema.documents.spaceId,
+                visibility: schema.documents.visibility,
+                orgId: schema.documents.orgId,
+              })
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.id, args.parentId),
+                  eq(schema.documents.ownerEmail, ownerEmail),
+                ),
+              );
+            if (!parent || parent.trashedAt) {
+              throw new ActionContractError("Parent document not found.", {
+                errorCode: "DOCUMENT_NOT_FOUND",
+                statusCode: 404,
+              });
+            }
+            if (
+              parent.spaceId !== existing.spaceId ||
+              !sameRootSection(parent, existing)
+            ) {
+              throw new ActionContractError(
+                "The document's move scope changed. Read it again and retry.",
+                { errorCode: "DOCUMENT_MOVE_SCOPE_CHANGED", statusCode: 409 },
+              );
+            }
+            await assertParentIsNotDescendant({
+              db: tx,
+              ownerEmail,
+              id,
+              parentId: args.parentId,
+            });
+          }
+          if (appendToParent) {
+            // Read under the page-tree lock every reparent takes, so two
+            // appends to one parent can't both take the same last position.
+            const [last] = await tx
+              .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+              .from(schema.documents)
+              .where(
+                args.parentId
+                  ? and(
+                      eq(schema.documents.ownerEmail, ownerEmail),
+                      eq(schema.documents.parentId, args.parentId),
+                    )
+                  : and(
+                      eq(schema.documents.ownerEmail, ownerEmail),
+                      rootSectionFilter(existing),
+                      sql`parent_id IS NULL`,
+                    ),
+              );
+            updates.position = nextAppendPosition(last?.max);
+          }
+          await assertDocumentMetadataDatabaseScope({
+            db: tx,
+            documentId: id,
+            ownerEmail,
+            lockedDatabaseId,
+          });
+          blockDatabaseIdToDetach =
+            await preflightBlockDatabaseOwnershipClearance({
+              db: tx,
+              documentId: id,
+              ownerEmail,
+              parentId: args.parentId,
+            });
+          if (lockedDatabaseId !== null) {
+            updates.updatedAt = await nextDocumentMetadataUpdatedAt({
+              db: tx,
+              documentId: id,
+              ownerEmail,
+              lockedDatabaseId,
+              currentUpdatedAt: current.updatedAt,
+            });
+            await tx
+              .update(schema.contentDatabases)
+              .set({ updatedAt: updates.updatedAt as string })
+              .where(
+                and(
+                  eq(schema.contentDatabases.id, lockedDatabaseId),
+                  eq(schema.contentDatabases.ownerEmail, ownerEmail),
+                ),
+              );
+          }
+        } else {
+          await lockDocumentRows(tx, pageIds);
+          await assertSiblingsUnchanged();
+          await assertPageInScope();
+        }
         await tx
           .update(schema.documents)
           .set(updates)
@@ -289,7 +541,7 @@ export default defineAction({
             db: tx,
             databaseId: blockDatabaseIdToDetach,
             ownerEmail,
-            updatedAt,
+            updatedAt: updates.updatedAt as string,
           });
         }
 
@@ -338,32 +590,10 @@ export default defineAction({
         },
       );
     } else if (args.parentId !== undefined) {
-      // Appending to the end of the new parent's children reads MAX(position)
-      // then writes MAX+1. Serialize the read through the write so a
-      // concurrent move/create/add targeting the same parent can't read the
-      // same MAX and land on the same position (see _position-utils.ts).
-      const parentId = args.parentId;
+      appendToParent = true;
       await withPositionLock(
-        documentsPositionScope(ownerEmail, parentId),
-        async () => {
-          const maxPos = await db
-            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-            .from(schema.documents)
-            .where(
-              parentId
-                ? and(
-                    eq(schema.documents.ownerEmail, ownerEmail),
-                    eq(schema.documents.parentId, parentId),
-                  )
-                : and(
-                    eq(schema.documents.ownerEmail, ownerEmail),
-                    rootSectionFilter(existing),
-                    sql`parent_id IS NULL`,
-                  ),
-            );
-          updates.position = nextAppendPosition(maxPos[0]?.max);
-          await runMoveTransaction();
-        },
+        documentsPositionScope(ownerEmail, args.parentId),
+        runMoveTransaction,
       );
     } else {
       await runMoveTransaction();
@@ -381,19 +611,6 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return {
-      id: doc.id,
-      urlPath: `/page/${doc.id}`,
-      parentId: doc.parentId,
-      title: doc.title,
-      content: doc.content,
-      icon: doc.icon,
-      position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
-      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-      visibility: doc.visibility,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-    };
+    return documentMoveResult(doc);
   },
 });

@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { Turnstile } from "@agent-native/core/client/ui";
 import { testUserRegex } from "@agent-native/core/shared";
+import { Turnstile } from "@agent-native/toolkit/app/shared";
 import type { CustomField } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { useState } from "react";
@@ -109,9 +109,6 @@ export function BookingForm({
         }
       }
       if (field.pattern && typeof value === "string" && value) {
-        // An unrunnable pattern is not a passing one. Swallowing it here used
-        // to mean a broken rule silently validated everything, while a
-        // catastrophically backtracking one froze the booker tab outright.
         const result = testUserRegex(field.pattern, value);
         if (result.status === "unevaluated") {
           errors[field.id] = t("bookingLinks.fieldPatternUncheckable", {
@@ -190,7 +187,7 @@ export function BookingForm({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="shrink-0"
             onClick={() => removeAdditionalGuest(index)}
             aria-label={t("attendees.removeAttendee", {
               email: guestEmail || t("attendees.addAnotherGuest"),

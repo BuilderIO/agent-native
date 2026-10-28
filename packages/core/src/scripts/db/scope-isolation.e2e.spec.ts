@@ -21,13 +21,6 @@ async function createClient({ url }: { url: string }) {
     close: () => client.end(),
   };
 }
-/**
- * End-to-end isolation test for the agent's raw-SQL tools against a REAL
- * (temp-file) PostgreSQL database with two tenants. This is the regression proof
- * for the schema-qualified scope-bypass fix (safety.ts) and the credential-row
- * exclusion (scoping.ts): it runs the actual exported db-query / db-exec entry
- * points — no mocks of the SQL layer — and asserts true row-level isolation.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
@@ -55,6 +48,9 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
       await c.execute(
         `CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
       );
+      await c.execute(
+        `CREATE TABLE chat_threads (id TEXT PRIMARY KEY, owner_email TEXT, thread_data TEXT)`,
+      );
       await c.execute({
         sql: `INSERT INTO notes VALUES (?, ?, ?)`,
         args: ["n1", "a@x.com", "A-secret"],
@@ -74,6 +70,14 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
       await c.execute({
         sql: `INSERT INTO settings VALUES (?, ?, ?)`,
         args: ["u:a@x.com:pref:theme", JSON.stringify({ value: "dark" }), 1],
+      });
+      await c.execute({
+        sql: `INSERT INTO chat_threads VALUES (?, ?, ?)`,
+        args: ["thread-a", "a@x.com", "current thread"],
+      });
+      await c.execute({
+        sql: `INSERT INTO chat_threads VALUES (?, ?, ?)`,
+        args: ["thread-b", "a@x.com", "another private thread"],
       });
     });
     vi.stubEnv("AGENT_USER_EMAIL", "a@x.com");
@@ -113,7 +117,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     }
   }
 
-  // ── Reads ──────────────────────────────────────────────────────────────
   it("rejects a schema-qualified read (the scope bypass)", async () => {
     const { default: dbQuery } = await import("./query.js");
     await expect(
@@ -135,7 +138,12 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     expect(keys.some((k: string) => k.includes(":credential:"))).toBe(false);
   });
 
-  // ── Writes ─────────────────────────────────────────────────────────────
+  it("rejects raw reads of another private chat thread", async () => {
+    await expect(
+      runQuery("SELECT thread_data FROM chat_threads WHERE id = 'thread-b'"),
+    ).rejects.toThrow(/Sensitive framework table "chat_threads"/);
+  });
+
   it("rejects a schema-qualified write", async () => {
     const { default: dbExec } = await import("./exec.js");
     await expect(
@@ -146,7 +154,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
         dbFile,
       ]),
     ).rejects.toThrow(/schema-qualified/i);
-    // The other tenant's row is untouched.
     const rows = await withClient((c) =>
       c
         .execute(`SELECT body FROM notes WHERE owner_email = 'b@x.com'`)
@@ -160,7 +167,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
     const remaining = await withClient((c) =>
       c.execute(`SELECT owner_email, body FROM notes`).then((r) => r as any[]),
     );
-    // Only tenant A's row was deleted; tenant B's survives.
     expect(remaining).toHaveLength(1);
     expect(remaining[0].owner_email).toBe("b@x.com");
   });
@@ -176,6 +182,6 @@ describe("db tools cross-tenant isolation (e2e, real postgres)", () => {
       rows.map((r) => [r.owner_email, r.body]),
     );
     expect(byOwner["a@x.com"]).toBe("edited");
-    expect(byOwner["b@x.com"]).toBe("B-secret"); // untouched
+    expect(byOwner["b@x.com"]).toBe("B-secret");
   });
 });

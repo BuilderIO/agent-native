@@ -8,6 +8,7 @@ const mockResolveOrgIdForEmail = vi.hoisted(() =>
   vi.fn<(email: string) => Promise<string | null>>(),
 );
 const mockUserEmail = vi.hoisted(() => vi.fn<() => string | undefined>());
+const mockResolveAccess = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestAuthCapability: () => mockRequestAuthCapability(),
@@ -19,8 +20,10 @@ vi.mock("@agent-native/core/org", () => ({
   resolveOrgIdForEmail: (email: string) => mockResolveOrgIdForEmail(email),
 }));
 
-// Each `select()` shifts the next queued result, so the scoped query and the
-// owner-only diagnostic query can return different rows.
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
+}));
+
 let selectResults: unknown[][] = [];
 
 vi.mock("../db/index.js", () => ({
@@ -62,6 +65,7 @@ beforeEach(() => {
   mockUserEmail.mockReturnValue("user@example.com");
   mockRequestOrgId.mockReturnValue(undefined);
   mockResolveOrgIdForEmail.mockResolvedValue(null);
+  mockResolveAccess.mockReset();
 });
 
 describe("resolveLocalhostConnectionScope", () => {
@@ -76,9 +80,6 @@ describe("resolveLocalhostConnectionScope", () => {
   });
 
   it("falls back to the caller's active org when there is no request org", async () => {
-    // `pnpm action connect-localhost` and every other CLI caller runs outside a
-    // request store, so without this fallback the row lands in a different
-    // partition than the same user's browser session reads.
     mockResolveOrgIdForEmail.mockResolvedValue("org_1");
 
     await expect(resolveLocalhostConnectionScope()).resolves.toEqual({
@@ -101,6 +102,135 @@ describe("resolveLocalhostConnectionScope", () => {
     await expect(resolveLocalhostConnectionScope()).rejects.toThrow(
       /no authenticated user/,
     );
+  });
+
+  it("uses the public design owner's scope for signed-in viewers", async () => {
+    mockUserEmail.mockReturnValue("viewer@example.com");
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({
+        designId: "design_1",
+        allowPublicViewer: true,
+      }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+  });
+
+  it("uses the granted design scope for a signed-in matching editor capability", async () => {
+    mockUserEmail.mockReturnValue("ambient@example.com");
+    mockRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_1",
+    );
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+  });
+
+  it("keeps a signed-in caller's own scope when there is no capability", async () => {
+    mockUserEmail.mockReturnValue("ambient@example.com");
+    mockRequestOrgId.mockReturnValue("ambient-org");
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "ambient@example.com",
+      orgId: "ambient-org",
+    });
+    expect(mockResolveAccess).not.toHaveBeenCalled();
+  });
+
+  it("keeps a signed-in caller's own scope when a capability targets another design", async () => {
+    mockUserEmail.mockReturnValue("ambient@example.com");
+    mockRequestOrgId.mockReturnValue("ambient-org");
+    mockRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_2",
+    );
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "ambient@example.com",
+      orgId: "ambient-org",
+    });
+    expect(mockResolveAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["revoked", null],
+    [
+      "downgraded to viewer",
+      {
+        role: "viewer",
+        resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+      },
+    ],
+  ])(
+    "denies a signed-in caller when the matching editor grant is %s",
+    async (_state, access) => {
+      mockUserEmail.mockReturnValue("ambient@example.com");
+      mockRequestAuthCapability.mockReturnValue(
+        "capability:visual-edit:design:design_1",
+      );
+      mockResolveAccess.mockResolvedValue(access);
+
+      await expect(
+        resolveLocalhostConnectionScope({ designId: "design_1" }),
+      ).rejects.toMatchObject({
+        errorCode: "visual_edit_capability_invalid",
+        statusCode: 403,
+      });
+      expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+        authCapability: "capability:visual-edit:design:design_1",
+      });
+    },
+  );
+
+  it("requires the design-scoped visual-edit capability for anonymous refreshes", async () => {
+    mockUserEmail.mockReturnValue(undefined);
+    mockRequestAuthCapability.mockReturnValue(
+      "capability:visual-edit:design:design_1",
+    );
+    mockResolveAccess.mockResolvedValue({
+      role: "editor",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).resolves.toEqual({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+
+    mockRequestAuthCapability.mockReturnValue(undefined);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { ownerEmail: "owner@example.com", orgId: "org_1" },
+    });
+    await expect(
+      resolveLocalhostConnectionScope({ designId: "design_1" }),
+    ).rejects.toThrow(/no authenticated user/);
   });
 });
 
@@ -136,8 +266,6 @@ describe("resolveLocalhostBridgeConnection", () => {
     expect(error).toBeInstanceOf(LocalhostConnectionError);
     expect(error).toMatchObject({
       errorCode: "connection-scope-mismatch",
-      // 4xx is what makes the message reach the client at all — the action
-      // route replaces any 500 body with "Internal server error".
       statusCode: 409,
     });
     expect((error as Error).message).toContain("conn_1");
@@ -229,11 +357,32 @@ describe("bridge round trip", () => {
 
     expect(error).toMatchObject({
       errorCode: "bridge-request-failed",
-      // < 500 so the action route echoes the message; the bridge is the user's
-      // own local process, not an untrusted upstream.
       statusCode: 424,
     });
     expect(error.message).toContain("boom");
+  });
+
+  it("names the failing page instead of echoing the bridge's JSON body", () => {
+    const error = localhostBridgeRequestError(
+      "snapshot",
+      503,
+      JSON.stringify({
+        ok: false,
+        source: "agent-native-design-connect",
+        url: "http://127.0.0.1:5173/dead",
+        status: 503,
+        contentType: "text/plain; charset=utf-8",
+        html: "Unavailable",
+      }),
+    );
+
+    expect(error.message).toBe(
+      "Bridge snapshot failed (503): http://127.0.0.1:5173/dead responded 503.",
+    );
+    expect(
+      localhostBridgeRequestError("snapshot", 500, '{"error":"Bridge crashed"}')
+        .message,
+    ).toBe("Bridge snapshot failed (500): Bridge crashed");
   });
 });
 

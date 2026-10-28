@@ -1,8 +1,15 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "agent-native:browser-tab-id";
+const SHARED_STATE_KEY = Symbol.for("@agent-native/core/client/browser-tab-id");
+
+function resetSharedTabIds() {
+  delete (globalThis as typeof globalThis & Record<symbol, unknown>)[
+    SHARED_STATE_KEY
+  ];
+}
 
 async function loadTabId() {
   vi.resetModules();
@@ -20,6 +27,16 @@ describe("browser tab id", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/");
+    resetSharedTabIds();
+  });
+
+  afterEach(() => {
+    resetSharedTabIds();
+    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+      .__AGENT_NATIVE_CONFIG__;
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("persists the generated id across reloads in one tab", async () => {
@@ -47,6 +64,16 @@ describe("browser tab id", () => {
     expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(getBrowserTabId());
   });
 
+  it("shares one id across duplicate Core modules in the same navigation", async () => {
+    stubNavigationType("navigate");
+
+    const first = await loadTabId();
+    const firstId = first.getBrowserTabId();
+    const second = await loadTabId();
+
+    expect(second.getBrowserTabId()).toBe(firstId);
+  });
+
   it("does not reuse malformed stored ids", async () => {
     stubNavigationType("reload");
     window.sessionStorage.setItem(STORAGE_KEY, "bad/tab");
@@ -54,5 +81,154 @@ describe("browser tab id", () => {
     const { getBrowserTabId } = await loadTabId();
 
     expect(getBrowserTabId()).not.toBe("bad/tab");
+  });
+
+  it("keeps tab ids separate for workspace apps on the same origin", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/risk");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "risk", path: "/risk" },
+        { id: "chat", path: "/chat" },
+      ]),
+    );
+    stubNavigationType("reload");
+    window.history.replaceState({}, "", "/risk/register");
+
+    const riskTab = await loadTabId();
+    const riskId = riskTab.getBrowserTabId();
+
+    window.history.replaceState({}, "", "/chat/thread-1");
+    const chatTab = await loadTabId();
+    const chatId = chatTab.getBrowserTabId();
+
+    expect(chatId).not.toBe(riskId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/risk`)).toBe(riskId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/chat`)).toBe(chatId);
+
+    window.history.replaceState({}, "", "/risk/register");
+    const riskReload = await loadTabId();
+    expect(riskReload.getBrowserTabId()).toBe(riskId);
+  });
+
+  it("keeps the default tab key for a standalone app mounted below a path", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+    window.history.replaceState({}, "", "/docs/_agent-native/auth/session");
+    stubNavigationType("reload");
+
+    const { getBrowserTabId } = await loadTabId();
+    const id = getBrowserTabId();
+
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe(id);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/docs`)).toBeNull();
+  });
+
+  it("uses projected workspace state when scoping the current app", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/risk",
+    };
+    window.history.replaceState({}, "", "/risk/register");
+    stubNavigationType("reload");
+
+    const { getBrowserTabId } = await loadTabId();
+    const id = getBrowserTabId();
+
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/risk`)).toBe(id);
+  });
+
+  it("adopts an unresolved mount id into the first resolved workspace scope", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState({}, "", "/opening");
+
+    const { getBrowserTabId, isBrowserTabIdForCurrentDocument } =
+      await loadTabId();
+    const pendingId = getBrowserTabId();
+
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBeNull();
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe(pendingId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
+      pendingId,
+    );
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps a known mount id when returning from an unresolved route", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    window.history.replaceState({}, "", "/mail/inbox");
+    stubNavigationType("navigate");
+
+    const {
+      getBrowserTabId,
+      isBrowserTabIdForCurrentDocument,
+      resolveBrowserTabIdAlias,
+    } = await loadTabId();
+    const mailId = getBrowserTabId();
+
+    window.history.replaceState({}, "", "/opening");
+    const pendingId = getBrowserTabId();
+    expect(pendingId).not.toBe(mailId);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe(mailId);
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe(mailId);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(mailId);
+
+    window.history.replaceState({}, "", "/calendar");
+    getBrowserTabId();
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe(mailId);
+  });
+
+  it("reuses a stored mount id after a reload starts on an unresolved route", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    window.sessionStorage.setItem(`${STORAGE_KEY}:/mail`, "stored-mail-id");
+    window.history.replaceState({}, "", "/opening");
+    stubNavigationType("reload");
+
+    const {
+      getBrowserTabId,
+      isBrowserTabIdForCurrentDocument,
+      resolveBrowserTabIdAlias,
+    } = await loadTabId();
+    const pendingId = getBrowserTabId();
+
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe("stored-mail-id");
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(true);
+    expect(window.sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(
+      "stored-mail-id",
+    );
+
+    window.history.replaceState({}, "", "/calendar");
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    getBrowserTabId();
+    expect(isBrowserTabIdForCurrentDocument(pendingId)).toBe(false);
+    expect(resolveBrowserTabIdAlias(pendingId)).toBe("stored-mail-id");
   });
 });

@@ -93,6 +93,33 @@ describe("renderDataDictionary", () => {
     );
   });
 
+  it("renders generated source kind, model type, status, and grain", () => {
+    const context = renderDataDictionary([
+      {
+        metric: "model:user_organization_role",
+        definition: "One row per user-organization membership.",
+        source: "dbt",
+        sourceKind: "dbt",
+        entryType: "model",
+        status: "active",
+        grain: "Unique key: user_id, organization_id",
+        primaryEntity: "user",
+        timeDimension: "created_at",
+        semanticModel: "users",
+        approved: false,
+        aiGenerated: true,
+      },
+    ]);
+
+    expect(context).toContain("source kind: dbt");
+    expect(context).toContain("entry type: model");
+    expect(context).toContain("source status: active");
+    expect(context).toContain("grain: Unique key: user_id, organization_id");
+    expect(context).toContain("primary entity: user");
+    expect(context).toContain("time dimension: created_at");
+    expect(context).toContain("semantic model: users");
+  });
+
   it("caps injected entries and points the agent to focused dictionary lookup", () => {
     const entries = Array.from({ length: 45 }, (_, index) => ({
       metric: `Metric ${String(index + 1).padStart(2, "0")}`,
@@ -107,14 +134,38 @@ describe("renderDataDictionary", () => {
     expect(context).toContain(
       "5 additional data-dictionary entries were omitted",
     );
-    expect(context).toContain("list-data-dictionary");
-    expect(context).toContain("search");
+    expect(context).toContain("find-data");
+    expect(context).toContain("search-bigquery-schema");
+  });
+
+  it("labels inferred SQL output columns as unverified and grain keys as inferred", () => {
+    const context = renderDataDictionary([
+      {
+        metric: "model:user_organization_role",
+        definition: "Generated dbt source metadata.",
+        sqlProjectedColumns: "user_id, organization_id, role",
+        inferredMembershipKeys: ["user_id", "organization_id"],
+        inferredMembershipKeyRoles: {
+          user: "user_id",
+          organization: "organization_id",
+        },
+        approved: false,
+        aiGenerated: true,
+      },
+    ]);
+
+    expect(context).toContain(
+      "SQL projected columns (inferred; verify against schema): user_id, organization_id, role",
+    );
+    expect(context).toContain(
+      "membership row keys inferred from structural dbt SQL analysis: user_id, organization_id",
+    );
+    expect(context).toContain(
+      "inferred membership key roles: user key user_id; organization key organization_id",
+    );
   });
 
   it("caps the total rendered block at a total char budget even under the 40-entry count cap", () => {
-    // Every field maxed out renders roughly ~3-3.5K chars per entry (see the
-    // per-field caps in renderEntry), so well under 40 entries is enough to
-    // blow past a 10K total budget if there were no total-char guard.
     const longField = (label: string) => `${label} `.repeat(80);
     const entries = Array.from({ length: 40 }, (_, index) => ({
       metric: `Metric ${String(index + 1).padStart(2, "0")}`,
@@ -136,18 +187,12 @@ describe("renderDataDictionary", () => {
 
     const context = renderDataDictionary(entries);
 
-    // The rendered block should stay close to the ~10K budget, not balloon to
-    // the ~130K theoretical ceiling from 40 maxed-out entries.
     expect(context.length).toBeLessThan(15_000);
-    // At least one entry must always render, even under a tight budget.
     expect(context).toContain("Metric 01** (approved/canonical)");
-    // Some later entry must have been omitted for the budget to have engaged.
     expect(context).toContain(
       "additional data-dictionary entries were omitted",
     );
-    expect(context).toContain("list-data-dictionary");
-    // No entry should be cut mid-render: every entry that appears must show
-    // its full definition line intact (not truncated partway through a field).
+    expect(context).toContain("find-data");
     const definitionLines = context
       .split("\n")
       .filter((line) => line.startsWith("- **Metric"));

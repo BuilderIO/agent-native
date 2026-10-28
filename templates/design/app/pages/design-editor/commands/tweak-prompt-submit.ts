@@ -1,4 +1,4 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { TweakDefinition } from "@shared/api";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import type { TweakSelections } from "@shared/resolve-tweaks";
@@ -6,11 +6,13 @@ import { toast } from "sonner";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import { TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE } from "@/pages/design-editor/editor-constants";
 import {
   formatTweakDefinitionsContext,
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
+  referenceImageContextDirectives,
 } from "@/pages/design-editor/generation-prompt-directives";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
@@ -19,6 +21,7 @@ export interface TweakPromptSubmitArgs {
   canEditDesign: boolean;
   design: DesignData | null;
   handleTweakPromptOpenChange: (open: boolean) => void;
+  imageAttachmentUnavailableMessage: string;
   id: string | undefined;
   tweakSelections: TweakSelections;
   tweaks: TweakDefinition[];
@@ -30,6 +33,7 @@ export function runTweakPromptSubmit(
     canEditDesign,
     design,
     handleTweakPromptOpenChange,
+    imageAttachmentUnavailableMessage,
     id,
     tweakSelections,
     tweaks,
@@ -46,7 +50,14 @@ export function runTweakPromptSubmit(
   const trimmed = prompt.trim();
   if (!trimmed) return;
   const fileContext = formatUploadedFileContext(files);
-  const images = imageAttachmentsFromUploadedFiles(files);
+  let images: string[];
+  try {
+    images = imageAttachmentsFromUploadedFiles(files);
+  } catch (error) {
+    if (!(error instanceof MissingVisualImagePayloadError)) throw error;
+    toast.error(imageAttachmentUnavailableMessage);
+    return;
+  }
   const currentSelections =
     Object.keys(tweakSelections).length > 0
       ? JSON.stringify(tweakSelections, null, 2)
@@ -64,6 +75,7 @@ export function runTweakPromptSubmit(
     "Current selected tweak values:",
     currentSelections,
     fileContext,
+    ...referenceImageContextDirectives(images.length),
     "",
     "Add or update live tweak controls for this design. Keep existing useful tweak controls unless the user explicitly asks to replace them.",
     "If a requested control needs a new CSS custom property, first read the live design with `get-design-snapshot`, update the relevant HTML/CSS so the property is used, then persist the complete updated tweak definition list through `generate-design`.",

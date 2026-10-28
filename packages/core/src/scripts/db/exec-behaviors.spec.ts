@@ -23,13 +23,6 @@ async function createClient({ url }: { url: string }) {
 }
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Behavior tests for db-exec that complement parameterized.spec.ts (which
- * covers bind-arg plumbing and the security denylists). Here we focus on the
- * statement-shape guards and the agent-facing result semantics — multi-
- * statement rejection, SELECT routing, the zero-changes scoping hint, INSERT
- * ownership injection, and REPLACE scoping — run against a real temp PostgreSQL DB.
- */
 describe("db-exec behaviors", () => {
   let dir: string;
   let dbFile: string;
@@ -58,6 +51,7 @@ describe("db-exec behaviors", () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
+    vi.doUnmock("./postgres-client.js");
     vi.resetModules();
     vi.restoreAllMocks();
     await rm(dir, { recursive: true, force: true });
@@ -85,7 +79,6 @@ describe("db-exec behaviors", () => {
     return JSON.parse(joined.slice(joined.indexOf("{")));
   }
 
-  // ── Statement-shape guards ──────────────────────────────────────────────
   it("rejects a SELECT (routes the agent to db-query)", async () => {
     const { default: dbExec } = await import("./exec.js");
     await expect(
@@ -146,10 +139,7 @@ describe("db-exec behaviors", () => {
     ).rejects.toThrow(/only INSERT, UPDATE, DELETE statements/);
   });
 
-  // ── Result semantics ────────────────────────────────────────────────────
   it("emits a per-user scoping hint when an UPDATE changes zero rows", async () => {
-    // No matching row → 0 changes. The hint must mention scoping so the agent
-    // doesn't report a silent no-op as success.
     const logs = await runExec([
       "--sql",
       "UPDATE notes SET title = 'x' WHERE id = 'missing'",
@@ -159,7 +149,6 @@ describe("db-exec behaviors", () => {
     expect(text).toMatch(/outside the current user's scope/i);
   });
 
-  // ── INSERT ownership injection (PostgreSQL) ─────────────────────────────────
   it("auto-injects owner_email on INSERT so the row is visible to the writer", async () => {
     const out = await runExecJson([
       "--sql",
@@ -168,8 +157,6 @@ describe("db-exec behaviors", () => {
       JSON.stringify(["n-inject", "hello"]),
     ]);
     expect(out.changes).toBe(1);
-    // The base row must carry the current user's owner_email even though the
-    // INSERT never named the column.
     const owner = await withClient((c) =>
       c
         .execute(`SELECT owner_email FROM notes WHERE id = 'n-inject'`)
@@ -179,8 +166,6 @@ describe("db-exec behaviors", () => {
   });
 
   it("blocks an explicit owner_email in an INSERT column list (access-control column denylist)", async () => {
-    // Writing owner_email directly is treated as an access-control write and is
-    // refused — the agent can't plant a row under an arbitrary owner.
     const { default: dbExec } = await import("./exec.js");
     await expect(
       dbExec([
@@ -192,7 +177,6 @@ describe("db-exec behaviors", () => {
     ).rejects.toThrow(/identity\/access-control column "owner_email"/);
   });
 
-  // ── REPLACE scoping ─────────────────────────────────────────────────────
   it("auto-injects owner_email on INSERT ... ON CONFLICT so the row is visible to the writer under scoping", async () => {
     const out = await runExecJson([
       "--sql",
@@ -206,13 +190,9 @@ describe("db-exec behaviors", () => {
         .execute(`SELECT owner_email FROM notes WHERE id = 'n-replace'`)
         .then((r) => (r[0]?.owner_email ?? r[0]?.[0]) as string | null),
     );
-    // REPLACE creates a new row under the current user, so ownership injection
-    // must apply (just like INSERT) — otherwise the row lands unowned and a
-    // follow-up scoped read by the same user would not see it.
     expect(owner).toBe("owner@x.com");
   });
 
-  // ── Batch transactional rollback ────────────────────────────────────────
   it("rolls back the whole batch when a later statement fails", async () => {
     await withClient((c) =>
       c.execute({
@@ -228,19 +208,75 @@ describe("db-exec behaviors", () => {
         "--statements",
         JSON.stringify([
           { sql: "UPDATE notes SET title = 'changed' WHERE id = 'seed'" },
-          // Second statement references a non-existent column → fails, forcing
-          // a rollback of the first UPDATE.
           { sql: "UPDATE notes SET nonexistent_col = 'x' WHERE id = 'seed'" },
         ]),
       ]),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Statement 2 failed:/);
 
     const title = await withClient((c) =>
       c
         .execute(`SELECT title FROM notes WHERE id = 'seed'`)
         .then((r) => (r[0]?.title ?? r[0]?.[0]) as string),
     );
-    // The first UPDATE must have been rolled back.
     expect(title).toBe("seed-title");
+  });
+
+  it("rolls back when scoped-view teardown exceeds the transaction deadline", async () => {
+    await withClient((c) =>
+      c.execute({
+        sql: `INSERT INTO notes VALUES (?, ?, ?)`,
+        args: ["seed", "owner@x.com", "seed-title"],
+      }),
+    );
+    vi.doMock("./postgres-client.js", async () => {
+      const actual = await vi.importActual<
+        typeof import("./postgres-client.js")
+      >("./postgres-client.js");
+      return {
+        ...actual,
+        async createPostgresScriptClient(databaseUrl: string) {
+          const client = await actual.createPostgresScriptClient(databaseUrl);
+          const wrapped: PostgresScriptClient = {
+            ...client,
+            async begin<T>(fn: (tx: PostgresScriptClient) => Promise<T>) {
+              return client.begin((tx) =>
+                fn({
+                  ...tx,
+                  async unsafe(sql, args, options) {
+                    if (sql.startsWith("DROP VIEW IF EXISTS pg_temp.")) {
+                      throw new Error(
+                        "Database transaction timed out after 10000ms.",
+                      );
+                    }
+                    return tx.unsafe(sql, args, options);
+                  },
+                }),
+              );
+            },
+          };
+          return wrapped;
+        },
+      };
+    });
+
+    const { default: dbExec } = await import("./exec.js");
+    await expect(
+      dbExec([
+        "--db",
+        dbFile,
+        "--sql",
+        "UPDATE notes SET title = 'changed' WHERE id = 'seed'",
+      ]),
+    ).rejects.toThrow(/transaction timed out/);
+
+    const row = await withClient((c) =>
+      c
+        .execute(
+          "SELECT title, to_regclass('pg_temp.notes')::text AS temp_view FROM notes WHERE id = 'seed'",
+        )
+        .then((rows) => rows[0]),
+    );
+    expect(row?.title).toBe("seed-title");
+    expect(row?.temp_view).toBeNull();
   });
 });

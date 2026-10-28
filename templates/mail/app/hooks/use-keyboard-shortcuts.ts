@@ -18,11 +18,6 @@ const INTERACTIVE_TARGET_SELECTOR = [
   '[role="tab"]',
 ].join(",");
 
-/**
- * Global shortcuts should not steal a key from a control the user is operating.
- * Keep this as one boundary so row-level handlers and window-level shortcuts
- * agree about which surface owns the event.
- */
 export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
   const element =
     target instanceof Element
@@ -61,6 +56,13 @@ export function shouldCycleMailTab(target: EventTarget | null): boolean {
   );
 }
 
+export function isMailSearchActive(): boolean {
+  const search = document.getElementById(
+    "mail-search",
+  ) as HTMLInputElement | null;
+  return Boolean(search?.value || document.activeElement === search);
+}
+
 interface Shortcut {
   key: string;
   meta?: boolean;
@@ -69,7 +71,6 @@ interface Shortcut {
   alt?: boolean;
   handler: ShortcutHandler;
   shouldHandle?: (e: KeyboardEvent) => boolean;
-  /** Skip when an input/textarea is focused */
   skipInInput?: boolean;
 }
 
@@ -111,7 +112,6 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
   }, [handleKeyDown]);
 }
 
-/** Sequence shortcut (e.g. g then i for go-to-inbox) */
 export function useSequenceShortcuts(
   sequences: { keys: string[]; handler: () => void }[],
   enabled = true,

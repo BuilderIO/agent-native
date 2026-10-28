@@ -19,9 +19,15 @@ proof_requirements:
     "Deleted, stale, changed-permission, unavailable, and cross-context invalidation coverage",
     "Real-interface reload, crash/restart, keyboard focus, agent-context, and recovery workflow",
   ]
-evidence: []
+evidence:
+  [
+    "../../../actions/resolve-content-landing.db.test.ts",
+    "../../../app/lib/content-landing.test.ts",
+    "../../../app/components/editor/DocumentAccessScreen.test.tsx",
+    "../../../e2e/unreadable-page-link.spec.ts",
+  ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-02"
 ---
 
 # Session resumption
@@ -42,8 +48,11 @@ If the Page was deleted or access changed, Content opens a safe fallback and exp
 - Restoration reauthorizes every target before reopening it and drops invalid state safely.
 - Saved or personal View focus restores when still authorized; ephemeral renderer state is bounded.
 - Recovery distinguishes normal restoration, missing target, denied target, and unavailable source.
-- At the private `/home` route, Content restores the last authorized Page. When no saved Page exists or the target is no longer available, it creates or reuses one private, editable Personal `Welcome to Agent-Native Content` Page.
+- At the private `/home` route, Content restores the last authorized Page the person opened, in whichever space it lives; renaming a Page does not move that place. When no saved Page exists or the target is no longer available, it creates or reuses one private, editable Personal `Welcome to Agent-Native Content` Page.
+- Explicit Content-space switches restore that person's last authorized Page or Database View in the selected space. A missing saved View may use that Database's current valid View; an unavailable Page or Database falls back to a real welcome Page created through the space's ordinary permissions.
+- A person who can view a space but cannot create its personal welcome fallback sees a permission-aware landing with Files still reachable.
 - Explicit Page links take precedence over root-route restoration. A fallback does not reveal the unavailable Page's title, preview, or owning context.
+- An explicit Page link the person can't open stays on its URL and says what's true. A Page that exists but isn't shared with them shows "You don't have access to this page" with the signed-in account, a way to their own landing, and Switch account. A Page that doesn't exist shows "This page doesn't exist" with a way to their landing. A trashed Page shows "This page is in the trash" only to people who could open it, with Restore for those who can restore it; to everyone else it reads as missing. It never opens another Page in its place.
 
 ## Boundaries and non-goals
 
@@ -70,6 +79,11 @@ Given a person with no saved Content location but with organization-visible Page
 
 Persisted navigation donors do not prove reauthorization, fallback, and recovery. This
 Capability remains `approved_shape`.
+
+Focused action coverage now exercises per-space isolation, current Files membership,
+missing-database fallback, normal welcome creation, and concurrent per-person welcome
+reuse. Real-interface evidence covers first switch, welcome creation, and restoring the
+previous Personal Page; full restart and permission-revocation coverage remains open.
 
 ## Proof plan
 

@@ -178,6 +178,54 @@ describe("verified fleet feature flag transaction", () => {
     expect(globalThis.fetch).toHaveBeenCalledOnce();
   });
 
+  it("omits the sender-local organization ID from delegated flag tokens", async () => {
+    const rules = {
+      mode: "off",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(200, mutationBody(rules)))
+      .mockResolvedValueOnce(
+        response(200, {
+          contractVersion: 1,
+          status: "ready",
+          flags: [{ key: "new-editor", rules, enabledForCurrentUser: false }],
+          canManage: true,
+        }),
+      );
+
+    await setWorkspaceFeatureFlag(admin, {
+      appId: "mail",
+      key: "new-editor",
+      operation: "off",
+    });
+
+    expect(mocks.signA2AToken).toHaveBeenCalledTimes(2);
+    for (const [email, orgDomain, orgSecret, options] of mocks.signA2AToken.mock
+      .calls) {
+      expect([email, orgDomain, orgSecret]).toEqual([
+        admin.userEmail,
+        "example.test",
+        undefined,
+      ]);
+      expect(options).toMatchObject({
+        expiresIn: "120s",
+        preferGlobalSecret: true,
+        audience: "https://mail.example.com",
+        extraClaims: { jti: expect.any(String) },
+      });
+      expect(options.extraClaims).not.toHaveProperty("org_id");
+    }
+    expect(mocks.signA2AToken.mock.calls[0]?.[3].extraClaims).toMatchObject({
+      scope: "flags:write",
+    });
+    expect(mocks.signA2AToken.mock.calls[1]?.[3].extraClaims).toMatchObject({
+      scope: "flags:read",
+    });
+  });
+
   it("keeps healthy peers visible when the local Analytics list fails", async () => {
     mocks.listLocalFeatureFlags.mockRejectedValueOnce(
       new Error("private local store detail"),

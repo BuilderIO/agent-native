@@ -43,7 +43,6 @@ describe("buildTimeOptions", () => {
       const minutes = timeValueToMinutes(option);
       return minutes !== null && minutes > 0 && minutes <= 13 * 60 + 30;
     });
-    // Those slots still appear, but only after the midnight wrap.
     const firstWrapIndex = options.indexOf("00:00");
     for (const option of sameDayEarlier) {
       expect(options.indexOf(option)).toBeGreaterThan(firstWrapIndex);
@@ -145,10 +144,6 @@ describe("shiftEndForStartChange", () => {
   });
 
   it("repairs an already-invalid stored range instead of preserving it", () => {
-    // A corrupt/legacy record with end <= start: an equal shift would keep
-    // that gap non-positive forever, and save validation rejects end <= start
-    // with no way to fix it from the start-time field. Repair to the minimum
-    // slot duration instead.
     const corrupt = {
       date: "2026-03-10",
       startTime: "09:00",
@@ -164,10 +159,6 @@ describe("shiftEndForStartChange", () => {
   });
 
   it("preserves wall-clock duration across a DST boundary, by design", () => {
-    // America/New_York springs forward on 2026-03-08. These are picker values,
-    // so a 1h block stays a 1h block on the face of the clock; the timezone is
-    // resolved at submit. Pinned so switching to elapsed time is a deliberate
-    // change with a timezone argument, not an accident.
     const acrossDst = {
       date: "2026-03-08",
       startTime: "01:00",

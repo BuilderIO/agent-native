@@ -4,7 +4,6 @@ import { DISPATCH_WORKSPACE_SSO_FLAG } from "./feature-flags.js";
 
 export { DISPATCH_WORKSPACE_SSO_FLAG };
 
-/** Exact first-party origins. Never replace this with a suffix or wildcard. */
 export const CANONICAL_WORKSPACE_SSO_APP_ORIGINS = {
   analytics: "https://analytics.agent-native.com",
   assets: "https://assets.agent-native.com",
@@ -66,11 +65,6 @@ export function exactWorkspaceSsoOrigin(raw: unknown): string | null {
   }
 }
 
-/**
- * Parse the same additive custom registry used by browser identity SSO. The
- * raw value is passed in so this shared module stays safe to import in the
- * browser bundle.
- */
 export function parseWorkspaceSsoAppRegistrations(
   raw: unknown,
 ): WorkspaceSsoAppRegistration[] {
@@ -162,11 +156,6 @@ function isCanonicalWorkspaceSsoOrigin(
   }
 }
 
-/**
- * Keep the server-side app catalog and the browser's action choice on the
- * same exact-origin rules. `registryRaw` is deliberately supplied by the
- * caller so this shared module never reads process or browser environment.
- */
 export function isWorkspaceSsoAppUrl(
   app: { id: string; url?: unknown },
   options: {

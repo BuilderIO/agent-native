@@ -25,9 +25,9 @@ describe("buildShellScreens", () => {
   it("derives the same filenames the server builder does", () => {
     const { screens } = build(["/", "/projects", "/blog/posts"]);
     expect(screens.map((s) => s.filename)).toEqual([
-      "fusion-home.html",
-      "fusion-projects.html",
-      "fusion-blog-posts.html",
+      "home.html",
+      "projects.html",
+      "blog-posts.html",
     ]);
   });
 
@@ -70,10 +70,7 @@ describe("buildShellScreens", () => {
 
   it("disambiguates distinct routes that slug to the same name", () => {
     const { screens } = build(["/a/b", "/a-b"]);
-    expect(screens.map((s) => s.filename)).toEqual([
-      "fusion-a-b.html",
-      "fusion-a-b-2.html",
-    ]);
+    expect(screens.map((s) => s.filename)).toEqual(["a-b.html", "a-b-2.html"]);
     expect(new Set(screens.map((s) => s.fileId)).size).toBe(2);
   });
 
@@ -89,13 +86,10 @@ describe("buildShellScreens", () => {
   });
 
   it("returns nothing for no routes rather than throwing", () => {
-    // The host may send design:init before it has resolved any routes.
     expect(build([])).toEqual({ screens: [], placedFrames: [] });
   });
 
   it("keeps every frame on the preview origin", () => {
-    // `//host` loses its slashes to the strip, but `/\\host` survives it and
-    // resolves protocol-relative — that one placed a frame on another origin.
     const { screens } = buildShellScreens({
       previewOrigin: "https://preview.test",
       paths: ["/", "//evil.test", "/\\\\evil.test", "/about"],
@@ -109,8 +103,6 @@ describe("buildShellScreens", () => {
   });
 
   it("resolves routes against the origin, not a previewed route", () => {
-    // Builder sends `interactiveFrameUrl`, which carries whatever route the
-    // user is on; nesting under it produced `/app.html/about`.
     const { screens } = buildShellScreens({
       previewOrigin: "https://preview.test",
       paths: ["/about"],

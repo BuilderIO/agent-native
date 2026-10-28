@@ -1,9 +1,3 @@
-// Integration tests for the bitemporal attribute writer. Boots a real PGlite
-// database on disk, seeds the PRE-bitemporal shape of `crm_record_fields` with
-// rows, then runs the actual versioned migrations over it. Every test here runs
-// against an upgraded database, not a fresh one, so the production upgrade path
-// remains covered.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,7 +21,6 @@ let schema: Schema;
 let writeCrmRecordField: typeof import("./record-fields.js").writeCrmRecordField;
 let CrmUnknownOptionError: typeof import("./record-fields.js").CrmUnknownOptionError;
 
-/** `crm_record_fields` and its unique index exactly as migration v1 left them. */
 const LEGACY_RECORD_FIELDS_DDL = `CREATE TABLE IF NOT EXISTS crm_record_fields (
   id TEXT PRIMARY KEY,
   record_id TEXT NOT NULL,
@@ -180,8 +173,6 @@ describe("bitemporal upgrade of an existing database", () => {
       }),
     );
 
-    // The v1 unique index spanned every row for (record_id, field_name); a
-    // second history row is only possible once it has been replaced.
     const rows = await rowsFor("legacy_record", "stage");
     expect(rows.map((row: any) => [row.stringValue, row.activeUntil])).toEqual([
       ["Discovery", "2026-04-01T00:00:00.000Z"],
@@ -398,7 +389,6 @@ describe("bitemporal CRM attribute writer", () => {
         actor: { type: "provider" },
         ownership,
       });
-      // Same value, different key order — must not open a history row.
       const reordered = await writeCrmRecordField({
         target: { recordId },
         attribute: attr,
@@ -452,7 +442,6 @@ describe("bitemporal CRM attribute writer", () => {
     expect(rows[0].jsonValue).toBe(
       '["ada@example.com","ada@work.example.com"]',
     );
-    // Sub-fields come from the primary (first) entry of the set.
     expect(rows[0].emailLocal).toBe("ada");
     expect(rows[0].emailRootDomain).toBe("example.com");
   });

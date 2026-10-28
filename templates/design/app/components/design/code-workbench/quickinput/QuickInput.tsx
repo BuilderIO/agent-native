@@ -26,7 +26,6 @@ import {
 import { score, scoreFilePath, type FuzzyMatch } from "./fuzzy";
 
 export interface QuickInputHandle {
-  /** Open the overlay, prefilling the input with `prefill` (e.g. "", ">", ":"). */
   open(prefill: string): void;
 }
 
@@ -63,7 +62,6 @@ function modeForInput(value: string): Mode {
   return "file";
 }
 
-/** Highlight matched character indices in `text` with an accent + bold span. */
 function HighlightedLabel({
   text,
   matches,
@@ -142,14 +140,11 @@ export const QuickInput = forwardRef<QuickInputHandle, QuickInputProps>(
           setValue(prefill);
           setActiveIndex(0);
           void loadFiles();
-          // Defer focus/selection until the input has mounted with the value.
           requestAnimationFrame(() => {
             const input = inputRef.current;
             if (!input) return;
             input.focus();
             if (prefill === ">") {
-              // VS Code: opening the palette selects nothing extra — caret
-              // lands after the prefix so typing appends/replaces naturally.
               input.setSelectionRange(prefill.length, prefill.length);
             } else {
               input.setSelectionRange(input.value.length, input.value.length);
@@ -162,8 +157,6 @@ export const QuickInput = forwardRef<QuickInputHandle, QuickInputProps>(
 
     const mode = modeForInput(value);
 
-    // "@" mode closes the overlay immediately and delegates to Monaco's own
-    // symbol picker.
     useEffect(() => {
       if (!open || mode !== "symbol") return;
       close();
@@ -215,7 +208,6 @@ export const QuickInput = forwardRef<QuickInputHandle, QuickInputProps>(
       if (mode === "file") {
         const state = context.api.getState();
         if (!query) {
-          // MRU-ordered open tabs first, then the rest of the files.
           const mruEntries: Row[] = [];
           const seen = new Set<string>();
           for (const uri of state.mru) {
@@ -300,7 +292,6 @@ export const QuickInput = forwardRef<QuickInputHandle, QuickInputProps>(
       };
     }, [mode, query]);
 
-    // Live preview: reveal the target line while typing in ":" mode.
     useEffect(() => {
       if (!open || mode !== "line" || !parsedLine) return;
       const editor = context.ui.getEditor();
@@ -386,7 +377,6 @@ export const QuickInput = forwardRef<QuickInputHandle, QuickInputProps>(
       [close, acceptActive, visibleRows.length],
     );
 
-    // Auto-close on outside click / blur.
     useEffect(() => {
       if (!open) return;
       const handlePointerDown = (event: PointerEvent) => {
@@ -420,7 +410,6 @@ export const QuickInput = forwardRef<QuickInputHandle, QuickInputProps>(
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={() => {
-              // Let mousedown-based row acceptance run before blur closes us.
               requestAnimationFrame(() => close());
             }}
             placeholder={placeholderForMode(mode)}
@@ -495,7 +484,6 @@ function QuickInputRow({
       role="option"
       aria-selected={active}
       onMouseEnter={onHover}
-      // Prevent the input's blur from firing before the click is handled.
       onMouseDown={(event) => event.preventDefault()}
       onClick={(event) => onAccept(event.metaKey || event.ctrlKey)}
       className={cn(
@@ -519,8 +507,6 @@ function FileQuickInputRow({ row }: { row: FileRow }) {
   const dir = dirName(row.path);
   const isLocalhost = providerKindFromKey(row.providerKey) === "localhost";
   const matches = row.match?.matches ?? null;
-  // Matched indices are relative to the full path; split into basename vs.
-  // directory highlight sets by offset.
   const basenameStart = row.path.length - name.length;
   const nameMatches =
     matches?.filter((i) => i >= basenameStart).map((i) => i - basenameStart) ??

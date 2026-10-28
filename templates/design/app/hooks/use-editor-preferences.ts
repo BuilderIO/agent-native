@@ -35,9 +35,6 @@ export interface UseEditorPreferences {
   setPreferences: (next: DesignEditorPreferences) => void;
 }
 
-/** Editor-chrome preferences (nudge amounts today) live in localStorage, not
- * SQL: they are per-device input tuning, and a shared design opened by a
- * collaborator must keep that collaborator's own nudge amounts. */
 export function useEditorPreferences(): UseEditorPreferences {
   const [preferences, setPreferencesState] = useState<DesignEditorPreferences>(
     DEFAULT_EDITOR_PREFERENCES,

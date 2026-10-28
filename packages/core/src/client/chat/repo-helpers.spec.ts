@@ -67,7 +67,6 @@ describe("dedupeRepoMessagesById", () => {
         },
       ],
     };
-    // No behavioural change for the common case — identical reference back.
     expect(dedupeRepoMessagesById(repo)).toBe(repo);
   });
 
@@ -103,7 +102,6 @@ describe("dedupeRepoMessagesById", () => {
     };
     const result = dedupeRepoMessagesById(repo)!;
     expect(result.messages!.map((m) => m.message!.id)).toEqual(["b", "a", "c"]);
-    // The surviving "a" carries the later content.
     expect(
       result.messages!.find((m) => m.message!.id === "a")?.message,
     ).toMatchObject({ content: "a2" });
@@ -131,7 +129,6 @@ describe("dedupeRepoMessagesById", () => {
       ],
     };
     const result = dedupeRepoMessagesById(repo)!;
-    // Two id-less entries survive; the duplicated "a" collapses to one.
     expect(result.messages).toHaveLength(3);
     expect(result.messages!.filter((m) => !m.message!.id)).toHaveLength(2);
   });

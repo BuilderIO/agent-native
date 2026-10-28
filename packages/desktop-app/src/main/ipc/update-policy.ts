@@ -29,8 +29,6 @@ export function resolveDesktopUpdateSupport(
     };
   }
 
-  // Local packaged builds must not install a production release behind the
-  // source being tested. Only an explicitly named release build can update.
   if (buildChannel === "dev") {
     return {
       supported: false,

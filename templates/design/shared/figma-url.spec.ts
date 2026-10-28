@@ -2,10 +2,27 @@ import { describe, expect, it } from "vitest";
 
 import {
   isFigmaBranchUrl,
+  isFigmaFileUrl,
   parseFigmaFileKey,
   parseFigmaNodeId,
   parseFigmaUrl,
 } from "./figma-url";
+
+describe("isFigmaFileUrl", () => {
+  it("recognizes file links with and without a scheme", () => {
+    expect(isFigmaFileUrl("https://www.figma.com/design/abcDEF12345/App")).toBe(
+      true,
+    );
+    expect(isFigmaFileUrl("figma.com/file/abcDEF12345/App")).toBe(true);
+  });
+
+  it("rejects raw keys and non-Figma links", () => {
+    expect(isFigmaFileUrl("abcDEF12345")).toBe(false);
+    expect(isFigmaFileUrl("https://example.com/design/abcDEF12345/App")).toBe(
+      false,
+    );
+  });
+});
 
 describe("parseFigmaFileKey", () => {
   it("accepts a raw Figma file key", () => {

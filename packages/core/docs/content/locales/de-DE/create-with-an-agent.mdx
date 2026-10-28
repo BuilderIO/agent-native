@@ -1,0 +1,163 @@
+---
+title: "Eine App mit einem KI-Agenten erstellen"
+description: "Geben Sie Claude, ChatGPT, Codex, Cursor oder einem anderen KI-Agenten einen einzigen Prompt und lassen Sie ihn eine neue Agent-Native-App für Sie erstellen und starten."
+---
+
+# Eine App mit einem KI-Agenten erstellen
+
+Sie können einen KI-Agenten bitten, Ihre Agent-Native-App zu erstellen. Sie fügen einen Prompt ein, der Agent führt die Einrichtungsbefehle aus und zeigt Ihnen am Ende eine laufende App.
+
+Wenn Sie die Befehle lieber selbst eingeben möchten, folgen Sie stattdessen [Erste Schritte](/docs/getting-started).
+
+## Bevor Sie beginnen
+
+- Ein KI-Agent, der Terminalbefehle ausführen kann, zum Beispiel Claude Code, Codex oder Cursor. Agenten, die nur chatten, wie ChatGPT oder Claude im Web, können trotzdem helfen. Siehe [Agenten, die keine Befehle ausführen können](#chat-only-agents).
+- [Node.js](https://nodejs.org) 22.22 oder höher.
+- Ein leerer Ordner, in dem die neue App liegen kann.
+
+Zum Erstellen der App brauchen Sie keinen API-Schlüssel. Sie brauchen einen nur dann, wenn der Agent der App selbst Ihnen antworten soll. Siehe [Ein LLM verbinden](/docs/getting-started#connect-an-llm).
+
+## Diesen Prompt einfügen
+
+Öffnen Sie Ihren Agenten im leeren Ordner und fügen Sie den folgenden Prompt ein. Ändern Sie `my-app` in der ersten Zeile in den gewünschten Namen. Das müssen Sie nur einmal tun.
+
+```markdown
+Erstelle eine neue Agent-Native-App in einem neuen Ordner mit dem
+Namen my-app und starte sie. Verwende diesen Namen überall dort, wo
+unten APP_NAME steht.
+
+1. Prüfe, ob Node.js in Version 22.22 oder höher vorliegt und pnpm
+   verfügbar ist. Falls pnpm fehlt, führe `corepack enable` aus. Falls
+   corepack ebenfalls nicht verfügbar ist, führe `npm install -g pnpm`
+   aus. Falls Node.js zu alt ist, halte an und sag mir Bescheid,
+   anstatt es zu installieren.
+2. Führe diesen Befehl aus:
+   npx --yes @agent-native/core@latest create APP_NAME \
+    --standalone --template chat
+3. Führe im neuen Ordner APP_NAME `pnpm install` aus.
+4. Lies APP_NAME/AGENTS.md, damit du weißt, wie die App aufgebaut ist.
+5. Starte die App mit `pnpm dev` und lass sie im Hintergrund laufen.
+6. Lies die lokale URL, die `pnpm dev` ausgibt. Prüfe, ob sie
+   antwortet, zum Beispiel mit `curl -I <url>`. Öffne keinen Browser
+   und nutze keine Headless-Browser-Tools. Ich öffne die App selbst.
+7. Zeig mir das Ergebnis. Nenne mir die lokale URL und die Antwort,
+   die du von ihr erhalten hast. Sag nicht einfach nur, dass die
+   Einrichtung abgeschlossen ist.
+
+Regeln:
+
+- Erfinde keine API-Schlüssel und bitte mich nicht, welche
+  einzufügen. Ein LLM zu verbinden ist optional, das mache ich selbst.
+- Gib keine Geheimnisse aus .env-Dateien aus.
+- Wenn ein Befehl fehlschlägt, zeig mir den Fehler und was du
+  versucht hast. Verschweige ihn nicht.
+```
+
+## Was der Agent tun sollte
+
+Ein guter Durchlauf endet mit diesen Ergebnissen, und Sie können jedes davon selbst prüfen:
+
+- Ein neuer App-Ordner, der `my-app` heißt, sofern Sie den Namen nicht geändert haben, und `actions/`, `app/` und eine Datei `AGENTS.md` enthält.
+- `pnpm dev` läuft ohne Fehler.
+- Eine lokale URL, normalerweise `http://localhost:8080`, bei der der Agent geprüft hat, dass sie antwortet.
+
+Öffnen Sie dann die lokale URL in Ihrem eigenen Browser. Wählen Sie auf dem Begrüßungsbildschirm **Continue as local dev**. Die Seite „Get started“ wird angezeigt.
+
+Wenn eines davon fehlt, bitten Sie den Agenten, den zuletzt ausgeführten Befehl und dessen Ausgabe zu zeigen.
+
+<Callout tone="info">
+
+Wenn die Befehle mit Peer-Dependency-Fehlern fehlschlagen, kann eine alte Kopie eines Pakets im npx-Cache die Ursache sein. Bitten Sie den Agenten, `npx clear-npx-cache` auszuführen und es erneut zu versuchen.
+
+</Callout>
+
+## Die passende Einrichtung für Ihren Agenten wählen
+
+| Agententyp                | Beispiele                                             | So funktioniert es                                                  |
+| ------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------- |
+| Terminal- und IDE-Agenten | Claude Code, Codex, Cursor, GitHub Copilot in VS Code | Fügen Sie den Prompt ein. Der Agent führt jeden Befehl für Sie aus. |
+| Reine Chat-Agenten        | ChatGPT, Claude im Web                                | Fragen Sie nach den Befehlen und führen Sie sie dann selbst aus.    |
+
+### Agenten, die keine Befehle ausführen können {#chat-only-agents}
+
+Ein reiner Chat-Agent kann kein Terminal öffnen und deshalb die App nicht erstellen. Fügen Sie trotzdem den Prompt ein und setzen Sie diese Zeile an den Anfang:
+
+```markdown
+Du kannst keine Befehle ausführen. Gib mir jeden Befehl, den ich in
+meinem Terminal ausführen soll, einzeln und warte, bis ich dir sage,
+was passiert ist, bevor du weitermachst.
+```
+
+Der Agent führt Sie durch dieselben Schritte und hilft, wenn etwas schiefgeht.
+
+## Ihr Agent und der Agent der App
+
+An Ihrer App können zwei Agenten arbeiten, und sie haben unterschiedliche Aufgaben.
+
+- **Ihr eigener Agent** ist der, in den Sie den Prompt eingefügt haben, zum Beispiel Claude Code, Codex oder Cursor. Er lebt außerhalb der App, in Ihrem Terminal oder Editor.
+- **Der Agent der App** ist der Chat, der fest in die App eingebaut ist. Sie öffnen ihn im Browser, während die App läuft.
+
+|                                         | Ihr eigener Agent (außerhalb der App)                                                                                                                       | Der Agent der App (in der App)                                                                                          |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Wo Sie ihn nutzen                       | In Ihrem Terminal oder Editor                                                                                                                               | Im Chat der App im Browser                                                                                              |
+| Woran er arbeitet                       | An den Dateien Ihres Projekts                                                                                                                               | An den Daten der App und dem Bildschirm, den Sie gerade ansehen                                                         |
+| Was er kann                             | Das Projekt erstellen, Pakete installieren, `pnpm dev` ausführen, Actions, Seiten und Datenbanktabellen schreiben und ändern und ein Deployment vorbereiten | Die Actions der App als Tools aufrufen, die Daten der App lesen und aktualisieren und Fragen zum Bildschirm beantworten |
+| Braucht ein mit der App verbundenes LLM | Nein, er nutzt sein eigenes Modell                                                                                                                          | Ja. Siehe [Ein LLM verbinden](/docs/getting-started#connect-an-llm)                                                     |
+| Am besten geeignet für                  | Die App bauen und ändern                                                                                                                                    | Die App nutzen und ihre alltägliche Arbeit erledigen                                                                    |
+
+Ihr eigener Agent baut die App. Der Agent der App betreibt sie. Wenn Ihr eigener Agent eine Action hinzufügt, kann der Agent der App sie sofort aufrufen, weil beide dieselbe Action nutzen.
+
+### Ihrem eigenen Agenten helfen, gut zu bauen
+
+Die generierte App ist so eingerichtet, dass Ihr eigener Agent ohne zusätzliche Anweisungen gut darin arbeitet.
+
+- `AGENTS.md` im Stammverzeichnis der App sagt einem Agenten, wie die App aufgebaut ist und welche Regeln gelten.
+- `.agents/skills/` enthält kurze Anleitungen für häufige Aufgaben, etwa eine Funktion hinzuzufügen oder eine Action zu schreiben.
+- Die Dokumentation für Ihre genaue Framework-Version wird mit der App ausgeliefert. Ein Agent kann sie mit `pnpm action docs-search --query "<topic>"` durchsuchen.
+
+Wenn Sie etwas Neues wünschen, können Sie den Agenten anweisen, zuerst diese Dateien zu lesen. Zum Beispiel: „Lies AGENTS.md und den passenden Skill, bevor du etwas änderst.“
+
+Wenn Ihr eigener Agent die Tools einer laufenden App statt ihres Codes nutzen soll, siehe [Externe Agenten](/docs/external-agents).
+
+## Ihre erste Änderung anfordern
+
+Bitten Sie Ihren Agenten bei laufender App um eine kleine Änderung und sehen Sie ihm bei der Arbeit zu. Hier einige Beispiele:
+
+```markdown
+Füge eine Action namens list-notes hinzu, die eine leere Liste
+zurückgibt, und zeige sie auf einer neuen Seite /notes an.
+```
+
+```markdown
+Ändere die Action hello so, dass sie Leute mit "Welcome" statt
+"Hello" begrüßt, und rufe sie dann für Alex auf, um es zu bestätigen.
+```
+
+```markdown
+Lies die Dokumentation zum Bereitstellen einer App und sag mir dann,
+welche Schritte ich brauche, um diese App online zu stellen.
+```
+
+Der Agent ändert dieselben Actions, die auch die UI und der Agent der App verwenden. Dieses gemeinsame Action-Modell ist der Grund, warum eine Änderung überall sichtbar wird. [Schlüsselkonzepte](/docs/key-concepts) erklärt, wie alles zusammenpasst.
+
+## Nächste Schritte
+
+<Cards>
+
+### [Erste Schritte](/docs/getting-started)
+
+Erstellen Sie dieselbe App von Hand und lernen Sie, wie eine Action funktioniert.
+
+### [Externe Agenten](/docs/external-agents)
+
+Verbinden Sie Claude, ChatGPT, Codex oder Cursor mit einer App, die bereits läuft.
+
+### [Aktionen](/docs/actions-overview)
+
+Definieren Sie die Fähigkeiten, die sowohl Ihre UI als auch Ihre Agenten nutzen.
+
+### [Eine App bereitstellen](/docs/deploy-an-app)
+
+Wechseln Sie von der lokalen Entwicklung zu einer echten Datenbank und einem unterstützten Host.
+
+</Cards>

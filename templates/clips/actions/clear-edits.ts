@@ -1,15 +1,3 @@
-/**
- * Reset a recording's non-destructive edits back to defaults.
- *
- * Clears `editsJson` entirely — trims, blurs, thumbnail spec. Does NOT touch
- * chapters (those live on `chaptersJson`) nor the stored `thumbnailUrl` /
- * `animatedThumbnailUrl` columns, so the user's current thumbnail stays in
- * place.
- *
- * Usage:
- *   pnpm action clear-edits --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -22,6 +10,7 @@ import {
   serializeEdits,
 } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
@@ -33,7 +22,9 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
 
@@ -50,18 +41,22 @@ export default defineAction({
       const previousEditsJson = existing.editsJson;
       const existingEdits = parseEdits(previousEditsJson);
 
+      const edits = {
+        ...DEFAULT_EDITS,
+        ...(existingEdits.stitchedFrom
+          ? { stitchedFrom: existingEdits.stitchedFrom }
+          : {}),
+        ...(existingEdits.mediaStorageLayout
+          ? { mediaStorageLayout: existingEdits.mediaStorageLayout }
+          : {}),
+        ...(existingEdits.rewindPreRollId
+          ? { rewindPreRollId: existingEdits.rewindPreRollId }
+          : {}),
+      };
       const result = await db
         .update(schema.recordings)
         .set({
-          editsJson: serializeEdits({
-            ...DEFAULT_EDITS,
-            ...(existingEdits.stitchedFrom
-              ? { stitchedFrom: existingEdits.stitchedFrom }
-              : {}),
-            ...(existingEdits.mediaStorageLayout
-              ? { mediaStorageLayout: existingEdits.mediaStorageLayout }
-              : {}),
-          }),
+          editsJson: serializeEdits(edits),
           updatedAt: new Date().toISOString(),
         })
         .where(
@@ -77,7 +72,7 @@ export default defineAction({
       if (result.length > 0) {
         await writeAppState("refresh-signal", { ts: Date.now() });
         console.log(`Cleared edits on ${args.recordingId}`);
-        return { id: args.recordingId, editsJson: { ...DEFAULT_EDITS } };
+        return { id: args.recordingId, editsJson: edits };
       }
       // Someone else changed editsJson between our read and write — retry
       // against the now-current value.

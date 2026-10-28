@@ -1,9 +1,17 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { patchPendingGeneration } from "@/lib/pending-generation";
+import {
+  formatComposerContext,
+  hasComposerSystemContext,
+} from "@/lib/composer-context";
+import {
+  failPendingGenerationForMissingImagePayload,
+  patchPendingGeneration,
+} from "@/lib/pending-generation";
 import type { RetryablePrompt } from "@/pages/design-editor/command-types";
 import { MAX_GENERATION_ATTEMPTS } from "@/pages/design-editor/editor-constants";
 import {
@@ -30,7 +38,10 @@ export interface StartRetryGenerationArgs {
     engine?: string;
     effort?: PromptComposerSubmitOptions["effort"];
   } | null>;
+  imageAttachmentUnavailableMessage: string;
+  invalidCanvasDimensionsMessage: string;
   id: string | undefined;
+  outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   setGenerationChatTabId: Dispatch<SetStateAction<string | null>>;
   setGenerationIssue: Dispatch<SetStateAction<string | null>>;
   setHasPendingGeneration: Dispatch<SetStateAction<boolean>>;
@@ -41,10 +52,12 @@ export interface StartRetryGenerationArgs {
       model?: PromptComposerSubmitOptions["model"];
       engine?: PromptComposerSubmitOptions["engine"];
       effort?: PromptComposerSubmitOptions["effort"];
+      contextItems?: PromptComposerSubmitOptions["contextItems"];
       designSystemId?: string | null;
       attempt?: number;
       source?: string;
       templateId?: string;
+      outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
       templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
     } | null>
   >;
@@ -58,7 +71,10 @@ export async function runStartRetryGeneration(
     clearGenerationCompleteTimer,
     design,
     generationModelRef,
+    imageAttachmentUnavailableMessage,
+    invalidCanvasDimensionsMessage,
     id,
+    outputBaselineFiles,
     setGenerationChatTabId,
     setGenerationIssue,
     setHasPendingGeneration,
@@ -71,14 +87,52 @@ export async function runStartRetryGeneration(
   if (!id || !design || !canEditDesign) return;
   clearAutoRetryTimer();
   const fileContext = formatUploadedFileContext(promptState.files);
-  const images = imageAttachmentsFromUploadedFiles(promptState.files);
-  const designSystemContext = await loadDesignSystemGenerationContext(
-    promptState.designSystemId,
-  );
+  let images: string[];
+  try {
+    images = imageAttachmentsFromUploadedFiles(promptState.files);
+  } catch (error) {
+    if (
+      !failPendingGenerationForMissingImagePayload(
+        id,
+        error,
+        imageAttachmentUnavailableMessage,
+        setGenerationIssue,
+        setHasPendingGeneration,
+      )
+    ) {
+      throw error;
+    }
+    setRetryablePrompt(null);
+    return;
+  }
+  const designSystemContext = hasComposerSystemContext(promptState.contextItems)
+    ? ""
+    : await loadDesignSystemGenerationContext(promptState.designSystemId);
   const retryLine =
     mode === "auto"
       ? `(Automatically retrying attempt ${attempt} of ${MAX_GENERATION_ATTEMPTS} — the previous attempt did not complete.)`
       : "(Retrying — the previous attempt did not complete.)";
+  let generationDirectives: string[];
+  try {
+    generationDirectives = promptState.templateId
+      ? designTemplateRefinementDirectives(
+          id,
+          promptState.templateId,
+          promptState.designSystemId,
+          images.length,
+        )
+      : designGenerationDirectives(
+          id,
+          promptState.designSystemId,
+          images.length,
+          promptState.prompt,
+        );
+  } catch (error) {
+    if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
+    setGenerationIssue(invalidCanvasDimensionsMessage);
+    setHasPendingGeneration(false);
+    return;
+  }
   const context = [
     promptState.templateId
       ? `The user picked the "${promptState.source ?? "template"}" template (id: "${promptState.templateId}").`
@@ -88,16 +142,11 @@ export async function runStartRetryGeneration(
       ? `Design system id: "${promptState.designSystemId}"`
       : "",
     designSystemContext,
+    formatComposerContext(promptState.contextItems),
     fileContext,
     "",
     retryLine,
-    ...(promptState.templateId
-      ? designTemplateRefinementDirectives(
-          id,
-          promptState.templateId,
-          promptState.designSystemId,
-        )
-      : designGenerationDirectives(id, promptState.designSystemId)),
+    ...generationDirectives,
   ].join("\n");
   clearGenerationCompleteTimer();
   setGenerationIssue(null);
@@ -110,8 +159,10 @@ export async function runStartRetryGeneration(
     model: promptState.model,
     engine: promptState.engine,
     effort: promptState.effort,
+    contextItems: promptState.contextItems,
     source: promptState.source,
     templateId: promptState.templateId,
+    ...(outputBaselineFiles !== undefined ? { outputBaselineFiles } : {}),
     templateBaselineFiles: promptState.templateBaselineFiles,
     attempt,
     startedAt,
@@ -140,6 +191,7 @@ export async function runStartRetryGeneration(
     effort: promptState.effort,
     source: promptState.source,
     templateId: promptState.templateId,
+    ...(outputBaselineFiles !== undefined ? { outputBaselineFiles } : {}),
     templateBaselineFiles: promptState.templateBaselineFiles,
     attempt,
     runTabId,

@@ -23,10 +23,17 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   type DashboardRevision,
   useDashboardRevisions,
   useRestoreDashboardRevision,
 } from "@/hooks/use-dashboard-revisions";
+
+import { dashboardChangeLine } from "./dashboard-change-text";
 
 function formatRelativeTime(dateStr: string): string {
   const then = new Date(dateStr).getTime();
@@ -41,6 +48,55 @@ function formatRelativeTime(dateStr: string): string {
   if (diffHr < 24) return `${diffHr}h ago`;
   if (diffDay < 7) return `${diffDay}d ago`;
   return new Date(dateStr).toLocaleDateString();
+}
+
+function RevisionChanges({ revision }: { revision: DashboardRevision }) {
+  const t = useT();
+  if (revision.changesStatus === "unreadable") {
+    return (
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
+        {t("dashboardChanges.unreadable")}
+      </p>
+    );
+  }
+  if (revision.changesStatus !== "valid") return null;
+  const line = dashboardChangeLine(
+    revision.changes,
+    revision.omittedChanges,
+    t,
+  );
+  if (!line) return null;
+  return (
+    <p className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[11px] text-foreground/80">
+      <span className="min-w-0 break-words">{line.first}</span>
+      {line.moreCount > 0 ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {t("dashboardChanges.more", { count: line.moreCount })}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            <ul className="space-y-0.5">
+              {line.rest.map((text, index) => (
+                <li key={index}>{text}</li>
+              ))}
+              {revision.omittedChanges > 0 ? (
+                <li className="text-muted-foreground">
+                  {t("dashboardChanges.more", {
+                    count: revision.omittedChanges,
+                  })}
+                </li>
+              ) : null}
+            </ul>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </p>
+  );
 }
 
 interface DashboardHistoryPanelProps {
@@ -68,6 +124,8 @@ export function DashboardHistoryPanel({
   const restoreRevision = useRestoreDashboardRevision(dashboardId);
   const [pendingRestore, setPendingRestore] =
     useState<DashboardRevision | null>(null);
+  // Kept after the dialog closes so its text doesn't change while it fades out.
+  const [restoreUndoesChange, setRestoreUndoesChange] = useState(false);
 
   const doRestore = async (revision: DashboardRevision) => {
     try {
@@ -128,6 +186,7 @@ export function DashboardHistoryPanel({
                         <p className="truncate text-xs font-medium">
                           {revision.title || t("common.untitledDashboard")}
                         </p>
+                        <RevisionChanges revision={revision} />
                         <p className="mt-0.5 text-[10px] text-muted-foreground">
                           {formatRelativeTime(revision.createdAt)}
                           {revision.createdBy
@@ -141,7 +200,12 @@ export function DashboardHistoryPanel({
                           size="sm"
                           variant="outline"
                           className="h-7 shrink-0 px-2 text-[11px]"
-                          onClick={() => setPendingRestore(revision)}
+                          onClick={() => {
+                            setRestoreUndoesChange(
+                              revision.changesStatus === "valid",
+                            );
+                            setPendingRestore(revision);
+                          }}
                           disabled={restoreRevision.isPending}
                         >
                           {restoreRevision.isPending ? (
@@ -175,7 +239,9 @@ export function DashboardHistoryPanel({
               {t("dashboard.historyRestoreQuestion")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("dashboard.historyRestoreWarning")}
+              {restoreUndoesChange
+                ? t("dashboard.historyRestoreUndoesChange")
+                : t("dashboard.historyRestoreWarning")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -43,7 +43,6 @@ describe("filmstripGrid", () => {
 
 describe("filmstripSpriteFilter", () => {
   it("seeks half a cell in so each tile is its slot's midpoint", () => {
-    // 5 cells across 10s => 2s cells => first sample at 1s.
     const { seekSeconds } = filmstripSpriteFilter({
       durationMs: 10_000,
       grid: grid(5),

@@ -3,14 +3,15 @@
 import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
-import { __resetBlockFieldSaveRegistry } from "./blockFieldSaveRegistry";
+import {
+  __resetBlockFieldSaveRegistry,
+  peekBlockFieldSaveController,
+} from "./blockFieldSaveRegistry";
 import { useBlockFieldEditor } from "./DocumentBlockFields";
+import type { VisualEditorExternalContent } from "./VisualEditor";
 
-// A save record we can assert against: which (documentId, propertyId) each
-// write targeted, and with what value. Resolves immediately so single-flight +
-// trailing logic settles within an act().
 type SaveCall = {
   documentId: string;
   propertyId: string;
@@ -30,21 +31,21 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     container?.remove();
     container = null;
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     __resetBlockFieldSaveRegistry();
   });
 
-  // Drives the hook and exposes its onChange so the test can simulate typing.
-  // The identity `key` is applied by the caller (mirroring DocumentBlockFields),
-  // so changing documentId/propertyId remounts the hook with a fresh controller.
   function Harness({
     documentId,
     propertyId,
     initialContent,
     initialRevision = 0,
     save,
+    keepaliveSave,
     onReady,
     onContent,
-    onRevisionConflict,
+    onExternalContent,
+    onTextMoved,
     onReleaseSettled,
   }: {
     documentId: string;
@@ -52,22 +53,28 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     initialContent: string;
     initialRevision?: number;
     save: (req: SaveCall) => Promise<unknown>;
+    keepaliveSave?: (req: SaveCall) => boolean;
     onReady: (onChange: (markdown: string) => void) => void;
-    onContent?: (content: string, editorResetVersion: number) => void;
-    onRevisionConflict?: () => void;
+    onContent?: (content: string) => void;
+    onExternalContent?: (
+      externalContent: VisualEditorExternalContent | null,
+    ) => void;
+    onTextMoved?: () => void;
     onReleaseSettled?: (evicted: boolean) => void;
   }) {
-    const { content, editorResetVersion, onChange } = useBlockFieldEditor({
+    const { content, externalContent, onChange } = useBlockFieldEditor({
       documentId,
       propertyId,
       initialContent,
       initialRevision,
       save,
-      onRevisionConflict,
+      keepaliveSave,
+      onTextMoved,
       onReleaseSettled,
     });
     onReady(onChange);
-    onContent?.(content, editorResetVersion);
+    onContent?.(content);
+    onExternalContent?.(externalContent);
     return null;
   }
 
@@ -76,17 +83,98 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     onReady,
   }: {
     save: (req: SaveCall) => Promise<unknown>;
-    onReady: (onSaveContent: (markdown: string) => Promise<boolean>) => void;
+    onReady: (
+      onSaveContent: (markdown: string) => Promise<boolean>,
+      isAcknowledgedContent: (markdown: string) => boolean,
+      onChange: (markdown: string) => void,
+    ) => void;
   }) {
-    const { onSaveContent } = useBlockFieldEditor({
-      documentId: "doc",
-      propertyId: "field",
-      initialContent: "",
-      initialRevision: 0,
-      save,
-    });
-    onReady(onSaveContent);
+    const { onSaveContent, isAcknowledgedContent, onChange } =
+      useBlockFieldEditor({
+        documentId: "doc",
+        propertyId: "field",
+        initialContent: "",
+        initialRevision: 0,
+        save,
+      });
+    onReady(onSaveContent, isAcknowledgedContent, onChange);
     return null;
+  }
+
+  function savedAt(revision: number) {
+    return {
+      properties: [{ definition: { id: "field" }, blocksField: { revision } }],
+    };
+  }
+
+  const settle = () =>
+    act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+  type MountedField = {
+    onChange: (markdown: string) => void;
+    content: string;
+    externalContent: VisualEditorExternalContent | null;
+    textMoved: Mock<() => void>;
+  };
+
+  function mountField(options: {
+    initialContent: string;
+    initialRevision: number;
+    save: (req: SaveCall) => Promise<unknown>;
+    keepaliveSave?: (req: SaveCall) => boolean;
+  }) {
+    const field: MountedField = {
+      onChange: () => {},
+      content: "",
+      externalContent: null,
+      textMoved: vi.fn<() => void>(),
+    };
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const render = (initialContent: string, initialRevision: number) =>
+      act(() => {
+        root!.render(
+          createElement(Harness, {
+            key: "doc:field",
+            documentId: "doc",
+            propertyId: "field",
+            initialContent,
+            initialRevision,
+            save: options.save,
+            keepaliveSave: options.keepaliveSave,
+            onReady: (onChange) => {
+              field.onChange = onChange;
+            },
+            onContent: (content) => {
+              field.content = content;
+            },
+            onExternalContent: (externalContent) => {
+              field.externalContent = externalContent;
+            },
+            onTextMoved: field.textMoved,
+          }),
+        );
+      });
+    render(options.initialContent, options.initialRevision);
+    return { field, render };
+  }
+
+  // Stands in for the editor applying a merge request to what it holds.
+  function mergeLive(
+    field: MountedField,
+    live: string,
+    canHold: (text: string) => boolean = () => true,
+  ): string | null {
+    let merged: string | null = null;
+    act(() => {
+      merged = field.externalContent!.merge(live, canHold);
+    });
+    return merged;
   }
 
   it("awaits an immediate Blocks-field save before reporting persistence", async () => {
@@ -114,6 +202,117 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       value: "persisted now",
       expectedBlocksFieldRevision: 0,
     });
+  });
+
+  it("acknowledges only the exact settled value, including change-back across an in-flight save and retained errors", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    let release!: () => void;
+    const save = vi.fn(async (_request: SaveCall) => {});
+    save.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    let onSaveContent!: (markdown: string) => Promise<boolean>;
+    let isAcknowledgedContent!: (markdown: string) => boolean;
+    let onChange!: (markdown: string) => void;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(ImmediateSaveHarness, {
+          save,
+          onReady: (persist, acknowledged, change) => {
+            onSaveContent = persist;
+            isAcknowledgedContent = acknowledged;
+            onChange = change;
+          },
+        }),
+      );
+    });
+    expect(isAcknowledgedContent("")).toBe(true);
+    expect(isAcknowledgedContent("different serialization")).toBe(false);
+    act(() => onChange("next"));
+    expect(isAcknowledgedContent("next")).toBe(false);
+    expect(isAcknowledgedContent("")).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    let saving!: Promise<boolean>;
+    act(() => {
+      saving = onSaveContent("next");
+    });
+    expect(save).toHaveBeenCalledOnce();
+    act(() => onChange(""));
+    expect(isAcknowledgedContent("")).toBe(false);
+    await act(async () => {
+      release();
+      expect(await saving).toBe(false);
+    });
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(isAcknowledgedContent("")).toBe(true);
+    const failure = new Error("Blocks field revision conflict");
+    save.mockRejectedValueOnce(failure);
+    await act(async () => {
+      expect(await onSaveContent("rejected draft")).toBe(false);
+    });
+    expect(isAcknowledgedContent("rejected draft")).toBe(false);
+    expect(isAcknowledgedContent("")).toBe(false);
+  });
+
+  it("does not confirm a committed write's failed response from an older cached echo", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    let stored = "Baseline";
+    let revision = 0;
+    let rejectResponse!: (error: Error) => void;
+    const failure = new Error("property read failed after commit");
+    const save = vi.fn(async (request: SaveCall) => {
+      if (request.expectedBlocksFieldRevision !== revision)
+        throw new Error("Blocks field revision conflict");
+      stored = request.value;
+      revision += 1;
+      if (save.mock.calls.length === 2)
+        await new Promise<void>((_resolve, reject) => {
+          rejectResponse = reject;
+        });
+      return savedAt(revision);
+    });
+    const { field, render } = mountField({
+      initialContent: stored,
+      initialRevision: revision,
+      save,
+    });
+    act(() => field.onChange("Saved"));
+    await settle();
+    expect(stored).toBe("Saved");
+    act(() => field.onChange("Committed edit"));
+    await settle();
+    expect(stored).toBe("Committed edit");
+    render("Saved", 1);
+    act(() => field.onChange("Saved"));
+    await act(async () => {
+      rejectResponse(failure);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const controller = peekBlockFieldSaveController("doc:field")!;
+    expect(controller.lastError).toBe(failure);
+    expect(controller.isClean).toBe(false);
+    expect(stored).toBe("Committed edit");
+    expect(field.content).toBe("Saved");
+    expect(save).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await controller.flush();
+    });
+    expect(save).toHaveBeenLastCalledWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "Saved",
+      expectedBlocksFieldRevision: 1,
+    });
+    expect(controller.isClean).toBe(false);
+    expect(stored).toBe("Committed edit");
   });
 
   it("reports release only after the final persistence settles", async () => {
@@ -209,7 +408,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    // Mount for the OLD doc/field.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -223,7 +421,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       );
     });
 
-    // Switch to the NEW doc/field — the identity key forces a fresh mount.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -237,7 +434,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       );
     });
 
-    // Type into the NEW field and let the debounce fire.
     act(() => {
       onChange("new doc text");
     });
@@ -253,7 +449,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       value: "new doc text",
       expectedBlocksFieldRevision: 0,
     });
-    // The new field's write never leaked to the old field.
     expect(
       calls.some(
         (c) => c.documentId === "doc-old" && c.value === "new doc text",
@@ -278,7 +473,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    // Mount for the OLD doc/field and type, but do NOT let the debounce fire.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -294,11 +488,8 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     act(() => {
       onChange("unsaved old-field edit");
     });
-    // The debounce has NOT fired yet — nothing saved so far.
     expect(calls).toHaveLength(0);
 
-    // Switch to the NEW doc/field. The old instance unmounts (identity key
-    // change) and its cleanup flushes the pending edit to the OLD field.
     await act(async () => {
       root!.render(
         createElement(Harness, {
@@ -313,26 +504,18 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       await Promise.resolve();
     });
 
-    // The flushed save targeted the OLD field, with the latest typed content.
     expect(calls).toContainEqual({
       documentId: "doc-old",
       propertyId: "outline",
       value: "unsaved old-field edit",
       expectedBlocksFieldRevision: 0,
     });
-    // It did NOT get misrouted to the new field.
     expect(calls.some((c) => c.documentId === "doc-new")).toBe(false);
   });
 
   it("same-field collapse→reopen→edit within the in-flight window: older save never wins (shared controller)", async () => {
     vi.useFakeTimers();
 
-    // The SAME documentId:propertyId collapsing then re-expanding, which is the
-    // cross-instance hole. With ONE shared controller per key, the reopened
-    // instance reuses the live controller (the old save is still in flight, so
-    // the controller wasn't evicted). Single-flight coalesces the new edit; the
-    // trailing save fires after the old save settles. We drive resolve order by
-    // hand so the OLD save is still in flight when the NEW edit arrives.
     const order: Array<{ value: string }> = [];
     const resolvers: Array<() => void> = [];
     const save = (req: SaveCall) => {
@@ -351,8 +534,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    // Mount instance #1 for the field, type, and let the debounce fire so a save
-    // for "old content" goes in flight (not yet resolved).
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -374,14 +555,10 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
     expect(order).toEqual([{ value: "old content" }]);
 
-    // COLLAPSE: unmount instance #1. Release flush-then-evicts; the "old content"
-    // save is still in flight so the controller is NOT evicted yet.
     act(() => {
       root!.render(createElement("div", null));
     });
 
-    // RE-EXPAND: a fresh instance mounts under the SAME key and RE-ACQUIRES the
-    // same live controller. The user edits before the old save settled.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -402,11 +579,8 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       await Promise.resolve();
     });
 
-    // The new save must NOT have started yet: single-flight holds it behind the
-    // still-in-flight old save (it coalesced into the one controller's pending).
     expect(order).toEqual([{ value: "old content" }]);
 
-    // Settle the OLD save → the trailing save for the latest pending starts.
     await act(async () => {
       resolvers[0]!();
       await Promise.resolve();
@@ -414,8 +588,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
     expect(order).toEqual([{ value: "old content" }, { value: "new content" }]);
 
-    // Settle the NEW save. Write order was old-before-new: the older save could
-    // never overwrite the newer one.
     await act(async () => {
       resolvers[1]!();
       await Promise.resolve();
@@ -424,15 +596,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     expect(order[order.length - 1]!.value).toBe("new content");
   });
 
-  // THE bug the per-key lane could NOT fix. Two controller instances for the same
-  // key (old + new) each with their own pending; the OLD instance's STALE trailing
-  // value gets enqueued AFTER the NEW instance's newer content, so lane order is
-  // oldA → newC → oldB and stale B wins. With ONE shared controller there is a
-  // single pending, so the newest content is always the final write regardless of
-  // how the saves resolve.
   it("old in-flight + old trailing + new edit after remount: newest content is the final write, under any resolve order", async () => {
-    // Run the scenario under multiple resolve orderings to prove no interleaving
-    // lets a stale value land last.
     for (const resolveOrder of [
       [0, 1, 2],
       [2, 1, 0],
@@ -458,7 +622,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       document.body.appendChild(container);
       root = createRoot(container);
 
-      // Instance #1: type "A", debounce → save("A") in flight (not resolved).
       act(() => {
         root!.render(
           createElement(Harness, {
@@ -477,12 +640,8 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
         await Promise.resolve();
       });
 
-      // Instance #1 makes a newer edit "B" while "A" is in flight — coalesced as
-      // the one controller's pending trailing value (the "old trailing value").
       act(() => onChange("B"));
 
-      // COLLAPSE then REOPEN under the same key: a new instance re-acquires the
-      // SAME controller (A still in flight → not evicted).
       act(() => {
         root!.render(createElement("div", null));
       });
@@ -499,25 +658,18 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
         );
       });
 
-      // The reopened editor types the NEWEST content "C". Because there is ONE
-      // pending, "C" supersedes the stale "B" — the lane bug (stale B landing
-      // after C) is structurally impossible.
       act(() => onChange("C"));
       await act(async () => {
         vi.advanceTimersByTime(600);
         await Promise.resolve();
       });
 
-      // Drain all saves under the chosen resolve order. Single-flight means at
-      // most one save is in flight; settling it kicks the trailing save for the
-      // latest pending until quiescent.
       await act(async () => {
         for (const i of resolveOrder) {
           resolvers[i]?.();
           await Promise.resolve();
           await Promise.resolve();
         }
-        // Settle any trailing saves spawned after the initial drain.
         for (let i = 0; i < resolvers.length; i++) {
           resolvers[i]?.();
           await Promise.resolve();
@@ -525,9 +677,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
         await Promise.resolve();
       });
 
-      // The final persisted value is the NEWEST content, never the stale "B".
       expect(order[order.length - 1]).toBe("C");
-      // And a stale value never lands after the newest one was written.
       const lastC = order.lastIndexOf("C");
       expect(order.slice(lastC).every((v) => v === "C")).toBe(true);
 
@@ -540,9 +690,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     }
   });
 
-  // Fix #3: after a save succeeds, a remount BEFORE the server query refetches
-  // must show the SAVED content, not the stale `initialContent` (the older server
-  // props). The controller's lastSaved is authoritative until the server echoes.
   it("remount before the server query updates shows the SAVED content, not stale initialContent", async () => {
     vi.useFakeTimers();
     const calls: SaveCall[] = [];
@@ -564,8 +711,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    // Mount with empty server content, type + let the debounce fire and the save
-    // RESOLVE so the controller's lastSaved advances to "saved value".
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -592,9 +737,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       expectedBlocksFieldRevision: 0,
     });
 
-    // REMOUNT while the server query has NOT yet refetched — initialContent is
-    // still the STALE empty string. The editor must seed from the controller's
-    // lastSaved ("saved value"), and must NOT adopt the stale "".
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -613,12 +755,9 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
 
     expect(seenContent).toBe("saved value");
-    // The stale "" was never adopted (no spurious save of "" either).
     expect(calls.every((c) => c.value === "saved value")).toBe(true);
   });
 
-  // Fix #3 non-regression (a): a GENUINELY newer server value is still adopted
-  // when the field is clean (e.g. an agent edited the field server-side).
   it("a genuinely newer server value is still adopted when the field is clean", async () => {
     const calls: SaveCall[] = [];
     const save = (req: SaveCall) => {
@@ -636,7 +775,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    // Mount clean with server content "v1" (no local edits, no local save).
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -655,8 +793,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
     expect(seenContent).toBe("v1");
 
-    // The server value changes externally to "v2 from agent" — the field is clean
-    // and never saved locally, so this newer value is adopted into the editor.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -675,13 +811,9 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
 
     expect(seenContent).toBe("v2 from agent");
-    // Adopting a server value must not trigger a save.
     expect(calls).toHaveLength(0);
   });
 
-  // Fix #3 regression guard: after a local save AND the server echoing it, the
-  // just-saved latch must CLEAR — otherwise a later genuine external/agent edit
-  // is suppressed forever. This is the hole the final review caught.
   it("adopts a later external edit after a local save has been echoed by the server", async () => {
     vi.useFakeTimers();
     const calls: SaveCall[] = [];
@@ -703,8 +835,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    // Mount clean, type, let the debounce fire + the save RESOLVE → lastSaved
-    // = "mine", hasSavedLocally = true.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -725,8 +855,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       await Promise.resolve();
     });
 
-    // Server now echoes our saved value: initialContent === lastSaved. This must
-    // clear the latch (no adopt, no save), leaving content "mine".
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -745,8 +873,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
     expect(seenContent).toBe("mine");
 
-    // A LATER genuine external edit must now be adopted (latch was cleared by
-    // the echo). Without the fix the latch stays set and this is suppressed.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -764,7 +890,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       await Promise.resolve();
     });
     expect(seenContent).toBe("agent edit");
-    // Only the original local save happened; adopting never saves.
     expect(calls).toEqual([
       {
         documentId: "doc",
@@ -775,8 +900,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     ]);
   });
 
-  // Fix #3 non-regression (b): dirty local edits survive a remount (never
-  // clobbered by initialContent), and seed from the controller's pending.
   it("dirty local edits survive remount (seeded from pending, never clobbered)", async () => {
     vi.useFakeTimers();
     const save = (_req: SaveCall) => Promise.resolve();
@@ -794,8 +917,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    // Mount, type a dirty edit, but do NOT let the debounce fire (still dirty,
-    // pending !== lastSaved).
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -811,7 +932,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     });
     act(() => onChange("dirty edit in progress"));
 
-    // REMOUNT (collapse→reopen) while still dirty and with stale server props.
     act(() => {
       root!.render(
         createElement(Harness, {
@@ -829,106 +949,268 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       await Promise.resolve();
     });
 
-    // The dirty edit is preserved (seeded from the controller's pending), not
-    // reset to the server base.
     expect(seenContent).toBe("dirty edit in progress");
   });
 
-  it("adopts the accepted server winner after a stale revision is rejected", async () => {
+  it("merges the accepted winner with a draft the server refused as stale", async () => {
     vi.useFakeTimers();
     const calls: SaveCall[] = [];
-    const onRevisionConflict = vi.fn();
     const save = (req: SaveCall) => {
       calls.push(req);
-      if (calls.length === 1) {
-        // The action transport can cross a worker/realm boundary and reject
-        // with only the HTTP status preserved on a plain object.
-        return Promise.reject({ status: 409 });
-      }
-      return Promise.resolve({
-        properties: [
-          {
-            definition: { id: "field" },
-            blocksField: { revision: 12 },
-          },
-        ],
-      });
+      return calls.length === 1
+        ? Promise.reject({ status: 409 })
+        : Promise.resolve(savedAt(12));
     };
-
-    let onChange!: (markdown: string) => void;
-    const ready = (fn: (markdown: string) => void) => {
-      onChange = fn;
-    };
-    let seenContent = "";
-    let seenEditorResetVersion = -1;
-    const onContent = (content: string, editorResetVersion: number) => {
-      seenContent = content;
-      seenEditorResetVersion = editorResetVersion;
-    };
-
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-
-    act(() => {
-      root!.render(
-        createElement(Harness, {
-          key: "doc:field",
-          documentId: "doc",
-          propertyId: "field",
-          initialContent: "server base",
-          initialRevision: 10,
-          save,
-          onReady: ready,
-          onContent,
-          onRevisionConflict,
-        }),
-      );
-    });
-    act(() => onChange("stale local draft"));
-    await act(async () => {
-      vi.advanceTimersByTime(600);
-      await Promise.resolve();
-      await Promise.resolve();
+    const { field, render } = mountField({
+      initialContent: "server base",
+      initialRevision: 10,
+      save,
     });
 
-    expect(onRevisionConflict).toHaveBeenCalledTimes(1);
-    expect(calls[0]?.expectedBlocksFieldRevision).toBe(10);
-    expect(seenEditorResetVersion).toBe(0);
+    act(() => field.onChange("stale local draft"));
+    await settle();
+    expect(calls).toEqual([
+      expect.objectContaining({
+        value: "stale local draft",
+        expectedBlocksFieldRevision: 10,
+      }),
+    ]);
 
-    // The mutation invalidates the field query after rejection. Once that
-    // refetch carries a newer revision, the editor must display the accepted
-    // server value instead of leaving the rejected draft looking current.
-    act(() => {
-      root!.render(
-        createElement(Harness, {
-          key: "doc:field",
-          documentId: "doc",
-          propertyId: "field",
-          initialContent: "accepted server winner",
-          initialRevision: 11,
-          save,
-          onReady: ready,
-          onContent,
-          onRevisionConflict,
-        }),
-      );
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(seenContent).toBe("accepted server winner");
-    expect(seenEditorResetVersion).toBe(1);
+    // More typing waits for the newer text instead of being refused again.
+    act(() => field.onChange("stale local draft, longer"));
+    await settle();
+    expect(calls).toHaveLength(1);
+    expect(field.externalContent).toBeNull();
 
-    act(() => onChange("edit after conflict"));
-    await act(async () => {
-      vi.advanceTimersByTime(600);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    render("accepted server winner", 11);
+    expect(mergeLive(field, "stale local draft, longer")).toBe(
+      "accepted server winner\nstale local draft, longer",
+    );
+    expect(field.content).toBe(
+      "accepted server winner\nstale local draft, longer",
+    );
+    expect(field.textMoved).toHaveBeenCalledTimes(1);
+
+    await settle();
     expect(calls[1]).toMatchObject({
-      value: "edit after conflict",
+      value: "accepted server winner\nstale local draft, longer",
       expectedBlocksFieldRevision: 11,
+    });
+  });
+
+  it("merges newer text saved elsewhere into unsaved typing", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.resolve(savedAt(12));
+    };
+    const { field, render } = mountField({
+      initialContent: "One\nTwo",
+      initialRevision: 10,
+      save,
+    });
+
+    act(() => field.onChange("One\nTwo and more"));
+    render("One edited\nTwo", 11);
+    // The editor holds typing it hasn't reported yet; the merge keeps it.
+    expect(mergeLive(field, "One\nTwo and more, still typing")).toBe(
+      "One edited\nTwo and more, still typing",
+    );
+    expect(field.textMoved).not.toHaveBeenCalled();
+
+    await settle();
+    expect(calls).toEqual([
+      {
+        documentId: "doc",
+        propertyId: "field",
+        value: "One edited\nTwo and more, still typing",
+        expectedBlocksFieldRevision: 11,
+      },
+    ]);
+  });
+
+  it("holds its typing when the editor can't show the merged text", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.resolve(savedAt(13));
+    };
+    const keepaliveSave = vi.fn((_req: SaveCall) => true);
+    const { field, render } = mountField({
+      initialContent: "One\nTwo",
+      initialRevision: 10,
+      save,
+      keepaliveSave,
+    });
+
+    act(() => field.onChange("One\nTwo and more"));
+    render("One edited\nTwo", 11);
+    expect(mergeLive(field, "One\nTwo and more", () => false)).toBeNull();
+    expect(field.externalContent).toBeNull();
+
+    // No save goes out over the newer text, however long the typing goes on.
+    act(() => field.onChange("One\nTwo and more, still typing"));
+    await settle();
+    expect(calls).toEqual([]);
+
+    // Closing the page saves the merge at the newer revision.
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(keepaliveSave).toHaveBeenCalledExactlyOnceWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "One edited\nTwo and more, still typing",
+      expectedBlocksFieldRevision: 11,
+    });
+
+    // Newer text the editor can show is merged and saved as usual.
+    render("Zero\nOne edited\nTwo", 12);
+    expect(mergeLive(field, "One\nTwo and more, still typing")).toBe(
+      "Zero\nOne edited\nTwo and more, still typing",
+    );
+    await settle();
+    expect(calls).toEqual([
+      {
+        documentId: "doc",
+        propertyId: "field",
+        value: "Zero\nOne edited\nTwo and more, still typing",
+        expectedBlocksFieldRevision: 12,
+      },
+    ]);
+  });
+
+  it("shows newer text in a field whose own save was answered first", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.resolve(savedAt(10 + calls.length));
+    };
+    const { field, render } = mountField({
+      initialContent: "base",
+      initialRevision: 10,
+      save,
+    });
+
+    act(() => field.onChange("mine"));
+    await settle();
+    expect(calls[0]).toMatchObject({
+      value: "mine",
+      expectedBlocksFieldRevision: 10,
+    });
+
+    // The refetch skips the echo of "mine": an agent saved over it since.
+    render("agent edit", 12);
+    expect(mergeLive(field, "mine")).toBe("agent edit");
+    expect(field.content).toBe("agent edit");
+    await settle();
+    expect(calls).toHaveLength(1);
+
+    act(() => field.onChange("agent edit, then mine"));
+    await settle();
+    expect(calls[1]).toMatchObject({
+      value: "agent edit, then mine",
+      expectedBlocksFieldRevision: 12,
+    });
+  });
+
+  it("ignores props older than the revision a save answered with", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async (_req: SaveCall) => savedAt(11));
+    const { field, render } = mountField({
+      initialContent: "base",
+      initialRevision: 10,
+      save,
+    });
+
+    act(() => field.onChange("mine"));
+    await settle();
+    render("an older read", 10);
+    await settle();
+
+    expect(field.content).toBe("mine");
+    expect(field.externalContent).toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends unsaved typing as a page-close save", () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async (_req: SaveCall) => savedAt(11));
+    const keepaliveSave = vi.fn((_req: SaveCall) => true);
+    const { field } = mountField({
+      initialContent: "base",
+      initialRevision: 10,
+      save,
+      keepaliveSave,
+    });
+
+    act(() => field.onChange("typed just before closing"));
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(keepaliveSave).toHaveBeenCalledExactlyOnceWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "typed just before closing",
+      expectedBlocksFieldRevision: 10,
+    });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("merges newer text the editor hasn't merged yet into a page-close save", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn((_req: SaveCall) => Promise.reject({ status: 409 }));
+    const keepaliveSave = vi.fn((_req: SaveCall) => true);
+    const { field, render } = mountField({
+      initialContent: "One\nTwo",
+      initialRevision: 10,
+      save,
+      keepaliveSave,
+    });
+
+    act(() => field.onChange("One\nTwo and more"));
+    await settle();
+    expect(save).toHaveBeenCalledTimes(1);
+    // The newer text arrives while the editor waits out an input method.
+    render("One edited\nTwo", 11);
+    expect(field.externalContent).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(keepaliveSave).toHaveBeenCalledExactlyOnceWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "One edited\nTwo and more",
+      expectedBlocksFieldRevision: 11,
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves right away when the page-close save can't be sent", () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async (_req: SaveCall) => savedAt(11));
+    const { field } = mountField({
+      initialContent: "base",
+      initialRevision: 10,
+      save,
+      keepaliveSave: () => false,
+    });
+
+    act(() => field.onChange("typed just before closing"));
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(save).toHaveBeenCalledExactlyOnceWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "typed just before closing",
+      expectedBlocksFieldRevision: 10,
     });
   });
 
@@ -968,9 +1250,6 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       await Promise.resolve();
     });
 
-    // Collapse before the in-flight request reports its conflict. The shared
-    // controller must still discard that rejected payload after this hook's
-    // instance ref has gone away.
     await act(async () => {
       root!.render(createElement("div", null));
       rejectSave({ status: 409 });
@@ -980,69 +1259,38 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("preserves a newer draft typed while the conflict winner refetches", async () => {
+  it("waits for a save in flight before merging newer text", async () => {
     vi.useFakeTimers();
     const calls: SaveCall[] = [];
+    let rejectSave!: (error: unknown) => void;
     const save = (req: SaveCall) => {
       calls.push(req);
-      if (calls.length === 1) return Promise.reject({ status: 409 });
-      return Promise.resolve({
-        properties: [
-          {
-            definition: { id: "field" },
-            blocksField: { revision: 12 },
-          },
-        ],
+      if (calls.length > 1) return Promise.resolve(savedAt(12));
+      return new Promise((_resolve, reject) => {
+        rejectSave = reject;
       });
     };
-    let onChange!: (markdown: string) => void;
-    let seenContent = "";
-    let seenEditorResetVersion = -1;
+    const { field, render } = mountField({
+      initialContent: "base",
+      initialRevision: 10,
+      save,
+    });
 
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-    const render = (initialContent: string, initialRevision: number) =>
-      root!.render(
-        createElement(Harness, {
-          key: "doc:field",
-          documentId: "doc",
-          propertyId: "field",
-          initialContent,
-          initialRevision,
-          save,
-          onReady: (fn) => {
-            onChange = fn;
-          },
-          onContent: (content, editorResetVersion) => {
-            seenContent = content;
-            seenEditorResetVersion = editorResetVersion;
-          },
-        }),
-      );
+    act(() => field.onChange("base mine"));
+    await settle();
+    render("agent base", 11);
+    expect(field.externalContent).toBeNull();
 
-    act(() => render("server base", 10));
-    act(() => onChange("rejected draft"));
     await act(async () => {
-      vi.advanceTimersByTime(600);
+      rejectSave({ status: 409 });
       await Promise.resolve();
       await Promise.resolve();
     });
-    act(() => onChange("newer local draft"));
-    act(() => render("accepted server winner", 11));
-    await act(async () => {
-      await Promise.resolve();
-    });
+    expect(mergeLive(field, "base mine")).toBe("agent base mine");
 
-    expect(seenContent).toBe("newer local draft");
-    expect(seenEditorResetVersion).toBe(0);
-    await act(async () => {
-      vi.advanceTimersByTime(600);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await settle();
     expect(calls[1]).toMatchObject({
-      value: "newer local draft",
+      value: "agent base mine",
       expectedBlocksFieldRevision: 11,
     });
   });

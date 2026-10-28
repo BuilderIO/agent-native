@@ -12,9 +12,11 @@ const LAST_ACTIVITY_KEY = "agent-native.session_last_activity";
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 let store: Map<string, string>;
+let documentCookie: string;
 
 function installBrowser() {
   store = new Map<string, string>();
+  documentCookie = "";
   vi.stubGlobal("window", {
     localStorage: {
       getItem: (key: string) => store.get(key) ?? null,
@@ -24,6 +26,14 @@ function installBrowser() {
       removeItem: (key: string) => {
         store.delete(key);
       },
+    },
+  });
+  vi.stubGlobal("document", {
+    get cookie() {
+      return documentCookie;
+    },
+    set cookie(value: string) {
+      documentCookie = value;
     },
   });
 }
@@ -44,6 +54,8 @@ describe("analytics session id", () => {
   it("rotates an unpinned id once the session goes idle", () => {
     const first = getOrCreateAnalyticsSessionId();
     expect(first).toBeTruthy();
+    expect(documentCookie).toContain(`an_sid=${encodeURIComponent(first!)}`);
+    expect(documentCookie).toContain("max-age=1800");
     expect(getOrCreateAnalyticsSessionId()).toBe(first);
 
     goIdle();
@@ -80,6 +92,7 @@ describe("analytics session id", () => {
   it("returns to rotating ids after the pin is cleared", () => {
     setAnalyticsSessionId("run-42");
     clearAnalyticsSessionId();
+    expect(documentCookie).toContain("an_sid=; path=/; max-age=0");
 
     const next = getOrCreateAnalyticsSessionId();
     expect(next).toBeTruthy();

@@ -1,11 +1,15 @@
 import { getUserSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
+import {
+  CONTENT_DATABASE_FILTER_OPERATORS,
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+} from "../shared/api.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { FILES_NAVIGATION_SORT_KEYS } from "./_database-navigation.js";
 import { filesParentPropertyId } from "./_files-system-properties.js";
 
 export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION =
@@ -23,28 +27,18 @@ export const sortSchema = z.object({
 export const filterSchema = z.object({
   key: z.string(),
   label: z.string(),
-  operator: z.enum([
-    "contains",
-    "equals",
-    "does_not_equal",
-    "greater_than",
-    "less_than",
-    "before",
-    "after",
-    "between",
-    "is_checked",
-    "is_unchecked",
-    "is_empty",
-    "is_not_empty",
-  ]),
+  operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
   value: z.string(),
   filterGroupId: z.string().optional(),
   parentFilterGroupId: z.string().optional(),
+  filterGroupMode: z.enum(["and", "or"]).optional(),
+  parentFilterGroupMode: z.enum(["and", "or"]).optional(),
 });
 
+const sidebarOrderItemIdSchema = z.string().min(1).max(256);
 export const sidebarOrderSchema = z.object({
   mode: z.enum(["custom", "last_edited", "name", "created"]),
-  itemIds: z.array(z.string()),
+  itemIds: z.array(sidebarOrderItemIdSchema).max(5_000),
 });
 
 const personalViewOverridesFields = {
@@ -123,24 +117,95 @@ export async function readPersonalDatabaseViewOverrides(
     userEmail,
     personalDatabaseViewSettingKey(databaseId),
   );
+  if (stored === null) return null;
   const parsed = personalViewOverridesSchema.safeParse(stored);
   if (parsed.success)
-    return normalizePersonalDatabaseViewOverrides(parsed.data);
+    return withoutDeletedPersonalViewProperties(
+      databaseId,
+      normalizePersonalDatabaseViewOverrides(parsed.data),
+    );
 
-  const legacy = legacyPersonalViewOverridesSchema.safeParse(stored);
-  if (!legacy.success) return null;
+  legacyPersonalViewOverridesSchema.parse(stored);
   const [database] = await getDb()
     .select({ systemRole: schema.contentDatabases.systemRole })
     .from(schema.contentDatabases)
     .where(eq(schema.contentDatabases.id, databaseId));
+  const migrated = migratePersonalDatabaseViewOverrides(
+    stored,
+    databaseId,
+    database?.systemRole ?? null,
+  );
+  return migrated && withoutDeletedPersonalViewProperties(databaseId, migrated);
+}
+
+/**
+ * A sort or filter on a deleted property still applies, and the filter hides
+ * every row. Deleting a property cleans the shared views but can't rewrite
+ * every person's saved copy, so each personal view Content returns drops them.
+ */
+export async function withoutDeletedPersonalViewProperties<
+  Overrides extends {
+    views: Array<{ sorts: { key: string }[]; filters: { key: string }[] }>;
+  },
+>(databaseId: string, overrides: Overrides): Promise<Overrides> {
+  const sortsOnProperty = (sort: { key: string }) =>
+    !FILES_NAVIGATION_SORT_KEYS.has(sort.key);
+  const filtersOnProperty = (filter: { key: string }) => filter.key !== "name";
+  const propertyIds = new Set(
+    overrides.views.flatMap((view) =>
+      [
+        ...view.sorts.filter(sortsOnProperty),
+        ...view.filters.filter(filtersOnProperty),
+      ].map((entry) => entry.key),
+    ),
+  );
+  if (propertyIds.size === 0) return overrides;
+  const existing = new Set(
+    (
+      await getDb()
+        .select({ id: schema.documentPropertyDefinitions.id })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            inArray(schema.documentPropertyDefinitions.id, [...propertyIds]),
+          ),
+        )
+    ).map((property) => property.id),
+  );
+  if ([...propertyIds].every((id) => existing.has(id))) return overrides;
+  return {
+    ...overrides,
+    views: overrides.views.map((view) => ({
+      ...view,
+      sorts: view.sorts.filter(
+        (sort) => !sortsOnProperty(sort) || existing.has(sort.key),
+      ),
+      filters: view.filters.filter(
+        (filter) => !filtersOnProperty(filter) || existing.has(filter.key),
+      ),
+    })),
+  } as Overrides;
+}
+
+export function migratePersonalDatabaseViewOverrides(
+  stored: unknown,
+  databaseId: string,
+  systemRole: string | null,
+) {
+  if (stored === null) return null;
+  const parsed = personalViewOverridesSchema.safeParse(stored);
+  if (parsed.success)
+    return normalizePersonalDatabaseViewOverrides(parsed.data);
+  const legacy = legacyPersonalViewOverridesSchema.parse(stored);
   const legacyParentKey = filesParentPropertyId(databaseId);
   return normalizePersonalDatabaseViewOverrides({
-    ...legacy.data,
+    ...legacy,
     version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
-    views: legacy.data.views.map((view) => ({
+    views: legacy.views.map((view) => ({
       ...view,
       filters:
-        database?.systemRole === "files"
+        systemRole === "files"
           ? view.filters.filter(
               (filter) =>
                 !(

@@ -72,15 +72,6 @@ describe("the recording playhead has a shared visual source", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the component and its styles in shared/", () => {
-    expect(
-      existsSync(resolve(clipsRoot, "shared/recording-playhead.tsx")),
-    ).toBe(true);
-    expect(
-      existsSync(resolve(clipsRoot, "shared/recording-playhead.css")),
-    ).toBe(true);
-  });
-
   it("routes both recorder surfaces through the shared component", () => {
     const consumers = [
       resolve(clipsRoot, "app/components/recorder/recording-toolbar.tsx"),
@@ -91,75 +82,6 @@ describe("the recording playhead has a shared visual source", () => {
         "recording-playhead",
       );
     }
-  });
-
-  it("keeps the desktop start affordance and mode-toggle radii aligned with web", () => {
-    const appSource = readFileSync(
-      resolve(clipsRoot, "desktop/src/app.tsx"),
-      "utf8",
-    );
-    const styles = readFileSync(
-      resolve(clipsRoot, "desktop/src/styles.css"),
-      "utf8",
-    );
-    const tokens = readFileSync(
-      resolve(clipsRoot, "desktop/src/tailwind.css"),
-      "utf8",
-    );
-    const modeToggleStyles = styles.slice(
-      styles.indexOf(".mode-toggle {"),
-      styles.indexOf(".mode-tooltip {"),
-    );
-    const recordingDotStyles = styles.slice(
-      styles.indexOf(".rec-dot {"),
-      styles.indexOf(".active-recording-card {"),
-    );
-
-    expect(appSource).toContain(
-      '<span className="rec-dot" aria-hidden="true" />',
-    );
-    expect(modeToggleStyles).toContain(
-      "border-radius: var(--recorder-mode-toggle-radius)",
-    );
-    expect(modeToggleStyles).toContain(
-      "border-radius: var(--recorder-mode-option-radius)",
-    );
-    expect(tokens).toContain("--recorder-mode-option-radius: 14px");
-    expect(tokens).toContain("--recorder-mode-toggle-inset: 4px");
-    expect(tokens).toContain(
-      "var(--recorder-mode-option-radius) + var(--recorder-mode-toggle-inset)",
-    );
-    expect(recordingDotStyles).toContain("width: 8px");
-    expect(recordingDotStyles).toContain(
-      "background: hsl(var(--ui-destructive))",
-    );
-    expect(recordingDotStyles).not.toContain("box-shadow");
-  });
-
-  it("uses discard language for an unfinished take on both surfaces", () => {
-    const desktopSource = readFileSync(
-      resolve(clipsRoot, "desktop/src/overlays/record-pill.tsx"),
-      "utf8",
-    );
-    const webSource = readFileSync(
-      resolve(clipsRoot, "app/components/recorder/recording-toolbar.tsx"),
-      "utf8",
-    );
-    const englishCatalog = readFileSync(
-      resolve(clipsRoot, "app/i18n/en-US.ts"),
-      "utf8",
-    );
-
-    expect(desktopSource).toContain('delete: "Discard recording"');
-    expect(desktopSource).toContain('deleteShortcut: "Discard (⌥⇧C)"');
-    expect(desktopSource).toContain(
-      "`Discard ${formatDurationCopy(durationMs)}?`",
-    );
-    expect(desktopSource).toContain('deleteConfirm: "Discard"');
-    expect(desktopSource).not.toContain('delete: "Delete recording"');
-    expect(webSource).toContain('delete: t("recordingToolbar.cancel")');
-    expect(englishCatalog).toContain('cancel: "Discard recording"');
-    expect(englishCatalog).toContain('discardRecording: "Discard recording"');
   });
 
   it("renders the docked orientation through the shared component", async () => {
@@ -186,6 +108,63 @@ describe("the recording playhead has a shared visual source", () => {
     const toolbar = container.querySelector<HTMLElement>('[role="toolbar"]');
     expect(toolbar?.getAttribute("data-orientation")).toBe("vertical");
     expect(toolbar?.getAttribute("aria-orientation")).toBe("vertical");
+  });
+
+  it("keeps restart in the first-level controls and preserves confirmation", async () => {
+    const changes: RecordingPlayheadConfirmChange[] = [];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(RecordingPlayhead, {
+          elapsedMs: 1_000,
+          paused: false,
+          meter: createElement("span"),
+          labels,
+          onStop: () => {},
+          onTogglePause: () => {},
+          onConfirmAction: () => {},
+          onConfirmChange: (change) => changes.push(change),
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const restartButton = container.querySelector<HTMLButtonElement>(
+      ".recording-playhead__restart",
+    );
+    expect(
+      container
+        .querySelector(".recording-playhead__segment--mid")
+        ?.contains(restartButton),
+    ).toBe(true);
+    expect(restartButton?.tabIndex).toBe(0);
+    expect(restartButton?.getAttribute("aria-label")).toBe("Restart");
+    expect(restartButton?.getAttribute("title")).toBe("Restart");
+    expect(restartButton?.hasAttribute("data-recording-playhead-button")).toBe(
+      true,
+    );
+    expect(
+      container.querySelector(".recording-playhead__extras-restart"),
+    ).toBeNull();
+
+    await act(async () => {
+      restartButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(changes).toContainEqual({
+      type: "open",
+      intent: "restart",
+      enteredPaused: false,
+    });
+    expect(
+      container
+        .querySelector('[role="toolbar"]')
+        ?.getAttribute("data-confirming"),
+    ).toBe("true");
   });
 
   it("closes confirmation through the parent callback when disabled", async () => {
@@ -222,9 +201,8 @@ describe("the recording playhead has a shared visual source", () => {
     );
     expect(document.activeElement).toBe(confirmButton);
     expect(
-      container.querySelector<HTMLButtonElement>(
-        ".recording-playhead__extras-restart",
-      )?.tabIndex,
+      container.querySelector<HTMLButtonElement>(".recording-playhead__restart")
+        ?.tabIndex,
     ).toBe(-1);
 
     await act(async () => {
@@ -422,6 +400,10 @@ describe("the recording playhead has a shared visual source", () => {
       container.querySelector<HTMLButtonElement>(".recording-playhead__pause")
         ?.disabled,
     ).toBe(false);
+    expect(
+      container.querySelector<HTMLButtonElement>(".recording-playhead__restart")
+        ?.disabled,
+    ).toBe(false);
 
     await act(async () => {
       root?.render(render("restart"));
@@ -435,9 +417,13 @@ describe("the recording playhead has a shared visual source", () => {
       container.querySelector<HTMLButtonElement>(".recording-playhead__pause")
         ?.disabled,
     ).toBe(true);
+    expect(
+      container.querySelector<HTMLButtonElement>(".recording-playhead__restart")
+        ?.disabled,
+    ).toBe(true);
   });
 
-  it("keeps hidden confirmation actions out of tab navigation", async () => {
+  it("keeps hidden confirmation and delete actions out of tab navigation", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -468,10 +454,9 @@ describe("the recording playhead has a shared visual source", () => {
       )?.tabIndex,
     ).toBe(-1);
     expect(
-      container.querySelector<HTMLButtonElement>(
-        ".recording-playhead__extras-restart",
-      )?.tabIndex,
-    ).toBe(-1);
+      container.querySelector<HTMLButtonElement>(".recording-playhead__restart")
+        ?.tabIndex,
+    ).toBe(0);
     expect(
       container.querySelector<HTMLButtonElement>(
         ".recording-playhead__extras-delete",

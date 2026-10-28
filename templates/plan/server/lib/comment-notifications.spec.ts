@@ -1,3 +1,4 @@
+import { isTestIdentityEmail } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SOURCE_AUTHOR_COMMENT_MENTION_EMAIL } from "../../shared/comment-context.js";
@@ -19,6 +20,7 @@ vi.mock("@agent-native/core/server", () => ({
   emailStrong: (value: string) => `<strong>${value}</strong>`,
   getAppProductionUrl: () => "https://plans.example.test",
   isEmailConfigured: () => isEmailConfiguredMock(),
+  isTestIdentity: (value: unknown) => isTestIdentityEmail(value),
   renderEmail: (args: unknown) => renderEmailMock(args),
   sendEmail: (args: unknown) => sendEmailMock(args),
 }));

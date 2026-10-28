@@ -1,3 +1,4 @@
+import { registerBackgroundJobStop } from "../server/background-jobs.js";
 import {
   startIntervalJob,
   type IntervalJobHandle,
@@ -28,13 +29,15 @@ export function startRemotePushDeliveryJob(): void {
     });
   }, 10_000);
   startupTimer.unref?.();
+  registerBackgroundJobStop(stopRemotePushDeliveryJob);
 }
 
-export function stopRemotePushDeliveryJob(): void {
+export async function stopRemotePushDeliveryJob(): Promise<void> {
   if (startupTimer) {
     clearTimeout(startupTimer);
     startupTimer = null;
   }
-  job?.stop();
+  const running = job;
   job = null;
+  if (running) await running.stop();
 }

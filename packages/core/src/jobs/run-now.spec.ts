@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const canQueueAutomationRunNowMock = vi.hoisted(() => vi.fn());
+const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const startAutomationRunMock = vi.hoisted(() => vi.fn());
 const listUnclaimedAutomationRunsMock = vi.hoisted(() => vi.fn());
@@ -10,7 +11,12 @@ vi.mock("../automations/service.js", () => ({
   canQueueAutomationRunNow: canQueueAutomationRunNowMock,
 }));
 
-vi.mock("../resources/store.js", () => ({
+vi.mock("../automations/access.js", () => ({
+  resolveAutomationAccess: resolveAutomationAccessMock,
+}));
+
+vi.mock("../resources/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../resources/store.js")>()),
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
   resourceGetByPath: resourceGetByPathMock,
 }));
@@ -59,8 +65,80 @@ beforeEach(() => {
 });
 
 describe("queueAutomationRunNow", () => {
-  // Per-factory automations live at jobs/factories/<factoryId>/<name>.md, so
-  // their name contains a slash and cannot round-trip through `name`.
+  it("resolves a stable resource id and binds the run to its creator", async () => {
+    const resource = {
+      ...resourceAt("jobs/report.md"),
+      content:
+        '---\nschedule: ""\nenabled: true\ntriggerType: manual\ncreatedBy: creator@example.com\norgId: "org-1"\nrunAs: creator\n---\nRun the report.\n',
+    };
+    resolveAutomationAccessMock.mockResolvedValue({
+      resource,
+      name: "report",
+      owningOrganizationId: "org-1",
+    });
+
+    await queueAutomationRunNow({
+      userEmail: "collaborator@example.com",
+      orgId: "org-1",
+      appId: "factory",
+      resourceId: "resource-1",
+    });
+
+    expect(resolveAutomationAccessMock).toHaveBeenCalledWith(
+      { userEmail: "collaborator@example.com" },
+      "resource-1",
+    );
+    expect(canQueueAutomationRunNowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userEmail: "collaborator@example.com" }),
+      resource,
+      "organization",
+      undefined,
+    );
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "__organization__:org-1",
+        automation: "report",
+        path: "jobs/report.md",
+        scope: "organization",
+        orgId: "org-1",
+        appId: "factory",
+        notificationEmail: "collaborator@example.com",
+      }),
+    );
+  });
+
+  it("does not disclose a missing stable resource id", async () => {
+    resolveAutomationAccessMock.mockResolvedValue(null);
+
+    await expect(
+      queueAutomationRunNow({
+        userEmail: "collaborator@example.com",
+        resourceId: "missing-resource",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(startAutomationRunMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a personal job's manual history personal with an active organization", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      ...resourceAt("jobs/digest.md"),
+      owner: "alice@example.com",
+      content: '---\norgId: "org-1"\n---\nSummarize my inbox.\n',
+    });
+    await queueAutomationRunNow({
+      ...organizationRun,
+      scope: "personal",
+      name: "digest",
+    });
+    expect(startAutomationRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "alice@example.com",
+        scope: "personal",
+        orgId: null,
+      }),
+    );
+  });
+
   it("queues a nested automation by path", async () => {
     const path = "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md";
     resourceGetByPathMock.mockResolvedValue(resourceAt(path));
@@ -163,6 +241,23 @@ describe("queueAutomationRunNow", () => {
       }),
     ).rejects.toThrow("Specify either an automation name or a path, not both.");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
+
+  it("hands the caller's additional job app ids to the run check", async () => {
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+
+    await queueAutomationRunNow({
+      ...organizationRun,
+      name: "digest",
+      additionalJobAppIds: ["factory-workflows"],
+    });
+
+    expect(canQueueAutomationRunNowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "factory" }),
+      expect.objectContaining({ path: "jobs/digest.md" }),
+      "organization",
+      ["factory-workflows"],
+    );
   });
 
   it("rejects when the caller cannot queue the run", async () => {

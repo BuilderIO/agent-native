@@ -1,8 +1,11 @@
-import { embedApp } from "@agent-native/core";
-import { defineAction, fail } from "@agent-native/core/action";
+import { isDeepStrictEqual } from "node:util";
+
+import { embedApp, isOutsideAgentCall } from "@agent-native/core";
+import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
+  compareAndSetAppState,
   deleteAppState,
   deleteAppStateByPrefix,
   listAppState,
@@ -16,6 +19,7 @@ import {
   deleteGmailDraft,
   saveGmailDraft,
 } from "../server/lib/gmail-drafts.js";
+import { GmailQuotaRefusedError } from "../server/lib/gmail-quota.js";
 import { updateLocalSavedDraft } from "../server/lib/local-email-drafts.js";
 import {
   readLocalEmails,
@@ -24,19 +28,9 @@ import {
 } from "../server/lib/local-email-store.js";
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
+import type { ComposeState } from "../shared/types.js";
 
-/**
- * Deep link that reopens a compose draft in the Mail compose panel.
- *
- * The link is an opaque pointer (draft id only). The full draft — subject,
- * recipients, body — lives in the `compose-{id}` app-state row written by
- * this action, so the compose panel reads it from there on render. We
- * deliberately do NOT inline the draft contents into the URL: external MCP
- * hosts (ChatGPT / Claude) surface this link in their UI, the host LLM can
- * see and remember query strings, and shared / exported chat transcripts
- * would otherwise leak private draft content.
- */
-function composeDeepLink(draft: Record<string, string>): string {
+function composeDeepLink(draft: Pick<ComposeState, "id">): string {
   return buildDeepLink({
     app: "mail",
     view: "inbox",
@@ -45,7 +39,32 @@ function composeDeepLink(draft: Record<string, string>): string {
   });
 }
 
-/** Reject IDs that could escape via path traversal. */
+// MCP Apps hosts embed the compact draft card; "Open in Mail" keeps the full
+// inbox deep link.
+function draftCardEmbed(draft: Pick<ComposeState, "id">, deepLink: string) {
+  return {
+    embed: true,
+    path: `/draft?id=${encodeURIComponent(draft.id)}`,
+    deepLinkUrl: deepLink,
+  } as const;
+}
+
+function draftChange(
+  verb: "created" | "updated",
+  draft: Pick<ComposeState, "id" | "subject" | "to">,
+  url: string,
+) {
+  const subject = draft.subject.trim();
+  const recipient = draft.to.trim();
+  return {
+    verb,
+    kind: "email-draft",
+    title: (subject || recipient || draft.id).slice(0, 180),
+    ...(subject && recipient ? { detail: recipient.slice(0, 500) } : {}),
+    url,
+  };
+}
+
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
@@ -86,7 +105,9 @@ const manageDraftSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("update").describe("Update an existing draft"),
-    id: draftId,
+    id: draftId.describe(
+      "Existing draft ID from compose state: if the state key is `compose-{id}`, pass only `{id}`. A prior create result also provides the ID.",
+    ),
     ...draftFields,
   }),
   z.object({
@@ -148,15 +169,136 @@ async function readConfiguredSignature(): Promise<string | undefined> {
   return typeof signature === "string" ? signature : undefined;
 }
 
+/**
+ * Runs Gmail work up to and including this call's first write. Mail's own
+ * Gmail budget refuses a request before sending it, so a refusal here saved
+ * nothing. Saying so lets the agent save the draft again after the wait,
+ * instead of stopping because it can't tell whether the draft saved.
+ */
+async function beforeFirstWrite<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (!(error instanceof GmailQuotaRefusedError)) throw error;
+    throw new NoWriteError(`The draft was not saved. ${error.message}`, {
+      errorCode: error.errorCode,
+      statusCode: error.statusCode,
+      details: error.details,
+    });
+  }
+}
+
+/**
+ * Removes a Gmail draft this call saved when no Mail draft points at it, and
+ * returns whether it did. The caller is already failing with the error that
+ * matters, so a failed cleanup is logged rather than thrown in its place, and
+ * the caller names the draft left in Gmail.
+ */
+async function discardUnstoredGmailDraft(
+  gmailDraft: GmailDraftRef,
+): Promise<boolean> {
+  try {
+    await deleteGmailDraft(gmailDraft);
+    return true;
+  } catch (error) {
+    console.error("[manage-draft] unstored Gmail draft cleanup failed:", error);
+    return false;
+  }
+}
+
+type GmailDraftRef = {
+  ownerEmail: string;
+  accountEmail: string;
+  draftId: string;
+};
+
+/**
+ * Stores a new compose draft only while its key is empty, and returns
+ * whether it did. The write can commit before it throws, so a throw rereads
+ * the key, and finding this draft there counts as stored. Anything else
+ * means it wasn't: the Gmail draft this call saved, if any, is removed and
+ * the error rethrown. If that Gmail draft can't be removed, the error names
+ * it instead. If the reread fails too, the outcome is unknown, so
+ * that Gmail draft stays (Mail may point at it) and the error says to check
+ * before creating the draft again.
+ */
+async function storeNewComposeDraft(
+  draft: ComposeState,
+  newGmailDraft: GmailDraftRef | null,
+): Promise<boolean> {
+  const key = `compose-${draft.id}`;
+  try {
+    return await compareAndSetAppState(key, null, draft);
+  } catch (error) {
+    let stored: Record<string, unknown> | null;
+    try {
+      stored = await readAppState(key);
+    } catch {
+      console.error(
+        `[manage-draft] draft ${draft.id} write and reread both failed:`,
+        error,
+      );
+      const kept = newGmailDraft
+        ? `, so it kept the Gmail draft it saved (${newGmailDraft.draftId})`
+        : "";
+      fail(
+        `Mail couldn't confirm whether draft "${draft.id}" was stored${kept}. Check for draft "${draft.id}" before creating it again.`,
+        {
+          errorCode: "draft_store_unconfirmed",
+          statusCode: 503,
+          details: {
+            draftId: draft.id,
+            ...(newGmailDraft ? { gmailDraftId: newGmailDraft.draftId } : {}),
+          },
+        },
+      );
+    }
+    // A Gmail draft ID belongs to this call alone. Without one, only the
+    // exact draft this call wrote counts as stored.
+    const stillOurs = draft.savedDraftId
+      ? stored?.savedDraftId === draft.savedDraftId
+      : isDeepStrictEqual(stored, draft);
+    if (stillOurs) return true;
+    if (newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))) {
+      console.error(`[manage-draft] draft ${draft.id} write failed:`, error);
+      fail(
+        `Mail couldn't store draft "${draft.id}" or remove the Gmail draft it saved (${newGmailDraft.draftId}), which stays in Gmail's drafts.`,
+        {
+          errorCode: "draft_store_failed",
+          statusCode: 503,
+          details: {
+            draftId: draft.id,
+            leftoverGmailDraftId: newGmailDraft.draftId,
+          },
+        },
+      );
+    }
+    throw error;
+  }
+}
+
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
-    "Create, update, or delete a compose draft. Always pass action " +
-    "(create, update, delete, delete-saved, or delete-all). update and " +
-    "delete require the id returned by a prior create call on this draft; " +
-    "delete-saved requires savedDraftId instead. Never call update or " +
-    "delete before a matching create - to draft a reply, first call with " +
-    "action=create, mode=reply, replyToId, to, subject, body.",
+    "Manage compose drafts: use `create` for a new draft even if another " +
+    "compose draft is open; use `update` to revise a specific existing draft " +
+    "with its raw compose ID (`compose-{id}` is the app-state key, so pass " +
+    "only `{id}`; a prior create result also provides the ID). Use `delete` " +
+    "with only the raw compose ID (not the `compose-{id}` app-state key), " +
+    "`delete-saved` with `savedDraftId` for a saved mailbox draft, or " +
+    "`delete-all` to remove all compose drafts. To start a new reply, call " +
+    "`create` with mode=reply, replyToId, to, subject, and body. " +
+    "Outside agents require human approval to delete drafts.",
   schema: manageDraftSchema,
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    args.action !== "create" &&
+    args.action !== "update",
+  allowPersistentApproval: false,
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -165,7 +307,8 @@ export default defineAction({
         "Open the generated draft in the real Mail compose UI with contact autocomplete, aliases, formatting, attachments, and sending controls.",
       iframeTitle: "Agent-Native Mail",
       openLabel: "Open in Mail",
-      height: 900,
+      // A chat card's app document is 560px tall, under the shell's 44px bar.
+      height: 604,
     }),
   },
   run: async (args, ctx) => {
@@ -261,23 +404,30 @@ export default defineAction({
         fail(`Invalid draft ID "${rawId}"`, {
           errorCode: "draft_invalid_id",
         });
+      if (await readAppState(`compose-${id}`))
+        fail(`Draft "${id}" already exists; use update to revise it.`, {
+          errorCode: "draft_already_exists",
+          statusCode: 409,
+        });
       const signature = await readConfiguredSignature();
       const ownerEmail = getRequestUserEmail();
       const body = appendSignatureToBody(args.body || "", signature);
       const savedGmailDraft = ownerEmail
-        ? await saveGmailDraft({
-            ownerEmail,
-            accountEmail: args.accountEmail,
-            to: args.to || "",
-            cc: args.cc,
-            bcc: args.bcc,
-            subject: args.subject || "",
-            body,
-            replyToId: args.replyToId,
-            replyToThreadId: args.replyToThreadId,
-          })
+        ? await beforeFirstWrite(() =>
+            saveGmailDraft({
+              ownerEmail,
+              accountEmail: args.accountEmail,
+              to: args.to || "",
+              cc: args.cc,
+              bcc: args.bcc,
+              subject: args.subject || "",
+              body,
+              replyToId: args.replyToId,
+              replyToThreadId: args.replyToThreadId,
+            }),
+          )
         : null;
-      const draft: Record<string, string> = {
+      const draft: ComposeState = {
         id,
         to: args.to || "",
         subject: args.subject || "",
@@ -297,7 +447,33 @@ export default defineAction({
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
       if (accountEmail) draft.accountEmail = accountEmail;
-      await writeAppState(`compose-${id}`, draft);
+      const newGmailDraft =
+        savedGmailDraft?.created && ownerEmail
+          ? {
+              ownerEmail,
+              accountEmail: savedGmailDraft.accountEmail,
+              draftId: savedGmailDraft.draftId,
+            }
+          : null;
+      if (!(await storeNewComposeDraft(draft, newGmailDraft))) {
+        const leftover =
+          newGmailDraft && !(await discardUnstoredGmailDraft(newGmailDraft))
+            ? newGmailDraft.draftId
+            : null;
+        const leftoverNote = leftover
+          ? ` The Gmail draft this call saved (${leftover}) couldn't be removed and stays in Gmail's drafts.`
+          : "";
+        fail(
+          `Draft "${id}" already exists; use update to revise it.${leftoverNote}`,
+          {
+            errorCode: "draft_already_exists",
+            statusCode: 409,
+            ...(leftover
+              ? { details: { draftId: id, leftoverGmailDraftId: leftover } }
+              : {}),
+          },
+        );
+      }
       track(
         "draft_created",
         {
@@ -311,11 +487,14 @@ export default defineAction({
         },
         ctx,
       );
+      const deepLink = composeDeepLink(draft);
       return {
         id,
         draft,
-        deepLink: composeDeepLink(draft),
+        deepLink,
+        ...draftCardEmbed(draft, deepLink),
         message: `Created draft ${id}`,
+        change: draftChange("created", draft, deepLink),
       };
     }
 
@@ -334,14 +513,33 @@ export default defineAction({
       if (typeof storedDraft !== "object" || Array.isArray(storedDraft)) {
         throw new Error(`Draft "${safeId}" has invalid stored data`);
       }
-      const draft = Object.fromEntries(
-        Object.entries(storedDraft).map(([key, value]) => {
-          if (typeof value !== "string") {
-            throw new Error(`Draft "${safeId}" has invalid ${key}`);
-          }
-          return [key, value];
-        }),
-      ) as Record<string, string>;
+      const draft = { ...storedDraft } as unknown as ComposeState;
+      for (const key of [
+        "id",
+        "to",
+        "cc",
+        "bcc",
+        "subject",
+        "body",
+        "mode",
+        "replyToId",
+        "replyToThreadId",
+        "savedDraftId",
+        "savedDraftBackend",
+        "savedDraftAccountEmail",
+        "accountEmail",
+      ] as const) {
+        const value = draft[key];
+        if (value !== undefined && typeof value !== "string") {
+          throw new Error(`Draft "${safeId}" has invalid ${key}`);
+        }
+      }
+      if (
+        draft.attachments !== undefined &&
+        !Array.isArray(draft.attachments)
+      ) {
+        throw new Error(`Draft "${safeId}" has invalid attachments`);
+      }
       const ownerEmail = getRequestUserEmail();
       const savedDraftBackend = draft.savedDraftBackend;
       if (
@@ -356,12 +554,15 @@ export default defineAction({
         | undefined;
       if (draft.savedDraftId) {
         if (!ownerEmail) throw new Error("Unauthenticated");
-        ownership = await resolveExistingSavedDraftOwnership({
-          ownerEmail,
-          savedDraftId: draft.savedDraftId,
-          savedDraftBackend,
-          accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
-        });
+        const savedDraftId = draft.savedDraftId;
+        ownership = await beforeFirstWrite(() =>
+          resolveExistingSavedDraftOwnership({
+            ownerEmail,
+            savedDraftId,
+            savedDraftBackend,
+            accountEmail: draft.savedDraftAccountEmail ?? draft.accountEmail,
+          }),
+        );
       }
       if (
         ownership?.backend === "gmail" &&
@@ -411,24 +612,29 @@ export default defineAction({
         delete draft.savedDraftAccountEmail;
       }
 
+      // A local draft was saved above and skips this, so this save is still
+      // the call's first write.
       const savedGmailDraft =
         ownership?.backend === "gmail" || !ownership
           ? ownerEmail
-            ? await saveGmailDraft({
-                ownerEmail,
-                accountEmail,
-                draftId:
-                  ownership?.backend === "gmail"
-                    ? draft.savedDraftId
-                    : undefined,
-                to: draft.to || "",
-                cc: draft.cc,
-                bcc: draft.bcc,
-                subject: draft.subject || "",
-                body: draft.body || "",
-                replyToId: draft.replyToId,
-                replyToThreadId: draft.replyToThreadId,
-              })
+            ? await beforeFirstWrite(() =>
+                saveGmailDraft({
+                  ownerEmail,
+                  accountEmail,
+                  draftId:
+                    ownership?.backend === "gmail"
+                      ? draft.savedDraftId
+                      : undefined,
+                  to: draft.to || "",
+                  cc: draft.cc,
+                  bcc: draft.bcc,
+                  subject: draft.subject || "",
+                  body: draft.body || "",
+                  attachments: draft.attachments,
+                  replyToId: draft.replyToId,
+                  replyToThreadId: draft.replyToThreadId,
+                }),
+              )
             : null
           : null;
       if (ownership?.backend === "gmail" && !savedGmailDraft) {
@@ -441,11 +647,14 @@ export default defineAction({
         draft.accountEmail = savedGmailDraft.accountEmail;
       }
       await writeAppState(`compose-${safeId}`, draft);
+      const deepLink = composeDeepLink(draft);
       return {
         id: safeId,
         draft,
-        deepLink: composeDeepLink(draft as Record<string, string>),
+        deepLink,
+        ...draftCardEmbed(draft, deepLink),
         message: `Updated draft ${safeId}`,
+        change: draftChange("updated", draft, deepLink),
       };
     }
 
@@ -455,7 +664,7 @@ export default defineAction({
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const draft = (result as { draft?: Record<string, string> }).draft;
+    const draft = (result as { draft?: ComposeState }).draft;
     const id = (result as { id?: string }).id;
     if (!draft || !id) return null;
     return {

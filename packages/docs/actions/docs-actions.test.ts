@@ -67,8 +67,6 @@ describe("docs actions", () => {
 
     expect(output).toContain("Clips");
     expect(output).toContain("browser logs and network activity");
-    expect(output).toContain(
-      "**Path:** /docs/template-clips-capture-everywhere",
-    );
+    expect(output).toContain("**Path:** /docs/template-clips-features");
   });
 });

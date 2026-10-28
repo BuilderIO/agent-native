@@ -10,9 +10,7 @@ import {
   IconCalendar,
   IconCheck,
   IconChevronRight,
-  IconCopy,
   IconDots,
-  IconExternalLink,
   IconFileText,
   IconForms,
   IconFilter,
@@ -22,10 +20,8 @@ import {
   IconList,
   IconMinus,
   IconSearch,
-  IconStarOff,
   IconTable,
   IconTimeline,
-  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -67,6 +63,7 @@ import {
 import { useDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
 import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
 import { databaseDuplicatedItemFromResponse } from "./navigation-state";
 import {
@@ -75,10 +72,6 @@ import {
 } from "./row-access";
 import { dbText } from "./text";
 import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
-
-// ---------------------------------------------------------------------------
-// View icon (returns the React component constructor for a view type)
-// ---------------------------------------------------------------------------
 
 export function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "board") return IconLayoutKanban;
@@ -90,10 +83,6 @@ export function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "sidebar") return IconLayoutSidebar;
   return IconTable;
 }
-
-// ---------------------------------------------------------------------------
-// Drag preview / drop indicator
-// ---------------------------------------------------------------------------
 
 export type DatabaseDragPreviewState =
   | {
@@ -165,15 +154,11 @@ export function DatabaseDropIndicator({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page icon
-// ---------------------------------------------------------------------------
-
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
 ) {
-  const icon = document?.icon?.trim();
-  return icon ? icon : null;
+  const icon = contentIconValue(document?.icon);
+  return icon?.kind === "emoji" ? icon.emoji : null;
 }
 
 export function DatabaseItemPageIcon({
@@ -185,18 +170,14 @@ export function DatabaseItemPageIcon({
   className?: string;
   fallbackClassName?: string;
 }) {
-  const icon = databaseItemPageIconText(document);
+  const icon = contentIconValue(document.icon);
   if (icon) {
     return (
-      <span
-        aria-hidden="true"
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center leading-none",
-          className,
-        )}
-      >
-        {icon}
-      </span>
+      <ContentIcon
+        value={icon}
+        size={16}
+        className={cn("shrink-0", className)}
+      />
     );
   }
 
@@ -206,10 +187,6 @@ export function DatabaseItemPageIcon({
     />
   );
 }
-
-// ---------------------------------------------------------------------------
-// Group header (used by table, list, gallery grouped sections)
-// ---------------------------------------------------------------------------
 
 export function DatabaseGroupHeader({
   group,
@@ -242,10 +219,6 @@ export function DatabaseGroupHeader({
     </button>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Row selection control
-// ---------------------------------------------------------------------------
 
 export function DatabaseRowSelectionControl({
   checked,
@@ -301,10 +274,6 @@ export function DatabaseRowSelectionControl({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Bulk option pill
-// ---------------------------------------------------------------------------
-
 export function DatabaseBulkOptionPill({
   option,
 }: {
@@ -321,10 +290,6 @@ export function DatabaseBulkOptionPill({
     </span>
   );
 }
-
-// ---------------------------------------------------------------------------
-// DatabaseNoMatchingPages
-// ---------------------------------------------------------------------------
 
 export function DatabaseNoMatchingPages({
   label = "No pages match this view",
@@ -354,10 +319,6 @@ export function DatabaseNoMatchingPages({
   );
 }
 
-// ---------------------------------------------------------------------------
-// DatabaseConstraintChip
-// ---------------------------------------------------------------------------
-
 export function DatabaseConstraintChip({
   icon,
   label,
@@ -382,10 +343,6 @@ export function DatabaseConstraintChip({
     </span>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Property picker (shared by SortMenu, FilterMenu, settings panels)
-// ---------------------------------------------------------------------------
 
 export type DatabasePropertyPickerOption = {
   key: string;
@@ -500,10 +457,6 @@ export function DatabasePropertyPickerSubContent({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Toolbar button class helper
-// ---------------------------------------------------------------------------
-
 export function databaseToolbarIconButtonClass(active = false) {
   return cn(
     "h-7 w-7 p-0 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-45",
@@ -511,13 +464,7 @@ export function databaseToolbarIconButtonClass(active = false) {
   );
 }
 
-// Suppress unused-import lint warning for IconFilter — it's re-exported via
-// this module so callers can import it from one place.
 export { IconFilter };
-
-// ---------------------------------------------------------------------------
-// Row actions cell (used by all 6 views)
-// ---------------------------------------------------------------------------
 
 export function RowActionsCell({
   item,
@@ -643,7 +590,6 @@ export function RowActionsCell({
               onOpenPage();
             }}
           >
-            <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             Open page
           </DropdownMenuItem>
           {canDuplicateRow ? (
@@ -654,7 +600,6 @@ export function RowActionsCell({
                 void duplicateRow();
               }}
             >
-              <IconCopy className="mr-2 size-4 text-muted-foreground" />
               Duplicate row
             </DropdownMenuItem>
           ) : null}
@@ -674,11 +619,6 @@ export function RowActionsCell({
                 }
               }}
             >
-              {removesFavoriteMembership ? (
-                <IconStarOff className="mr-2 size-4 text-muted-foreground" />
-              ) : (
-                <IconTrash className="mr-2 size-4" />
-              )}
               {removesFavoriteMembership
                 ? "Remove from favorites"
                 : canDeleteWorkspace

@@ -1,67 +1,251 @@
 ---
 title: "Netlify"
-description: "Deploy an agent-native app to Netlify with the Netlify Nitro preset, and configure keep-warm for scale-to-zero databases."
+description: "Deploy a standalone Agent-Native app to Netlify with the Netlify CLI, and configure keep-warm for scale-to-zero databases."
+search: "Netlify deployment standalone app Nitro netlify preset CLI functions production migrate build deploy keep-warm"
 ---
 
 # Netlify
 
-The Nitro `netlify` preset works well and, in practice, has given us much faster cold starts than Cloudflare Pages (~200ms TTFB vs ~9s) for templates that talk to external Postgres (Neon). Either set the preset in `vite.config.ts`:
+Netlify hosts your app for you, so there is no server to set up or keep running.
+The build turns the app into static files Netlify serves directly and functions
+Netlify runs on demand, and Netlify gives the app a public address with HTTPS.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
+This guide walks through deploying one standalone app from scratch. You will
+create the app, give it a production database and an auth secret, create a
+Netlify site for it, prepare the database, and then build and deploy it.
+
+<Callout tone="info">
+
+Node.js `22.22+` is required.
+
+</Callout>
+
+You also need a Netlify account. Run the commands in this guide on your own
+computer. The Netlify CLI uploads the finished build to Netlify for you.
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-On the generated Chat scaffold, the import stays `agentNative`. The config
-assigns it to a local `agentNativePlugins` alias with a type cast, then spreads
-the returned plugin array to align Vite package types. It accepts the same
-options as the `agentNative` example above. To deploy that scaffold to Netlify,
-add `nitro: { preset: "netlify" }` to the existing `agentNativePlugins({ ... })`
-call. Leave the other Chat-specific plugins, options, and aliases unchanged.
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
 
-…or set `NITRO_PRESET=netlify` at build time.
+<Callout tone="info">
 
-For a standalone app, build the Netlify output and deploy its static assets and
-functions:
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
+
+## Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings. The next step shows how to save them in Netlify.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between deploys. Netlify does not keep files between requests,
+so the database must live outside Netlify's functions. Copy the connection
+string from your provider and export it:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Save the generated value somewhere safe, such as a password manager. Use the
+same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine on the address Netlify gives you, but set it when you connect a custom
+domain so sign-in links and OAuth redirects use that domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 3: Link the site and save the secrets
+
+Sign in to Netlify from the command line, then create a new site for the app.
+You can leave the project name as the default and leave the GitHub repository
+blank for now.
+
+```bash
+npx netlify login
+
+npx netlify sites:create --name my-app
+```
+
+`sites:create` creates the site and links it to the app's folder, so later
+commands know which site to use. The name also becomes the site's address, such
+as `my-app.netlify.app`. Site names are shared across all of Netlify, so choose
+a different name if `my-app` is already taken. You do not need a GitHub
+repository, because you deploy the app from your computer in Step 5.
+
+Save the two required variables in the site's environment:
+
+```bash
+npx netlify env:set DATABASE_URL "$DATABASE_URL"
+
+npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+```
+
+Each command reads the value you exported in Step 2 and saves it in Netlify, so
+you do not have to paste secrets by hand. If you set `BETTER_AUTH_URL`, save it
+the same way. You can also see and change these values later in the site's
+settings on the Netlify dashboard.
+
+## Step 4: Migrate
+
+Migrations create and update the tables the app needs in your database. Run
+this before the first deploy:
+
+```bash
+pnpm migrate:production
+```
+
+The command runs on your computer and connects to the production database with
+the `DATABASE_URL` you exported in Step 2. Run it again after you upgrade the
+app, before you deploy the new version.
+
+## Step 5: Deploy
+
+Build the app for Netlify:
 
 ```bash
 NITRO_PRESET=netlify pnpm build
+```
+
+`NITRO_PRESET=netlify` builds the app in the format Netlify expects. The build
+writes the app's static files to the `dist` folder and its server functions to
+the `.netlify/functions-internal` folder.
+
+Upload the build and publish it:
+
+```bash
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Before the first production deploy, set `DATABASE_URL` and a stable
-`BETTER_AUTH_SECRET` in Netlify's site environment variables. Do not rely on
-the local PGlite database from development; `DATABASE_URL` must point to a
-persistent PostgreSQL database reachable by the deployed function.
+`--dir` and `--functions` tell the CLI where to find the static files and the
+functions you just built. `--prod` publishes them to your production address
+instead of a draft preview.
 
-For a workspace, deploy every app from one Netlify site by running:
+When the command finishes, it prints the app's production address. Open it and
+create the first account.
+
+## Deploy updates
+
+To ship a new version, run the migrate, build, and deploy commands again from
+the app's folder:
 
 ```bash
-npx @agent-native/core@latest deploy --preset netlify
+pnpm migrate:production
+
+NITRO_PRESET=netlify pnpm build
+
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-The workspace build writes static assets under `dist/_workspace_static/` and routes each app to its own Netlify function without forced asset redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
+The site link and the saved variables stay in place, so you do not need to
+repeat Step 3.
 
 ## Keep-warm and scale-to-zero databases {#netlify-keep-warm}
 
-When enabled, the Netlify build emits a scheduled function that requests `/_agent-native/health` **every minute**. That keeps the server function and its database warm so the next visitor after an idle period doesn't pay a cold start (1–5s on Neon).
+After a quiet period, the first request can be slow while Netlify starts the
+function and a scale-to-zero database, such as Neon's free tier, wakes up.
+Agent-Native can reduce that wait with keep-warm. When it is turned on, the
+build adds a scheduled Netlify function that calls the app's
+`/_agent-native/health` endpoint **every minute**, which keeps the server
+function and its database awake.
 
-Keep-warm is **disabled by default** because a once-a-minute wake prevents autosuspend on metered scale-to-zero databases. On a free-tier Neon this can exhaust the compute quota, and the database then rejects **all** reads mid-session. The symptom is a dead app, not a slow one. Set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` when the lower next-visitor latency is worth the database awake-time.
+Keep-warm is **off by default**. Keeping the database awake stops it from
+pausing, which uses up the compute quota on free or metered plans. If the quota
+runs out, the database rejects **all** reads and the app stops working. Set
+`AGENT_NATIVE_ENABLE_KEEP_WARM=1` when a faster first visit is worth the extra
+database time.
 
-The keep-warm schedule and background-function warm only apply after the main keep-warm flag is enabled:
+These variables control keep-warm. The schedule and background settings only
+apply after you turn on `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 
-| Variable                                    | Effect                                                                                                                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opts into the scheduled server/database warm. Unset by default.                                                                                                              |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch that wins over the opt-in flag when set.                                                                                                           |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Overrides the cadence with a 5-field cron expression, e.g. `*/5 * * * *`. The default cadence when enabled is `* * * * *`. An unparseable value **fails the build**.         |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drops only the background-function warm, keeping the server warm. Warming `server` is one request. Warming `-background` starts a fresh container that re-probes the schema. |
+| Variable                                    | Effect                                                                                                                                                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Turns on the scheduled warm-up for the server function and database. Unset by default.                                                                                                                        |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Turns keep-warm off even when `AGENT_NATIVE_ENABLE_KEEP_WARM` is set. Kept for compatibility with older setups.                                                                                               |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Changes how often the warm-up runs, as a 5-field cron expression such as `*/5 * * * *`. The default is `* * * * *`, every minute. A value that is not valid cron **fails the build**.                         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Skips warming the background function and keeps warming the server function. Warming the server is one request. Warming the background function starts a new container that checks the database schema again. |
 
-If you are on a free or otherwise quota-limited database tier, leave `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you opt in, use a slower cadence or set `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` to drop the more expensive background warm.
+If your database is on a free or otherwise limited plan, leave
+`AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you turn it on, choose a slower
+schedule or set `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` to skip the more
+expensive background warm-up.
+
+The build reads these variables, not the running app. Because you build on your
+own computer in Step 5, set them in the same shell before you build. Saving them
+in Netlify's site settings has no effect on a build that runs locally. For
+example, to turn keep-warm on with a five-minute schedule:
+
+```bash
+export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+
+export AGENT_NATIVE_KEEP_WARM_SCHEDULE='*/5 * * * *'
+
+NITRO_PRESET=netlify pnpm build
+```
+
+Then deploy as usual.
 
 ## What's next
 
-- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
-- [**SSR Caching**](/docs/ssr-caching) — the default cache policy and Netlify's separate `netlify-cdn-cache-control` behavior
-- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare), [**AWS Lambda**](/docs/aws-lambda), and [**Deno Deploy**](/docs/deno-deploy) — the other Nitro presets
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**SSR Caching**](/docs/ssr-caching) - the default cache policy and Netlify's separate `netlify-cdn-cache-control` behavior
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

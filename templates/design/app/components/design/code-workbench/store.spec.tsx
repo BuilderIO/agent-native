@@ -10,16 +10,6 @@ import type { WorkspaceProvider, WorkspaceReadResult } from "./workspace/types";
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-/**
- * store.tsx transitively imports model-registry.ts, which requires the real
- * `monaco-editor` package (window/canvas-heavy, can't load under vitest — see
- * model-registry.spec.ts and editor/StatusBar.test.ts for the same
- * constraint). These tests fake the model-registry module surface instead, so
- * the store's reducer/dispatch wiring — dirty tracking, stale-echo handling,
- * preview-tab pinning, reload-buffer — can be exercised end to end through
- * `WorkbenchProvider` + `useWorkbench()` with real React state.
- */
-
 interface FakeModelEntry {
   content: string;
   savedContent: string;
@@ -41,12 +31,6 @@ vi.mock("./model-registry", () => {
           isDisposed: () => entry.disposed,
           getValue: () => entry.content,
           getAlternativeVersionId: () => 0,
-          // store.tsx's subscribeDirtyTracking attaches a listener here on
-          // every model it sees; the store-level tests below drive dirty
-          // state directly through api.markDirty/applyExternalRead instead
-          // of simulating Monaco's synchronous edit-event firing (that
-          // exact race is covered at the model-registry level in
-          // model-registry.spec.ts), so this only needs to exist, not fire.
           onDidChangeContent: () => ({ dispose: () => {} }),
         },
         savedAltVersionId: 0,
@@ -206,8 +190,6 @@ describe("WorkbenchProvider", () => {
     });
 
     expect(harness.get().state.buffers[uri!]?.dirty).toBe(false);
-    // The core regression: the tab must still be a preview tab (italic,
-    // replaced by the next preview open) — not silently pinned.
     expect(harness.get().state.tabs[0]?.preview).toBe(true);
   });
 
@@ -226,8 +208,6 @@ describe("WorkbenchProvider", () => {
     const uri = harness.get().state.tabs[0]!.uri;
 
     act(() => {
-      // Simulate a real keystroke: mutate the fake model directly, then
-      // report it the same way the real onDidChangeContent subscriber would.
       const entry = models.get(uri)!;
       entry.content = "<h1>hi, edited by hand</h1>";
       harness.get().api.markDirty(uri, true);
@@ -238,9 +218,6 @@ describe("WorkbenchProvider", () => {
   });
 
   it("reloadBuffer force-replaces content on an already-open buffer (conflict 'reload latest')", async () => {
-    // Regression test: reloadBuffer used to call the initial-load path,
-    // which is deliberately a content no-op once a model already exists —
-    // so clicking "reload latest" after a conflict silently did nothing.
     const { provider, setRead } = makeProvider({
       content: "original content",
       versionHash: "v1",
@@ -253,8 +230,6 @@ describe("WorkbenchProvider", () => {
     const uri = harness.get().state.tabs[0]!.uri;
     expect(harness.get().state.buffers[uri]?.savedVersionHash).toBe("v1");
 
-    // Simulate a local dirty edit, then the server having moved on (a
-    // conflict), then the user explicitly choosing to reload latest.
     models.get(uri)!.content = "local unsaved edit";
     setRead({ content: "content from someone else", versionHash: "v2" });
 

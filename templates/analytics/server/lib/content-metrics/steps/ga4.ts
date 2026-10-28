@@ -1,0 +1,131 @@
+import { runFullReport } from "../../google-analytics.js";
+import { ga4ConfigFingerprint } from "../config.js";
+import { ContentStepStop, type ContentStep } from "../step.js";
+import { lastSucceededContentRun, listContentItems } from "../store.js";
+import { BUILDER_BLOG_ORIGIN } from "./builder-blog.js";
+import {
+  collectionWindow,
+  DailyMetricValues,
+  pageKey,
+  type ItemRef,
+} from "./daily-metrics.js";
+
+export const GA4_PAGEVIEWS_METRIC = "ga4_pageviews";
+/** GA4 settles a day's numbers within about two days; fetch three again. */
+const LOOKBACK_DAYS = 3;
+const MAX_REPORT_ROWS = 500_000;
+
+function ga4Date(value: string): string {
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+}
+
+/** Daily GA4 pageviews for each collected Builder blog article. */
+export const ga4Step: ContentStep = {
+  id: "ga4",
+  async run({ collection, now, signal }) {
+    const propertyId = collection.config.ga4.propertyId;
+    if (!propertyId) {
+      throw new ContentStepStop({
+        status: "not_configured",
+        errorCode: "ga4_property_not_configured",
+        errorMessage:
+          "Set ga4PropertyId with configure-content-collection to the GA4 property that measures the blog. The collection does not use the shared GA4_PROPERTY_ID.",
+      });
+    }
+    const configFingerprint = ga4ConfigFingerprint(propertyId);
+    const previous = await lastSucceededContentRun(collection, "ga4");
+    const articles = await listContentItems(collection, "builder_blog");
+    if (articles.length === 0) {
+      throw new ContentStepStop({
+        status: "not_configured",
+        errorCode: "no_content_items",
+        errorMessage:
+          "No blog articles are collected yet, so there are no pages to count pageviews for.",
+      });
+    }
+    const byKey = new Map<string, ItemRef>();
+    for (const article of articles) {
+      const key = article.url ? pageKey(article.url) : null;
+      if (key) byKey.set(key, article);
+    }
+
+    const blog = new URL(BUILDER_BLOG_ORIGIN);
+    const window = await collectionWindow(
+      collection,
+      "ga4",
+      now,
+      LOOKBACK_DAYS,
+      configFingerprint,
+    );
+    const rows = await runFullReport({
+      propertyId,
+      dimensions: ["date", "pagePath"],
+      metrics: ["screenPageViews"],
+      dateRange: window,
+      dimensionFilter: {
+        andGroup: {
+          expressions: [
+            {
+              filter: {
+                fieldName: "hostName",
+                stringFilter: { matchType: "EXACT", value: blog.hostname },
+              },
+            },
+            {
+              filter: {
+                fieldName: "pagePath",
+                stringFilter: {
+                  matchType: "BEGINS_WITH",
+                  value: blog.pathname,
+                },
+              },
+            },
+          ],
+        },
+      },
+      maxRows: MAX_REPORT_ROWS,
+      ...(signal ? { signal } : {}),
+    });
+    const values = new DailyMetricValues();
+    let hasMatchedArticle = false;
+    let lastReturnedDate: string | null = null;
+    for (const row of rows) {
+      const date = ga4Date(row.dimensionValues[0]!.value);
+      if (!lastReturnedDate || date > lastReturnedDate) lastReturnedDate = date;
+      const key = pageKey(`${blog.origin}${row.dimensionValues[1]!.value}`);
+      const article = key ? byKey.get(key) : undefined;
+      if (!article) continue;
+      hasMatchedArticle = true;
+      values.add(
+        article,
+        date,
+        GA4_PAGEVIEWS_METRIC,
+        Number(row.metricValues[0]!.value),
+      );
+    }
+
+    if (!hasMatchedArticle) {
+      throw new Error(
+        `GA4 property ${propertyId} returned no pageviews matching collected articles for ${blog.hostname}${blog.pathname} between ${window.startDate} and ${window.endDate}. Check the collection's ga4PropertyId and article URLs.`,
+      );
+    }
+
+    const snapshots = values.snapshots({
+      items: articles,
+      metrics: [GA4_PAGEVIEWS_METRIC],
+      startDate: window.startDate,
+      lastReturnedDate,
+    });
+    return {
+      snapshots,
+      // Replace the old property's entire series only when the new report can commit.
+      replaceSnapshots: previous?.configFingerprint !== configFingerprint,
+      outcome: {
+        rowCount: snapshots.length,
+        windowStart: window.startDate,
+        windowEnd: lastReturnedDate,
+        configFingerprint,
+      },
+    };
+  },
+};

@@ -39,7 +39,11 @@ import {
   updateReadOnlySourceMetadata,
   writeSourceFederation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
+import { assertNotGitHubSource } from "./_document-source.js";
 import { resolveReadableLocalTableSource } from "./_local-table-source.js";
 import { listPropertiesForDatabase } from "./_property-utils.js";
 
@@ -204,7 +208,6 @@ export function builderAttachDurableItemCount(
   return builderEntriesByDocumentId?.size ?? 0;
 }
 
-// Per-source key mapping the UI commits after the canonical-key confirm step.
 const normalizationFormulaSchema = z
   .string()
   .max(1000)
@@ -218,8 +221,6 @@ const joinSideSchema = z.object({
   normalizationFormula: normalizationFormulaSchema,
 });
 
-// Present only when adding a SECOND source — federate it onto the primary on a
-// canonical key. Identity joins only in this phase.
 const joinSchema = z.object({
   canonicalKey: z.object({
     propertyId: z.string().nullable().optional(),
@@ -373,7 +374,10 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
-  run: async (args): Promise<ContentDatabaseSourceAttachmentResult> => {
+  run: async (
+    args,
+    context,
+  ): Promise<ContentDatabaseSourceAttachmentResult> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -398,6 +402,7 @@ export default defineAction({
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
 
     let existingSource = await getExistingSource(database.id);
+    assertNotGitHubSource(existingSource);
     if (sourceType === "local-table") {
       if (sourceTable === database.id) {
         throw new Error("A database can't be added as a source of itself.");
@@ -408,16 +413,11 @@ export default defineAction({
     const relationshipMode =
       args.relationshipMode ?? (args.mode === "add" ? "items" : undefined);
 
-    // Validate before bootstrapping the local primary so an invalid details
-    // attach cannot leave a source record behind.
     assertDetailsSourceJoin({
       relationshipMode,
       hasJoin: Boolean(args.join),
     });
 
-    // A normal local Content database has rows but no explicit source record.
-    // A details join needs that local snapshot to remain the primary side;
-    // otherwise the candidate source would fall through to replacement semantics.
     let initialDetailsSource:
       | Awaited<ReturnType<typeof readDetailsSourceCandidate>>
       | undefined;
@@ -466,9 +466,6 @@ export default defineAction({
       existingSource = await getExistingSource(database.id);
     }
 
-    // Adding a SECOND source as details: relate it onto the primary on the
-    // canonical key. Read-only overlay — the secondary's entries are NOT
-    // imported as local documents/items.
     if ((relationshipMode === "details" || args.join) && existingSource) {
       if (!args.join) {
         throw new Error("Choose a match key before adding source details.");
@@ -559,22 +556,20 @@ export default defineAction({
         now,
       });
 
-      return getContentDatabaseResponse(database.id, {
-        limit: args.limit,
-        offset: args.offset,
-      });
+      return contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: args.limit,
+          offset: args.offset,
+        }),
+        context,
+      );
     }
 
-    // Adding an ADDITIONAL writable Builder source (row-union): insert a new
-    // source and import its entries as their OWN rows, instead of replacing the
-    // primary. No canonical-key join — each row belongs to exactly one source.
     if (
       relationshipMode === "items" &&
       existingSource &&
       sourceType === "builder-cms"
     ) {
-      // Don't add the same collection twice — each "add" starts a fresh source
-      // with no prior rows, so a duplicate attach would re-import duplicate rows.
       if (await databaseSourceExistsForTable(database.id, sourceTable)) {
         throw new Error(`"${sourceTable}" is already attached as a source.`);
       }
@@ -592,8 +587,6 @@ export default defineAction({
         sourceTable,
         now,
       });
-      // Snapshot membership IDs before importing so the new source binds only
-      // its own rows without serializing the existing database.
       const priorItems = await getDb()
         .select({ documentId: schema.contentDatabaseItems.documentId })
         .from(schema.contentDatabaseItems)
@@ -623,7 +616,6 @@ export default defineAction({
         limit: Math.max(1, importedDocumentIds.length),
         offset: 0,
       });
-      // Only the items this collection just created — exclude the primary's.
       const importedItems = additionalSetup.response.items.filter(
         (item) => !priorDocumentIds.has(item.document.id),
       );
@@ -683,10 +675,13 @@ export default defineAction({
       });
       await ensureDatabaseSourceProperty({ database, now });
 
-      return getContentDatabaseResponse(database.id, {
-        limit: args.limit,
-        offset: args.offset,
-      });
+      return contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: args.limit,
+          offset: args.offset,
+        }),
+        context,
+      );
     }
 
     if (relationshipMode === "items" && existingSource) {
@@ -832,9 +827,12 @@ export default defineAction({
       };
     }
 
-    return getContentDatabaseResponse(database.id, {
-      limit: args.limit,
-      offset: args.offset,
-    });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, {
+        limit: args.limit,
+        offset: args.offset,
+      }),
+      context,
+    );
   },
 });

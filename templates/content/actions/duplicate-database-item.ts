@@ -1,18 +1,31 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconCopiedFromDocument,
+} from "../server/lib/private-icon-references.js";
+import { withoutBuilderStatusValues } from "./_builder-status-property.js";
+import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
+import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
@@ -23,7 +36,7 @@ export default defineAction({
     documentId: z.string().optional().describe("Collection row document ID"),
     title: z.string().optional().describe("Optional title for the duplicate"),
   }),
-  run: async ({ itemId, documentId, title }) => {
+  run: async ({ itemId, documentId, title }, ctx) => {
     if (!itemId && !documentId) {
       throw new Error("Either itemId or documentId is required.");
     }
@@ -44,6 +57,10 @@ export default defineAction({
         schema.documents,
         eq(schema.documents.id, schema.contentDatabaseItems.documentId),
       )
+      .leftJoin(
+        schema.contentSpaces,
+        eq(schema.contentSpaces.filesDatabaseId, schema.contentDatabases.id),
+      )
       .where(
         and(
           itemId
@@ -52,7 +69,14 @@ export default defineAction({
           isNull(schema.contentDatabases.deletedAt),
           isNull(schema.documents.trashedAt),
         ),
-      );
+      )
+      // A Page can belong to several collections (Files, personal pins, other
+      // collections). When only the Page is named, duplicate it in its own
+      // space's Files rather than whichever membership the database returns.
+      .orderBy(
+        sql`case when ${schema.contentSpaces.filesDatabaseId} is not null and ${schema.contentDatabases.spaceId} = ${schema.documents.spaceId} then 0 else 1 end`,
+      )
+      .limit(1);
 
     if (!row) throw new Error("Database row not found.");
     if (!row.database.spaceId) {
@@ -69,8 +93,10 @@ export default defineAction({
       [row.document.id],
       "duplicated",
     );
+    await assertCollectionAcceptsNewRows(row.database.id, db);
 
     const now = new Date().toISOString();
+    const actor = requireDocumentRequestActor(ctx);
     const nextDocumentId = nanoid();
     const nextItemId = nanoid();
     const inheritedShares = await db
@@ -123,12 +149,19 @@ export default defineAction({
         title?.trim() ||
         `Copy of ${lockedRow.document.title.trim() || "Untitled"}`;
       const nextPosition = lockedRow.item.position + 1;
-      const values = await tx
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(
-          eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
-        );
+      const duplicateParentId =
+        row.database.systemRole === "files"
+          ? lockedRow.document.parentId
+          : row.database.documentId;
+      const values = await withoutBuilderStatusValues(
+        tx,
+        await tx
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(
+            eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
+          ),
+      );
       const [claimedSource] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)
@@ -169,17 +202,38 @@ export default defineAction({
         .where(
           and(
             eq(schema.documents.ownerEmail, lockedRow.document.ownerEmail),
-            eq(schema.documents.parentId, row.database.documentId),
+            duplicateParentId === null
+              ? and(
+                  isNull(schema.documents.parentId),
+                  eq(schema.documents.spaceId, row.database.spaceId!),
+                  eq(
+                    schema.documents.visibility,
+                    lockedRow.document.visibility,
+                  ),
+                  lockedRow.document.orgId
+                    ? eq(schema.documents.orgId, lockedRow.document.orgId)
+                    : isNull(schema.documents.orgId),
+                )
+              : eq(schema.documents.parentId, duplicateParentId),
             gte(schema.documents.position, nextPosition),
           ),
         );
 
+      await verifyPrivateIconCopiedFromDocument(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          sourceDocumentId: lockedRow.document.id,
+          icon: lockedRow.document.icon,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+        },
+      );
       await tx.insert(schema.documents).values({
         id: nextDocumentId,
         spaceId: row.database.spaceId,
         ownerEmail: lockedRow.document.ownerEmail,
         orgId: lockedRow.document.orgId,
-        parentId: row.database.documentId,
+        parentId: duplicateParentId,
         title: nextTitle,
         content: lockedRow.document.content,
         icon: lockedRow.document.icon,
@@ -187,9 +241,33 @@ export default defineAction({
         isFavorite: 0,
         hideFromSearch: lockedRow.document.hideFromSearch,
         visibility: lockedRow.document.visibility,
+        ...documentCreationAttribution(actor),
         createdAt: now,
         updatedAt: now,
       });
+      await syncPrivateIconReference(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          elementType: "document",
+          elementId: nextDocumentId,
+          documentId: nextDocumentId,
+          icon: lockedRow.document.icon,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+        },
+      );
+      await syncPrivateCalloutReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId: nextDocumentId,
+          before: "",
+          after: lockedRow.document.content,
+          userEmail: actor,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+          source: { kind: "document", documentId: lockedRow.document.id },
+        },
+      );
 
       await tx.insert(schema.contentDatabaseItems).values({
         id: nextItemId,
@@ -210,7 +288,7 @@ export default defineAction({
             principalType: share.principalType,
             principalId: share.principalId,
             role: share.role,
-            createdBy: getRequestUserEmail() ?? lockedRow.document.ownerEmail,
+            createdBy: actor,
             createdAt: now,
           })),
         );
@@ -248,11 +326,14 @@ export default defineAction({
           documentIds: [nextDocumentId],
         })
       ).items.find((item) => item.id === nextItemId);
-    return {
-      ...response,
-      duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
-      duplicatedItemId: nextItemId,
-      duplicatedDocumentId: nextDocumentId,
-    };
+    return contentDatabaseResponseForCaller(
+      {
+        ...response,
+        duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
+        duplicatedItemId: nextItemId,
+        duplicatedDocumentId: nextDocumentId,
+      },
+      ctx,
+    );
   },
 });

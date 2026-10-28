@@ -1,12 +1,14 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `CREATE TABLE IF NOT EXISTS integration_configs (
+export const integrationConfigsStore = defineStore({
+  id: "integration_configs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS integration_configs (
   platform TEXT NOT NULL,
   config_key TEXT NOT NULL,
   config_data TEXT NOT NULL,
@@ -14,26 +16,16 @@ export async function ensureTable(): Promise<void> {
   updated_at BIGINT NOT NULL,
   PRIMARY KEY (platform, config_key)
 )`;
-
-      {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("integration_configs", createSql);
-        return;
-      }
-    })().catch((err) => {
-      // Don't cache the rejection — let the next caller retry a fresh init.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return integrationConfigsStore.ready();
 }
 
-/**
- * Bumped on every in-process config write. Pollers that back off while their
- * integration is disabled watch this so enabling one takes effect on the next
- * tick instead of at the end of their backoff window.
- */
 let _configWriteEpoch = 0;
 
 export function integrationConfigWriteEpoch(): number {
@@ -48,9 +40,6 @@ export interface IntegrationConfig {
   updatedAt: number;
 }
 
-/**
- * Get the config for a platform integration.
- */
 export async function getIntegrationConfig(
   platform: string,
   configKey = "default",
@@ -72,9 +61,6 @@ export async function getIntegrationConfig(
   };
 }
 
-/**
- * Save or update a platform integration config.
- */
 export async function saveIntegrationConfig(
   platform: string,
   configData: Record<string, unknown>,
@@ -96,7 +82,6 @@ export async function saveIntegrationConfig(
   _configWriteEpoch += 1;
 }
 
-/** Save only when the inspected config is still the current config. */
 export async function saveIntegrationConfigIfUnchanged(
   platform: string,
   configData: Record<string, unknown>,
@@ -128,9 +113,6 @@ export async function saveIntegrationConfigIfUnchanged(
   return true;
 }
 
-/**
- * Delete a platform integration config.
- */
 export async function deleteIntegrationConfig(
   platform: string,
   configKey = "default",
@@ -144,27 +126,74 @@ export async function deleteIntegrationConfig(
   _configWriteEpoch += 1;
 }
 
-/**
- * List all configs for a platform.
- */
-export async function listIntegrationConfigs(
-  platform?: string,
-): Promise<IntegrationConfig[]> {
+export async function listIntegrationConfigPage(
+  options: {
+    platform?: string;
+    limit?: number;
+    after?: { platform: string; configKey: string };
+  } = {},
+): Promise<{
+  configs: IntegrationConfig[];
+  nextCursor: { platform: string; configKey: string } | null;
+}> {
   await ensureTable();
   const client = getDbExec();
-  const { rows } = platform
-    ? await client.execute({
-        sql: `SELECT platform, config_key, config_data, owner, updated_at FROM integration_configs WHERE platform = ?`,
-        args: [platform],
-      })
-    : await client.execute(
-        `SELECT platform, config_key, config_data, owner, updated_at FROM integration_configs`,
-      );
-  return rows.map((row) => ({
+  const conditions: string[] = [];
+  const args: unknown[] = [];
+  if (options.platform) {
+    conditions.push("platform = ?");
+    args.push(options.platform);
+  }
+  if (options.after) {
+    conditions.push("(platform > ? OR (platform = ? AND config_key > ?))");
+    args.push(
+      options.after.platform,
+      options.after.platform,
+      options.after.configKey,
+    );
+  }
+  const limit = Number.isFinite(options.limit)
+    ? Math.min(100, Math.max(1, Math.floor(options.limit!)))
+    : 100;
+  const { rows } = await client.execute({
+    sql: `SELECT platform, config_key, config_data, owner, updated_at
+      FROM integration_configs
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+      ORDER BY platform ASC, config_key ASC
+      LIMIT ?`,
+    args: [...args, limit + 1],
+  });
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const configs = pageRows.map((row) => ({
     platform: row.platform as string,
     configKey: row.config_key as string,
     configData: JSON.parse(row.config_data as string),
     owner: (row.owner as string) ?? null,
     updatedAt: row.updated_at as number,
   }));
+  const last = pageRows.at(-1);
+  return {
+    configs,
+    nextCursor:
+      hasMore && last
+        ? {
+            platform: String(last.platform),
+            configKey: String(last.config_key),
+          }
+        : null,
+  };
+}
+
+export async function listIntegrationConfigs(
+  platform?: string,
+): Promise<IntegrationConfig[]> {
+  const configs: IntegrationConfig[] = [];
+  let after: { platform: string; configKey: string } | undefined;
+  do {
+    const page = await listIntegrationConfigPage({ platform, after });
+    configs.push(...page.configs);
+    after = page.nextCursor ?? undefined;
+  } while (after);
+  return configs;
 }

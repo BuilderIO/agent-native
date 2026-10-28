@@ -1,16 +1,8 @@
-/**
- * Core script: resource-list
- *
- * List resources stored in the SQL resource store.
- *
- * Usage:
- *   pnpm action resource-list [--prefix <path>] [--scope personal|shared|workspace|all] [--format json|text] [--include-agent-scratch true]
- */
-
 import {
   resourceList,
   resourceListAccessible,
   ensurePersonalDefaults,
+  isWorkspaceResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
   sharedResourceOwner,
@@ -54,7 +46,6 @@ Options:
     );
   }
 
-  // Seed personal AGENTS.md + LEARNINGS.md on first access
   if (scope !== "shared" && scope !== "workspace") {
     await ensurePersonalDefaults(owner);
   }
@@ -87,11 +78,13 @@ Options:
       ];
     }
   } else if (scope === "workspace") {
+    const orgId = getRequestOrgId() ?? null;
     resources = includeAgentScratch
       ? await resourceList(WORKSPACE_OWNER, prefix, {
           includeAgentScratch: true,
+          orgId,
         })
-      : await resourceList(WORKSPACE_OWNER, prefix);
+      : await resourceList(WORKSPACE_OWNER, prefix, { orgId });
   } else {
     const orgId = getRequestOrgId() ?? null;
     resources = includeAgentScratch
@@ -107,7 +100,6 @@ Options:
     return;
   }
 
-  // Human-readable output
   if (resources.length === 0) {
     console.log("No resources found.");
     return;
@@ -116,12 +108,11 @@ Options:
   console.log(`Resources: ${resources.length}\n`);
 
   for (const r of resources) {
-    const ownerLabel =
-      r.owner === WORKSPACE_OWNER
-        ? "[workspace]"
-        : r.owner === SHARED_OWNER
-          ? "[shared]"
-          : `[${r.owner}]`;
+    const ownerLabel = isWorkspaceResourceOwner(r.owner)
+      ? "[workspace]"
+      : r.owner === SHARED_OWNER
+        ? "[shared]"
+        : `[${r.owner}]`;
     const sizeLabel = r.size != null ? ` (${r.size} bytes)` : "";
     console.log(`  ${r.path}  ${ownerLabel}${sizeLabel}  ${r.mimeType}`);
   }

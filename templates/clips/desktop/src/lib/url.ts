@@ -1,32 +1,39 @@
-import { loadString } from "./storage";
+import { loadDesktopAuthToken } from "./desktop-auth-token";
+import {
+  LEGACY_PRODUCTION_SERVER_URL,
+  normalizeServerUrl,
+  resolveDesktopServerUrl,
+} from "./desktop-server-url";
+import { loadStringAllowEmpty, saveString } from "./storage";
 
-/** Strip trailing slashes and whitespace from a server URL. */
-export function normalizeServerUrl(serverUrl: string): string {
-  return serverUrl.trim().replace(/\/+$/, "");
-}
+export { normalizeServerUrl } from "./desktop-server-url";
 
-/** localStorage key the popover persists the connected server URL under. */
 export const SERVER_URL_STORAGE_KEY = "clips:server-url";
 
-// Sensible defaults so the user never has to type a URL on first launch.
-// Dev builds point at the local dev server; production builds point at the
-// hosted Clips instance. The user can still override from Settings.
-// Dev points at the Clips dev server (shared-app-config says 8094).
-// `VITE_CLIPS_SERVER_URL` at build time points a production-mode build (such as
-// the alpha used for testing) at another server without touching Settings.
-export const DEFAULT_SERVER_URL =
-  import.meta.env.VITE_CLIPS_SERVER_URL ||
-  (import.meta.env.DEV
-    ? "http://localhost:8094"
-    : "https://clips.agent-native.com");
+// The release workflow sets this for the Nightly channel only.
+const BUILD_DEFAULT_SERVER_URL =
+  import.meta.env.VITE_CLIPS_DEFAULT_SERVER_URL?.trim();
 
-/**
- * The server URL the desktop app is connected to, as the popover stored it.
- * All Tauri windows share one localStorage, so overlays (the meeting pill's
- * ask sheet) read the same value the popover saves in Settings.
- */
+export const DEFAULT_SERVER_URL = import.meta.env.DEV
+  ? "http://localhost:8094"
+  : normalizeServerUrl(
+      BUILD_DEFAULT_SERVER_URL || "https://clips.agent-native.com",
+    );
+
 export function loadStoredServerUrl(): string {
-  return normalizeServerUrl(
-    loadString(SERVER_URL_STORAGE_KEY, DEFAULT_SERVER_URL),
-  );
+  return resolveDesktopServerUrl({
+    storedServerUrl: loadStringAllowEmpty(SERVER_URL_STORAGE_KEY, ""),
+    defaultServerUrl: DEFAULT_SERVER_URL,
+    hasLegacyProductionToken: Boolean(
+      loadDesktopAuthToken(LEGACY_PRODUCTION_SERVER_URL).trim(),
+    ),
+    hasDefaultServerToken: Boolean(
+      loadDesktopAuthToken(DEFAULT_SERVER_URL).trim(),
+    ),
+  });
+}
+
+export function persistStoredServerUrl(serverUrl: string): void {
+  const normalized = normalizeServerUrl(serverUrl);
+  if (normalized) saveString(SERVER_URL_STORAGE_KEY, normalized);
 }

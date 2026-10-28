@@ -1,34 +1,35 @@
 // @vitest-environment happy-dom
-
-import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import type { ReviewThread } from "@agent-native/toolkit/app/review";
 import { act } from "react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { createRoot } from "react-dom/client";
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+} from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  latestPanelProps: null as Record<string, unknown> | null,
   unreadMutate: vi.fn(),
   bulkUnreadMutate: vi.fn(),
-  resolveMutate: vi.fn(),
   reviewState: {
-    data: {
-      comments: [] as ReviewComment[],
-      discussion: {
-        threadPreferences: {},
-        canSetThreadPreferences: true,
-      },
-    },
+    data: undefined as
+      | {
+          comments: ReviewComment[];
+          discussion: {
+            threadPreferences: Record<string, { unread?: boolean }>;
+            canSetThreadPreferences: boolean;
+          };
+        }
+      | undefined,
+    isLoading: false,
+    isError: false,
   },
 }));
 
 vi.mock("@agent-native/core/client/review", () => ({
-  ReviewThreadPanel: (props: Record<string, unknown>) => {
-    mocks.latestPanelProps = props;
-    return <div data-review-thread-panel />;
-  },
   useSetReviewThreadUnread: () => ({
     mutate: mocks.unreadMutate,
     isPending: false,
@@ -38,28 +39,40 @@ vi.mock("@agent-native/core/client/review", () => ({
     isPending: false,
   }),
   useReviewComments: () => mocks.reviewState,
-  useResolveReviewThread: () => ({
-    mutate: mocks.resolveMutate,
-    isPending: false,
-  }),
-}));
-
-vi.mock("@agent-native/core/client/org", () => ({
-  useOrgMembers: () => ({ data: { members: [] } }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, options?: { count?: number }) =>
+    options?.count === undefined ? key : `${key}:${options.count}`,
+  useFormatters: () => ({
+    formatRelativeTime: (value: number, unit: string) => `${value} ${unit}`,
+    formatDate: () => "date",
+  }),
 }));
 
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props}>{children}</button>
-  ),
+  Button: ({
+    children,
+    asChild,
+    ...props
+  }: ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }) =>
+    asChild ? (
+      <>{children}</>
+    ) : (
+      <button type="button" {...props}>
+        {children}
+      </button>
+    ),
 }));
 
 vi.mock("@/components/ui/input", () => ({
-  Input: () => null,
+  Input: (props: InputHTMLAttributes<HTMLInputElement> & { size?: string }) => (
+    <input {...props} size={undefined} />
+  ),
+}));
+
+vi.mock("@/components/ui/skeleton", () => ({
+  Skeleton: () => <span data-skeleton="" />,
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => {
@@ -74,182 +87,578 @@ vi.mock("@/components/ui/dropdown-menu", () => {
     DropdownMenuRadioGroup: passthrough,
     DropdownMenuRadioItem: passthrough,
     DropdownMenuSeparator: () => null,
-    DropdownMenuCheckboxItem: passthrough,
-    DropdownMenuItem: passthrough,
+    DropdownMenuCheckboxItem: ({
+      children,
+      checked,
+      onCheckedChange,
+      disabled,
+    }: {
+      children?: ReactNode;
+      checked?: boolean;
+      onCheckedChange?: (checked: boolean) => void;
+      disabled?: boolean;
+    }) => (
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => onCheckedChange?.(!checked)}
+      >
+        {children}
+      </button>
+    ),
+    DropdownMenuItem: ({
+      children,
+      onSelect,
+    }: {
+      children?: ReactNode;
+      onSelect?: () => void;
+    }) => (
+      <button type="button" role="menuitem" onClick={() => onSelect?.()}>
+        {children}
+      </button>
+    ),
   };
 });
 
-vi.mock("@/components/ui/spinner", () => ({
-  Spinner: () => null,
-}));
-
 import {
   compareReviewThreads,
-  getReviewThreadTargetFilter,
   getUnreadReviewThreadIds,
+  groupReviewThreadsByScreen,
   ReviewCommentsPanel,
+  type ReviewCommentsPanelProps,
 } from "./ReviewCommentsPanel";
 
-describe("ReviewCommentsPanel capabilities", () => {
+const SCREENS: ReviewCommentsPanelProps["screens"] = [
+  { id: "screen-1", name: "Screen 1", route: "/home" },
+  { id: "screen-2", name: "Screen 2", route: null },
+];
+
+function makeComment(overrides: Record<string, unknown>): ReviewComment {
+  return {
+    id: "comment",
+    resourceType: "design",
+    resourceId: "design-1",
+    threadId: "thread",
+    parentCommentId: null,
+    targetId: null,
+    status: "open",
+    body: "Comment body",
+    authorEmail: "other@example.com",
+    authorName: "Other",
+    createdBy: "human",
+    createdAt: "2026-10-25T10:00:00.000Z",
+    ...overrides,
+  } as unknown as ReviewComment;
+}
+
+function makeRoot(
+  threadId: string,
+  overrides: Record<string, unknown> = {},
+): ReviewComment {
+  return makeComment({ id: `${threadId}-root`, threadId, ...overrides });
+}
+
+function makeThread(root: ReviewComment): ReviewThread {
+  return { root, replies: [] };
+}
+
+function setComments(
+  comments: ReviewComment[],
+  unreadThreadIds: string[] = [],
+) {
+  mocks.reviewState.data = {
+    comments,
+    discussion: {
+      threadPreferences: Object.fromEntries(
+        unreadThreadIds.map((threadId) => [threadId, { unread: true }]),
+      ),
+      canSetThreadPreferences: true,
+    },
+  };
+}
+
+const FIXTURE = [
+  makeRoot("t-hero", {
+    targetId: "screen-1",
+    body: "Hero headline wraps",
+    createdAt: "2026-10-26T10:00:00.000Z",
+  }),
+  makeRoot("t-copy", {
+    targetId: "screen-1",
+    body: "Copy button needs a hover state",
+    authorEmail: "me@example.com",
+    authorName: "Me",
+    createdAt: "2026-10-25T10:00:00.000Z",
+  }),
+  makeRoot("t-docs", {
+    targetId: "screen-2",
+    body: "Docs title should match",
+    createdAt: "2026-10-24T10:00:00.000Z",
+  }),
+  makeRoot("t-board", {
+    targetId: null,
+    body: "Board wide question",
+    createdAt: "2026-10-23T10:00:00.000Z",
+  }),
+  makeRoot("t-old", {
+    targetId: "screen-2",
+    body: "Already fixed",
+    status: "resolved",
+    createdAt: "2026-10-22T10:00:00.000Z",
+  }),
+];
+
+let mounted: { container: HTMLElement; root: Root } | null = null;
+
+function renderPanel(props: Partial<ReviewCommentsPanelProps> = {}) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  mounted = { container, root };
+  act(() => {
+    root.render(
+      <ReviewCommentsPanel
+        designId="design-1"
+        canComment
+        screens={SCREENS}
+        {...props}
+      />,
+    );
+  });
+  return container;
+}
+
+function rowIds(container: HTMLElement): string[] {
+  return [...container.querySelectorAll("[data-review-thread-row]")].map(
+    (row) => row.getAttribute("data-review-thread-id") ?? "",
+  );
+}
+
+// Each group is named by the heading it points at, not by an aria-label.
+// A group with no label yields `undefined`, which fails the equality check.
+function groupNames(container: HTMLElement): Array<string | null | undefined> {
+  return [...container.querySelectorAll("[role=group]")].map((group) => {
+    const headingId = group.getAttribute("aria-labelledby");
+    return headingId
+      ? document.getElementById(headingId)?.textContent
+      : undefined;
+  });
+}
+
+function typeInSearch(input: HTMLInputElement, value: string) {
+  act(() => {
+    // React tracks the value through its own setter, so write through the
+    // prototype's setter for the change to reach onChange.
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    setValue?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function clickButton(container: HTMLElement, selector: string) {
+  const element = container.querySelector<HTMLElement>(selector);
+  if (!element) throw new Error(`Missing ${selector}`);
+  act(() => element.click());
+}
+
+function clickMenuItem(container: HTMLElement, label: string) {
+  const item = [
+    ...container.querySelectorAll<HTMLElement>(
+      "[role=menuitemcheckbox], [role=menuitem]",
+    ),
+  ].find((candidate) => candidate.textContent === label);
+  if (!item) throw new Error(`Missing menu item ${label}`);
+  act(() => item.click());
+}
+
+describe("ReviewCommentsPanel", () => {
   beforeEach(() => {
-    mocks.latestPanelProps = null;
     mocks.unreadMutate.mockReset();
     mocks.bulkUnreadMutate.mockReset();
-    mocks.reviewState.data.comments = [];
-    mocks.reviewState.data.discussion.threadPreferences = {};
+    mocks.reviewState.isLoading = false;
+    mocks.reviewState.isError = false;
+    setComments(FIXTURE);
   });
 
-  it("keeps the sidebar design-wide and leaves comment creation to canvas pins", () => {
-    renderToStaticMarkup(
-      <ReviewCommentsPanel
-        designId="design-1"
-        canComment
-        canResolve={false}
-        canDispatchToAgent={false}
-      />,
-    );
-
-    expect(mocks.latestPanelProps).toMatchObject({
-      showComposer: false,
-      showComposerTargetPicker: false,
-      canResolve: false,
-      onReactionError: expect.any(Function),
-    });
-    expect(mocks.latestPanelProps).not.toHaveProperty("targetId");
-    expect(mocks.latestPanelProps?.renderThreadActions).toBeUndefined();
+  afterEach(() => {
+    if (!mounted) return;
+    act(() => mounted?.root.unmount());
+    mounted.container.remove();
+    mounted = null;
   });
 
-  it("shows agent routing only when the caller grants dispatch capability", () => {
-    renderToStaticMarkup(
-      <ReviewCommentsPanel
-        designId="design-1"
-        canComment
-        canResolve
-        canDispatchToAgent
-        onSendThreadToAgent={vi.fn()}
-      />,
-    );
+  it("lists threads as rows, not expanded articles", () => {
+    const container = renderPanel();
 
-    expect(mocks.latestPanelProps).toMatchObject({
-      canResolve: true,
-      showComposer: false,
-      showComposerTargetPicker: false,
-    });
-    expect(mocks.latestPanelProps?.renderThreadActions).toBeTypeOf("function");
-  });
-
-  it("provides thread-aware filtering and leaves the page scope opt-in", () => {
-    renderToStaticMarkup(
-      <ReviewCommentsPanel
-        designId="design-1"
-        canComment
-        currentUserEmail="ME@example.com"
-        currentTargetId="screen-2"
-      />,
-    );
-    const filter = mocks.latestPanelProps?.threadFilter as (thread: {
-      root: { authorEmail: string };
-      replies: Array<{ authorEmail: string }>;
-    }) => boolean;
-    expect(filter).toBeTypeOf("function");
     expect(
-      filter({
-        root: { authorEmail: "other@example.com" },
-        replies: [{ authorEmail: "me@example.com" }],
-      }),
-    ).toBe(true);
-    expect(mocks.latestPanelProps).not.toHaveProperty("targetId");
+      container.querySelector("[data-review-comments-panel]"),
+    ).not.toBeNull();
+    expect(container.querySelector("article")).toBeNull();
+    expect(rowIds(container)).toEqual([
+      "t-hero",
+      "t-copy",
+      "t-docs",
+      "t-board",
+    ]);
   });
 
-  it("uses the nullable board target when current-page filtering is enabled", () => {
-    renderToStaticMarkup(
-      <ReviewCommentsPanel
-        designId="design-1"
-        canComment
-        currentTargetId={null}
-      />,
+  it("groups rows by screen in canvas order, board last, and shows routes only for localhost screens", () => {
+    const container = renderPanel({
+      screens: [
+        { id: "screen-2", name: "Screen 2", route: null },
+        { id: "screen-1", name: "Screen 1", route: "/home" },
+      ],
+    });
+
+    expect(groupNames(container)).toEqual([
+      "Screen 2",
+      "Screen 1",
+      "review.boardGroup",
+    ]);
+    const groups = [...container.querySelectorAll("[role=group]")];
+    const screen1 = groups[1];
+    expect(
+      screen1?.querySelector("span.text-muted-foreground")?.textContent,
+    ).toBe("/home");
+    expect(groups[0]?.textContent).toContain("Screen 2");
+    expect(groups[0]?.textContent).not.toContain("/home");
+    expect(groups[2]?.textContent).toContain("Board wide question");
+  });
+
+  it("sends threads with an unknown target to the board group", () => {
+    setComments([
+      makeRoot("t-gone", { targetId: "deleted-screen", body: "Stale target" }),
+    ]);
+    const container = renderPanel();
+
+    expect(groupNames(container)).toEqual(["review.boardGroup"]);
+    expect(rowIds(container)).toEqual(["t-gone"]);
+  });
+
+  it("names each group with an h3 heading and lists its rows as list items", () => {
+    const container = renderPanel();
+
+    const groups = [...container.querySelectorAll<HTMLElement>("[role=group]")];
+    expect(groups).toHaveLength(3);
+    for (const group of groups) {
+      const headingId = group.getAttribute("aria-labelledby");
+      expect(headingId).toBeTruthy();
+      expect(document.getElementById(headingId ?? "")?.tagName).toBe("H3");
+      expect(
+        group.querySelector("ul > li > [data-review-thread-row]"),
+      ).not.toBeNull();
+    }
+    expect(
+      container.querySelectorAll("ul > li > [data-review-thread-row]"),
+    ).toHaveLength(4);
+  });
+
+  it("announces the visible thread count as a live status", () => {
+    const container = renderPanel();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "review.threadsCount:4",
     );
 
-    expect(getReviewThreadTargetFilter(true, null)).toEqual({ targetId: null });
-    expect(getReviewThreadTargetFilter(true, "screen-2")).toEqual({
-      targetId: "screen-2",
-    });
-    expect(getReviewThreadTargetFilter(true, undefined)).toEqual({});
-    expect(getReviewThreadTargetFilter(false, null)).toEqual({});
-    expect(mocks.latestPanelProps).toMatchObject({
-      onSetThreadUnread: expect.any(Function),
-    });
+    clickButton(container, '[aria-label="review.search"]');
+    const input = container.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("Missing search input");
+    typeInSearch(input, "hero");
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "review.threadsCount:1",
+    );
   });
 
-  it("marks a selected unread thread as read", () => {
-    mocks.reviewState.data.comments = [
-      { threadId: "thread-1", parentCommentId: null } as ReviewComment,
-    ];
-    mocks.reviewState.data.discussion.threadPreferences = {
-      "thread-1": { muted: false, unread: true },
-    };
+  it("shows the count of visible threads and leaves resolved ones out until asked", () => {
+    const container = renderPanel();
+
+    expect(container.textContent).toContain("review.threadsCount:4");
+
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.showResolved");
+
+    expect(container.textContent).toContain("review.threadsCount:5");
+    expect(rowIds(container)).toContain("t-old");
+  });
+
+  it("keeps resolved rows at full opacity and labels them resolved", () => {
+    const container = renderPanel();
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.showResolved");
+
+    const resolvedRow = container.querySelector<HTMLElement>(
+      '[data-review-thread-id="t-old"]',
+    );
+    expect(resolvedRow?.classList.contains("opacity-60")).toBe(false);
+    expect(resolvedRow?.querySelector(".sr-only")?.textContent).toContain(
+      "review.resolved",
+    );
+    const openRow = container.querySelector<HTMLElement>(
+      '[data-review-thread-id="t-hero"]',
+    );
+    expect(openRow?.classList.contains("opacity-60")).toBe(false);
+  });
+
+  it("filters rows by the search input and restores them on Escape", () => {
+    const container = renderPanel();
+
+    clickButton(container, '[aria-label="review.search"]');
+    const input = container.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("Missing search input");
+    typeInSearch(input, "hero");
+    expect(rowIds(container)).toEqual(["t-hero"]);
+    expect(container.textContent).toContain("review.threadsCount:1");
+
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(container.querySelector("input")).toBeNull();
+    expect(rowIds(container)).toHaveLength(4);
+  });
+
+  it("returns focus to the search toggle when Escape closes search", () => {
+    const container = renderPanel();
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[aria-label="review.search"]',
+    );
+
+    clickButton(container, '[aria-label="review.search"]');
+    const input = container.querySelector<HTMLInputElement>("input");
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+
+    act(() => {
+      input?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+
+    expect(container.querySelector("input")).toBeNull();
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("marks the Filter button and names it as applied only while a filter is on", () => {
+    const container = renderPanel();
+    const idle = container.querySelector<HTMLElement>(
+      '[aria-label="review.filter"]',
+    );
+    expect(idle?.querySelector('span[aria-hidden="true"]')).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="review.filter, review.filtersActive"]',
+      ),
+    ).toBeNull();
+
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.showResolved");
+
+    const active = container.querySelector<HTMLElement>(
+      '[aria-label="review.filter, review.filtersActive"]',
+    );
+    expect(
+      active?.querySelector('span[aria-hidden="true"].bg-primary'),
+    ).not.toBeNull();
+
+    clickMenuItem(container, "review.showResolved");
+
+    expect(
+      container.querySelector(
+        '[aria-label="review.filter, review.filtersActive"]',
+      ),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="review.filter"] span[aria-hidden="true"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("calls the focus handler with the thread when a row is clicked", () => {
     const onSelectThread = vi.fn();
-    renderToStaticMarkup(
-      <ReviewCommentsPanel
-        designId="design-1"
-        canComment
-        onSelectThread={onSelectThread}
-      />,
-    );
+    const container = renderPanel({ onSelectThread });
 
-    const thread = {
-      root: { threadId: "thread-1" },
-      replies: [],
-    } as unknown as ReviewThread;
-    (mocks.latestPanelProps?.onSelectThread as (thread: ReviewThread) => void)(
-      thread,
+    clickButton(container, '[data-review-thread-id="t-docs"]');
+
+    expect(onSelectThread).toHaveBeenCalledTimes(1);
+    expect(onSelectThread.mock.calls[0]?.[0]).toMatchObject({
+      root: { threadId: "t-docs" },
+    });
+  });
+
+  it("marks the active row and leaves the others plain", () => {
+    const container = renderPanel({ activeThreadId: "t-copy" });
+
+    const active = container.querySelector<HTMLElement>(
+      '[data-review-thread-id="t-copy"]',
     );
+    expect(active?.classList.contains("bg-secondary")).toBe(true);
+    expect(active?.getAttribute("aria-current")).toBe("true");
+    const other = container.querySelector<HTMLElement>(
+      '[data-review-thread-id="t-hero"]',
+    );
+    expect(other?.classList.contains("bg-secondary")).toBe(false);
+    expect(other?.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("marks an unread thread read when its row is selected", () => {
+    setComments(FIXTURE, ["t-hero"]);
+    const onSelectThread = vi.fn();
+    const container = renderPanel({ onSelectThread });
+
+    clickButton(container, '[data-review-thread-id="t-hero"]');
+
     expect(mocks.unreadMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: "thread-1", unread: false }),
+      expect.objectContaining({ threadId: "t-hero", unread: false }),
       expect.any(Object),
     );
-    expect(onSelectThread).toHaveBeenCalledWith(thread);
+    expect(onSelectThread).toHaveBeenCalledTimes(1);
   });
 
-  it("marks all unread threads with one bulk mutation", async () => {
-    mocks.reviewState.data.comments = [
-      { threadId: "thread-1", parentCommentId: null } as ReviewComment,
-      { threadId: "thread-2", parentCommentId: null } as ReviewComment,
-    ];
-    mocks.reviewState.data.discussion.threadPreferences = {
-      "thread-1": { muted: false, unread: true },
-      "thread-2": { muted: false, unread: true },
-    };
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    try {
-      await act(async () => {
-        root.render(<ReviewCommentsPanel designId="design-1" canComment />);
-      });
-      await act(async () => {
-        container
-          .querySelector<HTMLButtonElement>('[aria-label="review.markAllRead"]')
-          ?.click();
-      });
-      expect(mocks.bulkUnreadMutate).toHaveBeenCalledTimes(1);
-      expect(mocks.bulkUnreadMutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          resourceType: "design",
-          resourceId: "design-1",
-          threadIds: expect.arrayContaining(["thread-1", "thread-2"]),
-          unread: false,
-        }),
-        expect.any(Object),
-      );
-      expect(mocks.unreadMutate).not.toHaveBeenCalled();
-    } finally {
-      act(() => root.unmount());
-      container.remove();
-    }
+  it("marks all unread threads with one bulk mutation from the filter menu", () => {
+    setComments(FIXTURE, ["t-hero", "t-docs"]);
+    const container = renderPanel();
+
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.markAllRead");
+
+    expect(mocks.bulkUnreadMutate).toHaveBeenCalledTimes(1);
+    expect(mocks.bulkUnreadMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceType: "design",
+        resourceId: "design-1",
+        threadIds: expect.arrayContaining(["t-hero", "t-docs"]),
+        unread: false,
+      }),
+      expect.any(Object),
+    );
+    expect(mocks.unreadMutate).not.toHaveBeenCalled();
   });
 
-  it("counts root unread preferences and sorts unread threads first", () => {
+  it("hides mark-all-read when nothing is unread", () => {
+    const container = renderPanel();
+
+    clickButton(container, '[aria-label="review.filter"]');
+
+    expect(container.textContent).not.toContain("review.markAllRead");
+  });
+
+  it("only shows the New thread button when the caller can start a thread", () => {
+    const withoutHandler = renderPanel();
+    expect(
+      withoutHandler.querySelector('[aria-label="review.newThread"]'),
+    ).toBeNull();
+    act(() => mounted?.root.unmount());
+    mounted?.container.remove();
+    mounted = null;
+
+    const onNewThread = vi.fn();
+    const container = renderPanel({ onNewThread });
+    clickButton(container, '[aria-label="review.newThread"]');
+    expect(onNewThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables New thread for a viewer who cannot comment", () => {
+    const container = renderPanel({
+      canComment: false,
+      onNewThread: vi.fn(),
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      '[aria-label="review.newThread"]',
+    );
+    expect(button?.disabled).toBe(true);
+  });
+
+  it("shows the empty state when there are no threads", () => {
+    setComments([]);
+    const container = renderPanel();
+
+    expect(container.querySelector("[data-review-thread-row]")).toBeNull();
+    expect(container.textContent).toContain("review.emptyState");
+  });
+
+  it("shows a skeleton with no count while loading", () => {
+    mocks.reviewState.data = undefined;
+    mocks.reviewState.isLoading = true;
+    const container = renderPanel();
+
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.querySelector("[data-skeleton]")).not.toBeNull();
+    expect(container.textContent).not.toContain("review.threadsCount");
+    expect(container.textContent).not.toContain("review.emptyState");
+  });
+
+  it("reports a failed load instead of the empty state", () => {
+    mocks.reviewState.data = undefined;
+    mocks.reviewState.isError = true;
+    const container = renderPanel();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "common.genericError",
+    );
+    expect(container.textContent).not.toContain("review.emptyState");
+  });
+
+  it("does not ask a signed-in viewer to sign in to comment", () => {
+    const markup = renderToStaticMarkup(
+      <ReviewCommentsPanel
+        designId="design-1"
+        canComment={false}
+        currentUserEmail="viewer@example.com"
+        screens={[]}
+        signInHref="/sign-in"
+      />,
+    );
+
+    expect(markup).not.toContain("review.signInToComment");
+  });
+
+  it("offers sign-in to anonymous viewers who cannot comment", () => {
+    const markup = renderToStaticMarkup(
+      <ReviewCommentsPanel
+        designId="design-1"
+        canComment={false}
+        screens={[]}
+        signInHref="/sign-in"
+      />,
+    );
+
+    expect(markup).toContain("review.signInToComment");
+  });
+
+  it("filters to the current page's screen", () => {
+    const container = renderPanel({ currentTargetId: "screen-2" });
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.currentPage");
+
+    expect(rowIds(container)).toEqual(["t-docs"]);
+  });
+
+  it("treats a null current target as the board", () => {
+    const container = renderPanel({ currentTargetId: null });
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.currentPage");
+
+    expect(rowIds(container)).toEqual(["t-board"]);
+  });
+
+  it("filters to the signed-in viewer's threads", () => {
+    const container = renderPanel({ currentUserEmail: "ME@example.com" });
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.onlyYours");
+
+    expect(rowIds(container)).toEqual(["t-copy"]);
+  });
+
+  it("keeps the comparator's unread-first and date ordering", () => {
     const comments = [
       { threadId: "unread", parentCommentId: null },
       { threadId: "reply-only", parentCommentId: "root" },
@@ -261,26 +670,40 @@ describe("ReviewCommentsPanel capabilities", () => {
     expect(getUnreadReviewThreadIds(comments, preferences)).toEqual(
       new Set(["unread"]),
     );
-    const makeThread = (threadId: string, createdAt: string) =>
-      ({
-        root: { threadId, createdAt },
-        replies: [],
-      }) as unknown as ReviewThread;
+    const makeDated = (threadId: string, createdAt: string) =>
+      makeThread(makeRoot(threadId, { createdAt }));
     expect(
       compareReviewThreads(
-        makeThread("unread", "2026-01-01T00:00:00.000Z"),
-        makeThread("read", "2026-02-01T00:00:00.000Z"),
+        makeDated("unread", "2026-01-01T00:00:00.000Z"),
+        makeDated("read", "2026-02-01T00:00:00.000Z"),
         "unread",
         preferences,
       ),
     ).toBeLessThan(0);
     expect(
       compareReviewThreads(
-        makeThread("old", "2026-01-01T00:00:00.000Z"),
-        makeThread("new", "2026-02-01T00:00:00.000Z"),
+        makeDated("old", "2026-01-01T00:00:00.000Z"),
+        makeDated("new", "2026-02-01T00:00:00.000Z"),
         "date",
         preferences,
       ),
     ).toBeGreaterThan(0);
+  });
+
+  it("groups pure thread lists without dropping board threads", () => {
+    const groups = groupReviewThreadsByScreen(
+      [
+        makeThread(makeRoot("a", { targetId: "screen-2" })),
+        makeThread(makeRoot("b", { targetId: null })),
+        makeThread(makeRoot("c", { targetId: "screen-1" })),
+      ],
+      SCREENS,
+    );
+
+    expect(groups.map((group) => group.screen?.id ?? null)).toEqual([
+      "screen-1",
+      "screen-2",
+      null,
+    ]);
   });
 });

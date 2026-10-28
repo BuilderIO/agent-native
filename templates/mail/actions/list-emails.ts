@@ -4,6 +4,8 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   getClients,
   getConnectedAccountsWithErrors,
@@ -94,9 +96,6 @@ function inventoryError(
       "$1=[redacted]",
     )
     .slice(0, 240);
-  // A quota cooldown's message is deliberately jargon-free (no "429"/"quota"
-  // — see GmailQuotaCooldownError in google-api.ts), so the regex alone
-  // misses it; the caller passes the structured isQuotaError flag instead.
   const rateLimited =
     opts?.rateLimited === true ||
     /\b(?:429|quota|rate.?limit)\b/i.test(bounded);
@@ -360,9 +359,6 @@ export default defineAction({
       throw new Error("Inventory limit must be an integer from 1 through 100.");
     }
 
-    // Inventory is deliberately resolved before any refresh/list call. Apart
-    // from preventing a cross-account data leak, this keeps a selected read
-    // from touching token state for accounts the caller did not choose.
     const requestedAccounts =
       args.accountEmails ?? (args.account ? [args.account] : undefined);
 
@@ -669,6 +665,7 @@ export default defineAction({
           throw error;
         }
       }
+      await assertGmailNotCoolingDown(clients.map((client) => client.email));
       const labelMap = new Map<string, string>();
       await Promise.all(
         clients.map(async ({ accessToken }) => {
@@ -691,16 +688,12 @@ export default defineAction({
       });
 
       if (!listResult.ok) {
-        return JSON.stringify(
-          {
-            error: listResult.message,
-            ...(listResult.isQuotaError && {
-              retryAfterSeconds: listResult.retryAfterSeconds,
-            }),
-          },
-          null,
-          2,
-        );
+        if (listResult.isQuotaError) {
+          throw new GmailQuotaCooldownError(
+            (listResult.retryAfterSeconds ?? 60) * 1000,
+          );
+        }
+        return JSON.stringify({ error: listResult.message }, null, 2);
       }
 
       let emails: any[] = listResult.emails;
@@ -734,7 +727,6 @@ export default defineAction({
       return JSON.stringify(payload, null, 2);
     }
 
-    // Fallback: local store
     let emails = await readLocalEmails(ownerEmail);
     const localAccountsByLower = new Map<string, string>();
     for (const email of emails) {
@@ -805,8 +797,6 @@ export default defineAction({
       emails = emails.filter((e) => emailMessageMatchesSearch(e, query));
     }
 
-    // Filter out snoozed emails, matching the REST handler's demo-mode
-    // behavior. Skip when searching so snoozed hits surface too.
     if (!query && (view === "inbox" || view === "unread")) {
       const snoozedIds = await getSnoozedThreadIds(ownerEmail);
       if (snoozedIds.size > 0) {

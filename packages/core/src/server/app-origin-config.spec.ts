@@ -21,8 +21,16 @@ const KEYS = [
   "VITE_WORKSPACE_OAUTH_ORIGIN",
   "AGENT_NATIVE_WORKSPACE",
   "VITE_AGENT_NATIVE_WORKSPACE",
+  "AGENT_NATIVE_APP_ID",
+  "APP_ID",
+  "AGENT_APP",
+  "AGENT_NATIVE_WORKSPACE_APP_ID",
+  "VITE_AGENT_NATIVE_WORKSPACE_APP_ID",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "APP_BASE_PATH",
+  "VITE_APP_BASE_PATH",
+  "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
 ];
 
 describe("app origin client config", () => {
@@ -56,8 +64,6 @@ describe("app origin client config", () => {
   });
 
   it("carries the VITE spelling through the same field", () => {
-    // The whole point of 8b: the prefix is a delivery detail, so a deployment
-    // that only set the mirror still resolves one declared value.
     process.env.VITE_APP_URL = "https://vite.example.com";
     process.env.VITE_WORKSPACE_GATEWAY_URL = "https://vite-gw.example.com";
 
@@ -77,6 +83,19 @@ describe("app origin client config", () => {
     });
   });
 
+  it("projects the configured framework route prefix for embedded apps", () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      appHomePath: "/home",
+      frameworkRoutePrefix: "/_platform",
+    });
+    expect(getAppOriginClientConfigScript()).toContain(
+      '"frameworkRoutePrefix":"/_platform"',
+    );
+  });
+
   it("projects workspace mount paths for early runtime path reconciliation", () => {
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
       { id: "dispatch", path: "/dispatch" },
@@ -88,6 +107,85 @@ describe("app origin client config", () => {
       workspaceRuntime: true,
       workspaceAppMountPaths: ["/dispatch", "/diagrams"],
     });
+  });
+
+  it("keeps an idless non-root mount as a sibling without selecting it as current", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { path: "/dispatch" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch"],
+    });
+    expect(resolvePublicAppOriginConfig()).not.toHaveProperty(
+      "workspaceAppPath",
+    );
+  });
+
+  it("does not select an idless root mount as the current workspace app", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { path: "/" },
+    ]);
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceRuntime: true,
+    });
+    expect(resolvePublicAppOriginConfig()).not.toHaveProperty(
+      "workspaceAppPath",
+    );
+  });
+
+  it("projects the configured current mount when the manifest only lists siblings", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "diagrams", path: "/diagrams" },
+    ]);
+    process.env.APP_BASE_PATH = "/dispatch/";
+    defineAppConfig({ app: { workspaceId: "dispatch" } });
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceAppId: "dispatch",
+      workspaceAppPath: "/dispatch",
+      workspaceAppMountPaths: ["/diagrams"],
+      workspaceRuntime: true,
+    });
+  });
+
+  it("projects an explicit root mount from the workspace manifest", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "root-app", path: "/" },
+      { id: "diagrams", path: "/diagrams" },
+    ]);
+    defineAppConfig({ app: { workspaceId: "root-app" } });
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceAppId: "root-app",
+      workspaceAppPath: "/",
+      workspaceAppMountPaths: ["/diagrams"],
+      workspaceRuntime: true,
+    });
+  });
+
+  it("projects an explicit root app base path", () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "true";
+    process.env.APP_BASE_PATH = "/";
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      workspaceAppPath: "/",
+      workspaceRuntime: true,
+      explicitRootPath: true,
+    });
+  });
+
+  it("projects an env-only root path for dynamic first-paint resolution", () => {
+    process.env.VITE_APP_BASE_PATH = "/";
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      explicitRootPath: true,
+    });
+    expect(resolvePublicAppOriginConfig()).not.toHaveProperty(
+      "workspaceAppPath",
+    );
   });
 
   it("prefers the canonical spelling over its mirror", () => {
@@ -105,6 +203,31 @@ describe("app origin client config", () => {
     expect(resolvePublicAppOriginConfig()?.appHomePath).toBe("/inbox");
     expect(getAppOriginClientConfigScript()).toContain(
       '"appHomePath":"/inbox"',
+    );
+  });
+
+  it("uses the first matching workspace id when projecting its mount path", () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify([
+      { id: "workspace-calendar", path: "/recordings" },
+      { id: "workspace-calendar", path: "/clips" },
+    ]);
+    defineAppConfig({
+      app: { id: "calendar", workspaceId: "workspace-calendar" },
+    });
+
+    expect(resolvePublicAppOriginConfig()).toEqual({
+      appId: "calendar",
+      workspaceAppId: "workspace-calendar",
+      workspaceAppPath: "/recordings",
+      appHomePath: "/home",
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/recordings", "/clips"],
+    });
+    expect(getAppOriginClientConfigScript()).toContain(
+      '"appId":"calendar","workspaceAppId":"workspace-calendar"',
+    );
+    expect(getAppOriginClientConfigScript()).toContain(
+      '"workspaceAppPath":"/recordings"',
     );
   });
 

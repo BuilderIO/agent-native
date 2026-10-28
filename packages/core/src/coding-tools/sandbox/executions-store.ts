@@ -46,6 +46,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../../db/ddl-guard.js";
+import { defineStore } from "../../db/store-registry.js";
 
 export type SandboxExecutionStatus =
   | "queued"
@@ -105,36 +106,18 @@ export interface FinalizeSandboxExecutionInput {
   bridgeToolsUsed?: string[];
 }
 
-/** Default retry budget: the initial attempt plus one lease-expiry retry. */
 export const SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS = 2;
-/**
- * Hard per-stream storage cap. The per-row `max_output_chars` (derived from
- * the caller's `maxOutputChars`) is applied first; this bounds even that.
- */
 export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 200_000;
 
 const TABLE = "sandbox_executions";
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      // Don't cache the rejection — let the next caller retry a fresh init.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
-
-/** Test-only: forget the memoized init so a fresh in-memory DB re-creates. */
-export function resetSandboxExecutionsStoreForTests(): void {
-  _initPromise = undefined;
-}
-
-async function _doEnsureTable(): Promise<void> {
-  const createSql = `
+export const sandboxExecutionsStore = defineStore({
+  id: "sandbox_executions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
     CREATE TABLE IF NOT EXISTS ${TABLE} (
       id TEXT PRIMARY KEY,
       owner TEXT NOT NULL,
@@ -164,33 +147,37 @@ async function _doEnsureTable(): Promise<void> {
       updated_at BIGINT NOT NULL
     )
   `;
-  const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
-  const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
+        const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
+        const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
 
-  {
-    // Probe information_schema first (no lock) and DDL only what's missing —
-    // same guarded pattern as resources/store.ts so a fresh background worker
-    // never blocks on an ACCESS EXCLUSIVE lock for schema that already exists.
-    await ensureTableExists(TABLE, createSql);
-    // Additive-column guard: keeps older deployments (created before a column
-    // was added) self-healing without destructive migrations.
-    const pgColumns: Array<[string, string]> = [
-      ["bridge_tools_used", "TEXT"],
-      ["allowed_action_names", "TEXT"],
-    ];
-    for (const [col, def] of pgColumns) {
-      await ensureColumnExists(
-        TABLE,
-        col,
-        `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${col} ${def}`,
-      );
-    }
-    await ensureIndexExists(
-      "sandbox_executions_owner_created_idx",
-      ownerIdxSql,
-    );
-    await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
-  }
+        await ensureTableExists(TABLE, createSql);
+        const pgColumns: Array<[string, string]> = [
+          ["bridge_tools_used", "TEXT"],
+          ["allowed_action_names", "TEXT"],
+        ];
+        for (const [col, def] of pgColumns) {
+          await ensureColumnExists(
+            TABLE,
+            col,
+            `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+          );
+        }
+        await ensureIndexExists(
+          "sandbox_executions_owner_created_idx",
+          ownerIdxSql,
+        );
+        await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return sandboxExecutionsStore.ready();
+}
+
+export function resetSandboxExecutionsStoreForTests(): void {
+  sandboxExecutionsStore.reset();
 }
 
 function capOutput(
@@ -246,7 +233,6 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
             ? [...new Set(parsed)]
             : [];
       } catch {
-        // A malformed persisted surface must never restore the full registry.
         allowedActionNames = [];
       }
     }
@@ -295,7 +281,6 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
   };
 }
 
-/** Enqueue a new execution row in `queued` state. */
 export async function createSandboxExecution(
   input: CreateSandboxExecutionInput,
 ): Promise<SandboxExecutionRow> {
@@ -333,7 +318,6 @@ export async function createSandboxExecution(
   return row;
 }
 
-/** Owner-scoped read for user-facing status/result surfaces. */
 export async function getSandboxExecutionForOwner(
   id: string,
   owner: string,
@@ -349,10 +333,6 @@ export async function getSandboxExecutionForOwner(
   return raw ? rowFromDb(raw) : null;
 }
 
-/**
- * Unscoped read for the trusted executor/sweep paths ONLY. Never expose this
- * through a user-facing action — use `getSandboxExecutionForOwner`.
- */
 export async function getSandboxExecutionInternal(
   id: string,
 ): Promise<SandboxExecutionRow | null> {
@@ -367,12 +347,6 @@ export async function getSandboxExecutionInternal(
   return raw ? rowFromDb(raw) : null;
 }
 
-/**
- * Atomically claim an execution for a single executor. Claims a `queued` row,
- * or reclaims a `running` row whose lease expired, as long as the attempt
- * budget is not exhausted. Returns the claimed row (with the new claim token)
- * or null when another executor holds it / it is terminal / attempts ran out.
- */
 export async function claimSandboxExecution(
   id: string,
   claimToken: string,
@@ -399,13 +373,10 @@ export async function claimSandboxExecution(
   });
   if ((result.rowsAffected ?? 0) !== 1) return null;
   const row = await getSandboxExecutionInternal(id);
-  // Verify the claim token survived (paranoia against a same-ms racing UPDATE
-  // on drivers that report affected rows loosely).
   if (!row || row.claimToken !== claimToken) return null;
   return row;
 }
 
-/** Heartbeat: extend the lease while the claimed execution is still running. */
 export async function renewSandboxExecutionLease(
   id: string,
   claimToken: string,
@@ -475,11 +446,6 @@ export async function finalizeSandboxExecution(
   return (result.rowsAffected ?? 0) === 1;
 }
 
-/**
- * Reap a `running` row whose lease expired after its attempt budget was
- * exhausted, so it never sits "running" forever. Atomic: guarded on the same
- * expiry + budget conditions, so a live executor (fresh lease) is untouched.
- */
 export async function failExpiredSandboxExecution(
   id: string,
   error: string,
@@ -511,14 +477,6 @@ export interface DueSandboxExecution {
   leaseExpiresAt: number | null;
 }
 
-/**
- * List rows that need driving: `queued` rows that have sat unclaimed longer
- * than `queuedOlderThanMs` (their enqueue-time dispatch was likely lost), and
- * `running` rows whose lease expired (executor died). Used by the sweep and
- * the poll-time drain. Deliberately does NOT call `ensureTable()` — the sweep
- * must stay a zero-footprint no-op on deployments that never enqueue; callers
- * treat a missing-table error as "nothing due".
- */
 export async function listDueSandboxExecutions(options: {
   limit?: number;
   queuedOlderThanMs?: number;

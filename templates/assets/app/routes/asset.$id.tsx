@@ -280,7 +280,7 @@ export default function AssetDetailPage() {
                         variant="ghost"
                         size="icon"
                         aria-label={t("assetDetail.delete")}
-                        className="size-9 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        className="shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         disabled={deleteAsset.isPending}
                       >
                         <IconTrash className="h-4 w-4" />

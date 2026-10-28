@@ -115,7 +115,6 @@ async function main(args: string[]): Promise<void> {
            and first_seen_at >= ${startAt} and first_seen_at < ${endAt}
          group by agent_label order by n desc, agent_label asc`
     ).map((row) => ({
-      // "Agent" is the agent-views fallback label, not a product name.
       agentLabel: row.agent_label === "Agent" ? null : row.agent_label,
       sessions: row.n,
     }));

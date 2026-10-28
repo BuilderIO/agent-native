@@ -1,6 +1,88 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { filterOtherApps } from "./other-apps.js";
+import { filterBuiltInApps, filterOtherApps } from "./other-apps.js";
+
+describe("filterBuiltInApps", () => {
+  it("keeps configured first-party apps not mounted in the workspace", () => {
+    expect(
+      filterBuiltInApps(
+        [
+          {
+            id: "slides",
+            name: "Slides",
+            url: "https://slides.agent-native.com",
+            source: "builtin",
+          },
+          {
+            id: "clips",
+            name: "Clips",
+            url: "https://clips.agent-native.com",
+            source: "builtin",
+          },
+          {
+            id: "custom-agent",
+            name: "Custom agent",
+            url: "https://agent.example.test",
+            source: "custom",
+          },
+          {
+            id: "workspace-agent",
+            name: "Workspace agent",
+            url: "https://workspace.example.test",
+            source: "workspace",
+          },
+          {
+            id: "invalid",
+            name: "Invalid",
+            url: "/invalid",
+            source: "builtin",
+          },
+        ],
+        [{ id: "clips" }],
+      ),
+    ).toEqual([
+      {
+        id: "slides",
+        name: "Slides",
+        url: "https://slides.agent-native.com",
+        source: "builtin",
+      },
+    ]);
+  });
+
+  it("keeps built-in app launches on the current beta lane", () => {
+    vi.stubGlobal("window", {
+      location: { hostname: "beta.agent-workspace.builder.io" },
+    });
+
+    try {
+      expect(
+        filterBuiltInApps(
+          [
+            {
+              id: "clips",
+              name: "Clips",
+              url: "https://clips.agent-native.com/",
+              homeUrl: "https://clips.agent-native.com/recordings",
+              source: "builtin",
+            },
+          ],
+          [],
+        ),
+      ).toEqual([
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://beta.clips.agent-native.com/",
+          homeUrl: "https://beta.clips.agent-native.com/recordings",
+          source: "builtin",
+        },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe("filterOtherApps", () => {
   it("keeps available linked apps while excluding workspace apps", () => {
@@ -11,12 +93,14 @@ describe("filterOtherApps", () => {
             id: "slides",
             name: "Slides",
             url: "https://slides.agent-native.com",
+            source: "custom",
           },
           {
             id: "analytics",
             name: "Analytics",
             description: "Explore data",
             url: "https://analytics.agent-native.com",
+            source: "custom",
           },
           {
             id: "coach",
@@ -38,11 +122,13 @@ describe("filterOtherApps", () => {
         name: "Analytics",
         description: "Explore data",
         url: "https://analytics.agent-native.com",
+        source: "custom",
       },
       {
         id: "slides",
         name: "Slides",
         url: "https://slides.agent-native.com",
+        source: "custom",
       },
     ]);
   });
@@ -55,13 +141,20 @@ describe("filterOtherApps", () => {
             id: "analytics",
             name: "Analytics",
             url: "https://analytics.agent-native.com",
+            source: "custom",
           },
           {
             id: "Analytics",
             name: "Analytics duplicate",
             url: "https://duplicate.example.com",
+            source: "custom",
           },
-          { id: "relative", name: "Relative", url: "/relative" },
+          {
+            id: "relative",
+            name: "Relative",
+            url: "/relative",
+            source: "custom",
+          },
         ],
         [],
       ),
@@ -70,6 +163,7 @@ describe("filterOtherApps", () => {
         id: "analytics",
         name: "Analytics",
         url: "https://analytics.agent-native.com",
+        source: "custom",
       },
     ]);
   });
@@ -92,6 +186,7 @@ describe("filterOtherApps", () => {
             id: "mail",
             name: "Mail",
             url: "https://mail.agent-native.com",
+            source: "custom",
           },
         ],
         [],
@@ -101,6 +196,7 @@ describe("filterOtherApps", () => {
         id: "mail",
         name: "Mail",
         url: "https://mail.agent-native.com",
+        source: "custom",
       },
     ]);
   });
@@ -113,11 +209,13 @@ describe("filterOtherApps", () => {
             id: "chat",
             name: "Chat",
             url: "https://chat.agent-native.com",
+            source: "builtin",
           },
           {
             id: "mail",
             name: "Mail",
             url: "https://mail.agent-native.com",
+            source: "custom",
           },
         ],
         [],
@@ -127,6 +225,47 @@ describe("filterOtherApps", () => {
         id: "mail",
         name: "Mail",
         url: "https://mail.agent-native.com",
+        source: "custom",
+      },
+    ]);
+  });
+
+  it("hides builtin, workspace, and unknown sources from external app launchers", () => {
+    expect(
+      filterOtherApps(
+        [
+          {
+            id: "account-tiering",
+            name: "Account Tiering",
+            url: "https://account-tiering.agent-native.com",
+            source: "builtin",
+          },
+          {
+            id: "workspace-app",
+            name: "Workspace app",
+            url: "https://workspace.example.com/app",
+            source: "workspace",
+          },
+          {
+            id: "unknown-source",
+            name: "Unknown source",
+            url: "https://unknown.example.com",
+          },
+          {
+            id: "connected-agent",
+            name: "Connected agent",
+            url: "https://agent.example.com",
+            source: "custom",
+          },
+        ],
+        [],
+      ),
+    ).toEqual([
+      {
+        id: "connected-agent",
+        name: "Connected agent",
+        url: "https://agent.example.com",
+        source: "custom",
       },
     ]);
   });

@@ -493,7 +493,8 @@ interface KeyboardMessagesSource {
       | "rect"
       | "ellipse"
       | "line"
-      | "arrow",
+      | "arrow"
+      | "imageVideo",
       string
     >;
     undo: string;
@@ -508,6 +509,7 @@ interface KeyboardMessagesSource {
     close: string;
     componentInstances: { detach: string };
   };
+  canvasMenu: { removeAutoLayout: string };
   layersPanel: {
     title: string;
     screens: string;
@@ -606,6 +608,7 @@ export function attachLocalizedKeyboardShortcuts<
           ellipse: d.tools.ellipse,
           line: d.tools.line,
           arrow: d.tools.arrow,
+          imageVideo: d.tools.imageVideo,
           booleanSubtract: layers.subtract,
           selectAll: labels.selection,
           selectParent: `${labels.selection}: ${layers.title}`,
@@ -647,6 +650,7 @@ export function attachLocalizedKeyboardShortcuts<
           ungroup: layers.ungroup,
           frameSelection: layers.frameSelection,
           autoLayout: edit.sections.autoLayout,
+          removeAutoLayout: messages.canvasMenu.removeAutoLayout,
         },
       },
     },

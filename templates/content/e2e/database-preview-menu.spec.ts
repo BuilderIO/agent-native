@@ -1,10 +1,12 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
+import { presentUiCapability } from "./helpers";
+
 test.describe.configure({ mode: "serial" });
 
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-video-block-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 
@@ -173,8 +175,15 @@ async function cleanupDatabaseFixture(page: Page, fixture: DatabaseFixture) {
     databaseId: fixture.databaseId,
   });
   expect(trashed.documentId).toBe(fixture.databaseDocumentId);
+  const plan = await runAction(page, "plan-content-trash-purge", {
+    mode: "selection",
+    documentIds: [fixture.databaseDocumentId],
+  });
+  await presentUiCapability(page);
   await runAction(page, "permanently-delete-document", {
     id: fixture.databaseDocumentId,
+    planId: plan.planId,
+    scopeToken: plan.scopeToken,
   });
 }
 
@@ -506,9 +515,6 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
     const row = fixture.rows[0]!;
     const databasePageUrl = `/page/${fixture.databaseDocumentId}`;
 
-    // Authentication, fixture ownership, and this baseline read are real local
-    // server evidence. The role projections below mock only get-document so the
-    // shared Page host can be checked deterministically for every capability.
     const ownedDocument = await readAction(page, "get-document", {
       id: row.documentId,
       databaseId: fixture.databaseId,

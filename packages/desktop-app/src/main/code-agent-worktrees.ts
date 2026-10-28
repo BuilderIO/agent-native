@@ -448,7 +448,6 @@ export function createCodeAgentWorktree(input: {
   };
 }
 
-/** Remove a generated worktree and its agent-owned branch after a terminal run. */
 export function cleanupCodeAgentWorktree(input: {
   sourcePath: string;
   path: string;

@@ -32,6 +32,7 @@ import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
 } from "./_database-source-utils.js";
+import { assertNotGitHubSource } from "./_document-source.js";
 import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -384,6 +385,7 @@ export default defineAction({
     if (!source) {
       throw new Error("Source field does not belong to this database.");
     }
+    assertNotGitHubSource(source);
     if (field.propertyId) {
       throw new Error("Source field is already mapped to a property.");
     }
@@ -391,26 +393,25 @@ export default defineAction({
       throw new Error("The title source field is already mapped to Name.");
     }
 
-    // A federated secondary source's rows have no local document (they join by
-    // canonical key), so we don't materialize their values into
-    // documentPropertyValues — the read path overlays them per row at query
-    // time. Primary sources still copy values onto their backing documents.
-    let federationRole: string | null = null;
+    let sourceMetadata: {
+      builderSpacePublicKey?: unknown;
+      connectionId?: unknown;
+      federation?: { role?: unknown };
+    } = {};
     try {
-      const parsed = JSON.parse(source.metadataJson ?? "{}") as {
-        federation?: { role?: string };
-      };
-      federationRole = parsed.federation?.role ?? null;
+      const parsed = JSON.parse(source.metadataJson ?? "{}") as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        sourceMetadata = parsed as typeof sourceMetadata;
+      }
     } catch {
-      federationRole = null;
+      sourceMetadata = {};
     }
+    const federationRole =
+      typeof sourceMetadata.federation?.role === "string"
+        ? sourceMetadata.federation.role
+        : null;
     const isSecondary = federationRole === "secondary";
 
-    // Keep the local snapshot, property definition, mapping, and materialized
-    // values atomic. The common complete-snapshot path needs one projected row
-    // read. If values are missing, that transaction exits before writes, the
-    // provider read happens outside it, and a second transaction re-reads the
-    // rows so concurrent source refreshes cannot be overwritten.
     const materializeProperty = (
       builderEntries: BuilderCmsSourceEntry[] | null,
     ) =>
@@ -681,13 +682,20 @@ export default defineAction({
     } catch (error) {
       if (!(error instanceof MissingBuilderFieldValuesError)) throw error;
 
-      // Read before retrying the transaction so a Builder outage cannot leave
-      // behind a cleanly reported but empty property.
       const builderRead = await readBuilderCmsContentEntries({
         model: source.sourceTable,
+        expectedSourceSpace:
+          typeof sourceMetadata.builderSpacePublicKey === "string"
+            ? sourceMetadata.builderSpacePublicKey
+            : undefined,
+        expectedSourceConnectionId:
+          typeof sourceMetadata.connectionId === "string"
+            ? sourceMetadata.connectionId
+            : undefined,
         fieldPaths: [field.sourceFieldKey],
         limit: Math.max(BUILDER_FIELD_REFRESH_MINIMUM_LIMIT, error.rowCount),
         offset: 0,
+        requireBoundOAuth: true,
       });
       if (builderRead.state !== "live") {
         throw new Error(

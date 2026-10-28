@@ -1,12 +1,3 @@
-/**
- * Delegate: regenerate the recording's description from its transcript.
- *
- * See regenerate-title.ts for the delegation pattern.
- *
- * Usage:
- *   pnpm action regenerate-summary --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -14,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import {
@@ -35,7 +27,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
     const [rec] = await db
@@ -87,6 +81,10 @@ export default defineAction({
         };
       }
 
+      assertRecordingNotExpired(
+        await assertAccess("recording", args.recordingId, "editor"),
+      );
+
       await db
         .update(schema.recordings)
         .set({ description, updatedAt: new Date().toISOString() })
@@ -105,7 +103,7 @@ export default defineAction({
       `Regenerate the description for recording ${args.recordingId}. ` +
       `Read the transcript in this request's context and call ` +
       `\`update-recording --id=${args.recordingId} --description="..."\` with a 2–4 ` +
-      `sentence summary of what the recording covers. Title: "${rec.title}". ` +
+      `sentence summary of what the recording covers. Write in the transcript language unless the user requested another language. Title: "${rec.title}". ` +
       `Write the description the way the person who made this recording would ` +
       `describe it themselves: lead with the subject matter, and never use ` +
       `outside-narrator framing like "the speaker", "the presenter", "the video", ` +
@@ -146,6 +144,8 @@ export default defineAction({
     );
     return {
       queued: true,
+      kind: "regenerate-summary",
+      requestedAt,
       recordingId: args.recordingId,
       includeFullVideoInAi,
     };

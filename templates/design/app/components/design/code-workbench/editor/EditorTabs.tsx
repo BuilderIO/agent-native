@@ -32,18 +32,10 @@ import {
 import { isTabReorderNoop, resolveTabDropIndex } from "./tab-drag";
 
 interface PendingClose {
-  /** Uris that will be closed by this operation. */
   uris: string[];
-  /** The dirty subset needing a save-or-discard decision. */
   dirtyUris: string[];
 }
 
-/**
- * Module-level drag state, mirroring LayersPanel's pattern: HTML5 DnD's
- * dataTransfer payload is unreliable for same-window reordering (some
- * browsers withhold it during dragover), so the source index is tracked in
- * module scope instead.
- */
 let activeTabDrag: { fromIndex: number } | null = null;
 
 export function EditorTabs() {
@@ -62,8 +54,6 @@ export function EditorTabs() {
     [api],
   );
 
-  // Closing dirty tabs asks Save / Don't Save / Cancel (VS Code behavior);
-  // clean tabs close immediately.
   const requestClose = useCallback(
     (uris: string[]) => {
       const buffers = api.getState().buffers;
@@ -134,7 +124,6 @@ export function EditorTabs() {
     (index: number) => (event: React.DragEvent) => {
       activeTabDrag = { fromIndex: index };
       event.dataTransfer.effectAllowed = "move";
-      // Firefox requires data to be set for drag to initiate.
       event.dataTransfer.setData("text/plain", String(index));
     },
     [],
@@ -291,7 +280,6 @@ function EditorTabRow({
           onMouseLeave={() => setHovered(false)}
           onClick={() => api.setActive(tab.uri)}
           onMouseDown={(event) => {
-            // Middle-click closes (VS Code parity).
             if (event.button === 1) {
               event.preventDefault();
               onRequestClose(tab.uri);

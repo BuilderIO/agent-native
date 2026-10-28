@@ -5,12 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { collectLiveSizeHints } from "./frame-selection";
 
-/**
- * A duplicated Screen can carry a not-yet-remapped (or colliding)
- * data-agent-native-node-id while it settles — collectLiveSizeHints must
- * only ever read the ACTIVE file's own iframe, never fall through to the
- * first preview iframe on the canvas that happens to contain a matching id.
- */
 const FIXTURE = `<body>
   <div data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha"></div>
 </body>`;
@@ -92,10 +86,6 @@ describe("collectLiveSizeHints", () => {
   });
 
   it("reads the active file's own iframe, ignoring a duplicate screen's colliding node id", () => {
-    // "other.html" stands in for a just-duplicated screen whose ids haven't
-    // been remapped yet — same data-agent-native-node-id, different (wrong)
-    // rendered size. If it were queried before "active.html" (DOM order),
-    // taking the "first match" would silently read the wrong screen.
     mountScreenIframe("other.html", { width: 999, height: 999 });
     mountScreenIframe("active.html", { width: 120, height: 40 });
 
@@ -107,7 +97,7 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[alphaId()]).toEqual({ width: 120, height: 40 });
+    expect(hints.hints[alphaId()]).toEqual({ width: 120, height: 40 });
   });
 
   it("returns no hint when the active file's iframe cannot be found", () => {
@@ -121,7 +111,10 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints).toEqual({});
+    expect(hints).toEqual({
+      hints: {},
+      unmeasured: [{ nodeId: alphaId(), reason: "no-preview" }],
+    });
   });
 
   it("resolves the dedicated board iframe when the active file is the board file", () => {
@@ -136,7 +129,7 @@ describe("collectLiveSizeHints", () => {
       "board",
     );
 
-    expect(hints[alphaId()]).toEqual({ width: 150, height: 60 });
+    expect(hints.hints[alphaId()]).toEqual({ width: 150, height: 60 });
   });
 
   it("measures in the active breakpoint sub-frame, not the primary screen iframe", () => {
@@ -151,7 +144,7 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[alphaId()]).toEqual({ width: 200, height: 80 });
+    expect(hints.hints[alphaId()]).toEqual({ width: 200, height: 80 });
   });
 
   it("adds parent-content-relative offsets from the active iframe layout", () => {
@@ -193,11 +186,69 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[alphaId()]).toEqual({
+    expect(hints.hints[alphaId()]).toEqual({
       width: 25.5,
       height: 14.3984,
       left: 32,
       top: 52,
+    });
+  });
+
+  it("accumulates scrolling static ancestors up to the containing block", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.setAttribute("data-screen-iframe-id", "active.html");
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    doc.body.innerHTML = `<main><section><div data-agent-native-node-id="alpha"></div></section></main>`;
+    const main = doc.querySelector("main")!;
+    const section = doc.querySelector("section")!;
+    const element = doc.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    Object.defineProperty(element, "offsetParent", {
+      configurable: true,
+      value: main,
+    });
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(25);
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(14);
+    stubRect(main, { left: 100, top: 200, width: 220, height: 120 });
+    stubRect(element, {
+      left: 130,
+      top: 250,
+      width: 25,
+      height: 14,
+    });
+    Object.defineProperty(section, "scrollLeft", {
+      configurable: true,
+      value: 7,
+    });
+    Object.defineProperty(section, "scrollTop", {
+      configurable: true,
+      value: 9,
+    });
+    Object.defineProperty(main, "scrollLeft", {
+      configurable: true,
+      value: 4,
+    });
+    Object.defineProperty(main, "scrollTop", {
+      configurable: true,
+      value: 5,
+    });
+
+    const projection = buildCodeLayerProjection(FIXTURE);
+    const hints = collectLiveSizeHints(
+      [alphaId()],
+      projection,
+      "active.html",
+      undefined,
+    );
+
+    expect(hints.hints[alphaId()]).toEqual({
+      width: 25,
+      height: 14,
+      left: 41,
+      top: 64,
     });
   });
 
@@ -221,7 +272,43 @@ describe("collectLiveSizeHints", () => {
       undefined,
     );
 
-    expect(hints[absoluteId()]).toEqual({ width: 60, height: 24 });
+    expect(hints.hints[absoluteId()]).toEqual({
+      width: 60,
+      height: 24,
+      outOfFlow: true,
+    });
+  });
+
+  it("measures an absolute target's layout origin so framing can pin it", () => {
+    mountScreenIframe("active.html", { width: 266, height: 96 });
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      '[data-screen-iframe-id="active.html"]',
+    )!;
+    const element = iframe.contentDocument!.querySelector<HTMLElement>(
+      "[data-agent-native-node-id]",
+    )!;
+    element.dataset.agentNativeNodeId = "absolute";
+    element.style.position = "absolute";
+    Object.defineProperties(element, {
+      offsetParent: { get: () => iframe.contentDocument!.body },
+      offsetLeft: { get: () => 110 },
+      offsetTop: { get: () => 272 },
+    });
+
+    const hints = collectLiveSizeHints(
+      [absoluteId()],
+      buildCodeLayerProjection(ABSOLUTE_FIXTURE),
+      "active.html",
+      undefined,
+    );
+
+    expect(hints.hints[absoluteId()]).toEqual({
+      width: 266,
+      height: 96,
+      left: 110,
+      top: 272,
+      outOfFlow: true,
+    });
   });
 
   it("marks authored-stylesheet absolute targets as out of flow", () => {
@@ -246,7 +333,9 @@ describe("collectLiveSizeHints", () => {
     )!.id;
 
     expect(
-      collectLiveSizeHints([id], projection, "active.html", undefined)[id],
+      collectLiveSizeHints([id], projection, "active.html", undefined).hints[
+        id
+      ],
     ).toEqual({ width: 80, height: 40, outOfFlow: true });
   });
 
@@ -272,7 +361,7 @@ describe("collectLiveSizeHints", () => {
     const id = projection.nodes.find(
       (node) => node.dataAttributes["data-agent-native-node-id"] === "alpha",
     )!.id;
-    const sizeHints = collectLiveSizeHints(
+    const { hints: sizeHints } = collectLiveSizeHints(
       [id],
       projection,
       "active.html",
@@ -314,9 +403,8 @@ describe("collectLiveSizeHints", () => {
     const projection = buildCodeLayerProjection(FIXTURE);
 
     expect(
-      collectLiveSizeHints([alphaId()], projection, "active.html", undefined)[
-        alphaId()
-      ],
+      collectLiveSizeHints([alphaId()], projection, "active.html", undefined)
+        .hints[alphaId()],
     ).toEqual({ width: 25, height: 14 });
   });
 
@@ -358,7 +446,7 @@ describe("collectLiveSizeHints", () => {
     const id = nodeIdFor(fixture, "alpha");
 
     expect(
-      collectLiveSizeHints([id], projection, "board", "board")[id],
+      collectLiveSizeHints([id], projection, "board", "board").hints[id],
     ).toEqual({ width: 25, height: 14, left: 30, top: 50 });
   });
 
@@ -383,7 +471,9 @@ describe("collectLiveSizeHints", () => {
     const id = nodeIdFor(fixture, "alpha");
 
     expect(
-      collectLiveSizeHints([id], projection, "active.html", undefined)[id],
+      collectLiveSizeHints([id], projection, "active.html", undefined).hints[
+        id
+      ],
     ).toEqual({ width: 25, height: 14 });
   });
 });

@@ -1,0 +1,192 @@
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+
+import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
+import type { DataNoteActions } from "@/components/dashboard/dashboard-annotations-context";
+
+import { AnnotationsMenu } from "./AnnotationsMenu";
+import { DataNoteDialog, type DataNoteDraft } from "./DataNoteDialog";
+import { KeyDateDialog, type KeyDateDraft } from "./KeyDateDialog";
+import { KeyDateSetsDialog } from "./KeyDateSetsDialog";
+import type { DashboardAnnotations, SqlDashboardConfig } from "./types";
+
+function dataNoteAnnotationKey(entry: { noteId: string; panelId: string }) {
+  return `${entry.noteId}\u0000${entry.panelId}`;
+}
+
+function applyAnnotationDelta(
+  current: DashboardAnnotations | undefined,
+  previous: DashboardAnnotations | undefined,
+  next: DashboardAnnotations,
+): DashboardAnnotations {
+  const previousKeyDates = new Set(previous?.hiddenKeyDateSets ?? []);
+  const nextKeyDates = new Set(next.hiddenKeyDateSets ?? []);
+  const hiddenKeyDateSets = new Set(current?.hiddenKeyDateSets ?? []);
+  for (const setId of previousKeyDates) {
+    if (!nextKeyDates.has(setId)) hiddenKeyDateSets.delete(setId);
+  }
+  for (const setId of nextKeyDates) {
+    if (!previousKeyDates.has(setId)) hiddenKeyDateSets.add(setId);
+  }
+
+  const nextHiddenNoteKeys = new Set(
+    (next.hiddenDataNotes ?? []).map(dataNoteAnnotationKey),
+  );
+  const removedHiddenNoteKeys = new Set(
+    (previous?.hiddenDataNotes ?? [])
+      .map(dataNoteAnnotationKey)
+      .filter((key) => !nextHiddenNoteKeys.has(key)),
+  );
+  const previousHiddenNoteKeys = new Set(
+    (previous?.hiddenDataNotes ?? []).map(dataNoteAnnotationKey),
+  );
+  const hiddenDataNotes = (current?.hiddenDataNotes ?? []).filter(
+    (entry) => !removedHiddenNoteKeys.has(dataNoteAnnotationKey(entry)),
+  );
+  const hiddenDataNoteKeys = new Set(
+    hiddenDataNotes.map(dataNoteAnnotationKey),
+  );
+  for (const entry of next.hiddenDataNotes ?? []) {
+    const key = dataNoteAnnotationKey(entry);
+    if (!previousHiddenNoteKeys.has(key) && !hiddenDataNoteKeys.has(key)) {
+      hiddenDataNotes.push(entry);
+      hiddenDataNoteKeys.add(key);
+    }
+  }
+
+  const result: DashboardAnnotations = { ...current };
+  if (hiddenKeyDateSets.size > 0) {
+    result.hiddenKeyDateSets = [...hiddenKeyDateSets];
+  } else {
+    delete result.hiddenKeyDateSets;
+  }
+  if (hiddenDataNotes.length > 0) {
+    result.hiddenDataNotes = hiddenDataNotes;
+  } else {
+    delete result.hiddenDataNotes;
+  }
+  return result;
+}
+
+function assertConfirmedAnnotations(annotations: DashboardAnnotations) {
+  const placeholder = [
+    ...(annotations.hiddenKeyDateSets ?? []),
+    ...(annotations.hiddenDataNotes ?? []).map((entry) => entry.noteId),
+  ].find(isPendingAnnotation);
+  if (placeholder) {
+    throw new Error(
+      `Can't save the unconfirmed annotation ${placeholder} to the dashboard; its controls should stay disabled until the server confirms it.`,
+    );
+  }
+}
+
+/**
+ * The Annotations header menu, its dialogs, and the actions a chart's
+ * data-note card offers. Key dates and notes belong to the organization;
+ * only which ones a dashboard hides is saved with the dashboard. Either way a
+ * change shows for everyone, so all of it waits for Edit mode.
+ */
+export function useAnnotationEditing({
+  dashboardId,
+  dashboard,
+  editing,
+  persist,
+}: {
+  dashboardId: string | undefined;
+  dashboard: SqlDashboardConfig | null;
+  editing: boolean;
+  persist: (
+    update: (current: SqlDashboardConfig) => SqlDashboardConfig,
+  ) => void;
+}): {
+  menu: ReactNode;
+  dialogs: ReactNode;
+  dataNoteActions: DataNoteActions | undefined;
+} {
+  const [noteDraft, setNoteDraft] = useState<DataNoteDraft | null>(null);
+  const [keyDateDraft, setKeyDateDraft] = useState<KeyDateDraft | null>(null);
+  const [keyDatesOpen, setKeyDatesOpen] = useState(false);
+  const annotations = dashboard?.annotations;
+
+  const updateAnnotations = useCallback(
+    (next: DashboardAnnotations) => {
+      if (!dashboard) return;
+      assertConfirmedAnnotations(next);
+      persist((current) => {
+        const updatedAnnotations = applyAnnotationDelta(
+          current.annotations,
+          annotations,
+          next,
+        );
+        assertConfirmedAnnotations(updatedAnnotations);
+        const { annotations: _previous, ...rest } = current;
+        return Object.keys(updatedAnnotations).length > 0
+          ? { ...rest, annotations: updatedAnnotations }
+          : rest;
+      });
+    },
+    [annotations, dashboard, persist],
+  );
+  const onAnnotationsChange = editing ? updateAnnotations : undefined;
+
+  const dataNoteActions = useMemo<DataNoteActions>(
+    () => ({
+      add: (panelId) => {
+        if (!dashboardId) return;
+        setNoteDraft({ initial: { panels: [{ dashboardId, panelId }] } });
+      },
+      edit: (note) => setNoteDraft({ note }),
+      markFixed: (note) => setNoteDraft({ note, markFixed: true }),
+      hide: (noteId, panelId) =>
+        updateAnnotations({
+          ...annotations,
+          hiddenDataNotes: [
+            ...(annotations?.hiddenDataNotes ?? []),
+            { noteId, panelId },
+          ],
+        }),
+    }),
+    [annotations, dashboardId, updateAnnotations],
+  );
+  const chartNoteActions = editing ? dataNoteActions : undefined;
+
+  if (!dashboardId || !dashboard) {
+    return { menu: null, dialogs: null, dataNoteActions: chartNoteActions };
+  }
+
+  const menu = (
+    <AnnotationsMenu
+      dashboardId={dashboardId}
+      panels={dashboard.panels}
+      annotations={annotations}
+      editing={editing}
+      onAnnotationsChange={onAnnotationsChange}
+      onAddKeyDate={() => setKeyDateDraft({})}
+      onEditKeyDates={() => setKeyDatesOpen(true)}
+      onAddDataNote={() => setNoteDraft({})}
+      onEditDataNote={(note) => setNoteDraft({ note })}
+    />
+  );
+  const dialogs = (
+    <>
+      <DataNoteDialog
+        draft={noteDraft}
+        onClose={() => setNoteDraft(null)}
+        dashboardId={dashboardId}
+        panels={dashboard.panels}
+        annotations={annotations}
+        onAnnotationsChange={onAnnotationsChange}
+      />
+      <KeyDateSetsDialog
+        open={keyDatesOpen}
+        onOpenChange={setKeyDatesOpen}
+        onEditKeyDate={(keyDate) => setKeyDateDraft({ keyDate })}
+        onAddKeyDate={(setId) => setKeyDateDraft({ setId })}
+      />
+      <KeyDateDialog
+        draft={keyDateDraft}
+        onClose={() => setKeyDateDraft(null)}
+      />
+    </>
+  );
+  return { menu, dialogs, dataNoteActions: chartNoteActions };
+}

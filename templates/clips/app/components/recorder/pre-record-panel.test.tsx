@@ -180,6 +180,10 @@ describe("PreRecordPanel desktop-aligned setup", () => {
     expect(selectedMode?.closest('[role="radiogroup"]')?.className).toContain(
       "rounded-[var(--recorder-mode-toggle-radius)]",
     );
+    // The beta E2E finds the idle recorder by this role and name.
+    expect(
+      selectedMode?.closest('[role="radiogroup"]')?.getAttribute("aria-label"),
+    ).toBe("recordRoute.clipsRecorder");
     expect(cameraSwitch?.getAttribute("data-state")).toBe("checked");
     expect(micSwitch?.getAttribute("data-state")).toBe("checked");
     expect(selectedMode?.parentElement?.getAttribute("data-state")).toBe(

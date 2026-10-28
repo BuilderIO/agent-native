@@ -27,7 +27,6 @@ interface PropertyComboboxProps {
   value: string;
   onChange: (value: string) => void;
   triggerLabel?: string;
-  /** If true, the popover opens automatically on mount */
   autoOpen?: boolean;
 }
 
@@ -55,7 +54,6 @@ export function PropertyCombobox({
     [dynamicProps, knownSet],
   );
 
-  // Allow selecting a custom typed value not in the list
   const allKnown = useMemo(() => {
     const set = new Set(knownSet);
     for (const p of dynamicProps) set.add(p.name);
@@ -96,7 +94,6 @@ export function PropertyCombobox({
             onValueChange={setSearch}
             onKeyDown={(e) => {
               if (e.key === "Enter" && search.trim()) {
-                // If the search term isn't in the list, allow using it as custom
                 const trimmed = search.trim();
                 if (!allKnown.has(trimmed)) {
                   handleSelect(trimmed);

@@ -2,7 +2,7 @@ import type {
   BlockEditProps,
   BlockReadProps,
   BlockSpec,
-} from "@agent-native/core/blocks";
+} from "@agent-native/core/blocks/server";
 import {
   builderCodeBlockConfig,
   builderCodeSnippetsV2BlockConfig,

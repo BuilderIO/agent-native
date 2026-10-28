@@ -1,5 +1,3 @@
-/** Slack OAuth v2 helpers for managed Agent-Native messaging installs. */
-
 import type { SecretScope } from "../secrets/register.js";
 import type {
   IntegrationInstallationHealth,
@@ -10,7 +8,6 @@ export const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 export const SLACK_TOKEN_URL = "https://slack.com/api/oauth.v2.access";
 export const SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test";
 
-/** Scopes needed for contextual, file-aware Agent-Native conversations. */
 export const SLACK_AGENT_BOT_SCOPES = [
   "assistant:write",
   "app_mentions:read",
@@ -111,7 +108,6 @@ export function buildSlackAuthorizeUrl(options: {
   return `${SLACK_AUTHORIZE_URL}?${params.toString()}`;
 }
 
-/** Exchange an OAuth code using Slack's preferred HTTP Basic authentication. */
 export async function exchangeSlackOAuthCode(options: {
   code: string;
   clientId: string;
@@ -192,7 +188,6 @@ export async function refreshSlackOAuthToken(options: {
   return data;
 }
 
-/** Validate a bot token without ever including it in an error or result. */
 export async function testSlackAuth(
   accessToken: string,
   fetchImpl: typeof fetch = fetch,
@@ -249,7 +244,6 @@ export async function testSlackAuth(
   }
 }
 
-/** Stable team/app key used by webhook payloads and the installation store. */
 export function slackInstallationKey(input: {
   teamId?: string | null;
   enterpriseId?: string | null;
@@ -314,10 +308,6 @@ export function slackOAuthResponseToInstallation(
   };
 }
 
-/**
- * Pure session/role gate for OAuth install routes. The caller must supply a
- * server-verified session; org membership must be the active org context.
- */
 export function assertSlackInstallAccess(
   session: SlackInstallSession | null | undefined,
 ): SlackInstallAccess {

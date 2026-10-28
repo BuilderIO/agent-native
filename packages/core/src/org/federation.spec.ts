@@ -114,13 +114,38 @@ describe("cross-app organization federation", () => {
       throw new Error(`unexpected SQL in test: ${sql}`);
     });
 
-    await expect(provisionFederatedOrganization(identity)).resolves.toBe(
-      "linked",
-    );
+    // The SSO handoff passes the signing-in browser's request, so its next
+    // requests read the linked organization on every instance.
+    const handoff = { context: {} } as any;
+    await expect(
+      provisionFederatedOrganization(identity, { event: handoff }),
+    ).resolves.toBe("linked");
     expect(setActiveOrgIdMock).toHaveBeenCalledWith(
       identity.email,
       "local-org",
       "signed cross-app organization context",
+      handoff,
+    );
+  });
+
+  it("hands the SSO request to the organization it creates for a first owner", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT org_id FROM org_members/i.test(sql)) return { rows: [] };
+      if (/FROM organizations/i.test(sql)) return { rows: [] };
+      if (/UPDATE organizations/i.test(sql)) return { rows: [] };
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    const handoff = { context: {} } as any;
+
+    await expect(
+      provisionFederatedOrganization(identity, { event: handoff }),
+    ).resolves.toBe("created");
+    expect(createOrganizationMock).toHaveBeenCalledWith(
+      identity.name,
+      identity.email,
+      identity.role,
+      expect.objectContaining({ id: identity.id, event: handoff }),
     );
   });
 
@@ -182,6 +207,58 @@ describe("cross-app organization federation", () => {
       }),
     ).rejects.toThrow("missing its deployment credential");
     expect(signA2ATokenMock).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a stale icon revision from a transient hub failure", async () => {
+    const canonical = {
+      version: 1 as const,
+      kind: "emoji" as const,
+      emoji: "📚",
+    };
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT identity_authority, identity_id/i.test(sql)) {
+        return {
+          rows: [
+            {
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: identity.id,
+              icon_json: JSON.stringify(canonical),
+              icon_revision: 2,
+              federation_roster_initialized_at: Date.now(),
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "icon-revision-conflict",
+              icon: canonical,
+              iconRevision: 5,
+            }),
+            { status: 409 },
+          ),
+      ),
+    );
+
+    await expect(
+      syncOrganizationToIdentityHub({} as any, {
+        id: identity.id,
+        name: identity.name,
+        role: identity.role,
+        email: identity.email,
+      }),
+    ).rejects.toMatchObject({
+      name: "FederatedIconConflictError",
+      icon: canonical,
+      iconRevision: 5,
+    });
   });
 
   it("sends the current owner roster during the one-time registration", async () => {

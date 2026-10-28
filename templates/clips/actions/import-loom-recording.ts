@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   writeAppState,
   writeAppStateForCurrentTab,
@@ -7,13 +7,16 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
 import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
-import { and, eq } from "drizzle-orm";
+import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { isYouTubeUrl } from "@shared/youtube.js";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -23,15 +26,31 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
+import { deleteS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
+import {
+  uploadLeaseExpiry,
+  WAITING_STORAGE_EXPIRED_REASON,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
+import {
+  consumeHostedClipRecording,
+  hasRequestVideoStorage,
+  releaseHostedClipRecording,
+  resolveClipsVideoStorage,
+  STORAGE_SETUP_REQUIRED_REASON,
+  verifyHostedClipMedia,
+} from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
   isCandidateDirectVideoUrl,
 } from "./lib/direct-video.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
 import {
   enqueueFirstImportEmailIfEligible,
   failLoomImport,
 } from "./lib/loom-import-job.js";
+import { validateRecordingScope } from "./lib/recording-scope.js";
+import { importYouTubeVideo } from "./lib/youtube-import.js";
 
 export { enqueueFirstImportEmailIfEligible };
 
@@ -57,7 +76,7 @@ const ImportLoomRecordingSchema = z.object({
     .min(1)
     .max(2048)
     .describe(
-      "Loom share/embed URL, or a direct link to an MP4/WebM video file",
+      "Loom share/embed URL, YouTube video URL, or a direct link to an MP4/WebM video file",
     ),
   title: z
     .string()
@@ -65,7 +84,7 @@ const ImportLoomRecordingSchema = z.object({
     .max(200)
     .optional()
     .describe(
-      "Optional title override; defaults to Loom's oEmbed title when available",
+      "Optional title override; defaults to Loom's or YouTube's oEmbed title when available",
     ),
   folderId: z.string().nullish().describe("Optional folder ID"),
   spaceIds: z
@@ -92,10 +111,30 @@ const ImportLoomRecordingSchema = z.object({
     ),
 });
 
-const LOOM_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
-const DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
+const LOOM_STORAGE_SETUP_REQUIRED_REASON = `${STORAGE_SETUP_REQUIRED_REASON} Then retry this Loom import.`;
+const DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON = `${STORAGE_SETUP_REQUIRED_REASON} Then retry this import.`;
+const TAKEN_DOWN_FAILURE_CODE = "taken_down";
+const TAKEN_DOWN_REASON =
+  "This recording was removed from hosted Clips storage.";
+
+function notTakenDown() {
+  return or(
+    isNull(schema.recordings.failureCode),
+    ne(schema.recordings.failureCode, TAKEN_DOWN_FAILURE_CODE),
+  );
+}
+
+function storageDenialReason(reason: string | undefined): never {
+  const denyReason = reason ?? "storage_setup_required";
+  fail(
+    `Hosted Clips storage is unavailable for this account (${denyReason}).`,
+    {
+      errorCode: denyReason,
+      statusCode: denyReason === "exhausted" ? 402 : 403,
+      details: { denyReason },
+    },
+  );
+}
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -145,10 +184,15 @@ async function fetchLoomOembed(shareUrl: string) {
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
   description:
-    "Import a public Loom share URL, or a direct link to a video file, into Clips as a playable recording. Loom links create the recording immediately and download/reupload Loom's public MP4 when available, or keep a playable Loom embed when Loom allows playback but not MP4 export; public transcripts are imported in the background. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
+    "Import a public Loom share URL, a YouTube video URL, or a direct link to a video file, into Clips as a playable recording. YouTube links (watch, Shorts, youtu.be) create a ready clip that plays in YouTube's embedded player: nothing is downloaded, so frames, editing and transcription aren't available, and its transcript has to come from import-transcript. Loom links create the recording immediately and download/reupload Loom's public MP4 when available, or keep a playable Loom embed when Loom allows playback but not MP4 export; public transcripts are imported in the background. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
   schema: ImportLoomRecordingSchema,
   run: async (args, actionContext) => {
+    // YouTube videos are never downloaded, so they skip storage entirely.
+    if (isYouTubeUrl(args.url)) {
+      return importYouTubeVideo(args, actionContext);
+    }
     const loomId = extractLoomVideoId(args.url);
     const isLoom = Boolean(loomId);
     const loomShareUrl = isLoom ? normalizeLoomShareUrl(args.url) : null;
@@ -183,6 +227,9 @@ export default defineAction({
       if (!existingRecording) {
         throw new Error("Waiting recording not found.");
       }
+      if (existingRecording.failureCode === TAKEN_DOWN_FAILURE_CODE) {
+        throw new Error(TAKEN_DOWN_REASON);
+      }
       if (
         existingRecording.sourceAppName?.trim().toLowerCase() !==
         sourceAppName.toLowerCase()
@@ -191,21 +238,34 @@ export default defineAction({
           "Only a matching waiting import can be retried this way.",
         );
       }
+      // Still parked, or failed by the reaper once its waiting lease ran out:
+      // the source URL is kept, so either retries in place.
       const isWaitingStorageRetry =
-        existingRecording.status === "uploading" &&
-        !existingRecording.videoUrl &&
-        existingRecording.failureReason === storageSetupReason &&
-        existingRecording.sourceWindowTitle === sourceUrl;
-      const isRetryableLoomImport =
-        isLoom &&
         !existingRecording.videoUrl &&
         existingRecording.sourceWindowTitle === sourceUrl &&
-        (existingRecording.status === "processing" ||
-          existingRecording.status === "failed" ||
-          isWaitingStorageRetry);
+        ((existingRecording.status === "uploading" &&
+          existingRecording.failureReason === storageSetupReason) ||
+          (existingRecording.status === "failed" &&
+            existingRecording.failureReason ===
+              WAITING_STORAGE_EXPIRED_REASON));
+      const isRetryableLoomImport =
+        isLoom &&
+        existingRecording.sourceWindowTitle === sourceUrl &&
+        ((!existingRecording.videoUrl &&
+          (existingRecording.status === "processing" ||
+            existingRecording.status === "failed" ||
+            isWaitingStorageRetry)) ||
+          (existingRecording.status === "failed" &&
+            existingRecording.storageMode === "hosted" &&
+            Boolean(existingRecording.videoUrl)));
+      const isRetryableHostedVideoLink =
+        !isLoom &&
+        existingRecording.status === "failed" &&
+        existingRecording.storageMode === "hosted" &&
+        existingRecording.sourceWindowTitle === sourceUrl;
       const isRetryable = isLoom
         ? isRetryableLoomImport
-        : isWaitingStorageRetry;
+        : isWaitingStorageRetry || isRetryableHostedVideoLink;
       if (!isRetryable) {
         throw new Error(
           isLoom
@@ -218,19 +278,16 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-    );
-
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
+    const spaceIds = await validateRecordingScope(db, {
+      organizationId,
+      ownerEmail,
+      spaceIds: args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds),
+      folderId: args.folderId ?? existingRecording?.folderId,
+    });
     const oembed = isLoom ? await fetchLoomOembed(loomShareUrl!) : null;
-
-    const spaceIds = (
-      args.spaceIds ?? parseSpaceIds(existingRecording?.spaceIds)
-    ).filter((value, index, arr) => value && arr.indexOf(value) === index);
     const title =
       args.title?.trim() ||
       (existingRecording?.title &&
@@ -246,14 +303,78 @@ export default defineAction({
     const height = boundedDimension(oembed?.height ?? oembed?.thumbnail_height);
     const folderId = args.folderId ?? existingRecording?.folderId ?? null;
     const visibility =
-      args.visibility ?? existingRecording?.visibility ?? defaultVisibility;
+      args.visibility ??
+      existingRecording?.visibility ??
+      (await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
     const existingEditorThumbnail = Boolean(
       parseEdits(existingRecording?.editsJson).thumbnail,
     );
+    const storage = await resolveClipsVideoStorage({
+      intent: existingRecording ? "existing" : "new",
+      recordingId: id,
+      email: ownerEmail,
+      requestHeaders: actionContext?.requestHeaders,
+    });
+    if (storage.mode === "none" && storage.denyReason !== "disabled") {
+      storageDenialReason(storage.denyReason);
+    }
+    if (storage.mode === "hosted" && !storage.provider) {
+      // guard:allow-bare-error — invariant: a hosted storage resolution always includes its server-side provider.
+      throw new Error("Hosted Clips storage provider is unavailable.");
+    }
+    const ownStorageAvailable =
+      storage.mode !== "own" ||
+      Boolean(storage.provider) ||
+      (await hasRequestVideoStorage());
+    const storageMode =
+      storage.mode === "none"
+        ? (existingRecording?.storageMode ?? null)
+        : storage.mode === "hosted" ||
+            ownStorageAvailable ||
+            existingRecording?.storageMode === "own"
+          ? storage.mode === "hosted"
+            ? "hosted"
+            : "own"
+          : null;
+    const maxImportBytes =
+      storage.mode === "hosted" ? storage.maxClipBytes : MAX_UPLOAD_BYTES;
+    const releaseHostedReservation = async (force = false) => {
+      if (
+        storage.mode !== "hosted" ||
+        (!force && storage.reservationCreated !== true)
+      ) {
+        return;
+      }
+      await releaseHostedClipRecording({
+        recordingId: id,
+        ownerEmail,
+      });
+    };
+    const updateExistingRecording = async (values: Record<string, unknown>) => {
+      const [updated] = await db
+        .update(schema.recordings)
+        .set(values)
+        .where(and(eq(schema.recordings.id, id), notTakenDown()))
+        .returning({ id: schema.recordings.id });
+      if (!updated) throw new Error(TAKEN_DOWN_REASON);
+    };
 
+    // Each import path below inserts the row in exactly one branch.
+    const trackImportedRowCreated = () =>
+      trackRecordingCreated({
+        recordingId: id,
+        userId: ownerEmail,
+        platform: "import",
+        source: "import",
+        hasAudio: true,
+        hasCamera: false,
+      });
     const buildRecordingValues = (
       videoSizeBytes: number,
       videoFormat: "mp4" | "webm" = "mp4",
@@ -264,6 +385,9 @@ export default defineAction({
       spaceIds: stringifySpaceIds(spaceIds),
       title,
       titleSource,
+      recordingPlatform: "import" as const,
+      storageMode,
+      failureCode: null,
       sourceAppName,
       sourceWindowTitle: sourceUrl,
       description: existingRecording?.description ?? "",
@@ -286,17 +410,15 @@ export default defineAction({
     const saveWaitingForStorage = async (videoSizeBytes: number) => {
       const recordingValues = buildRecordingValues(videoSizeBytes);
       if (existingRecording) {
-        await db
-          .update(schema.recordings)
-          .set({
-            ...recordingValues,
-            status: "uploading",
-            videoUrl: null,
-            failureReason: storageSetupReason,
-            loomImportClaimId: null,
-            loomImportClaimedAt: null,
-          })
-          .where(eq(schema.recordings.id, id));
+        await updateExistingRecording({
+          ...recordingValues,
+          status: "uploading",
+          videoUrl: null,
+          failureReason: storageSetupReason,
+          uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
+          loomImportClaimId: null,
+          loomImportClaimedAt: null,
+        });
       } else {
         await db.insert(schema.recordings).values({
           id,
@@ -304,9 +426,11 @@ export default defineAction({
           videoUrl: null,
           status: "uploading",
           failureReason: storageSetupReason,
+          uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
           ownerEmail,
           createdAt,
         });
+        trackImportedRowCreated();
       }
 
       await writeAppState(`recording-upload-${id}`, {
@@ -344,44 +468,70 @@ export default defineAction({
       };
     };
 
-    if (!(await hasRequestVideoStorage())) {
+    if (
+      storage.mode === "none" ||
+      (storage.mode === "own" && !ownStorageAvailable)
+    ) {
       return await saveWaitingForStorage(
         existingRecording?.videoSizeBytes ?? 0,
       );
     }
 
+    const failedHostedUrl =
+      existingRecording?.status === "failed" &&
+      existingRecording.storageMode === "hosted"
+        ? existingRecording.videoUrl
+        : null;
+    // An object that failed verification against its download is never
+    // promoted: delete it, then let the retry download and verify afresh.
+    const staleUnverifiedUrl =
+      existingRecording?.failureCode === "media_verification_failed"
+        ? failedHostedUrl
+        : null;
+    const reusableHostedUrl = staleUnverifiedUrl ? null : failedHostedUrl;
+    if (staleUnverifiedUrl) {
+      const deleted = await deleteS3ObjectByUrl(staleUnverifiedUrl, {
+        storageMode: "hosted",
+        recordingId: id,
+      });
+      if (!deleted) {
+        fail(
+          "The earlier unverified upload for this import could not be deleted. Try again shortly.",
+          { errorCode: "stale_hosted_media_cleanup_failed", statusCode: 502 },
+        );
+      }
+    }
+
     if (isLoom) {
-      // Storage is connected: create/refresh the row now and hand the slow
-      // Loom download + reupload + transcript off to a durable background
-      // job (post-finalize-worker.post.ts's "loom-import" kind /
-      // runLoomImportJob). Loom's CDN plus a reupload can outlast a single
-      // request; the worker claims the row (loomImportClaimId) and moves it
-      // to "ready" or "failed" once done.
-      const recordingValues = buildRecordingValues(
-        existingRecording?.videoSizeBytes ?? 0,
-      );
-      if (existingRecording) {
-        await db
-          .update(schema.recordings)
-          .set({
+      const recordingValues = {
+        ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+      };
+      try {
+        if (existingRecording) {
+          await updateExistingRecording({
             ...recordingValues,
             status: "processing",
-            videoUrl: null,
+            videoUrl: reusableHostedUrl,
             failureReason: null,
             loomImportClaimId: null,
             loomImportClaimedAt: null,
-          })
-          .where(eq(schema.recordings.id, id));
-      } else {
-        await db.insert(schema.recordings).values({
-          id,
-          ...recordingValues,
-          videoUrl: null,
-          status: "processing",
-          failureReason: null,
-          ownerEmail,
-          createdAt,
-        });
+          });
+        } else {
+          await db.insert(schema.recordings).values({
+            id,
+            ...recordingValues,
+            videoUrl: null,
+            status: "processing",
+            failureReason: null,
+            ownerEmail,
+            createdAt,
+          });
+          trackImportedRowCreated();
+        }
+      } catch (error) {
+        await releaseHostedReservation();
+        throw error;
       }
 
       await writeAppState(`recording-upload-${id}`, {
@@ -437,33 +587,133 @@ export default defineAction({
       };
     }
 
-    // Direct video links stay synchronous: they typically download and
-    // reupload well within a single request, and this keeps
-    // request-transcript as the deliberate next step for a transcript.
-    const media = await downloadDirectVideo(sourceUrl);
-    const videoFormat = media.mimeType === "video/webm" ? "webm" : "mp4";
-    const upload = await uploadFile({
-      data: media.bytes,
-      filename: `${id}.${videoFormat}`,
-      mimeType: media.mimeType,
-      ownerEmail,
-      stableUrl: true,
-      recordAsset: false,
-    });
-
-    if (upload === null) {
-      return await saveWaitingForStorage(media.sizeBytes);
+    const initialValues = {
+      ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
+      uploadProgress: 0,
+      uploadLeaseExpiresAt: uploadLeaseExpiry(),
+    };
+    try {
+      if (existingRecording) {
+        await updateExistingRecording({
+          ...initialValues,
+          status: "processing",
+          videoUrl: reusableHostedUrl,
+          failureReason: null,
+          loomImportClaimId: null,
+          loomImportClaimedAt: null,
+        });
+      } else {
+        await db.insert(schema.recordings).values({
+          id,
+          ...initialValues,
+          videoUrl: null,
+          status: "processing",
+          failureReason: null,
+          ownerEmail,
+          createdAt,
+        });
+        trackImportedRowCreated();
+      }
+    } catch (error) {
+      await releaseHostedReservation();
+      throw error;
     }
-    if (!upload?.url) {
-      throw new Error(
-        "File upload returned no URL. Check your storage provider configuration.",
-      );
-    }
 
-    const videoUrl = upload.url;
-    const recordingValues = buildRecordingValues(media.sizeBytes, videoFormat);
-    if (existingRecording) {
-      await db
+    let media: Awaited<ReturnType<typeof downloadDirectVideo>> | null = null;
+    let upload: Awaited<ReturnType<typeof uploadFile>> = null;
+    let videoUrl = reusableHostedUrl ?? "";
+    let videoSizeBytes = existingRecording?.videoSizeBytes ?? 0;
+    let videoFormat: "mp4" | "webm" =
+      existingRecording?.videoFormat === "webm" ? "webm" : "mp4";
+    let hostedVerifiedBytes: number | null = null;
+    let uploadSizeMismatch = false;
+    // Set before the provider is called: once true, an object or session may
+    // exist, so the reservation is no longer certain to be unused.
+    let uploadAttempted = false;
+    try {
+      if (reusableHostedUrl) {
+        hostedVerifiedBytes = await verifyHostedClipMedia({
+          recordingId: id,
+          videoUrl: reusableHostedUrl,
+        });
+        videoSizeBytes = hostedVerifiedBytes;
+        const consumed = await consumeHostedClipRecording({
+          recordingId: id,
+          ownerEmail,
+          actualBytes: hostedVerifiedBytes,
+        });
+        if (!consumed.ok) {
+          fail(
+            "Hosted Clips storage is full. Connect Builder.io storage to keep saving clips.",
+            {
+              errorCode: consumed.reason,
+              statusCode: 507,
+              details: { denyReason: consumed.reason },
+            },
+          );
+        }
+      } else {
+        media = await downloadDirectVideo(sourceUrl, {
+          maxBytes: maxImportBytes,
+        });
+        videoSizeBytes = media.sizeBytes;
+        videoFormat = media.mimeType === "video/webm" ? "webm" : "mp4";
+        const uploadInput = {
+          data: media.bytes,
+          filename: `${id}.${videoFormat}`,
+          mimeType: media.mimeType,
+          ownerEmail,
+          stableUrl: true,
+          recordAsset: false,
+        };
+        uploadAttempted = true;
+        upload = storage.provider
+          ? await storage.provider.upload(uploadInput)
+          : await uploadFile(uploadInput);
+
+        if (upload === null) {
+          return await saveWaitingForStorage(media.sizeBytes);
+        }
+        if (!upload.url) {
+          fail(
+            "File upload returned no URL. Check your storage provider configuration.",
+            { errorCode: "file_upload_missing_url", statusCode: 502 },
+          );
+        }
+        videoUrl = upload.url;
+
+        if (storage.mode === "hosted") {
+          hostedVerifiedBytes = await verifyHostedClipMedia({
+            recordingId: id,
+            videoUrl,
+          });
+          if (hostedVerifiedBytes !== media.sizeBytes) {
+            uploadSizeMismatch = true;
+            // guard:allow-bare-error — invariant: provider verification must match the exact downloaded object before it can be retained.
+            throw new Error(
+              "Hosted Clips media size does not match the downloaded file.",
+            );
+          }
+          const consumed = await consumeHostedClipRecording({
+            recordingId: id,
+            ownerEmail,
+            actualBytes: hostedVerifiedBytes,
+          });
+          if (!consumed.ok) {
+            fail(
+              "Hosted Clips storage is full. Connect Builder.io storage to keep saving clips.",
+              {
+                errorCode: consumed.reason,
+                statusCode: 507,
+                details: { denyReason: consumed.reason },
+              },
+            );
+          }
+        }
+      }
+
+      const recordingValues = buildRecordingValues(videoSizeBytes, videoFormat);
+      const [completed] = await db
         .update(schema.recordings)
         .set({
           ...recordingValues,
@@ -473,17 +723,101 @@ export default defineAction({
           loomImportClaimId: null,
           loomImportClaimedAt: null,
         })
-        .where(eq(schema.recordings.id, id));
-    } else {
-      await db.insert(schema.recordings).values({
-        id,
-        ...recordingValues,
-        videoUrl,
-        status: "ready",
-        failureReason: null,
-        ownerEmail,
-        createdAt,
-      });
+        .where(
+          and(
+            eq(schema.recordings.id, id),
+            eq(schema.recordings.status, "processing"),
+            notTakenDown(),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      if (!completed) throw new Error(TAKEN_DOWN_REASON);
+    } catch (error) {
+      let failureStorageMode = storageMode;
+      let failureVideoUrl =
+        storage.mode === "hosted" &&
+        (hostedVerifiedBytes !== null || reusableHostedUrl !== null)
+          ? videoUrl
+          : null;
+      let failureSizeBytes =
+        storage.mode === "hosted" && reusableHostedUrl !== null
+          ? (hostedVerifiedBytes ?? existingRecording?.videoSizeBytes ?? 0)
+          : storage.mode === "hosted" && hostedVerifiedBytes !== null
+            ? hostedVerifiedBytes
+            : 0;
+
+      if (
+        storage.mode === "hosted" &&
+        storage.reservationCreated === true &&
+        reusableHostedUrl === null &&
+        !uploadAttempted
+      ) {
+        try {
+          await releaseHostedReservation();
+          failureStorageMode = null;
+        } catch (releaseError) {
+          console.warn("[clips] Hosted import reservation release failed", {
+            recordingId: id,
+            error:
+              releaseError instanceof Error
+                ? releaseError.message
+                : String(releaseError),
+          });
+        }
+      } else if (
+        storage.mode === "hosted" &&
+        upload?.url &&
+        hostedVerifiedBytes === null
+      ) {
+        let cleaned = false;
+        try {
+          cleaned = await deleteS3ObjectByUrl(upload.url, {
+            storageMode: "hosted",
+            recordingId: id,
+          });
+        } catch {
+          cleaned = false;
+        }
+        // An unconfirmed delete must not drop the only handle: the reaper and
+        // permanent delete find the object through the row's videoUrl.
+        if (!cleaned) failureVideoUrl = upload.url;
+        if (cleaned && storage.reservationCreated === true) {
+          try {
+            await releaseHostedReservation();
+            failureStorageMode = null;
+          } catch (releaseError) {
+            console.warn("[clips] Hosted import reservation release failed", {
+              recordingId: id,
+              error:
+                releaseError instanceof Error
+                  ? releaseError.message
+                  : String(releaseError),
+            });
+          }
+        }
+      }
+
+      await db
+        .update(schema.recordings)
+        .set({
+          status: "failed",
+          failureCode: uploadSizeMismatch
+            ? "media_verification_failed"
+            : "video_link_import_failed",
+          failureReason: error instanceof Error ? error.message : String(error),
+          storageMode: failureStorageMode,
+          videoUrl: failureVideoUrl,
+          videoSizeBytes: failureSizeBytes,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, id),
+            eq(schema.recordings.status, "processing"),
+            notTakenDown(),
+          ),
+        );
+      throw error;
     }
 
     await dispatchPostFinalizeJob({
@@ -492,14 +826,17 @@ export default defineAction({
       requireAccepted: true,
     });
 
+    const videoMimeType =
+      media?.mimeType ?? (videoFormat === "webm" ? "video/webm" : "video/mp4");
+    const storageProviderId = upload?.provider ?? storage.provider?.id;
     void queueBuilderMediaCompression({
       recordingId: id,
       ownerEmail,
       videoUrl,
-      mimeType: media.mimeType,
-      providerId: upload.provider,
-      assetDbId: upload.id,
-      sourceSizeBytes: media.sizeBytes,
+      mimeType: videoMimeType,
+      providerId: storageProviderId,
+      assetDbId: upload?.id,
+      sourceSizeBytes: media?.sizeBytes ?? videoSizeBytes,
     }).catch((err) => {
       console.warn("[clips] Video import media compression queue failed", {
         recordingId: id,
@@ -517,22 +854,16 @@ export default defineAction({
         "Transcript import isn't available for direct video links yet. Use request-transcript to transcribe the uploaded media.",
       updatedAt: now,
     };
-    const [existingTranscript] = await db
-      .select({ recordingId: schema.recordingTranscripts.recordingId })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, id));
-    if (existingTranscript) {
-      await db
-        .update(schema.recordingTranscripts)
-        .set(transcriptValues)
-        .where(eq(schema.recordingTranscripts.recordingId, id));
-    } else {
-      await db.insert(schema.recordingTranscripts).values({
-        recordingId: id,
-        ...transcriptValues,
-        createdAt: now,
+    // An import can create the row at any point, so this is one guarded
+    // upsert rather than a read and then an insert.
+    await db
+      .insert(schema.recordingTranscripts)
+      .values({ recordingId: id, ...transcriptValues, createdAt: now })
+      .onConflictDoUpdate({
+        target: schema.recordingTranscripts.recordingId,
+        set: transcriptValues,
+        setWhere: notImportedTranscript(),
       });
-    }
 
     try {
       await enqueueFirstImportEmailIfEligible(
@@ -574,11 +905,12 @@ export default defineAction({
       sourceUrl,
       videoUrl,
       embedUrl: videoUrl,
-      thumbnailUrl: recordingValues.thumbnailUrl,
+      thumbnailUrl: buildRecordingValues(videoSizeBytes, videoFormat)
+        .thumbnailUrl,
       durationMs,
       importMode: "reuploaded" as const,
-      storageProvider: upload.provider,
-      videoSizeBytes: media.sizeBytes,
+      storageProvider: storageProviderId,
+      videoSizeBytes,
       note: "Imported as a Clips-hosted video. Use request-transcript to transcribe the uploaded media.",
     };
   },

@@ -47,8 +47,6 @@ describe("pickVideoRateLimit", () => {
   });
 
   it("lowers the VBV ceiling for multi-minute clips", () => {
-    // Target is ~18 MB (kept under Builder's ~32 MB Cloud Run edge cap), so a
-    // 4-minute 1080p clip is constrained to about 0.4 Mbps video plus audio.
     expect(pickVideoRateLimit(4 * 60_000)).toEqual({
       maxrate: "405k",
       bufsize: "810k",

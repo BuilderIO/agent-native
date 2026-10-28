@@ -13,8 +13,15 @@ import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
-import { getSession } from "./auth.js";
+import {
+  getBrowserCookieSession,
+  getBrowserSessionConfigurationError,
+} from "./auth.js";
+import { hasEmbedSessionRequestMarker } from "./embed-session.js";
 import { getH3App } from "./framework-request-handler.js";
+import { publicFrameworkPath } from "./framework-route-prefix.js";
+import { isHttpsRequest } from "./https-request.js";
+import { hasSameOriginBrowserEvidence } from "./request-origin.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -32,17 +39,12 @@ function normalizedEmail(value: string | undefined): string | undefined {
   return normalized || undefined;
 }
 
-function isHttpsRequest(event: H3Event): boolean {
-  const forwarded = getHeader(event, "x-forwarded-proto");
-  if (forwarded?.split(",")[0]?.trim() === "https") return true;
-  return event.url?.protocol === "https:";
-}
-
 function capabilityCookiePath(appBasePath?: string): string {
-  return `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`;
+  return publicFrameworkPath(
+    `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`,
+  );
 }
 
-/** Verify the server-minted browser capability for an authenticated owner. */
 export function hasUiActionCapability(
   event: H3Event,
   ownerEmail?: string,
@@ -64,11 +66,25 @@ export function hasUiActionCapability(
 }
 
 async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
-  const session = await getSession(event);
+  if (hasEmbedSessionRequestMarker(event)) {
+    setResponseStatus(event, 403);
+    return { error: "Browser cookie session required" };
+  }
+
+  const session = getHeader(event, "authorization")
+    ? null
+    : await getBrowserCookieSession(event);
   const ownerEmail = normalizedEmail(session?.email);
   if (!ownerEmail) {
     setResponseStatus(event, 401);
-    return { error: "Authentication required" };
+    return {
+      error: getBrowserSessionConfigurationError() ?? "Authentication required",
+    };
+  }
+
+  if (!hasSameOriginBrowserEvidence(event)) {
+    setResponseStatus(event, 403);
+    return { error: "Same-origin request required" };
   }
 
   const token = signShortLivedToken({
@@ -88,7 +104,6 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   return { ok: true };
 }
 
-/** Mount the authenticated endpoint that seeds the HttpOnly UI capability. */
 export function mountUiActionCapabilityRoute(
   nitroApp: any,
   routePrefix = "/_agent-native",

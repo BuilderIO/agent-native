@@ -54,13 +54,6 @@ async function installBridge(page: Page): Promise<void> {
   });
 }
 
-// Selects `selector` directly via the bridge's `select-element` postMessage
-// instead of a plain click. Plain clicks resolve container-first (Figma
-// parity — containerFirstSelectionTarget): clicking a descendant nested more
-// than one level below the current container scope selects that scope's
-// direct child on the path to the pointer, not the descendant itself. Copied
-// from bridge.guard.spec.ts's selectElementDirect — see that file for the
-// full rationale.
 async function selectElementDirect(
   page: Page,
   selector: string,
@@ -88,16 +81,12 @@ async function dragCenterTo(
   page: Page,
   selector: string,
   target: { x: number; y: number },
-  modifier?: "Control" | "Meta" | "Space",
+  modifier?: "Control" | "Meta" | "Space" | "S",
 ): Promise<{ left: number; top: number }> {
   const box = await page.locator(selector).boundingBox();
   expect(box).not.toBeNull();
   const startX = box!.x + box!.width / 2;
   const startY = box!.y + box!.height / 2;
-  // A plain mouse.click() here would resolve container-first for a nested
-  // drag target, and dragTargetForPointerDown's selectedEl-contains-hit fast
-  // path would then drag that container instead of the intended descendant.
-  // Select the real target explicitly so the drag operates on it.
   await selectElementDirect(page, selector);
   await page.mouse.move(startX, startY);
   await page.mouse.down();
@@ -112,6 +101,16 @@ async function dragCenterTo(
   if (modifier) await page.keyboard.up(modifier);
   await page.waitForTimeout(40);
   return beforeRelease;
+}
+
+async function ignoreAutoLayoutModifier(page: Page): Promise<"Control" | "S"> {
+  const platform = await page.evaluate(() => navigator.platform);
+  return /Mac|iPhone|iPad|iPod/i.test(platform) ? "Control" : "S";
+}
+
+async function primaryModifier(page: Page): Promise<"Meta" | "Control"> {
+  const platform = await page.evaluate(() => navigator.platform);
+  return /Mac|iPhone|iPad|iPod/i.test(platform) ? "Meta" : "Control";
 }
 
 function sourceId(html: string, layerName: string): string {
@@ -140,6 +139,58 @@ describe("Chromium reparent matrix", () => {
   afterAll(async () => {
     await browser.close();
   });
+
+  it(
+    "primary-modifier drag nests into the deepest auto-layout container",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;position:relative;width:900px;height:700px">
+        <div id="outer" data-agent-native-node-id="outer" style="position:absolute;left:300px;top:80px;width:400px;height:220px;display:flex;flex-direction:column;gap:12px;padding:16px;background:#ddd">
+          <div id="inner" data-agent-native-node-id="inner" style="display:flex;flex-direction:row;gap:8px;padding:8px;width:360px;height:80px;background:#aaa"><span data-agent-native-node-id="peer">Peer</span></div>
+        </div>
+        <div id="source" data-agent-native-node-id="source" style="position:absolute;left:40px;top:100px;width:60px;height:40px;background:#f00">Source</div>
+      </body></html>`);
+      await installBridge(page);
+      await selectElementDirect(page, "#source");
+      const source = (await page.locator("#source").boundingBox())!;
+      const target = (await page.locator("#inner").boundingBox())!;
+      const modifier = await primaryModifier(page);
+      await page.keyboard.down(modifier);
+      try {
+        await page.mouse.move(
+          source.x + source.width / 2,
+          source.y + source.height / 2,
+        );
+        await page.mouse.down();
+        await page.mouse.move(source.x + 8, source.y + 8, { steps: 2 });
+        await page.mouse.move(
+          target.x + target.width / 2,
+          target.y + target.height / 2,
+          { steps: 8 },
+        );
+        expect(
+          await page
+            .locator("[data-agent-native-insertion-guide]")
+            .evaluate((element) => getComputedStyle(element).display),
+        ).toBe("block");
+        expect(
+          await page
+            .locator("#source")
+            .evaluate((el) => el.parentElement?.tagName),
+        ).toBe("BODY");
+        await page.mouse.up();
+      } finally {
+        await page.keyboard.up(modifier);
+      }
+      expect(
+        await page.locator("#source").evaluate((el) => el.parentElement?.id),
+      ).toBe("inner");
+      await page.close();
+    },
+  );
 
   it(
     "moves absolute layers into freeform, row, column, wrap, and grid parents with the correct geometry and flow cleanup",
@@ -261,10 +312,6 @@ describe("Chromium reparent matrix", () => {
         expect(result.dropMode, layout.name).toBe(layout.expectedDropMode);
         if (layout.expectedPosition === "absolute") {
           expect(result.position, layout.name).toBe("absolute");
-          // Reparenting into a new containing block must not add a one-frame
-          // jump: the last dragged geometry is the post-drop geometry. Smart
-          // guides may legitimately snap that geometry by up to 6px before
-          // release, so compare the two rendered states directly.
           expect(result.rect.left, layout.name).toBeCloseTo(
             beforeRelease.left,
             5,
@@ -589,13 +636,6 @@ describe("Chromium reparent matrix", () => {
     "strips flex-item-only styling (flex-grow/shrink/basis, align-self, order) when a flow child is dragged out to the freeform screen root",
     { timeout: 30_000 },
     async () => {
-      // Regression: prepareFlowMembersForAbsoluteDrop converted a flow child
-      // to position:absolute at the drag release point but left its
-      // flex-item-only inline styling (flex-grow/shrink/basis, align-self,
-      // order — meaningless outside a flex/grid parent) in place. Live DOM
-      // repro: drag a flex child carrying those properties onto the freeform
-      // screen root and confirm they're gone from the live element once it
-      // becomes absolute, while unrelated styling (background) survives.
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
       });
@@ -634,14 +674,13 @@ describe("Chromium reparent matrix", () => {
       expect(result.flexBasis).toBe("");
       expect(result.alignSelf).toBe("");
       expect(result.order).toBe("");
-      // Non-flex-item inline styling on the same element must survive the strip.
       expect(result.background, result.cssText).toContain("rgb(99, 102, 241)");
       await page.close();
     },
   );
 
   it(
-    "honors Control Ignore Auto Layout and Space retain-parent for absolute drags",
+    "honors Ignore Auto Layout and Space retain-parent for absolute drags",
     { timeout: 30_000 },
     async () => {
       const page = await browser.newPage({
@@ -669,7 +708,7 @@ describe("Chromium reparent matrix", () => {
         page,
         "#control",
         { x: 560, y: 220 },
-        "Control",
+        await ignoreAutoLayoutModifier(page),
       );
       const ignored = await page.locator("#control").evaluate((element) => {
         const item = element as HTMLElement;
@@ -757,8 +796,6 @@ describe("Chromium reparent matrix", () => {
       </body></html>`);
       await installBridge(page);
 
-      // Grid row 2, left-side padding immediately before C. An X-only nearest
-      // child resolver ties A and C and incorrectly chooses A from row 1.
       await dragCenterTo(page, "#source", { x: 306, y: 185 });
       const result = await page.locator("#grid").evaluate((grid) => ({
         order: Array.from(grid.children).map((child) => child.id),
@@ -795,9 +832,6 @@ describe("Chromium reparent matrix", () => {
       </body></html>`);
       await installBridge(page);
 
-      // Drop on the second item in row 2. A Y-only wrapped-flex resolver
-      // ties every item in that row and anchors against C, while the visual
-      // two-dimensional resolver must keep the source after D.
       await dragCenterTo(page, "#source", { x: 430, y: 179 });
       const result = await page.locator("#wrap").evaluate((wrap) => ({
         order: Array.from(wrap.children).map((child) => child.id),
@@ -848,7 +882,7 @@ describe("Chromium reparent matrix", () => {
   );
 
   it(
-    "uses Meta to keep an absolute drag free inside a declared frame in an auto-layout row",
+    "uses the platform ignore-auto-layout chord to keep an absolute drag free inside a declared frame in an auto-layout row",
     { timeout: 30_000 },
     async () => {
       const page = await browser.newPage({
@@ -879,7 +913,7 @@ describe("Chromium reparent matrix", () => {
           x: frameBox!.x + frameBox!.width / 2,
           y: frameBox!.y + frameBox!.height / 2,
         },
-        "Meta",
+        await ignoreAutoLayoutModifier(page),
       );
       const result = await page.locator("#source").evaluate((element) => {
         const source = element as HTMLElement;
@@ -937,7 +971,12 @@ describe("Chromium reparent matrix", () => {
         };
       });
 
-      await dragCenterTo(page, "#item", { x: 540, y: 250 }, "Control");
+      await dragCenterTo(
+        page,
+        "#item",
+        { x: 540, y: 250 },
+        await ignoreAutoLayoutModifier(page),
+      );
       const ignored = await page.locator("#item").evaluate((element) => {
         const item = element as HTMLElement;
         const rect = item.getBoundingClientRect();
@@ -971,9 +1010,6 @@ describe("Chromium reparent matrix", () => {
         dropMode: "absolute-container",
       });
 
-      // A rejected host persistence round-trip uses the same pre-gesture
-      // snapshot kept for Cmd+Z history: parent/order and position styles must
-      // return atomically, never leaving a half-flow/half-absolute member.
       await page.evaluate((requestId) => {
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -1008,6 +1044,46 @@ describe("Chromium reparent matrix", () => {
           top: "",
           order: before.order,
         });
+      await page.close();
+    },
+  );
+
+  it(
+    "keeps an oversized flow child inside a smaller auto-layout target with the platform Ignore Auto Layout chord",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        html,body { margin:0;width:100%;height:100%; }
+        body { position:relative; }
+        #outer { position:absolute;left:100px;top:80px;width:560px;height:220px;padding:20px;display:flex;gap:16px;background:#eef2ff;box-sizing:border-box; }
+        #item { flex:0 0 auto;width:220px;height:90px;background:#6366f1; }
+        #inner { position:relative;flex:0 0 100px;width:100px;height:70px;padding:6px;display:flex;gap:6px;background:#a5b4fc;box-sizing:border-box; }
+      </style></head><body>
+        <div id="outer" data-agent-native-node-id="outer">
+          <div id="item" data-agent-native-node-id="item">Item</div>
+          <div id="inner" data-agent-native-node-id="inner" data-an-primitive="frame"></div>
+        </div>
+      </body></html>`);
+      await installBridge(page);
+      const target = await page.locator("#inner").boundingBox();
+      expect(target).not.toBeNull();
+      await dragCenterTo(
+        page,
+        "#item",
+        { x: target!.x + target!.width / 2, y: target!.y + target!.height / 2 },
+        await ignoreAutoLayoutModifier(page),
+      );
+      await expect
+        .poll(() =>
+          page.locator("#item").evaluate((element) => ({
+            parent: element.parentElement?.id,
+            position: getComputedStyle(element).position,
+          })),
+        )
+        .toEqual({ parent: "inner", position: "absolute" });
       await page.close();
     },
   );
@@ -1049,8 +1125,6 @@ describe("Chromium reparent matrix", () => {
       });
       expect(after.parent).toBe("target");
       expect(after.position).toBe("absolute");
-      // Whole authored offsets cost up to a scaled half-pixel of drop accuracy
-      // under a rotate+scale parent. That trade is deliberate.
       expect(Number.isInteger(after.inlineLeft)).toBe(true);
       expect(Number.isInteger(after.inlineTop)).toBe(true);
       expect(Math.abs(after.left - beforeRelease.left)).toBeLessThan(1);
@@ -1066,8 +1140,6 @@ describe("Chromium reparent matrix", () => {
       const page = await browser.newPage({
         viewport: { width: 900, height: 700 },
       });
-      // No data-agent-native-node-id anywhere: this is the real localhost
-      // shape, where the hit-test can only hand back a minted pending id.
       await page.setContent(`<!doctype html><html><head><style>
         html,body { margin:0;width:100%;height:100%; }
         #host { display:flex;gap:12px;padding:16px;background:#eef2ff; }
@@ -1118,14 +1190,11 @@ describe("Chromium reparent matrix", () => {
       expect(inserted.parent).toBe("host");
       expect(inserted.order).toEqual(["existing", "board-rect"]);
       expect(inserted.structures).toHaveLength(1);
-      // insertedHtml is what tells the host (and then the coding agent) this is
-      // new markup to add, not an existing element to relocate.
+      expect(String(inserted.structures[0]!.requestId)).toBe("41");
       expect(inserted.structures[0]!.insertedHtml).toContain(
         'data-agent-native-node-id="board-rect"',
       );
 
-      // Cmd+Z on a pending live insert rejects the round-trip. There is no
-      // pre-insert position to restore, so the only correct revert is removal.
       await page.evaluate((requestId) => {
         window.dispatchEvent(
           new MessageEvent("message", {
@@ -1133,7 +1202,7 @@ describe("Chromium reparent matrix", () => {
             data: { type: "visual-structure-ack", requestId, applied: false },
           }),
         );
-      }, inserted.structures[0]!.requestId);
+      }, 41);
       await expect
         .poll(() =>
           page.evaluate(
@@ -1144,6 +1213,316 @@ describe("Chromium reparent matrix", () => {
           ),
         )
         .toBe(0);
+      await page.close();
+    },
+  );
+
+  it(
+    "resolves source-equivalent selectors when inserting into the running DOM",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <main>
+          <section data-agent-native-edit-overlay="test-overlay"></section>
+          <section id="hero">The other matching identity</section>
+          <section data-loc="hero" id="anchor" style="display:flex;gap:12px;padding:16px">
+            <div id="existing">Existing</div>
+          </section>
+        </main>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 42,
+              html: '<div data-agent-native-node-id="source-equivalent-copy">Copy</div>',
+              anchorSelector:
+                "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+              anchorSourceId: "hero",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const result = await page.evaluate(() => {
+        const copy = document.querySelector(
+          '[data-agent-native-node-id="source-equivalent-copy"]',
+        );
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        return {
+          parent: copy?.parentElement?.id ?? null,
+          applied: messages.some(
+            (message) =>
+              message.type === "runtime-structure-insert-applied" &&
+              message.requestId === "42",
+          ),
+        };
+      });
+      expect(result.parent).toBe("anchor");
+      expect(result.applied).toBe(true);
+      await page.close();
+    },
+  );
+
+  it(
+    "rejects a source-equivalent anchor outside its repeated source-id matches",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <main>
+          <section id="first" data-loc="shared-anchor">First source instance</section>
+          <section id="second" data-loc="shared-anchor">Second source instance</section>
+          <section id="unrelated" style="display:flex">Unrelated sibling</section>
+        </main>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 48,
+              html: '<div data-agent-native-node-id="unrelated-copy">Copy</div>',
+              anchorSelector:
+                "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(3)",
+              anchorSourceId: "shared-anchor",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+
+      const result = await page.evaluate(() => {
+        const messages = (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!;
+        return {
+          copyCount: document.querySelectorAll(
+            '[data-agent-native-node-id="unrelated-copy"]',
+          ).length,
+          rejected: messages.find(
+            (message) =>
+              message.type === "runtime-structure-insert-rejected" &&
+              message.requestId === 48,
+          ),
+          applied: messages.some(
+            (message) =>
+              message.type === "runtime-structure-insert-applied" &&
+              message.requestId === "48",
+          ),
+        };
+      });
+      expect(result).toEqual({
+        copyCount: 0,
+        rejected: expect.objectContaining({ reason: "anchor-unresolved" }),
+        applied: false,
+      });
+      await page.close();
+    },
+  );
+
+  it("measures a source-equivalent selector in the running DOM", async () => {
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    await page.setContent(`<!doctype html><html><body>
+      <main>
+        <button data-agent-native-edit-overlay="test-overlay"></button>
+        <button id="measure-target" style="width:80px;height:40px">Target</button>
+      </main>
+    </body></html>`);
+    await installBridge(page);
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          data: {
+            type: "agent-native:measure-selection",
+            correlationId: "source-equivalent-measurement",
+            screenId: "matrix-screen",
+            selector:
+              "source-equivalent:v1:body > main:nth-of-type(1) > button:nth-of-type(1)",
+          },
+        }),
+      );
+    });
+
+    const measured = await page.evaluate(() => {
+      const messages = (
+        window as Window & { __matrixMessages?: Record<string, unknown>[] }
+      ).__matrixMessages!;
+      return messages.find(
+        (message) =>
+          message.type === "agent-native:selection-measured" &&
+          message.correlationId === "source-equivalent-measurement",
+      )?.payload as Record<string, unknown> | null;
+    });
+    expect(measured).toMatchObject({
+      tagName: "button",
+      sourceId: "measure-target",
+    });
+    await page.close();
+  });
+
+  it("applies a validated grid cell to host-supplied cross-screen markup", async () => {
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    await page.setContent(`<!doctype html><html><body>
+      <div id="grid" style="display:grid;grid-template-columns:100px 100px;grid-template-rows:80px 80px">
+        <div id="existing" style="grid-column:1;grid-row:1">Existing</div>
+      </div>
+    </body></html>`);
+    await installBridge(page);
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          data: {
+            type: "runtime-structure-insert",
+            requestId: 47,
+            html: '<div data-agent-native-node-id="grid-copy">Copy</div>',
+            anchorSelector: "#grid",
+            anchorSourceId: "",
+            anchorPendingNodeId: "",
+            placement: "inside",
+            gridPlacement: { column: 2, columnEnd: 3, row: 2, rowEnd: 3 },
+          },
+        }),
+      );
+    });
+
+    const result = await page.evaluate(() => {
+      const copy = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="grid-copy"]',
+      );
+      const messages = (
+        window as Window & { __matrixMessages?: Record<string, unknown>[] }
+      ).__matrixMessages!;
+      const change = messages.find(
+        (message) =>
+          message.type === "visual-structure-change" &&
+          message.sourceId === "grid-copy",
+      );
+      return {
+        parent: copy?.parentElement?.id ?? null,
+        column: copy?.style.gridColumn ?? null,
+        row: copy?.style.gridRow ?? null,
+        gridPlacement: change?.gridPlacement,
+      };
+    });
+    expect(result).toEqual({
+      parent: "grid",
+      column: "2 / 3",
+      row: "2 / 3",
+      gridPlacement: { column: 2, columnEnd: 3, row: 2, rowEnd: 3 },
+    });
+    await page.close();
+  });
+
+  it(
+    "rolls back an unacknowledged cross-screen insert by transaction identity after reminting a colliding node id",
+    { timeout: 30_000 },
+    async () => {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body>
+        <div id="host"><div data-agent-native-node-id="shared-id">Existing</div></div>
+      </body></html>`);
+      await installBridge(page);
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-insert",
+              requestId: 46,
+              transactionId: "move-timeout-1",
+              remintCollidingNodeIds: true,
+              html: '<div data-agent-native-node-id="shared-id">Moved</div>',
+              anchorSelector: "#host",
+              anchorSourceId: "",
+              anchorPendingNodeId: "",
+              placement: "inside",
+            },
+          }),
+        );
+      });
+      await page.waitForFunction(() =>
+        Array.from(document.querySelectorAll("#host > div")).some(
+          (element) => element.textContent === "Moved",
+        ),
+      );
+      const ids = await page.locator("#host > div").evaluateAll((elements) =>
+        elements.map((element) => ({
+          text: element.textContent,
+          nodeId: element.getAttribute("data-agent-native-node-id"),
+        })),
+      );
+      expect(ids.find((element) => element.text === "Existing")?.nodeId).toBe(
+        "shared-id",
+      );
+      expect(ids.find((element) => element.text === "Moved")?.nodeId).not.toBe(
+        "shared-id",
+      );
+
+      await page.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: window,
+            data: {
+              type: "runtime-structure-rollback-insert",
+              requestId: "move-timeout-1:rollback",
+              transactionId: "move-timeout-1",
+              selector: "",
+            },
+          }),
+        );
+      });
+      await page.waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll("#host > div")).some(
+            (element) => element.textContent === "Existing",
+          ) &&
+          !Array.from(document.querySelectorAll("#host > div")).some(
+            (element) => element.textContent === "Moved",
+          ),
+      );
+      const results = await page.evaluate(() =>
+        (
+          window as Window & { __matrixMessages?: Record<string, unknown>[] }
+        ).__matrixMessages!.filter(
+          (message) => message.type === "runtime-structure-rollback-result",
+        ),
+      );
+      expect(results).toContainEqual(
+        expect.objectContaining({
+          requestId: "move-timeout-1:rollback",
+          transactionId: "move-timeout-1",
+          applied: true,
+        }),
+      );
       await page.close();
     },
   );
@@ -1360,8 +1739,6 @@ describe("cross-screen source and runtime matrix", () => {
       expect(moved.destHtml).not.toMatch(/(?:^|\s)absolute(?:\s|$)/);
       expect(moved.destHtml).not.toContain("md:!fixed");
 
-      // The editor's source history is a one-snapshot mutation: undo returns
-      // both documents exactly, redo returns the exact moved pair.
       const history = [
         { source, destination },
         { source: moved.sourceHtml, destination: moved.destHtml },
@@ -1383,13 +1760,9 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenId: "screen-a",
       }),
     ).toBe("screen-bridge");
-    // A board primitive dropped into a live localhost screen: neither endpoint
-    // is runtimeOnly (the live anchor has no stored layer owner), so without
-    // targetScreenIsLive this resolves to "source-edit" and the move is written
-    // as an HTML document over the destination screen's bridge URL.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
-        subjectRuntimeOnly: false,
+        subjectRuntimeOnly: true,
         targetRuntimeOnly: false,
         sourceScreenId: "board",
         targetScreenId: "live",
@@ -1397,8 +1770,6 @@ describe("cross-screen source and runtime matrix", () => {
         targetScreenIsLive: true,
       }),
     ).toBe("screen-bridge-insert");
-    // Only the board may be reinterpreted as an insert — a stored screen's
-    // element moved into a live app would otherwise be silently duplicated.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: false,
@@ -1417,7 +1788,6 @@ describe("cross-screen source and runtime matrix", () => {
         sourceScreenIsBoard: true,
       }),
     ).toBe("source-edit");
-    // Same-screen live reorders keep the existing bridge move path.
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: true,

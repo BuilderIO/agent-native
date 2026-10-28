@@ -1,0 +1,83 @@
+/* Family changes stay token-only so every app keeps the same markup. */
+:root[data-theme-family="agent-native"],
+:root[data-theme-family="agent-native"][data-appearance],
+.dark[data-theme-family="agent-native"],
+.dark[data-theme-family="agent-native"][data-appearance] {
+  --font-sans: "Inter Variable", "Inter", sans-serif;
+  --font-wordmark: "Geist Variable", "Geist", sans-serif;
+  --radius: 0.75rem;
+  --radius-xl: 0.75rem;
+  --agent-native-shadow-color: 0 0% 10%;
+  --shadow-composer: 0 8px 15px hsl(var(--agent-native-shadow-color) / 0.06);
+  --agent-kit-composer-radius: 0.75rem;
+  --agent-kit-composer-elevation: var(--shadow-composer);
+}
+
+:root[data-theme-family="agent-native"],
+:root[data-theme-family="agent-native"][data-appearance] {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
+  --radius: 0.75rem;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
+}
+
+.dark[data-theme-family="agent-native"],
+.dark[data-theme-family="agent-native"][data-appearance] {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 96%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
+}
+
+.dark[data-theme-family="agent-native"],
+.dark[data-theme-family="agent-native"][data-appearance] {
+  --shadow-composer: 0 8px 30px hsl(var(--background) / 0.22);
+  --agent-kit-composer-elevation: var(--shadow-composer);
+}

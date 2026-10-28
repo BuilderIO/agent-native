@@ -3,13 +3,13 @@ import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseOpenPagesIn,
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
@@ -25,11 +25,9 @@ import { evaluateNormalizationFormula } from "@shared/properties";
 import {
   IconArrowLeft,
   IconCheck,
-  IconChevronDown,
   IconChevronRight,
   IconExternalLink,
   IconEye,
-  IconEyeOff,
   IconFileText,
   IconLayoutGrid,
   IconLayoutKanban,
@@ -101,10 +99,6 @@ export type DatabaseSettingsPanel =
   | "property_visibility"
   | "group";
 
-// One step in the Sources drill-down: Sources (root, empty stack) → provider
-// (Builder) → space → model leaf. The model step carries the full summary so
-// the leaf can attach without re-fetching.
-// A second source being added, awaiting the canonical-key confirm step.
 type PendingSourceCandidate = {
   sourceType: "mock-local" | "builder-cms" | "local-table" | "notion-database";
   sourceName: string;
@@ -134,8 +128,6 @@ function sourceNavTitle(stack: SourceNavStep[]): string {
   return top.model.displayName;
 }
 
-// The Builder "B" brand mark (first glyph of the wordmark), drawn with
-// currentColor so it themes against the panel background.
 function BuilderLogoMark({ className }: { className?: string }) {
   return (
     <svg
@@ -150,8 +142,6 @@ function BuilderLogoMark({ className }: { className?: string }) {
   );
 }
 
-// The Notion logo, reusing the shared `.notion-logo-icon` styling (same mark as
-// the sidebar's Notion button) so it themes consistently.
 function NotionLogoMark({ className }: { className?: string }) {
   return (
     <svg
@@ -225,16 +215,16 @@ export function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -251,13 +241,8 @@ export function DatabaseSettingsPanelSheet({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
-  // Local drill-down path *within* the Source(s) panel. Kept here (not in the
-  // flat panel enum) because the levels are dynamic — space/model names aren't
-  // known at compile time. The sheet's back button pops this stack first.
   const [sourceNavStack, setSourceNavStack] = useState<SourceNavStep[]>([]);
   useEffect(() => {
-    // Always re-enter the Sources panel at its root, and don't retain a path
-    // across close/reopen.
     if (!open || panel !== "source") setSourceNavStack([]);
   }, [open, panel]);
 
@@ -554,6 +539,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      stagedPublicationTransition: changeSet.stagedPublicationTransition,
       effect,
       execution: latestExecution,
     };
@@ -659,16 +645,16 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -693,8 +679,6 @@ function DatabaseSettingsSourcePanel({
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
   const builderOrgName = builderStatus.status?.orgName ?? null;
-  // Real space name(s) from the Admin API, falling back to the generic org
-  // name (then a constant) so the drill-down never renders a blank label.
   const builderSpaces =
     builderStatus.status?.spaces && builderStatus.status.spaces.length > 0
       ? builderStatus.status.spaces
@@ -715,7 +699,6 @@ function DatabaseSettingsSourcePanel({
 
   const top = nav[nav.length - 1];
 
-  // ── Sources list (root) ───────────────────────────────────────────────
   if (!top) {
     return (
       <SourcesListView
@@ -739,7 +722,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Add a source → local tables picker ────────────────────────────────
   if (top.kind === "addSource") {
     return (
       <AddSourceView
@@ -765,7 +747,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Secondary (federated) source leaf ─────────────────────────────────
   if (top.kind === "secondarySource") {
     const secondary = sources.find((item) => item.id === top.sourceId) ?? null;
     return (
@@ -774,7 +755,12 @@ function DatabaseSettingsSourcePanel({
         canEdit={canEdit}
         pending={sourceActionPending}
         onAddDetails={() => {
-          if (!secondary || secondary.sourceType === "local-folder") return;
+          if (
+            !secondary ||
+            secondary.sourceType === "local-folder" ||
+            secondary.sourceType === "github"
+          )
+            return;
           onNavPush({
             kind: "keyConfirm",
             candidate: {
@@ -805,7 +791,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Canonical-key confirm (adding a second source) ────────────────────
   if (top.kind === "keyConfirm") {
     return (
       <CanonicalKeyConfirmView
@@ -852,11 +837,8 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Builder provider → space list ─────────────────────────────────────
   if (top.kind === "provider") {
     if (!builderConfigured) {
-      // Don't flash "Connect Builder" at an already-connected user while the
-      // status is still loading — show a checking state until we actually know.
       if (!builderStatus.status && builderStatus.loading) {
         return (
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -882,7 +864,7 @@ function DatabaseSettingsSourcePanel({
                 ) : (
                   <IconExternalLink className="mr-1.5 size-3.5" />
                 )}
-                Connect Builder
+                Use Builder.io
               </Button>
             </BuilderConnectPopover>
           </div>
@@ -909,7 +891,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Space → model list ────────────────────────────────────────────────
   if (top.kind === "space") {
     return (
       <BuilderSpaceModelsView
@@ -921,13 +902,10 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Model leaf ────────────────────────────────────────────────────────
   const model = top.model;
   const isAttachedModel =
     Boolean(source) && isBuilderSource && source?.sourceTable === model.name;
 
-  // Unattached model → the attach affordance (the model is already chosen by
-  // drilling in, so there's no model picker here).
   if (!isAttachedModel || !source) {
     return (
       <div className="grid min-w-0 gap-3">
@@ -998,7 +976,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // Attached model → the minimal read-only leaf panel.
   return (
     <div className="grid min-w-0 gap-4">
       <>
@@ -1149,6 +1126,7 @@ function DatabaseSettingsSourcePanel({
           source={source}
           canAddDetails={
             source.sourceType !== "local-folder" &&
+            source.sourceType !== "github" &&
             sources.some(
               (item) => item.id !== source.id && !sourceAddsDetails(item),
             )
@@ -1156,7 +1134,11 @@ function DatabaseSettingsSourcePanel({
           canEdit={canEdit}
           pending={sourceActionPending}
           onAddDetails={() => {
-            if (source.sourceType === "local-folder") return;
+            if (
+              source.sourceType === "local-folder" ||
+              source.sourceType === "github"
+            )
+              return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -1192,7 +1174,7 @@ function DatabaseSettingsSourcePanel({
             type="button"
             size="sm"
             variant="outline"
-            className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+            className="mt-2 text-xs text-destructive hover:text-destructive"
             disabled={!canEdit || sourceActionPending}
             onClick={() => onDisconnectSource(source.id)}
           >
@@ -1209,8 +1191,6 @@ function DatabaseSettingsSourcePanel({
   );
 }
 
-// Root of the Sources drill-down: third-party integrations + Agent-Native apps,
-// each provider a row. Builder is live; the rest are disabled "coming soon".
 function SourcesListView({
   source,
   sources,
@@ -1315,9 +1295,6 @@ function SourcesListView({
   );
 }
 
-// Confirm the canonical-key join before federating a second source. The
-// heuristic proposes a key field + normalization formula per side; the user can
-// tweak the formulas and watch a live sample-match preview before committing.
 function CanonicalKeyConfirmView({
   documentId,
   candidate,
@@ -1513,8 +1490,6 @@ function CanonicalKeyConfirmView({
   );
 }
 
-// Pick a second source to federate. NEXT supports local tables (any other
-// workspace database); integrations beyond Builder are coming soon.
 function AddSourceView({
   excludeDatabaseIds,
   canEdit,
@@ -1529,8 +1504,6 @@ function AddSourceView({
   }) => void;
 }) {
   const query = useContentDatabases({ enabled: true });
-  // Exclude this database (no self-reference) and any table already federated
-  // onto it — those live in the "Connected sources" group above.
   const excluded = new Set(excludeDatabaseIds);
   const tables = (query.data?.databases ?? []).filter(
     (table) => !excluded.has(table.databaseId),
@@ -1583,7 +1556,6 @@ function AddSourceView({
   );
 }
 
-// A connected federated (secondary) source: read-only details + remove.
 function SecondarySourceLeaf({
   source,
   canEdit,
@@ -1657,7 +1629,7 @@ function SecondarySourceLeaf({
           type="button"
           size="sm"
           variant="outline"
-          className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+          className="mt-2 text-xs text-destructive hover:text-destructive"
           disabled={!canEdit || pending}
           onClick={onDisconnect}
         >
@@ -1697,7 +1669,7 @@ function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
 }
 
 function findDetailsSource(
-  response: ContentDatabaseResponse,
+  response: Pick<ContentDatabaseResponsePayload, "sources">,
   candidate: PendingSourceCandidate,
 ) {
   return (
@@ -1822,7 +1794,7 @@ function SourceRoleCard({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={!canEdit || pending}
               onClick={onChooseFields}
             >
@@ -1832,7 +1804,7 @@ function SourceRoleCard({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={!canEdit || pending}
               onClick={onAddItems}
             >
@@ -1844,7 +1816,7 @@ function SourceRoleCard({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 text-xs"
+            className="text-xs"
             disabled={!canEdit || pending}
             onClick={onAddDetails}
           >
@@ -2093,7 +2065,7 @@ function SourceDetailsFieldPicker({
                   className={cn(
                     "flex size-4 shrink-0 items-center justify-center rounded border",
                     selected.has(field.id)
-                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      ? "border-database-blue bg-database-blue text-database-blue-foreground"
                       : "border-muted-foreground/40 text-transparent",
                   )}
                 >
@@ -2139,8 +2111,6 @@ function SourceDetailsFieldPicker({
   );
 }
 
-// A Builder space's data models, as drill-in rows. The attached model (if any)
-// is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
   attachedModelName,
   onOpenModel,
@@ -2280,12 +2250,13 @@ function BuilderSpaceModelsView({
       <div className="relative min-w-0">
         <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
+          size="sm"
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={dbText("searchModels")}
           aria-label={dbText("searchBuilderModels")}
-          className="h-8 min-w-0 pl-7 text-sm"
+          className="min-w-0 pl-7 text-sm"
         />
       </div>
 
@@ -2672,7 +2643,7 @@ function DatabaseSettingsSwitch({
       <span
         className={cn(
           "relative h-5 w-9 rounded-full transition-colors",
-          checked ? "bg-[#2383e2]" : "bg-muted-foreground/25",
+          checked ? "bg-database-blue" : "bg-muted-foreground/25",
         )}
       >
         <span
@@ -2711,7 +2682,7 @@ function DatabaseSettingsLayoutPanel({
             className={cn(
               "flex h-16 flex-col items-center justify-center gap-1 rounded-md border text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               activeView.type === type
-                ? "border-[#2383e2] bg-[#2383e2]/5 text-[#2383e2]"
+                ? "border-database-blue bg-database-blue/5 text-database-blue"
                 : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
             onClick={() => onViewTypeChange(type)}
@@ -2762,8 +2733,6 @@ function DatabaseOpenPagesInSetting({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 p-1">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
-          const Icon =
-            option === "full_page" ? IconExternalLink : IconLayoutGrid;
           return (
             <DropdownMenuItem
               key={option}
@@ -2773,7 +2742,6 @@ function DatabaseOpenPagesInSetting({
                 onChange(option);
               }}
             >
-              <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">
                   {databaseOpenPagesInLabel(option)}
@@ -3011,7 +2979,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, true)}
             >
@@ -3021,7 +2989,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, false)}
             >
@@ -3217,7 +3185,6 @@ export function DatabaseGroupMenu({
                 onHideEmptyGroupsChange(!hideEmptyGroups);
               }}
             >
-              <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
               <span className="flex-1">{dbText("hideEmptyGroups")}</span>
               {hideEmptyGroups ? (
                 <IconCheck className="size-4 text-muted-foreground" />
@@ -3230,7 +3197,6 @@ export function DatabaseGroupMenu({
                 onGroupsCollapsedChange(groupIds, true);
               }}
             >
-              <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
               {dbText("collapseAllGroups")}
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -3240,7 +3206,6 @@ export function DatabaseGroupMenu({
                 onGroupsCollapsedChange(groupIds, false);
               }}
             >
-              <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
               {dbText("expandAllGroups")}
             </DropdownMenuItem>
           </>

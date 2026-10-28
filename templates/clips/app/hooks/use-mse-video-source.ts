@@ -1,16 +1,3 @@
-/**
- * Decides whether a recording should play through Media Source Extensions and,
- * when it should, owns the `MseVideoLoader` lifecycle.
- *
- * Raw fragmented-MP4 recordings (from the desktop live-streaming pipeline)
- * declare no up-front duration, so the browser's progressive `<video src>`
- * pipeline stalls when they're served from a CDN. This hook sniffs the asset,
- * and for fragmented files hands the video element a `MediaSource` object URL
- * driven by range requests with the duration supplied from the DB. Classic MP4,
- * WebM, Loom, and anything the browser can't MSE fall back to the native path
- * unchanged.
- */
-
 import {
   type RefObject,
   useCallback,
@@ -22,25 +9,53 @@ import {
 import { sniffFragmentedMp4 } from "@/lib/fmp4";
 import { MseVideoLoader, isMediaSourceSupported } from "@/lib/mse-video-loader";
 
+const ACCESS_PASS_QUERY_PARAMS = [
+  "t",
+  "password",
+  "X-Amz-Algorithm",
+  "X-Amz-Credential",
+  "X-Amz-Date",
+  "X-Amz-Expires",
+  "X-Amz-Security-Token",
+  "X-Amz-Signature",
+  "X-Amz-SignedHeaders",
+  "AWSAccessKeyId",
+  "Expires",
+  "Signature",
+];
+
+export function mseVideoSourceIdentity(sourceUrl: string | undefined): string {
+  if (!sourceUrl) return "";
+  try {
+    const base =
+      typeof window === "undefined"
+        ? "http://clips.local"
+        : window.location.href;
+    const parsed = new URL(sourceUrl, base);
+    parsed.hash = "";
+    for (const key of ACCESS_PASS_QUERY_PARAMS) {
+      parsed.searchParams.delete(key);
+    }
+    parsed.searchParams.sort();
+    return `${parsed.origin}${parsed.pathname}${parsed.search}`;
+  } catch {
+    return sourceUrl;
+  }
+}
+
 export type MseSourceMode = "pending" | "native" | "mse";
 
 export interface UseMseVideoSourceParams {
   videoRef: RefObject<HTMLVideoElement | null>;
-  /** The resolved asset URL (proxied same-origin or provider URL). */
   sourceUrl: string | undefined;
-  /** Authoritative duration in ms from the DB. */
   durationMs: number;
-  /** Container format hint. WebM is never eligible for this MP4-only loader. */
   videoFormat?: "webm" | "mp4" | null;
-  /** True for Loom embeds / formats the browser cannot decode — never MSE. */
   disabled?: boolean;
 }
 
 export interface UseMseVideoSourceResult {
   mode: MseSourceMode;
-  /** MediaSource object URL to use as `<video src>` when `mode === "mse"`. */
   objectUrl: string | undefined;
-  /** Drop MSE and revert to the plain `<video src>` path. */
   fallbackToNative: () => void;
 }
 
@@ -51,24 +66,21 @@ export function useMseVideoSource({
   videoFormat,
   disabled,
 }: UseMseVideoSourceParams): UseMseVideoSourceResult {
-  // WebM recordings use the native Infinity-duration workaround; only MP4 (and
-  // unknown-format, which the sniff will confirm) are candidates.
   const eligible =
     !disabled &&
     !!sourceUrl &&
     videoFormat !== "webm" &&
     isMediaSourceSupported();
+  const sourceIdentity = mseVideoSourceIdentity(sourceUrl);
 
   const [mode, setMode] = useState<MseSourceMode>(() =>
     eligible ? "pending" : "native",
   );
   const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
   const loaderRef = useRef<MseVideoLoader | null>(null);
+  const sourceUrlRef = useRef(sourceUrl);
+  sourceUrlRef.current = sourceUrl;
 
-  // Latest duration, kept in a ref so the (deliberately duration-independent)
-  // rebuild effect below seeds a freshly created loader with the current value
-  // even if it changed during the async sniff. Updating a ref in render is
-  // side-effect-free and safe.
   const durationMsRef = useRef(durationMs);
   durationMsRef.current = durationMs;
 
@@ -95,7 +107,7 @@ export function useMseVideoSource({
         }
         try {
           const loader = new MseVideoLoader({
-            url: sourceUrl,
+            url: sourceUrlRef.current ?? sourceUrl,
             durationMs: durationMsRef.current,
             video,
             onFatal: () => {
@@ -127,10 +139,12 @@ export function useMseVideoSource({
     // below, so a metadata-poll update must not rebuild the loader (which would
     // revoke the object URL and restart playback from byte zero).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eligible, sourceUrl]);
+  }, [eligible, sourceIdentity]);
 
-  // Recording metadata polling can raise the DB duration while the same
-  // fragmented asset is still playing; apply it to the live loader in place.
+  useEffect(() => {
+    if (sourceUrl) loaderRef.current?.updateUrl(sourceUrl);
+  }, [sourceUrl]);
+
   useEffect(() => {
     loaderRef.current?.setDuration(durationMs);
   }, [durationMs]);

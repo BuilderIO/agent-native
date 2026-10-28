@@ -18,7 +18,9 @@ describe("lab registry", () => {
       {
         key: " clips.meetings ",
         displayName: " Meetings ",
+        displayNameKey: "agentChat.settingsModel.chatgptTitle",
         description: " Try meetings ",
+        descriptionKey: "agentChat.settingsModel.chatgptDescription",
         keywords: " notes ",
       },
       { key: "clips.editor", displayName: "Editor" },
@@ -34,7 +36,9 @@ describe("lab registry", () => {
       {
         key: "clips.meetings",
         displayName: "Meetings",
+        displayNameKey: "agentChat.settingsModel.chatgptTitle",
         description: "Try meetings",
+        descriptionKey: "agentChat.settingsModel.chatgptDescription",
         keywords: "notes",
       },
     ]);

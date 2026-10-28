@@ -1,4 +1,5 @@
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
+import type { VariantProps } from "class-variance-authority";
 import * as React from "react";
 
 import { cn } from "../utils.js";
@@ -28,10 +29,19 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, style, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content> & {
+    /** Raise the overlay with the content when opening above other layers. */
+    overlayStyle?: React.CSSProperties;
+    overlayProps?: React.ComponentPropsWithoutRef<
+      typeof AlertDialogPrimitive.Overlay
+    > & { [dataAttribute: `data-${string}`]: string | undefined };
+  }
+>(({ className, style, overlayStyle, overlayProps, ...props }, ref) => (
   <AlertDialogPortal>
-    <AlertDialogOverlay />
+    <AlertDialogOverlay
+      {...overlayProps}
+      style={{ ...overlayProps?.style, ...overlayStyle }}
+    />
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
@@ -98,13 +108,21 @@ const AlertDialogDescription = React.forwardRef<
 AlertDialogDescription.displayName =
   AlertDialogPrimitive.Description.displayName;
 
+type AlertDialogButtonProps = VariantProps<typeof buttonVariants>;
+
+// With `asChild`, the child (usually a Button) owns its own variant and size;
+// merging button classes onto it would fight the child's.
 const AlertDialogAction = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Action>,
-  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Action> &
+    AlertDialogButtonProps
+>(({ className, variant, size, asChild, ...props }, ref) => (
   <AlertDialogPrimitive.Action
     ref={ref}
-    className={cn(buttonVariants(), className)}
+    asChild={asChild}
+    className={
+      asChild ? className : cn(buttonVariants({ variant, size }), className)
+    }
     {...props}
   />
 ));
@@ -112,15 +130,17 @@ AlertDialogAction.displayName = AlertDialogPrimitive.Action.displayName;
 
 const AlertDialogCancel = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Cancel>,
-  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Cancel>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Cancel> &
+    AlertDialogButtonProps
+>(({ className, variant = "outline", size, asChild, ...props }, ref) => (
   <AlertDialogPrimitive.Cancel
     ref={ref}
-    className={cn(
-      buttonVariants({ variant: "outline" }),
-      "mt-2 sm:mt-0",
-      className,
-    )}
+    asChild={asChild}
+    className={
+      asChild
+        ? cn("mt-2 sm:mt-0", className)
+        : cn(buttonVariants({ variant, size }), "mt-2 sm:mt-0", className)
+    }
     {...props}
   />
 ));

@@ -1,6 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconFolder, IconPlus } from "@tabler/icons-react";
-import { useRef, useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -37,11 +36,15 @@ export type CreatedWorkspace = {
 export function WorkspaceSourceMenu({
   children,
   align = "start",
+  menuStart,
+  contentClassName = "w-52",
   propertyValues,
   onCreated,
 }: {
   children: ReactElement;
   align?: "start" | "center" | "end";
+  menuStart?: ReactNode;
+  contentClassName?: string;
   propertyValues?: Record<string, unknown>;
   onCreated?: (
     workspace: CreatedWorkspace,
@@ -52,6 +55,11 @@ export function WorkspaceSourceMenu({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [name, setName] = useState("");
   const requestIdRef = useRef<string | null>(null);
+  const openingDialogRef = useRef(false);
+
+  function openWorkspaceDialog() {
+    openingDialogRef.current = true;
+  }
 
   async function createWorkspace() {
     const workspaceName = name.trim();
@@ -80,18 +88,27 @@ export function WorkspaceSourceMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
-        <DropdownMenuContent align={align} className="w-52">
-          <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
-            <IconPlus className="me-2 size-4" />
+        <DropdownMenuContent
+          align={align}
+          className={contentClassName}
+          onCloseAutoFocus={(event) => {
+            if (!openingDialogRef.current) return;
+            event.preventDefault();
+            openingDialogRef.current = false;
+            window.requestAnimationFrame(() => setDialogOpen(true));
+          }}
+        >
+          {menuStart}
+          {menuStart ? <DropdownMenuSeparator /> : null}
+          <DropdownMenuItem onSelect={openWorkspaceDialog}>
             {t("sidebar.newWorkspace")}
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
+          {!menuStart ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem asChild>
             <Link
               to="/local-files"
               state={{ workspacePropertyValues: propertyValues }}
             >
-              <IconFolder className="me-2 size-4" />
               {t("sidebar.localFolder")}
             </Link>
           </DropdownMenuItem>

@@ -64,8 +64,10 @@ registerShareableResource({
 Render the standard controls where users decide access:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client/sharing";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import {
+  ShareButton,
+  VisibilityBadge,
+} from "@agent-native/toolkit/app/sharing";
 
 <VisibilityBadge visibility={dashboard.visibility} />;
 <ShareButton resourceType="dashboard" resourceId={dashboard.id} />;
@@ -93,17 +95,38 @@ or mutations; core and app wrappers inject data and callbacks.
   />
 </WireframeBlock>
 
-The most common low-level import is:
+`<ShareButton>`, `<ShareDialog>`, and `<VisibilityBadge>` are exported from
+`@agent-native/toolkit/app/sharing`. They use Core client hooks, the shared
+sharing actions, and the app's localized text. When building custom sharing UI,
+import `useShareButtonController` and `useShareDialogController` from
+`@agent-native/core/client/sharing`.
 
-```tsx
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
-```
+The presentational pieces in `@agent-native/toolkit/sharing` take their text
+from the app. `VisibilityBadge` there accepts a `labels` object with `private`,
+`org`, and `public` text. Any label you leave out falls back to the legacy
+English default ("Private", "Org", "Public"), so existing callers keep their
+text. `OwnershipFilter` requires labels for `all`, `mine`, and `shared`. The
+`@agent-native/toolkit/app/sharing` versions always fill those labels from the
+app's localized text, so use them unless you supply the copy yourself.
 
-`<ShareButton>` and `<ShareDialog>` are core-owned rather than Toolkit-owned —
-they call sharing actions directly, so keep importing them from
-`@agent-native/core/client` as shown above. Those imports stay compatible:
-core wrappers keep doing the runtime work and pass data and callbacks into
-Toolkit-owned UI.
+Moving a resource from Private to Organization in `<ShareButton>` or
+`<ShareDialog>` opens a confirmation first. Nothing is saved until the user
+confirms, and Cancel or Escape keeps the current access. The confirmation is UI
+intent only. The share actions and their policy checks are unchanged for the
+agent. For chat threads, both components refresh mounted chat lists after they
+save.
+
+Custom surfaces get the same confirmation through
+`useShareButtonController().visibilityTransition` (`request`, `confirm`,
+`cancel`) and render it with `ShareVisibilityConfirmDialog`. `request` returns a
+promise that resolves once the change is saved. A direct change rejects with
+the save's error. A held change whose confirmation fails keeps the error and
+the retry in the dialog and its promise stays pending until a retry succeeds,
+or rejects with `ShareVisibilityNotSavedError` when it is cancelled or
+invalidated, so a held change is never reported as saved. The
+older `handleVisibilityChange` is a deprecated alias for `request` and never
+skips the confirmation. Requests from a closed surface are ignored, and a
+pending change is dropped when the resource changes.
 
 ### Toolkit vs Core {#toolkit-vs-core}
 
@@ -112,6 +135,51 @@ data and callbacks are injected. Core sharing code owns SQL, permissions,
 request context, org membership lookups, share tables, resource registration,
 access filters, visibility changes, invites, roles, and the private access
 tokens that back agent-readable public surfaces.
+
+## Shared chat history {#shared-chat-history}
+
+`@agent-native/toolkit/chat-history` provides the presentational rail. For an app sidebar backed by Core chat ownership and lifecycle behavior, use the focused adapter at `@agent-native/toolkit/app/chat/ownership-history`:
+
+```tsx
+import {
+  ownDraftRows,
+  OwnershipChatHistoryRail,
+  useOwnershipChatHistory,
+} from "@agent-native/toolkit/app/chat/ownership-history";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
+
+const { threads, isNewThread, pinThread, renameThread, archiveThread } =
+  useChatThreads(undefined, CHAT_STORAGE_KEY, null, { autoCreate: false });
+
+const history = useOwnershipChatHistory({
+  apiUrl,
+  scope: { type: "workspace", id: workspaceId },
+  activeId: activeThreadId,
+  pinned: true,
+  localMineRows: ownDraftRows({ threads, isNewThread }),
+  mutations: {
+    pin: pinThread,
+    rename: renameThread,
+    archive: archiveThread,
+  },
+});
+
+<OwnershipChatHistoryRail
+  {...history}
+  activeId={activeThreadId}
+  onNewChat={startChat}
+  onSelect={selectThread}
+  showNewChat={false}
+/>;
+```
+
+`useOwnershipChatHistory()` requests owned and shared rows from Core before paging. It keeps owner and access basis on shared rows. When pinned grouping is enabled with `pinned: true`, it gathers the viewer's pinned chats, owned or shared, into a Pinned section. Started drafts are not inferred automatically. If the app has local lifecycle data, pass `localMineRows: ownDraftRows({ threads, isNewThread })` to include started drafts proven to belong to the current user. The rail previews five rows in each section, supports Show all and independent paging, and keeps loaded rows visible when a section request fails. Retry preserves local changes until a successful authoritative refresh can reconcile them.
+
+Shared rows are read-only: rename and archive stay with the owner, and the adapter refuses them. A shared row's menu offers the viewer's own pin, marked Only you, and Hide from my list. Hide removes the row at once and shows a toast with Undo. The adapter calls Core's `hideChatThread()` itself, so apps pass no hide mutation, and it reports a failed hide in its own toast instead of through `onMutationFailed`.
+
+The adapter supplies localized section labels. `railLabels` may override `newChat`, `showMore`, or `showLess` individually. `onNewChat` and `onSelect` are required. Pass `activeId` to both the hook and rail. Mutation callbacks return `Promise<boolean>` so failed writes can roll back without navigating away from the active chat.
+
+For custom layouts, use `chatThreadToHistoryItem()` to convert a Core row and `ownDraftRows()` to derive eligible started drafts. `ChatHistoryRail` remains available when an app already owns its data and lifecycle logic. See [Sharing & Privacy](/docs/sharing#shared-chats) for ownership filters and access fields.
 
 ## What's next
 

@@ -64,8 +64,6 @@ export default function BugReportDoneRoute() {
             ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
           })) as BugReportAgentLink;
         } catch (error) {
-          // The completion message keeps access explicitly unavailable when
-          // the authenticated exchange cannot be completed.
           console.warn("[bug-report] agent link unavailable:", error);
         }
       }

@@ -11,11 +11,6 @@ const ROUTES_DIR = resolve(
   "../../app/routes",
 );
 
-/**
- * Flat-route filenames turned into matchable path patterns, minus the splat
- * routes. `$.tsx` matches every path, so leaving it in would make a deep link
- * to a non-existent route look valid here while the browser renders not-found.
- */
 function concreteRoutePatterns(): RegExp[] {
   return readdirSync(ROUTES_DIR)
     .filter((file) => /\.tsx$/.test(file) && !/\.(test|spec)\.tsx$/.test(file))
@@ -60,6 +55,30 @@ describe("resolveDesignOpenPath", () => {
     ).toBe("/design/d1?editorView=overview&screen=file-1");
   });
 
+  it("preserves a generation attempt on the exact design deep link", () => {
+    expect(
+      resolveDesignOpenPath({
+        view: "editor",
+        params: {
+          designId: "d1",
+          screen: "file-1",
+          generation_attempt_id: "attempt_1234567890abcdef",
+        },
+      }),
+    ).toBe(
+      "/design/d1?editorView=overview&screen=file-1&generation_attempt_id=attempt_1234567890abcdef",
+    );
+  });
+
+  it("drops malformed generation attempts from a deep link", () => {
+    expect(
+      resolveDesignOpenPath({
+        view: "editor",
+        params: { designId: "d1", generation_attempt_id: "short" },
+      }),
+    ).toBe("/design/d1");
+  });
+
   it("falls back to /home for an editor view with no design id", () => {
     expect(resolveDesignOpenPath({ view: "editor", params: {} })).toBe("/home");
   });
@@ -68,10 +87,6 @@ describe("resolveDesignOpenPath", () => {
     expect(resolveDesignOpenPath({ view: "templates", params: {} })).toBeNull();
   });
 
-  // `/_agent-native/open?app=design&view=editor&…` is both the embed target and
-  // the "open outside the frame" link a host offers when the embed iframe
-  // fails. A resolver that answers with a path no route serves makes both dead
-  // ends at once, and the only visible symptom is a 404 page.
   it("resolves every editor deep link to a real design route", () => {
     const patterns = concreteRoutePatterns();
     expect(patterns.length).toBeGreaterThan(5);

@@ -75,6 +75,8 @@ export interface GitHubPullRequest {
   draft: boolean;
   merged: boolean;
   mergedAt: string | null;
+  /** Present once GitHub has produced the merge commit. */
+  mergeCommitSha?: string;
   htmlUrl: string;
   userId: number;
   userLogin: string;
@@ -99,6 +101,12 @@ export interface GitHubIssue {
 }
 
 export interface GitHubPullRequestSummary extends GitHubPullRequest {
+  /** `owner/name` of the repository the branch is pushed to; null once GitHub no longer has it (a deleted fork). */
+  headRepository: string | null;
+  /** `owner/name` of the repository the pull request merges into. */
+  baseRepository: string;
+  /** The default branch of the base repository. */
+  baseDefaultBranch: string;
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -125,10 +133,17 @@ export interface GitHubMergeResult {
   message: string;
 }
 
-export interface GitHubComment {
-  id: number;
-  htmlUrl: string;
-  author: string;
+export type GitHubMergeMethod = "merge" | "squash" | "rebase";
+
+export interface GitHubRepositoryMergeSettings {
+  allowMergeCommit: boolean;
+  allowSquashMerge: boolean;
+  allowRebaseMerge: boolean;
+}
+
+interface GitHubPullRequestChecks {
+  checks: PullRequestCheckObservation[];
+  checksCoverage: TriageCoverage;
 }
 
 export interface GitHubIssueCommentObservation {
@@ -139,11 +154,6 @@ export interface GitHubIssueCommentObservation {
   htmlUrl: string;
 }
 
-/**
- * `truncated` is a cannot-confirm marker, not a hint. A capped page proves
- * nothing about a body it did not return, so a caller asking "have we already
- * posted this?" must refuse rather than read a short list as "no".
- */
 export interface GitHubIssueCommentPage {
   comments: readonly GitHubIssueCommentObservation[];
   truncated: boolean;
@@ -161,6 +171,14 @@ export class GitHubRequestError extends Error {
   }
 }
 
+/** GitHub answered a merge request with `merged: false`: nothing was merged. */
+export class GitHubMergeNotCompletedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubMergeNotCompletedError";
+  }
+}
+
 function isChecksPermissionDenied(error: unknown): boolean {
   return (
     error instanceof GitHubRequestError &&
@@ -168,11 +186,6 @@ function isChecksPermissionDenied(error: unknown): boolean {
     !error.rateLimited &&
     /resource not accessible by personal access token/i.test(error.message)
   );
-}
-
-export interface GitHubIssueCreateResult {
-  number: number;
-  htmlUrl: string;
 }
 
 export interface GitHubPullRequestEvidence {
@@ -184,14 +197,6 @@ export interface GitHubPullRequestEvidence {
   checksCoverage: TriageCoverage;
 }
 
-/**
- * One page of an open-item listing. `hasMore` reflects the raw provider page,
- * not the parsed items: `listOpenIssues` drops pull requests from the issues
- * endpoint, so a full provider page can yield fewer issues and still have a
- * next page behind it. `unparsed` counts those dropped entries so a caller can
- * tell "the repository has no issues" from "this page held only pull
- * requests"; without it an empty `items` reads the same either way.
- */
 export interface GitHubOpenItemPage<T> {
   items: T[];
   unparsed: number;
@@ -279,6 +284,9 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
       item.merged_at === null || item.merged_at === undefined
         ? null
         : requiredString(item.merged_at, "pull request merged time"),
+    ...(typeof item.merge_commit_sha === "string" && item.merge_commit_sha
+      ? { mergeCommitSha: item.merge_commit_sha }
+      : {}),
     htmlUrl: requiredString(item.html_url, "pull request URL"),
     userId: requiredNumber(user.id, "pull request author ID"),
     userLogin: requiredString(user.login, "pull request author"),
@@ -287,6 +295,34 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
     baseRef: requiredString(base.ref, "pull request base ref"),
     createdAt: requiredString(item.created_at, "pull request created time"),
     updatedAt: requiredString(item.updated_at, "pull request updated time"),
+  };
+}
+
+/** Where a pull request comes from and where it lands. GitHub sends `head.repo: null` for a deleted fork, which is not the same as a response without one. */
+function parsePullRequestRepositories(
+  value: Record<string, unknown>,
+): Pick<
+  GitHubPullRequestSummary,
+  "headRepository" | "baseRepository" | "baseDefaultBranch"
+> {
+  const head = record(value.head);
+  const baseRepo = record(record(value.base).repo);
+  return {
+    headRepository:
+      head.repo === null
+        ? null
+        : requiredString(
+            record(head.repo).full_name,
+            "pull request head repository",
+          ),
+    baseRepository: requiredString(
+      baseRepo.full_name,
+      "pull request base repository",
+    ),
+    baseDefaultBranch: requiredString(
+      baseRepo.default_branch,
+      "pull request base default branch",
+    ),
   };
 }
 
@@ -488,13 +524,21 @@ function parseReview(
   const submittedAt =
     (typeof item.submitted_at === "string" && item.submitted_at) ||
     fallbackObservedAt;
+  const author = loginFromUser(item.user, "review");
+  const reviewer = record(item.user);
   return {
-    author: loginFromUser(item.user, "review"),
+    author,
     state: normalizeReviewState(
       requiredString(item.state, "review state").toUpperCase(),
     ),
     ...(typeof item.commit_id === "string" && item.commit_id.trim()
       ? { commitSha: item.commit_id }
+      : {}),
+    ...(typeof item.author_association === "string" && item.author_association
+      ? { authorAssociation: item.author_association }
+      : {}),
+    ...(typeof reviewer.type === "string" && reviewer.type
+      ? { authorType: reviewer.type }
       : {}),
     ...(typeof item.html_url === "string" && item.html_url
       ? { htmlUrl: item.html_url }
@@ -869,6 +913,61 @@ export function createGitHubClient(options: GitHubClientOptions) {
       }
     },
 
+    async getPullRequestChecks(
+      repository: GitHubRepositoryRef,
+      headSha: string,
+    ): Promise<GitHubPullRequestChecks> {
+      const sha = headSha.trim();
+      if (!sha) throw new Error("GitHub pull request head SHA is required");
+      const root = repositoryPath(repository);
+      const page = pageSize();
+      let checks: PullRequestCheckObservation[];
+      let checksCoverage: TriageCoverage = "complete";
+      try {
+        const checkBody = record(
+          await request<unknown>(
+            `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
+          ),
+        );
+        const checkRuns = requireArray(checkBody.check_runs, "check-run");
+        const totalCount = requiredNumber(
+          checkBody.total_count,
+          "check-run total_count",
+        );
+        if (totalCount > checkRuns.length) {
+          throw new Error(
+            "GitHub check-run page was truncated; cannot treat CI as complete.",
+          );
+        }
+        checks = checkRuns.map(parseCheckRun);
+      } catch (error) {
+        if (!isChecksPermissionDenied(error)) throw error;
+
+        checksCoverage = "partial";
+
+        const workflowBody = record(
+          await request<unknown>(
+            `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
+          ),
+        );
+        const workflowRuns = requireArray(
+          workflowBody.workflow_runs,
+          "workflow-run",
+        );
+        const totalCount = requiredNumber(
+          workflowBody.total_count,
+          "workflow-run total_count",
+        );
+        if (totalCount > workflowRuns.length) {
+          throw new Error(
+            "GitHub workflow-run page was truncated; cannot treat CI as complete.",
+          );
+        }
+        checks = workflowRuns.map(parseWorkflowRun);
+      }
+      return { checks, checksCoverage };
+    },
+
     async getPullRequestEvidence(
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
@@ -903,53 +1002,10 @@ export function createGitHubClient(options: GitHubClientOptions) {
       }
       const reviews = reviewPage.reviews;
       const reviewsTruncated = reviewPage.reviewsTruncated;
-      let checks: PullRequestCheckObservation[];
-      let checksCoverage: TriageCoverage = "complete";
-      try {
-        const checkBody = record(
-          await request<unknown>(
-            `${root}/commits/${encodeURIComponent(sha)}/check-runs?per_page=${page}`,
-          ),
-        );
-        const checkRuns = requireArray(checkBody.check_runs, "check-run");
-        const totalCount = requiredNumber(
-          checkBody.total_count,
-          "check-run total_count",
-        );
-        if (totalCount > checkRuns.length) {
-          throw new Error(
-            "GitHub check-run page was truncated; cannot treat CI as complete.",
-          );
-        }
-        checks = checkRuns.map(parseCheckRun);
-      } catch (error) {
-        if (!isChecksPermissionDenied(error)) throw error;
-
-        checksCoverage = "partial";
-
-        // Fine-grained PATs expose Actions read but not Checks in GitHub's
-        // permission editor. Use workflow runs for GitHub Actions CI as
-        // partial evidence only; required non-Actions checks remain unknown.
-        const workflowBody = record(
-          await request<unknown>(
-            `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
-          ),
-        );
-        const workflowRuns = requireArray(
-          workflowBody.workflow_runs,
-          "workflow-run",
-        );
-        const totalCount = requiredNumber(
-          workflowBody.total_count,
-          "workflow-run total_count",
-        );
-        if (totalCount > workflowRuns.length) {
-          throw new Error(
-            "GitHub workflow-run page was truncated; cannot treat CI as complete.",
-          );
-        }
-        checks = workflowRuns.map(parseWorkflowRun);
-      }
+      const { checks, checksCoverage } = await this.getPullRequestChecks(
+        repository,
+        sha,
+      );
       return {
         comments,
         commentsTruncated,
@@ -994,6 +1050,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       const pullRequest = parsePullRequest(item);
       return {
         ...pullRequest,
+        ...parsePullRequestRepositories(item),
         additions: requiredNumber(item.additions, "pull request additions"),
         deletions: requiredNumber(item.deletions, "pull request deletions"),
         changedFiles: requiredNumber(
@@ -1176,78 +1233,23 @@ export function createGitHubClient(options: GitHubClientOptions) {
       };
     },
 
-    async createIssue(
+    async getRepositoryMergeSettings(
       repository: GitHubRepositoryRef,
-      input: { title: string; body: string },
-    ): Promise<GitHubIssueCreateResult> {
-      const title = input.title.trim();
-      const body = input.body.trim();
-      if (!title) throw new Error("GitHub issue title is required");
-      if (!body) throw new Error("GitHub issue body is required");
-      const item = record(
-        await request<unknown>(`${repositoryPath(repository)}/issues`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: title.slice(0, 256),
-            body: body.slice(0, 65_536),
-          }),
-        }),
-      );
+    ): Promise<GitHubRepositoryMergeSettings> {
+      const item = record(await request<unknown>(repositoryPath(repository)));
       return {
-        number: requiredNumber(item.number, "issue number"),
-        htmlUrl: requiredString(item.html_url, "issue URL"),
-      };
-    },
-
-    async addIssueReaction(
-      repository: GitHubRepositoryRef,
-      issueNumber: number,
-      content: string,
-    ): Promise<{ added: boolean; already_present: boolean }> {
-      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
-        throw new Error("GitHub issue number must be a positive integer");
-      }
-      try {
-        await request<unknown>(
-          `${repositoryPath(repository)}/issues/${issueNumber}/reactions`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content }),
-          },
-        );
-        return { added: true, already_present: false };
-      } catch (error) {
-        if (!String(error).includes("HTTP 422")) throw error;
-        return { added: false, already_present: true };
-      }
-    },
-
-    async createIssueComment(
-      repository: GitHubRepositoryRef,
-      issueNumber: number,
-      body: string,
-    ): Promise<GitHubComment> {
-      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
-        throw new Error("GitHub issue number must be a positive integer");
-      }
-      const trimmedBody = body.trim();
-      if (!trimmedBody) throw new Error("GitHub comment body is required");
-      const item = record(
-        await request<unknown>(
-          `${repositoryPath(repository)}/issues/${issueNumber}/comments`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ body: trimmedBody.slice(0, 65_536) }),
-          },
+        allowMergeCommit: requiredBoolean(
+          item.allow_merge_commit,
+          "repository merge-commit setting",
         ),
-      );
-      return {
-        id: requiredNumber(item.id, "comment id"),
-        htmlUrl: requiredString(item.html_url, "comment URL"),
-        author: loginFromUser(item.user, "issue comment"),
+        allowSquashMerge: requiredBoolean(
+          item.allow_squash_merge,
+          "repository squash-merge setting",
+        ),
+        allowRebaseMerge: requiredBoolean(
+          item.allow_rebase_merge,
+          "repository rebase-merge setting",
+        ),
       };
     },
 
@@ -1256,6 +1258,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       pullRequestNumber: number,
       commitMessage?: string,
       expectedHeadSha?: string,
+      mergeMethod?: GitHubMergeMethod,
     ): Promise<GitHubMergeResult> {
       if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1)
         throw new Error(
@@ -1267,21 +1270,18 @@ export function createGitHubClient(options: GitHubClientOptions) {
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(
-              commitMessage
-                ? {
-                    commit_message: commitMessage.slice(0, 4_000),
-                    ...(expectedHeadSha ? { sha: expectedHeadSha } : {}),
-                  }
-                : expectedHeadSha
-                  ? { sha: expectedHeadSha }
-                  : {},
-            ),
+            body: JSON.stringify({
+              ...(commitMessage
+                ? { commit_message: commitMessage.slice(0, 4_000) }
+                : {}),
+              ...(expectedHeadSha ? { sha: expectedHeadSha } : {}),
+              ...(mergeMethod ? { merge_method: mergeMethod } : {}),
+            }),
           },
         ),
       );
       if (item.merged !== true)
-        throw new Error(
+        throw new GitHubMergeNotCompletedError(
           `GitHub merge was not completed: ${requiredString(item.message, "merge message")}`,
         );
       return {

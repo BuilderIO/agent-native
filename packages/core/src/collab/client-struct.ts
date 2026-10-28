@@ -1,10 +1,3 @@
-/**
- * Client-side React hooks for collaborative structured data (JSON)
- * editing via Yjs Y.Map and Y.Array.
- *
- * Composes on the existing useCollaborativeDoc() hook for transport/sync.
- */
-
 import { useState, useEffect, useCallback } from "react";
 import * as Y from "yjs";
 
@@ -14,10 +7,6 @@ import {
   type UseCollaborativeDocResult,
   type CollabUser,
 } from "./client.js";
-
-// ─── Client-side Y.Map/Y.Array → JSON converters ───────────────────
-// Duplicated from json-to-yjs.ts since this is a client module and
-// cannot import server modules.
 
 function yMapToJson(ymap: Y.Map<any>): Record<string, any> {
   const result: Record<string, any> = {};
@@ -41,7 +30,6 @@ function yTypeToJson(value: any): any {
   return value;
 }
 
-/** Recursively convert a plain JS value into a Yjs shared type. */
 function jsonToYType(value: any): any {
   if (value === null || value === undefined) return value;
   if (Array.isArray(value)) {
@@ -60,21 +48,15 @@ function jsonToYType(value: any): any {
   return value;
 }
 
-// ─── useCollaborativeMap ────────────────────────────────────────────
-
 export interface UseCollaborativeMapOptions extends UseCollaborativeDocOptions {
-  /** Name of the shared Y.Map field. Default: "data" */
   fieldName?: string;
 }
 
 export interface UseCollaborativeMapResult<
   T extends Record<string, any>,
 > extends UseCollaborativeDocResult {
-  /** Reactive plain JS snapshot of the Y.Map state. Null until loaded. */
   data: T | null;
-  /** Replace the full map state via diff. */
   update: (newData: T) => void;
-  /** Set a single value at a "/" separated path. */
   patch: (path: string, value: any) => void;
 }
 
@@ -87,7 +69,6 @@ export function useCollaborativeMap<T extends Record<string, any>>(
 
   const [data, setData] = useState<T | null>(null);
 
-  // Get the Y.Map and observe deep changes
   useEffect(() => {
     if (!ydoc) {
       setData(null);
@@ -104,10 +85,8 @@ export function useCollaborativeMap<T extends Record<string, any>>(
       }
     };
 
-    // Initial sync
     syncState();
 
-    // Observe deep changes (nested maps/arrays)
     const handler = () => syncState();
     ymap.observeDeep(handler);
 
@@ -121,14 +100,12 @@ export function useCollaborativeMap<T extends Record<string, any>>(
       if (!ydoc) return;
       const ymap = ydoc.getMap(fieldName);
       ydoc.transact(() => {
-        // Remove keys not in newData
         const keysToDelete: string[] = [];
         ymap.forEach((_v, k) => {
           if (!(k in newData)) keysToDelete.push(k);
         });
         for (const k of keysToDelete) ymap.delete(k);
 
-        // Set changed values
         for (const [k, v] of Object.entries(newData)) {
           const existing = ymap.get(k);
           const existingJson = yTypeToJson(existing);
@@ -149,7 +126,6 @@ export function useCollaborativeMap<T extends Record<string, any>>(
 
       ydoc.transact(() => {
         let current: any = ydoc.getMap(fieldName);
-        // Navigate to parent
         for (let i = 0; i < segments.length - 1; i++) {
           const seg = segments[i];
           if (current instanceof Y.Map) {
@@ -181,29 +157,19 @@ export function useCollaborativeMap<T extends Record<string, any>>(
   return { ...collabResult, data, update, patch };
 }
 
-// ─── useCollaborativeArray ──────────────────────────────────────────
-
 export interface UseCollaborativeArrayOptions extends UseCollaborativeDocOptions {
-  /** Name of the shared Y.Array field. Default: "data" */
   fieldName?: string;
 }
 
 export interface UseCollaborativeArrayResult<
   T,
 > extends UseCollaborativeDocResult {
-  /** Reactive plain JS snapshot of the Y.Array state. */
   data: T[];
-  /** Append an item to the end. */
   push: (item: T) => void;
-  /** Insert an item at a specific index. */
   insert: (index: number, item: T) => void;
-  /** Remove an item at a specific index. */
   remove: (index: number) => void;
-  /** Move an item from one index to another. */
   move: (from: number, to: number) => void;
-  /** Update fields on the Y.Map at a specific array index. */
   updateItem: (index: number, patch: Partial<T>) => void;
-  /** Replace the entire array contents. */
   replace: (items: T[]) => void;
 }
 
@@ -216,7 +182,6 @@ export function useCollaborativeArray<T>(
 
   const [data, setData] = useState<T[]>([]);
 
-  // Get the Y.Array and observe deep changes
   useEffect(() => {
     if (!ydoc) {
       setData([]);
@@ -229,10 +194,8 @@ export function useCollaborativeArray<T>(
       setData(yArrayToJson(yarray) as T[]);
     };
 
-    // Initial sync
     syncState();
 
-    // Observe deep changes
     const handler = () => syncState();
     yarray.observeDeep(handler);
 
@@ -332,8 +295,6 @@ export function useCollaborativeArray<T>(
   };
 }
 
-// ─── Utility ────────────────────────────────────────────────────────
-
 function deepEqual(a: any, b: any): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
@@ -358,7 +319,6 @@ function deepEqual(a: any, b: any): boolean {
   return true;
 }
 
-// Re-export types from client.ts for convenience
 export type {
   CollabUser,
   UseCollaborativeDocOptions,

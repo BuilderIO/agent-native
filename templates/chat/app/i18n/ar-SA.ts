@@ -1,10 +1,10 @@
 const messages = {
+  composer: {
+    removeAttachment: "إزالة {{name}}",
+    removeReference: "إزالة مرجع {{name}}",
+  },
   settings: {
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -17,9 +17,9 @@ const messages = {
   },
   chat: {
     archiveChat: "أرشفة المحادثة",
-    archiveFailed: "فشلت الأرشفة",
+    archiveFailed: "تعذرت أرشفة المحادثة.",
     chats: "المحادثات",
-    composerPlaceholder: "اسأل الوكيل...",
+    composerPlaceholder: "اسأل عن أي شيء",
     emptyState: "اسألني أي شيء",
     heroDescription: "اطلب من الوكيل فحص هذا التطبيق أو شرحه أو تغييره.",
     heroTitle: "كيف يمكنني المساعدة؟",
@@ -28,18 +28,34 @@ const messages = {
     inspectSuggestionCapabilities: "ما الذي يمكن لهذا التطبيق فعله؟",
     inspectSuggestionHello: "ساعدني على البدء",
     newChat: "محادثة جديدة",
-    optionsFor: "خيارات لـ",
+    optionsFor: "خيارات المحادثة لـ {{title}}",
     pinChat: "تثبيت المحادثة",
     pinned: "المثبتة",
     recents: "الأخيرة",
+    retryPreviousRequest: "أعِد محاولة طلبي السابق الآن بعد توصيل مزود النموذج.",
+    invalidHandoffOptions:
+      "تم حفظ المطالبة كمسودة، لكن تعذرت استعادة إعدادات الدردشة. راجع المطالبة والسياق والنموذج قبل إرسالها مرة أخرى.",
+    recoveryDraftUnsaved:
+      "لم تُحفظ هذه التغييرات على المسودة. قد تفقدها إذا أعدت تحميل هذه المحادثة.",
+    retryAttachmentUnavailable:
+      "لا يمكن للدردشة إعادة فتح هذا المرفق لإعادة المحاولة. أضف عنوان URL يمكن الوصول إليه للملف، ثم أعد المحاولة.",
     renameChat: "إعادة تسمية المحادثة",
-    renameFailed: "فشلت إعادة التسمية",
-    renameThread: "إعادة تسمية السلسلة",
+    renameFailed: "تعذرت إعادة تسمية المحادثة.",
+    renameThread: "إعادة تسمية {{title}}",
     suggestionActions: "أرني الإجراءات المتاحة",
     suggestionCapabilities: "ما الذي يمكن لهذا التطبيق فعله؟",
     suggestionCustomize: "ساعدني في تخصيص هذا التطبيق",
     unpinChat: "إلغاء تثبيت المحادثة",
     untitledChat: "محادثة بلا عنوان",
+  },
+  home: {
+    communityTitle: "تواصل معنا",
+    docsAddAction: "إضافة إجراء",
+    docsAddPage: "إضافة صفحة",
+    docsGettingStarted: "البدء",
+    docsKeyConcepts: "المفاهيم الأساسية",
+    docsTitle: "المستندات",
+    title: "ابدأ الآن",
   },
   navigation: {
     chat: "المحادثة",
@@ -47,6 +63,7 @@ const messages = {
     database: "قاعدة البيانات",
     expandSidebar: "توسيع الشريط الجانبي",
     extensions: "الإضافات",
+    home: "الرئيسية",
     navigation: "التنقل",
     navigationDescription: "التنقل الرئيسي",
     observability: "قابلية المراقبة",

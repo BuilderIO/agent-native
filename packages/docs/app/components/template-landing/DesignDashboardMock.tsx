@@ -31,14 +31,8 @@
  */
 import { IconChevronDown } from "@tabler/icons-react";
 
-/** Logical width of the dashboard board, before `--dd-scale`. */
 const BOARD_WIDTH = 1100;
 
-/**
- * On-screen height of the board body. Shorter than the design inside it so the
- * dashboard runs off the bottom edge and gets cut there, the way the canvas
- * clips a real page.
- */
 const BOARD_BODY_HEIGHT = 300;
 
 const SIDEBAR_ITEMS = [
@@ -126,7 +120,6 @@ function DashboardBoard() {
             <div className="lg-chart">
               {BARS.map((height, index) => (
                 <span
-                  // Bar height is the only distinguishing value in this list.
                   key={index}
                   className="lg-bar"
                   style={{ height: `${height}%` }}
@@ -205,30 +198,21 @@ function SystemPanel() {
 }
 
 const DESIGN_DASHBOARD_MOCK_CSS = [
-  // Inert artwork: the board recreates clickable-looking controls, so the root
-  // refuses pointer input rather than trusting every rule below to stay free of
-  // an interactive affordance.
   ".design-dashboard-mock { position: relative; width: 100%; pointer-events: none; }",
   ".design-dashboard-mock, .design-dashboard-mock * { box-sizing: border-box; }",
 
-  // Chrome palette, mirroring the editor tokens in the hero mock so the three
-  // use-case pictures and the hero read as one product.
   ".design-dashboard-mock { --dd-scale: 0.34; --dd-frame-bg: hsl(0 0% 13%); --dd-canvas-bg: hsl(0 0% 10%); --dd-border: hsl(0 0% 24%); --dd-divider: hsl(0 0% 22%); --dd-control-bg: hsl(0 0% 18%); --dd-fg: hsl(0 0% 90%); --dd-fg-muted: hsl(0 0% 60%); }",
   "html.light .design-dashboard-mock { --dd-frame-bg: hsl(0 0% 100%); --dd-canvas-bg: hsl(0 0% 92%); --dd-border: hsl(0 0% 90%); --dd-divider: hsl(0 0% 90%); --dd-control-bg: hsl(0 0% 95%); --dd-fg: hsl(0 0% 10%); --dd-fg-muted: hsl(0 0% 45%); }",
 
   ".design-dashboard-mock-frame { display: flex; overflow: hidden; border: 1px solid var(--dd-border); border-radius: 12px; background: var(--dd-frame-bg); color: var(--dd-fg); font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
   ".design-dashboard-mock .dd-canvas { display: flex; flex: 1; min-width: 0; justify-content: center; overflow: hidden; padding: 22px 18px 0; background: var(--dd-canvas-bg); }",
 
-  // Screen frame. Square corners are intentional: the editor avoids a card
-  // radius because it would read as the design's own corner radius.
   `.design-dashboard-mock .dd-board { width: calc(${BOARD_WIDTH}px * var(--dd-scale)); flex-shrink: 0; }`,
   ".design-dashboard-mock .dd-board-label { display: flex; height: 20px; align-items: center; gap: 5px; padding-left: 2px; color: var(--dd-fg-muted); font-size: 10px; font-weight: 500; }",
   ".design-dashboard-mock .dd-board-width { font-size: 10px; font-variant-numeric: tabular-nums; opacity: 0.5; }",
   `.design-dashboard-mock .dd-board-body { height: ${BOARD_BODY_HEIGHT}px; overflow: hidden; background: var(--lg-bg); box-shadow: inset 0 0 0 1px var(--dd-border); }`,
   `.design-dashboard-mock .dd-artboard { width: ${BOARD_WIDTH}px; min-height: calc(${BOARD_BODY_HEIGHT}px / var(--dd-scale)); transform: scale(var(--dd-scale)); transform-origin: top left; }`,
 
-  // Design-system panel. Chrome, so it stays at screen scale: it is the editor
-  // reporting what the board is built from, not part of the board.
   ".design-dashboard-mock .dd-panel { display: flex; width: 148px; flex-shrink: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--dd-divider); }",
   ".design-dashboard-mock .dd-panel-head { display: flex; height: 34px; flex-shrink: 0; align-items: center; gap: 4px; padding: 0 10px; border-bottom: 1px solid var(--dd-divider); }",
   ".design-dashboard-mock .dd-panel-name { flex: 1; min-width: 0; overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }",
@@ -258,13 +242,8 @@ const DESIGN_DASHBOARD_MOCK_CSS = [
   ".design-dashboard-mock .dd-radius.is-lg { border-radius: 9px; }",
   ".design-dashboard-mock .dd-radius.is-pill { border-radius: 999px; }",
 
-  // The design. Monochrome with one bright neutral for emphasis, matching the
-  // hero artboards, so the board reads as a design being worked on rather than
-  // as the loudest thing on the landing page.
   ".design-dashboard-mock { --lg-bg: #0c0c0e; --lg-elevated: #16161a; --lg-chrome: #131317; --lg-fg: #a9a9af; --lg-fg-soft: rgba(169, 169, 175, 0.62); --lg-line: rgba(169, 169, 175, 0.12); --lg-line-strong: rgba(169, 169, 175, 0.26); --lg-accent: #cdcdd1; --lg-accent-on: #0c0c0e; }",
   "html.light .design-dashboard-mock { --lg-bg: #f4f4f5; --lg-elevated: #ffffff; --lg-chrome: #e8e8ea; --lg-fg: #55555e; --lg-fg-soft: rgba(85, 85, 94, 0.62); --lg-line: rgba(85, 85, 94, 0.14); --lg-line-strong: rgba(85, 85, 94, 0.28); --lg-accent: #26262b; --lg-accent-on: #f4f4f5; }",
-  // The design is at least as tall as the visible board so the sidebar chrome
-  // reaches the crop line instead of stopping short of it.
   `.design-dashboard-mock .lg-board { display: flex; min-height: calc(${BOARD_BODY_HEIGHT}px / var(--dd-scale)); background: var(--lg-bg); color: var(--lg-fg); }`,
 
   ".design-dashboard-mock .lg-sidebar { display: flex; width: 210px; flex-shrink: 0; flex-direction: column; gap: 6px; padding: 26px 18px; background: var(--lg-chrome); }",
@@ -291,8 +270,6 @@ const DESIGN_DASHBOARD_MOCK_CSS = [
   ".design-dashboard-mock .lg-bar { flex: 1; border-radius: 4px; background: var(--lg-line-strong); }",
   ".design-dashboard-mock .lg-bar:last-child { background: var(--lg-accent); }",
   ".design-dashboard-mock .lg-aging-panel { align-items: center; }",
-  // A conic ring, not a charting library's output: the picture only has to say
-  // "a proportion", and the design is monochrome by the same rule as the rest.
   ".design-dashboard-mock .lg-donut { width: 110px; height: 110px; border-radius: 999px; background: conic-gradient(var(--lg-accent) 0 62%, var(--lg-line-strong) 62% 84%, var(--lg-line) 84% 100%); mask: radial-gradient(circle, transparent 54%, #000 55%); -webkit-mask: radial-gradient(circle, transparent 54%, #000 55%); }",
   ".design-dashboard-mock .lg-aging-meta { color: var(--lg-fg-soft); font-size: 14px; font-weight: 600; }",
 
@@ -303,9 +280,6 @@ const DESIGN_DASHBOARD_MOCK_CSS = [
   ".design-dashboard-mock .lg-row-amount { flex-shrink: 0; font-weight: 700; font-variant-numeric: tabular-nums; }",
   ".design-dashboard-mock .lg-row-age { width: 48px; flex-shrink: 0; color: var(--lg-fg-soft); text-align: right; font-variant-numeric: tabular-nums; }",
 
-  // The board is a fixed logical size, so its zoom steps down with the card:
-  // the use-case row narrows its media cell long before the page is anywhere
-  // near mobile. Stays last so it wins on source order.
   "@media (max-width: 1320px) { .design-dashboard-mock { --dd-scale: 0.3; } .design-dashboard-mock .dd-canvas { padding: 18px 12px 0; } }",
   "@media (max-width: 560px) { .design-dashboard-mock { --dd-scale: 0.22; } .design-dashboard-mock .dd-panel { width: 124px; } }",
 ].join("\n");

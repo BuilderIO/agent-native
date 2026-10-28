@@ -44,9 +44,29 @@ describe("which elements hold text of their own", () => {
     expect(paintsOwnText(html, "row")).toBe(true);
   });
 
+  it("keeps generated Motion text units attached to their authored layer", () => {
+    const html =
+      '<body><button class="target"><span data-agent-native-motion-text-unit="0">Motion</span>' +
+      '<span data-agent-native-motion-text-unit="1"> target</span></button></body>';
+
+    expect(paintsOwnText(html, "target")).toBe(true);
+  });
+
   it("does not count whitespace between children as text", () => {
     const html = `<body><li class="row">\n  <span class="a">one</span>\n  <span class="b">two</span>\n</li></body>`;
 
     expect(paintsOwnText(html, "row")).toBe(false);
+  });
+
+  it("does not count script, style, or comment source between children as text", () => {
+    const html = `<body class="screen"><div class="card"></div><!-- note --><script data-an-shader-runtime>(function () { var x = 1; })();</script><style>.card{color:red}</style></body>`;
+
+    expect(paintsOwnText(html, "screen")).toBe(false);
+  });
+
+  it("still counts real text beside a script", () => {
+    const html = `<body class="screen">Hello<script>var x = 1;</script></body>`;
+
+    expect(paintsOwnText(html, "screen")).toBe(true);
   });
 });

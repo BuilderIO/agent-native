@@ -8,6 +8,10 @@ const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
+const recording = vi.hoisted(() => ({
+  ownerEmail: "owner@example.com",
+  expiresAt: null as string | null,
+}));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -16,7 +20,8 @@ vi.mock("h3", () => ({
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: vi.fn((column, value) => ({ column, value })),
 }));
 
@@ -35,6 +40,11 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
+    recordings: {
+      id: "recordings.id",
+      ownerEmail: "recordings.ownerEmail",
+      expiresAt: "recordings.expiresAt",
+    },
     meetings: {
       id: "meetings.id",
     },
@@ -69,9 +79,15 @@ function createDbWithSelectResults(results: unknown[][]) {
   let index = 0;
   return {
     select: vi.fn(() => {
-      const rows = results[index++] ?? [];
+      let rows: unknown[] = [];
       const builder = {
-        from: vi.fn(() => builder),
+        from: vi.fn((table) => {
+          rows =
+            table.id === "recordings.id"
+              ? [recording]
+              : (results[index++] ?? []);
+          return builder;
+        }),
         where: vi.fn(() => builder),
         limit: vi.fn(async () => rows),
         then: (
@@ -105,6 +121,7 @@ function makeMeeting(overrides: Record<string, unknown> = {}) {
 describe("/api/public-meeting route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    recording.expiresAt = null;
     mockGetQuery.mockReturnValue({ id: "meeting-1" });
     mockGetSession.mockResolvedValue(null);
     mockRunWithRequestContext.mockImplementation(
@@ -119,6 +136,55 @@ describe("/api/public-meeting route", () => {
       resource: makeMeeting(),
     });
   });
+
+  it.each([
+    { email: null, token: false, allowed: false },
+    { email: null, token: true, allowed: false },
+    { email: "meeting-owner@example.com", token: false, allowed: false },
+    { email: "OWNER@example.com", token: false, allowed: true },
+  ])(
+    "uses recording ownership for expired meeting transcripts ($email, token=$token)",
+    async ({ email, token, allowed }) => {
+      const meeting = makeMeeting({
+        shareTranscript: true,
+        ownerEmail: "meeting-owner@example.com",
+      });
+      recording.expiresAt = "2000-01-01T00:00:00Z";
+      mockGetSession.mockResolvedValue(email ? { email } : null);
+      mockResolveAccess.mockResolvedValue({ role: "owner", resource: meeting });
+      if (token) {
+        mockGetQuery.mockReturnValue({
+          id: "meeting-1",
+          agent_access: "fake-token",
+        });
+        mockVerifyScopedAgentAccessToken.mockReturnValue({
+          ok: true,
+          viewerEmail: "owner@example.com",
+        });
+      }
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([
+          ...(token ? [[meeting]] : []),
+          [],
+          [],
+          [
+            {
+              status: "ready",
+              fullText: "Fake recording transcript",
+              segmentsJson: "[]",
+            },
+          ],
+        ]),
+      );
+      expect(await handler({} as Parameters<typeof handler>[0])).toMatchObject({
+        meeting: {
+          transcript: allowed
+            ? { fullText: "Fake recording transcript" }
+            : null,
+        },
+      });
+    },
+  );
 
   it("rejects requests without a meeting id", async () => {
     mockGetQuery.mockReturnValue({});
@@ -167,7 +233,7 @@ describe("/api/public-meeting route", () => {
       meeting: { id: "meeting-1", title: "Weekly sync" },
       viewer: null,
     });
-    expect(db.select).toHaveBeenCalledTimes(4);
+    expect(db.select).toHaveBeenCalledTimes(5);
   });
 
   it("does not treat an invalid agent token as anonymous meeting access", async () => {
@@ -227,14 +293,12 @@ describe("/api/public-meeting route", () => {
             completedAt: null,
           },
         ],
-        // The owner is already a listed participant (case-insensitively),
-        // so their email is already public on this page — safe to include.
         ownerEmail: "owner@example.com",
         transcript: null,
       },
       viewer: null,
     });
-    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(db.select).toHaveBeenCalledTimes(4);
     expect(mockSetResponseHeader).toHaveBeenCalledWith(
       {},
       "Cache-Control",
@@ -303,26 +367,30 @@ describe("/api/public-meeting route", () => {
         },
       },
     });
-    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(db.select).toHaveBeenCalledTimes(4);
   });
 
-  it("omits the transcript when shareTranscript is disabled", async () => {
-    mockResolveAccess.mockResolvedValue({
-      role: "viewer",
-      resource: makeMeeting({ shareTranscript: false }),
-    });
-    const db = createDbWithSelectResults([[], []]);
-    mockGetDb.mockReturnValue(db);
+  // Meetings created before transcripts defaulted on must not start showing them.
+  it.each([false, null, undefined])(
+    "omits the transcript when shareTranscript is %s",
+    async (shareTranscript) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeMeeting({ shareTranscript }),
+      });
+      const db = createDbWithSelectResults([[], []]);
+      mockGetDb.mockReturnValue(db);
 
-    const result = await handler({} as any);
+      const result = await handler({} as any);
 
-    expect(result).toMatchObject({ meeting: { id: "meeting-1" } });
-    expect(result).toHaveProperty("meeting");
-    expect(
-      (result as { meeting: Record<string, unknown> }).meeting,
-    ).not.toHaveProperty("transcript");
-    expect(db.select).toHaveBeenCalledTimes(2);
-  });
+      expect(result).toMatchObject({ meeting: { id: "meeting-1" } });
+      expect(result).toHaveProperty("meeting");
+      expect(
+        (result as { meeting: Record<string, unknown> }).meeting,
+      ).not.toHaveProperty("transcript");
+      expect(db.select).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("passes the signed-in viewer context to meeting access resolution", async () => {
     mockGetSession.mockResolvedValue({

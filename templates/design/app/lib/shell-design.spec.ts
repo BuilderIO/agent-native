@@ -29,8 +29,8 @@ describe("buildShellDesign", () => {
   it("maps each route to a URL-backed file, as the server builder does", () => {
     const { design } = build();
     expect(design.files.map((f) => [f.filename, f.content])).toEqual([
-      ["fusion-home.html", "https://branch.builderio.xyz/"],
-      ["fusion-projects.html", "https://branch.builderio.xyz/projects"],
+      ["home.html", "https://branch.builderio.xyz/"],
+      ["projects.html", "https://branch.builderio.xyz/projects"],
     ]);
     expect(design.files.every((f) => f.fileType === "html")).toBe(true);
   });
@@ -46,7 +46,6 @@ describe("buildShellDesign", () => {
   });
 
   it("declares the fusion source type so the layer tree can populate", () => {
-    // `inline` is the fallback, and it disables the runtime layer projection.
     expect(JSON.parse(build().design.data!).sourceType).toBe("fusion");
   });
 
@@ -86,7 +85,6 @@ describe("shellContextChanged", () => {
   };
 
   it("ignores a new route list for the same app", () => {
-    // Routes change on ordinary navigation; pending edits still describe this app.
     expect(
       shellContextChanged(base, {
         ...base,

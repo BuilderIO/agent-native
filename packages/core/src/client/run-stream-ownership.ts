@@ -26,7 +26,6 @@ function runKey(threadId: string, runId: string, turnId?: string): string {
   return `${threadId} ${turnId || runId}`;
 }
 
-/** Mint a token identifying one reader. Not shared between readers. */
 export function createRunStreamToken(label?: string): symbol {
   return Symbol(label ?? "run-stream-reader");
 }
@@ -51,12 +50,6 @@ export function claimRunStream(
   return true;
 }
 
-/**
- * Take ownership even if another reader holds it, and return whether the claim
- * changed hands. The adapter's own stream outranks the reconnect fallback: when
- * the user sends a message the adapter legitimately becomes the owner, and the
- * displaced reader learns it lost via `ownsRunStream`.
- */
 export function preemptRunStream(
   threadId: string,
   runId: string,
@@ -91,7 +84,6 @@ export function releaseRunStream(
   if (owner?.runId === runId && owner.token === token) owners.delete(key);
 }
 
-/** Test seam. */
 export function __resetRunStreamOwnership(): void {
   owners.clear();
 }

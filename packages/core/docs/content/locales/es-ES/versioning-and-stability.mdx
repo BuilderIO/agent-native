@@ -9,7 +9,7 @@ Los paquetes de Agent-Native son anteriores a 1.0. El proceso ofrece snapshots n
 
 ## Canales de lanzamiento
 
-Las fusiones en `main` publican snapshots nightly bajo la etiqueta npm `nightly`. No mueven `latest`. Las versiones estables se coordinan con Changesets. Las ejecuciones programadas preparan versiones patch de lunes a jueves al mediodía, hora del Pacífico. No todas las ejecuciones garantizan una versión.
+Cada tres horas, una ejecución programada publica un snapshot nightly de `main` bajo la etiqueta npm `nightly` si el código fuente de los paquetes cambió desde el nightly anterior. No mueven `latest`. Las versiones estables se coordinan con Changesets. Las ejecuciones programadas preparan versiones patch de lunes a jueves al mediodía, hora del Pacífico. No todas las ejecuciones garantizan una versión.
 
 ## Compatibilidad antes de 1.0
 

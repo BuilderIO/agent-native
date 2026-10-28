@@ -572,7 +572,6 @@ function createBatch(
   };
 }
 
-/** Serializes source actions and history barriers on the existing save chains. */
 export function createLinkedComponentMutationQueue(
   args: LinkedComponentMutationQueueArgs,
 ) {
@@ -699,7 +698,6 @@ export function createLinkedComponentMutationQueue(
         before: args.canonicalizeSourceContent(fileId, before),
         after: args.canonicalizeSourceContent(fileId, after),
       }));
-      // A committed server operation stays in history even if local publication must recover.
       reservationRef.current.commit(historyChanges);
       confirmed = true;
       const selection = validateActionSelection(
@@ -768,9 +766,6 @@ export function createLinkedComponentMutationQueue(
       ) {
         const selectionAfter = args.applySelection(selection);
         if (selectionAfter) {
-          // Keep the reservation's pre-action selection for Undo while
-          // replacing only its Redo snapshot after replay resolves the
-          // newly created or promoted durable nodes.
           reservationRef.current.commit(historyChanges, selectionAfter);
         }
       }
@@ -785,7 +780,6 @@ export function createLinkedComponentMutationQueue(
       if (!confirmed) reservationRef.current?.cancel();
       if (!failure) {
         failure = error instanceof Error ? error : new Error(String(error));
-        // Release before refreshing: canonical reconciliation may itself enqueue a save.
         releaseBatch();
         const message = failure.message;
         try {
@@ -854,7 +848,6 @@ export function createLinkedComponentMutationQueue(
       } else {
         unprojected += 1;
       }
-      // Edits after an Undo barrier reserve only after that Undo has consumed its entry.
       const reservationRef = {
         current:
           barriers === 0
@@ -985,13 +978,6 @@ export function createLinkedComponentMutationQueue(
         ),
       );
     },
-    deferHistoryChange: (run: () => void): boolean => {
-      if (barriers === 0) return false;
-      void schedule(async () => run()).catch((error) =>
-        args.reportFailure(String(error)),
-      );
-      return true;
-    },
     dispatchHistory: (run: () => void): void | Promise<void> => {
       if (queued === 0 && !failure) {
         run();
@@ -1001,7 +987,6 @@ export function createLinkedComponentMutationQueue(
       return schedule(async () => {
         releaseBatch();
         barriers -= 1;
-        // A rejected edit consumes its queued Undo instead of undoing an older gesture.
         if (failure) {
           failure = null;
           return;

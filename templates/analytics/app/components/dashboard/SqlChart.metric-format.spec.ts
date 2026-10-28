@@ -1,7 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
   detectMetricValueColumn,
+  formatSqlChartTooltipLabel,
   formatMetricValue,
   safeDashboardLinkHref,
   sessionReplayHref,
@@ -12,13 +15,8 @@ import {
   toSqlChartDateKey,
 } from "./SqlChart";
 
-// Postgres/Neon returns numeric and bigint columns as strings. The metric
-// renderer used to only format `typeof raw === "number"`,
-// so a Postgres rate like "0.00000000000000000000" was dumped verbatim instead
-// of being shown as "0.00%". formatMetricValue coerces numeric strings first.
 describe("formatMetricValue", () => {
   it("formats a Postgres numeric-string rate as a percent (the reported bug)", () => {
-    // 21-decimal string exactly like the live "Viral Signup Share" panel showed
     expect(formatMetricValue("0.000000000000000000000", "percent")).toBe(
       "0.00%",
     );
@@ -44,13 +42,27 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("1234", "number")).toBe("1,234");
   });
 
+  it("formats seconds with the duration formatter", () => {
+    expect(formatMetricValue(57600, "duration")).toBe("16 hours");
+    expect(formatMetricValue("960", "duration")).toBe("16 min");
+  });
+
+  it("shows the duration dash for a missing or invalid duration", () => {
+    expect(formatMetricValue(null, "duration")).toBe("–");
+    expect(formatMetricValue(undefined, "duration")).toBe("–");
+    expect(formatMetricValue("", "duration")).toBe("–");
+    expect(formatMetricValue(Number.NaN, "duration")).toBe("–");
+    expect(formatMetricValue("Infinity", "duration")).toBe("–");
+    expect(formatMetricValue(null, "number")).toBe("-");
+  });
+
   it("honors a valueLabels override before any coercion", () => {
     expect(formatMetricValue("3", "number", { "3": "Tier 3" })).toBe("Tier 3");
   });
 
   it("leaves genuinely non-numeric strings untouched", () => {
     expect(formatMetricValue("n/a", "number")).toBe("n/a");
-    expect(formatMetricValue("", "number")).toBe(""); // preserved original behavior
+    expect(formatMetricValue("", "number")).toBe("");
     expect(formatMetricValue(null, "number")).toBe("-");
     expect(formatMetricValue(undefined, "number")).toBe("-");
   });
@@ -122,12 +134,66 @@ describe("safeDashboardLinkHref", () => {
     expect(safeDashboardLinkHref("/dashboards/example")).toBe(
       "/dashboards/example",
     );
+    expect(
+      safeDashboardLinkHref(
+        "https://example.com/_agent-native/tools/ext/render",
+      ),
+    ).toBe("https://example.com/_agent-native/tools/ext/render");
+    expect(
+      safeDashboardLinkHref(
+        "https://agent-native.local/_agent-native/tools/ext/render",
+      ),
+    ).toBe("https://agent-native.local/_agent-native/tools/ext/render");
+  });
+
+  it("blocks extension API documents from same-origin Markdown links", () => {
+    vi.stubGlobal("window", {
+      location: new URL("https://app.example/analytics"),
+    });
+    try {
+      expect(
+        safeDashboardLinkHref(
+          "https://agent-native.local/_agent-native/tools/ext/render",
+        ),
+      ).toBe("https://agent-native.local/_agent-native/tools/ext/render");
+      expect(
+        safeDashboardLinkHref("/_agent-native/extensions/ext/render"),
+      ).toBeNull();
+      expect(
+        safeDashboardLinkHref("/_agent-native/tools/ext/r%65nder"),
+      ).toBeNull();
+      expect(
+        safeDashboardLinkHref(
+          "https://app.example/_agent-native/tools/ext/render",
+        ),
+      ).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("blocks same-origin authentication and action endpoints", () => {
+    vi.stubGlobal("window", {
+      location: new URL("https://app.example/analytics"),
+    });
+    try {
+      for (const path of [
+        "/_agent-native/auth/logout",
+        "/_agent-native/actions/update-profile",
+      ]) {
+        expect(safeDashboardLinkHref(path)).toBeNull();
+        expect(safeDashboardLinkHref(`https://app.example${path}`)).toBeNull();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("blocks unsafe or incomplete link targets", () => {
     expect(safeDashboardLinkHref("javascript:alert(1)")).toBeNull();
     expect(safeDashboardLinkHref("data:text/html,hi")).toBeNull();
     expect(safeDashboardLinkHref("//evil.example/path")).toBeNull();
+    expect(safeDashboardLinkHref("/\\evil.example/path")).toBeNull();
     expect(safeDashboardLinkHref("example.com/path")).toBeNull();
     expect(safeDashboardLinkHref("")).toBeNull();
   });
@@ -230,5 +296,21 @@ describe("partial-day time-series helpers", () => {
     expect(result.series).toEqual([
       { key: "signups", solidKey: "signups", partialKey: null },
     ]);
+  });
+});
+
+describe("chart tooltip date labels", () => {
+  const panel = { source: "first-party" } as SqlPanel;
+
+  it("includes the weekday for daily chart keys", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "date")).toBe(
+      "Monday, Jun 22",
+    );
+  });
+
+  it("leaves non-daily chart keys in the compact date format", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "week")).toBe(
+      "Jun 22",
+    );
   });
 });

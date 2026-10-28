@@ -2,23 +2,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
-  addReaction,
   authTest,
+  findUserByEmail,
   getChannelHistory,
-  hasReaction,
+  getMessagePermalink,
   getTeamInfo,
   getThread,
+  postChannelMessage,
   postThreadReply,
 } from "../connectors/slack.js";
-import { createSlackReader, isAgentNativeSlackUserName } from "./slack-client";
+import {
+  createSlackReader,
+  createSlackWorkflowClient,
+  isAgentNativeSlackUserName,
+} from "./slack-client";
 
 vi.mock("../connectors/slack.js", () => ({
-  addReaction: vi.fn(),
   authTest: vi.fn(),
+  findUserByEmail: vi.fn(),
+  getMessagePermalink: vi.fn(),
   getChannelHistory: vi.fn(),
-  hasReaction: vi.fn(),
   getTeamInfo: vi.fn(),
   getThread: vi.fn(),
+  postChannelMessage: vi.fn(),
   postThreadReply: vi.fn(),
 }));
 
@@ -28,10 +34,9 @@ vi.mock("../connectors/credentials.js", () => ({
 
 const mockedGetChannelHistory = vi.mocked(getChannelHistory);
 const mockedAuthTest = vi.mocked(authTest);
-const mockedHasReaction = vi.mocked(hasReaction);
 const mockedGetTeamInfo = vi.mocked(getTeamInfo);
 const mockedGetThread = vi.mocked(getThread);
-const mockedAddReaction = vi.mocked(addReaction);
+const mockedPostChannelMessage = vi.mocked(postChannelMessage);
 const mockedPostThreadReply = vi.mocked(postThreadReply);
 const mockedResolveConnectorSecret = vi.mocked(resolveConnectorSecret);
 
@@ -55,14 +60,13 @@ beforeEach(() => {
     messages: [],
     has_more: false,
   });
-  mockedAddReaction.mockReset().mockResolvedValue({
-    added: true,
-    already_present: false,
-  });
-  mockedHasReaction.mockReset().mockResolvedValue({ present: false });
   mockedPostThreadReply.mockReset().mockResolvedValue({
     channel: "C123",
     ts: "1.2",
+  });
+  mockedPostChannelMessage.mockReset().mockResolvedValue({
+    channel: "C456",
+    ts: "1.3",
   });
   mockedResolveConnectorSecret.mockReset().mockResolvedValue("xoxb-test");
 });
@@ -160,20 +164,19 @@ describe("createSlackReader", () => {
     expect(isAgentNativeSlackUserName("other-bot")).toBe(false);
   });
 
-  it("exposes bounded thread reads and the two typed write methods", async () => {
+  it("exposes scoped thread and channel Slack writes", async () => {
     const reader = createSlackReader({ ownerEmail: "owner@example.com" });
 
     await reader.getThread("primary", "C123", "10.1", 50, "cursor-1");
-    await reader.addReaction("primary", "C123", "10.1", "robot_face");
     await reader.postThreadReply("primary", "C123", "10.1", "Acknowledged");
-    await reader.hasReaction("primary", "C123", "10.1", "robot_face");
+    await reader.postChannelMessage("secondary", "C456", "Rollup");
 
     const threadResolver = mockedGetThread.mock.calls[0]?.[5];
-    const reactionResolver = mockedAddReaction.mock.calls[0]?.[4];
     const replyResolver = mockedPostThreadReply.mock.calls[0]?.[4];
+    const channelResolver = mockedPostChannelMessage.mock.calls[0]?.[3];
     expect(threadResolver).toEqual(expect.any(Function));
-    expect(reactionResolver).toEqual(expect.any(Function));
     expect(replyResolver).toEqual(expect.any(Function));
+    expect(channelResolver).toEqual(expect.any(Function));
     expect(mockedGetThread).toHaveBeenCalledWith(
       "primary",
       "C123",
@@ -182,13 +185,6 @@ describe("createSlackReader", () => {
       "cursor-1",
       threadResolver,
     );
-    expect(mockedAddReaction).toHaveBeenCalledWith(
-      "primary",
-      "C123",
-      "10.1",
-      "robot_face",
-      reactionResolver,
-    );
     expect(mockedPostThreadReply).toHaveBeenCalledWith(
       "primary",
       "C123",
@@ -196,14 +192,83 @@ describe("createSlackReader", () => {
       "Acknowledged",
       replyResolver,
     );
-    const hasResolver = mockedHasReaction.mock.calls[0]?.[4];
-    expect(hasResolver).toEqual(expect.any(Function));
-    expect(mockedHasReaction).toHaveBeenCalledWith(
-      "primary",
-      "C123",
-      "10.1",
-      "robot_face",
-      hasResolver,
+    expect(mockedPostChannelMessage).toHaveBeenCalledWith(
+      "secondary",
+      "C456",
+      "Rollup",
+      channelResolver,
     );
+  });
+});
+
+describe("createSlackWorkflowClient", () => {
+  beforeEach(() => {
+    vi.mocked(findUserByEmail).mockReset();
+    vi.mocked(getMessagePermalink).mockReset();
+  });
+
+  it("keeps the reader and adds email lookup and permalinks, each behind the identity check", async () => {
+    vi.mocked(findUserByEmail).mockResolvedValue({
+      id: "U0ADA",
+      isBot: false,
+      deleted: false,
+    });
+    vi.mocked(getMessagePermalink).mockResolvedValue("https://slack.test/p1");
+    const client = createSlackWorkflowClient({
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    await expect(
+      client.findUserByEmail("primary", "ada@example.com"),
+    ).resolves.toMatchObject({ id: "U0ADA" });
+    await expect(
+      client.getMessagePermalink("primary", "C123", "10.1"),
+    ).resolves.toBe("https://slack.test/p1");
+    await client.postThreadReply("primary", "C123", "10.1", "Hi");
+
+    expect(mockedAuthTest).toHaveBeenCalledTimes(1);
+    const resolver = vi.mocked(findUserByEmail).mock.calls[0]?.[2];
+    await resolver?.("primary");
+    expect(mockedResolveConnectorSecret).toHaveBeenCalledWith(
+      "SLACK_BOT_TOKEN",
+      "owner@example.com",
+      { orgId: "org-1" },
+    );
+    expect(mockedPostThreadReply).toHaveBeenCalled();
+  });
+
+  it("refuses to look anyone up with a credential that is not the Agent-Native bot", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-other",
+      userName: "other-bot",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const client = createSlackWorkflowClient({
+      ownerEmail: "owner@example.com",
+    });
+
+    await expect(
+      client.findUserByEmail("primary", "ada@example.com"),
+    ).rejects.toThrow("not @agent-native");
+    await expect(
+      client.getMessagePermalink("primary", "C123", "10.1"),
+    ).rejects.toThrow("not @agent-native");
+    expect(vi.mocked(findUserByEmail)).not.toHaveBeenCalled();
+  });
+
+  it("completes a thread through the spread reader", async () => {
+    mockedGetThread.mockResolvedValue({
+      messages: [{ type: "message", text: "a", ts: "10.1" }],
+      has_more: false,
+    });
+    const client = createSlackWorkflowClient({
+      ownerEmail: "owner@example.com",
+    });
+
+    await expect(
+      client.getCompleteThread("primary", "C123", "10.1"),
+    ).resolves.toMatchObject({ hasMore: false });
   });
 });

@@ -67,8 +67,6 @@ function main(): void {
     );
   }
 
-  // The workflow publishes whatever the pushed commit contains, so an
-  // uncommitted edit would silently not be in the package a teammate installs.
   const dirty = git(["status", "--porcelain"]);
   if (dirty) {
     throw new Error(

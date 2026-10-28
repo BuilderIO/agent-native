@@ -9,7 +9,6 @@ import {
 } from "h3";
 
 import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
-import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { appStateKeyForBrowserTab } from "./script-helpers.js";
 import {
@@ -22,19 +21,26 @@ import {
   appStateDeleteByPrefix,
 } from "./store.js";
 
-/**
- * Resolve the session ID for app state scoping. Returns the authenticated
- * user's email; throws 401 when the request has no session.
- */
+export const APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY =
+  "agentNativeAppStateAnonymousOwner";
+
+export type AppStateAnonymousOwnerResolver = (
+  event: H3Event,
+) => string | null | Promise<string | null>;
+
 async function getSessionId(event: H3Event): Promise<string> {
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
-  if (!session?.email) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: "Unauthenticated",
-    });
-  }
-  return session.email;
+  if (session?.email) return session.email;
+  const anonymousOwner = event.context?.[
+    APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY
+  ] as AppStateAnonymousOwnerResolver | undefined;
+  const owner = await anonymousOwner?.(event);
+  if (owner) return owner;
+  throw createError({
+    statusCode: 401,
+    statusMessage: "Unauthenticated",
+  });
 }
 
 function safeKey(key: string): string {
@@ -46,6 +52,8 @@ const TAB_SCOPED_KEYS = new Set([
   "navigate",
   "__url__",
   "__set_url__",
+  "settings-view",
+  "pending-selection-context",
 ]);
 
 function requestScopedKey(key: string, event: H3Event): string {
@@ -53,8 +61,6 @@ function requestScopedKey(key: string, event: H3Event): string {
     ? appStateKeyForBrowserTab(key, readBrowserTabIdHeader(event))
     : key;
 }
-
-// --- Generic state handlers ---
 
 export const getState = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
@@ -66,18 +72,8 @@ export const getState = defineEventHandler(async (event: H3Event) => {
   return value ?? null;
 });
 
-/** Upper bound on one batched read, so a crafted URL can't fan out unbounded. */
 export const MAX_APP_STATE_BATCH_KEYS = 100;
 
-/**
- * `GET /_agent-native/application-state?keys=a,b,c` — read many keys for the
- * caller's session in one round trip.
- *
- * `values` carries only the keys that have a stored row; every other requested
- * key is listed in `missing`. A key whose stored value is `null` therefore
- * appears in `values` with a `null` value and NOT in `missing`, which is what
- * keeps "no row" distinguishable from "row holding an empty value".
- */
 export const getStateMany = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const raw = getQuery(event).keys;
@@ -173,20 +169,16 @@ export const deleteState = defineEventHandler(async (event: H3Event) => {
   return { ok: true };
 });
 
-// --- Multi-draft compose handlers ---
-
 function composeDraftKey(id: string): string {
   return `compose-${safeKey(id)}`;
 }
 
-/** List all compose drafts */
 export const listComposeDrafts = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const items = await appStateList(sessionId, "compose-");
   return items.map((item) => item.value);
 });
 
-/** Get a single compose draft */
 export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
@@ -194,7 +186,6 @@ export const getComposeDraft = defineEventHandler(async (event: H3Event) => {
   return value ?? null;
 });
 
-/** Create or update a compose draft */
 export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
@@ -212,7 +203,6 @@ export const putComposeDraft = defineEventHandler(async (event: H3Event) => {
   return state;
 });
 
-/** Delete a single compose draft */
 export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
   const sessionId = await getSessionId(event);
   const id = getRouterParam(event, "id") as string;
@@ -221,7 +211,6 @@ export const deleteComposeDraft = defineEventHandler(async (event: H3Event) => {
   return { ok: true };
 });
 
-/** Delete all compose drafts */
 export const deleteAllComposeDrafts = defineEventHandler(
   async (event: H3Event) => {
     const sessionId = await getSessionId(event);

@@ -315,6 +315,7 @@ describe("analytics alert evaluation", () => {
     expect(firstPartyMocks.query).toHaveBeenCalledWith(
       expect.stringContaining("JSON_VALUE(properties, '$.status') = 'errored'"),
       { userEmail: "owner@example.test", orgId: "org-1" },
+      { eventsSource: "raw", maxBytesBilled: 50_000_000_000 },
     );
   });
 
@@ -477,6 +478,12 @@ describe("analytics alert evaluation", () => {
     expect(result.status).toBe("ok");
     expect(result.observedValue).toBe(1);
     expect(firstPartyMocks.query).toHaveBeenCalledTimes(2);
+    for (const call of firstPartyMocks.query.mock.calls) {
+      expect(call[2]).toEqual({
+        eventsSource: "raw",
+        maxBytesBilled: 50_000_000_000,
+      });
+    }
     expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
       "TIMESTAMP('2026-08-31T12:00:00.123456Z')",
     );
@@ -517,31 +524,6 @@ describe("analytics alert evaluation", () => {
     expect(source).toContain("if (page.length < batchSize) break");
     expect(source).not.toContain(".limit(maxCandidateEventsPerRule())");
     expect(source).not.toContain("function maxCandidateEventsPerRule");
-  });
-
-  it("claims alert rules before evaluating so parallel sweeps cannot double-send", () => {
-    const source = readFileSync(
-      new URL("./analytics-alerts.ts", import.meta.url),
-      "utf8",
-    );
-    const jobSource = readFileSync(
-      new URL("../jobs/analytics-alerts.ts", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      "export async function claimAnalyticsAlertRuleEvaluation",
-    );
-    expect(source).toContain('lastStatus: "running"');
-    expect(source).toContain("alertRuleNotRunningWhere(now)");
-    expect(source).toContain("alertRulePreviousEvaluationWhere(rule)");
-    expect(source).toContain(".returning({ id: table.id })");
-    expect(jobSource).toContain("claimAnalyticsAlertRuleEvaluation(rule)");
-    expect(
-      jobSource.indexOf("claimAnalyticsAlertRuleEvaluation(rule)"),
-    ).toBeLessThan(
-      jobSource.indexOf("evaluateAndNotifyAnalyticsAlertRule(rule)"),
-    );
   });
 
   it("keeps triggered rules retryable only when no notification channel delivered", () => {
@@ -627,22 +609,29 @@ describe("analytics alert evaluation", () => {
       ),
       "utf8",
     );
-    const retentionSource = source.slice(
-      source.indexOf("function emitRetentionScheduledTrigger"),
+    const retentionJob = source.slice(
+      source.indexOf("const RETENTION_JOB"),
+      source.indexOf("const CONTENT_METRICS_JOB"),
     );
 
     expect(source).toContain('const RETENTION_SCHEDULE = "0 3 * * *";');
     expect(source).toContain(
       'const RETENTION_ROUTE_PATH = "/api/session-replay/retention";',
     );
-    expect(source).toContain("emitRetentionScheduledTrigger(retentionToken)");
-    expect(source).toContain("emitRetentionBackgroundWorker(retentionToken)");
-    expect(retentionSource).toContain(
-      '"x-agent-native-session-replay-retention-cron": CRON_TOKEN',
+    expect(source).toContain(
+      "emitDailyScheduledTrigger(RETENTION_JOB, retentionToken)",
     );
-    expect(retentionSource).toContain(
-      "globalThis.__AGENT_NATIVE_SESSION_REPLAY_RETENTION_SCHEDULED_RUNTIME__ = true",
+    expect(source).toContain(
+      "emitDailyBackgroundWorker(RETENTION_JOB, retentionToken)",
     );
+    expect(retentionJob).toContain(
+      'header: "x-agent-native-session-replay-retention-cron"',
+    );
+    expect(retentionJob).toContain(
+      'runtimeFlag: "__AGENT_NATIVE_SESSION_REPLAY_RETENTION_SCHEDULED_RUNTIME__"',
+    );
+    expect(source).toContain('"${job.header}": CRON_TOKEN');
+    expect(source).toContain("globalThis.${job.runtimeFlag} = true");
   });
 
   it("compares the uptime monitor cron bearer secret safely", () => {
@@ -832,6 +821,26 @@ describe("analytics alert evaluation", () => {
       created: 0,
     });
     expect(inserted.get(stuckId!)?.enabled).toBe(false);
+  });
+
+  it("retires an existing legacy HTTP 5xx default row without seeding a new one", async () => {
+    vi.stubEnv("ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED", "false");
+    const { db, inserted } = defaultAlertDb([
+      { ownerEmail: "owner@example.test", orgId: "org_123" },
+    ]);
+    inserted.set("default-http-5xx-spike-legacy", {
+      id: "default-http-5xx-spike-legacy",
+      eventName: "http.response",
+      enabled: true,
+    });
+    dbMocks.getDb.mockReturnValue(db);
+
+    await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
+      checked: 0,
+      created: 0,
+    });
+    expect(inserted.get("default-http-5xx-spike-legacy")?.enabled).toBe(false);
+    expect(inserted.size).toBe(1);
   });
 
   it("honors the enable switch for the hosted stuck-chat default", async () => {

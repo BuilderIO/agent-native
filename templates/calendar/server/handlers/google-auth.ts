@@ -161,9 +161,6 @@ async function exchangeIdentityCode(
 }
 
 function oauthRedirectResponse(url: string) {
-  // h3 v2 sendRedirect returns an object the framework shim can stringify as
-  // "[object Object]" in production auth-url popups. Native Response stays a
-  // real 302 across the stack.
   return new Response(null, {
     status: 302,
     headers: { Location: url },
@@ -318,8 +315,6 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
-    // Use the named-arg overload — the positional form previously passed
-    // `flowId` in the `returnUrl` slot, breaking desktop completion.
     const state = encodeCalendarOAuthState({
       redirectUri,
       owner,
@@ -413,7 +408,6 @@ export const handleGoogleCallback = defineEventHandler(
       const { redirectUri, owner: stateOwner, addAccount, returnUrl } = state;
       const stateOrgId = getCalendarOAuthStateOrgId(state);
 
-      // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
@@ -467,7 +461,6 @@ export const handleGoogleCallback = defineEventHandler(
         });
       }
 
-      // 2. Exchange code with Google (template-specific Calendar connect)
       const email = await exchangeCode(
         code,
         undefined,
@@ -519,7 +512,6 @@ export const handleGoogleCallback = defineEventHandler(
         );
       }
 
-      // 4. Return platform-appropriate response
       return oauthCallbackResponse(event, email, {
         sessionToken,
         desktop,

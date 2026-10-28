@@ -1,15 +1,3 @@
-/**
- * Dev loop with auto-reload for the unpacked extension.
- *
- * MV3 has no built-in hot reload for unpacked extensions, so this script:
- *   1. runs `vite build --watch` (rebuilds dist/ on every source change), and
- *   2. serves a tiny localhost stream that emits "reload" after each rebuild.
- *
- * The background service worker (in dev / unpacked only) holds that stream open
- * and calls chrome.runtime.reload() when it sees "reload" — so saving a file
- * rebuilds AND reloads the extension with no clicking in chrome://extensions.
- * The open fetch also keeps the worker alive while you iterate.
- */
 import { spawn } from "node:child_process";
 import { watch } from "node:fs";
 import http from "node:http";
@@ -68,8 +56,6 @@ function notifyReload(): void {
   }, 250);
 }
 
-// Vite owns the actual build; we watch its output so the reload fires only after
-// dist/ is fully rewritten.
 const vite = spawn("pnpm", ["exec", "vite", "build", "--watch"], {
   cwd: root,
   stdio: "inherit",
@@ -87,7 +73,6 @@ function startWatchingDist(): void {
     watch(distDir, { recursive: true }, () => notifyReload());
     watching = true;
   } catch {
-    // dist may not exist yet on the very first run — retry shortly.
     setTimeout(startWatchingDist, 500);
   }
 }

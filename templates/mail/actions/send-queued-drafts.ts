@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -75,8 +75,6 @@ async function sendOne(
     const updated = await markQueuedDraftSent(id, ctx, claimId, sentMessageId);
     return { outcome: "sent", id, sentMessageId, draft: updated };
   } catch (err) {
-    // Release the claim so the draft goes back to a sendable state instead
-    // of being stuck as "sending" forever after a failed send attempt.
     await releaseQueuedDraftClaim(id, ctx, claimId, priorStatus);
     return {
       outcome: "failed",
@@ -146,6 +144,18 @@ export default defineAction({
       // "skipped" (already sent / already sending / no longer active)
       // reports cleanly by simply not appearing in either list — re-running
       // an already-sent draft is a clean no-op, not an error.
+    }
+
+    if (failed.length > 0 && sent.length === 0) {
+      const failures = failed
+        .map(({ id, error }) => `${id}: ${error}`)
+        .join("; ");
+      fail(
+        `Failed to send queued draft${failed.length === 1 ? "" : "s"}: ${failures}`,
+        {
+          errorCode: "queued_draft_send_failed",
+        },
+      );
     }
 
     return { sent, failed };

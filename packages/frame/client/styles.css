@@ -1,10 +1,8 @@
 @import "tailwindcss";
 
-/* Scan core package client components for Tailwind classes */
 @source "../../core/src/client/**/*.tsx";
 @source "../../core/src/client/**/*.ts";
 
-/* Theme tokens — shadcn/ui compatible HSL variable color system */
 @theme {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -141,10 +139,6 @@ body {
   }
 }
 
-/* No `will-change` on this sidebar or its inner column. Both stay mounted for
-   the life of the workspace, so the hint is never retired and pins a composited
-   layer around the whole agent panel. The browser promotes these transitions on
-   its own for the 260ms they run. */
 .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"] {
   width: 0;
   overflow: clip;

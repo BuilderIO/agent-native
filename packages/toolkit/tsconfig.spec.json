@@ -1,0 +1,1575 @@
+{
+  // Type-checks specs against workspace source, as vitest.config.ts runs them.
+  // `paths` mirrors the dist exports of packages/toolkit (its self-imports),
+  // packages/core and packages/agentkit. An export missing here type-checks
+  // against the last built dist instead.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "../..",
+    "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/toolkit-spec.tsbuildinfo",
+    "paths": {
+      "@agent-native/toolkit": ["./src/index.ts"],
+      "@agent-native/toolkit/app/agentkit": ["./src/app/agentkit/index.ts"],
+      "@agent-native/toolkit/app/chat/agent-sidebar-events": [
+        "./src/app/chat/agent-sidebar-events.ts"
+      ],
+      "@agent-native/toolkit/app/chat/ownership-history": [
+        "./src/app/chat/ownership-history/index.tsx"
+      ],
+      "@agent-native/toolkit/app/chat": ["./src/app/chat/index.ts"],
+      "@agent-native/toolkit/app/org": ["./src/app/org/index.ts"],
+      "@agent-native/toolkit/app/settings": ["./src/app/settings/index.ts"],
+      "@agent-native/toolkit/app/agent-page": ["./src/app/agent-page/index.ts"],
+      "@agent-native/toolkit/app/*": ["./src/app/*"],
+      "@agent-native/toolkit/app-shell": ["./src/app-shell/index.ts"],
+      "@agent-native/toolkit/app-shell/*": ["./src/app-shell/*"],
+      "@agent-native/toolkit/agentkit": ["./src/agentkit.ts"],
+      "@agent-native/toolkit/collab-ui": ["./src/collab-ui/index.ts"],
+      "@agent-native/toolkit/collab-ui/*": ["./src/collab-ui/*"],
+      "@agent-native/toolkit/dashboard": ["./src/dashboard/index.ts"],
+      "@agent-native/toolkit/dashboard/*": ["./src/dashboard/*"],
+      "@agent-native/toolkit/data-grid": ["./src/data-grid/index.ts"],
+      "@agent-native/toolkit/data-grid/*": ["./src/data-grid/*"],
+      "@agent-native/toolkit/chat-history": ["./src/chat-history/index.ts"],
+      "@agent-native/toolkit/chat-history/*": ["./src/chat-history/*"],
+      "@agent-native/toolkit/canvas-annotations": [
+        "./src/canvas-annotations/index.ts"
+      ],
+      "@agent-native/toolkit/canvas-annotations/*": [
+        "./src/canvas-annotations/*"
+      ],
+      "@agent-native/toolkit/canvas-interactions": [
+        "./src/canvas-interactions/index.ts"
+      ],
+      "@agent-native/toolkit/canvas-interactions/*": [
+        "./src/canvas-interactions/*"
+      ],
+      "@agent-native/toolkit/clipboard": ["./src/clipboard.ts"],
+      "@agent-native/toolkit/composer": ["./src/composer/index.ts"],
+      "@agent-native/toolkit/composer/*": ["./src/composer/*"],
+      "@agent-native/toolkit/conformance": ["./src/conformance/index.ts"],
+      "@agent-native/toolkit/conformance/*": ["./src/conformance/*"],
+      "@agent-native/toolkit/context-ui": ["./src/context-ui/index.ts"],
+      "@agent-native/toolkit/design-tweaks": ["./src/design-tweaks/index.ts"],
+      "@agent-native/toolkit/design-system": ["./src/design-system/index.ts"],
+      "@agent-native/toolkit/design-system/*": ["./src/design-system/*"],
+      "@agent-native/toolkit/editor": ["./src/editor/index.ts"],
+      "@agent-native/toolkit/editor/*": ["./src/editor/*"],
+      "@agent-native/toolkit/hooks": ["./src/hooks/index.ts"],
+      "@agent-native/toolkit/icons": ["./src/icons/index.ts"],
+      "@agent-native/toolkit/hooks/*": ["./src/hooks/*"],
+      "@agent-native/toolkit/onboarding": ["./src/onboarding/index.ts"],
+      "@agent-native/toolkit/onboarding/*": ["./src/onboarding/*"],
+      "@agent-native/toolkit/provider": ["./src/provider.tsx"],
+      "@agent-native/toolkit/sharing": ["./src/sharing/index.ts"],
+      "@agent-native/toolkit/sharing/*": ["./src/sharing/*"],
+      "@agent-native/toolkit/ui": ["./src/ui/index.ts"],
+      "@agent-native/toolkit/ui/*": ["./src/ui/*"],
+      "@agent-native/toolkit/utils": ["./src/utils.ts"],
+      "@agent-native/toolkit/streaming-text-smoothing": [
+        "./src/streaming-text-smoothing.ts"
+      ],
+      "@agent-native/toolkit/markdown-block-split": [
+        "./src/markdown-block-split.ts"
+      ],
+      "@agent-native/toolkit/app/auth": ["./src/app/auth/index.ts"],
+      "@agent-native/toolkit/app/auth/server": ["./src/app/auth/server.ts"],
+      "@agent-native/toolkit/app/blocks": ["./src/app/blocks/index.ts"],
+      "@agent-native/toolkit/app/changelog": ["./src/app/changelog/index.ts"],
+      "@agent-native/toolkit/app/context-xray": [
+        "./src/app/context-xray/index.ts"
+      ],
+      "@agent-native/toolkit/app/db-admin": ["./src/app/db-admin/index.ts"],
+      "@agent-native/toolkit/app/extensions": ["./src/app/extensions/index.ts"],
+      "@agent-native/toolkit/app/feature-flags": [
+        "./src/app/feature-flags/index.ts"
+      ],
+      "@agent-native/toolkit/app/feedback": ["./src/app/feedback/index.ts"],
+      "@agent-native/toolkit/app/integrations": [
+        "./src/app/integrations/index.ts"
+      ],
+      "@agent-native/toolkit/app/labs": ["./src/app/labs/index.ts"],
+      "@agent-native/toolkit/app/observability": [
+        "./src/app/observability/index.ts"
+      ],
+      "@agent-native/toolkit/app/onboarding": ["./src/app/onboarding/index.ts"],
+      "@agent-native/toolkit/app/generation": ["./src/app/generation/index.ts"],
+      "@agent-native/toolkit/app/progress": ["./src/app/progress/index.ts"],
+      "@agent-native/toolkit/app/resources": ["./src/app/resources/index.ts"],
+      "@agent-native/toolkit/app/review": ["./src/app/review/index.ts"],
+      "@agent-native/toolkit/app/setup-connections": [
+        "./src/app/setup-connections/index.ts"
+      ],
+      "@agent-native/toolkit/app/shared": ["./src/app/shared/index.ts"],
+      "@agent-native/toolkit/app/sharing": ["./src/app/sharing/index.ts"],
+      "@agent-native/toolkit/app/terminal": ["./src/app/terminal/index.ts"],
+      "@agent-native/toolkit/app/transcription": [
+        "./src/app/transcription/index.ts"
+      ],
+      "@agent-native/toolkit/app/agentkit/react": [
+        "./src/app/agentkit/react/index.ts"
+      ],
+      "@agent-native/toolkit/app/chat/agentkit-chat": [
+        "./src/app/chat/agentkit-chat/index.ts"
+      ],
+      "@agent-native/toolkit/app/chat/chat": ["./src/app/chat/chat/index.ts"],
+      "@agent-native/toolkit/app/chat/chat-first": [
+        "./src/app/chat/chat-first/index.ts"
+      ],
+      "@agent-native/toolkit/app/chat/composer": [
+        "./src/app/chat/composer/index.ts"
+      ],
+      "@agent-native/toolkit/app/chat/conversation": [
+        "./src/app/chat/conversation/index.ts"
+      ],
+      "@agent-native/toolkit/app/chat/tool-cells": [
+        "./src/app/chat/tool-cells/index.ts"
+      ],
+      "@agent-native/toolkit/app/dev-overlay": [
+        "./src/app/dev-overlay/index.ts"
+      ],
+      "@agent-native/toolkit/app/notifications": [
+        "./src/app/notifications/index.ts"
+      ],
+      "@agent-native/toolkit/app/providers": ["./src/app/providers/index.ts"],
+      "@agent-native/toolkit/app/settings/shell": [
+        "./src/app/settings/shell/index.ts"
+      ],
+      "@agent-native/core": ["./../core/src/index.ts"],
+      "@agent-native/core/vite": ["./../core/src/vite/index.ts"],
+      "@agent-native/core/vitest-config": ["./../core/src/vitest-config.ts"],
+      "@agent-native/core/server": ["./../core/src/server/index.ts"],
+      "@agent-native/core/server/edge": ["./../core/src/server/edge.ts"],
+      "@agent-native/core/server/entry-server": [
+        "./../core/src/server/entry-server.tsx"
+      ],
+      "@agent-native/core/server/ssr-handler": [
+        "./../core/src/server/ssr-handler.ts"
+      ],
+      "@agent-native/core/server/agent-discovery": [
+        "./../core/src/server/agent-discovery.ts"
+      ],
+      "@agent-native/core/db/request-pool-context": [
+        "./../core/src/db/request-pool-context.ts"
+      ],
+      "@agent-native/core/server/request-context": [
+        "./../core/src/server/request-context.ts"
+      ],
+      "@agent-native/core/server/design-token-utils": [
+        "./../core/src/server/design-token-utils.ts"
+      ],
+      "@agent-native/core/server/poll": ["./../core/src/server/poll.ts"],
+      "@agent-native/core/server/interval-job": [
+        "./../core/src/server/interval-job.ts"
+      ],
+      "@agent-native/core/server/sse": ["./../core/src/server/sse.ts"],
+      "@agent-native/core/server/short-lived-token": [
+        "./../core/src/server/short-lived-token.ts"
+      ],
+      "@agent-native/core/visual-edit-bridge-capability": [
+        "./../core/src/server/visual-edit-bridge-capability.ts"
+      ],
+      "@agent-native/core/integrations": [
+        "./../core/src/integrations/index.ts"
+      ],
+      "@agent-native/core/integrations/computer-supervision": [
+        "./../core/src/integrations/computer-supervision.ts"
+      ],
+      "@agent-native/core/integrations/runtime": [
+        "./../core/src/integrations/runtime.ts"
+      ],
+      "@agent-native/core/ingestion": ["./../core/src/ingestion/index.ts"],
+      "@agent-native/core/browser-context": [
+        "./../core/src/browser-context/index.ts"
+      ],
+      "@agent-native/core/search-utils": [
+        "./../core/src/search-utils/index.ts"
+      ],
+      "@agent-native/core/search": ["./../core/src/search/index.ts"],
+      "@agent-native/core/search-query": [
+        "./../core/src/search/query-parser.ts"
+      ],
+      "@agent-native/core/embeddings": ["./../core/src/embeddings/index.ts"],
+      "@agent-native/core/automation": ["./../core/src/automation/index.ts"],
+      "@agent-native/core/brand-kit": ["./../core/src/brand-kit/index.ts"],
+      "@agent-native/core/brand-kit/fig": [
+        "./../core/src/brand-kit/fig/index.ts"
+      ],
+      "@agent-native/core/brand-kit/tokens": [
+        "./../core/src/brand-kit/tokens.ts"
+      ],
+      "@agent-native/core/icons": ["./../core/src/icons/index.ts"],
+      "@agent-native/core/data-widgets": [
+        "./../core/src/data-widgets/index.ts"
+      ],
+      "@agent-native/core/action": ["./../core/src/action.ts"],
+      "@agent-native/core/action-receipt": ["./../core/src/action-receipt.ts"],
+      "@agent-native/core/action-ui": ["./../core/src/action-ui.ts"],
+      "@agent-native/core/authorization": [
+        "./../core/src/authorization/index.ts"
+      ],
+      "@agent-native/core/agent-native": [
+        "./../core/src/agent-native/index.ts"
+      ],
+      "@agent-native/core/config": ["./../core/src/config.ts"],
+      "@agent-native/core/agent-sql": ["./../core/src/agent-sql/index.ts"],
+      "@agent-native/core/agent-web": ["./../core/src/agent-web/index.ts"],
+      "@agent-native/core/db": ["./../core/src/db/index.ts"],
+      "@agent-native/core/db-admin": ["./../core/src/db-admin/index.ts"],
+      "@agent-native/core/db/schema": ["./../core/src/db/schema.ts"],
+      "@agent-native/core/db/drizzle-config": [
+        "./../core/src/db/drizzle-config.ts"
+      ],
+      "@agent-native/core/db/drizzle-migrations": [
+        "./../core/src/db/drizzle-migrations.ts"
+      ],
+      "@agent-native/core/client": ["./../core/src/client/index.ts"],
+      "@agent-native/core/client/action-query-cache": [
+        "./../core/src/client/action-query-cache.tsx"
+      ],
+      "@agent-native/core/client/chat-errors": [
+        "./../core/src/client/chat-errors.ts"
+      ],
+      "@agent-native/core/client/agent-chat": [
+        "./../core/src/client/agent-chat/index.ts"
+      ],
+      "@agent-native/core/client/agent-engine-readiness": [
+        "./../core/src/client/agent-engine-readiness.ts"
+      ],
+      "@agent-native/core/client/agent-sidebar-state": [
+        "./../core/src/client/agent-sidebar-state.ts"
+      ],
+      "@agent-native/core/client/auth/auth-page-helpers": [
+        "./../core/src/client/auth/auth-page-helpers.ts"
+      ],
+      "@agent-native/core/client/assistant-chat-history-version": [
+        "./../core/src/client/chat/assistant-chat-history-version.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat/integrity": [
+        "./../core/src/client/agentkit-chat/integrity.ts"
+      ],
+      "@agent-native/core/client/chat-first-state": [
+        "./../core/src/client/chat-first-state.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat/transport": [
+        "./../core/src/client/agentkit-chat/transport.ts"
+      ],
+      "@agent-native/core/client/chat-first": [
+        "./../core/src/client/tombstone/chat-first.ts"
+      ],
+      "@agent-native/core/client/analytics": [
+        "./../core/src/client/analytics/index.ts"
+      ],
+      "@agent-native/core/client/automation": [
+        "./../core/src/client/automation/index.ts"
+      ],
+      "@agent-native/core/client/changelog": [
+        "./../core/src/client/changelog/index.ts"
+      ],
+      "@agent-native/core/client/markdown": [
+        "./../core/src/client/tombstone/markdown.ts"
+      ],
+      "@agent-native/core/client/collab": [
+        "./../core/src/client/collab/index.ts"
+      ],
+      "@agent-native/core/client/design-system-tier-limit": [
+        "./../core/src/client/design-system-tier-limit.ts"
+      ],
+      "@agent-native/core/client/dev-overlay": [
+        "./../core/src/client/dev-overlay/index.ts"
+      ],
+      "@agent-native/core/client/editor": [
+        "./../core/src/client/tombstone/editor.ts"
+      ],
+      "@agent-native/core/client/rich-markdown-editor": [
+        "./../core/src/client/tombstone/rich-markdown-editor.ts"
+      ],
+      "@agent-native/core/client/feature-flags": [
+        "./../core/src/client/feature-flags/index.ts"
+      ],
+      "@agent-native/core/client/launchdarkly": [
+        "./../core/src/client/launchdarkly/index.ts"
+      ],
+      "@agent-native/core/client/labs": ["./../core/src/client/labs/index.ts"],
+      "@agent-native/core/client/experiments": [
+        "./../core/src/client/experiments/index.ts"
+      ],
+      "@agent-native/core/client/hooks": [
+        "./../core/src/client/hooks/index.ts"
+      ],
+      "@agent-native/core/client/host": ["./../core/src/client/host/index.ts"],
+      "@agent-native/core/client/webmcp": ["./../core/src/client/webmcp.ts"],
+      "@agent-native/core/client/integrations": [
+        "./../core/src/client/integrations/index.ts"
+      ],
+      "@agent-native/core/client/navigation": [
+        "./../core/src/client/navigation/index.ts"
+      ],
+      "@agent-native/core/client/resources": [
+        "./../core/src/client/resources/index.ts"
+      ],
+      "@agent-native/core/client/resources/runtime": [
+        "./../core/src/client/resources/runtime.ts"
+      ],
+      "@agent-native/core/client/route-chunk-recovery": [
+        "./../core/src/client/route-chunk-recovery/index.ts"
+      ],
+      "@agent-native/core/client/lazy-chunk-error-boundary": [
+        "./../core/src/client/tombstone/lazy-chunk-error-boundary.ts"
+      ],
+      "@agent-native/core/client/lazy-chunk-retry-fallback": [
+        "./../core/src/client/tombstone/lazy-chunk-retry-fallback.ts"
+      ],
+      "@agent-native/core/client/secrets": ["./../core/src/client/secrets.ts"],
+      "@agent-native/core/client/session-replay-privacy": [
+        "./../core/src/client/session-replay-privacy.ts"
+      ],
+      "@agent-native/core/client/use-db-sync": [
+        "./../core/src/client/use-db-sync.ts"
+      ],
+      "@agent-native/core/client/zoom-gesture": [
+        "./../core/src/client/zoom-gesture.ts"
+      ],
+      "@agent-native/core/client/ui": ["./../core/src/client/ui/index.ts"],
+      "@agent-native/core/client/theme": ["./../core/src/client/theme.ts"],
+      "@agent-native/core/client/uploads": [
+        "./../core/src/client/uploads/index.ts"
+      ],
+      "@agent-native/core/client/widgets": [
+        "./../core/src/client/widgets/index.ts"
+      ],
+      "@agent-native/core/client/components/ui/dialog": [
+        "./../core/src/client/tombstone/ui-dialog.ts"
+      ],
+      "@agent-native/core/client/components/ui/dropdown-menu": [
+        "./../core/src/client/tombstone/ui-dropdown-menu.ts"
+      ],
+      "@agent-native/core/client/components/ui/hover-card": [
+        "./../core/src/client/tombstone/ui-hover-card.ts"
+      ],
+      "@agent-native/core/client/components/ui/popover": [
+        "./../core/src/client/tombstone/ui-popover.ts"
+      ],
+      "@agent-native/core/client/components/ui/sheet": [
+        "./../core/src/client/tombstone/ui-sheet.ts"
+      ],
+      "@agent-native/core/client/components/ui/tooltip": [
+        "./../core/src/client/tombstone/ui-tooltip.ts"
+      ],
+      "@agent-native/core/client/components/AgentPresenceChip": [
+        "./../core/src/client/tombstone/agent-presence-chip.ts"
+      ],
+      "@agent-native/core/client/components/LiveCursorOverlay": [
+        "./../core/src/client/tombstone/live-cursor-overlay.ts"
+      ],
+      "@agent-native/core/client/components/PresenceBar": [
+        "./../core/src/client/tombstone/presence-bar.ts"
+      ],
+      "@agent-native/core/client/components/RecentEditHighlights": [
+        "./../core/src/client/tombstone/recent-edit-highlights.ts"
+      ],
+      "@agent-native/core/client/components/RemoteSelectionRings": [
+        "./../core/src/client/tombstone/remote-selection-rings.ts"
+      ],
+      "@agent-native/core/client/visual-style-controls": [
+        "./../core/src/client/tombstone/visual-style-controls.ts"
+      ],
+      "@agent-native/core/blocks": ["./../core/src/client/tombstone/blocks.ts"],
+      "@agent-native/core/blocks/server": [
+        "./../core/src/client/blocks/server.ts"
+      ],
+      "@agent-native/core/client/application-state": [
+        "./../core/src/client/application-state.ts"
+      ],
+      "@agent-native/core/client/api-path": [
+        "./../core/src/client/api-path.ts"
+      ],
+      "@agent-native/core/client/status-requests": [
+        "./../core/src/client/client-status-requests.ts"
+      ],
+      "@agent-native/core/client/speak": ["./../core/src/client/speak.ts"],
+      "@agent-native/core/client/sign-in-landing": [
+        "./../core/src/client/sign-in-landing.ts"
+      ],
+      "@agent-native/core/client/oauth-popup": [
+        "./../core/src/client/oauth-popup.ts"
+      ],
+      "@agent-native/core/client/route-state": [
+        "./../core/src/client/route-state.ts"
+      ],
+      "@agent-native/core/client/recorder": [
+        "./../core/src/client/recorder.ts"
+      ],
+      "@agent-native/core/observability/actions/list-observability-reviews": [
+        "./../core/src/observability/actions/list-observability-reviews.ts"
+      ],
+      "@agent-native/core/observability/actions/get-observability-review-app": [
+        "./../core/src/observability/actions/get-observability-review-app.ts"
+      ],
+      "@agent-native/core/observability/actions/get-observability-review-detail": [
+        "./../core/src/observability/actions/get-observability-review-detail.ts"
+      ],
+      "@agent-native/core/observability/actions/get-observability-review-summary-source": [
+        "./../core/src/observability/actions/get-observability-review-summary-source.ts"
+      ],
+      "@agent-native/core/observability/actions/save-observability-review-summary": [
+        "./../core/src/observability/actions/save-observability-review-summary.ts"
+      ],
+      "@agent-native/core/observability/actions/save-observability-review-feedback": [
+        "./../core/src/observability/actions/save-observability-review-feedback.ts"
+      ],
+      "@agent-native/core/observability/actions/save-observability-instruction-update": [
+        "./../core/src/observability/actions/save-observability-instruction-update.ts"
+      ],
+      "@agent-native/core/client/onboarding": [
+        "./../core/src/client/onboarding/index.ts"
+      ],
+      "@agent-native/core/client/setup-connections": [
+        "./../core/src/client/setup-connections/index.ts"
+      ],
+      "@agent-native/core/client/setup-connections/runtime": [
+        "./../core/src/client/setup-connections/runtime.ts"
+      ],
+      "@agent-native/core/client/i18n": ["./../core/src/client/i18n.tsx"],
+      "@agent-native/core/embedding": ["./../core/src/embedding/index.ts"],
+      "@agent-native/core/embedding/agent": [
+        "./../core/src/embedding/agent.ts"
+      ],
+      "@agent-native/core/embedding/bridge": [
+        "./../core/src/embedding/bridge.ts"
+      ],
+      "@agent-native/core/embedding/protocol": [
+        "./../core/src/embedding/protocol.ts"
+      ],
+      "@agent-native/core/embedding/react": [
+        "./../core/src/embedding/react.tsx"
+      ],
+      "@agent-native/core/onboarding": ["./../core/src/onboarding/index.ts"],
+      "@agent-native/core/shared": ["./../core/src/shared/index.ts"],
+      "@agent-native/core/shared/thinking-display": [
+        "./../core/src/shared/thinking-display.ts"
+      ],
+      "@agent-native/core/shared/auth-copy": [
+        "./../core/src/shared/auth-copy.ts"
+      ],
+      "@agent-native/core/shared/builder-link-tracking": [
+        "./../core/src/shared/builder-link-tracking.ts"
+      ],
+      "@agent-native/core/shared/optional-peer": [
+        "./../core/src/shared/optional-peer.ts"
+      ],
+      "@agent-native/core/voice": ["./../core/src/voice/index.ts"],
+      "@agent-native/core/scripts": ["./../core/src/scripts/index.ts"],
+      "@agent-native/core/deploy/function-bundle": [
+        "./../core/src/deploy/function-bundle.ts"
+      ],
+      "@agent-native/core/deploy/netlify-static-headers": [
+        "./../core/src/deploy/netlify-static-headers.ts"
+      ],
+      "@agent-native/core/guards": ["./../core/src/guards/index.ts"],
+      "@agent-native/core/application-state": [
+        "./../core/src/application-state/index.ts"
+      ],
+      "@agent-native/core/settings": ["./../core/src/settings/index.ts"],
+      "@agent-native/core/user-profile": [
+        "./../core/src/user-profile/index.ts"
+      ],
+      "@agent-native/core/user-profile/server": [
+        "./../core/src/user-profile/store.ts"
+      ],
+      "@agent-native/core/feature-flags": [
+        "./../core/src/feature-flags/index.ts"
+      ],
+      "@agent-native/core/feature-flags/registry": [
+        "./../core/src/feature-flags/registry.ts"
+      ],
+      "@agent-native/core/feature-flags/server": [
+        "./../core/src/feature-flags/server.ts"
+      ],
+      "@agent-native/core/feature-flags/actions/get-feature-flags": [
+        "./../core/src/feature-flags/actions/get-feature-flags.ts"
+      ],
+      "@agent-native/core/feature-flags/actions/list-feature-flags": [
+        "./../core/src/feature-flags/actions/list-feature-flags.ts"
+      ],
+      "@agent-native/core/feature-flags/actions/set-feature-flag": [
+        "./../core/src/feature-flags/actions/set-feature-flag.ts"
+      ],
+      "@agent-native/core/launchdarkly": [
+        "./../core/src/launchdarkly/index.ts"
+      ],
+      "@agent-native/core/launchdarkly/actions/get-launchdarkly-flags": [
+        "./../core/src/launchdarkly/actions/get-launchdarkly-flags.ts"
+      ],
+      "@agent-native/core/labs": ["./../core/src/labs/index.ts"],
+      "@agent-native/core/labs/registry": ["./../core/src/labs/registry.ts"],
+      "@agent-native/core/labs/server": ["./../core/src/labs/server.ts"],
+      "@agent-native/core/labs/actions/get-labs": [
+        "./../core/src/labs/actions/get-labs.ts"
+      ],
+      "@agent-native/core/labs/actions/get-lab-states": [
+        "./../core/src/labs/actions/get-lab-states.ts"
+      ],
+      "@agent-native/core/labs/actions/set-lab": [
+        "./../core/src/labs/actions/set-lab.ts"
+      ],
+      "@agent-native/core/experiments": ["./../core/src/experiments/index.ts"],
+      "@agent-native/core/experiments/registry": [
+        "./../core/src/experiments/registry.ts"
+      ],
+      "@agent-native/core/experiments/server": [
+        "./../core/src/experiments/server.ts"
+      ],
+      "@agent-native/core/experiments/actions/get-experiments": [
+        "./../core/src/experiments/actions/get-experiments.ts"
+      ],
+      "@agent-native/core/experiments/actions/set-experiment": [
+        "./../core/src/experiments/actions/set-experiment.ts"
+      ],
+      "@agent-native/core/hosted-harness/actions/get-hosted-harness-config": [
+        "./../core/src/hosted-harness/actions/get-hosted-harness-config.ts"
+      ],
+      "@agent-native/core/hosted-harness/actions/set-hosted-harness-enabled": [
+        "./../core/src/hosted-harness/actions/set-hosted-harness-enabled.ts"
+      ],
+      "@agent-native/core/localization": [
+        "./../core/src/localization/index.ts"
+      ],
+      "@agent-native/core/localization/actions/get-localization-preference": [
+        "./../core/src/localization/actions/get-localization-preference.ts"
+      ],
+      "@agent-native/core/localization/actions/set-localization-preference": [
+        "./../core/src/localization/actions/set-localization-preference.ts"
+      ],
+      "@agent-native/core/credentials": ["./../core/src/credentials/index.ts"],
+      "@agent-native/core/event-bus": ["./../core/src/event-bus/index.ts"],
+      "@agent-native/core/jobs/actions/list-recurring-jobs": [
+        "./../core/src/jobs/actions/list-recurring-jobs.ts"
+      ],
+      "@agent-native/core/jobs/actions/manage-recurring-job": [
+        "./../core/src/jobs/actions/manage-recurring-job.ts"
+      ],
+      "@agent-native/core/jobs/actions/run-automation-now": [
+        "./../core/src/jobs/actions/run-automation-now.ts"
+      ],
+      "@agent-native/core/jobs/actions/list-automation-runs": [
+        "./../core/src/jobs/actions/list-automation-runs.ts"
+      ],
+      "@agent-native/core/triggers/actions/list-automations": [
+        "./../core/src/triggers/actions/list-automations.ts"
+      ],
+      "@agent-native/core/triggers/actions/list-automation-events": [
+        "./../core/src/triggers/actions/list-automation-events.ts"
+      ],
+      "@agent-native/core/triggers/actions/manage-automation": [
+        "./../core/src/triggers/actions/manage-automation.ts"
+      ],
+      "@agent-native/core/triggers/actions/search-automation-accounts": [
+        "./../core/src/triggers/actions/search-automation-accounts.ts"
+      ],
+      "@agent-native/core/fetch-tool": [
+        "./../core/src/extensions/fetch-tool.ts"
+      ],
+      "@agent-native/core/extensions/url-safety": [
+        "./../core/src/extensions/url-safety.ts"
+      ],
+      "@agent-native/core/tools/url-safety": [
+        "./../core/src/extensions/url-safety.ts"
+      ],
+      "@agent-native/core/file-upload": ["./../core/src/file-upload/index.ts"],
+      "@agent-native/core/file-upload/actions/upload-image": [
+        "./../core/src/file-upload/actions/upload-image.ts"
+      ],
+      "@agent-native/core/file-upload/actions/get-file-storage": [
+        "./../core/src/file-upload/actions/get-file-storage.ts"
+      ],
+      "@agent-native/core/file-upload/actions/manage-file-storage": [
+        "./../core/src/file-upload/actions/manage-file-storage.ts"
+      ],
+      "@agent-native/core/integrations/actions/list-messaging-channels": [
+        "./../core/src/integrations/actions/list-messaging-channels.ts"
+      ],
+      "@agent-native/core/integrations/actions/manage-messaging-channel": [
+        "./../core/src/integrations/actions/manage-messaging-channel.ts"
+      ],
+      "@agent-native/core/private-blob": [
+        "./../core/src/private-blob/index.ts"
+      ],
+      "@agent-native/core/icon-assets": ["./../core/src/icon-assets/index.ts"],
+      "@agent-native/core/agent/tool-result-images": [
+        "./../core/src/agent/tool-result-images.ts"
+      ],
+      "@agent-native/core/agent/context-xray/actions/context-manifest-get": [
+        "./../core/src/agent/context-xray/actions/context-manifest-get.ts"
+      ],
+      "@agent-native/core/agent/context-xray/actions/context-pin": [
+        "./../core/src/agent/context-xray/actions/context-pin.ts"
+      ],
+      "@agent-native/core/agent/context-xray/actions/context-evict": [
+        "./../core/src/agent/context-xray/actions/context-evict.ts"
+      ],
+      "@agent-native/core/agent/context-xray/actions/context-restore": [
+        "./../core/src/agent/context-xray/actions/context-restore.ts"
+      ],
+      "@agent-native/core/agent/context-xray/actions/context-report": [
+        "./../core/src/agent/context-xray/actions/context-report.ts"
+      ],
+      "@agent-native/core/agent/actions/set-tool-approval-policy": [
+        "./../core/src/agent/actions/set-tool-approval-policy.ts"
+      ],
+      "@agent-native/core/agent/actions/get-chatgpt-subscription-status": [
+        "./../core/src/agent/actions/get-chatgpt-subscription-status.ts"
+      ],
+      "@agent-native/core/agent/actions/disconnect-chatgpt-subscription": [
+        "./../core/src/agent/actions/disconnect-chatgpt-subscription.ts"
+      ],
+      "@agent-native/core/agent/actions/list-chatgpt-subscription-accounts": [
+        "./../core/src/agent/actions/list-chatgpt-subscription-accounts.ts"
+      ],
+      "@agent-native/core/agent/actions/select-chatgpt-subscription-account": [
+        "./../core/src/agent/actions/select-chatgpt-subscription-account.ts"
+      ],
+      "@agent-native/core/agent/actions/check-provider-key": [
+        "./../core/src/agent/actions/check-provider-key.ts"
+      ],
+      "@agent-native/core/agent/actions/manage-provider-key-policy": [
+        "./../core/src/agent/actions/manage-provider-key-policy.ts"
+      ],
+      "@agent-native/core/agent/actions/manage-builder-connection": [
+        "./../core/src/agent/actions/manage-builder-connection.ts"
+      ],
+      "@agent-native/core/agent/actions/manage-service-providers": [
+        "./../core/src/agent/actions/manage-service-providers.ts"
+      ],
+      "@agent-native/core/agent/actions/get-infrastructure-status": [
+        "./../core/src/agent/actions/get-infrastructure-status.ts"
+      ],
+      "@agent-native/core/agent/actions/get-provider-models": [
+        "./../core/src/agent/actions/get-provider-models.ts"
+      ],
+      "@agent-native/core/agent/actions/manage-provider-models": [
+        "./../core/src/agent/actions/manage-provider-models.ts"
+      ],
+      "@agent-native/core/agent/actions/list-model-providers": [
+        "./../core/src/agent/actions/list-model-providers.ts"
+      ],
+      "@agent-native/core/agent/observational-memory": [
+        "./../core/src/agent/observational-memory/index.ts"
+      ],
+      "@agent-native/core/resources": ["./../core/src/resources/index.ts"],
+      "@agent-native/core/resources/store": [
+        "./../core/src/resources/store.ts"
+      ],
+      "@agent-native/core/resources/metadata": [
+        "./../core/src/resources/metadata.ts"
+      ],
+      "@agent-native/core/oauth-tokens": [
+        "./../core/src/oauth-tokens/index.ts"
+      ],
+      "@agent-native/core/secrets": ["./../core/src/secrets/index.ts"],
+      "@agent-native/core/secrets/crypto": ["./../core/src/secrets/crypto.ts"],
+      "@agent-native/core/secrets/actions/preview-secret-removal": [
+        "./../core/src/secrets/actions/preview-secret-removal.ts"
+      ],
+      "@agent-native/core/secrets/actions/list-api-keys": [
+        "./../core/src/secrets/actions/list-api-keys.ts"
+      ],
+      "@agent-native/core/secrets/actions/delete-api-key": [
+        "./../core/src/secrets/actions/delete-api-key.ts"
+      ],
+      "@agent-native/core/org": ["./../core/src/org/index.ts"],
+      "@agent-native/core/org/free-email-providers": [
+        "./../core/src/org/free-email-providers.ts"
+      ],
+      "@agent-native/core/org-team": ["./../core/src/org-team/index.ts"],
+      "@agent-native/core/client/org": ["./../core/src/client/org/index.ts"],
+      "@agent-native/core/client/org-team": [
+        "./../core/src/client/org-team/index.ts"
+      ],
+      "@agent-native/core/navigation": ["./../core/src/navigation/index.ts"],
+      "@agent-native/core/command-navigation": [
+        "./../core/src/command-navigation/index.ts"
+      ],
+      "@agent-native/core/client/command-navigation": [
+        "./../core/src/client/command-navigation/index.ts"
+      ],
+      "@agent-native/core/setup-connections": [
+        "./../core/src/setup-connections/index.ts"
+      ],
+      "@agent-native/core/audit": ["./../core/src/audit/index.ts"],
+      "@agent-native/core/history": ["./../core/src/history/index.ts"],
+      "@agent-native/core/history/actions/create-resource-version": [
+        "./../core/src/history/actions/create-resource-version.ts"
+      ],
+      "@agent-native/core/history/actions/list-resource-versions": [
+        "./../core/src/history/actions/list-resource-versions.ts"
+      ],
+      "@agent-native/core/history/actions/get-resource-version": [
+        "./../core/src/history/actions/get-resource-version.ts"
+      ],
+      "@agent-native/core/history/actions/restore-resource-version": [
+        "./../core/src/history/actions/restore-resource-version.ts"
+      ],
+      "@agent-native/core/history/actions/list-resource-history": [
+        "./../core/src/history/actions/list-resource-history.ts"
+      ],
+      "@agent-native/core/review": ["./../core/src/review/index.ts"],
+      "@agent-native/core/comments-review": [
+        "./../core/src/comments-review/index.ts"
+      ],
+      "@agent-native/core/review/actions/list-review-comments": [
+        "./../core/src/review/actions/list-review-comments.ts"
+      ],
+      "@agent-native/core/review/actions/create-review-comment": [
+        "./../core/src/review/actions/create-review-comment.ts"
+      ],
+      "@agent-native/core/review/actions/reply-review-comment": [
+        "./../core/src/review/actions/reply-review-comment.ts"
+      ],
+      "@agent-native/core/review/actions/resolve-review-thread": [
+        "./../core/src/review/actions/resolve-review-thread.ts"
+      ],
+      "@agent-native/core/review/actions/update-review-comment-anchor": [
+        "./../core/src/review/actions/update-review-comment-anchor.ts"
+      ],
+      "@agent-native/core/review/actions/delete-review-comment": [
+        "./../core/src/review/actions/delete-review-comment.ts"
+      ],
+      "@agent-native/core/review/actions/update-review-comment": [
+        "./../core/src/review/actions/update-review-comment.ts"
+      ],
+      "@agent-native/core/review/actions/consume-review-feedback": [
+        "./../core/src/review/actions/consume-review-feedback.ts"
+      ],
+      "@agent-native/core/review/actions/get-review-feedback": [
+        "./../core/src/review/actions/get-review-feedback.ts"
+      ],
+      "@agent-native/core/review/actions/set-review-status": [
+        "./../core/src/review/actions/set-review-status.ts"
+      ],
+      "@agent-native/core/review/actions/send-review-thread-to-agent": [
+        "./../core/src/review/actions/send-review-thread-to-agent.ts"
+      ],
+      "@agent-native/core/review/actions/react-to-review-comment": [
+        "./../core/src/review/actions/react-to-review-comment.ts"
+      ],
+      "@agent-native/core/review/actions/set-review-thread-unread": [
+        "./../core/src/review/actions/set-review-thread-unread.ts"
+      ],
+      "@agent-native/core/review/actions/set-review-threads-unread": [
+        "./../core/src/review/actions/set-review-threads-unread.ts"
+      ],
+      "@agent-native/core/review/actions/set-review-thread-muted": [
+        "./../core/src/review/actions/set-review-thread-muted.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/create-resource-suggestion": [
+        "./../core/src/review/suggestions/actions/create-resource-suggestion.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal": [
+        "./../core/src/review/suggestions/actions/create-resource-suggestion-proposal.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key": [
+        "./../core/src/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal": [
+        "./../core/src/review/suggestions/actions/decide-resource-suggestion-proposal.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/update-resource-suggestion": [
+        "./../core/src/review/suggestions/actions/update-resource-suggestion.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/list-resource-suggestions": [
+        "./../core/src/review/suggestions/actions/list-resource-suggestions.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/get-resource-suggestion": [
+        "./../core/src/review/suggestions/actions/get-resource-suggestion.ts"
+      ],
+      "@agent-native/core/review/suggestions/actions/decide-resource-suggestion": [
+        "./../core/src/review/suggestions/actions/decide-resource-suggestion.ts"
+      ],
+      "@agent-native/core/comments-review/actions/list-review-comments": [
+        "./../core/src/review/actions/list-review-comments.ts"
+      ],
+      "@agent-native/core/comments-review/actions/create-review-comment": [
+        "./../core/src/review/actions/create-review-comment.ts"
+      ],
+      "@agent-native/core/comments-review/actions/reply-review-comment": [
+        "./../core/src/review/actions/reply-review-comment.ts"
+      ],
+      "@agent-native/core/comments-review/actions/resolve-review-thread": [
+        "./../core/src/review/actions/resolve-review-thread.ts"
+      ],
+      "@agent-native/core/comments-review/actions/delete-review-comment": [
+        "./../core/src/review/actions/delete-review-comment.ts"
+      ],
+      "@agent-native/core/comments-review/actions/update-review-comment": [
+        "./../core/src/review/actions/update-review-comment.ts"
+      ],
+      "@agent-native/core/comments-review/actions/consume-review-feedback": [
+        "./../core/src/review/actions/consume-review-feedback.ts"
+      ],
+      "@agent-native/core/comments-review/actions/get-review-feedback": [
+        "./../core/src/review/actions/get-review-feedback.ts"
+      ],
+      "@agent-native/core/comments-review/actions/set-review-status": [
+        "./../core/src/review/actions/set-review-status.ts"
+      ],
+      "@agent-native/core/comments-review/actions/send-review-thread-to-agent": [
+        "./../core/src/review/actions/send-review-thread-to-agent.ts"
+      ],
+      "@agent-native/core/email-catalog": [
+        "./../core/src/email-catalog/registry.ts"
+      ],
+      "@agent-native/core/sharing": ["./../core/src/sharing/index.ts"],
+      "@agent-native/core/sharing/actions/share-resource": [
+        "./../core/src/sharing/actions/share-resource.ts"
+      ],
+      "@agent-native/core/sharing/actions/unshare-resource": [
+        "./../core/src/sharing/actions/unshare-resource.ts"
+      ],
+      "@agent-native/core/sharing/actions/list-resource-shares": [
+        "./../core/src/sharing/actions/list-resource-shares.ts"
+      ],
+      "@agent-native/core/sharing/actions/get-resource-access-status": [
+        "./../core/src/sharing/actions/get-resource-access-status.ts"
+      ],
+      "@agent-native/core/sharing/actions/request-resource-access": [
+        "./../core/src/sharing/actions/request-resource-access.ts"
+      ],
+      "@agent-native/core/sharing/actions/get-resource-access-request": [
+        "./../core/src/sharing/actions/get-resource-access-request.ts"
+      ],
+      "@agent-native/core/sharing/actions/list-resource-access-requests": [
+        "./../core/src/sharing/actions/list-resource-access-requests.ts"
+      ],
+      "@agent-native/core/sharing/actions/approve-resource-access-request": [
+        "./../core/src/sharing/actions/approve-resource-access-request.ts"
+      ],
+      "@agent-native/core/sharing/actions/decline-resource-access-request": [
+        "./../core/src/sharing/actions/decline-resource-access-request.ts"
+      ],
+      "@agent-native/core/sharing/actions/set-resource-visibility": [
+        "./../core/src/sharing/actions/set-resource-visibility.ts"
+      ],
+      "@agent-native/core/sharing/actions/create-agent-resource-link": [
+        "./../core/src/sharing/actions/create-agent-resource-link.ts"
+      ],
+      "@agent-native/core/client/sharing": [
+        "./../core/src/client/sharing/index.ts"
+      ],
+      "@agent-native/core/client/history": [
+        "./../core/src/client/history/index.ts"
+      ],
+      "@agent-native/core/client/review": [
+        "./../core/src/client/review/index.ts"
+      ],
+      "@agent-native/core/client/comments-review": [
+        "./../core/src/client/comments-review/index.ts"
+      ],
+      "@agent-native/core/client/transcription/use-live-transcription": [
+        "./../core/src/client/transcription/use-live-transcription.ts"
+      ],
+      "@agent-native/core/transcription/builder": [
+        "./../core/src/transcription/builder-transcription.ts"
+      ],
+      "@agent-native/core/adapters/cli": [
+        "./../core/src/adapters/cli/index.ts"
+      ],
+      "@agent-native/core/cli/skills": ["./../core/src/cli/skills.ts"],
+      "@agent-native/core/cli/agent-plugin": [
+        "./../core/src/cli/agent-plugin.ts"
+      ],
+      "@agent-native/core/testing": ["./../core/src/testing.ts"],
+      "@agent-native/core/router": ["./../core/src/router/index.ts"],
+      "@agent-native/core/collab": ["./../core/src/collab/index.ts"],
+      "@agent-native/core/collab/bounded-task-bundle": [
+        "./../core/src/collab/bounded-task-bundle.ts"
+      ],
+      "@agent-native/core/collab/live-copy-tasks": [
+        "./../core/src/collab/live-copy-tasks.ts"
+      ],
+      "@agent-native/core/a2a": ["./../core/src/a2a/index.ts"],
+      "@agent-native/core/mcp": ["./../core/src/mcp/index.ts"],
+      "@agent-native/core/mcp/fetch": ["./../core/src/mcp/fetch-handler.ts"],
+      "@agent-native/core/mcp-client": ["./../core/src/mcp-client/index.ts"],
+      "@agent-native/core/tracking": ["./../core/src/tracking/index.ts"],
+      "@agent-native/core/usage": ["./../core/src/usage/store.ts"],
+      "@agent-native/core/usage/actions/get-usage-alerts": [
+        "./../core/src/usage/actions/get-usage-alerts.ts"
+      ],
+      "@agent-native/core/usage/actions/manage-usage-alert": [
+        "./../core/src/usage/actions/manage-usage-alert.ts"
+      ],
+      "@agent-native/core/usage/actions/get-usage-metrics": [
+        "./../core/src/usage/actions/get-usage-metrics.ts"
+      ],
+      "@agent-native/core/usage/actions/get-usage-insights": [
+        "./../core/src/usage/actions/get-usage-insights.ts"
+      ],
+      "@agent-native/core/usage/actions/get-usage-run": [
+        "./../core/src/usage/actions/get-usage-run.ts"
+      ],
+      "@agent-native/core/usage/actions/get-builder-credit-usage": [
+        "./../core/src/usage/actions/get-builder-credit-usage.ts"
+      ],
+      "@agent-native/core/usage/actions/get-builder-credit-status": [
+        "./../core/src/usage/actions/get-builder-credit-status.ts"
+      ],
+      "@agent-native/core/usage/actions/get-builder-referral-info": [
+        "./../core/src/usage/actions/get-builder-referral-info.ts"
+      ],
+      "@agent-native/core/connections": ["./../core/src/connections/index.ts"],
+      "@agent-native/core/connections/sigma-api": [
+        "./../core/src/connections/sigma-api.ts"
+      ],
+      "@agent-native/core/connections/runtime": [
+        "./../core/src/connections/runtime.ts"
+      ],
+      "@agent-native/core/provider-api": [
+        "./../core/src/provider-api/index.ts"
+      ],
+      "@agent-native/core/provider-api/runtime": [
+        "./../core/src/provider-api/runtime.ts"
+      ],
+      "@agent-native/core/provider-api/gong": [
+        "./../core/src/provider-api/gong.ts"
+      ],
+      "@agent-native/core/provider-api/corpus-jobs": [
+        "./../core/src/provider-api/corpus-jobs.ts"
+      ],
+      "@agent-native/core/provider-api/corpus-jobs-store": [
+        "./../core/src/provider-api/corpus-jobs-store.ts"
+      ],
+      "@agent-native/core/provider-api/staging": [
+        "./../core/src/provider-api/staging.ts"
+      ],
+      "@agent-native/core/provider-api/staged-datasets-store": [
+        "./../core/src/provider-api/staged-datasets-store.ts"
+      ],
+      "@agent-native/core/provider-api/staged-datasets-aggregate": [
+        "./../core/src/provider-api/staged-datasets-aggregate.ts"
+      ],
+      "@agent-native/core/provider-api/actions/query-staged-dataset": [
+        "./../core/src/provider-api/actions/query-staged-dataset.ts"
+      ],
+      "@agent-native/core/provider-api/actions/list-staged-datasets": [
+        "./../core/src/provider-api/actions/list-staged-datasets.ts"
+      ],
+      "@agent-native/core/provider-api/actions/delete-staged-dataset": [
+        "./../core/src/provider-api/actions/delete-staged-dataset.ts"
+      ],
+      "@agent-native/core/provider-api/actions/staged-datasets": [
+        "./../core/src/provider-api/actions/staged-datasets.ts"
+      ],
+      "@agent-native/core/provider-api/actions/github-repo-files": [
+        "./../core/src/provider-api/actions/github-repo-files.ts"
+      ],
+      "@agent-native/core/provider-api/actions/provider-api": [
+        "./../core/src/provider-api/actions/provider-api.ts"
+      ],
+      "@agent-native/core/provider-api/actions/provider-api-audit": [
+        "./../core/src/provider-api/actions/provider-api-audit.ts"
+      ],
+      "@agent-native/core/provider-api/actions/custom-provider-registration": [
+        "./../core/src/provider-api/actions/custom-provider-registration.ts"
+      ],
+      "@agent-native/core/data-programs": [
+        "./../core/src/data-programs/index.ts"
+      ],
+      "@agent-native/core/dashboard-storage": [
+        "./../core/src/dashboard-storage/index.ts"
+      ],
+      "@agent-native/core/local-artifacts": [
+        "./../core/src/local-artifacts/index.ts"
+      ],
+      "@agent-native/core/workspace-files": [
+        "./../core/src/workspace-files/index.ts"
+      ],
+      "@agent-native/core/workspace-connections/credential-key-aliases": [
+        "./../core/src/workspace-connections/credential-key-aliases.ts"
+      ],
+      "@agent-native/core/workspace-connections/actions/list-workspace-user-groups": [
+        "./../core/src/workspace-connections/actions/list-workspace-user-groups.ts"
+      ],
+      "@agent-native/core/workspace-connections/actions/upsert-workspace-user-group": [
+        "./../core/src/workspace-connections/actions/upsert-workspace-user-group.ts"
+      ],
+      "@agent-native/core/workspace-connections/actions/bulk-update-workspace-user-groups": [
+        "./../core/src/workspace-connections/actions/bulk-update-workspace-user-groups.ts"
+      ],
+      "@agent-native/core/workspace-connections/actions/delete-workspace-user-group": [
+        "./../core/src/workspace-connections/actions/delete-workspace-user-group.ts"
+      ],
+      "@agent-native/core/package-lifecycle": [
+        "./../core/src/package-lifecycle/index.ts"
+      ],
+      "@agent-native/core/package-lifecycle/migration-message": [
+        "./../core/src/package-lifecycle/migration-message.ts"
+      ],
+      "@agent-native/core/code-agents": ["./../core/src/code-agents/index.ts"],
+      "@agent-native/core/code-agents/transcript-normalizer": [
+        "./../core/src/code-agents/transcript-normalizer.ts"
+      ],
+      "@agent-native/core/workspace-connections": [
+        "./../core/src/workspace-connections/index.ts"
+      ],
+      "@agent-native/core/notifications": [
+        "./../core/src/notifications/index.ts"
+      ],
+      "@agent-native/core/jobs": ["./../core/src/jobs/index.ts"],
+      "@agent-native/core/jobs/cron": ["./../core/src/jobs/cron.ts"],
+      "@agent-native/core/jobs/frontmatter": [
+        "./../core/src/jobs/frontmatter.ts"
+      ],
+      "@agent-native/core/client/notifications": [
+        "./../core/src/client/notifications/index.ts"
+      ],
+      "@agent-native/core/progress": ["./../core/src/progress/index.ts"],
+      "@agent-native/core/client/progress": [
+        "./../core/src/client/progress/index.ts"
+      ],
+      "@agent-native/core/client/problem-report": [
+        "./../core/src/client/problem-report.ts"
+      ],
+      "@agent-native/core/triggers": ["./../core/src/triggers/index.ts"],
+      "@agent-native/core/terminal": ["./../core/src/client/terminal/index.ts"],
+      "@agent-native/core/terminal/server": ["./../core/src/terminal/index.ts"],
+      "@agent-native/core/terminal/pty-server": [
+        "./../core/src/terminal/pty-server.ts"
+      ],
+      "@agent-native/core/tailwind": ["./../core/src/tailwind.preset.ts"],
+      "@agent-native/core/agent/engine": [
+        "./../core/src/agent/engine/index.ts"
+      ],
+      "@agent-native/core/agent/engine/error-detail": [
+        "./../core/src/agent/engine/error-detail.ts"
+      ],
+      "@agent-native/core/agent/harness": [
+        "./../core/src/agent/harness/index.ts"
+      ],
+      "@agent-native/core/agent/harness/hosted": [
+        "./../core/src/agent/harness/hosted.ts"
+      ],
+      "@agent-native/core/eval": ["./../core/src/eval/index.ts"],
+      "@agent-native/core/client/route-warmup": [
+        "./../core/src/client/route-warmup.tsx"
+      ],
+      "@agent-native/core/client/AgentNativeEmbedded": [
+        "./../core/src/client/AgentNativeEmbedded.tsx"
+      ],
+      "@agent-native/core/agent/chatgpt-subscription-contract": [
+        "./../core/src/agent/chatgpt-subscription-contract.ts"
+      ],
+      "@agent-native/core/agent/engine/provider-env-vars": [
+        "./../core/src/agent/engine/provider-env-vars.ts"
+      ],
+      "@agent-native/core/agent/model-config": [
+        "./../core/src/agent/model-config.ts"
+      ],
+      "@agent-native/core/agent/model-version": [
+        "./../core/src/agent/model-version.ts"
+      ],
+      "@agent-native/core/app-config": ["./../core/src/app-config/index.ts"],
+      "@agent-native/core/audit/types": ["./../core/src/audit/types.ts"],
+      "@agent-native/core/changelog/parse": [
+        "./../core/src/changelog/parse.ts"
+      ],
+      "@agent-native/core/cli/templates-meta": [
+        "./../core/src/cli/templates-meta.ts"
+      ],
+      "@agent-native/core/client/agent-engine-key": [
+        "./../core/src/client/agent-engine-key.ts"
+      ],
+      "@agent-native/core/client/agent-loop-settings": [
+        "./../core/src/client/agent-loop-settings.ts"
+      ],
+      "@agent-native/core/client/agent-native-version": [
+        "./../core/src/client/agent-native-version.ts"
+      ],
+      "@agent-native/core/client/agent-provider-catalog": [
+        "./../core/src/client/agent-provider-catalog.ts"
+      ],
+      "@agent-native/core/client/api-surface": [
+        "./../core/src/client/api-surface.ts"
+      ],
+      "@agent-native/core/client/app-config": [
+        "./../core/src/client/app-config.ts"
+      ],
+      "@agent-native/core/client/app-model-default": [
+        "./../core/src/client/app-model-default.ts"
+      ],
+      "@agent-native/core/client/appearance": [
+        "./../core/src/client/appearance.ts"
+      ],
+      "@agent-native/core/client/auth/change-email": [
+        "./../core/src/client/auth/change-email.ts"
+      ],
+      "@agent-native/core/client/auth/resend-verification-email": [
+        "./../core/src/client/auth/resend-verification-email.ts"
+      ],
+      "@agent-native/core/client/auth/two-factor": [
+        "./../core/src/client/auth/two-factor.ts"
+      ],
+      "@agent-native/core/client/browser-tab-id": [
+        "./../core/src/client/browser-tab-id.ts"
+      ],
+      "@agent-native/core/client/builder-frame": [
+        "./../core/src/client/builder-frame.ts"
+      ],
+      "@agent-native/core/client/builder-mark": [
+        "./../core/src/client/builder-mark.tsx"
+      ],
+      "@agent-native/core/client/changelog/use-changelog-seen": [
+        "./../core/src/client/changelog/use-changelog-seen.ts"
+      ],
+      "@agent-native/core/client/chat-model-groups": [
+        "./../core/src/client/chat-model-groups.ts"
+      ],
+      "@agent-native/core/client/client-status-requests": [
+        "./../core/src/client/client-status-requests.ts"
+      ],
+      "@agent-native/core/client/consent": ["./../core/src/client/consent.ts"],
+      "@agent-native/core/client/context-xray/format": [
+        "./../core/src/client/context-xray/format.ts"
+      ],
+      "@agent-native/core/client/dev-overlay/builtins": [
+        "./../core/src/client/dev-overlay/builtins.ts"
+      ],
+      "@agent-native/core/client/error-reporting": [
+        "./../core/src/client/error-reporting.ts"
+      ],
+      "@agent-native/core/client/feature-flags/helpers": [
+        "./../core/src/client/feature-flags/helpers.ts"
+      ],
+      "@agent-native/core/client/feature-flags/types": [
+        "./../core/src/client/feature-flags/types.ts"
+      ],
+      "@agent-native/core/client/feature-flags/use-feature-flag": [
+        "./../core/src/client/feature-flags/use-feature-flag.ts"
+      ],
+      "@agent-native/core/client/failure-report": [
+        "./../core/src/client/failure-report.ts"
+      ],
+      "@agent-native/core/client/feedback-context": [
+        "./../core/src/client/feedback-context.ts"
+      ],
+      "@agent-native/core/client/frame": ["./../core/src/client/frame.ts"],
+      "@agent-native/core/client/host-bridge": [
+        "./../core/src/client/host-bridge.ts"
+      ],
+      "@agent-native/core/client/integrations/brand/integration-brands": [
+        "./../core/src/client/integrations/brand/integration-brands.ts"
+      ],
+      "@agent-native/core/client/integrations/builder-usage": [
+        "./../core/src/client/integrations/builder-usage.ts"
+      ],
+      "@agent-native/core/client/integrations/channel-setup": [
+        "./../core/src/client/integrations/channel-setup.ts"
+      ],
+      "@agent-native/core/client/integrations/integration-categories": [
+        "./../core/src/client/integrations/integration-categories.ts"
+      ],
+      "@agent-native/core/client/integrations/useIntegrationStatus": [
+        "./../core/src/client/integrations/useIntegrationStatus.ts"
+      ],
+      "@agent-native/core/client/integrations/webhook-url": [
+        "./../core/src/client/integrations/webhook-url.ts"
+      ],
+      "@agent-native/core/client/labs/use-lab": [
+        "./../core/src/client/labs/use-lab.ts"
+      ],
+      "@agent-native/core/client/mcp-app-host": [
+        "./../core/src/client/mcp-app-host.ts"
+      ],
+      "@agent-native/core/client/motion-text": [
+        "./../core/src/client/motion-text.tsx"
+      ],
+      "@agent-native/core/client/onboarding/first-run-enabled": [
+        "./../core/src/client/onboarding/first-run-enabled.ts"
+      ],
+      "@agent-native/core/client/onboarding/first-run-registry": [
+        "./../core/src/client/onboarding/first-run-registry.ts"
+      ],
+      "@agent-native/core/client/onboarding/first-run-status": [
+        "./../core/src/client/onboarding/first-run-status.ts"
+      ],
+      "@agent-native/core/client/onboarding/use-onboarding": [
+        "./../core/src/client/onboarding/use-onboarding.ts"
+      ],
+      "@agent-native/core/client/onboarding/use-onboarding-checklist": [
+        "./../core/src/client/onboarding/use-onboarding-checklist.ts"
+      ],
+      "@agent-native/core/client/onboarding/use-preview-mode": [
+        "./../core/src/client/onboarding/use-preview-mode.ts"
+      ],
+      "@agent-native/core/client/org/hooks": [
+        "./../core/src/client/org/hooks.ts"
+      ],
+      "@agent-native/core/client/resources/mcp-connection-resume": [
+        "./../core/src/client/resources/mcp-connection-resume.ts"
+      ],
+      "@agent-native/core/client/mcp-connect-identity": [
+        "./../core/src/client/mcp-connect-identity.ts"
+      ],
+      "@agent-native/core/client/resources/mcp-integration-catalog": [
+        "./../core/src/client/resources/mcp-integration-catalog.ts"
+      ],
+      "@agent-native/core/client/resources/mcp-integration-logos": [
+        "./../core/src/client/resources/mcp-integration-logos.ts"
+      ],
+      "@agent-native/core/client/resources/mcp-integration-setup": [
+        "./../core/src/client/resources/mcp-integration-setup.ts"
+      ],
+      "@agent-native/core/client/resources/resource-views": [
+        "./../core/src/client/resources/resource-views.ts"
+      ],
+      "@agent-native/core/client/resources/use-builtin-capabilities": [
+        "./../core/src/client/resources/use-builtin-capabilities.ts"
+      ],
+      "@agent-native/core/client/resources/use-mcp-servers": [
+        "./../core/src/client/resources/use-mcp-servers.ts"
+      ],
+      "@agent-native/core/client/resources/use-resources": [
+        "./../core/src/client/resources/use-resources.ts"
+      ],
+      "@agent-native/core/client/review/use-review": [
+        "./../core/src/client/review/use-review.ts"
+      ],
+      "@agent-native/core/client/settings": [
+        "./../core/src/client/tombstone/settings.ts"
+      ],
+      "@agent-native/core/client/sharing/share-controller-helpers": [
+        "./../core/src/client/sharing/share-controller-helpers.ts"
+      ],
+      "@agent-native/core/client/sharing/useAccessRequestReview": [
+        "./../core/src/client/sharing/useAccessRequestReview.ts"
+      ],
+      "@agent-native/core/client/sharing/useResourceAccessGate": [
+        "./../core/src/client/sharing/useResourceAccessGate.ts"
+      ],
+      "@agent-native/core/client/sharing/useShareButtonController": [
+        "./../core/src/client/sharing/useShareButtonController.ts"
+      ],
+      "@agent-native/core/client/sharing/useShareDialogController": [
+        "./../core/src/client/sharing/useShareDialogController.ts"
+      ],
+      "@agent-native/core/client/sharing/useShareVisibilityTransition": [
+        "./../core/src/client/sharing/useShareVisibilityTransition.ts"
+      ],
+      "@agent-native/core/client/sign-in-return": [
+        "./../core/src/client/sign-in-return.ts"
+      ],
+      "@agent-native/core/client/sign-out": [
+        "./../core/src/client/sign-out.ts"
+      ],
+      "@agent-native/core/client/tool-display": [
+        "./../core/src/client/tool-display.ts"
+      ],
+      "@agent-native/core/client/uploads/use-file-upload-status": [
+        "./../core/src/client/uploads/use-file-upload-status.ts"
+      ],
+      "@agent-native/core/client/uploads/use-upload-resource": [
+        "./../core/src/client/uploads/use-upload-resource.ts"
+      ],
+      "@agent-native/core/client/use-action": [
+        "./../core/src/client/use-action.ts"
+      ],
+      "@agent-native/core/client/use-after-paint": [
+        "./../core/src/client/use-after-paint.ts"
+      ],
+      "@agent-native/core/client/use-agent-engine-configured": [
+        "./../core/src/client/use-agent-engine-configured.ts"
+      ],
+      "@agent-native/core/client/use-avatar": [
+        "./../core/src/client/use-avatar.ts"
+      ],
+      "@agent-native/core/client/use-change-version": [
+        "./../core/src/client/use-change-version.ts"
+      ],
+      "@agent-native/core/client/use-chat-models": [
+        "./../core/src/client/use-chat-models.ts"
+      ],
+      "@agent-native/core/client/use-dev-mode": [
+        "./../core/src/client/use-dev-mode.ts"
+      ],
+      "@agent-native/core/client/use-poll-loop": [
+        "./../core/src/client/use-poll-loop.ts"
+      ],
+      "@agent-native/core/client/use-session": [
+        "./../core/src/client/use-session.ts"
+      ],
+      "@agent-native/core/client/use-settings-shortcut": [
+        "./../core/src/client/use-settings-shortcut.ts"
+      ],
+      "@agent-native/core/demo/browser-state": [
+        "./../core/src/demo/browser-state.ts"
+      ],
+      "@agent-native/core/extensions/html-shell": [
+        "./../core/src/extensions/html-shell.ts"
+      ],
+      "@agent-native/core/extensions/path": [
+        "./../core/src/extensions/path.ts"
+      ],
+      "@agent-native/core/extensions/theme": [
+        "./../core/src/extensions/theme.ts"
+      ],
+      "@agent-native/core/file-upload/storage-settings": [
+        "./../core/src/file-upload/storage-settings.ts"
+      ],
+      "@agent-native/core/integrations/catalog": [
+        "./../core/src/integrations/catalog.ts"
+      ],
+      "@agent-native/core/integrations/channel-settings": [
+        "./../core/src/integrations/channel-settings.ts"
+      ],
+      "@agent-native/core/jobs/actions/get-scheduled-trigger-status": [
+        "./../core/src/jobs/actions/get-scheduled-trigger-status.ts"
+      ],
+      "@agent-native/core/labs/core-labs": ["./../core/src/labs/core-labs.ts"],
+      "@agent-native/core/localization/mcp-settings-messages": [
+        "./../core/src/localization/mcp-settings-messages.ts"
+      ],
+      "@agent-native/core/localization/shared": [
+        "./../core/src/localization/shared.ts"
+      ],
+      "@agent-native/core/navigation/settings-redirects": [
+        "./../core/src/navigation/settings-redirects.ts"
+      ],
+      "@agent-native/core/notifications/types": [
+        "./../core/src/notifications/types.ts"
+      ],
+      "@agent-native/core/observability/types": [
+        "./../core/src/observability/types.ts"
+      ],
+      "@agent-native/core/onboarding/types": [
+        "./../core/src/onboarding/types.ts"
+      ],
+      "@agent-native/core/onboarding/status": [
+        "./../core/src/onboarding/status.ts"
+      ],
+      "@agent-native/core/onboarding/workspace-services": [
+        "./../core/src/onboarding/workspace-services.ts"
+      ],
+      "@agent-native/core/onboarding/app-profile-data": [
+        "./../core/src/onboarding/app-profile-data.ts"
+      ],
+      "@agent-native/core/org/app-roles": ["./../core/src/org/app-roles.ts"],
+      "@agent-native/core/org/permissions": [
+        "./../core/src/org/permissions.ts"
+      ],
+      "@agent-native/core/org/sign-in-methods": [
+        "./../core/src/org/sign-in-methods.ts"
+      ],
+      "@agent-native/core/org/types": ["./../core/src/org/types.ts"],
+      "@agent-native/core/org/workspace-url": [
+        "./../core/src/org/workspace-url.ts"
+      ],
+      "@agent-native/core/progress/types": ["./../core/src/progress/types.ts"],
+      "@agent-native/core/resources/pack-constants": [
+        "./../core/src/resources/pack-constants.ts"
+      ],
+      "@agent-native/core/review/types": ["./../core/src/review/types.ts"],
+      "@agent-native/core/secrets/api-keys": [
+        "./../core/src/secrets/api-keys.ts"
+      ],
+      "@agent-native/core/secrets/key-aliases": [
+        "./../core/src/secrets/key-aliases.ts"
+      ],
+      "@agent-native/core/secrets/usage": ["./../core/src/secrets/usage.ts"],
+      "@agent-native/core/server/agent-chat/mcp-glue": [
+        "./../core/src/server/agent-chat/mcp-glue.ts"
+      ],
+      "@agent-native/core/server/deploy-environment": [
+        "./../core/src/server/deploy-environment.ts"
+      ],
+      "@agent-native/core/server/infrastructure-status": [
+        "./../core/src/server/infrastructure-status.ts"
+      ],
+      "@agent-native/core/server/onboarding-html": [
+        "./../core/src/server/onboarding-html.ts"
+      ],
+      "@agent-native/core/server/personal-provider-key-holders": [
+        "./../core/src/server/personal-provider-key-holders.ts"
+      ],
+      "@agent-native/core/shared/analytics-events": [
+        "./../core/src/shared/analytics-events.ts"
+      ],
+      "@agent-native/core/shared/app-status": [
+        "./../core/src/shared/app-status.ts"
+      ],
+      "@agent-native/core/shared/auth-page-types": [
+        "./../core/src/shared/auth-page-types.ts"
+      ],
+      "@agent-native/core/shared/builder-referrals": [
+        "./../core/src/shared/builder-referrals.ts"
+      ],
+      "@agent-native/core/shared/chat-first-app-creation": [
+        "./../core/src/shared/chat-first-app-creation.ts"
+      ],
+      "@agent-native/core/shared/context-xray": [
+        "./../core/src/shared/context-xray.ts"
+      ],
+      "@agent-native/core/shared/docs-url": [
+        "./../core/src/shared/docs-url.ts"
+      ],
+      "@agent-native/core/shared/document-title": [
+        "./../core/src/shared/document-title.ts"
+      ],
+      "@agent-native/core/shared/environment-lanes": [
+        "./../core/src/shared/environment-lanes.ts"
+      ],
+      "@agent-native/core/shared/error-noise": [
+        "./../core/src/shared/error-noise.ts"
+      ],
+      "@agent-native/core/shared/first-party-agents": [
+        "./../core/src/shared/first-party-agents.ts"
+      ],
+      "@agent-native/core/shared/first-run-onboarding": [
+        "./../core/src/shared/first-run-onboarding.ts"
+      ],
+      "@agent-native/core/shared/framework-route-prefix": [
+        "./../core/src/shared/framework-route-prefix.ts"
+      ],
+      "@agent-native/core/shared/loading-labels": [
+        "./../core/src/shared/loading-labels.ts"
+      ],
+      "@agent-native/core/shared/mcp-app-widget-embed": [
+        "./../core/src/shared/mcp-app-widget-embed.ts"
+      ],
+      "@agent-native/core/shared/mcp-connect-content": [
+        "./../core/src/shared/mcp-connect-content.ts"
+      ],
+      "@agent-native/core/shared/motion-easing": [
+        "./../core/src/shared/motion-easing.ts"
+      ],
+      "@agent-native/core/shared/motion-source-node-id": [
+        "./../core/src/shared/motion-source-node-id.ts"
+      ],
+      "@agent-native/core/shared/password-policy": [
+        "./../core/src/shared/password-policy.ts"
+      ],
+      "@agent-native/core/shared/qa-test-email": [
+        "./../core/src/shared/qa-test-email.ts"
+      ],
+      "@agent-native/core/shared/runtime-config": [
+        "./../core/src/shared/runtime-config.ts"
+      ],
+      "@agent-native/core/shared/sign-in-journey": [
+        "./../core/src/shared/sign-in-journey.ts"
+      ],
+      "@agent-native/core/shared/ssr-beta-redirect": [
+        "./../core/src/shared/ssr-beta-redirect.ts"
+      ],
+      "@agent-native/core/shared/ssr-session-bootstrap": [
+        "./../core/src/shared/ssr-session-bootstrap.ts"
+      ],
+      "@agent-native/core/shared/ssr-session-bootstrap-slot": [
+        "./../core/src/shared/ssr-session-bootstrap-slot.ts"
+      ],
+      "@agent-native/core/shared/test-traffic": [
+        "./../core/src/shared/test-traffic.ts"
+      ],
+      "@agent-native/core/shared/workspace-app-audience": [
+        "./../core/src/shared/workspace-app-audience.ts"
+      ],
+      "@agent-native/core/shared/workspace-app-id": [
+        "./../core/src/shared/workspace-app-id.ts"
+      ],
+      "@agent-native/core/user-profile/shared": [
+        "./../core/src/user-profile/shared.ts"
+      ],
+      "@agent-native/core/workspace-connections/groups": [
+        "./../core/src/workspace-connections/groups.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat": [
+        "./../core/src/client/tombstone/agentkit-chat.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat/composer": [
+        "./../core/src/client/tombstone/agentkit-chat-composer.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat/connections": [
+        "./../core/src/client/tombstone/agentkit-chat-connections.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat/questions": [
+        "./../core/src/client/tombstone/agentkit-chat-questions.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat/suggestions": [
+        "./../core/src/client/tombstone/agentkit-chat-suggestions.ts"
+      ],
+      "@agent-native/core/client/agentkit-chat/rail": [
+        "./../core/src/client/tombstone/agentkit-chat-rail.ts"
+      ],
+      "@agent-native/core/client/agent-page/automation-schedule": [
+        "./../core/src/client/tombstone/automation-schedule.ts"
+      ],
+      "@agent-native/core/client/agent-page/timezone-select": [
+        "./../core/src/client/tombstone/timezone-select.ts"
+      ],
+      "@agent-native/core/client/chat": [
+        "./../core/src/client/tombstone/chat.ts"
+      ],
+      "@agent-native/core/client/composer": [
+        "./../core/src/client/tombstone/composer.ts"
+      ],
+      "@agent-native/core/client/conversation": [
+        "./../core/src/client/tombstone/conversation.ts"
+      ],
+      "@agent-native/core/client/error-boundary": [
+        "./../core/src/client/tombstone/error-boundary.ts"
+      ],
+      "@agent-native/core/client/feedback": [
+        "./../core/src/client/tombstone/feedback.ts"
+      ],
+      "@agent-native/core/client/agent-native-icon": [
+        "./../core/src/client/tombstone/agent-native-icon.ts"
+      ],
+      "@agent-native/core/client/AgentPanel": [
+        "./../core/src/client/tombstone/agent-panel.ts"
+      ],
+      "@agent-native/core/client/AgentSidebar": [
+        "./../core/src/client/tombstone/agent-sidebar.ts"
+      ],
+      "@agent-native/core/client/clipboard": [
+        "./../core/src/client/tombstone/clipboard.ts"
+      ],
+      "@agent-native/core/client/observability": [
+        "./../core/src/client/tombstone/observability.ts"
+      ],
+      "@agent-native/core/client/settings/useBuilderStatus": [
+        "./../core/src/client/tombstone/settings-use-builder-status.ts"
+      ],
+      "@agent-native/core/client/org-switcher": [
+        "./../core/src/client/tombstone/org-switcher.ts"
+      ],
+      "@agent-native/core/client/team-page": [
+        "./../core/src/client/tombstone/team-page.ts"
+      ],
+      "@agent-native/core/client/db-admin": [
+        "./../core/src/client/tombstone/db-admin.ts"
+      ],
+      "@agent-native/core/client/extensions": [
+        "./../core/src/client/tombstone/extensions.ts"
+      ],
+      "@agent-native/core/client/tools": [
+        "./../core/src/client/tombstone/tools.ts"
+      ],
+      "@agent-native/core/client/transcription/BuilderTranscriptionCta": [
+        "./../core/src/client/tombstone/transcription-builder-transcription-cta.ts"
+      ],
+      "@agent-native/agentkit": ["./../agentkit/src/index.ts"],
+      "@agent-native/agentkit/protocol": [
+        "./../agentkit/src/protocol/index.ts"
+      ],
+      "@agent-native/agentkit/chat-context": [
+        "./../agentkit/src/chat-context.ts"
+      ],
+      "@agent-native/agentkit/client": ["./../agentkit/src/client/index.ts"],
+      "@agent-native/agentkit/http": ["./../agentkit/src/adapters/index.ts"],
+      "@agent-native/agentkit/conformance": [
+        "./../agentkit/src/conformance/index.ts"
+      ]
+    }
+  },
+  "include": ["src/**/*", "test-setup.ts"],
+  "exclude": ["node_modules", "dist"]
+}

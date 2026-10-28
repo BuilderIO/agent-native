@@ -5,11 +5,9 @@ import {
   type CodeLayerProjection,
   type CodeLayerSource,
 } from "@shared/code-layer";
+import { inferFlowArrangement } from "@shared/layout-model";
 
-import {
-  inferAutoLayoutFromChildren,
-  type AlignableRect,
-} from "./layout-operations";
+import type { AlignableRect } from "./layout-operations";
 
 export type EnableInlineScreenAutoLayoutResult =
   | {
@@ -29,12 +27,6 @@ function nodeById(projection: CodeLayerProjection): Map<string, CodeLayerNode> {
   return new Map(projection.nodes.map((node) => [node.id, node]));
 }
 
-/**
- * A screen frame owns the authored document body. Fragment-only design files
- * have no editable body in source, so a single visual root is the only safe
- * equivalent. Multiple fragment roots would require inventing a wrapper and
- * changing source structure, which is deliberately left to a semantic edit.
- */
 export function resolveInlineScreenAutoLayoutRoot(
   projection: CodeLayerProjection,
 ): CodeLayerNode | null {
@@ -68,7 +60,6 @@ function rectForNode(
   };
 }
 
-/** Deterministically enable auto layout on an inline HTML/Alpine screen root. */
 export function enableInlineScreenAutoLayout(args: {
   content: string;
   width?: number;
@@ -91,7 +82,19 @@ export function enableInlineScreenAutoLayout(args: {
     .map((childId) => nodes.get(childId))
     .filter((node): node is CodeLayerNode => Boolean(node))
     .map((node) => rectForNode(node));
-  const inferred = inferAutoLayoutFromChildren(targetRect, childRects);
+  const arrangement = inferFlowArrangement(
+    targetRect,
+    childRects.map((rect) => ({ id: rect.id, rect })),
+  );
+  // A screen keeps one even inset: its tightest side, so nothing shifts in.
+  const inferred = {
+    direction:
+      arrangement?.direction === "horizontal"
+        ? ("row" as const)
+        : ("column" as const),
+    gap: arrangement?.gap ?? 10,
+    padding: arrangement ? Math.min(...Object.values(arrangement.padding)) : 0,
+  };
   const autoLayoutPatch = applyVisualEdit(
     args.content,
     {
@@ -136,12 +139,6 @@ function hasExactReactProvenance(node: CodeLayerNode): boolean {
   );
 }
 
-/**
- * Resolve the shallowest compiler-provenanced React roots beneath the live
- * screen body. Unsourced mount nodes such as `#root` are traversed, while
- * later body branches (for example portals) are ignored once the primary app
- * branch yields editable roots.
- */
 export function getRuntimeScreenAutoLayoutSubjectIds(
   projection: CodeLayerProjection,
 ): string[] {

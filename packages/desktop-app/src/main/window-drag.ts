@@ -143,11 +143,6 @@ interface AttachedWindowDragListeners {
   destroyed: () => void;
 }
 
-/**
- * Attach the gesture to both the shell and native guest webviews. A webview
- * owns its own WebContents, so listening only on the BrowserWindow misses the
- * top edge while an app guest is covering it.
- */
 export function installWindowDragController(
   window: BrowserWindow,
   options: WindowDragOptions,

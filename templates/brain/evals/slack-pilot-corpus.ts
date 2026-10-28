@@ -195,16 +195,16 @@ export const slackPilotFixtures: SlackPilotEvalFixture[] = [
   },
   {
     id: "import-review-policy",
-    title: "Brain imports stay review-gated before company knowledge",
+    title: "Brain import policy allows direct publishing of company knowledge",
     summary:
-      "Raw imports can enter Brain as captures, but company-tier knowledge stays reviewed, cited, or explicitly proposed; low-confidence policy items stay in proposals.",
-    body: "Process policy for Brain imports: Slack messages, transcripts, and generic documents may enter as raw captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable knowledge. Low-confidence policy items stay in proposals instead of search-visible knowledge.",
+      "Raw imports can enter Brain as captures, and cited company-tier knowledge publishes directly with no review step; low-confidence policy items stay search-visible.",
+    body: "Process policy for Brain imports: Slack messages, transcripts, and generic documents may enter as raw captures, and cited company-tier knowledge publishes directly as durable knowledge with no review step. Low-confidence policy items publish with their confidence score and stay search-visible.",
     quote:
-      "Raw imports may enter as captures, but company-tier knowledge should be reviewed, cited, or explicitly proposed before it becomes durable knowledge.",
-    captureTitle: "#brain-pilot import review policy",
+      "Raw imports may enter as captures, and cited company-tier knowledge publishes directly as durable knowledge with no review step.",
+    captureTitle: "#brain-pilot import publishing policy",
     sourceUrl:
       "https://slack.example.com/archives/CBRAINPILOT/p1778884800001300",
-    tags: ["process", "policy", "review-queue"],
+    tags: ["process", "policy", "direct-publishing"],
   },
   {
     id: "architecture-sql-retrieval",
@@ -390,13 +390,14 @@ export const slackPilotEvalCases: SlackPilotEvalCase[] = [
   {
     id: "import-review-policy",
     kind: "answer",
-    question: "What process policy keeps Brain imports review gated?",
-    expectedTitle: "Brain imports stay review-gated before company knowledge",
+    question: "What process policy governs Brain imports and publishing?",
+    expectedTitle:
+      "Brain import policy allows direct publishing of company knowledge",
     requiredTerms: [
       "captures",
       "company-tier knowledge",
-      "reviewed",
-      "low-confidence policy items stay in proposals",
+      "publishes directly",
+      "low-confidence policy items",
     ],
     notes: "Covers process and policy knowledge retrieval.",
   },

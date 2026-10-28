@@ -1,22 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Fakes just enough of the drizzle chain shape inbox-store.ts uses
- * (select().from(table).where(cond)[.orderBy()], update().set().where(),
- * insert().values()...) to drive it without a real database — same style as
- * inventory-cursor.spec.ts / queued-drafts.spec.ts. `where`/`orderBy`
- * conditions are recorded, not actually evaluated; each test controls what
- * the canned rows are directly.
- */
 const dbState = vi.hoisted(() => ({
   syncAccounts: [] as any[],
   threadRows: [] as any[],
+  pushInvalidations: [] as any[],
+  inserts: [] as any[],
   updates: [] as Array<{ table: string; set: any; cond: any }>,
   conflictUpdates: [] as any[],
   deletes: [] as any[],
-  // When true, the next update().set().where().returning() call reports 0
-  // matched rows — simulates a fenced write whose claimId no longer matches
-  // the row (another worker already claimed it).
+  deleteTables: [] as string[],
+  lockModes: [] as string[],
+  transactions: 0,
   forceNoRowsMatched: false,
 }));
 
@@ -39,13 +33,23 @@ vi.mock("../db/index.js", () => {
   const schema = {
     mailSyncAccounts: { __name: "mail_sync_accounts" },
     mailInboxThreads: { __name: "mail_inbox_threads" },
+    mailInboxPushInvalidations: {
+      __name: "mail_inbox_push_invalidations",
+      id: "id",
+      ownerEmail: "ownerEmail",
+      accountEmail: "accountEmail",
+      generation: "generation",
+    },
   };
 
   function chainable(getRows: () => any[]) {
     const obj: any = {
       orderBy: () => chainable(getRows),
       limit: () => chainable(getRows),
-      for: () => chainable(getRows),
+      for: (mode: string) => {
+        dbState.lockModes.push(mode);
+        return chainable(getRows);
+      },
       then: (resolve: any, reject: any) =>
         Promise.resolve(getRows()).then(resolve, reject),
     };
@@ -59,7 +63,9 @@ vi.mock("../db/index.js", () => {
           chainable(() =>
             table === schema.mailSyncAccounts
               ? dbState.syncAccounts
-              : dbState.threadRows,
+              : table === schema.mailInboxPushInvalidations
+                ? dbState.pushInvalidations
+                : dbState.threadRows,
           ),
       }),
     }),
@@ -75,20 +81,32 @@ vi.mock("../db/index.js", () => {
         },
       }),
     }),
-    insert: () => ({
-      values: () => ({
-        onConflictDoNothing: async () => undefined,
-        onConflictDoUpdate: async (config: any) => {
-          dbState.conflictUpdates.push(config);
-        },
-      }),
-    }),
-    delete: () => ({
-      where: async (cond: any) => {
-        dbState.deletes.push(cond);
+    insert: (table: any) => ({
+      values: (values: any) => {
+        dbState.inserts.push({ table: table.__name, values });
+        return {
+          onConflictDoNothing: async () => undefined,
+          onConflictDoUpdate: async (config: any) => {
+            dbState.conflictUpdates.push(config);
+          },
+        };
       },
     }),
-    transaction: async (fn: (tx: any) => Promise<unknown>) => fn(db),
+    delete: (table: any) => ({
+      where: (cond: any) => {
+        dbState.deletes.push(cond);
+        dbState.deleteTables.push(table.__name);
+        const rows = [{ id: "row" }];
+        return {
+          returning: async () => rows,
+          then: (resolve: any) => resolve(undefined),
+        };
+      },
+    }),
+    transaction: async (fn: (tx: any) => Promise<unknown>) => {
+      dbState.transactions++;
+      return fn(db);
+    },
   };
 
   return { schema, getDb: () => db };
@@ -96,14 +114,18 @@ vi.mock("../db/index.js", () => {
 
 import {
   applyLocalLabelDelta,
-  assertSyncClaimHeld,
   patchSyncAccount,
+  readInboxPushGeneration,
   readCachedLabels,
+  recordInboxPushInvalidation,
   resetSyncAccountProgress,
   SyncClaimLostError,
-  deleteInboxThreadRow,
+  tryDeleteInboxThreadRow,
+  inboxRowToItem,
   markThreadsOutOfInboxBeforeSync,
   upsertInboxThreadRows,
+  withSyncClaim,
+  type InboxThreadRow,
 } from "./inbox-store.js";
 
 function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -118,6 +140,7 @@ function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
     status: "idle",
     lastError: null,
     lastSyncedAt: 100,
+    lastPushGeneration: 0,
     syncClaimId: null,
     syncClaimedAt: null,
     labelsJson: null,
@@ -131,9 +154,14 @@ function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
 beforeEach(() => {
   dbState.syncAccounts = [];
   dbState.threadRows = [];
+  dbState.pushInvalidations = [];
+  dbState.inserts = [];
   dbState.updates = [];
   dbState.conflictUpdates = [];
   dbState.deletes = [];
+  dbState.deleteTables = [];
+  dbState.lockModes = [];
+  dbState.transactions = 0;
   dbState.forceNoRowsMatched = false;
 });
 
@@ -193,6 +221,42 @@ describe("readCachedLabels", () => {
   });
 });
 
+describe("inboxRowToItem", () => {
+  it("decodes Gmail's HTML-escaped snippet once", () => {
+    const row: InboxThreadRow = {
+      id: "owner@example.com:acct1@example.com:t1",
+      ownerEmail: "owner@example.com",
+      accountEmail: "acct1@example.com",
+      threadId: "t1",
+      historyId: "1",
+      inInbox: true,
+      isUnread: false,
+      isStarred: false,
+      isImportant: false,
+      isAutomated: false,
+      latestDate: 1,
+      latestMessageId: "m1",
+      subject: "Hello",
+      snippet:
+        "I&#39;ve sent &quot;Q&amp;A&quot; &#x2014; type &amp;lt;br&amp;gt;",
+      fromName: "Sender",
+      fromEmail: "sender@example.com",
+      to: [],
+      labelIds: ["INBOX"],
+      messageIds: ["m1"],
+      messageCount: 1,
+      unreadCount: 0,
+      hasAttachments: false,
+      syncedAt: 1,
+      updatedAt: 1,
+    };
+
+    expect(inboxRowToItem(row, undefined).snippet).toBe(
+      'I\'ve sent "Q&A" — type &lt;br&gt;',
+    );
+  });
+});
+
 describe("applyLocalLabelDelta", () => {
   it("recomputes in_inbox/is_unread/is_starred from the add/remove delta", async () => {
     dbState.threadRows = [
@@ -206,7 +270,11 @@ describe("applyLocalLabelDelta", () => {
       "owner@example.com",
       "acct1@example.com",
       ["t1"],
-      { add: ["STARRED"], remove: ["UNREAD"] },
+      {
+        add: ["STARRED"],
+        remove: ["UNREAD"],
+        providerHistoryId: "12",
+      },
     );
 
     expect(dbState.updates).toHaveLength(1);
@@ -216,6 +284,10 @@ describe("applyLocalLabelDelta", () => {
     expect(set.inInbox).toBe(1);
     expect(set.isUnread).toBe(0);
     expect(set.isStarred).toBe(1);
+    expect(set.localMutationAt).toEqual(expect.any(Number));
+    expect(set.localMutationHistoryId).toBe("12");
+    expect(set.localMutationFields).toEqual(expect.any(Number));
+    expect(set.unreadCount).toBe(0);
   });
 
   it("flips in_inbox to 0 when INBOX is removed (archive)", async () => {
@@ -236,6 +308,49 @@ describe("applyLocalLabelDelta", () => {
     expect(dbState.updates[0].set.inInbox).toBe(0);
   });
 
+  it("fences untrash label removal as an inbox and label mutation", async () => {
+    dbState.threadRows = [
+      {
+        id: "owner@example.com:acct1@example.com:t1",
+        labelIdsJson: JSON.stringify(["TRASH"]),
+      },
+    ];
+
+    await applyLocalLabelDelta(
+      "owner@example.com",
+      "acct1@example.com",
+      ["t1"],
+      { remove: ["TRASH"], providerHistoryId: "12" },
+    );
+
+    expect(dbState.updates[0].set.localMutationAt).toEqual(expect.any(Number));
+    expect(dbState.updates[0].set.localMutationHistoryId).toBe("12");
+    expect(dbState.updates[0].set.localMutationFields).toBe(17);
+  });
+
+  it("keeps overlapping local field claims and the newest provider fence", async () => {
+    dbState.threadRows = [
+      {
+        id: "owner@example.com:acct1@example.com:t1",
+        labelIdsJson: JSON.stringify(["INBOX"]),
+        messageIdsJson: JSON.stringify(["m1"]),
+        unreadCount: 0,
+        localMutationHistoryId: "20",
+        localMutationFields: 1,
+      },
+    ];
+
+    await applyLocalLabelDelta(
+      "owner@example.com",
+      "acct1@example.com",
+      ["t1"],
+      { add: ["UNREAD"], providerHistoryId: "10" },
+    );
+
+    expect(dbState.updates[0].set.localMutationFields).toBe(3);
+    expect(dbState.updates[0].set.localMutationHistoryId).toBe("20");
+  });
+
   it("is a no-op for a thread that hasn't synced yet", async () => {
     dbState.threadRows = [];
     await applyLocalLabelDelta(
@@ -250,7 +365,7 @@ describe("applyLocalLabelDelta", () => {
   });
 
   describe("scope: message", () => {
-    it("removing UNREAD decrements unread_count by only the targeted message ids", async () => {
+    it("defers message-scoped read aggregates without per-message labels", async () => {
       dbState.threadRows = [
         {
           id: "owner@example.com:acct1@example.com:t1",
@@ -268,14 +383,12 @@ describe("applyLocalLabelDelta", () => {
       );
 
       const { set } = dbState.updates[0];
-      expect(set.unreadCount).toBe(2);
-      expect(set.isUnread).toBe(1);
-      // Other messages in the thread are still unread — the union must keep
-      // UNREAD, not drop it just because one message was read.
+      expect(set.unreadCount).toBeUndefined();
+      expect(set.isUnread).toBeUndefined();
       expect(JSON.parse(set.labelIdsJson)).toContain("UNREAD");
     });
 
-    it("marks the thread read once the last targeted unread message is cleared", async () => {
+    it("does not mark a message-scoped read as a thread-wide read", async () => {
       dbState.threadRows = [
         {
           id: "owner@example.com:acct1@example.com:t1",
@@ -293,12 +406,12 @@ describe("applyLocalLabelDelta", () => {
       );
 
       const { set } = dbState.updates[0];
-      expect(set.unreadCount).toBe(0);
-      expect(set.isUnread).toBe(0);
-      expect(JSON.parse(set.labelIdsJson)).not.toContain("UNREAD");
+      expect(set.unreadCount).toBeUndefined();
+      expect(set.isUnread).toBeUndefined();
+      expect(JSON.parse(set.labelIdsJson)).toContain("UNREAD");
     });
 
-    it("adding UNREAD increments unread_count and marks the thread unread", async () => {
+    it("does not invent an unread aggregate for a message-scoped mark-unread", async () => {
       dbState.threadRows = [
         {
           id: "owner@example.com:acct1@example.com:t1",
@@ -316,38 +429,9 @@ describe("applyLocalLabelDelta", () => {
       );
 
       const { set } = dbState.updates[0];
-      expect(set.unreadCount).toBe(1);
-      expect(set.isUnread).toBe(1);
-    });
-
-    it("marking a 1-message thread unread twice stays clamped at message_count (1)", async () => {
-      const row = {
-        id: "owner@example.com:acct1@example.com:t1",
-        labelIdsJson: JSON.stringify(["INBOX"]),
-        messageIdsJson: JSON.stringify(["m1"]),
-        unreadCount: 0,
-      };
-      dbState.threadRows = [row];
-
-      await applyLocalLabelDelta(
-        "owner@example.com",
-        "acct1@example.com",
-        ["t1"],
-        { add: ["UNREAD"], scope: "message", messageIds: ["m1"] },
-      );
-      expect(dbState.updates[0].set.unreadCount).toBe(1);
-
-      // Simulate the same "mark unread" mutation landing again (e.g. a
-      // duplicate call) before the next history sync rehydrates state.
-      row.unreadCount = dbState.updates[0].set.unreadCount;
-      await applyLocalLabelDelta(
-        "owner@example.com",
-        "acct1@example.com",
-        ["t1"],
-        { add: ["UNREAD"], scope: "message", messageIds: ["m1"] },
-      );
-
-      expect(dbState.updates[1].set.unreadCount).toBe(1);
+      expect(set.unreadCount).toBeUndefined();
+      expect(set.isUnread).toBeUndefined();
+      expect(JSON.parse(set.labelIdsJson)).not.toContain("UNREAD");
     });
 
     it("adding STARRED sets the thread flag immediately", async () => {
@@ -388,11 +472,45 @@ describe("applyLocalLabelDelta", () => {
       );
 
       expect(dbState.updates[0].set.isStarred).toBeUndefined();
-      // The union must not lose STARRED either — same reasoning as isStarred.
       expect(JSON.parse(dbState.updates[0].set.labelIdsJson)).toContain(
         "STARRED",
       );
+      expect(dbState.updates[0].set.localMutationFields).toEqual(
+        expect.any(Number),
+      );
     });
+  });
+});
+
+describe("Gmail push invalidations", () => {
+  it("coalesces pushes into one normalized account generation", async () => {
+    await recordInboxPushInvalidation("Owner@Example.com", "Acct@Example.com");
+    await recordInboxPushInvalidation("owner@example.com", "acct@example.com");
+
+    expect(dbState.inserts).toHaveLength(2);
+    expect(dbState.inserts[0].table).toBe("mail_inbox_push_invalidations");
+    expect(dbState.inserts[0].values).toMatchObject({
+      id: "owner@example.com:acct@example.com",
+      ownerEmail: "owner@example.com",
+      accountEmail: "acct@example.com",
+      generation: 1,
+    });
+    expect(dbState.inserts[1].values.id).toBe(dbState.inserts[0].values.id);
+    expect(dbState.conflictUpdates).toHaveLength(2);
+    expect(dbState.conflictUpdates[0].set.generation).toMatchObject({
+      op: "sql",
+    });
+  });
+
+  it("sums legacy markers as a number across the 9-to-10 boundary", async () => {
+    dbState.pushInvalidations = [{ generation: 9 }, { generation: 1 }];
+
+    const generation = await readInboxPushGeneration(
+      "owner@example.com",
+      "acct@example.com",
+    );
+
+    expect(generation).toBe(10);
   });
 });
 
@@ -425,6 +543,32 @@ describe("sync write fences", () => {
     ]);
 
     expect(dbState.conflictUpdates[0].setWhere).toMatchObject({ op: "sql" });
+    expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
+      "label_ids_json",
+    );
+    expect(dbState.conflictUpdates[0].setWhere.strings.join(" ")).toContain(
+      "unread_count",
+    );
+  });
+
+  it("drops the provider fence when a later mutation has no fence", async () => {
+    dbState.threadRows = [
+      {
+        id: "owner@example.com:acct1@example.com:t1",
+        labelIdsJson: JSON.stringify(["INBOX"]),
+        localMutationHistoryId: "20",
+        localMutationFields: 1,
+      },
+    ];
+
+    await applyLocalLabelDelta(
+      "owner@example.com",
+      "acct1@example.com",
+      ["t1"],
+      { remove: ["INBOX"] },
+    );
+
+    expect(dbState.updates[0].set.localMutationHistoryId).toBeNull();
   });
 
   it("does not let full-sync cleanup mark a locally updated row stale", async () => {
@@ -438,7 +582,7 @@ describe("sync write fences", () => {
   });
 
   it("fences incremental deletes to the start of the Gmail read", async () => {
-    await deleteInboxThreadRow(
+    await tryDeleteInboxThreadRow(
       "owner@example.com",
       "acct1@example.com",
       "t1",
@@ -489,29 +633,31 @@ describe("patchSyncAccount", () => {
   });
 });
 
-describe("assertSyncClaimHeld", () => {
-  it("resolves when the row's claim still matches", async () => {
+describe("withSyncClaim", () => {
+  it("runs inbox writes under a lock on the matching claim", async () => {
     dbState.syncAccounts = [syncAccountRow({ syncClaimId: "claim-1" })];
+    const write = vi.fn(async () => undefined);
 
-    await expect(
-      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
-    ).resolves.toBeUndefined();
+    await withSyncClaim(
+      "owner@example.com",
+      "acct1@example.com",
+      "claim-1",
+      write,
+    );
+
+    expect(dbState.transactions).toBe(1);
+    expect(dbState.lockModes).toEqual(["update"]);
+    expect(write).toHaveBeenCalledOnce();
   });
 
-  it("throws SyncClaimLostError when a newer worker holds the claim", async () => {
+  it("skips inbox writes after a push or newer worker clears the claim", async () => {
     dbState.syncAccounts = [syncAccountRow({ syncClaimId: "claim-2" })];
+    const write = vi.fn(async () => undefined);
 
     await expect(
-      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
+      withSyncClaim("owner@example.com", "acct1@example.com", "claim-1", write),
     ).rejects.toThrow(SyncClaimLostError);
-  });
-
-  it("throws SyncClaimLostError when the account row is gone", async () => {
-    dbState.syncAccounts = [];
-
-    await expect(
-      assertSyncClaimHeld("owner@example.com", "acct1@example.com", "claim-1"),
-    ).rejects.toThrow(SyncClaimLostError);
+    expect(write).not.toHaveBeenCalled();
   });
 });
 

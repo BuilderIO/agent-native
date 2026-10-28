@@ -1,0 +1,40 @@
+name: Free runner disk when low
+description: >-
+  Remove large preinstalled toolchains only when the root filesystem has less
+  than `min-free-gb` available. Hosted ubuntu-latest runners start with ~86 GB
+  free, and the unconditional cleanup cost ~100s per job to reclaim space the
+  jobs never needed.
+
+inputs:
+  min-free-gb:
+    description: Skip cleanup when at least this many GB are already free.
+    required: false
+    default: "40"
+
+runs:
+  using: composite
+  steps:
+    - name: Free disk if needed
+      shell: bash
+      env:
+        MIN_FREE_GB: ${{ inputs.min-free-gb }}
+      run: |
+        set -euo pipefail
+        df -h /
+        avail_gb=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+        if [ "$avail_gb" -ge "$MIN_FREE_GB" ]; then
+          echo "${avail_gb} GB free (>= ${MIN_FREE_GB} GB); skipping cleanup."
+          exit 0
+        fi
+        echo "::notice::Only ${avail_gb} GB free; removing preinstalled toolchains."
+        sudo rm -rf \
+          /opt/ghc \
+          /opt/hostedtoolcache/CodeQL \
+          /usr/local/.ghcup \
+          /usr/local/lib/android \
+          /usr/local/share/boost \
+          /usr/share/dotnet \
+          /usr/share/swift
+        docker system prune -af || true
+        sudo apt-get clean
+        df -h /

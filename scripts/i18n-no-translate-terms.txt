@@ -1,15 +1,17 @@
 # Stable product, provider, protocol, and literal terms that should remain as-is
-# in localized docs. Keep this list intentionally small and alphabetized.
+# in localized catalogs and docs. Keep this list intentionally small and alphabetized.
 # Format: exact source string
 "google"
 *.eval.ts
 `window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay
 + Drizzle query DSL
 + Slack / webhook / Sheets
+Aa Bb Cc 123
 Ease
 Ease In
 Ease In/Out
 Ease Out
+Error 403
 JetBrains Mono
 Playfair Display
 ~/.claude/ on a local disk
@@ -31,6 +33,7 @@ Apple Silicon
 AuthSession
 Azure Static Web Apps
 Azure Database for PostgreSQL
+AWS Amplify
 AWS Lambda
 Bearer access token
 Better Auth
@@ -40,8 +43,10 @@ claude · codex
 Claude Code
 Claude Code · Codex · Pi — own tools, sandbox, compaction
 Claude Code / Codex
+Claude Sonnet
 Claude web
 CLI
+Cloudflare Workers
 Cloud SQL for PostgreSQL
 create-form · update-form
 createSession.resumeState
@@ -52,13 +57,16 @@ dbQuery / dbExec
 Debian / Ubuntu
 Deno Deploy
 Dispatch hub
+event_name, other_event
 GET /api/auth/user
 getSession callback
 gh · ffmpeg · stripe
 GitHub
 GitHub OAuth
 Google Calendar
+Google Fonts
 Google OAuth
+Google Search Console
 Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate
@@ -117,6 +125,8 @@ Slack webhook URL
 Slack · Granola · GitHub · Clips · webhooks
 Slack · Stripe · email
 Slack · Telegram
+# Slides 2 is the product name, so keep this proper noun verbatim.
+Slides 2
 Sonnet 4.6 · Auto
 SQL
 SQL + application_state
@@ -133,6 +143,7 @@ threads · application_state · settings · sessions · runs
 Tool-call journal
 UI
 Universal CLI
+UTC
 useActionQuery/Mutation
 Webhook URL
 WWW-Authenticate

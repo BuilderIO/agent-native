@@ -1,9 +1,3 @@
-/**
- * Localized strings for MotionDock and its motion-timeline sub-components.
- * Used in: app/components/design/MotionDock.tsx (the bottom motion timeline
- * dock in the Design Studio — toolbar, layer sidebar, keyframe/segment
- * affordances, and the Curve/Spring easing panel).
- */
 export const motionDockOverrides = {
   "en-US": {
     designEditor: {

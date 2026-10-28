@@ -1,10 +1,7 @@
 ---
 name: admin-surfaces
 description: >-
-  The /agents admin home for Analytics: fleet feature-flag control plane,
-  dashboard usage audit, and connected-app database admin. Use when an admin
-  asks about feature flags/rollouts, dashboard usage stats, or connecting
-  another agent-native app's database.
+  Use when an admin asks about feature flags and rollouts, dashboard usage stats, or connecting another app's database (the /agents admin home for Analytics).
 ---
 
 # Admin Surfaces (`/agents`)

@@ -56,11 +56,6 @@ function remapJsonText(
   return stringifyJson(remapJsonValue(parseJson(text, {}), ids));
 }
 
-// Assets pinned by preset settings (reference board entries, skeleton plate/
-// mask/foreground) must be copied even when the general asset filter would
-// skip them — e.g. board subject photos upload as role "subject_reference".
-// Otherwise the duplicated preset keeps source-library asset ids and
-// generation in the copy fails its library-membership check.
 function pinnedPresetAssetIds(
   presets: Array<{ settings: string | null }>,
 ): Set<string> {

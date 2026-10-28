@@ -1,9 +1,7 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appPath } from "@agent-native/core/client/api-path";
-import {
-  AppProviders,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client/hooks";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -11,16 +9,13 @@ import {
   type LocalizationPreference,
   useT,
 } from "@agent-native/core/client/i18n";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
-import {
-  ErrorReportActions,
-  RouteTransitionIndicator,
-  getThemeInitScript,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
+import { CommandMenu } from "@agent-native/toolkit/app/shared";
+import { RouteTransitionIndicator } from "@agent-native/toolkit/app/shared";
 import {
   IconDeviceDesktop,
   IconHierarchy2,
@@ -55,18 +50,23 @@ import type {
   ShouldRevalidateFunctionArgs,
 } from "react-router";
 
-// Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
-// shadcn useToast-based toaster — separate from sonner, must stay inline.
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
+import { ContentStartupShell } from "./components/layout/ContentStartupShell";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
+import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
+import { registerContentDatabaseQueryDefaults } from "./lib/content-database-query-cache";
+import { startLoadReads } from "./lib/content-landing";
+import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
+import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -113,11 +113,43 @@ export function shouldRevalidate({
   return formMethod ? defaultShouldRevalidate : false;
 }
 
-// Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
+function appPathname(pathname: string): string {
+  const basePath = appBasePath();
+  return basePath && pathname.startsWith(`${basePath}/`)
+    ? pathname.slice(basePath.length)
+    : pathname;
+}
+
+export function isContentEditorPath(pathname: string): boolean {
+  return /^\/page\/[^/]+\/?$/.test(appPathname(pathname));
+}
+
+export function isContentSuggestionReviewPath(pathname: string): boolean {
+  return /^\/suggestions\/[^/]+\/?$/.test(appPathname(pathname));
+}
+
+export function computeSessionBypass(pathname: string): boolean {
+  return (
+    (isContentEditorPath(pathname) ||
+      isContentSuggestionReviewPath(pathname)) &&
+    Boolean(getEmbedAuthToken())
+  );
+}
+
+// The startup shell draws before the i18n provider exists, so it reads its
+// copy straight from the locale messages the loader sent.
+function rootMessage(messages: LocaleMessages, key: string): string | null {
+  const root = messages.root;
+  if (!root || typeof root !== "object") return null;
+  const value = (root as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : null;
+}
+
 const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  const { AgentSidebar } =
+    await import("@agent-native/toolkit/app/chat/AgentSidebar");
   return { default: AgentSidebar };
 });
 
@@ -202,6 +234,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-locale-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
+        />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html:
+              CONTENT_STARTUP_SIDEBAR_SCRIPT +
+              CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT +
+              CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
+          }}
         />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -323,9 +364,11 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 function ContentCommandMenu({
   open,
   onOpenChange,
+  onCloseAutoFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus: (event: Event) => void;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -333,6 +376,7 @@ function ContentCommandMenu({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
+      onCloseAutoFocus={onCloseAutoFocus}
       placeholder={t("root.commandSearchPlaceholder")}
       inputLabel={t("root.commandSearchDocuments")}
       className="!top-1/2 h-[min(760px,calc(100vh-2rem))] w-[calc(100vw-1rem)] max-w-5xl !-translate-y-1/2 [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full"
@@ -360,7 +404,7 @@ function ContentCommandMenu({
 
 function shouldHandleEditorCommandMenuShortcut(event: KeyboardEvent) {
   const target = event.target instanceof HTMLElement ? event.target : null;
-  if (!target?.closest(".notion-editor")) return true;
+  if (!target?.closest(".content-editor")) return true;
 
   const selection = window.getSelection();
   return (
@@ -369,11 +413,20 @@ function shouldHandleEditorCommandMenuShortcut(event: KeyboardEvent) {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const [queryClient] = useState(() => {
+    const client = createAgentNativeQueryClient();
+    registerContentDatabaseQueryDefaults(client);
+    return client;
+  });
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
+  useEffect(() => {
+    startLoadReads(queryClient, location);
+    // Only the load itself; later navigations start their own reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useCommandMenuShortcut(
     useCallback(() => {
       commandTrigger.current =
@@ -388,33 +441,37 @@ export default function Root() {
     },
   );
   useEffect(() => {
-    if (cmdkOpen || !commandTrigger.current) return;
-    const trigger = commandTrigger.current;
+    const handleOpen = (event: Event) => {
+      commandTrigger.current =
+        (event as CustomEvent<{ returnFocusTo?: HTMLElement }>).detail
+          ?.returnFocusTo ??
+        (document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+      setCmdkOpen(true);
+    };
+    window.addEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+    return () =>
+      window.removeEventListener(CONTENT_COMMAND_MENU_OPEN_EVENT, handleOpen);
+  }, []);
+  const handleCommandMenuCloseAutoFocus = useCallback((event: Event) => {
+    const target = commandTrigger.current;
+    if (!target?.isConnected) return;
+    event.preventDefault();
     commandTrigger.current = null;
-    const frame = window.requestAnimationFrame(() => {
-      if (trigger.isConnected) trigger.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [cmdkOpen]);
+    target.focus();
+  }, []);
 
-  // Public document paths (/p/*) SSR real content without the ClientOnly gate
-  // so crawlers and unauthenticated visitors receive full markup on first visit.
   const isPublicPath = location.pathname.startsWith("/p/");
-  const isMarketingHome = location.pathname === "/";
 
-  // Content's 3-way theme cycle (system/light/dark) animates the transition;
-  // pass disableThemeTransitions={false} to restore that behaviour.
-  // The styled Sonner is passed via `toaster` so only one sonner instance
-  // renders; the shadcn useToast-based <Toaster /> stays inline because it is
-  // a different toasting system.
   const contentToaster = <Sonner closeButton position="bottom-left" />;
 
-  if (isPublicPath || isMarketingHome) {
+  if (isPublicPath) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath={isPublicPath || isMarketingHome}
+          isPublicPath={isPublicPath}
           disableThemeTransitions={false}
           toaster={contentToaster}
           i18n={{
@@ -442,6 +499,17 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        sessionBypass={computeSessionBypass(location.pathname)}
+        clientOnlyFallback={
+          <ContentStartupShell
+            pathname={location.pathname}
+            label={
+              rootMessage(loaderData.messages, "loadingContent") ??
+              rootMessage(i18nCatalog.messages, "loadingContent") ??
+              ""
+            }
+          />
+        }
         disableThemeTransitions={false}
         toaster={contentToaster}
         i18n={{
@@ -454,7 +522,11 @@ export default function Root() {
         <AppSetup />
         <Toaster />
         <RouteTransitionIndicator />
-        <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <ContentCommandMenu
+          open={cmdkOpen}
+          onOpenChange={setCmdkOpen}
+          onCloseAutoFocus={handleCommandMenuCloseAutoFocus}
+        />
         <Outlet />
       </AppProviders>
     </AppToolkitProvider>
@@ -495,13 +567,6 @@ function ContentErrorBoundaryBody() {
         >
           Go to page list
         </a>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-accent"
-        >
-          Reload
-        </button>
         <ErrorReportActions
           appName="Content"
           title={title}

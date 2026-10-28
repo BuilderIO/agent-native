@@ -52,6 +52,7 @@ import {
   emptyBoardHtml,
 } from "../shared/board-file.js";
 import { parseBoardObjects } from "../shared/board-objects.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
 const sourceFileColumns = {
   id: schema.designFiles.id,
@@ -76,15 +77,13 @@ export default defineAction({
       .string()
       .describe("Design project ID to migrate board objects for."),
   }),
+  capabilityScopes: ["visual-edit"],
   run: async ({ designId }, context) => {
     await assertAccess("design", designId, "editor");
     await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
 
-    // ── 1. Idempotency guard ──────────────────────────────────────────────
-    // Reserve one stable file id without clearing boardObjects. If the process
-    // stops between phases, the next call resumes the same reservation.
     const [preexistingBoardFile] = await db
       .select({ id: schema.designFiles.id })
       .from(schema.designFiles)
@@ -121,11 +120,6 @@ export default defineAction({
       typeof parsed["boardFileId"] === "string" &&
       parsed["boardFileId"].length > 0
     ) {
-      // ── Marker backfill path ───────────────────────────────────────────────
-      // The board file exists (boardFileId set), but it may have been created
-      // before the data-an-primitive marker was introduced.  Run the additive
-      // backfill so the layers-panel renders the correct icon (ellipse / text /
-      // frame / rectangle) instead of the generic code glyph.
       const existingBoardFileId = parsed["boardFileId"] as string;
 
       const [boardFileRow] = await db
@@ -137,8 +131,6 @@ export default defineAction({
       if (boardFileRow) {
         const live = await readLiveSourceFile(boardFileRow);
         const originalContent = live.content;
-        // Only run backfill when the board file has node-id elements but is
-        // missing at least one data-an-primitive marker.
         const needsBackfill =
           originalContent.includes("data-agent-native-node-id=") &&
           !originalContent.includes("data-an-primitive=");
@@ -146,7 +138,7 @@ export default defineAction({
         if (needsBackfill) {
           const backfilledContent =
             backfillBoardPrimitiveMarkers(originalContent);
-          await writeInlineSourceFile({
+          const write = await writeInlineSourceFile({
             designId,
             file: boardFileRow,
             content: backfilledContent,
@@ -159,6 +151,7 @@ export default defineAction({
             boardFileId: existingBoardFileId,
             reason:
               "boardFileId already set — backfilled missing data-an-primitive markers.",
+            _receipt: designOutputWriteReceipt(designId, write.changed ? 1 : 0),
           };
         }
       }
@@ -168,24 +161,17 @@ export default defineAction({
         migrated: false,
         boardFileId: existingBoardFileId,
         reason: "boardFileId already set — migration already complete.",
+        _receipt: designOutputWriteReceipt(designId, 0),
       };
     }
 
-    // ── 2. Parse legacy board objects ────────────────────────────────────
     const boardObjects = parseBoardObjects(parsed["boardObjects"]);
     const entries = Object.values(boardObjects);
 
-    // ── 3. Build the board HTML ───────────────────────────────────────────
-    // Start from the canonical empty-board template and inject each entry as
-    // a direct <body> child.  Negative left/top are preserved — the migration
-    // intentionally does NOT clamp coords (appendCanvasPrimitiveToHtml clamps
-    // to x/y >= 0 for new screen primitives; the board surface has no such
-    // restriction).
     let boardHtml = emptyBoardHtml();
     if (entries.length > 0) {
       const fragments = entries
         .sort((a, b) => {
-          // Stable render order: lower z first, then creation order.
           const az = a.geometry.z ?? 0;
           const bz = b.geometry.z ?? 0;
           if (az !== bz) return az - bz;
@@ -199,7 +185,6 @@ export default defineAction({
 
     const now = new Date().toISOString();
 
-    // ── 4. Upsert the board file, then finalize the reservation ────────
     const reservationId =
       typeof parsed.boardFileMigrationId === "string" &&
       parsed.boardFileMigrationId
@@ -216,15 +201,17 @@ export default defineAction({
       )
       .limit(1);
     const boardFileId = existingBoardFile?.id ?? reservationId;
+    let outputFileCount = 0;
 
     if (existingBoardFile) {
       const live = await readLiveSourceFile(existingBoardFile);
-      await writeInlineSourceFile({
+      const write = await writeInlineSourceFile({
         designId,
         file: existingBoardFile,
         content: boardHtml,
         expectedVersionHash: live.versionHash,
       });
+      outputFileCount = write.changed ? 1 : 0;
     } else {
       try {
         await withDesignSourceMutationTransaction(designId, (tx) =>
@@ -238,6 +225,7 @@ export default defineAction({
             updatedAt: now,
           }),
         );
+        outputFileCount = 1;
       } catch (error) {
         const [concurrentBoardFile] = await db
           .select({ id: schema.designFiles.id })
@@ -247,9 +235,6 @@ export default defineAction({
         if (!concurrentBoardFile) throw error;
       }
 
-      // Seed the new board's live document before finalizing the migration
-      // marker. A failed seed leaves boardFileMigrationId in place so a retry
-      // can resume without claiming that SQL and the live document are synced.
       await seedFromText(boardFileId, boardHtml);
     }
 
@@ -279,6 +264,7 @@ export default defineAction({
         entries.length > 0
           ? `Migrated ${entries.length} board object(s) to board file ${boardFileId}.`
           : `Created empty board file ${boardFileId} (no legacy board objects).`,
+      _receipt: designOutputWriteReceipt(designId, outputFileCount),
     };
   },
 });

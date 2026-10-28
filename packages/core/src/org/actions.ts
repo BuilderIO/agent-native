@@ -1,19 +1,24 @@
-import type { ActionRunContext } from "../action.js";
-import { getDbExec } from "../db/client.js";
+import { fail, type ActionRunContext } from "../action.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 
 export async function requireOrgMember(ctx?: ActionRunContext, admin = false) {
   const email = ctx?.userEmail?.trim();
   const orgId = ctx?.orgId?.trim();
   if (!email || !orgId)
-    throw new Error("An authenticated organization member is required.");
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) AND federation_removal_pending_at IS NULL LIMIT 1`,
-    args: [orgId, email],
-  });
-  const role = rows[0]?.role;
+    fail("An authenticated organization member is required.", {
+      errorCode: "unauthorized",
+      statusCode: 401,
+    });
+  const role = await readOrgMemberRole(orgId, email);
   if (!role)
-    throw new Error("You are not a member of the active organization.");
+    fail("You are not a member of the active organization.", {
+      errorCode: "forbidden",
+      statusCode: 403,
+    });
   if (admin && role !== "owner" && role !== "admin")
-    throw new Error("Organization admin role required.");
-  return { email, orgId };
+    fail("Organization admin role required.", {
+      errorCode: "forbidden",
+      statusCode: 403,
+    });
+  return { email, orgId, role };
 }

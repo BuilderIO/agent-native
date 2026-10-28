@@ -1,3 +1,6 @@
+import { fail, type ActionRunContext } from "@agent-native/core/action";
+import { parseJobResource } from "@agent-native/core/jobs/frontmatter";
+import { isOutsideAutomationOrigin } from "@agent-native/core/triggers";
 import { and, eq, exists, type AnyColumn, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
@@ -10,10 +13,9 @@ import {
   triageDecisions,
   triageFeedback,
   triageItems,
-  triageRules,
   triageRuns,
 } from "../db/schema.js";
-import { DEFAULT_FACTORY_ID } from "../factory-graph/store.js";
+import { DEFAULT_FACTORY_ID } from "./factory-ids.js";
 
 export { DEFAULT_FACTORY_ID };
 
@@ -23,14 +25,6 @@ export const factoryIdSchema = z
   .min(1)
   .max(120)
   .regex(/^[a-z0-9][a-z0-9-]*$/);
-
-export const builderSlackUserIdSchema = z
-  .string()
-  .trim()
-  .max(32)
-  .refine((value) => value === "" || /^[UW][A-Z0-9]+$/i.test(value), {
-    message: "Builder Slack member id must look like U01234567.",
-  });
 
 export function factoryConfigRowId(orgId: string, factoryId: string): string {
   return `${orgId}:${factoryId}`;
@@ -105,6 +99,8 @@ async function factoryIdTaken(
   )[0];
   if (config) return true;
 
+  // Nothing writes graph versions anymore; older factories still have them, and
+  // their ids must never be handed out again.
   const graphVersion = (
     await db
       .select({ factoryId: factoryGraphVersions.factoryId })
@@ -124,7 +120,6 @@ export function legacyFactoryConfigRowId(orgId: string): string {
   return orgId;
 }
 
-/** Row id to use when persisting poll cursors — follows the loaded config row. */
 export function triageConfigUpdateRowId(
   config: { id: string } | null | undefined,
   orgId: string,
@@ -159,8 +154,6 @@ export async function requireExistingFactory(
   orgId: string,
   factoryId: string,
 ): Promise<void> {
-  // product-feedback is virtual until first save and cannot be deleted, so a
-  // missing definition row is not a deletion fence.
   if (factoryId === DEFAULT_FACTORY_ID) return;
   const row = (
     await db
@@ -229,10 +222,6 @@ export function orgFactoryScopedItemWhere(
     eq(triageItems.id, itemId),
     orgFactoryItemFilter(orgId, factoryId),
   )!;
-}
-
-export function orgFactoryRuleFilter(orgId: string, factoryId: string): SQL {
-  return orgFactoryFilter(triageRules, orgId, factoryId);
 }
 
 export function orgFactoryDecisionFilter(
@@ -309,7 +298,6 @@ export function factoryAutomationJobPrefix(factoryId: string): string {
   return `jobs/factories/${factoryId}/`;
 }
 
-/** Path prefixes used to discover jobs by folder, not YAML `domain`. */
 export function factoryAutomationJobPrefixes(factoryId: string): string[] {
   if (factoryId === DEFAULT_FACTORY_ID) {
     return ["jobs/factory-", factoryAutomationJobPrefix(factoryId)];
@@ -317,7 +305,6 @@ export function factoryAutomationJobPrefixes(factoryId: string): string[] {
   return [factoryAutomationJobPrefix(factoryId)];
 }
 
-/** Same key `listAutomationRuns` / `deleteAutomationRuns` use for a job path. */
 export function factoryAutomationRunHistoryKey(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");
 }
@@ -330,7 +317,6 @@ export function isLegacyFactoryAutomationPath(path: string): boolean {
   return /^jobs\/factory-[^/]+\.md$/.test(path);
 }
 
-/** Scheduler trigger names keep the nested path; role allowlists use the leaf. */
 export function factoryAutomationLeafName(nameOrPath: string): string {
   const withoutJobsPrefix = nameOrPath
     .replace(/^jobs\//, "")
@@ -398,15 +384,152 @@ function readFrontmatterField(
   content: string,
   key: string,
 ): string | undefined {
-  if (!content.startsWith("---\n")) return undefined;
-  const end = content.indexOf("\n---", 4);
-  if (end === -1) return undefined;
-  const match = content
-    .slice(4, end)
-    .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
-  const value = match?.[1]?.trim();
+  const header = content.match(FACTORY_FRONTMATTER_RE)?.[1];
+  if (header === undefined) return undefined;
+  const line = header
+    .split(/\r?\n/)
+    .reverse()
+    .find((line) => frontmatterKey(line) === key);
+  const value = line?.slice(line.indexOf(":") + 1).trim();
   if (!value) return undefined;
-  return value.replace(/^("|')|(("|')$)/g, "");
+  // Use a core string field to retain its scalar decoding for Factory-only fields.
+  return parseJobResource(`---\nmodel: ${value}\n---`).meta.model;
+}
+
+const FACTORY_FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+const RESERVED_AUTOMATION_FIELDS = new Set([
+  "factoryId",
+  "promptVersion",
+  "alignmentRevision",
+  "configSavedAt",
+  "displayName",
+  "source",
+  "template",
+  "slackWorkspace",
+  "slackChannelId",
+  "slackChannelName",
+  "repository",
+  "sentryOrgSlug",
+  "sentryProjectSlug",
+  "sentryEnvironment",
+  "authorMode",
+  "authorIds",
+  "scheduleMode",
+  "intervalMinutes",
+  "dailyTime",
+  "inboxLimit",
+  "workLimit",
+]);
+
+function frontmatterKey(line: string): string | undefined {
+  const colon = line.indexOf(":");
+  return colon === -1 ? undefined : line.slice(0, colon).trim();
+}
+
+function automationFrontmatter(content: string) {
+  const match = content.match(FACTORY_FRONTMATTER_RE);
+  const header = match?.[1];
+  if (!match || header === undefined) {
+    fail(
+      "Restore complete Factory automation frontmatter (--- header ---) before saving outside-agent or marked content.",
+      { statusCode: 400, errorCode: "invalid_request" },
+    );
+  }
+  return {
+    lines: header.split(/\r?\n/),
+    suffix: content.slice(match[0].length),
+  };
+}
+
+export function assertSingleLineFactoryAutomationSettings(
+  settings: Record<string, unknown>,
+): void {
+  const strings: Record<string, string> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (typeof value === "string") strings[key] = value;
+  }
+  const result = z
+    .record(
+      z.string(),
+      z.string().regex(/^[^\r\n\u0085\u2028\u2029]*$(?![\s\S])/),
+    )
+    .safeParse(strings);
+  if (!result.success) {
+    fail(z.prettifyError(result.error), {
+      statusCode: 400,
+      errorCode: "invalid_request",
+    });
+  }
+}
+
+export function normalizeFactoryAutomationFrontmatter(
+  content: string,
+  origin?: { context: ActionRunContext | undefined; currentContent?: string },
+): string {
+  const { lines, suffix } = automationFrontmatter(content);
+  const last = new Map<string, number>();
+  let managed =
+    origin !== undefined && isOutsideAutomationOrigin(origin.context);
+  if (origin?.currentContent !== undefined) {
+    const current = normalizeFactoryAutomationFrontmatter(
+      origin.currentContent,
+    );
+    managed = managed || parseJobResource(current).meta.mcpManaged === true;
+  }
+  for (const [index, line] of lines.entries()) {
+    const key = frontmatterKey(line);
+    if (!key) continue;
+    const { meta } = parseJobResource(`---\n${line}\n---`);
+    if (
+      !RESERVED_AUTOMATION_FIELDS.has(key) &&
+      !Object.prototype.hasOwnProperty.call(meta, key)
+    )
+      continue;
+    last.set(key, index);
+    if (key === "mcpManaged" && meta.mcpManaged === true) managed = true;
+  }
+  const normalized = lines.flatMap((line, index) => {
+    const key = frontmatterKey(line);
+    if (!key || !last.has(key)) return [line];
+    if (last.get(key) !== index) return [];
+    return [
+      key === "mcpManaged" && managed
+        ? "mcpManaged: true"
+        : `${key}:${line.slice(line.indexOf(":") + 1)}`,
+    ];
+  });
+  if (managed && !last.has("mcpManaged")) normalized.push("mcpManaged: true");
+  return `---\n${normalized.join("\n")}\n---${suffix}`;
+}
+
+export function normalizeFactoryAutomationWriteContent(
+  content: string,
+  origin?: { context: ActionRunContext | undefined; currentContent?: string },
+): string {
+  const carriesMarker = (candidate: string) => {
+    // An unfinished header can still carry provenance; prompt-body lines cannot.
+    const header = candidate.match(/^---\r?\n([\s\S]*?)(?:\r?\n---|$)/)?.[1];
+    return (
+      header
+        ?.split(/\r?\n/)
+        .some(
+          (line) =>
+            frontmatterKey(line) === "mcpManaged" &&
+            parseJobResource(`---\n${line}\n---`).meta.mcpManaged === true,
+        ) === true
+    );
+  };
+  if (
+    (origin !== undefined && isOutsideAutomationOrigin(origin.context)) ||
+    carriesMarker(content) ||
+    (origin?.currentContent !== undefined &&
+      carriesMarker(origin.currentContent))
+  ) {
+    return normalizeFactoryAutomationFrontmatter(content, origin);
+  }
+  return FACTORY_FRONTMATTER_RE.test(content)
+    ? normalizeFactoryAutomationFrontmatter(content)
+    : content;
 }
 
 export function readAutomationDisplayName(content: string): string | null {
@@ -468,6 +591,7 @@ export function patchAutomationResource(
     enabled?: boolean;
     schedule?: string;
     model?: string | null;
+    reasoningEffort?: string | null;
     displayName?: string;
   },
 ): string {
@@ -492,6 +616,13 @@ export function patchAutomationResource(
       patch.model?.trim() ?? "",
     );
   }
+  if (patch.reasoningEffort !== undefined) {
+    next = setAutomationFrontmatterField(
+      next,
+      "reasoningEffort",
+      patch.reasoningEffort?.trim() ?? "",
+    );
+  }
   if (patch.displayName !== undefined) {
     next = setAutomationFrontmatterField(
       next,
@@ -513,4 +644,8 @@ export function readAutomationSchedule(content: string): string | null {
 
 export function readAutomationModel(content: string): string | null {
   return readFrontmatterField(content, "model")?.trim() || null;
+}
+
+export function readAutomationReasoningEffort(content: string): string | null {
+  return readFrontmatterField(content, "reasoningEffort")?.trim() || null;
 }

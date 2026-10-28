@@ -1,6 +1,6 @@
 # Agent-Native for VS Code
 
-[Agent-Native](https://www.agent-native.com/docs) opens agent-native app surfaces
+[Agent-Native](https://www.agent-native.com/docs?utm_source=vscode-marketplace&utm_medium=referral&utm_content=vscode-extension-readme) opens agent-native app surfaces
 inside VS Code: visual plans, visual recaps, and Design canvases next to the
 files being changed. It also connects your workspace to Agent-Native MCP apps so
 agents like Claude Code, Codex, and GitHub Copilot can create and open those
@@ -33,13 +33,13 @@ raw line-by-line review.
 ![Visual recap review surface animation](https://raw.githubusercontent.com/BuilderIO/skills/main/media/visual-recap.gif)
 
 Visual plans and recaps are MDX, customizable with your own components, and
-viewed with the [Agent-Native Plans app](https://www.agent-native.com/docs/template-plan).
+viewed with the [Agent-Native Plans app](https://www.agent-native.com/docs/template-plan?utm_source=vscode-marketplace&utm_medium=referral&utm_content=vscode-extension-readme).
 [Source here](https://github.com/BuilderIO/agent-native/).
 
 ## `/visual-edit`
 
 Open a running local app in
-[Agent-Native Design](https://www.agent-native.com/docs/template-design) as
+[Agent-Native Design](https://www.agent-native.com/docs/template-design?utm_source=vscode-marketplace&utm_medium=referral&utm_content=vscode-extension-readme) as
 URL-backed iframe screens for visual editing, route-state review, and flow
 comparison.
 

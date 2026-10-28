@@ -1,6 +1,7 @@
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { describe, expect, it } from "vitest";
 
+import { convertToSlideHtml } from "./html-converter.js";
 import {
   annotateLineDecorations,
   applyPoint,
@@ -29,7 +30,6 @@ describe("applyPoint", () => {
   });
 
   it("flips y for a top-left/y-down viewport transform", () => {
-    // pdf.js viewports commonly look like this: flip y and offset by page height.
     const viewportTransform: Mat = [1, 0, 0, -1, 0, 792];
     expect(applyPoint(viewportTransform, 0, 792)).toEqual([0, 0]);
     expect(applyPoint(viewportTransform, 0, 0)).toEqual([0, 792]);
@@ -47,7 +47,6 @@ describe("textItemToBox", () => {
     expect(box!.fontSize).toBeCloseTo(12);
     expect(box!.left).toBeCloseTo(100);
     expect(box!.right).toBeCloseTo(140);
-    // Box spans from below the baseline (descent) to above it (ascent).
     expect(box!.top).toBeLessThan(200);
     expect(box!.bottom).toBeGreaterThan(200);
   });
@@ -534,8 +533,6 @@ describe("annotateLineDecorations", () => {
   });
 });
 
-// Bug A: alignment was hardcoded "left" even though each line's exact
-// left/right geometry was already computed.
 describe("detectBlockAlignment", () => {
   it("stays left for a single-line block (one line can't disambiguate center from left)", () => {
     const lines = [box({ left: 40, right: 200 })];
@@ -574,9 +571,6 @@ describe("detectBlockAlignment", () => {
   });
 });
 
-// Bug B: the PDF's real embedded font name was resolved but never attached
-// to the emitted run, so every PDF import silently rendered in the
-// hardcoded default font.
 describe("textItemToBox: font family", () => {
   it("strips the subset-tag prefix and passes a plain sans font name through", () => {
     const result = textItemToBox(
@@ -626,9 +620,6 @@ describe("textItemToBox: font family", () => {
   });
 });
 
-// Bug C: baseline grouping only checked Y-proximity, so a two-column page's
-// column-1 last line and column-2 first line at the same baseline got
-// merged and joined with a single space.
 describe("groupIntoLines: column-aware baseline grouping", () => {
   it("keeps a two-column page's lines separate even when a column-1 line and a column-2 line share a baseline", () => {
     const items = [
@@ -700,10 +691,44 @@ function fakeDoc(
   } as unknown as Parameters<typeof parsePdfFidelity>[0];
 }
 
-// Bug D: images were always concatenated before text in the final elements
-// array regardless of the PDF's real paint order, so an image painted after
-// (on top of) text always rendered behind it instead.
 describe("parsePdfFidelity: paint order", () => {
+  it("keeps PDF source leading without adding the PPTX line-height default", async () => {
+    const text = ["Heading", "Body"];
+    const doc = fakeDoc(
+      [OPS.showText, OPS.showText],
+      text.map((value) => [Array.from({ length: value.length }, () => ({}))]),
+      async () => ({
+        items: text.map((str, index) => ({
+          str,
+          transform: [12, 0, 0, 12, 10, 100 + index * 14],
+          width: str.length * 6,
+        })),
+      }),
+    );
+
+    const [page] = await parsePdfFidelity(doc, []);
+    const textElement = page.elements.find(
+      (element) => element.kind === "text",
+    );
+    expect(textElement?.kind).toBe("text");
+    if (textElement?.kind !== "text")
+      throw new Error("missing parsed PDF text");
+    expect(
+      textElement.paragraphs?.map((paragraph) => paragraph.lineSpacing),
+    ).toEqual([1, 1]);
+    expect(textElement.paragraphs?.[1]?.spaceBeforePt).toBeCloseTo(2);
+
+    const html = convertToSlideHtml({
+      texts: [],
+      images: [],
+      elements: [textElement],
+      widthEmu: page.widthEmu,
+      heightEmu: page.heightEmu,
+    });
+    expect(html.match(/line-height:1;/g)).toHaveLength(2);
+    expect(html).toContain("margin:10.8px 0 0px");
+  });
+
   it("sorts a later-painted image after earlier-painted text instead of always putting images first", async () => {
     const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
     const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];
@@ -758,9 +783,6 @@ describe("parsePdfFidelity: paint order", () => {
   });
 });
 
-// Bug E: PDF image extraction failures were silently swallowed and never
-// counted, so `fidelity` always reported "source-faithful" even when every
-// image on the page failed to import.
 describe("parsePdfFidelity: imagesSkipped", () => {
   it("counts a detected image with no extracted bytes as skipped", async () => {
     const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];

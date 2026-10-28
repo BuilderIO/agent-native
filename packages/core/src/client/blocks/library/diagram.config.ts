@@ -3,18 +3,6 @@ import { z } from "zod";
 import { childCodeFenceFields, serializeChildCodeFenceFields } from "../mdx.js";
 import type { BlockMdxConfig, BlockVisualFrame } from "../types.js";
 
-/**
- * Pure (React-free) part of the shared `diagram` block: its data schema and MDX
- * round-trip config. Lives in core so BOTH apps' server/shared registries
- * (`plan-block-registry.ts`, `nfm-registry.ts`) and the client spec
- * (`diagram.tsx`) consume one definition. Keeping it React-free means importing
- * it into a server module never pulls React into the Nitro/SSR bundle.
- *
- * The MDX `tag` keeps backward compatibility with legacy
- * `<Diagram … data={…} />` files while the current authoring form stores
- * maintainable `html`/`css` as child code fences.
- */
-
 export interface DiagramNode {
   id: string;
   label: string;
@@ -37,25 +25,11 @@ export interface DiagramNote {
 }
 
 export interface DiagramData {
-  /**
-   * Preferred authoring path for architecture/code diagrams: a scoped, inert
-   * HTML/SVG fragment. Use .diagram-* primitives and --wf-* tokens; the
-   * renderer supplies theme-token-backed styling plus sketch/clean style hooks.
-   */
   html?: string;
   css?: string;
-  /**
-   * `design` forces clean HTML/CSS rendering without the sketch overlay. Use it
-   * for UI-like blocks such as cards, logo walls, tables, and controls.
-   */
   renderMode?: "wireframe" | "design";
   caption?: string;
-  /** Outer surface frame. `auto` lets the host choose the right default. */
   frame?: BlockVisualFrame;
-  /**
-   * Legacy compatibility path for older/simple node graphs. New plans should use
-   * `html`/`css` when layout quality matters.
-   */
   nodes?: DiagramNode[];
   edges?: DiagramEdge[];
   notes?: DiagramNote[];
@@ -129,11 +103,6 @@ const diagramNoteSchema = z.object({
 
 const visualFrameSchema = z.enum(["auto", "show", "hide"]);
 
-/**
- * The block can be a flexible HTML/SVG fragment or a legacy positional
- * node/edge/note graph, so it ships a custom `Edit` rather than relying on the
- * schema auto-editor. Editing stays comment/patch-driven.
- */
 export const diagramSchema = z
   .object({
     html: z
@@ -183,14 +152,6 @@ function graphDataForAttr(data: DiagramData): DiagramData | undefined {
   return Object.keys(dataForAttr).length > 0 ? dataForAttr : undefined;
 }
 
-/**
- * MDX config: new source uses normal fenced-code children:
- *
- * `<Diagram caption="...">` plus child `html` / `css` fences. Legacy
- * `<Diagram data={...} />` remains accepted by `fromAttrs`; `toAttrs` keeps the
- * `data` key present-but-undefined when using child fences so docs validation
- * still recognizes old `data={...}` as a supported compatibility attribute.
- */
 export const diagramMdx: BlockMdxConfig<DiagramData> = {
   tag: "Diagram",
   toAttrs: (data) => ({

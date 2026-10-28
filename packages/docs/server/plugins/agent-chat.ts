@@ -1,4 +1,3 @@
-// Force production mode — hides onboarding steps and dev mode toggle
 process.env.AGENT_MODE = "production"; // guard:allow-env-mutation — boot-time mode flag for the docs site, not per-request
 
 import {

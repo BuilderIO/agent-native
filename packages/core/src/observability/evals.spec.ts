@@ -3,19 +3,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { AgentEngine } from "../agent/engine/types.js";
 import type { TraceSummary, EvalCriteria } from "./types.js";
 
-// evals.ts has three layers:
-//  1. Automated deterministic scorers (tool success, step efficiency,
-//     latency, cost, error recovery) — pure functions of a TraceSummary
-//     plus run status. These are the highest-value: every score must be
-//     clamped to [0,1] and reflect the documented formula.
-//  2. LLM-as-judge — we DON'T hit a model; we inject a fake engine whose
-//     stream yields a canned JSON blob, and assert the parsing +
-//     score-range normalization + null-on-garbage behavior.
-//  3. Dataset eval — aggregates judge results into an avgScore.
-//
-// Store writes (insertEvalResult) are fire-and-forget; we mock them and
-// also capture the persisted rows to check userId scoping.
-
 const store = vi.hoisted(() => ({
   getTraceSummary: vi.fn(),
   insertEvalResult: vi.fn(),
@@ -74,8 +61,6 @@ function summary(over: Partial<TraceSummary> = {}): TraceSummary {
   };
 }
 
-/** A fake engine whose single stream() call yields the given text as one
- *  text-delta. Lets us drive judge parsing without a model. */
 function fakeEngine(responseText: string): AgentEngine {
   return {
     name: "fake",
@@ -136,11 +121,11 @@ describe("runAutomatedEvals deterministic scorers", () => {
     });
 
     const r = byCriteria(await runAutomatedEvals("run-1"));
-    expect(r.tool_success_rate.score).toBe(1); // 3/3
-    expect(r.step_efficiency.score).toBe(1); // min(1, 3/3)
-    expect(r.latency_score.score).toBe(1); // 0 duration
-    expect(r.cost_efficiency.score).toBe(1); // 0 cost
-    expect(r.error_recovery.score).toBe(1); // no failures
+    expect(r.tool_success_rate.score).toBe(1);
+    expect(r.step_efficiency.score).toBe(1);
+    expect(r.latency_score.score).toBe(1);
+    expect(r.cost_efficiency.score).toBe(1);
+    expect(r.error_recovery.score).toBe(1);
   });
 
   it("tool_success_rate is failedTools-aware and is 1.0 for a no-tool run", async () => {
@@ -149,14 +134,13 @@ describe("runAutomatedEvals deterministic scorers", () => {
     );
     runStore.getRunById.mockResolvedValue(null);
     let r = byCriteria(await runAutomatedEvals("run-1"));
-    expect(r.tool_success_rate.score).toBe(0.25); // 1/4
+    expect(r.tool_success_rate.score).toBe(0.25);
     expect(r.tool_success_rate.metadata).toMatchObject({
       totalTools: 4,
       successfulTools: 1,
       failedTools: 3,
     });
 
-    // No tools at all => treated as a clean Q&A, score 1.0.
     store.getTraceSummary.mockResolvedValue(summary({ toolCalls: 0 }));
     r = byCriteria(await runAutomatedEvals("run-1"));
     expect(r.tool_success_rate.score).toBe(1);
@@ -169,17 +153,16 @@ describe("runAutomatedEvals deterministic scorers", () => {
     );
     runStore.getRunById.mockResolvedValue(null);
     const r = byCriteria(await runAutomatedEvals("run-1"));
-    expect(r.step_efficiency.score).toBe(0.25); // min(1, 2/8)
+    expect(r.step_efficiency.score).toBe(0.25);
   });
 
   it("latency_score clamps to 0 when the run vastly exceeds the baseline", async () => {
-    // baseline = max(10000, toolCalls*10000). With 0 tools => 10000ms.
     store.getTraceSummary.mockResolvedValue(
       summary({ toolCalls: 0, totalDurationMs: 50_000 }),
     );
     runStore.getRunById.mockResolvedValue(null);
     const r = byCriteria(await runAutomatedEvals("run-1"));
-    expect(r.latency_score.score).toBe(0); // 1 - 50000/10000 < 0 => clamp
+    expect(r.latency_score.score).toBe(0);
     expect(r.latency_score.metadata).toMatchObject({
       actualMs: 50_000,
       expectedMs: 10_000,
@@ -187,13 +170,12 @@ describe("runAutomatedEvals deterministic scorers", () => {
   });
 
   it("cost_efficiency clamps to 0 when cost exceeds the per-tool budget", async () => {
-    // expected = max(50, toolCalls*50) = 50 with 0 tools.
     store.getTraceSummary.mockResolvedValue(
       summary({ toolCalls: 0, totalCostCentsX100: 200 }),
     );
     runStore.getRunById.mockResolvedValue(null);
     const r = byCriteria(await runAutomatedEvals("run-1"));
-    expect(r.cost_efficiency.score).toBe(0); // 1 - 200/50 < 0
+    expect(r.cost_efficiency.score).toBe(0);
   });
 
   it("error_recovery: failures + a non-completed run scores 0", async () => {
@@ -252,7 +234,6 @@ describe("runAutomatedEvals deterministic scorers", () => {
     );
     runStore.getRunById.mockResolvedValue(null);
     const r = byCriteria(await runAutomatedEvals("run-1"));
-    // hadErrors true, status not "completed" => 0.
     expect(r.error_recovery.score).toBe(0);
     expect(r.error_recovery.metadata).toMatchObject({ runStatus: "unknown" });
   });
@@ -314,9 +295,6 @@ describe("runLlmJudgeEval", () => {
   });
 
   it("includes tool calls and results in the judge transcript", async () => {
-    // Persisted run events use AgentChatEvent shapes (tool_start/tool_done),
-    // not "tool-call"/"tool-result". Regression for the transcript builder
-    // silently dropping all tool activity from the judged transcript.
     runStore.getRunEventsSince.mockResolvedValue([
       {
         seq: 1,
@@ -360,7 +338,6 @@ describe("runLlmJudgeEval", () => {
   });
 
   it("normalizes a custom score range to [0,1]", async () => {
-    // 7 on a 1..10 scale => (7-1)/(10-1) = 0.666...
     const out = await runLlmJudgeEval(
       "run-1",
       { ...criteria, scoreRange: { min: 1, max: 10 } },
@@ -440,15 +417,13 @@ describe("runDatasetEval aggregation", () => {
       updatedAt: 0,
     });
 
-    // Each evaluateTestCase call streams the same response => score 0.8.
     const out = await runDatasetEval("ds-1", {
       engine: fakeEngine('{"score": 0.8, "reasoning": "fine"}'),
     });
 
     expect(out.totalCases).toBe(2);
-    expect(out.results).toHaveLength(2); // 1 criterion x 2 cases
+    expect(out.results).toHaveLength(2);
     expect(out.avgScore).toBeCloseTo(0.8, 5);
-    // Dataset evals are administrative => userId null, synthetic runId.
     expect(out.results.every((r) => r.userId === null)).toBe(true);
     expect(out.results.every((r) => r.runId.startsWith("dataset:ds-1:"))).toBe(
       true,
@@ -487,7 +462,6 @@ describe("runDatasetEval aggregation", () => {
       createdAt: 0,
       updatedAt: 0,
     });
-    // No JSON => every evaluateTestCase returns null => no results.
     const out = await runDatasetEval("ds-1", {
       engine: fakeEngine("nope, no json here"),
     });
@@ -517,7 +491,6 @@ describe("evaluateRun orchestrator", () => {
   });
 
   it("appends judge evals when the sample roll passes", async () => {
-    // sampleRate 1 => always sample. Provide an engine via resolveEngine.
     engineMod.resolveEngine.mockResolvedValue(
       fakeEngine('{"score": 0.9, "reasoning": "great"}'),
     );
@@ -531,11 +504,9 @@ describe("evaluateRun orchestrator", () => {
     ]);
 
     const results = await evaluateRun("run-1", { sampleRate: 1 });
-    // 5 automated + 2 default judge criteria.
     expect(results).toHaveLength(7);
     const judge = results.filter((r) => r.evalType === "llm_judge");
     expect(judge).toHaveLength(2);
-    // Judge evals inherit the automated userId.
     expect(judge.every((r) => r.userId === "alice")).toBe(true);
   });
 });

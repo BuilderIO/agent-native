@@ -1,6 +1,9 @@
-import { defineBlock, type BlockReadProps } from "@agent-native/core/blocks";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import {
+  defineBlock,
+  type BlockReadProps,
+} from "@agent-native/toolkit/app/blocks";
 import { Link, useLocation } from "react-router";
 
 import { BuilderLaunchAction } from "../BuilderWaitlistPopover";

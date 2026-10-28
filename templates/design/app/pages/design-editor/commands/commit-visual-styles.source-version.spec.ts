@@ -6,6 +6,7 @@ import {
   runCommitVisualStyles,
   type CommitVisualStylesArgs,
 } from "@/pages/design-editor/commands/commit-visual-styles";
+import { flushCommitsAfterPaint } from "@/pages/design-editor/commit-after-paint";
 
 const ref = <T>(current: T) => ({ current });
 
@@ -19,6 +20,9 @@ it("uses the projected source and refuses a style commit while source actions ar
   const runtimeSnapshot =
     '<html><head><style>h1 { color: rgb(0, 0, 255); }</style></head><body><div id="root"><main data-pending="true"><h1 id="target" style="color: rgb(0, 0, 255);">Pending</h1></main></div></body></html>';
   const queueFileContentSave = vi.fn();
+  const updateLiveScreenSnapshotContent = vi.fn(() => true);
+  const recordLocalContentHistoryEntry = vi.fn();
+  const onNoRenderedBox = vi.fn();
   const latestActiveContentRef = ref<string | null>(pendingContent);
   const canApplyContentEdit = vi.fn(() => true);
 
@@ -49,14 +53,16 @@ it("uses the projected source and refuses a style commit while source actions ar
     liveScreenSnapshotsById: {
       [fileId]: { url: "about:blank", html: runtimeSnapshot },
     },
+    onNoRenderedBox,
     queueFileContentSave,
     recordContentHistoryEntry: vi.fn(),
     recordLocalContentHistoryChangeFallback: vi.fn(),
-    recordLocalContentHistoryEntry: vi.fn(),
+    recordLocalContentHistoryEntry,
     recordPendingVisualStyleEdit: vi.fn(),
     replacePreviewContent: vi.fn(() => "applied" as const),
     responsiveEditScopeRef: ref("cascade-smaller"),
     selectedElement: null,
+    selectedElementRef: { current: null },
     setCollabContent: vi.fn(),
     setCollabContentFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
@@ -66,7 +72,7 @@ it("uses the projected source and refuses a style commit while source actions ar
     suppressContentHistoryRef: ref(false),
     t: (key: string) => key,
     undoManagerRef: ref(null),
-    updateLiveScreenSnapshotContent: vi.fn(() => false),
+    updateLiveScreenSnapshotContent,
     upsertMotionKeyframesFromStyles: vi.fn(),
     viewModeRef: ref("single"),
     ydoc: null,
@@ -76,6 +82,7 @@ it("uses the projected source and refuses a style commit while source actions ar
     backgroundImage: "linear-gradient(90deg, red, blue)",
     backgroundClip: "text",
   });
+  flushCommitsAfterPaint();
 
   expect(queueFileContentSave).toHaveBeenCalledOnce();
   const [savedFileId, savedContent, options] =
@@ -88,10 +95,64 @@ it("uses the projected source and refuses a style commit while source actions ar
     sourceContentHash(runtimeSnapshot),
   );
   expect(latestActiveContentRef.current).toBe(savedContent);
+  expect(updateLiveScreenSnapshotContent).not.toHaveBeenCalled();
+  expect(recordLocalContentHistoryEntry).toHaveBeenCalledOnce();
 
   queueFileContentSave.mockClear();
   canApplyContentEdit.mockReturnValue(false);
   runCommitVisualStyles(args, "#target", { color: "green" });
+  flushCommitsAfterPaint();
   expect(queueFileContentSave).not.toHaveBeenCalled();
   expect(latestActiveContentRef.current).toBe(savedContent);
+
+  const recordPendingVisualStyleEdit = vi.mocked(
+    args.recordPendingVisualStyleEdit,
+  );
+  const upsertMotionKeyframesFromStyles = vi.mocked(
+    args.upsertMotionKeyframesFromStyles,
+  );
+  canApplyContentEdit.mockReturnValue(true);
+  recordPendingVisualStyleEdit.mockClear();
+  upsertMotionKeyframesFromStyles.mockClear();
+  const sendStyleChangeForScreen = vi.fn(() => true);
+  vi.stubGlobal("window", {
+    __designCanvasSendStyleForScreen: sendStyleChangeForScreen,
+  });
+  runCommitVisualStyles(
+    {
+      ...args,
+      activeCanvasSourceType: "localhost",
+      selectedElement: null,
+      selectedElementRef: { current: null },
+    },
+    "#provider",
+    { borderRadius: "12px" },
+    {
+      runtimeApplied: true,
+      originalStyles: { borderRadius: "0px", backgroundColor: "white" },
+      elementInfo: {
+        boundingRect: { width: 0, height: 0 },
+        runtimeSelector: "#runtime-provider",
+        runtimeSourceId: "runtime-provider",
+        sourceId: "source-provider",
+      } as any,
+      routePath: "/library",
+    },
+  );
+  flushCommitsAfterPaint();
+  expect(recordPendingVisualStyleEdit).not.toHaveBeenCalled();
+  expect(onNoRenderedBox).toHaveBeenCalledOnce();
+  expect(upsertMotionKeyframesFromStyles).not.toHaveBeenCalled();
+  expect(sendStyleChangeForScreen).toHaveBeenCalledTimes(2);
+  expect(sendStyleChangeForScreen).toHaveBeenNthCalledWith(
+    1,
+    fileId,
+    "#runtime-provider",
+    "borderRadius",
+    "0px",
+    expect.objectContaining({
+      nodeId: "runtime-provider",
+      routePath: "/library",
+    }),
+  );
 });

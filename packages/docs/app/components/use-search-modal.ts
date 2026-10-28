@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react";
 
-// Deliberately free of any import of SearchModal: both headers lazy-load that
-// chunk, and a header that imported the modal just to read its open state
-// would pull the whole docs search index into the initial bundle.
 export function useSearchModal() {
   const [open, setOpen] = useState(false);
   const [everOpened, setEverOpened] = useState(false);

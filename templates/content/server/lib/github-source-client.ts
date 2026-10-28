@@ -1,0 +1,630 @@
+import {
+  ActionContractError,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
+
+import type { GitHubSourceProblemCode } from "../../shared/github-source.js";
+import { executeGitHubSourceRequest } from "./provider-api.js";
+
+export type { GitHubSourceProblemCode };
+
+export class GitHubSourceError extends Error {
+  constructor(
+    readonly code: GitHubSourceProblemCode,
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "GitHubSourceError";
+  }
+}
+
+/**
+ * A request the caller's time budget cut short. Nothing is wrong with the
+ * link, so a sync stops where it is instead of recording a problem.
+ */
+export class GitHubSourceDeadlineError extends Error {
+  constructor() {
+    super("GitHub didn't answer before the sync's time ran out.");
+    this.name = "GitHubSourceDeadlineError";
+  }
+}
+
+export interface GitHubRepositoryTarget {
+  owner: string;
+  repo: string;
+  connectionId?: string | null;
+  /** Ends the request when the caller's time budget runs out. */
+  signal?: AbortSignal;
+}
+
+export interface GitHubTreeEntry {
+  /** Path relative to the folder the tree was read for. */
+  path: string;
+  type: "blob" | "tree" | "commit";
+  sha: string;
+  size: number | null;
+}
+
+interface ProviderResponse {
+  status: number;
+  ok: boolean;
+  headers: Record<string, string>;
+  json?: unknown;
+  text?: string;
+  truncated: boolean;
+}
+
+const TREE_MAX_BYTES = 4 * 1024 * 1024;
+const BLOB_MAX_BYTES = 4 * 1024 * 1024;
+const COMPARE_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Encodes a branch or folder for an API path. Git allows no empty or dot
+ * segments, and URL resolution would turn `..` into a request for another
+ * endpoint, so they're refused rather than sent.
+ */
+function encodePath(
+  path: string,
+  code: "branch_not_found" | "folder_not_found",
+): string {
+  const segments = path.split("/");
+  if (segments.some((part) => !part || part === "." || part === "..")) {
+    throw new GitHubSourceError(
+      code,
+      code === "branch_not_found"
+        ? `"${path}" isn't a branch name GitHub allows.`
+        : `"${path}" isn't a folder path GitHub allows.`,
+    );
+  }
+  return segments.map(encodeURIComponent).join("/");
+}
+
+function repoPath(target: GitHubRepositoryTarget): string {
+  return `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function header(response: ProviderResponse, name: string): string | null {
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(response.headers ?? {})) {
+    if (key.toLowerCase() === wanted) return value;
+  }
+  return null;
+}
+
+/**
+ * Settles as the request does, or fails once the caller's time runs out. It
+ * listens to the request either way, so one it stops waiting for can't fail
+ * unheard.
+ */
+function untilDeadline<T>(
+  request: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new GitHubSourceDeadlineError());
+    request
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", stop));
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+  });
+}
+
+/** How long the provider client gives a request before it ends it itself. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * The reasons this client ends a request with when a caller's time runs out.
+ * The provider client ends a request at its own timeout with a plain abort,
+ * so a read can tell a caller's deadline, its own or another's on a request
+ * they shared, apart from GitHub not answering.
+ */
+const callerDeadlines = new WeakSet<object>();
+
+/**
+ * A signal for the provider client that ends when the caller's does, with a
+ * reason marked as a caller's deadline. `release` stops listening.
+ */
+function deadlineSignal(signal: AbortSignal) {
+  const controller = new AbortController();
+  const end = () => {
+    const reason = new DOMException("The caller's time ran out.", "AbortError");
+    callerDeadlines.add(reason);
+    controller.abort(reason);
+  };
+  if (signal.aborted) end();
+  else signal.addEventListener("abort", end, { once: true });
+  return {
+    signal: controller.signal,
+    release: () => signal.removeEventListener("abort", end),
+  };
+}
+
+/** How the provider client reports a request that a signal ended. */
+function endedBySignal(error: unknown): boolean {
+  const cause =
+    error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    (cause as { name?: unknown }).name === "AbortError"
+  );
+}
+
+/** Whether a caller's deadline ended the request, not the client's timeout. */
+function endedByCallerDeadline(error: unknown): boolean {
+  const cause =
+    error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  return !!cause && typeof cause === "object" && callerDeadlines.has(cause);
+}
+
+async function githubGet(
+  target: GitHubRepositoryTarget,
+  path: string,
+  options: { etag?: string | null; maxBytes?: number; graphql?: unknown } = {},
+): Promise<ProviderResponse> {
+  // The provider client can hold a request past this signal: it waits its
+  // turn under GitHub's rate limits, and identical reads in flight share one
+  // request, which the first caller's signal ends. So this read stops waiting
+  // at its own deadline, and while it has time left, or has no deadline, asks
+  // once more when another caller's deadline ended it, as on a link
+  // preview's read shared with a sync. If that ends too, GitHub didn't
+  // answer in time, the same as at its own deadline, rather than something
+  // wrong with the link. A request the client ended at its own timeout isn't
+  // sent again.
+  const send = () => {
+    const ending = target.signal ? deadlineSignal(target.signal) : null;
+    const request = executeGitHubSourceRequest({
+      provider: "github",
+      // A GraphQL query is a read too, sent as a POST.
+      method: options.graphql ? "POST" : "GET",
+      path,
+      headers: options.etag ? { "If-None-Match": options.etag } : undefined,
+      body: options.graphql,
+      connectionId: target.connectionId ?? undefined,
+      maxBytes: options.maxBytes,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+      signal: ending?.signal,
+    });
+    if (ending) request.then(ending.release, ending.release);
+    return target.signal ? untilDeadline(request, target.signal) : request;
+  };
+  let raw: unknown;
+  try {
+    raw = await send().catch((error: unknown) => {
+      if (!target.signal?.aborted && endedByCallerDeadline(error)) {
+        return send();
+      }
+      throw error;
+    });
+  } catch (error) {
+    if (target.signal && (target.signal.aborted || endedBySignal(error))) {
+      throw new GitHubSourceDeadlineError();
+    }
+    // A missing connection is the caller's to explain. Anything else the
+    // provider client throws, like a dropped connection, means GitHub never
+    // answered.
+    if (
+      isAgentConnectionRequiredError(error) ||
+      error instanceof ActionContractError
+    ) {
+      throw error;
+    }
+    throw Object.assign(
+      new GitHubSourceError("unavailable", "GitHub couldn't be reached."),
+      { cause: error },
+    );
+  }
+  const result = asRecord(raw);
+  const response = asRecord(result.response) as unknown as ProviderResponse;
+  if (typeof response.status !== "number") {
+    throw new GitHubSourceError("unavailable", "GitHub returned no response.");
+  }
+  if (response.status === 304) return response;
+  if (response.truncated) {
+    throw new GitHubSourceError(
+      "too_large",
+      "GitHub's response was too large to read in one request.",
+      response.status,
+    );
+  }
+  if (response.ok) return response;
+  throw responseError(response);
+}
+
+/** GitHub's rate limit is used up, until the time it says when it says one. */
+function rateLimitedError(response: ProviderResponse): GitHubSourceError {
+  const reset = Number(header(response, "x-ratelimit-reset"));
+  const at =
+    Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000) : null;
+  return new GitHubSourceError(
+    "rate_limited",
+    at
+      ? `GitHub's rate limit is used up until ${at.toISOString()}.`
+      : "GitHub's rate limit is used up for now.",
+    response.status,
+  );
+}
+
+function responseError(response: ProviderResponse): GitHubSourceError {
+  const message =
+    typeof asRecord(response.json).message === "string"
+      ? (asRecord(response.json).message as string)
+      : `HTTP ${response.status}`;
+  if (response.status === 401) {
+    return new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+  }
+  if (
+    response.status === 429 ||
+    (response.status === 403 &&
+      (header(response, "x-ratelimit-remaining") === "0" ||
+        /rate limit/i.test(message)))
+  ) {
+    return rateLimitedError(response);
+  }
+  if (response.status === 403) {
+    return new GitHubSourceError(
+      "forbidden",
+      `GitHub refused access: ${message}`,
+      403,
+    );
+  }
+  if (response.status === 404) {
+    return new GitHubSourceError("repository_not_found", message, 404);
+  }
+  return new GitHubSourceError(
+    "unavailable",
+    `GitHub returned ${response.status}: ${message}`,
+    response.status,
+  );
+}
+
+/**
+ * A 404 from GitHub means the thing is missing or the token can't see it.
+ * Asking for the repository itself tells a lost repository apart from a
+ * missing branch or folder inside one that's still there.
+ */
+async function refineNotFound(
+  target: GitHubRepositoryTarget,
+  error: unknown,
+  inside: "branch_not_found" | "folder_not_found",
+  message: string,
+): Promise<never> {
+  if (
+    !(error instanceof GitHubSourceError) ||
+    error.code !== "repository_not_found"
+  ) {
+    throw error;
+  }
+  try {
+    await githubGet(target, repoPath(target));
+  } catch (repoError) {
+    if (
+      repoError instanceof GitHubSourceError &&
+      repoError.code === "repository_not_found"
+    ) {
+      throw new GitHubSourceError(
+        "repository_not_found",
+        `GitHub can't find ${target.owner}/${target.repo}, or the connected account can't see it.`,
+        404,
+      );
+    }
+    throw repoError;
+  }
+  throw new GitHubSourceError(inside, message, 404);
+}
+
+/** How long the connection check waits for GitHub before giving up. */
+const CONNECTION_CHECK_MS = 5_000;
+
+/**
+ * Whether the person has a GitHub connection Content can read through. It
+ * asks for the rate limit, which reads no repository and costs none of it.
+ * Null means GitHub couldn't be asked, so the caller shouldn't say either way.
+ */
+export async function readGitHubConnected(
+  connectionId?: string | null,
+): Promise<boolean | null> {
+  try {
+    const raw = await executeGitHubSourceRequest({
+      provider: "github",
+      method: "GET",
+      path: "/rate_limit",
+      connectionId: connectionId ?? undefined,
+      signal: AbortSignal.timeout(CONNECTION_CHECK_MS),
+    });
+    const status = asRecord(asRecord(raw).response).status;
+    if (typeof status !== "number") return null;
+    return status !== 401;
+  } catch (error) {
+    if (isAgentConnectionRequiredError(error)) return false;
+    console.warn(
+      "[github-source] connection check failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
+/** The branch a repository URL without `/tree/` means. */
+export async function readGitHubDefaultBranch(
+  target: GitHubRepositoryTarget,
+): Promise<string> {
+  let response: ProviderResponse;
+  try {
+    response = await githubGet(target, repoPath(target));
+  } catch (error) {
+    if (
+      error instanceof GitHubSourceError &&
+      error.code === "repository_not_found"
+    ) {
+      throw new GitHubSourceError(
+        "repository_not_found",
+        `GitHub can't find ${target.owner}/${target.repo}, or the connected account can't see it.`,
+        404,
+      );
+    }
+    throw error;
+  }
+  const branch = asRecord(response.json).default_branch;
+  if (typeof branch !== "string" || !branch) {
+    throw new GitHubSourceError(
+      "branch_not_found",
+      `${target.owner}/${target.repo} has no default branch yet.`,
+    );
+  }
+  return branch;
+}
+
+export type GitHubBranchHead =
+  | { status: "not-modified" }
+  | { status: "ok"; sha: string; etag: string | null };
+
+/**
+ * Reads the commit a branch points at. With the ETag from the last read,
+ * an unchanged branch answers 304, which GitHub doesn't count against the
+ * rate limit.
+ */
+export async function readGitHubBranchHead(
+  target: GitHubRepositoryTarget & { branch: string },
+  etag?: string | null,
+): Promise<GitHubBranchHead> {
+  const branchPath = encodePath(target.branch, "branch_not_found");
+  let response: ProviderResponse;
+  try {
+    response = await githubGet(
+      target,
+      `${repoPath(target)}/git/ref/heads/${branchPath}`,
+      { etag },
+    );
+  } catch (error) {
+    return refineNotFound(
+      target,
+      error,
+      "branch_not_found",
+      `The branch "${target.branch}" doesn't exist in ${target.owner}/${target.repo}.`,
+    );
+  }
+  if (response.status === 304) return { status: "not-modified" };
+  const object = asRecord(asRecord(response.json).object);
+  if (typeof object.sha !== "string") {
+    throw new GitHubSourceError(
+      "branch_not_found",
+      `"${target.branch}" in ${target.owner}/${target.repo} is not a branch.`,
+    );
+  }
+  return { status: "ok", sha: object.sha, etag: header(response, "etag") };
+}
+
+/** Lists every file under a folder at one commit, in one request. */
+export async function readGitHubFolderTree(
+  target: GitHubRepositoryTarget & { commitSha: string; path: string },
+): Promise<GitHubTreeEntry[]> {
+  const treeish = target.path
+    ? `${target.commitSha}:${target.path}`
+    : target.commitSha;
+  const treePath = encodePath(treeish, "folder_not_found");
+  let response: ProviderResponse;
+  try {
+    response = await githubGet(
+      target,
+      `${repoPath(target)}/git/trees/${treePath}?recursive=1`,
+      { maxBytes: TREE_MAX_BYTES },
+    );
+  } catch (error) {
+    return refineNotFound(
+      target,
+      error,
+      "folder_not_found",
+      `The folder "${target.path}" doesn't exist on this branch.`,
+    );
+  }
+  const body = asRecord(response.json);
+  if (body.truncated === true) {
+    throw new GitHubSourceError(
+      "too_large",
+      "This folder has more files than GitHub lists in one tree. Link a smaller folder.",
+    );
+  }
+  // Read as an empty folder, a listing without its entries would move every
+  // page to Trash, so it fails the sync instead.
+  if (!Array.isArray(body.tree)) {
+    throw new GitHubSourceError(
+      "unavailable",
+      "GitHub returned a folder listing without its files.",
+      response.status,
+    );
+  }
+  const entries: GitHubTreeEntry[] = [];
+  for (const raw of body.tree) {
+    const entry = asRecord(raw);
+    if (
+      typeof entry.path !== "string" ||
+      typeof entry.sha !== "string" ||
+      (entry.type !== "blob" &&
+        entry.type !== "tree" &&
+        entry.type !== "commit")
+    ) {
+      continue;
+    }
+    entries.push({
+      path: entry.path,
+      type: entry.type,
+      sha: entry.sha,
+      size: typeof entry.size === "number" ? entry.size : null,
+    });
+  }
+  return entries;
+}
+
+/** The provider client reads no more of a response than this, whatever it's asked. */
+const BLOB_TEXTS_MAX_BYTES = 4 * 1024 * 1024;
+const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+/** What GitHub puts in place of bytes that aren't UTF-8. */
+const REPLACEMENT_CHARACTER = "\uFFFD";
+
+/**
+ * Reads many text files in one request, by blob SHA. GitHub's GraphQL API
+ * counts one query as one request however many files it names, where the
+ * REST API takes a request per file. A file it sends no whole text for,
+ * because it's binary, too big for GraphQL, not UTF-8 or missing, is left
+ * out of the result, so the caller reads it on its own.
+ */
+export async function readGitHubBlobTexts(
+  target: GitHubRepositoryTarget,
+  shas: readonly string[],
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(shas)].filter((sha) => OBJECT_ID.test(sha));
+  const texts = new Map<string, string>();
+  if (wanted.length === 0) return texts;
+  const fields = wanted
+    .map(
+      (sha, index) =>
+        `b${index}: object(oid: "${sha}") { ... on Blob { text isBinary isTruncated } }`,
+    )
+    .join(" ");
+  const response = await githubGet(target, "/graphql", {
+    maxBytes: BLOB_TEXTS_MAX_BYTES,
+    graphql: {
+      query: `query($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { ${fields} } }`,
+      variables: { owner: target.owner, repo: target.repo },
+    },
+  });
+  // GraphQL answers a query it can't run, like one over its own rate limit,
+  // with 200 and a list of errors instead of the repository.
+  const body = asRecord(response.json);
+  const repository = asRecord(body.data).repository;
+  if (!repository || typeof repository !== "object") {
+    const errors = (Array.isArray(body.errors) ? body.errors : []).map(
+      asRecord,
+    );
+    // A used-up rate limit is the sync's to report, as a REST one is, not a
+    // reason to read each file on its own.
+    if (
+      errors.some(
+        (error) =>
+          error.type === "RATE_LIMITED" ||
+          (typeof error.message === "string" &&
+            /rate limit/i.test(error.message)),
+      )
+    ) {
+      throw rateLimitedError(response);
+    }
+    const message = errors[0]?.message;
+    throw new GitHubSourceError(
+      "unavailable",
+      typeof message === "string"
+        ? `GitHub couldn't read the files together: ${message}`
+        : "GitHub couldn't read the files together.",
+      response.status,
+    );
+  }
+  const blobs = asRecord(repository);
+  wanted.forEach((sha, index) => {
+    const blob = asRecord(blobs[`b${index}`]);
+    if (
+      typeof blob.text !== "string" ||
+      blob.isBinary !== false ||
+      blob.isTruncated !== false ||
+      // GitHub swaps bytes that aren't UTF-8 for this; a read of the file's
+      // bytes decides whether it's text.
+      blob.text.includes(REPLACEMENT_CHARACTER)
+    ) {
+      return;
+    }
+    // A file's bytes decode without a leading byte order mark; so does this.
+    texts.set(sha, blob.text.replace(/^\uFEFF/, ""));
+  });
+  return texts;
+}
+
+/** Reads one file's bytes by blob SHA, which never changes for the same content. */
+export async function readGitHubBlob(
+  target: GitHubRepositoryTarget & { sha: string },
+): Promise<Uint8Array> {
+  const response = await githubGet(
+    target,
+    `${repoPath(target)}/git/blobs/${encodeURIComponent(target.sha)}`,
+    { maxBytes: BLOB_MAX_BYTES },
+  );
+  const body = asRecord(response.json);
+  if (typeof body.content !== "string" || body.encoding !== "base64") {
+    throw new GitHubSourceError(
+      "unavailable",
+      "GitHub returned a file in an unexpected encoding.",
+    );
+  }
+  return new Uint8Array(Buffer.from(body.content, "base64"));
+}
+
+/**
+ * Files Git saw renamed between two commits, as repository paths. GitHub
+ * lists a comparison's changed files, up to 300, on its first page only;
+ * `per_page` pages the commits, so one commit keeps the response small.
+ * Best effort: a comparison too large to read, or one naming a commit
+ * GitHub no longer has (after a force-push), returns null, and the caller
+ * falls back to matching identical files and frontmatter ids. Any other
+ * failure fails the sync, which tries again rather than lose a rename.
+ */
+export async function readGitHubRenames(
+  target: GitHubRepositoryTarget & { base: string; head: string },
+): Promise<Array<{ from: string; to: string }> | null> {
+  try {
+    const response = await githubGet(
+      target,
+      `${repoPath(target)}/compare/${encodeURIComponent(target.base)}...${encodeURIComponent(target.head)}?per_page=1`,
+      { maxBytes: COMPARE_MAX_BYTES },
+    );
+    const files = asRecord(response.json).files;
+    if (!Array.isArray(files)) return null;
+    return files.flatMap((raw) => {
+      const file = asRecord(raw);
+      return file.status === "renamed" &&
+        typeof file.filename === "string" &&
+        typeof file.previous_filename === "string"
+        ? [{ from: file.previous_filename, to: file.filename }]
+        : [];
+    });
+  } catch (error) {
+    if (
+      error instanceof GitHubSourceError &&
+      (error.code === "too_large" ||
+        error.status === 404 ||
+        error.status === 422)
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}

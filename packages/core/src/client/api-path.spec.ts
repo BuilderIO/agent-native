@@ -6,7 +6,11 @@ import {
   appApiPath,
   appBasePath,
   appPath,
+  appPathFromLocalRoute,
+  frameworkRoutePrefix,
+  isFrameworkRoutePath,
   isWorkspaceAppPath,
+  resolveExternalEmbedTargetAppBasePath,
 } from "./api-path.js";
 import { oauthRedirectUri } from "./frame.js";
 
@@ -44,10 +48,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("uses the live workspace mount when a configured base belongs to another app", () => {
+  it("uses the explicit live workspace mount when a configured base belongs to another app", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
@@ -56,12 +63,6 @@ describe("agentNativePath", () => {
   });
 
   it("does not mistake an app-local route for a sibling app's workspace mount", () => {
-    // Regression for the Builder connect popup opening
-    // "/settings/_agent-native/builder/connect" instead of
-    // "/dispatch/_agent-native/builder/connect" — the workspace gateway has
-    // no app mounted at "/settings" (it's a page inside the "dispatch" app),
-    // so that URL 404s into the gateway's app-picker page instead of
-    // reaching Builder's real sign-in/authorize screen.
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
     vi.stubEnv(
@@ -80,10 +81,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("accepts boolean-style workspace flags from the config layer", () => {
+  it("accepts boolean-style workspace flags with an explicit live mount", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
@@ -91,16 +95,32 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("uses projected workspace state when only the server flag is configured", () => {
+  it("uses projected workspace state and mount when only the server flag is configured", () => {
     vi.stubGlobal("window", {
       location: { pathname: "/diagrams" },
-      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/diagrams",
+      },
     });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
       "/diagrams/_agent-native/poll",
     );
+  });
+
+  it("honors the projected explicit-root flag on nested workspace routes", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/reports/detail" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        explicitRootPath: true,
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect(appBasePath()).toBe("");
   });
 
   it("accepts an HTTP streaming origin and rejects executable URL schemes", () => {
@@ -119,10 +139,13 @@ describe("agentNativePath", () => {
     expect(agentChatStreamingUrl()).toBeUndefined();
   });
 
-  it("uses the live workspace route segment for app API paths under nested routes", () => {
+  it("uses the projected workspace path for app API paths under nested routes", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams/editor" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams/editor" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(appApiPath("local-migration")).toBe("/diagrams/api/local-migration");
@@ -141,6 +164,114 @@ describe("agentNativePath", () => {
     expect(appBasePath()).toBe("/assets");
     expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
       "/assets/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("falls back to the configured app path when the external target has no workspace mount", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/deck");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/deck/reports" },
+    });
+
+    expect(appBasePath()).toBe("/deck");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/deck/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("uses the external embed target's explicit root workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/deck"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/deck/reports" },
+    });
+
+    expect(appBasePath()).toBe("/deck");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/deck/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("uses the configured nested workspace mount for an external target", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail/inbox",
+        workspaceAppMountPaths: ["/mail/inbox"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/mail/inbox/threads",
+      },
+    });
+
+    expect(appBasePath()).toBe("/mail/inbox");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/mail/inbox/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("uses the current workspace mount after navigating away from an external target", () => {
+    const win = {
+      location: { pathname: "/mail/inbox/threads" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail/inbox",
+        workspaceAppMountPaths: ["/mail/inbox", "/calendar"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/mail/inbox/threads",
+      },
+    };
+    vi.stubGlobal("window", win);
+
+    expect(appBasePath()).toBe("/mail/inbox");
+    win.location.pathname = "/calendar/events";
+    expect(appBasePath()).toBe("/calendar");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/calendar/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("does not keep a root external target when the current path belongs to a mounted app", () => {
+    const win = {
+      location: { pathname: "/reports/overview" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/mail"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/reports" },
+    };
+    vi.stubGlobal("window", win);
+
+    expect(appBasePath()).toBe("");
+    win.location.pathname = "/mail/threads";
+    expect(appBasePath()).toBe("/mail");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/mail/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("does not infer an external workspace target outside declared mounts", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/mail/inbox" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail",
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect(resolveExternalEmbedTargetAppBasePath("/reports/detail")).toBe(
+      undefined,
     );
   });
 
@@ -292,6 +423,29 @@ describe("appPath", () => {
   });
 });
 
+describe("appPathFromLocalRoute", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("always prefixes a local route when its first segment matches the mount", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/_agent-native/auth/reset" },
+    });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe(
+      "/chat/chat/thread-123",
+    );
+  });
+
+  it("leaves local routes unchanged outside a mounted app", () => {
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe("/chat/thread-123");
+  });
+});
+
 describe("isWorkspaceAppPath", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -343,5 +497,110 @@ describe("appApiPath", () => {
     expect(appApiPath("/api/local-migration")).toBe(
       "/docs/api/local-migration",
     );
+  });
+});
+
+describe("configurable framework route prefix", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("defaults to the internal prefix and leaves URLs unchanged", () => {
+    vi.stubGlobal("window", { location: { pathname: "/" } });
+    expect(frameworkRoutePrefix()).toBe("/_agent-native");
+    expect(agentNativePath("/_agent-native/actions/x")).toBe(
+      "/_agent-native/actions/x",
+    );
+  });
+
+  it("builds browser URLs under the bundled public prefix", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", { location: { pathname: "/" } });
+    expect(frameworkRoutePrefix()).toBe("/_platform");
+    expect(agentNativePath("/_agent-native/actions/x?y=1")).toBe(
+      "/_platform/actions/x?y=1",
+    );
+    expect(agentNativePath("/api/x")).toBe("/api/x");
+    expect(isFrameworkRoutePath("/_platform/events")).toBe(true);
+    expect(isFrameworkRoutePath("/_agent-native/events")).toBe(true);
+    expect(isFrameworkRoutePath("/_platform-extra/events")).toBe(false);
+  });
+
+  it("applies the app base path once, after the prefix swap", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+    vi.stubGlobal("window", { location: { pathname: "/docs/dashboard" } });
+    expect(agentNativePath("/_agent-native/events")).toBe(
+      "/docs/_platform/events",
+    );
+  });
+
+  it("derives the app base path from the public prefix in the live URL", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform/builder/callback" },
+    });
+    expect(appBasePath()).toBe("/docs");
+  });
+
+  it("ignores a route that merely contains the prefix text", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform-settings" },
+    });
+    expect(appBasePath()).toBe("");
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform" },
+    });
+    expect(appBasePath()).toBe("/docs");
+  });
+
+  it("leaves a similarly named app route alone", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+    vi.stubGlobal("window", { location: { pathname: "/" } });
+    expect(agentNativePath("/_agent-native-extra/settings")).toBe(
+      "/_agent-native-extra/settings",
+    );
+  });
+
+  it("issues workspace relay callbacks under the public prefix", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/mail/settings", origin: "https://ws.example" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceOAuthOrigin: "https://ws.example",
+      },
+    });
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://ws.example/_platform/google/callback",
+    );
+  });
+
+  it("falls back to the projected shell config and rejects a malformed one", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/" },
+      __AGENT_NATIVE_CONFIG__: { frameworkRoutePrefix: "/_gateway" },
+    });
+    expect(frameworkRoutePrefix()).toBe("/_gateway");
+    vi.stubGlobal("window", {
+      location: { pathname: "/" },
+      __AGENT_NATIVE_CONFIG__: { frameworkRoutePrefix: "/api" },
+    });
+    expect(() => frameworkRoutePrefix()).toThrow(/reserved namespace/);
   });
 });

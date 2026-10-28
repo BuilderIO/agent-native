@@ -1,29 +1,41 @@
 /**
  * GET /api/agent-frame.jpg?id=<recordingId>&atMs=<timestampMs>[&password=<pw>|&t=<token>]
  *
- * Extract a JPEG frame from a public clip for external agents.
+ * Extract a JPEG frame from a public clip for external agents. For a
+ * screenshot, the picture itself in its stored format.
  */
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  getForwardedRequestURL,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { isImageRecording } from "@shared/recording-kind";
 import {
   defineEventHandler,
   getQuery,
-  getRequestURL,
   setResponseHeader,
-  setResponseStatus,
   type H3Event,
 } from "h3";
 
+import {
+  describeFrameFailure,
+  frameFailureStatus,
+  loadAgentFrameAccess,
+  sendFrameJson,
+} from "../../lib/agent-frame-request.js";
+import {
+  clampAgentFrameAtMs,
+  loadStoredAgentFrame,
+} from "../../lib/agent-frame-store.js";
 import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
-  loadPublicAgentAccess,
   loadRecordingMediaFile,
+  loadScreenshotImage,
   queryString,
-  RecordingMediaFetchError,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
 import {
@@ -98,9 +110,11 @@ function applyFrameHeaders(event: H3Event) {
 
 async function persistDefaultThumbnailIfMissing(
   access: PublicAgentAccess,
+  requestedMs: number,
   frame: Uint8Array,
   mimeType: string,
 ): Promise<void> {
+  if (requestedMs !== RECORDING_THUMBNAIL_AT_MS) return;
   if (access.recording.thumbnailUrl) return;
   try {
     await runWithRequestContext(
@@ -129,7 +143,7 @@ function redirectToResolvedFrame(
   access: PublicAgentAccess,
   atMs: number,
 ): Response {
-  const location = getRequestURL(event);
+  const location = getForwardedRequestURL(event);
   location.search = "";
   location.searchParams.set("id", access.recording.id);
   location.searchParams.set("atMs", String(atMs));
@@ -162,7 +176,7 @@ async function extractFrameWithStaleDurationRecovery({
   } catch (error) {
     if (
       !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_VIDEO" ||
+      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
       atMs <= 0
     ) {
       throw error;
@@ -188,7 +202,7 @@ async function extractFrameWithStaleDurationRecovery({
       } catch (candidateError) {
         if (
           !(candidateError instanceof VideoFrameExtractionError) ||
-          candidateError.code !== "NO_VIDEO"
+          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
         ) {
           throw candidateError;
         }
@@ -200,30 +214,33 @@ async function extractFrameWithStaleDurationRecovery({
 
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
-  const id = queryString(query.id);
-  const accessResult = await loadPublicAgentAccess(event, id, {
-    password: queryString(query.password),
-    token: queryString(query[CLIPS_AGENT_ACCESS_PARAM]),
-  });
-
-  if (!accessResult.ok) {
-    setResponseStatus(event, accessResult.failure.status);
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return accessResult.failure.body;
-  }
-
+  const accessResult = await loadAgentFrameAccess(event);
+  if (!accessResult.ok) return accessResult.body;
   const recording = accessResult.access.recording;
+
+  // A still image has one frame, the picture itself; there is no video to
+  // cut one from.
+  if (isImageRecording(recording)) {
+    try {
+      const image = await loadScreenshotImage(recording);
+      setResponseHeader(event, "Content-Type", image.mimeType);
+      setResponseHeader(event, "Cache-Control", "private, no-store");
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      return Buffer.from(image.bytes);
+    } catch (err) {
+      // Pass the storage outcome on, as the video path does: a timeout or a
+      // missing object is not the same failure to retry as a bad gateway.
+      const status = frameFailureStatus(err);
+      return sendFrameJson(event, status, describeFrameFailure(err, status));
+    }
+  }
   const durationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
   const requestedMs = parseTimestampMs(
     queryString(query.atMs),
     queryString(query.tSeconds),
   );
-  const atMs =
-    durationMs > 0
-      ? Math.min(requestedMs, Math.max(0, durationMs - 1))
-      : requestedMs;
+  const atMs = clampAgentFrameAtMs(requestedMs, durationMs);
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
@@ -232,18 +249,34 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const access = accessResult.access;
   const cacheable = isPubliclyCacheableFrame(access);
+  const storedMimeType =
+    recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-      await persistDefaultThumbnailIfMissing(
-        access,
-        new Uint8Array(cached),
-        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
-      );
-    }
+    await persistDefaultThumbnailIfMissing(
+      access,
+      requestedMs,
+      new Uint8Array(cached),
+      storedMimeType,
+    );
     applyFrameHeaders(event);
     return cached;
   }
+
+  const lookup = await loadStoredAgentFrame(recording, atMs);
+  if ("frame" in lookup) {
+    await persistDefaultThumbnailIfMissing(
+      access,
+      requestedMs,
+      lookup.frame,
+      storedMimeType,
+    );
+    applyFrameHeaders(event);
+    const buffer = Buffer.from(lookup.frame);
+    if (cacheable) setCachedFrame(key, buffer);
+    return buffer;
+  }
+  const { claim } = lookup;
 
   try {
     const media = await loadRecordingMediaFile(recording);
@@ -253,18 +286,22 @@ export default defineEventHandler(async (event: H3Event) => {
         atMs,
       });
 
-      if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-        await persistDefaultThumbnailIfMissing(
-          access,
-          resolved.frame,
-          media.mimeType,
-        );
-      }
+      await persistDefaultThumbnailIfMissing(
+        access,
+        requestedMs,
+        resolved.frame,
+        media.mimeType,
+      );
 
       if (resolved.atMs !== atMs) {
         return redirectToResolvedFrame(event, access, resolved.atMs);
       }
 
+      await claim?.fill(
+        (frameAtMs) =>
+          extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
+        { atMs, frame: resolved.frame },
+      );
       applyFrameHeaders(event);
       const buffer = Buffer.from(resolved.frame);
       if (cacheable) setCachedFrame(key, buffer);
@@ -273,25 +310,11 @@ export default defineEventHandler(async (event: H3Event) => {
       await media.cleanup().catch(() => {});
     }
   } catch (err) {
-    const isFrameError = err instanceof VideoFrameExtractionError;
-    setResponseStatus(
-      event,
-      err instanceof RecordingMediaFetchError
-        ? err.statusCode
-        : isFrameError && err.code === "FFMPEG_UNAVAILABLE"
-          ? 503
-          : err instanceof Error && /too large/i.test(err.message)
-            ? 413
-            : 422,
-    );
-    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
-    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-    return {
-      error: isFrameError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : String(err),
-    };
+    const status = frameFailureStatus(err);
+    return sendFrameJson(event, status, describeFrameFailure(err, status));
+  } finally {
+    // Whatever ended the request, requests waiting on this clip's frames must
+    // not wait on it any longer.
+    await claim?.release();
   }
 });

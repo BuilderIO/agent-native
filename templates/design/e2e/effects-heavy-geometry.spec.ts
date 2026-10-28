@@ -1,33 +1,5 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
-import { enterDirectMode, gotoEditor } from "./helpers";
-
-/**
- * Regression coverage for a field report (W3 torture campaign): an
- * effects-heavy screen (absolutely-positioned elements, rotation,
- * backdrop-filter, mix-blend-mode, deep nesting, object-fit) allegedly
- * rendered severely degraded in the live single-screen canvas — absolutely
- * positioned elements collapsing into stacked flow layout — reproduced
- * identically in the export pipeline, which pointed at a shared
- * canvas/embedded-frame rendering path rather than export-specific code.
- *
- * The original repro fixture lived on a throwaway dev DB and was not
- * recoverable. This spec rebuilds an equivalent effects-heavy fixture and
- * asserts, node by node, that the SAME persisted HTML renders with identical
- * geometry (position, size, rotation, backdrop-filter, mix-blend-mode)
- * whether it's:
- *   (a) embedded live in the single-screen design canvas, or
- *   (b) rendered completely standalone (a bare page with no app chrome).
- * A future regression in the canvas/embedded-frame document construction
- * (missing wrapper style, a CSS reset difference, a stripped script) would
- * show up here as a geometry mismatch between (a) and (b).
- */
+import { enterDirectMode } from "./helpers";
+import { expect, test } from "./rails";
 
 const EFFECTS_FIXTURE_HTML = `<!doctype html>
 <html data-agent-native-node-id="an-root">
@@ -57,8 +29,6 @@ const EFFECTS_FIXTURE_HTML = `<!doctype html>
 </body>
 </html>`;
 
-// Nodes checked for geometry parity. Includes top-level, rotated, blended,
-// and deeply-nested absolutely-positioned elements.
 const CHECKED_NODE_IDS = [
   "an-hero",
   "an-hero-overlay",
@@ -85,7 +55,6 @@ interface NodeGeometry {
   mixBlendMode: string;
 }
 
-/** Reads geometry/computed-style for every checked node inside `doc`. */
 const READ_GEOMETRY_SCRIPT = (nodeIds: readonly string[]) => {
   const out: Record<string, NodeGeometry | null> = {};
   for (const id of nodeIds) {
@@ -110,61 +79,16 @@ const READ_GEOMETRY_SCRIPT = (nodeIds: readonly string[]) => {
   return out;
 };
 
-async function postAction(
-  request: APIRequestContext,
-  baseURL: string,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<any> {
-  const response = await request.post(
-    `${baseURL}/_agent-native/actions/${name}`,
-    {
-      data: input,
-      headers: { "Content-Type": "application/json" },
-      timeout: 60_000,
-    },
-  );
-  if (!response.ok()) {
-    throw new Error(
-      `${name} failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return response.json();
-}
-
-async function createEffectsFixtureDesign(
-  page: Page,
-  baseURL: string,
-): Promise<{ designId: string; fileId: string }> {
-  const created = await postAction(page.request, baseURL, "create-design", {
-    title: "E2E Effects-Heavy Geometry",
-    projectType: "prototype",
-  });
-  const designId = String(
-    created?.id ?? created?.data?.id ?? created?.design?.id ?? "",
-  );
-  if (!designId) throw new Error("create-design did not return an id");
-  const file = await postAction(page.request, baseURL, "create-file", {
-    designId,
-    filename: "effects-fixture.html",
-    content: EFFECTS_FIXTURE_HTML,
-    fileType: "html",
-  });
-  const fileId = String(file?.id ?? "");
-  if (!fileId) throw new Error("create-file did not return an id");
-  return { designId, fileId };
-}
-
 test("effects-heavy screen renders identical geometry in the single-screen canvas and standalone", async ({
+  app,
   page,
   browser,
-}, workerInfo) => {
+}) => {
   test.setTimeout(120_000);
-  const baseURL =
-    (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
-  const { designId, fileId } = await createEffectsFixtureDesign(page, baseURL);
+  const designId = await app.seed(EFFECTS_FIXTURE_HTML);
+  const fileId = (await app.savedRecord(designId)).files[0].id;
 
-  await gotoEditor(page, designId);
+  await app.open(designId);
   await enterDirectMode(page, { screenId: fileId });
 
   const canvasIframe = page
@@ -175,11 +99,8 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
   await expect(
     canvasFrameLocator.locator('[data-agent-native-node-id="an-card-1"]'),
   ).toBeVisible({ timeout: 15_000 });
-  // Let webfont/Tailwind-CDN styling settle before measuring.
   await page.waitForTimeout(500);
 
-  // FrameLocator has no `.evaluate` (only Locator/Frame do) — resolve the
-  // underlying element handle to get a real Frame to evaluate script in.
   const canvasIframeHandle = await canvasIframe.elementHandle();
   const canvasFrame = await canvasIframeHandle?.contentFrame();
   if (!canvasFrame)
@@ -189,8 +110,6 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
     CHECKED_NODE_IDS,
   )) as Record<string, NodeGeometry | null>;
 
-  // Render the exact same persisted HTML with zero app chrome, in a fresh
-  // browser context so there is no shared state with the editor at all.
   const standaloneContext = await browser.newContext();
   const standalonePage = await standaloneContext.newPage();
   try {
@@ -213,9 +132,6 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
       ).not.toBeNull();
       if (!canvasNode || !standaloneNode) continue;
 
-      // The canvas wraps content in its own document at a possibly different
-      // zoom/scale, but this fixture is always measured at 100% (see
-      // enterDirectMode), so absolute geometry should match closely.
       expect(canvasNode.position, `${id} position`).toBe(
         standaloneNode.position,
       );
@@ -244,11 +160,6 @@ test("effects-heavy screen renders identical geometry in the single-screen canva
       // absolute — the canvas iframe may be offset within the app chrome.
     }
 
-    // Relative geometry check: every checked node's position/size RELATIVE
-    // to the hero root must match between canvas and standalone, which is
-    // robust to any outer iframe offset while still catching a layout
-    // collapse (a flow-layout regression changes relative deltas, not just
-    // absolute viewport coordinates).
     const rootIdCanvas = canvasGeometry["an-hero"];
     const rootIdStandalone = standaloneGeometry["an-hero"];
     expect(rootIdCanvas).not.toBeNull();

@@ -16,11 +16,6 @@ import {
   writeVariantState,
 } from "./variant-slots.js";
 
-/**
- * Dismiss only ever removes an unsaved draft the caller may discard. Anything
- * else — saved kit content, another drafter's candidate — is reported back as
- * retained rather than deleted or silently swallowed.
- */
 async function canDiscardAsset(asset: {
   libraryId: string;
   role: string | null;
@@ -32,9 +27,6 @@ async function canDiscardAsset(asset: {
     await assertCanDeleteAsset(asset);
     return true;
   } catch (error) {
-    // A refusal is a decision the caller should see as "retained". Anything
-    // else — an unreadable run row, a failed query — must not read back as
-    // "not yours to discard".
     if (error instanceof ForbiddenError) return false;
     throw error;
   }
@@ -106,8 +98,6 @@ export default defineAction({
         assetsRetained++;
         continue;
       }
-      // Conditional on the state that was authorized: an editor can save this
-      // candidate between the check and the delete, and that save must win.
       if (await deleteDraftAssetIfUnchanged(asset)) {
         assetsDeleted++;
       } else {

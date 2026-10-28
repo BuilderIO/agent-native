@@ -10,7 +10,6 @@ function sameRun(a: ActiveRunState | null, b: ActiveRunState | null): boolean {
   return a?.threadId === b?.threadId && a?.runId === b?.runId;
 }
 
-/** Return the focused run for a thread and keep it current as the stream moves. */
 export function useActiveAgentChatRunId(
   threadId: string | null | undefined,
 ): string | null {

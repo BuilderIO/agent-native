@@ -16,10 +16,6 @@ export interface CuratedWorkspaceTemplateStatus extends CuratedWorkspaceTemplate
   installed: boolean;
 }
 
-/**
- * Stable first-party template metadata for the initial app-creation catalog.
- * `liveUrl` identifies the product URL; it is not a public-demo claim.
- */
 export const CURATED_WORKSPACE_TEMPLATES: readonly CuratedWorkspaceTemplate[] =
   [
     {

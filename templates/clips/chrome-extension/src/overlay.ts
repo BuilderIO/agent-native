@@ -5,17 +5,8 @@ import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("overlay");
 
-// The overlay runs as an extension-origin iframe injected into the page by the
-// content script. Each iframe renders one "part" of the Loom-style recording UI
-// (camera bubble, countdown, or control toolbar) selected via ?part=. Running at
-// the chrome-extension:// origin gives us a persistent camera permission grant,
-// CSS isolation from the host page, and direct chrome.runtime messaging with the
-// background service worker.
-
 type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
 
-// Hover-expand heights for the vertical toolbar, posted to the content script
-// which owns the iframe size (the iframe can't resize itself).
 const TOOLBAR_COLLAPSED_H = 154;
 const TOOLBAR_EXPANDED_H = 236;
 
@@ -160,12 +151,9 @@ function send(
       },
     );
   } catch {
-    /* the background may be momentarily asleep; state will re-sync */
     onComplete?.(false);
   }
 }
-
-/* ---------------------------------------------------------------- bubble --- */
 
 function postBubble(kind: string, extra: Record<string, unknown> = {}): void {
   try {
@@ -185,8 +173,6 @@ async function initBubble(): Promise<void> {
   ring.className = "bubble-ring";
   bubble.appendChild(ring);
 
-  // Drag: the content script owns the iframe position, so we just signal the
-  // start of a drag and it captures the pointer page-wide.
   bubble.style.cursor = "grab";
   bubble.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
@@ -201,7 +187,6 @@ async function initBubble(): Promise<void> {
     window.addEventListener("pointerup", restore);
   });
 
-  // Size dots (small / large), revealed on hover — like the desktop bubble.
   const sizes = document.createElement("div");
   sizes.className = "bubble-sizes";
   sizes.setAttribute("data-no-drag", "");
@@ -235,8 +220,6 @@ async function initBubble(): Promise<void> {
   const postReadyOnce = (): void => {
     if (readyPosted) return;
     readyPosted = true;
-    // Tell the host the feed is live so it can start the countdown — the "3"
-    // shouldn't appear until the camera is actually showing.
     postBubble("camera-ready");
   };
 
@@ -269,7 +252,6 @@ async function initBubble(): Promise<void> {
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;
     ring.appendChild(empty);
-    // Still release the countdown — a blocked/failed camera must not hang it.
     postReadyOnce();
   };
 
@@ -335,14 +317,6 @@ async function initBubble(): Promise<void> {
   await connectCamera();
 }
 
-/* ------------------------------------------------------------- countdown --- */
-
-// The countdown only *visualizes* the worker's clock (state.countdownEndsAtMs).
-// The worker owns the real timer and starts the recorder, so this never *needs*
-// to signal "done" — which is what lets recording work on pages where no overlay
-// can be injected at all. The skip button is the one exception: it explicitly
-// asks the worker to start now (CLIPS_OVERLAY_COUNTDOWN_DONE → beginNow), which
-// is idempotent and harmless if the timer also fires.
 function initCountdown(): void {
   const wrap = document.createElement("div");
   wrap.className = "countdown";
@@ -405,21 +379,14 @@ function initCountdown(): void {
     window.setTimeout(() => showStep(index + 1), STEP_MS);
   };
 
-  showStep(0); // "3" immediately, then chain "2" → "1" → "Go"
+  showStep(0);
 }
 
-/* --------------------------------------------------------------- toolbar --- */
-
-// Vertical pill anchored to the LEFT edge — mirrors the desktop app's toolbar.
-// Big Stop on top, elapsed time, pause; on hover it grows to reveal restart +
-// cancel. Pure command emitter; the background owns the recorder.
 function initToolbar(): void {
   const pill = document.createElement("div");
   pill.className = "toolbar-v";
   pill.style.cursor = "grab";
 
-  // The content script owns iframe geometry, so ask it to capture the pointer
-  // page-wide when the user drags the toolbar outside its current bounds.
   pill.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     if ((event.target as HTMLElement).closest("button")) return;
@@ -449,14 +416,10 @@ function initToolbar(): void {
     if (activateOnPointerDown) {
       btn.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
-        // The iframe grows when the pointer enters the toolbar. Act before that
-        // resize/focus work can cancel the browser's later click event.
         event.preventDefault();
         onClick();
       });
       btn.addEventListener("click", (event) => {
-        // Pointer activation already ran above. Preserve native keyboard
-        // activation, whose synthetic click has detail=0.
         if (event.detail === 0) onClick();
       });
     } else {
@@ -488,9 +451,6 @@ function initToolbar(): void {
       const resume = state.phase === "paused";
       const command = resume ? "CLIPS_OVERLAY_RESUME" : "CLIPS_OVERLAY_PAUSE";
       pauseCommandPending = true;
-      // Make the control react to the first press even if waking the MV3
-      // service worker takes a moment. The worker remains authoritative and
-      // immediately broadcasts the confirmed state.
       state.phase = resume ? "recording" : "paused";
       toolbarRender?.();
       send(command, {}, (ok) => {
@@ -517,7 +477,6 @@ function initToolbar(): void {
   pill.append(stopBtn, time, pauseBtn, hoverGroup);
   root.appendChild(pill);
 
-  // The iframe can't size itself, so ask the content script to grow/shrink it.
   pill.addEventListener("mouseenter", () =>
     postToolbarSize(TOOLBAR_EXPANDED_H),
   );
@@ -541,10 +500,6 @@ function initToolbar(): void {
   render();
 }
 
-/* ---------------------------------------------------------------- saving --- */
-
-// Bottom-left "Saving…" card shown from Stop until the clip opens, mirroring the
-// desktop Finalizing overlay so the upload gap isn't a blank screen.
 function initSaving(): void {
   const card = document.createElement("div");
   card.className = "saving-card";
@@ -556,7 +511,6 @@ function initSaving(): void {
   const fill = document.createElement("div");
   fill.className = "saving-bar-fill";
   bar.appendChild(fill);
-  // One progress indicator only — the indeterminate bar (no circular spinner).
   card.append(caption, bar);
   root.appendChild(card);
 }
@@ -567,8 +521,6 @@ function formatDuration(ms: number): string {
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
-
-/* ----------------------------------------------------------------- state --- */
 
 const state: OverlayState = {
   phase: "recording",
@@ -598,6 +550,4 @@ else if (part === "countdown") initCountdown();
 else if (part === "toolbar") initToolbar();
 else if (part === "saving") initSaving();
 
-// Ask the background for the current state so a freshly-injected toolbar (e.g.
-// after the user navigated to a new page mid-recording) shows the right timer.
 send("CLIPS_OVERLAY_HELLO", { part });

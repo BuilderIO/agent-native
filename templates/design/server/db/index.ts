@@ -1,4 +1,5 @@
 import { createGetDb } from "@agent-native/core/db";
+import { registerIdentityColumns } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 import {
@@ -10,6 +11,21 @@ import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
 export { schema };
+
+registerIdentityColumns([
+  {
+    table: "design_review_agent_requests",
+    column: "requester_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    orgScope: {
+      column: "design_id",
+      references: { table: "designs", column: "id", orgColumn: "org_id" },
+    },
+    reason:
+      "Rekeying keeps cancel authority and attribution after an email change; requests remain as design review history when a member leaves.",
+  },
+]);
 
 registerShareableResource({
   type: "design",
@@ -24,9 +40,6 @@ registerShareableResource({
   },
   getDb,
   publicAccessRole: publicDesignAccessRole,
-  // A design remains owned by its creator when they switch active orgs. The
-  // design URL and owner identity are the authority for this resource; org
-  // membership still scopes org visibility and explicit shares.
   ownerAccessIgnoresOrg: true,
 });
 

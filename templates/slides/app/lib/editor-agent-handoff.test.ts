@@ -11,7 +11,6 @@ import {
 interface Handoff {
   events: string[];
   posts: Array<Record<string, unknown>>;
-  /** Event types seen before the first submit reached the window. */
   eventsBeforeFirstPost: string[];
 }
 
@@ -61,16 +60,12 @@ describe("multi-select send to agent", () => {
 
     const handoff = captureHandoff(() => sendEditorPromptToAgent(prompt!));
 
-    // The panel must be asked to open before the submit is posted: the chat
-    // listener only exists once the panel mounts.
     expect(handoff.eventsBeforeFirstPost).toContain("agent-panel:open");
     expect(handoff.posts).toHaveLength(1);
     expect(handoff.posts[0].message).toBe(
       "[Current selection on slide 3 (slide-abc): .title, .body, .chart, .caption]\n",
     );
     expect(handoff.posts[0].submit).toBe(false);
-    // Core replays unclaimed submits into a panel that mounts late, keyed on
-    // this id. Without it the submit cannot survive a collapsed panel.
     expect(handoff.posts[0].submitMessageId).toEqual(expect.any(String));
   });
 

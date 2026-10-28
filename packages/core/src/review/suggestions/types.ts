@@ -4,7 +4,8 @@ export type SuggestionStatus =
   | "accepted"
   | "rejected"
   | "stale"
-  | "superseded";
+  | "superseded"
+  | "withdrawn";
 export type SuggestionDecision = "accepted" | "rejected";
 export interface SuggestionOperation {
   id?: string;
@@ -19,6 +20,8 @@ export interface SuggestionOperation {
 }
 export interface ResourceSuggestion {
   id: string;
+  proposalId?: string | null;
+  proposalSummary?: string | null;
   revision: number;
   resourceType: string;
   resourceId: string;
@@ -38,6 +41,16 @@ export interface ResourceSuggestion {
   metadata: Record<string, unknown> | null;
   operations: SuggestionOperation[];
 }
+export interface ResourceSuggestionProposal {
+  id: string;
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  summary: string;
+  authorEmail: string | null;
+  actorKind: "human" | "agent" | "system";
+  createdAt: string;
+}
 export interface SuggestionAccess {
   role: "viewer" | "commenter" | "editor" | "admin" | "owner";
   ownerEmail?: string | null;
@@ -53,6 +66,11 @@ export interface SuggestionContext {
   ctx?: Record<string, unknown>;
   transaction: unknown;
   coordination?: unknown;
+  /**
+   * Where the reviewing editor showed the suggestion when it was accepted, as
+   * that editor sent it. Adapters check it against the resource before use.
+   */
+  placement?: unknown;
 }
 export interface SuggestionDecisionContext {
   resourceType: string;
@@ -60,8 +78,23 @@ export interface SuggestionDecisionContext {
   suggestion: ResourceSuggestion;
   operations: SuggestionOperation[];
   decision: SuggestionDecision;
+  proposalDecision?: boolean;
+  /**
+   * The members a proposal decision decides, in the order it calls `apply`
+   * for them. `suggestion` is the first.
+   */
+  proposalMemberIds?: string[];
   access: SuggestionAccess;
   ctx?: Record<string, unknown>;
+}
+export interface SuggestionDecisionRunOptions {
+  /**
+   * Runs the decision in this transaction instead of its own, so the
+   * decision commits or rolls back with the adapter's write. A decision that
+   * replays an earlier one returns without calling `apply`; an adapter whose
+   * write must not commit without the decision has to check for that.
+   */
+  transaction?: unknown;
 }
 export interface SuggestionAdapter {
   kind: string;
@@ -77,8 +110,17 @@ export interface SuggestionAdapter {
   preview?(context: SuggestionContext): Promise<unknown> | unknown;
   coordinateDecision?<T>(
     context: SuggestionDecisionContext,
-    run: (coordination?: unknown) => Promise<T>,
+    run: (
+      coordination?: unknown,
+      options?: SuggestionDecisionRunOptions,
+    ) => Promise<T>,
   ): Promise<T>;
+  finalizeProposalDecision?(context: {
+    resourceType: string;
+    resourceId: string;
+    transaction: unknown;
+    coordination?: unknown;
+  }): Promise<void> | void;
   apply(context: SuggestionContext): Promise<unknown> | unknown;
   describeOperation?(operation: SuggestionOperation): string;
   buildUrl?(resourceId: string, suggestionId: string): string;

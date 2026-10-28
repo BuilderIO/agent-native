@@ -11,9 +11,6 @@ import { ClipsLibraryMock } from "./ClipsLibraryMock";
 
 const DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
-// A landing-page mock recreates a product surface in HTML, so the only thing
-// separating it from the real app is that it never reacts. A hover highlight or
-// a pointer cursor erases that line, and the visitor clicks a picture.
 const INTERACTIVE_AFFORDANCES = [
   { pattern: /:hover\b/, name: ":hover" },
   { pattern: /:active\b/, name: ":active" },
@@ -37,8 +34,6 @@ afterEach(cleanup);
 
 describe("decorative landing-page mocks", () => {
   it("finds the artwork modules it is meant to guard", () => {
-    // A rename or a moved directory would otherwise turn this suite into a
-    // green no-op.
     const files = artworkFiles();
     expect(files).toContain("ClipsLibraryMock.tsx");
     expect(files.length).toBeGreaterThanOrEqual(9);
@@ -74,9 +69,6 @@ describe("ClipsLibraryMock", () => {
     const { container } = render(<ClipsLibraryMock label="Clips app" />);
     const css = container.querySelector("style")?.textContent ?? "";
 
-    // The art still draws a "Start recording" button — that is the control the
-    // reporter tried to press — so the root must refuse pointer input rather
-    // than relying on no descendant rule ever reintroducing a hover state.
     expect(container.textContent).toContain("Start recording");
     expect(css).toMatch(/\.clips-mock \{[^}]*pointer-events: none/);
   });

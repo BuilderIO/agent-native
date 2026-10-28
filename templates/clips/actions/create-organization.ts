@@ -1,15 +1,3 @@
-/**
- * Create a new organization.
- *
- * Delegates the canonical org + member + active-org-setting writes to the
- * framework `createOrganization` helper (caller becomes an `admin` in
- * `org_members`). Then seeds a Clips-specific `organization_settings`
- * sidecar row with default brand color and visibility.
- *
- * Usage:
- *   pnpm action create-organization --name="Acme"
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { createOrganization } from "@agent-native/core/org";
@@ -33,7 +21,6 @@ export default defineAction({
       "admin",
     );
 
-    // Clips-specific sidecar — organization_settings uses TEXT timestamps.
     const nowIso = new Date().toISOString();
     await getDb()
       .insert(schema.organizationSettings)

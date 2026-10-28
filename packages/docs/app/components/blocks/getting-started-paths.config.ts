@@ -1,4 +1,4 @@
-import type { BlockMdxConfig } from "@agent-native/core/blocks";
+import type { BlockMdxConfig } from "@agent-native/toolkit/app/blocks";
 import { z } from "zod";
 
 export type GettingStartedPathsData = Record<string, never>;

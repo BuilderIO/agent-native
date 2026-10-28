@@ -30,17 +30,6 @@ const loadCodeWorkbench: CodeWorkbenchModuleLoader = () =>
     default: module.CodeWorkbench,
   }));
 
-export function preloadCodeWorkbench() {
-  void loadCodeWorkbench().catch(() => {
-    // The mounted boundary reports import failures. Hover/focus preloading is
-    // speculative and must not produce an unhandled rejection.
-  });
-}
-
-if (typeof window !== "undefined" && import.meta.env.MODE !== "test") {
-  preloadCodeWorkbench();
-}
-
 export function CodeWorkbenchLoader(props: CodeWorkbenchProps) {
   return (
     <RetryableCodeWorkbenchLoader
@@ -260,18 +249,18 @@ class CodeWorkbenchLoadErrorBoundary extends Component<
   CodeWorkbenchLoadErrorBoundaryProps,
   CodeWorkbenchLoadErrorBoundaryState
 > {
-  state: CodeWorkbenchLoadErrorBoundaryState = { error: null };
+  override state: CodeWorkbenchLoadErrorBoundaryState = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
-  componentDidCatch(_error: Error, _info: ErrorInfo) {
+  override componentDidCatch(_error: Error, _info: ErrorInfo) {
     // The visible retry state is actionable; runtime reporting still receives
     // the original error through React's error boundary instrumentation.
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       return (
         <CodeWorkbenchLoadFailure

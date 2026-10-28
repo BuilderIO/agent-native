@@ -1,11 +1,16 @@
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import type {
   CodeLayerNode,
+  CodeLayerProjection,
   CodeLayerTreeNode,
-  WrapNodeSizeHint,
 } from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
-import { normalizeDesignSourceType } from "@shared/source-mode";
+import {
+  inferFlowArrangement,
+  readLayoutModel,
+  writeLayoutChange,
+} from "@shared/layout-model";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -19,11 +24,8 @@ import {
 } from "@/pages/design-editor/code-layer-state";
 import type { RuntimeLayerSnapshot } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import type { AlignableRect } from "@/pages/design-editor/layout-operations";
-import {
-  authoredPxLength,
-  inferAutoLayoutFromChildren,
-} from "@/pages/design-editor/layout-operations";
+import type { FrameMeasurement } from "@/pages/design-editor/measure-child-rects";
+import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import {
   enableInlineScreenAutoLayout,
   getRuntimeScreenAutoLayoutSubjectIds,
@@ -31,8 +33,10 @@ import {
 import { overviewSelectionTargetsElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import type { MeasureAlignSelection } from "./align-selection";
 import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
 import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import type { LiveSizeHints } from "./frame-selection";
 import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
@@ -68,8 +72,12 @@ export interface AddAutoLayoutArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
+  collectSizeHints: (
+    nodeIds: string[],
+    projection: CodeLayerProjection,
+  ) => LiveSizeHints;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;
@@ -85,9 +93,10 @@ export interface AddAutoLayoutArgs {
   getActiveFileSelectedNodeIds: (content: string) => string[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
+  measureLayoutFrame: (node: CodeLayerNode) => FrameMeasurement;
+  measureSelection: MeasureAlignSelection;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
-  rectFromCodeLayerNode: (node: CodeLayerNode) => AlignableRect;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
@@ -111,6 +120,7 @@ export function runAddAutoLayout({
   applyFileContentUpdate,
   applyLocalContentUpdate,
   canEditDesign,
+  collectSizeHints,
   codeLayerOwnerByNodeIdRef,
   designSourceType,
   effectiveCodeLayerStateRef,
@@ -118,9 +128,10 @@ export function runAddAutoLayout({
   getActiveFileSelectedNodeIds,
   getFreshActiveContent,
   getScreenContent,
+  measureLayoutFrame,
+  measureSelection,
   overviewScreens,
   overviewSelectedScreenIds,
-  rectFromCodeLayerNode,
   runtimeLayerSnapshotsById,
   selectedElement,
   selectedLayerIdsState,
@@ -135,9 +146,13 @@ export function runAddAutoLayout({
     view: viewModeRef.current,
   });
   if (!canEditDesign) return;
+  const refuseUnmeasurable = (nodeId: string, reason: string) => {
+    trace("structure", "add-auto-layout-refused", { nodeId, reason });
+    toast.error(t("designEditor.toasts.layoutUnmeasurable"), {
+      duration: 4000,
+    });
+  };
 
-  // Overview handles whole screens; a layer selection must still reach the
-  // element path below, as Figma applies Shift+A to whatever is selected.
   if (
     viewModeRef.current === "overview" &&
     !overviewSelectionTargetsElement({
@@ -162,10 +177,12 @@ export function runAddAutoLayout({
       (candidate) => candidate.id === screenId,
     );
     if (!screen) return;
-    const screenSourceType =
-      normalizeDesignSourceType(screen.sourceType) ?? designSourceType;
+    const screenSourceType = resolveOverviewScreenSourceType(
+      screen,
+      designSourceType,
+    );
 
-    if (screenSourceType === "localhost") {
+    if (isRunningAppSourceType(screenSourceType)) {
       const snapshot = runtimeLayerSnapshotsById[screenId];
       if (!snapshot) {
         toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
@@ -243,43 +260,39 @@ export function runAddAutoLayout({
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
 
   if (nodeIds.length >= 2) {
-    // (b) multi-selection: wrap siblings into a new inferred flex
-    // container in one call (wrapNodes already strips each child's own
-    // position/left/top/right/bottom when autoLayout is true).
     const selectedNodes = nodeIds
       .map((nodeId) => nodesById.get(nodeId))
       .filter((node): node is CodeLayerNode => Boolean(node));
     if (selectedNodes.length < 2) return;
-    const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
-    const sizeHints: Record<string, WrapNodeSizeHint> = {};
-    for (const [index, node] of selectedNodes.entries()) {
-      const rect = selectedRects[index];
-      if (
-        !rect ||
-        ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)
-      ) {
-        continue;
-      }
-      const hint: WrapNodeSizeHint = {
-        width: rect.width,
-        height: rect.height,
-      };
-      if (authoredPxLength(node.style.left) === null) hint.left = rect.x;
-      if (authoredPxLength(node.style.top) === null) hint.top = rect.y;
-      if (Object.keys(hint).length > 0) sizeHints[node.id] = hint;
+    const measured = measureSelection(selectedNodes);
+    if (measured.status !== "measured") {
+      refuseUnmeasurable(measured.nodeId, measured.reason);
+      return;
     }
-    const bounds = getFrameGroupBounds(selectedRects);
-    const inferred = inferAutoLayoutFromChildren(
-      bounds
-        ? {
+    const rects = measured.nodes.map((node) => ({
+      id: node.id,
+      rect: node.rect,
+    }));
+    const bounds = getFrameGroupBounds(rects.map(({ rect }) => rect));
+    const arrangement = bounds
+      ? inferFlowArrangement(
+          {
             x: bounds.left,
             y: bounds.top,
             width: bounds.width,
             height: bounds.height,
-          }
-        : { x: 0, y: 0, width: 0, height: 0 },
-      selectedRects,
+          },
+          rects,
+        )
+      : null;
+    const { hints: sizeHints, unmeasured } = collectSizeHints(
+      nodeIds,
+      projection,
     );
+    if (unmeasured.length > 0) {
+      refuseUnmeasurable(unmeasured[0]!.nodeId, unmeasured[0]!.reason);
+      return;
+    }
     const patch = applyVisualEdit(
       baseContent,
       {
@@ -305,14 +318,33 @@ export function runAddAutoLayout({
     const promotedSelectedNode = Boolean(
       wrapperId && nodeIds.includes(wrapperId),
     );
-    if (wrapperId && !promotedSelectedNode) {
+    if (wrapperId && !promotedSelectedNode && arrangement) {
+      // Flow follows the layers' on-canvas order, not their source order.
+      const nodesById = new Map(selectedNodes.map((node) => [node.id, node]));
+      const visualOrder = arrangement.order.map((id) => {
+        const node = nodesById.get(id)!;
+        return node.dataAttributes["data-agent-native-node-id"] ?? node.id;
+      });
+      for (let index = 1; index < visualOrder.length; index += 1) {
+        const moved = applyVisualEdit(
+          nextContent,
+          {
+            kind: "moveNode",
+            target: { nodeId: visualOrder[index]! },
+            anchor: { nodeId: visualOrder[index - 1]! },
+            placement: "after",
+          },
+          { source },
+        );
+        if (moved.result.status === "applied") nextContent = moved.content;
+      }
       const gapPatch = applyVisualEdit(
         nextContent,
         {
           kind: "style",
           target: { nodeId: wrapperId },
           property: "flex-direction",
-          value: inferred.direction,
+          value: arrangement.direction === "horizontal" ? "row" : "column",
         },
         { source },
       );
@@ -324,12 +356,41 @@ export function runAddAutoLayout({
             kind: "style",
             target: { nodeId: wrapperId },
             property: "gap",
-            value: `${inferred.gap}px`,
+            value: `${arrangement.gap}px`,
           },
           { source },
         );
         if (paddingPatch.result.status === "applied") {
           nextContent = paddingPatch.content;
+        }
+        const alignPatch = applyVisualEdit(
+          nextContent,
+          {
+            kind: "style",
+            target: { nodeId: wrapperId },
+            property: "align-items",
+            value: "flex-start",
+          },
+          { source },
+        );
+        if (alignPatch.result.status === "applied") {
+          nextContent = alignPatch.content;
+        }
+      }
+      const alignment = arrangement.alignItems;
+      if (alignment !== "stretch") {
+        const alignmentPatch = applyVisualEdit(
+          nextContent,
+          {
+            kind: "style",
+            target: { nodeId: wrapperId },
+            property: "align-items",
+            value: alignment,
+          },
+          { source },
+        );
+        if (alignmentPatch.result.status === "applied") {
+          nextContent = alignmentPatch.content;
         }
       }
     }
@@ -359,14 +420,12 @@ export function runAddAutoLayout({
     return;
   }
 
-  // (a) single selected element. Figma wraps a leaf in a new vertical,
-  // zero-padding auto-layout frame; an existing container is converted.
   const soleNode = nodesById.get(nodeIds[0]!);
   if (!soleNode) return;
-  // An empty frame is a container, not a leaf: Figma converts it in place
-  // and only wraps a true leaf (text, shape) in a new auto-layout frame.
   const soleIsFrame = soleNode.dataAttributes["data-an-primitive"] === "frame";
-  if (soleNode.children.length === 0 && !soleIsFrame) {
+  const soleHasAutoLayout =
+    soleNode.layout.isFlexContainer || soleNode.layout.isGridContainer;
+  if ((soleNode.children.length === 0 && !soleIsFrame) || soleHasAutoLayout) {
     const wrapped = applyVisualEdit(
       baseContent,
       {
@@ -435,22 +494,88 @@ export function runAddAutoLayout({
     }
     return;
   }
-  const childNodes = soleNode.children
-    .map((childId) => nodesById.get(childId))
-    .filter((node): node is CodeLayerNode => Boolean(node));
-  // An empty frame still takes auto layout in Figma, and
-  // inferAutoLayoutFromChildren already defaults that case to a column.
-  const containerRect = rectFromCodeLayerNode(soleNode);
-  const childRects = childNodes.map(rectFromCodeLayerNode);
-  const inferred = inferAutoLayoutFromChildren(containerRect, childRects);
+  const measured = measureLayoutFrame(soleNode);
+  if (measured.status !== "measured") {
+    refuseUnmeasurable(measured.nodeId, measured.reason);
+    return;
+  }
+  // A child nothing can address would be left behind in the flow order.
+  if (measured.unidentifiedChildren > 0) {
+    refuseUnmeasurable(soleNode.id, "unidentified-children");
+    return;
+  }
+  const model = readLayoutModel({
+    node: {
+      id: soleNode.id,
+      styles: { display: "block", boxSizing: measured.boxSizing },
+      declaredSize: {
+        width: soleNode.style.width,
+        height: soleNode.style.height,
+      },
+      resolvedSize: {
+        horizontal: measured.paddingBox.width,
+        vertical: measured.paddingBox.height,
+      },
+    },
+    parent: null,
+    children: {
+      status: "read",
+      looseText: false,
+      complete: true,
+      children: measured.children.map((child) => ({
+        id: child.id,
+        styles: { position: child.position },
+        rect: child.rect,
+      })),
+    },
+  });
+  const write = writeLayoutChange(model, { kind: "enable-auto-layout" });
+  if (write.status !== "ok") {
+    refuseUnmeasurable(soleNode.id, write.reason);
+    return;
+  }
+  let nextContent = baseContent;
+  const orderedChildIds = write.order ?? [];
+  for (let index = 1; index < orderedChildIds.length; index += 1) {
+    const moved = applyVisualEdit(
+      nextContent,
+      {
+        kind: "moveNode",
+        target: { nodeId: orderedChildIds[index]! },
+        anchor: { nodeId: orderedChildIds[index - 1]! },
+        placement: "after",
+      },
+      { source },
+    );
+    if (moved.result.status !== "applied") {
+      toast.error(
+        codeLayerPatchMessage(
+          moved.result.message,
+          t("designEditor.toasts.layerMoveFailed"),
+        ),
+        { duration: 4000 },
+      );
+      return;
+    }
+    nextContent = moved.content;
+  }
+  const containerStyles: Record<string, string> = {};
+  for (const [property, value] of Object.entries(write.frame)) {
+    if (value !== null) containerStyles[property] = value;
+  }
   const patch = applyVisualEdit(
-    baseContent,
+    nextContent,
     {
       kind: "autoLayout",
       targetId: soleNode.id,
       enabled: true,
-      direction: inferred.direction,
-      gap: `${inferred.gap}px`,
+      containerStyles,
+      childRects: Object.fromEntries(
+        measured.children.map((child) => [
+          child.id,
+          { ...child.rect, box: child.box },
+        ]),
+      ),
     },
     { source },
   );
@@ -464,48 +589,5 @@ export function runAddAutoLayout({
     );
     return;
   }
-  let nextContent = patch.content;
-  // Figma reflows children when auto layout is enabled; opting one out is the
-  // explicit "ignore auto layout" toggle. wrapNodes already strips these on
-  // the multi-selection path — do the same for a single container.
-  // An empty value is rejected by isSafeStyleValue, so neutralise with CSS
-  // initial values rather than trying to remove the declarations.
-  const reflowResets: Array<[string, string]> = [
-    ["position", "static"],
-    ["left", "auto"],
-    ["top", "auto"],
-    ["right", "auto"],
-    ["bottom", "auto"],
-  ];
-  for (const childNode of childNodes) {
-    for (const [property, value] of reflowResets) {
-      const stripped = applyVisualEdit(
-        nextContent,
-        {
-          kind: "style",
-          target: { nodeId: childNode.id },
-          property,
-          value,
-        },
-        { source },
-      );
-      if (stripped.result.status === "applied") nextContent = stripped.content;
-    }
-  }
-  if (inferred.padding > 0) {
-    const paddingPatch = applyVisualEdit(
-      nextContent,
-      {
-        kind: "style",
-        target: { nodeId: soleNode.id },
-        property: "padding",
-        value: `${inferred.padding}px`,
-      },
-      { source },
-    );
-    if (paddingPatch.result.status === "applied") {
-      nextContent = paddingPatch.content;
-    }
-  }
-  applyLocalContentUpdate(nextContent, { forcePreviewFullDocument: true });
+  applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
 }

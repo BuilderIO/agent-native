@@ -3,19 +3,73 @@ import { describe, expect, it } from "vitest";
 import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
+  getOverviewCanvasZoomForFrame,
+  getOverviewScreenZoomBasis,
+  getOverviewZoomScale,
   pinnedHeightScreenIds,
   withMeasuredFrameHeights,
 } from "./overview-camera";
 
-// A real screen created via create-file.ts always gets an explicit
-// canvasFrames entry (1440x1024) — use the same shape here rather than the
-// no-persisted-geometry fallback, which scales height to a miniature
-// preview width and would not exercise this "grows past the persisted
-// height" behavior at all.
 const PERSISTED_GEOMETRY = { x: 0, y: 0, width: 1440, height: 1024 };
 const DEFAULT_AUTO_SCREENS = [{ id: "a" }];
 const DEFAULT_AUTO_PINNED_IDS = pinnedHeightScreenIds(DEFAULT_AUTO_SCREENS);
 const DEFAULT_AUTO_HEIGHT_IDS = autoHeightScreenIds(DEFAULT_AUTO_SCREENS);
+
+describe("getOverviewCanvasZoomForFrame", () => {
+  it("converts display zoom using the target frame and source widths", () => {
+    const activeBasisZoom = getOverviewCanvasZoomForFrame({
+      displayZoom: 100,
+      frameWidth: 1440,
+      sourceWidth: 1280,
+    });
+    const targetBasisZoom = getOverviewCanvasZoomForFrame({
+      displayZoom: 100,
+      frameWidth: 390,
+      sourceWidth: 1280,
+    });
+
+    expect(targetBasisZoom).toBeCloseTo(100 / (390 / 1280));
+    expect(targetBasisZoom).not.toBeCloseTo(activeBasisZoom);
+    expect(targetBasisZoom * (390 / 1280)).toBeCloseTo(100);
+  });
+});
+
+describe("getOverviewScreenZoomBasis", () => {
+  const blankScreen = { id: "s", filename: "screen-2.html", content: "" };
+  const scaleFor = (
+    screen: Parameters<typeof getOverviewScreenZoomBasis>[0]["screen"],
+    frameGeometry: { width: number; height: number },
+  ) => {
+    const basis = getOverviewScreenZoomBasis({ screen, frameGeometry });
+    if (!basis) throw new Error("expected a zoom basis");
+    return getOverviewZoomScale(basis);
+  };
+
+  it("reads a screen without viewport metadata at its own frame width", () => {
+    // The Screens "+" frame: persisted 320x640, laid out by its iframe at 320px.
+    expect(scaleFor(blankScreen, { width: 320, height: 640 })).toBe(1);
+    // A create-file screen: 1440px frame, 1440px iframe viewport.
+    expect(scaleFor(blankScreen, { width: 1440, height: 1024 })).toBe(1);
+  });
+
+  it("keeps the scaled basis when the frame previews a larger source viewport", () => {
+    expect(
+      scaleFor(
+        { ...blankScreen, width: 1280, height: 2560, heightMode: "fixed" },
+        { width: 320, height: 640 },
+      ),
+    ).toBe(0.25);
+  });
+
+  it("has no basis before the screen has frame geometry", () => {
+    expect(
+      getOverviewScreenZoomBasis({
+        screen: blankScreen,
+        frameGeometry: undefined,
+      }),
+    ).toBeNull();
+  });
+});
 
 describe("withMeasuredFrameHeights", () => {
   it("grows a frame's height to a taller measured content height", () => {
@@ -30,7 +84,6 @@ describe("withMeasuredFrameHeights", () => {
       DEFAULT_AUTO_HEIGHT_IDS,
     );
     expect(widened[0]?.geometry.height).toBe(2400);
-    // Width and position are untouched by a height-only fit correction.
     expect(widened[0]?.geometry.width).toBe(frames[0]?.geometry.width);
     expect(widened[0]?.geometry.x).toBe(frames[0]?.geometry.x);
     expect(widened[0]?.geometry.y).toBe(frames[0]?.geometry.y);
@@ -73,11 +126,6 @@ describe("withMeasuredFrameHeights", () => {
     ).toEqual(frames);
   });
 
-  // A pinned Screen's rendered frame clips overflow at the pinned height
-  // instead of growing (canvasFrames's own autoHeight gates on the same
-  // flag) — fitting to the overflow height would zoom past what's actually
-  // on screen, so a pinned Screen must keep its persisted height even when
-  // reported content is taller.
   it("keeps the persisted height for a heightPinned screen even when measured content is taller", () => {
     const frames = getAllScreenFrameEntries({
       overviewScreens: [{ id: "a" }],

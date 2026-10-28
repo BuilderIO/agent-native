@@ -9,15 +9,17 @@ import {
   markRead,
   resolveMutationAccounts,
 } from "../server/lib/email-state.js";
+import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   gmailBatchModifyByAccount,
+  gmailBatchModifyThreadsByAccount,
   isConnected,
   markAllUnreadReadForAccount,
 } from "../server/lib/google-auth.js";
 import { syncInboxLabelDeltaForTargets } from "../server/lib/inbox-store-sync.js";
 
 export const MARK_READ_DESCRIPTION =
-  'Mark explicit email IDs as read/unread, or use scope "all-unread" once to mark every unread message in one account read while preserving excluded thread IDs. Never loop mark-thread-read for broad cleanup.';
+  'Mark explicit email IDs as read/unread. For selected conversation reads, provide threadIds to clear UNREAD from every message in each thread. Use scope "all-unread" once to mark every unread message in one account read while preserving excluded thread IDs. Never loop mark-thread-read for broad cleanup.';
 
 export default defineAction({
   description: MARK_READ_DESCRIPTION,
@@ -39,6 +41,12 @@ export default defineAction({
         .optional()
         .describe(
           "Per-id account emails, comma-separated and positionally matched to --id (bulk UI calls only)",
+        ),
+      threadIds: z
+        .string()
+        .optional()
+        .describe(
+          "Per-id thread IDs, comma-separated and positionally matched to --id (bulk UI calls only)",
         ),
       scope: z
         .enum(["all-unread"])
@@ -74,6 +82,13 @@ export default defineAction({
           code: "custom",
           path: ["accountEmails"],
           message: 'accountEmails cannot be used with scope "all-unread"',
+        });
+      }
+      if (hasScope && args.threadIds) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["threadIds"],
+          message: 'threadIds cannot be used with scope "all-unread"',
         });
       }
       if (hasScope && args.unread === true) {
@@ -130,8 +145,6 @@ export default defineAction({
           ? await markAllUnreadReadForAccount(input)
           : await markAllLocalUnreadRead(input);
       } finally {
-        // A provider verification read can fail after Gmail accepted the
-        // mutation. Always make the UI discard its pre-mutation list cache.
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
 
@@ -171,46 +184,85 @@ export default defineAction({
     const accountEmailList = args.accountEmails
       ?.split(",")
       .map((s) => s.trim());
+    const threadIdList = args.threadIds?.split(",").map((s) => s.trim());
 
     const results: { id: string; success: boolean; error?: string }[] = [];
+    let bulkMutationResult:
+      | {
+          requested: string[];
+          succeeded: string[];
+          failed: Array<{ id: string; error: string }>;
+          remaining: string[];
+          retryAfterSeconds?: number;
+        }
+      | undefined;
 
-    // Mark-read/unread is message-level (no thread cache invalidation needed,
-    // matching markRead's own reconciliation notes), so the batch path here
-    // is simpler than archive/star.
     if (ids.length > 1 && (await isConnected(ownerEmail))) {
       const targets = ids.map((id, i) => ({
         id,
+        threadId: threadIdList?.[i],
         accountEmail: accountEmailList?.[i] || args.accountEmail,
       }));
-      // Resolve every target's account once, up front, with the same rule
-      // used by the single-item path — so the Gmail mutation below and the
-      // store mirror after it never group by different accounts.
       const { resolved, unresolved } = await resolveMutationAccounts(
         ownerEmail,
         targets,
       );
-      const { succeeded, failed } = await gmailBatchModifyByAccount(
-        ownerEmail,
-        resolved,
-        isRead ? undefined : ["UNREAD"],
-        isRead ? ["UNREAD"] : undefined,
-      );
-      for (const id of succeeded) results.push({ id, success: true });
-      for (const f of failed)
-        results.push({ id: f.id, success: false, error: f.error });
-      for (const u of unresolved)
-        results.push({ id: u.id, success: false, error: u.error });
-      await syncInboxLabelDeltaForTargets(
-        ownerEmail,
-        resolved.filter((t) => succeeded.includes(t.id)),
-        {
-          add: isRead ? undefined : ["UNREAD"],
-          remove: isRead ? ["UNREAD"] : undefined,
-          // Message-scoped: mark-read targets are message ids, not whole
-          // threads (see applyLocalLabelDelta's scope handling).
-          scope: "message",
-        },
-      );
+      const usesThreadTargets =
+        isRead &&
+        resolved.length > 0 &&
+        resolved.every((target) => target.threadId);
+      let succeeded: string[];
+      let failed: Array<{ id: string; error: string }>;
+      let threadBatchResult:
+        | Awaited<ReturnType<typeof gmailBatchModifyThreadsByAccount>>
+        | undefined;
+      let remaining: string[] = [];
+      let retryAfterSeconds: number | undefined;
+      if (usesThreadTargets) {
+        threadBatchResult = await gmailBatchModifyThreadsByAccount(
+          ownerEmail,
+          resolved,
+          undefined,
+          ["UNREAD"],
+        );
+        succeeded = threadBatchResult.succeeded;
+        failed = threadBatchResult.failed;
+        remaining = threadBatchResult.remaining;
+        retryAfterSeconds = threadBatchResult.retryAfterSeconds;
+      } else {
+        const batchResult = await gmailBatchModifyByAccount(
+          ownerEmail,
+          resolved,
+          isRead ? undefined : ["UNREAD"],
+          isRead ? ["UNREAD"] : undefined,
+        );
+        succeeded = batchResult.succeeded;
+        failed = batchResult.failed;
+        remaining = batchResult.remaining;
+        retryAfterSeconds = batchResult.retryAfterSeconds;
+      }
+      const succeededTargets = resolved
+        .filter((target) => succeeded.includes(target.id))
+        .map((target) => ({
+          ...target,
+          threadId:
+            threadBatchResult?.threadIdsByTarget[target.id] || target.threadId,
+        }));
+      await syncInboxLabelDeltaForTargets(ownerEmail, succeededTargets, {
+        add: isRead ? undefined : ["UNREAD"],
+        remove: isRead ? ["UNREAD"] : undefined,
+        scope: threadBatchResult ? "thread" : "message",
+      });
+      bulkMutationResult = {
+        requested: ids,
+        succeeded,
+        failed: [
+          ...failed,
+          ...unresolved.map(({ id, error }) => ({ id, error })),
+        ],
+        remaining,
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      };
     } else {
       for (let i = 0; i < ids.length; i++) {
         const id = ids[i];
@@ -223,12 +275,38 @@ export default defineAction({
           });
           results.push({ id, success: true });
         } catch (err: any) {
+          if (err instanceof GmailQuotaCooldownError) throw err;
           results.push({ id, success: false, error: err?.message ?? "failed" });
         }
       }
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+
+    if (bulkMutationResult) {
+      track(
+        "inbox_triaged",
+        {
+          app_name: "mail",
+          template_name: "mail",
+          action: "mark_read",
+          items_triaged: bulkMutationResult.succeeded.length,
+          succeeded:
+            bulkMutationResult.failed.length === 0 &&
+            bulkMutationResult.remaining.length === 0,
+          partial:
+            bulkMutationResult.succeeded.length > 0 &&
+            (bulkMutationResult.failed.length > 0 ||
+              bulkMutationResult.remaining.length > 0),
+          failed_count:
+            bulkMutationResult.failed.length +
+            bulkMutationResult.remaining.length,
+          scope: "explicit",
+        },
+        ctx,
+      );
+      return bulkMutationResult;
+    }
 
     const action = isRead ? "read" : "unread";
     const succeeded = results.filter((r) => r.success).length;

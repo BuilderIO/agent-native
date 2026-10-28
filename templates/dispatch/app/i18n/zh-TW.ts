@@ -17,13 +17,10 @@ const messages = {
   },
   settings: {
     title: "設定",
-    description: "語言、工作區、資源和代理偏好設定。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理 Dispatch 的團隊存取權限和共用工作區資源。",
     openTeamSettings: "開啟團隊設定",
+    resourcesTitle: "資源",
     openResourceSettings: "開啟資源設定",
     connectApps: "連接應用程式",
     connectAppsDescription: "透過一次交接登入另一個 Agent-Native 應用程式。",
@@ -38,8 +35,6 @@ const messages = {
     chatFirstDescription:
       "讓聊天保持核心位置，並在旁邊的情境面板中開啟工作區應用程式。此偏好只會變更你在 Dispatch 的本機外觀。",
     chatFirstAriaLabel: "使用聊天優先導覽",
-    chatFirstSessionWatchDescription:
-      "工作階段監看與後續訊息也能在此瀏覽器面板中運作。本機 CLI 訂閱偵測會保留在 Electron 應用程式；Dispatch 使用工作區／提供者憑證。",
     chatFirstStorageUnavailable:
       "此瀏覽器不允許本機偏好設定，因此無法儲存聊天優先模式。",
     chatFirstStorageBlocked:
@@ -296,6 +291,10 @@ const messages = {
     },
   },
   dispatch: {
+    sidebar: {
+      showLocalChats: "顯示本機聊天",
+      showAllChats: "顯示所有聊天",
+    },
     nav: {
       admin: "管理",
       automations: "自動化",
@@ -308,7 +307,13 @@ const messages = {
       agent: "代理",
     },
     pages: {
+      chatFirstCopySessionId: "複製工作階段 ID",
+      chatFirstSessionIdCopied: "已複製工作階段 ID",
+      chatFirstWatchSession: "觀看",
       adminDescription: "工作區控制與營運",
+      appProfileWhenToUse: "使用時機",
+      appProfileWhenToUsePlaceholder: "每行填寫一個範例請求",
+      appProfileWhenToUseHint: "最多 6 個範例，每個不超過 140 個字元。",
       simpleAgentsDescription:
         "幾分鐘內建立可重複使用的代理，或匯入你已在 Claude 或其他代理工具中建立的設定。",
       adminNavigation: "管理導覽",
@@ -322,6 +327,23 @@ const messages = {
       adminAgentPlatform: "代理平台",
       adminWorkspaceExtensions: "工作區擴充功能",
       connectApps: "連接應用程式",
+      communityApps: "社群應用程式",
+      communityAppsEmpty: "目前沒有已審核的社群應用程式。",
+      communityAppsWorkspaceRequired:
+        "請先將此組織連接到工作區，才能安裝此應用程式。",
+      communityAppsBuilderInstallUnavailable:
+        "在生成檔案可供驗證之前，Builder 工作區中的社群應用程式安裝已停用。",
+      communityAppsIdConflict: "此應用程式 ID 已被使用，因此無法安裝。",
+      communityAppsLicense: "授權條款",
+      communityAppsTemplateSource: "查看範本來源",
+      communityAppsInstall: "安裝",
+      communityAppsInstalling: "正在啟動…",
+      communityAppsInstalled: "已安裝",
+      communityAppsPending: "正在安裝",
+      communityAppsInstallStarted: "已開始安裝社群應用程式。",
+      communityAppsAlreadyInstalled: "已安裝此社群應用程式。",
+      communityAppsLocalRequestReady: "社群應用程式請求已準備好交給本機代理。",
+      communityAppsInstallFailed: "無法安裝此社群應用程式。",
       availableApps: "可用應用程式",
       connectApp: "連接應用程式",
       openApp: "開啟應用程式",
@@ -335,6 +357,15 @@ const messages = {
       connectAppGrant: "你的帳戶將透過現有身份交接流程配置。",
       connectAppUnsupported: "此應用程式目前不支援連接。",
       connectAppsPrivacy: "應用程式不會收到共享 Cookie 或共享密鑰。",
+      usageAlertDescription:
+        "使用量達到提醒閾值時，透過應用程式內或電子郵件接收通知。提醒不會停止使用或限制費用。",
+      usageAlertEmpty: "尚無提醒。新增一個即可在使用量達到閾值時收到通知。",
+      usageAlertThreshold: "提醒閾值",
+      usageAlertReached: "已達提醒閾值",
+      usageAlertCurrentAndThreshold:
+        "使用量：{{current}} · 每{{period}}提醒閾值：{{threshold}}",
+      usageAlertDay: "天",
+      usageAlertMonth: "月",
       dataLoadFailed: "無法載入資料",
       dataLoadFailedDescription: "Dispatch 無法載入這些資料。",
       appAdoption: "應用程式採用情況",
@@ -353,6 +384,7 @@ const messages = {
       monitoring: "監控",
       database: "資料庫",
       chatAcrossApps: "跨應用程式聊天",
+      chatHomeTitle: "今天我們該做什麼？",
       chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
       overviewPromptPlaceholder: "想讓 Dispatch 幫你做什麼？",
       chatPromptPlaceholder: "告訴 Dispatch 你想完成什麼…",

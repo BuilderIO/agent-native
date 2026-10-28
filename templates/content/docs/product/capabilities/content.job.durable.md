@@ -27,7 +27,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-09-14"
 ---
 
 # Durable Content jobs
@@ -63,7 +63,7 @@ Given one authorized asset cannot be resolved during export, when the job finish
 
 ## Current evidence
 
-Donor evidence: Builder source execution and refresh actions include progress and recovery-focused tests, including `actions/execute-builder-source-execution.test.ts`. No shared durable job substrate proves all Content workloads; this record remains `approved_shape`.
+Donor evidence: Builder source execution and refresh actions include progress and recovery-focused tests, including `actions/execute-builder-source-execution.test.ts`. Trash purge adds app-owned SQL plan, item, and operation ledgers with frozen deletion generations, idempotent execution identity, leases, bounded batches, persisted outcomes, and self-dispatch to the configured background transport. `actions/content-trash-purge.db.test.ts` exercises this specific workflow. Hosts without durable continuation transport leave further batches explicitly `retryable` rather than reporting completion. These are current and donor mechanisms, not a shared durable job substrate or proof across import, export, sync, cancellation, and resume; this record remains `approved_shape`.
 
 ## Proof plan
 

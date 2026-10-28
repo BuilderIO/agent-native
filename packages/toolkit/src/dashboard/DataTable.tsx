@@ -55,7 +55,6 @@ const DEFAULT_LABELS: DataTableLabels = {
   nextPage: "Next page",
 };
 
-/** A source-agnostic, sortable and paginated dashboard table. */
 export function DataTable({
   title,
   data,

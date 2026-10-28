@@ -18,10 +18,6 @@ import { cn } from "@/lib/utils";
 
 const COLLAPSED_MAX_CHARS = 600;
 
-/**
- * Render an event description as sanitized HTML with clickable links and
- * optional "Show more"/"Show less" collapse when the content is very long.
- */
 export function RenderedDescription({
   description,
   onClick,
@@ -82,10 +78,6 @@ export function RenderedDescription({
   );
 }
 
-/**
- * Textarea that auto-grows to fit its content — no fixed row count, no
- * inner scrollbar. Use for the edit mode of event descriptions.
- */
 export function AutoGrowTextarea({
   value,
   onChange,

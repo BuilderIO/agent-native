@@ -10,9 +10,6 @@ import {
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
 
-import { buildAgentApiUrls } from "./agent-context";
-import { isLoomEmbedBackedRecording } from "./loom";
-
 export const CLIPS_DEFAULT_TITLE = "Untitled recording";
 
 export type ClipsShareMetaRecording = {
@@ -28,10 +25,9 @@ export type ClipsShareMetaRecording = {
   trashedAt?: string | null;
   sourceAppName?: string | null;
   videoUrl?: string | null;
+  updatedAt?: string | null;
   isLoomEmbedBacked?: boolean;
 };
-
-const SOCIAL_FRAME_AT_MS = 350;
 
 export type PreferredThumbnailVariant = "still" | "animated";
 
@@ -131,35 +127,25 @@ export function resolveClipsSocialImageUrl(options: {
 
   if (storedImage) {
     if (recording?.id && recording.visibility === "public") {
-      return absoluteUrl(
+      const imageUrl = new URL(
         appPath(`/api/thumbnail/${encodeURIComponent(recording.id)}`, basePath),
-        origin,
+        origin ?? "https://clips.invalid",
       );
+      const version = recording.updatedAt?.trim();
+      if (version) imageUrl.searchParams.set("v", version);
+      return origin
+        ? imageUrl.toString()
+        : `${imageUrl.pathname}${imageUrl.search}`;
     }
     return absoluteUrl(storedImage, origin);
   }
 
   if (!canUseSocialImage(recording)) return undefined;
-  if (
-    !origin ||
-    recording.isLoomEmbedBacked === true ||
-    isLoomEmbedBackedRecording(recording)
-  ) {
-    console.warn("clips.thumbnail.publish_fallback", {
-      recordingId: recording.id,
-      fallback: "default-image",
-    });
-    return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
-  }
-
   console.warn("clips.thumbnail.publish_fallback", {
     recordingId: recording.id,
-    fallback: "live-frame",
+    fallback: "default-image",
   });
-  return buildAgentApiUrls(recording.id, {
-    origin,
-    basePath,
-  }).frameUrl(SOCIAL_FRAME_AT_MS);
+  return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
 }
 
 export function buildClipsShareMeta(options: {

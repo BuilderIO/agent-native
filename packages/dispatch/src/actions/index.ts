@@ -36,11 +36,15 @@ import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import importAgentPack from "./import-agent-pack.js";
 import importAgent from "./import-agent.js";
+import inspectConnectAgentCard from "./inspect-connect-agent-card.js";
+import installCuratedCommunityApp from "./install-curated-community-app.js";
 import listAgentPack from "./list-agent-pack.js";
 import listAgentRunFailures from "./list-agent-run-failures.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
+import listConnectMarketplaceApps from "./list-connect-marketplace-apps.js";
 import listConnectedAgents from "./list-connected-agents.js";
+import listCuratedCommunityApps from "./list-curated-community-apps.js";
 import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
@@ -100,14 +104,9 @@ import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
+import verifyCuratedCommunityApp from "./verify-curated-community-app.js";
 import viewScreen from "./view-screen.js";
 
-/**
- * Dispatch's actions registered as a flat name→entry map. Imported by
- * `@agent-native/dispatch/server`'s side-effect block, which calls
- * `registerPackageActions(dispatchActions)` so the framework's action
- * loader picks them up.
- */
 export const dispatchActions: Record<string, ActionEntry> = {
   "approve-dispatch-change": approveDispatchChange,
   "approve-vault-request": approveVaultRequest,
@@ -146,7 +145,9 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-agent-thread-sources": listAgentThreadSources,
   "list-agent-run-failures": listAgentRunFailures,
   "list-available-workspace-templates": listAvailableWorkspaceTemplates,
+  "list-curated-community-apps": listCuratedCommunityApps,
   "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
+  "list-connect-marketplace-apps": listConnectMarketplaceApps,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
   "list-dispatch-approvals": listDispatchApprovals,
@@ -172,7 +173,9 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resources-for-app": listWorkspaceResourcesForApp,
   "list-workspace-resources": listWorkspaceResources,
   "import-agent": importAgent,
+  "inspect-connect-agent-card": inspectConnectAgentCard,
   "import-agent-pack": importAgentPack,
+  "install-curated-community-app": installCuratedCommunityApp,
   "list-agent-pack": listAgentPack,
   navigate: navigate,
   open_app: openApp,
@@ -210,5 +213,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "update-vault-secret": updateVaultSecret,
   "update-workspace-resource": updateWorkspaceResource,
   "upsert-destination": upsertDestination,
+  "verify-curated-community-app": verifyCuratedCommunityApp,
   "view-screen": viewScreen,
 };

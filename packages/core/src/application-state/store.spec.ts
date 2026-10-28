@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 
 let postgres: Awaited<ReturnType<typeof createTestPglite>>;
 
@@ -56,12 +60,15 @@ const {
   appStateCompareAndSet,
   appStateCompareAndSetMany,
   appStateList,
+  appStateListKeysByKeySuffixPrefix,
   appStateDeleteByPrefix,
 } = await import("./store.js");
 
 const SESSION = "alice@example.com";
 
 beforeEach(async () => {
+  resetAppConfigForTests();
+  defineAppConfig({ app: { packageName: "slides-2" } });
   postgres = await createTestPglite();
   await postgres.exec(`CREATE TABLE IF NOT EXISTS application_state (
     session_id TEXT NOT NULL,
@@ -74,17 +81,13 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await postgres.close();
+  resetAppConfigForTests();
   vi.clearAllMocks();
   dbMockState.localDatabase = true;
 });
 
 describe("application-state store", () => {
   it("issues hot-path index DDL on init", async () => {
-    // ensureTable() is triggered by the first store call and issues CREATE
-    // TABLE + CREATE INDEX. Capture which SQL strings rawClient.execute
-    // receives and assert the two poll-path indexes are among them.
-    // Restore the original implementation immediately after so later tests
-    // in this file are not affected.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(
@@ -107,6 +110,33 @@ describe("application-state store", () => {
     );
   });
 
+  it("rejects nested inline image bytes before SQL writes and preserves normal values", async () => {
+    const normal = { selected: { id: "card-1" }, label: "current" };
+    await appStatePut(SESSION, "safe", normal);
+    await expect(appStateGet(SESSION, "safe")).resolves.toEqual(normal);
+
+    rawClient.execute.mockClear();
+    const unsafe = {
+      nested: {
+        attachments: [
+          { type: "image", data: "data:image/png;base64,ZmFrZQ==" },
+        ],
+      },
+    };
+    await expect(appStatePut(SESSION, "unsafe", unsafe)).rejects.toThrow(
+      /stores inline/,
+    );
+    await expect(
+      appStateCompareAndSet(SESSION, "unsafe", null, unsafe),
+    ).rejects.toThrow(/stores inline/);
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        { key: "unsafe", expectedValue: null, nextValue: unsafe },
+      ]),
+    ).rejects.toThrow(/stores inline/);
+    expect(rawClient.execute).not.toHaveBeenCalled();
+  });
+
   it("lists literal prefixes without treating underscores as LIKE wildcards", async () => {
     await appStatePut(SESSION, "compose_draft", { id: "draft" });
     await appStatePut(SESSION, "composeXdraft", { id: "not-draft" });
@@ -114,6 +144,51 @@ describe("application-state store", () => {
     const rows = await appStateList(SESSION, "compose_");
 
     expect(rows).toEqual([{ key: "compose_draft", value: { id: "draft" } }]);
+  });
+
+  it("lists only current-app keys without reading their values", async () => {
+    await appStatePut(SESSION, "slides-2:cleanup-1", { private: "payload" });
+    await appStatePut("bob@example.com", "slides-2:cleanup-2", {
+      private: "other payload",
+    });
+    await appStatePut("bob@example.com", "other-app:cleanup-3", {
+      private: "foreign app payload",
+    });
+    await appStatePut(SESSION, "slides-2Xcleanup-3", { private: "ignored" });
+
+    rawClient.execute.mockClear();
+    await expect(
+      appStateListKeysByKeySuffixPrefix("cleanup-"),
+    ).resolves.toEqual([
+      { sessionId: SESSION, key: "slides-2:cleanup-1" },
+      { sessionId: "bob@example.com", key: "slides-2:cleanup-2" },
+    ]);
+    expect(rawClient.execute).toHaveBeenCalledWith({
+      sql: expect.stringContaining(
+        "SELECT session_id, key FROM application_state",
+      ),
+      args: ["slides-2:cleanup-%", 100],
+    });
+  });
+
+  it("requires a key suffix prefix before scanning cross-session keys", async () => {
+    await expect(appStateListKeysByKeySuffixPrefix("")).rejects.toThrow(
+      /non-empty key suffix prefix/,
+    );
+    await expect(
+      appStateListKeysByKeySuffixPrefix(":cleanup-"),
+    ).rejects.toThrow(/non-empty key suffix prefix/);
+  });
+
+  it("fails closed when the current app namespace is unavailable", async () => {
+    resetAppConfigForTests();
+    defineAppConfig({ app: { packageName: "unregistered-test-app" } });
+    rawClient.execute.mockClear();
+
+    await expect(appStateListKeysByKeySuffixPrefix("cleanup-")).rejects.toThrow(
+      /configured app namespace/,
+    );
+    expect(rawClient.execute).not.toHaveBeenCalled();
   });
 
   it("reads several exact keys in one query and preserves missing keys", async () => {

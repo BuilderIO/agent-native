@@ -49,7 +49,6 @@ export default defineAction({
       collection.files.map(({ path, content }) => [path, content]),
     );
 
-    // Parse collected files
     let colors: Record<string, unknown> = {};
     let fonts: string[] = [];
     let spacing: Record<string, string> = {};

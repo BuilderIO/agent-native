@@ -56,43 +56,68 @@ export type BuilderReviewSelection = {
   transitions: BuilderReviewPublicationTransitions;
 };
 
+// Keys under `database.`.
 const EFFECT_LABELS: Record<
   BuilderCmsWriteEffect,
-  { tag: string; sentence: string }
+  { tagKey: string; sentenceKey: string }
 > = {
-  create_draft: { tag: "New", sentence: "Creates a new draft entry" },
-  update_in_place: { tag: "Edit", sentence: "Updates the live entry" },
-  autosave: { tag: "Draft", sentence: "Saves a draft revision" },
-  publish: { tag: "Publish", sentence: "Publishes this entry" },
-  unpublish: { tag: "Unpublish", sentence: "Unpublishes the live entry" },
+  create_draft: {
+    tagKey: "builderEffectNewTag",
+    sentenceKey: "builderEffectNewSentence",
+  },
+  update_in_place: {
+    tagKey: "builderEffectEditTag",
+    sentenceKey: "builderEffectEditSentence",
+  },
+  // An autosave lands on a published entry; it stays as Builder shows it.
+  autosave: {
+    tagKey: "builderEffectSaveTag",
+    sentenceKey: "builderEffectAutosaveSentence",
+  },
+  save_draft: {
+    tagKey: "builderEffectSaveTag",
+    sentenceKey: "builderEffectSaveDraftSentence",
+  },
+  publish: {
+    tagKey: "builderEffectPublishTag",
+    sentenceKey: "builderEffectPublishSentence",
+  },
+  unpublish: {
+    tagKey: "builderEffectUnpublishTag",
+    sentenceKey: "builderEffectUnpublishSentence",
+  },
 };
 
 export function builderReviewRowEffectLabel(effect: BuilderCmsWriteEffect) {
   return EFFECT_LABELS[effect] ?? EFFECT_LABELS.update_in_place;
 }
 
-/** The effect a row will actually run, accounting for a chosen transition. */
 export function builderReviewEffectiveRowEffect(
   baseEffect: BuilderCmsWriteEffect,
   selection?: BuilderReviewPublicationTransitionSelection,
 ): BuilderCmsWriteEffect {
-  // A create has no Builder entry yet, so a publish/unpublish transition can't
-  // apply — the adapter always writes a draft (create_draft) when there's no
-  // entry id. Never let a transition relabel a create.
   if (baseEffect === "create_draft") return "create_draft";
   if (selection?.publicationTransition === "publish") return "publish";
   if (selection?.publicationTransition === "unpublish") return "unpublish";
   return baseEffect;
 }
 
+type BuilderReviewMessage = { key: string; count: number };
+
+function countedMessage(count: number, oneKey: string, manyKey: string) {
+  return { key: count > 1 ? manyKey : oneKey, count };
+}
+
+/** Message keys and counts for each effect in the selection, in row order. */
 export function builderReviewIntentSummary(
   rows: { changeSetId: string; effect: BuilderCmsWriteEffect }[],
   selections: BuilderReviewPublicationTransitionSelections,
-) {
+): BuilderReviewMessage[] {
   const counts: Record<BuilderCmsWriteEffect, number> = {
     create_draft: 0,
     update_in_place: 0,
     autosave: 0,
+    save_draft: 0,
     publish: 0,
     unpublish: 0,
   };
@@ -101,25 +126,62 @@ export function builderReviewIntentSummary(
       builderReviewEffectiveRowEffect(row.effect, selections[row.changeSetId])
     ] += 1;
   }
-  const parts: string[] = [];
-  if (counts.create_draft) {
-    parts.push(
-      `${counts.create_draft} draft${counts.create_draft === 1 ? "" : "s"} to create`,
+  // Autosaves and draft saves share the rows' "Save" tag.
+  const saves = counts.autosave + counts.save_draft;
+  const parts = [
+    countedMessage(
+      counts.create_draft,
+      "builderIntentNewOne",
+      "builderIntentNew",
+    ),
+    countedMessage(
+      counts.update_in_place,
+      "builderIntentEditOne",
+      "builderIntentEdit",
+    ),
+    countedMessage(saves, "builderIntentSaveOne", "builderIntentSave"),
+    { key: "builderIntentPublish", count: counts.publish },
+    { key: "builderIntentUnpublish", count: counts.unpublish },
+  ].filter((part) => part.count > 0);
+  return parts.length > 0 ? parts : [{ key: "builderIntentNone", count: 0 }];
+}
+
+/** The send button's message key, named for what the selected rows do. */
+export function builderReviewPushVerb(args: {
+  rows: { changeSetId: string; effect: BuilderCmsWriteEffect }[];
+  selections: BuilderReviewPublicationTransitionSelections;
+  liveWritesEnabled: boolean;
+}): BuilderReviewMessage {
+  const count = args.rows.length;
+  if (!args.liveWritesEnabled) return { key: "builderPushVerbCheck", count };
+  const effects = new Set(
+    args.rows.map((row) =>
+      builderReviewEffectiveRowEffect(
+        row.effect,
+        args.selections[row.changeSetId],
+      ),
+    ),
+  );
+  if (effects.has("unpublish"))
+    return { key: "builderPushVerbUnpublish", count };
+  if (effects.has("publish")) return { key: "builderPushVerbPublish", count };
+  const only = (...kinds: BuilderCmsWriteEffect[]) =>
+    effects.size > 0 && [...effects].every((effect) => kinds.includes(effect));
+  if (only("create_draft")) {
+    return countedMessage(
+      count,
+      "builderPushVerbCreateOne",
+      "builderPushVerbCreate",
     );
   }
-  if (counts.update_in_place) {
-    parts.push(
-      `${counts.update_in_place} update${counts.update_in_place === 1 ? "" : "s"}`,
+  if (only("autosave", "save_draft")) {
+    return countedMessage(
+      count,
+      "builderPushVerbSaveOne",
+      "builderPushVerbSave",
     );
   }
-  if (counts.autosave) {
-    parts.push(
-      `${counts.autosave} draft save${counts.autosave === 1 ? "" : "s"}`,
-    );
-  }
-  if (counts.publish) parts.push(`${counts.publish} to publish`);
-  if (counts.unpublish) parts.push(`${counts.unpublish} to unpublish`);
-  return parts.join(" · ") || "No changes";
+  return countedMessage(count, "builderPushVerbPushOne", "builderPushVerbPush");
 }
 
 export function builderReviewDestinationLine(args: {
@@ -153,7 +215,6 @@ export function builderReviewDestinationLine(args: {
 }
 
 export function builderReviewResultStatus(status?: string): {
-  // i18n key under the `database.` namespace; resolved by the caller via t().
   labelKey: string;
   tone: "ok" | "warn" | "danger" | "muted";
 } {
@@ -243,6 +304,7 @@ export function builderReviewRowCanCancelPrepared(
 ) {
   const execution = row.execution;
   if (!execution) return false;
+  if (execution.payloadUnavailable) return false;
   if (
     execution.state !== "ready" &&
     execution.state !== "write_disabled" &&
@@ -309,8 +371,6 @@ export function BuilderSourceReviewDialog({
   canEdit: boolean;
   pending: boolean;
   executionPending?: boolean;
-  // Optional so the inline-database caller (DatabaseView) that doesn't surface
-  // batch results can still mount the dialog.
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
   error?: string | null;
   checkedAt: string | null;
@@ -350,6 +410,12 @@ export function BuilderSourceReviewDialog({
   );
   const [transitionSelections, setTransitionSelections] =
     useState<BuilderReviewPublicationTransitionSelections>({});
+  // The staged status each row was preselected with, so clearing one sticks,
+  // through a prepare that gives the row a new id too, until a different
+  // status is staged.
+  const seededTransitionsRef = useRef(
+    new Map<string, BuilderCmsPublicationTransitionIntent>(),
+  );
   const [cancelChangeSetId, setCancelChangeSetId] = useState<string | null>(
     null,
   );
@@ -382,8 +448,16 @@ export function BuilderSourceReviewDialog({
         : next;
     });
   }, [autoSelectReviewRows, open, reviewRowIdsKey, selectionChangeSetIdMap]);
+  const stagedTransitionsKey = reviewRows
+    .flatMap((row) =>
+      row.stagedPublicationTransition
+        ? [`${row.changeSetId}:${row.stagedPublicationTransition}`]
+        : [],
+    )
+    .join("\u0000");
   useEffect(() => {
     if (!open || !allowPublicationTransitionControls) {
+      seededTransitionsRef.current = new Map();
       setTransitionSelections({});
       return;
     }
@@ -391,6 +465,36 @@ export function BuilderSourceReviewDialog({
     const reviewRowIdSet = new Set(
       reviewRowIdsKey ? reviewRowIdsKey.split("\u0000") : [],
     );
+    const seeded = seededTransitionsRef.current;
+    for (const [changeSetId, publicationTransition] of [...seeded]) {
+      const mappedChangeSetId = selectionChangeSetIdMap?.[changeSetId];
+      if (mappedChangeSetId) {
+        seeded.set(mappedChangeSetId, publicationTransition);
+      }
+    }
+    const staged = new Map(
+      (stagedTransitionsKey ? stagedTransitionsKey.split("\u0000") : []).map(
+        (entry) => {
+          const separator = entry.lastIndexOf(":");
+          return [
+            entry.slice(0, separator),
+            entry.slice(separator + 1) as BuilderCmsPublicationTransitionIntent,
+          ] as const;
+        },
+      ),
+    );
+    const unstaged: Array<[string, BuilderCmsPublicationTransitionIntent]> = [];
+    for (const [changeSetId, publicationTransition] of [...seeded]) {
+      if (!reviewRowIdSet.has(changeSetId) || staged.has(changeSetId)) continue;
+      seeded.delete(changeSetId);
+      unstaged.push([changeSetId, publicationTransition]);
+    }
+    const restaged: Array<[string, BuilderCmsPublicationTransitionIntent]> = [];
+    for (const [changeSetId, publicationTransition] of staged) {
+      if (seeded.get(changeSetId) === publicationTransition) continue;
+      seeded.set(changeSetId, publicationTransition);
+      restaged.push([changeSetId, publicationTransition]);
+    }
     setTransitionSelections((current) => {
       const next: BuilderReviewPublicationTransitionSelections = {};
       for (const [changeSetId, selection] of Object.entries(current)) {
@@ -399,6 +503,26 @@ export function BuilderSourceReviewDialog({
         if (reviewRowIdSet.has(mappedChangeSetId)) {
           next[mappedChangeSetId] = selection;
         }
+      }
+      // Clearing a pick takes away the preselection it made unless the row's
+      // selection was changed since; a different pick preselects the row again.
+      for (const [changeSetId, publicationTransition] of unstaged) {
+        if (
+          next[changeSetId]?.publicationTransition === publicationTransition
+        ) {
+          delete next[changeSetId];
+        }
+      }
+      for (const [changeSetId, publicationTransition] of restaged) {
+        if (
+          next[changeSetId]?.publicationTransition === publicationTransition
+        ) {
+          continue;
+        }
+        next[changeSetId] =
+          publicationTransition === "unpublish"
+            ? { publicationTransition, confirmUnpublish: false }
+            : { publicationTransition };
       }
       return Object.keys(next).length === Object.keys(current).length &&
         Object.entries(next).every(
@@ -412,6 +536,7 @@ export function BuilderSourceReviewDialog({
     open,
     reviewRowIdsKey,
     selectionChangeSetIdMap,
+    stagedTransitionsKey,
   ]);
   const selectedChangeSetIdSet = useMemo(
     () => new Set(selectedChangeSetIds),
@@ -437,7 +562,9 @@ export function BuilderSourceReviewDialog({
   const intentSummary = builderReviewIntentSummary(
     selectedReviewRows,
     scopedTransitionSelections,
-  );
+  )
+    .map((part) => t(`database.${part.key}`, { count: part.count }))
+    .join(" · ");
   const destinationLine = builderReviewDestinationLine({
     rows: selectedReviewRows,
     selections: scopedTransitionSelections,
@@ -497,27 +624,14 @@ export function BuilderSourceReviewDialog({
         : review?.liveWritesEnabled
           ? "Prepare the full Builder payload before anything is sent."
           : null;
-  const effectiveEffects = new Set(
-    selectedReviewRows.map((row) =>
-      builderReviewEffectiveRowEffect(
-        row.effect,
-        scopedTransitionSelections[row.changeSetId],
-      ),
-    ),
-  );
-  const pushVerb = !review?.liveWritesEnabled
-    ? "Check"
-    : effectiveEffects.has("unpublish")
-      ? "Unpublish"
-      : effectiveEffects.has("publish")
-        ? "Publish"
-        : effectiveEffects.size === 1 && effectiveEffects.has("create_draft")
-          ? selectedReviewRows.length > 1
-            ? `Create ${selectedReviewRows.length} drafts`
-            : "Create draft"
-          : selectedReviewRows.length > 1
-            ? `Push ${selectedReviewRows.length} updates`
-            : "Push update";
+  const pushVerbMessage = builderReviewPushVerb({
+    rows: selectedReviewRows,
+    selections: scopedTransitionSelections,
+    liveWritesEnabled: review?.liveWritesEnabled === true,
+  });
+  const pushVerb = t(`database.${pushVerbMessage.key}`, {
+    count: pushVerbMessage.count,
+  });
   const buttonLabel = pending
     ? executionPending
       ? "Sending…"
@@ -661,7 +775,7 @@ export function BuilderSourceReviewDialog({
                       row.effect,
                       selection,
                     );
-                    const { tag, sentence } =
+                    const { tagKey, sentenceKey } =
                       builderReviewRowEffectLabel(effect);
                     const showConflict =
                       effect !== "create_draft" &&
@@ -691,7 +805,7 @@ export function BuilderSourceReviewDialog({
                               </div>
                             ) : null}
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {sentence}
+                              {t(`database.${sentenceKey}`)}
                             </div>
                           </div>
                           <span
@@ -700,7 +814,7 @@ export function BuilderSourceReviewDialog({
                               rowEffectTagClass(effect)
                             }
                           >
-                            {tag}
+                            {t(`database.${tagKey}`)}
                           </span>
                         </div>
                         <div className="mt-3 grid gap-2">

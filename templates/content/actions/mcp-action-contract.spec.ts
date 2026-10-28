@@ -1,3 +1,7 @@
+import {
+  actionCallIntent,
+  preparedCallNeedsApproval,
+} from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
 import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-schema.js";
@@ -5,6 +9,7 @@ import {
   MAX_MIGRATION_PLAN_BYTES,
   MAX_MIGRATION_ROWS,
 } from "./_content-database-row-migration.js";
+import { DATABASE_ROW_PATCH_LIMIT } from "./_database-row-mutation.js";
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
@@ -12,24 +17,39 @@ import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
+import createGitHubCollection from "./create-github-collection.js";
 import deleteContentDatabase from "./delete-content-database.js";
+import deleteDocument from "./delete-document.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
+import executeContentTrashPurge from "./execute-content-trash-purge.js";
+import getBlocksFieldWordCount from "./get-blocks-field-word-count.js";
 import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
+import linkGitHubFolder from "./link-github-folder.js";
 import listComments from "./list-comments.js";
+import listContentDatabaseBlocks from "./list-content-database-blocks.js";
+import listContentDatabaseComments from "./list-content-database-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listContentSpaces from "./list-content-spaces.js";
+import listContentTrash from "./list-content-trash.js";
 import listDocuments from "./list-documents.js";
 import listTrashedContentDatabases from "./list-trashed-content-databases.js";
 import manageContentDatabaseMigration from "./manage-content-database-migration.js";
 import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
+import patchDatabaseItems from "./patch-database-items.js";
+import permanentlyDeleteDocument from "./permanently-delete-document.js";
+import pullDocument from "./pull-document.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
+import restoreDocument from "./restore-document.js";
 import searchDocuments from "./search-documents.js";
+import setDocumentProperty from "./set-document-property.js";
+import shareLocalFileDocument from "./share-local-file-document.js";
+import syncGitHubFolder from "./sync-github-folder.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
 import updateDatabaseItem from "./update-database-item.js";
@@ -40,6 +60,7 @@ import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
   const directMcpActions = {
+    "share-local-file-document": shareLocalFileDocument,
     "create-content-database": createContentDatabase,
     "configure-document-property": configureDocumentProperty,
     "update-content-database-view": updateContentDatabaseView,
@@ -48,12 +69,21 @@ describe("Content action-owned agent catalogs", () => {
     "delete-content-database": deleteContentDatabase,
     "restore-content-database": restoreContentDatabase,
     "list-trashed-content-databases": listTrashedContentDatabases,
+    "delete-document": deleteDocument,
+    "restore-document": restoreDocument,
+    "list-content-trash": listContentTrash,
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
+    "get-blocks-field-word-count": getBlocksFieldWordCount,
+    "list-content-database-blocks": listContentDatabaseBlocks,
+    "set-document-property": setDocumentProperty,
+    "pull-document": pullDocument,
     "create-document": createDocument,
     "edit-document": editDocument,
+    "update-document": updateDocument,
     "list-comments": listComments,
+    "list-content-database-comments": listContentDatabaseComments,
     "add-comment": addComment,
     "update-comment": updateComment,
     "list-content-databases": listContentDatabases,
@@ -62,8 +92,12 @@ describe("Content action-owned agent catalogs", () => {
     "add-database-item": addDatabaseItem,
     "update-database-item": updateDatabaseItem,
     "update-database-items": updateDatabaseItems,
+    "patch-database-items": patchDatabaseItems,
     "upsert-database-item-by-key": upsertDatabaseItemByKey,
     "migrate-content-database-rows": migrateContentDatabaseRows,
+    "link-github-folder": linkGitHubFolder,
+    "create-github-collection": createGitHubCollection,
+    "sync-github-folder": syncGitHubFolder,
   };
 
   const deferredDatabaseActions = {
@@ -72,6 +106,44 @@ describe("Content action-owned agent catalogs", () => {
     "manage-content-database-migration": manageContentDatabaseMigration,
   };
 
+  it("requires approval for outside calls while preserving ordinary in-app tools", async () => {
+    const call = await actionCallIntent(shareLocalFileDocument, {
+      id: "local-file-test",
+    });
+    if (!call.valid) throw call.error;
+    for (const [ctx, expected] of [
+      [{ caller: "frontend" }, false],
+      [{ caller: "tool" }, false],
+      [{ caller: "http" }, true],
+      [{ caller: "cli" }, true],
+      [{ caller: "mcp-widget" }, true],
+      [{ caller: "mcp-widget-write" }, true],
+      [{ caller: "automation" }, true],
+      [{ caller: "mcp" }, true],
+      [{ caller: "webmcp" }, true],
+      [{ caller: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "mcp" }, true],
+      [{ caller: "tool", networkProtocol: "a2a" }, true],
+      [{ caller: "tool", networkProtocol: "provider-api" }, true],
+      [
+        {
+          caller: "tool",
+          automation: {
+            triggerId: "trigger-test",
+            triggerName: "Test automation",
+            policyId: "policy-test",
+          },
+        },
+        true,
+      ],
+    ] as const) {
+      expect(
+        await preparedCallNeedsApproval(shareLocalFileDocument, call, ctx),
+        JSON.stringify(ctx),
+      ).toBe(expected);
+    }
+  });
+
   it("owns compact MCP membership beside each directly callable action", () => {
     for (const action of Object.values(directMcpActions)) {
       expect(action.mcpTool).toBe(true);
@@ -79,11 +151,19 @@ describe("Content action-owned agent catalogs", () => {
     }
   });
 
+  it("classifies shareable local-file copies as disclosure-capable writes", () => {
+    expect(shareLocalFileDocument.mcpAnnotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
+  });
+
   it("returns migration receipts as structured MCP content", () => {
     expect(migrateContentDatabaseRows.mcpApp?.structuredContent).toBe(true);
   });
 
-  it("keeps Content's composed MCP input schemas complete while declaring object roots", () => {
+  it("flattens Content's composed MCP input schemas into object roots every provider accepts", () => {
     const migrationParameters = migrateContentDatabaseRows.tool.parameters;
     const batchParameters = updateDatabaseItems.tool.parameters;
     const migrationInputSchema = mcpToolInputSchema(
@@ -96,51 +176,42 @@ describe("Content action-owned agent catalogs", () => {
     );
 
     expect(migrationParameters?.anyOf).toBeDefined();
-    expect(migrationInputSchema).toEqual({
-      ...migrationParameters,
-      type: "object",
-    });
-    expect(migrationInputSchema.anyOf).toBe(migrationParameters?.anyOf);
-    expect(migrationInputSchema.anyOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            phase: expect.objectContaining({ const: "validate" }),
-            plan: expect.anything(),
-          }),
-          required: expect.arrayContaining(["phase", "plan"]),
-        }),
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            phase: expect.objectContaining({ const: "verify" }),
-            expectedPostDigest: expect.anything(),
-          }),
-          required: expect.arrayContaining([
-            "phase",
-            "databaseId",
-            "idempotencyKey",
-            "expectedPostDigest",
+    expect(migrationInputSchema.type).toBe("object");
+    expect(migrationInputSchema).not.toHaveProperty("anyOf");
+    expect(migrationInputSchema.properties).toEqual(
+      expect.objectContaining({
+        phase: {
+          anyOf: expect.arrayContaining([
+            expect.objectContaining({ enum: ["validate"] }),
+            expect.objectContaining({ enum: ["verify"] }),
           ]),
-        }),
-      ]),
+        },
+        plan: expect.anything(),
+        databaseId: expect.anything(),
+        idempotencyKey: expect.anything(),
+        expectedPostDigest: expect.anything(),
+      }),
+    );
+    expect(migrationInputSchema.required).toEqual(["phase"]);
+    expect(migrationInputSchema.description).toContain(
+      'phase="validate": requires plan',
+    );
+    expect(migrationInputSchema.description).toContain(
+      'phase="verify": requires databaseId, idempotencyKey, expectedPostDigest',
     );
 
     expect(batchParameters?.allOf).toBeDefined();
-    expect(batchInputSchema).toEqual({
-      ...batchParameters,
-      type: "object",
-    });
-    expect(batchInputSchema.allOf).toBe(batchParameters?.allOf);
-    expect(batchInputSchema.allOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            propertyId: expect.anything(),
-            value: expect.anything(),
-          }),
-          required: expect.arrayContaining(["propertyId", "value"]),
-        }),
-      ]),
+    expect(batchInputSchema.type).toBe("object");
+    expect(batchInputSchema).not.toHaveProperty("allOf");
+    expect(batchInputSchema.properties).toEqual(
+      expect.objectContaining({
+        databaseId: expect.anything(),
+        propertyId: expect.anything(),
+        value: expect.anything(),
+      }),
+    );
+    expect(batchInputSchema.required).toEqual(
+      expect.arrayContaining(["propertyId", "value"]),
     );
   });
 
@@ -264,10 +335,83 @@ describe("Content action-owned agent catalogs", () => {
     );
   });
 
+  it("advertises distinct per-row patches up to the batch limit", () => {
+    const envelope = {
+      target: {
+        spaceId: "space_1",
+        databaseId: "database_1",
+        databaseDocumentId: "document_database_1",
+      },
+      expectedSchemaRevision: "schema_1",
+      idempotencyKey: "rank_refresh_1",
+    };
+    const row = (index: number) => ({
+      itemId: `item_${index}`,
+      documentId: `document_${index}`,
+      expectedRowRevision: `revision_${index}`,
+      propertyEntries: [
+        { propertyId: "rank", propertyType: "number", value: index + 1 },
+      ],
+    });
+    const rows = Array.from({ length: DATABASE_ROW_PATCH_LIMIT }, (_, index) =>
+      row(index),
+    );
+
+    expect(
+      patchDatabaseItems.schema.safeParse({ ...envelope, rows }).success,
+    ).toBe(true);
+    expect(
+      patchDatabaseItems.schema.safeParse({
+        ...envelope,
+        rows: [...rows, row(DATABASE_ROW_PATCH_LIMIT)],
+      }).success,
+    ).toBe(false);
+    expect(
+      patchDatabaseItems.schema.safeParse({ ...envelope, rows: [] }).success,
+    ).toBe(false);
+
+    const parameters = patchDatabaseItems.tool.parameters as any;
+    expect(parameters.properties.rows.maxItems).toBe(DATABASE_ROW_PATCH_LIMIT);
+    expect(parameters.properties.rows.items.properties).not.toHaveProperty(
+      "propertyValues",
+    );
+    expect(parameters.properties.target.properties).not.toHaveProperty(
+      "authorityScope",
+    );
+    expect(patchDatabaseItems.tool.description).toContain("atomic");
+    expect(updateDatabaseItems.tool.description).toContain(
+      "patch-database-items",
+    );
+  });
+
   it("keeps source composition and destructive migration actions out of compact MCP discovery", () => {
     for (const action of Object.values(deferredDatabaseActions)) {
       expect(action.mcpTool).not.toBe(true);
     }
+  });
+
+  it("keeps external Trash recoverable and permanent deletion off MCP", () => {
+    for (const action of [
+      permanentlyDeleteDocument,
+      executeContentTrashPurge,
+    ]) {
+      expect(action.mcpTool).not.toBe(true);
+    }
+    expect(deleteDocument.mcpAnnotations?.destructiveHint).toBe(true);
+    expect(deleteContentDatabase.mcpAnnotations?.destructiveHint).toBe(true);
+    expect(deleteDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "expectedUpdatedAt", "idempotencyKey"]),
+    );
+    expect(restoreDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "expectedTrashedAt", "idempotencyKey"]),
+    );
+  });
+
+  it("gives external agents pull-document as a write, since it saves an open editor first", () => {
+    expect(pullDocument.mcpAnnotations?.readOnlyHint).toBe(false);
+    expect(pullDocument.publicAgent?.readOnly).toBe(false);
+    expect(getBlocksFieldWordCount.mcpAnnotations?.readOnlyHint).toBe(false);
+    expect(getBlocksFieldWordCount.publicAgent?.readOnly).toBe(false);
   });
 
   it("classifies direct comment reads and writes for MCP authorization", () => {

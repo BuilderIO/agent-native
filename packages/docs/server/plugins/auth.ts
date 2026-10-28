@@ -1,10 +1,7 @@
 import { randomUUID } from "crypto";
 
-import {
-  createAuthPlugin,
-  getAppBasePath,
-  type AuthOptions,
-} from "@agent-native/core/server";
+import { getAppBasePath, type AuthOptions } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 import { getCookie, getRequestURL, setCookie, type H3Event } from "h3";
 
 export function shouldCreateDocsSessionForPath(
@@ -51,6 +48,13 @@ export function isDocsWebMcpPath(
 
 export const docsAuthOptions: AuthOptions = {
   workspaceAppAudience: "public",
+  getBrowserSession: async (event) => {
+    if (isDocsWebMcpPath(getDocsRequestPathname(event))) return null;
+    const sessionId = getCookie(event, "an_docs_session");
+    return sessionId
+      ? { email: `anon-${sessionId}@agent-native.com`, userId: sessionId }
+      : null;
+  },
   getSession: async (event) => {
     const cookieName = "an_docs_session";
     if (isDocsWebMcpPath(getDocsRequestPathname(event))) return null;
@@ -76,4 +80,4 @@ export const docsAuthOptions: AuthOptions = {
   },
 };
 
-export default createAuthPlugin(docsAuthOptions);
+export default createToolkitAuthPlugin(docsAuthOptions);

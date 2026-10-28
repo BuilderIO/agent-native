@@ -37,7 +37,6 @@ export function isDirectScreenHoverTarget(
   return !!element && !element.closest("[data-screen-content]");
 }
 
-/** True only for native OS file drags, not internal HTML drag operations. */
 export function isOsFileDrag(event: {
   dataTransfer: { types: readonly string[] | DOMStringList } | null;
 }): boolean {
@@ -69,14 +68,6 @@ export function shouldBeginCanvasPan(args: { button: number; tool: string }) {
     (args.button === 0 &&
       normalizeCanvasTool(args.tool as MultiScreenCanvasTool) === "hand")
   );
-}
-
-export function shouldShowFrameFullViewButton(args: {
-  emphasized: boolean;
-  showFullView?: boolean;
-  childHoverActive?: boolean;
-}) {
-  return args.emphasized || !!args.showFullView || !!args.childHoverActive;
 }
 
 export function shouldShowBreakpointMenuAffordance(args: {

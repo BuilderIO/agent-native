@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-/**
- * Agent engine and model selection.
- *
- * These are the values `resolveEngine()` already resolves through a documented
- * seven-step ladder. The declared field replaces step 2 of that ladder only —
- * the explicit `engineOption` argument stays a function parameter and stays
- * above it, because it is per-call rather than per-process.
- */
 export const agentConfig = z.object({
   engine: z
     .string()
@@ -56,15 +48,6 @@ export const agentConfig = z.object({
       env: ["AGENT_ENGINE_PREFER_BYO_KEY"],
       doc: "Skip the Builder-managed engine and select a directly configured provider key first.",
     }),
-  // ── Output-token budget ─────────────────────────────────────────────────
-  //
-  // Every value here is a CEILING on one request's completion, not a spend:
-  // an unused ceiling costs nothing, while a ceiling that is too low truncates
-  // the answer — and on reasoning models extended thinking can consume the
-  // whole budget, leaving an empty visible response. Each is clamped down to
-  // the model's documented ceiling by `agent/engine/output-tokens.ts`, which
-  // is the only reader; the constants there carry the same numbers and
-  // `output-tokens.spec.ts` pins the two together.
   maxOutputTokens: z
     .number()
     .int()
@@ -101,9 +84,6 @@ export const agentConfig = z.object({
       env: ["AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD"],
       doc: "Read-only source/search tool calls one turn may make before the agent is told to converge and answer from what it gathered.",
     }),
-  // These three stay `.optional()` rather than carrying a default: the value
-  // that applies when they are unset depends on whether the run is hosted and
-  // whether it is a background function, so it belongs to the resolver.
   runSoftTimeoutMs: z
     .number()
     .nonnegative()
@@ -129,23 +109,6 @@ export const agentConfig = z.object({
       doc: "How long an errored agent run row is kept, in milliseconds.",
     }),
 
-  // ── Run-lifecycle bounds ────────────────────────────────────────────────
-  //
-  // These are the numbers that can TERMINATE a run, or that encode an
-  // assumption about the host it runs on. They carry today's shipped values as
-  // declared defaults, so a deployment that configures nothing sees no
-  // behaviour change; `agent/run-lifecycle.ts` is the only place that reads
-  // them, one resolver per field, and `assertRunLifecycleInvariants` checks the
-  // ordering between them every time configuration resolves.
-  //
-  // Derived values (the foreground backstop fraction, tool-timeout headroom)
-  // stay internal on purpose: they are relationships, not host facts, and
-  // making them settable is how the ordering below stops being checkable.
-  //
-  // Each default here is the value that shipped as a module constant, and the
-  // constant still exists under its historical name where its reasoning is
-  // written down. `agent-run-lifecycle-config.spec.ts` pins the two together so
-  // editing one alone is a failing test, not a silent divergence.
   backgroundNoProgressTimeoutMs: z
     .number()
     .nonnegative()

@@ -19,8 +19,6 @@ describe("desktop settings navigation", () => {
     expect(initialDesktopSettingsTab("advanced")).toBe("advanced");
   });
 
-  // Rewind is a destination of its own, not a popover inside Advanced — the
-  // memory view's back button and `#settings/rewind` both target it directly.
   it("treats Rewind as a top-level destination", () => {
     expect(initialDesktopSettingsTab("rewind")).toBe("rewind");
   });

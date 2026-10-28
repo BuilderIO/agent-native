@@ -46,7 +46,7 @@ describe("extractFigmeta", () => {
     });
   });
 
-  it("extracts exact single and multi-selection node ids from current Figma clipboard metadata", () => {
+  it("extracts single and multi-selection node ids from clipboard metadata", () => {
     const html = `<span data-metadata="<!--(figmeta)${base64Json({
       fileKey: "abcDEF12345",
       pasteID: 7,
@@ -157,7 +157,7 @@ describe("resolveFigmaPasteImportCall", () => {
     });
   });
 
-  it("strips Figma's large private binary buffer for exact-id imports while preserving figmeta and visible fallback HTML", () => {
+  it("strips the large private clipboard buffer for exact-id imports while preserving metadata and visible fallback HTML", () => {
     const metadata = `(figmeta)${base64Json({
       fileKey: "abcDEF12345",
       selectedNodeData: "40:45|4|0",
@@ -236,8 +236,6 @@ describe("resolveFigmaPasteImportCall buffer transport", () => {
     const call = resolveFigmaPasteImportCall(pasteWithBuffer(base64Chars));
     expect(call.action).toBe("import-figma-clipboard");
     if (call.action !== "import-figma-clipboard") return;
-    // Silently omitting the buffer is what made a large paste look like it did
-    // nothing: no buffer, no visible HTML, no reason.
     expect(call.payload.clipboardBuffer).toBeUndefined();
     expect(call.payload.clipboardBufferOmittedBytes).toBe(
       Math.floor((base64Chars * 3) / 4),

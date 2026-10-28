@@ -1,14 +1,3 @@
-/**
- * Run the upload reaper once. Invoked by the per-minute Clips scheduled
- * function (see `jobs/emit-netlify-brain-export-cron.ts`), never by
- * `setInterval` — an in-process timer only fires while traffic keeps a lambda
- * warm, which is why the old startup sweeps effectively never ran in prod.
- *
- * `dryRun=1` reports what would be reaped without writing.
- *
- * Route: POST /api/uploads/reap
- */
-
 import { timingSafeEqual } from "node:crypto";
 
 import {

@@ -45,7 +45,9 @@ describe("content agent-readable discovery", () => {
       url: "/content/p/doc 1?agent_access=tok%2B1",
       contextUrl:
         "/content/api/document-agent-context.json?id=doc+1&agent_access=tok%2B1",
-      instructions: expect.stringContaining("This Content document is private"),
+      instructions: expect.stringContaining(
+        "Agent-Native Content access record",
+      ),
       accessContractVersion: 2,
       preferredTransport: "mcp",
       mcpUrl: "https://content.example.test/content/mcp",
@@ -97,22 +99,29 @@ describe("content agent-readable discovery", () => {
       missingMcpConnectionPath:
         "add-remote-server-authenticate-enable-and-retry",
     });
-    expect(guidance.instructions).toContain("Content access information:");
+    expect(guidance.instructions).toContain(
+      "Agent-Native Content access record. Resource: private Content document.",
+    );
+    expect(guidance.instructions).toContain(
+      "Anonymous HTTP access: denied. Authenticated Content MCP endpoint: https://content.example.test/content/mcp.",
+    );
+    expect(guidance.instructions).toContain(
+      "Connection page: https://content.example.test/content/mcp/connect.",
+    );
     expect(guidance.instructions).toContain(
       "https://www.agent-native.com/docs/external-agents/#private-content-links",
     );
     expect(guidance.instructions).toContain(
-      "Document access through MCP uses the connected account's existing permissions",
+      "Adding a connection changes the user's agent configuration and is the user's choice",
     );
     expect(guidance.instructions).toContain(
-      "connected account's document permission has not been evaluated",
+      "Authentication uses the connected account's existing document permissions and does not grant new document access",
     );
     expect(guidance.instructions).toContain(
-      "add this instance as a remote MCP server, authenticate, enable the connection or its tools, and retry",
+      "connected account's permission for this document has not been evaluated",
     );
-    expect(guidance.instructions).toContain(
-      "does not distinguish missing permission from a stale, deleted, or invalid document id",
-    );
+    expect(guidance.instructions).not.toContain("add this instance");
+    expect(guidance.instructions).not.toContain("and retry");
     expect(guidance.instructions).not.toContain("tell the user");
     expect(guidance.instructions).not.toContain("Do not ask");
   });
@@ -172,7 +181,8 @@ describe("content agent-readable discovery", () => {
     const guidance = buildContentDocumentMcpGuidance("doc-1");
 
     expect(guidance.readAction.arguments).toEqual({ id: "doc-1" });
-    expect(guidance.instructions).toContain("get-document with id");
+    expect(guidance.instructions).toContain("get-document");
+    expect(guidance.instructions).toContain('Document id: "doc-1"');
     expect(guidance.instructions).not.toContain("get-document with resourceId");
   });
 });

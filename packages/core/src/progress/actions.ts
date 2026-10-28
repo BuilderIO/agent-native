@@ -1,3 +1,4 @@
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 function stringifyValue(value: unknown): string {
   if (
     typeof value === "string" ||
@@ -7,15 +8,6 @@ function stringifyValue(value: unknown): string {
     return String(value);
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
-
-/**
- * Framework-level agent tools for the progress primitive. Registered as
- * native tools so every template exposes them. Use from long agent loops
- * to communicate status to the user while work is still in-flight.
- *
- * All operations are consolidated into a single `manage-progress` tool
- * with an `action` discriminator.
- */
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -34,8 +26,9 @@ function parseLimit(value: unknown, fallback = 20): number {
 export function createProgressToolEntries(
   getCurrentUser: () => string,
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-progress": {
+      confirmsAutomationWork: false,
       tool: {
         description: `Track multi-step task progress visible to the user in the runs tray.
 
@@ -194,5 +187,5 @@ Actions:
         }
       },
     },
-  };
+  });
 }

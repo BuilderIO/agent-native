@@ -4,11 +4,18 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
   deleteNotification,
   notifyWithDelivery,
 } from "../notifications/index.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { ForbiddenError } from "../sharing/access.js";
+import {
+  USAGE_ALERT_MIGRATIONS,
+  USAGE_ALERT_MIGRATIONS_TABLE,
+} from "./migrations.js";
 import { builderCreditsFromCostCents } from "./store.js";
 
 const DAY_MS = 86_400_000;
@@ -96,7 +103,6 @@ interface UsageTotals {
   tokens: number;
 }
 
-let initPromise: Promise<void> | undefined;
 let evaluationTail: Promise<void> = Promise.resolve();
 
 function normalizeEmail(value: string): string {
@@ -189,43 +195,45 @@ function ruleIdFor(
   return `usage-alert:${partition.scope}:${principal}:${appId ?? "all"}:${unit}:${period}`;
 }
 
-export async function ensureTables(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const tableSql = `CREATE TABLE IF NOT EXISTS usage_alert_rules (
-        id TEXT PRIMARY KEY,
-        scope TEXT NOT NULL,
-        owner_email TEXT NOT NULL,
-        org_id TEXT,
-        app_id TEXT,
-        unit TEXT NOT NULL,
-        period TEXT NOT NULL,
-        limit_value BIGINT NOT NULL,
-        channels TEXT NOT NULL,
-        enabled BIGINT NOT NULL DEFAULT 1,
-        is_default BIGINT NOT NULL DEFAULT 0,
-        dismissed_window_start BIGINT,
-        created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL
-      )`;
-      const eventsSql = `CREATE TABLE IF NOT EXISTS usage_alert_events (
-        id TEXT PRIMARY KEY,
-        rule_id TEXT NOT NULL,
-        window_start BIGINT NOT NULL,
-        notification_id TEXT,
-        created_at BIGINT NOT NULL
-      )`;
-      const indexes = [
-        {
-          name: "idx_usage_alert_rules_owner",
-          sql: "CREATE INDEX IF NOT EXISTS idx_usage_alert_rules_owner ON usage_alert_rules(owner_email, org_id, scope)",
-        },
-        {
-          name: "idx_usage_alert_events_rule_window",
-          sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_alert_events_rule_window ON usage_alert_events(rule_id, window_start)",
-        },
-      ];
-      {
+export const usageAlertsStore = defineStore({
+  id: "usage_alerts",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const tableSql = `CREATE TABLE IF NOT EXISTS usage_alert_rules (
+          id TEXT PRIMARY KEY,
+          scope TEXT NOT NULL,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          app_id TEXT,
+          unit TEXT NOT NULL,
+          period TEXT NOT NULL,
+          limit_value BIGINT NOT NULL,
+          channels TEXT NOT NULL,
+          enabled BIGINT NOT NULL DEFAULT 1,
+          is_default BIGINT NOT NULL DEFAULT 0,
+          dismissed_window_start BIGINT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )`;
+        const eventsSql = `CREATE TABLE IF NOT EXISTS usage_alert_events (
+          id TEXT PRIMARY KEY,
+          rule_id TEXT NOT NULL,
+          window_start BIGINT NOT NULL,
+          notification_id TEXT,
+          created_at BIGINT NOT NULL
+        )`;
+        const indexes = [
+          {
+            name: "idx_usage_alert_rules_owner",
+            sql: "CREATE INDEX IF NOT EXISTS idx_usage_alert_rules_owner ON usage_alert_rules(owner_email, org_id, scope)",
+          },
+          {
+            name: "idx_usage_alert_events_rule_window",
+            sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_alert_events_rule_window ON usage_alert_events(rule_id, window_start)",
+          },
+        ];
         await ensureTableExists("usage_alert_rules", tableSql);
         await ensureTableExists("usage_alert_events", eventsSql);
         await ensureColumnExists(
@@ -241,13 +249,17 @@ export async function ensureTables(): Promise<void> {
         for (const index of indexes) {
           await ensureIndexExists(index.name, index.sql);
         }
-      }
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  await initPromise;
+      },
+    },
+    ...fromMigrationEntries(
+      USAGE_ALERT_MIGRATIONS_TABLE,
+      USAGE_ALERT_MIGRATIONS,
+    ),
+  ],
+});
+
+export function ensureTables(): Promise<void> {
+  return usageAlertsStore.ready();
 }
 
 async function resolveScope(
@@ -258,15 +270,7 @@ async function resolveScope(
   const orgId = access.orgId?.trim() || null;
   let role: string | null = null;
   if (orgId) {
-    const result = await getDbExec().execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, ownerEmail],
-    });
-    const candidate = result.rows[0]?.role;
-    role = typeof candidate === "string" ? candidate : null;
+    role = await readOrgMemberRole(orgId, ownerEmail);
   }
   const canManage = scope === "user" || role === "owner" || role === "admin";
   if (scope === "workspace" && !canManage) {
@@ -840,7 +844,7 @@ export function enqueueUsageAlertEvaluation(
 }
 
 export function _resetUsageAlertStoreForTests(): void {
-  initPromise = undefined;
+  usageAlertsStore.reset();
   evaluationTail = Promise.resolve();
 }
 

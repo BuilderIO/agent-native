@@ -274,7 +274,7 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 > [!IMPORTANT]
 > **서버리스 웹훅 및 게이트웨이 시간 초과:**
-> 호스팅 환경 게이트웨이(예: Netlify, Vercel 또는 Cloudflare Pages)는 공용 HTTP 경로에 엄격한 실행 제한(보통 10~30초)을 적용합니다. 에이전트 루프는 쿼리를 실행하고, 컨텍스트를 가져오고, 도구를 실행하는 데 상당한 시간이 걸릴 수 있으므로 A2A 엔드포인트를 호출하거나 외부 webhooks를 처리할 때 **`async: true`**를 사용해야 합니다. 그러면 `working` 상태가 API 게이트웨이에 즉시 반환되어 몇 밀리초 동안만 연결이 열린 상태로 유지되는 반면, 자체 실행된 `/process-task` POST는 백그라운드에서 에이전트 루프를 실행합니다. 에이전트 루프가 완료되기를 기다리는 기본 HTTP 요청을 차단하지 마십시오.
+> 호스팅 환경 게이트웨이(예: Netlify, Vercel 또는 Cloudflare Workers)는 공용 HTTP 경로에 엄격한 실행 제한(보통 10~30초)을 적용합니다. 에이전트 루프는 쿼리를 실행하고, 컨텍스트를 가져오고, 도구를 실행하는 데 상당한 시간이 걸릴 수 있으므로 A2A 엔드포인트를 호출하거나 외부 webhooks를 처리할 때 **`async: true`**를 사용해야 합니다. 그러면 `working` 상태가 API 게이트웨이에 즉시 반환되어 몇 밀리초 동안만 연결이 열린 상태로 유지되는 반면, 자체 실행된 `/process-task` POST는 백그라운드에서 에이전트 루프를 실행합니다. 에이전트 루프가 완료되기를 기다리는 기본 HTTP 요청을 차단하지 마십시오.
 
 메시지에는 입력된 부분이 포함되어 있습니다. 즉, 텍스트, 구조화된 데이터 및 파일이 모두 하나의 메시지로 전달될 수 있습니다.
 
@@ -601,7 +601,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 전달자 검증은 에이전트 루프가 메시지를 보기 전에 JSON-RPC 처리기의 요청 경계에서 실행됩니다. `packages/core/src/a2a/auth-policy.ts`의 공유 도우미는 배포에 필요한 사항을 결정합니다:
 
-- `isA2AProductionRuntime()`는 `NODE_ENV`가 `"production"`가 아닌 경우에도 Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly 및 Cloud Run에서 `true`를 반환합니다. 일부 서버리스 제공업체는 `NODE_ENV`를 일관되게 설정하지 않으므로 정책은 제공업체별 플래그도 읽습니다.
+- `isA2AProductionRuntime()`는 `NODE_ENV`가 `"production"`가 아닌 경우에도 Netlify, AWS Lambda, Cloudflare Workers, Vercel, Render, Fly 및 Cloud Run에서 `true`를 반환합니다. 일부 서버리스 제공업체는 `NODE_ENV`를 일관되게 설정하지 않으므로 정책은 제공업체별 플래그도 읽습니다.
 - `A2A_SECRET`가 설정된 경우 `hasConfiguredA2ASecret()`는 `true`를 반환합니다.
 - `shouldAdvertiseJwtA2AAuth()`는 에이전트 카드가 `jwtBearer` 보안 체계 게시 여부를 결정하는 데 사용하는 것입니다.
 

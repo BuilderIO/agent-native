@@ -6,6 +6,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -42,7 +43,13 @@ describe("SendLaterButton", () => {
     fireEvent.change(input, { target: { value: "tomorrow afternoon" } });
 
     expect(onSendLater).not.toHaveBeenCalled();
-    expect(screen.getByRole("option").textContent).toContain("1:00 PM");
+    const listbox = document.getElementById(
+      input.getAttribute("aria-controls") ?? "",
+    );
+    if (!listbox) throw new Error("Missing suggestion listbox");
+    expect(within(listbox).getByRole("option").textContent).toContain(
+      "1:00 PM",
+    );
 
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -120,7 +127,11 @@ describe("SendLaterButton", () => {
     fireEvent.click(screen.getByRole("button", { name: "Schedule send" }));
     const input = screen.getByRole("combobox");
     fireEvent.change(input, { target: { value: "Monday 9:45am" } });
-    fireEvent.click(screen.getByRole("option"));
+    const listbox = document.getElementById(
+      input.getAttribute("aria-controls") ?? "",
+    );
+    if (!listbox) throw new Error("Missing suggestion listbox");
+    fireEvent.click(within(listbox).getByRole("option"));
 
     expect(onSendLater).toHaveBeenCalledTimes(1);
     expect(onSendLater.mock.calls[0][0]).toBeGreaterThan(Date.now());

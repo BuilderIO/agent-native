@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { toolkitMessagesForLocale } from "../../../toolkit/src/app/i18n/catalog.js";
 import { coreMessagesForLocale } from "../localization/core-messages.js";
 import defaultEnglishMessages from "../localization/default-messages.js";
 
@@ -50,7 +51,8 @@ function flattenMessages(value: unknown, prefix = "", out = new Set<string>()) {
   return out;
 }
 
-const englishKeys = flattenMessages(coreMessagesForLocale("en-US"));
+const englishKeys = flattenMessages(toolkitMessagesForLocale("en-US"));
+flattenMessages(coreMessagesForLocale("en-US"), "", englishKeys);
 flattenMessages(defaultEnglishMessages, "", englishKeys);
 
 function hasCatalogKey(key: string) {
@@ -66,6 +68,18 @@ function hasCatalogKey(key: string) {
 }
 
 describe("core i18n key coverage", () => {
+  it("keeps the observability expand label in the Agent Chat catalog", () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        clientDir,
+        "../../../toolkit/src/app/observability/ObservabilityDashboard.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).toContain('t("agentChat.common.expand")');
+    expect(hasCatalogKey("agentChat.common.expand")).toBe(true);
+  });
+
   it("keeps Context X-Ray and Snapshots as distinct labels", () => {
     expect(defaultEnglishMessages.contextXray.panelTitle).toBe("Context X-Ray");
     expect(defaultEnglishMessages.contextXray.snapshotsTitle).toBe("Snapshots");

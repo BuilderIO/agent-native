@@ -9,6 +9,8 @@ export function isCollapsibleWorkPart(part: ChatContentPart): boolean {
   if (part.type === "reasoning") return true;
   return (
     part.type === "tool-call" &&
+    !part.mcpApp &&
+    !part.chatUI &&
     !ALWAYS_VISIBLE_TOOLS.has(part.toolName) &&
     part.status !== "awaiting-approval"
   );

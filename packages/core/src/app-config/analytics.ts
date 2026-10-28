@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const analyticsConfig = z.object({
+  authSessionReplay: z.boolean().default(false).meta({
+    doc: "Opt in to privacy-masked session replay on hosted signup and login pages.",
+  }),
   agentNativePublicKey: z
     .string()
     .min(1)
@@ -24,5 +27,12 @@ export const analyticsConfig = z.object({
         "AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT",
       ],
       doc: "Endpoint for first-party Agent-Native Analytics events.",
+    }),
+  headScriptSrc: z
+    .url({ protocol: /^https$/ })
+    .optional()
+    .meta({
+      env: "AGENT_NATIVE_HEAD_SCRIPT_SRC",
+      doc: "HTTPS URL of a script added to every server-rendered page, for deployment-specific tooling such as support or feedback widgets. Where the consent banner shows, it waits for analytics consent, like Google Analytics.",
     }),
 });

@@ -3,12 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Needs a real browser: the subject is whether keystrokes handed to this frame
- * actually reached the document. The host holds the only copy until the frame
- * answers, so an insert the frame silently drops — the editable was replaced or
- * detached — has to come back as `inserted: false`.
- */
 const SCREEN_ID = "board-file";
 
 function hydratedEditorChromeBridgeScript(): string {
@@ -89,8 +83,6 @@ describe("the frame reports whether handed-over text landed", () => {
         const page = await browser.newPage();
         await startFrame(page);
 
-        // No session at all: the keystrokes never reach the document, and
-        // silence here is what let the host release its only copy.
         await postInsertText(page, "text-gone", "Sta");
         await page.waitForFunction(
           () =>
@@ -105,7 +97,6 @@ describe("the frame reports whether handed-over text landed", () => {
           },
         ]);
 
-        // A live session takes it, and says so.
         await mountTextNode(page, "text-live");
         await page.evaluate(() =>
           window.postMessage(
@@ -163,8 +154,6 @@ describe("the frame never acknowledges text it did not place", () => {
           () => !!document.querySelector("[data-agent-native-text-editing]"),
         );
 
-        // execCommand refuses, and the manual range fallback has no selection
-        // to work with: nothing lands, so nothing may be acknowledged.
         await page.evaluate(() => {
           document.execCommand = () => false;
           window.getSelection = () => null as unknown as Selection;
@@ -208,8 +197,6 @@ describe("the frame never acknowledges text it did not place", () => {
           () => !!document.querySelector("[data-agent-native-text-editing]"),
         );
 
-        // A's queued keystrokes arrive after B took the session. Inserting
-        // them here corrupted B and told the host A had landed.
         await postInsertText(page, "text-a", "Sta");
         await page.waitForFunction(
           () =>
@@ -259,15 +246,11 @@ describe("a refused insertion is never reported as committed", () => {
               );
             }
           });
-          // Nothing can land: execCommand refuses and the manual range
-          // fallback has no selection to work with.
           document.execCommand = () => false;
           window.getSelection = () => null as unknown as Selection;
         });
         await mountTextNode(page, "text-escape");
 
-        // Escape's commit path: the text rides in, and the session is meant to
-        // close the moment it lands.
         await page.evaluate(() =>
           window.postMessage(
             {
@@ -286,8 +269,6 @@ describe("a refused insertion is never reported as committed", () => {
               .length > 0,
         );
 
-        // inserted:false tells the host to keep owing the text. Reporting
-        // "committed" straight after made it release exactly that buffer.
         const pending = await page.evaluate(
           () =>
             ((window as Window & { __pending?: unknown[] }).__pending ??

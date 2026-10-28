@@ -1,8 +1,3 @@
-/**
- * Providers verify a webhook Request URL by calling it from their own
- * infrastructure, so a loopback/LAN host or a plain-`http:` origin can never
- * pass verification no matter what the user pastes.
- */
 export function isNonPublicWebhookUrl(rawUrl: string): boolean {
   let url: URL;
   try {

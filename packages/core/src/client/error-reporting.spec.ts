@@ -45,6 +45,20 @@ describe("error reporting helpers", () => {
     expect(body).toContain("Run: run-1");
     expect(body).toContain("Chat session: thread-1");
     expect(body).toContain("Plan id: plan-1");
+    expect(body).toContain(
+      `Thread: ${window.location.origin}/?thread=thread-1`,
+    );
+    expect(body).toMatch(/Build: agent-native-client@/);
+    expect(body).toMatch(/Time: \d{4}-\d{2}-\d{2}T/);
+    // The page's query string never leaks into the thread link.
+    expect(body).not.toContain("/?thread=thread-1&token");
+  });
+
+  it("names no thread link when no chat session is known", () => {
+    window.history.replaceState(null, "", "/docs");
+    const body = buildErrorReportTemplate({ appName: "Docs" });
+    expect(body).not.toContain("Thread:");
+    expect(body).toMatch(/Build: agent-native-client@/);
   });
 
   it("prefills GitHub issues with the same report body", () => {

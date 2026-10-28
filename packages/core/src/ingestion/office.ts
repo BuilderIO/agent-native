@@ -1,3 +1,5 @@
+import { loadOptionalPeer } from "../shared/optional-peer.js";
+
 export type OfficeDocumentType =
   | "pptx"
   | "docx"
@@ -158,11 +160,6 @@ export async function parseOfficeDocument(
     };
   }
   const resolvedParser = parser ?? (await loadOfficeParser());
-  if (!resolvedParser) {
-    throw new Error(
-      `Parsing ${fileType.toUpperCase()} uploads requires the optional officeparser dependency.`,
-    );
-  }
   const ast = await resolvedParser.parseOffice(input.data, {
     fileType,
     abortSignal: input.signal,
@@ -217,15 +214,17 @@ export function normalizeDocumentText(value: string): string {
     .trim();
 }
 
-async function loadOfficeParser(): Promise<OfficeDocumentParser | null> {
-  try {
-    const module = (await import("officeparser")) as unknown as {
-      OfficeParser?: OfficeDocumentParser;
-    };
-    return module.OfficeParser ?? null;
-  } catch {
-    return null;
+async function loadOfficeParser(): Promise<OfficeDocumentParser> {
+  const module = await loadOptionalPeer(
+    "officeparser",
+    () => import("officeparser"),
+  );
+  if (!module.OfficeParser) {
+    throw new Error(
+      "The installed officeparser package has no OfficeParser API.",
+    );
   }
+  return module.OfficeParser as unknown as OfficeDocumentParser;
 }
 
 function isOfficeDocumentType(value: unknown): value is OfficeDocumentType {

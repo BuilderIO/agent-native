@@ -29,7 +29,6 @@ interface FakeDbInput {
   }>;
   credentials?: CredentialRow[];
   selected?: SelectedCalendarRow[];
-  /** Supports the pre-batching implementation during characterization. */
   legacySelectedBatches?: SelectedCalendarRow[][];
 }
 

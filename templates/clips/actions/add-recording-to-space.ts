@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { parseSpaceIds, stringifySpaceIds } from "../server/lib/recordings.js";
 
 const MAX_CAS_ATTEMPTS = 5;
@@ -21,20 +22,12 @@ export default defineAction({
       .describe("Whether to add or remove the space"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const db = getDb();
 
-    // `db.transaction` alone does not serialize concurrent callers here —
-    // under Postgres/Neon's default READ COMMITTED isolation, two callers can
-    // both read the same spaceIds and the later UPDATE clobbers the earlier
-    // one's change (a lost update). Instead use an optimistic compare-and-swap
-    // retry loop on the existing
-    // column: read the current raw spaceIds string, compute the next value,
-    // then only commit if the column still matches what we read (mirrors the
-    // CAS pattern in react-to-comment.ts). A concurrent writer that lands
-    // first changes the column, the WHERE stops matching, and we retry the
-    // read-modify-write against the fresh value.
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const [row] = await db
         .select({ spaceIds: schema.recordings.spaceIds })

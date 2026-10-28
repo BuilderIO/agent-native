@@ -1,5 +1,4 @@
 import {
-  LOCALE_STORAGE_KEY,
   normalizeLocalizationPreference,
   useLocale,
 } from "@agent-native/core/client/i18n";
@@ -14,9 +13,11 @@ import {
   browserDocsLocale,
   docsLocaleFromSegment,
   docsLocaleOptionLabel,
+  isCampaignPathname,
   sitePathForLocale,
   type DocsLocale,
 } from "../../docs-locale";
+import { usePageLocales } from "../../page-locales";
 
 interface LanguagePickerProps {
   openUpward?: boolean;
@@ -30,16 +31,11 @@ function preferenceLabel(preference: string) {
   return preference;
 }
 
-// Same locale-switching logic as ../../DocsLanguagePicker, restyled against
-// the `--b-*` redesign tokens instead of the main site's shadcn Popover so it
-// matches the rest of this header rather than looking like a foreign control.
-// The menu is absolutely positioned with no portal and no collision detection,
-// so a footer instance has to be told to open upward or it lands below the
-// fold, unreachable.
 export function LanguagePicker(props: LanguagePickerProps) {
   const openUpward = props.openUpward === true;
-  const { preference } = useLocale();
+  const { preference, setPreference } = useLocale();
   const location = useLocation();
+  const pageLocales = usePageLocales();
   const [open, setOpen] = useState(false);
   const [systemLocale, setSystemLocale] =
     useState<DocsLocale>(DEFAULT_DOCS_LOCALE);
@@ -88,20 +84,19 @@ export function LanguagePicker(props: LanguagePickerProps) {
   }
 
   function hrefForPreference(value: string) {
+    const target = localeForPreference(value);
     const path = sitePathForLocale(
       location.pathname,
-      localeForPreference(value),
+      isCampaignPathname(location.pathname) && !pageLocales?.includes(target)
+        ? DEFAULT_DOCS_LOCALE
+        : target,
     );
     return `${path}${location.search}${location.hash}`;
   }
 
   function handleOptionClick(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
-    try {
-      window.localStorage.setItem(LOCALE_STORAGE_KEY, nextPreference);
-    } catch {
-      // coercion-ok: Locale selection still works through the URL when storage is blocked
-    }
+    void setPreference(nextPreference);
     setOpen(false);
   }
 

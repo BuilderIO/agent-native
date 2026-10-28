@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory documentComments rows, keyed loosely like the real table.
 type Row = {
   id: string;
   ownerEmail: string;
@@ -13,6 +12,7 @@ type Row = {
   notionCommentId: string | null;
   notionDiscussionId: string | null;
   resolved: number;
+  fieldId?: string | null;
 };
 
 const state = vi.hoisted(() => ({
@@ -76,6 +76,7 @@ vi.mock("../server/db/index.js", () => {
       notionCommentId: col("documentComments", "notionCommentId"),
       notionDiscussionId: col("documentComments", "notionDiscussionId"),
       resolved: col("documentComments", "resolved"),
+      fieldId: col("documentComments", "fieldId"),
     },
   };
 
@@ -153,7 +154,6 @@ describe("sync-notion-comments", () => {
     expect(notionActionUtilsMocks.getNotionDocumentOwner).toHaveBeenCalledWith(
       "doc-1",
     );
-    // getSyncLink must be scoped by the resolved document owner.
     expect(notionSyncMocks.getSyncLink).toHaveBeenCalledWith(
       "doc-1",
       "owner-a@example.com",
@@ -161,7 +161,6 @@ describe("sync-notion-comments", () => {
   });
 
   it("scopes pull-dedup by documentId so a second document linked to the same Notion page still receives comments (n36)", async () => {
-    // Simulate doc-x already synced against the same Notion page/comment.
     state.rows.push({
       id: "c-existing",
       ownerEmail: "owner-a@example.com",
@@ -250,8 +249,6 @@ describe("sync-notion-comments", () => {
     expect(root!.parentId).toBeNull();
     expect(root!.notionDiscussionId).toBe("nc-root");
     expect(reply).toBeDefined();
-    // The reply must attach to the root's thread, not become an unrelated
-    // top-level comment.
     expect(reply!.parentId).toBe(root!.id);
     expect(reply!.threadId).toBe(root!.threadId);
   });
@@ -284,8 +281,6 @@ describe("sync-notion-comments", () => {
   });
 
   it("pushes a reply using discussion_id so it threads under the existing Notion discussion (n-D)", async () => {
-    // Local thread: a root already synced to Notion (and carrying the
-    // resulting discussion_id), plus an unsynced local reply to it.
     state.rows.push({
       id: "local-root",
       ownerEmail: "owner-a@example.com",
@@ -392,6 +387,44 @@ describe("sync-notion-comments", () => {
     expect(reply!.notionDiscussionId).toBe("nc-new-root");
   });
 
+  it("pushes only the page body's threads, not those in another Blocks field tab", async () => {
+    const comment = (id: string, content: string, fieldId: string | null) => ({
+      id,
+      ownerEmail: "owner-a@example.com",
+      documentId: "doc-1",
+      threadId: id,
+      parentId: null,
+      content,
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      notionCommentId: null,
+      notionDiscussionId: null,
+      resolved: 0,
+      fieldId,
+    });
+    state.rows.push(comment("body-root", "on the body", null));
+    state.rows.push(comment("notes-root", "on the Notes tab", "field-notes"));
+
+    notionLibMocks.listNotionComments.mockResolvedValue([]);
+    notionLibMocks.addNotionComment.mockResolvedValue({
+      id: "nc-body",
+      discussionId: "nc-body",
+    });
+
+    const result = await run("doc-1");
+
+    expect(result).toEqual({ pulled: 0, pushed: 1 });
+    expect(notionLibMocks.addNotionComment).toHaveBeenCalledTimes(1);
+    expect(notionLibMocks.addNotionComment).toHaveBeenCalledWith(
+      "notion-page-1",
+      "on the body",
+      "token",
+      null,
+    );
+    const notes = state.rows.find((r) => r.id === "notes-root");
+    expect(notes!.notionCommentId).toBeNull();
+  });
+
   it("re-syncing does not duplicate an already-pulled threaded reply (n-D)", async () => {
     notionLibMocks.listNotionComments.mockResolvedValue([
       {
@@ -414,7 +447,6 @@ describe("sync-notion-comments", () => {
     expect(first).toEqual({ pulled: 2, pushed: 0 });
     expect(state.rows).toHaveLength(2);
 
-    // Re-sync with the exact same Notion comments — nothing new should land.
     const second = await run("doc-1");
     expect(second).toEqual({ pulled: 0, pushed: 0 });
     expect(state.rows).toHaveLength(2);

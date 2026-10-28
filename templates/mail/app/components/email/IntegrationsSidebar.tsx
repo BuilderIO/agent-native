@@ -1,6 +1,13 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  useCreateMcpServer,
+  useMcpServers,
+  type CreateMcpServerArgs,
+} from "@agent-native/core/client/resources";
+import { buildSettingsRoute } from "@agent-native/core/navigation";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
+import { McpIntegrationDialog } from "@agent-native/toolkit/app/resources";
 import {
   IconPlus,
   IconCheck,
@@ -8,8 +15,10 @@ import {
   IconChevronLeft,
   IconArrowUp,
 } from "@tabler/icons-react";
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -36,6 +45,10 @@ import {
   usePylonContact,
   isAuthError,
 } from "@/hooks/use-integrations";
+import {
+  canManageGongConnection,
+  hasConnectedGongMcpServer,
+} from "@/lib/gong-connection";
 import type { MailIntegrationStatuses } from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -52,17 +65,17 @@ function safeExternalHref(value?: string | null): string | null {
   }
 }
 
-// ─── Integration definitions ────────────────────────────────────────────────
-
 type ProviderId = "apollo" | "hubspot" | "gong" | "pylon";
 
 interface IntegrationDef {
   id: ProviderId;
   name: string;
   descriptionKey: string;
-  keyPlaceholder: string;
-  helpUrl: string;
-  helpSteps: string[];
+  keyPlaceholder?: string;
+  keyPlaceholderKey?: string;
+  helpUrl?: string;
+  helpSteps?: string[];
+  helpStepKeys?: string[];
   logo: React.ReactNode;
 }
 
@@ -133,13 +146,9 @@ const INTEGRATIONS: IntegrationDef[] = [
     id: "gong",
     name: "Gong",
     descriptionKey: "mail.integrations.gongDescription",
-    keyPlaceholder: "Gong API key or access_key:secret...",
+    keyPlaceholderKey: "mail.integrations.gongKeyPlaceholder",
     helpUrl: "https://app.gong.io/company/api",
-    helpSteps: [
-      "Go to Gong > Company Settings > API",
-      "Generate API credentials",
-      "Copy the access key (or key:secret)",
-    ],
+    helpStepKeys: ["mail.integrations.gongKeyFormatHint"],
     logo: (
       <svg
         viewBox="0 0 42 42"
@@ -181,8 +190,6 @@ const INTEGRATIONS: IntegrationDef[] = [
   },
 ];
 
-// ─── Main Sidebar Component ─────────────────────────────────────────────────
-
 export function IntegrationsSidebar({
   email,
   displayName,
@@ -204,7 +211,7 @@ export function IntegrationsSidebar({
     statuses.apollo || statuses.hubspot || statuses.gong || statuses.pylon;
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div data-an-mask className="flex h-full flex-col overflow-y-auto">
       {/* Integration data sections */}
       {statuses.apollo && <ApolloSection email={email} />}
       {statuses.hubspot && <HubSpotSection email={email} />}
@@ -278,11 +285,36 @@ export function IntegrationsSidebar({
   );
 }
 
-// ─── Integration Setup ──────────────────────────────────────────────────────
-
 function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
+  const t = useT();
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderId | null>(null);
+  const [gongDialogOpen, setGongDialogOpen] = useState(false);
+  const mcpServersQuery = useMcpServers({ defer: true });
+  const createMcpServer = useCreateMcpServer();
+  const mcpServers = mcpServersQuery.data;
+  const canManageGong = canManageGongConnection(mcpServers);
+  const canCreateOrgMcp = Boolean(mcpServers?.orgId && canManageGong);
+  const gongConnected = hasConnectedGongMcpServer(mcpServers);
+  const canRetryGongAccessCheck =
+    mcpServersQuery.isError && (!mcpServers || canManageGong);
+  const handleCreateMcpServer = useCallback(
+    async (args: CreateMcpServerArgs) => {
+      if (args.scope === "org" && !canCreateOrgMcp) {
+        throw new Error(t("mail.error.failedToConnect"));
+      }
+      return createMcpServer.mutateAsync(args);
+    },
+    [canCreateOrgMcp, createMcpServer, t],
+  );
+  const gongPermissionError = canRetryGongAccessCheck ? (
+    <GongPermissionLookupError
+      isRetrying={mcpServersQuery.isFetching}
+      onRetry={() => void mcpServersQuery.refetch()}
+    />
+  ) : null;
+  const showGong = canManageGong || statuses.gong || gongConnected;
 
   if (configuring) {
     const def = INTEGRATIONS.find((i) => i.id === configuring)!;
@@ -295,17 +327,19 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
     const connectedCount = [
       statuses.apollo,
       statuses.hubspot,
-      statuses.gong,
+      statuses.gong || gongConnected,
       statuses.pylon,
     ].filter(Boolean).length;
+    const visibleIntegrationCount = INTEGRATIONS.length - Number(!showGong);
     return (
       <div className="px-4 py-2">
+        {gongPermissionError}
         <button
           onClick={() => setExpanded(true)}
           className="text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
         >
           {connectedCount > 0
-            ? `Integrations (${connectedCount}/${INTEGRATIONS.length})`
+            ? `Integrations (${connectedCount}/${visibleIntegrationCount})`
             : "Add integrations"}
         </button>
       </div>
@@ -314,6 +348,7 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
 
   return (
     <div className="px-4 py-3">
+      {gongPermissionError}
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           Integrations
@@ -326,19 +361,74 @@ function IntegrationSetup({ statuses }: { statuses: MailIntegrationStatuses }) {
         </button>
       </div>
       <div className="space-y-1.5">
-        {INTEGRATIONS.map((def) => {
-          const connected = statuses[def.id];
-          return (
-            <IntegrationRow
-              key={def.id}
-              def={def}
-              connected={connected}
-              onConfigure={() => setConfiguring(def.id)}
-            />
-          );
-        })}
+        {INTEGRATIONS.filter((def) => def.id !== "gong" || showGong).map(
+          (def) => {
+            const connected =
+              def.id === "gong"
+                ? statuses.gong || gongConnected
+                : statuses[def.id];
+            return (
+              <IntegrationRow
+                key={def.id}
+                def={def}
+                connected={connected}
+                mcpConnected={def.id === "gong" && gongConnected}
+                legacyConnected={def.id === "gong" && statuses.gong}
+                canManageMcpSetup={def.id !== "gong" || canManageGong}
+                onManage={() =>
+                  void navigate(buildSettingsRoute("integrations"))
+                }
+                onConfigure={() => {
+                  if (def.id === "gong") setGongDialogOpen(true);
+                  else setConfiguring(def.id);
+                }}
+                onLegacyConfigure={
+                  def.id === "gong" ? () => setConfiguring("gong") : undefined
+                }
+              />
+            );
+          },
+        )}
         <AddIntegrationButton />
       </div>
+      <McpIntegrationDialog
+        open={gongDialogOpen}
+        onOpenChange={setGongDialogOpen}
+        initialIntegrationId={gongDialogOpen ? "gong" : null}
+        defaultScope="org"
+        canCreateOrgMcp={canCreateOrgMcp}
+        hasOrg={Boolean(mcpServers?.orgId)}
+        onCreateMcpServer={handleCreateMcpServer}
+        onCreated={() => void mcpServersQuery.refetch()}
+      />
+    </div>
+  );
+}
+
+function GongPermissionLookupError({
+  isRetrying,
+  onRetry,
+}: {
+  isRetrying: boolean;
+  onRetry: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="mb-2 flex items-center justify-between gap-2" role="alert">
+      <p className="text-[11px] text-muted-foreground">
+        {t("mail.integrations.gongAccessCheckFailed")}
+      </p>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-auto shrink-0 px-2 py-1 text-[11px]"
+        onClick={onRetry}
+        disabled={isRetrying}
+      >
+        {t(isRetrying ? "mail.error.retrying" : "mail.error.tryAgain")}
+      </Button>
     </div>
   );
 }
@@ -456,14 +546,26 @@ function AddIntegrationButton() {
 function IntegrationRow({
   def,
   connected,
+  mcpConnected = false,
+  legacyConnected = false,
+  canManageMcpSetup = true,
+  onManage,
   onConfigure,
+  onLegacyConfigure,
 }: {
   def: IntegrationDef;
   connected: boolean;
+  mcpConnected?: boolean;
+  legacyConnected?: boolean;
+  canManageMcpSetup?: boolean;
+  onManage?: () => void;
   onConfigure: () => void;
+  onLegacyConfigure?: () => void;
 }) {
   const t = useT();
   const { disconnect } = useIntegration(def.id);
+  const showSettings =
+    def.id !== "gong" || canManageMcpSetup || legacyConnected;
 
   return (
     <div className="flex items-center gap-2.5 py-1.5 group relative">
@@ -481,32 +583,70 @@ function IntegrationRow({
           <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
             <IconCheck className="h-3 w-3 text-emerald-400" />
           </div>
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors">
-                    <IconSettings className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-36">
-              <DropdownMenuItem
-                onClick={() => onConfigure()}
-                className="text-[12px] text-foreground/70"
-              >
-                {t("mail.integrations.updateKey")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => disconnect.mutate()}
-                className="text-[12px] text-red-400/80"
-              >
-                {t("mail.integrations.disconnect")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {showSettings && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label={t("mail.toolbar.settings")}
+                      className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+                    >
+                      <IconSettings className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.toolbar.settings")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-36">
+                {def.id === "gong" ? (
+                  <>
+                    {canManageMcpSetup && (
+                      <DropdownMenuItem
+                        onClick={mcpConnected ? onManage : onConfigure}
+                        className="text-[12px] text-foreground/70"
+                      >
+                        {mcpConnected
+                          ? t("mail.toolbar.settings")
+                          : t("mail.integrations.connect")}
+                      </DropdownMenuItem>
+                    )}
+                    {legacyConnected && (
+                      <>
+                        <DropdownMenuItem
+                          onClick={onLegacyConfigure}
+                          className="text-[12px] text-foreground/70"
+                        >
+                          {t("mail.integrations.updateKey")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => disconnect.mutate()}
+                          className="text-[12px] text-destructive/80"
+                        >
+                          {t("mail.integrations.disconnect")}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => onConfigure()}
+                      className="text-[12px] text-foreground/70"
+                    >
+                      {t("mail.integrations.updateKey")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => disconnect.mutate()}
+                      className="text-[12px] text-destructive/80"
+                    >
+                      {t("mail.integrations.disconnect")}
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       ) : (
         <button
@@ -558,7 +698,11 @@ function IntegrationKeyEntry({
             setApiKey(e.target.value);
             if (connect.error) connect.reset();
           }}
-          placeholder={def.keyPlaceholder}
+          placeholder={
+            def.keyPlaceholderKey
+              ? t(def.keyPlaceholderKey)
+              : def.keyPlaceholder
+          }
           autoFocus
           className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
         />
@@ -587,8 +731,11 @@ function IntegrationKeyEntry({
           {t("mail.integrations.getApiKey")}
         </p>
         <ol className="text-[11px] text-muted-foreground/50 space-y-0.5 list-decimal ps-3 mb-1.5">
-          {def.helpSteps.map((step, i) => (
+          {def.helpSteps?.map((step, i) => (
             <li key={i}>{step}</li>
+          ))}
+          {def.helpStepKeys?.map((key) => (
+            <li key={key}>{t(key)}</li>
           ))}
         </ol>
         <a
@@ -607,8 +754,6 @@ function IntegrationKeyEntry({
   );
 }
 
-// ─── Integration Notice (error / no-data) ──────────────────────────────────
-
 function IntegrationNotice({
   email,
   error,
@@ -618,6 +763,7 @@ function IntegrationNotice({
   error: unknown;
   providerId: ProviderId;
 }) {
+  const t = useT();
   const authErr = isAuthError(error);
   const [reconnecting, setReconnecting] = useState(false);
   const def = INTEGRATIONS.find((i) => i.id === providerId)!;
@@ -649,7 +795,11 @@ function IntegrationNotice({
               setApiKey(e.target.value);
               if (connect.error) connect.reset();
             }}
-            placeholder={def.keyPlaceholder}
+            placeholder={
+              def.keyPlaceholderKey
+                ? t(def.keyPlaceholderKey)
+                : def.keyPlaceholder
+            }
             autoFocus
             className="flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
           />
@@ -710,8 +860,6 @@ function IntegrationNotice({
   );
 }
 
-// ─── Apollo Section ─────────────────────────────────────────────────────────
-
 function ApolloSection({ email }: { email: string }) {
   const t = useT();
   const { data: person, isLoading, error } = useApolloPerson(email);
@@ -723,7 +871,6 @@ function ApolloSection({ email }: { email: string }) {
     );
   }
   if (!person) {
-    // No enrichment data — show basic info (email + domain)
     return (
       <div className="px-4 pt-4 pb-3">
         <h3 className="text-[14px] font-semibold text-foreground truncate">
@@ -753,6 +900,7 @@ function ApolloSection({ email }: { email: string }) {
       <div className="px-4 pt-4 pb-3 flex items-start gap-3">
         {shouldLoadRemotePhoto ? (
           <img
+            data-an-block
             src={person.photo_url}
             alt=""
             className="h-9 w-9 rounded-full object-cover shrink-0 mt-0.5"
@@ -792,6 +940,7 @@ function ApolloSection({ email }: { email: string }) {
             <div className="flex items-center gap-2 mb-1.5">
               {shouldLoadRemoteLogo ? (
                 <img
+                  data-an-block
                   src={person.organization.logo_url}
                   alt=""
                   className="h-4 w-4 rounded object-contain shrink-0"
@@ -839,6 +988,7 @@ function ApolloSection({ email }: { email: string }) {
           <div className="px-4 py-2 flex flex-wrap gap-3">
             {safeExternalHref(person.linkedin_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.linkedin_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -849,6 +999,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.twitter_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.twitter_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -859,6 +1010,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.github_url) && (
               <a
+                data-an-block
                 href={safeExternalHref(person.github_url) ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -869,6 +1021,7 @@ function ApolloSection({ email }: { email: string }) {
             )}
             {safeExternalHref(person.organization?.website_url) && (
               <a
+                data-an-block
                 href={
                   safeExternalHref(person.organization?.website_url) ??
                   undefined
@@ -931,8 +1084,6 @@ function ApolloSection({ email }: { email: string }) {
     </>
   );
 }
-
-// ─── HubSpot Section ────────────────────────────────────────────────────────
 
 function HubSpotSection({ email }: { email: string }) {
   const t = useT();
@@ -1030,8 +1181,6 @@ function HubSpotSection({ email }: { email: string }) {
   );
 }
 
-// ─── Gong Section ───────────────────────────────────────────────────────────
-
 function GongSection({ email }: { email: string }) {
   const t = useT();
   const {
@@ -1046,11 +1195,10 @@ function GongSection({ email }: { email: string }) {
 
   if (isLoading) return <SectionLoading />;
   if (!calls || calls.length === 0) {
-    if (error) {
+    if (error)
       return (
         <IntegrationNotice email={email} error={error} providerId="gong" />
       );
-    }
     return null;
   }
 
@@ -1087,8 +1235,6 @@ function GongSection({ email }: { email: string }) {
     </>
   );
 }
-
-// ─── Pylon Section ──────────────────────────────────────────────────────────
 
 function PylonSection({ email }: { email: string }) {
   const { data, isLoading, error } = usePylonContact(email) as {
@@ -1170,8 +1316,6 @@ function PylonSection({ email }: { email: string }) {
     </>
   );
 }
-
-// ─── Shared ─────────────────────────────────────────────────────────────────
 
 function SectionHeader({
   logo,

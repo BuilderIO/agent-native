@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "الكل",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -25,7 +26,120 @@ const messages = {
       noteToSelf: "ملاحظة لنفسي",
     },
     inbox: {
+      atLeastCount: "على الأقل {{count}}",
       syncing: "جارٍ مزامنة الوارد…",
+    },
+    sort: {
+      label: "ترتيب الوارد",
+      newest: "الأحدث",
+      priority: "الأولوية",
+      priorityFailed: "تعذّر ترتيب الوارد.",
+      priorityProviderRequired:
+        "اربط موفر ذكاء اصطناعي لاستخدام الفرز حسب الأولوية.",
+      priorityPartialFailed:
+        "تعذّر ترتيب {{count}} من الرسائل. ستظهر بعد الرسائل التي تم تقييمها.",
+      priorityScoreHelp: "تعني الدرجة الأعلى أن احتمال أهمية هذه الرسالة أكبر.",
+      priorityFeedbackSuggestion:
+        "حوّل هذا النمط إلى قاعدة للأهمية أو للأرشفة التلقائية.",
+      priorityFeedbackAskAgent: "اطلب من الوكيل اقتراح قواعد",
+      aiSetupTitle: "إعداد بريدك الوارد بالذكاء الاصطناعي",
+      aiSetupTagLabel: "إنشاء وسم ذكاء اصطناعي",
+      aiSetupImportanceLabel: "رسائل مهمة",
+      aiSetupSpamLabel: "مزعج",
+      aiSetupArchiveLabel: "تجاوز البريد الوارد",
+      aiSetupSave: "حفظ الإعداد",
+      aiSetupSkip: "تخط الآن",
+      aiSetupImportantHeadline: "ما المهم بالنسبة إليك؟",
+      aiSetupSkipInboxHeadline: "ما الذي يمكنه تجاوز صندوق الوارد؟",
+      aiSetupTagsHeadline: "رتّب البريد في علامات تبويب",
+      aiSetupArchiveSpamHeadline: "تجاوز البريد الوارد والرسائل المزعجة",
+      aiSetupTagReceipts: "الإيصالات",
+      aiSetupTagUpdates: "تحديثات المنتجات",
+      aiSetupTagGitHub: "تعليقات GitHub البشرية",
+      aiSetupPromptReceipts: "إيصالات وتأكيدات الطلبات من المتاجر الإلكترونية",
+      aiSetupPromptUpdates:
+        "تحديثات المنتجات وملاحظات الإصدار من الأدوات التي أستخدمها",
+      aiSetupPromptGitHub: "إشعارات GitHub التي علّق فيها شخص حقيقي",
+      aiSetupImportantPrompt:
+        "الرسائل التي تحتاج إلى رد أو لها موعد نهائي، بما فيها تعليقات الأشخاص على GitHub. تخطَّ تعليقات الروبوتات.",
+      aiSetupArchiveSpamPrompt:
+        "تجاوز صندوق الوارد: إشعارات GitHub التي نشر فيها روبوت تعليقًا أو تحديثًا آليًا.\nالرسائل المزعجة: الرسائل الترويجية بوضوح أو غير المرغوب فيها التي لم أطلبها.",
+      aiSetupCustomTag: "مخصص",
+      aiSetupDone: "تم",
+      aiSetupConnectGmailHeadline: "اربط Gmail لتنظيم صندوق الوارد",
+      aiSetupConnectGmailDescription:
+        "اربط Google لتطبيق قواعدك على الرسائل الأخيرة.",
+      aiSetupConnectJevHeadline: "اربط Jev لتنظيم صندوق الوارد",
+      aiSetupConnectJevDescription:
+        "اربط Jev لتطبيق قواعدك على الرسائل الأخيرة.",
+      aiSetupCustomTabName: "اسم التبويب",
+      aiSetupCustomTabExample: "مثال: فواتير الموردين",
+      aiSetupRunAgain: "تشغيل الإعداد مرة أخرى",
+      aiSetupTagCalendar: "التقويم",
+      aiSetupPromptCalendar: "دعوات التقويم وتحديثات الأحداث التي أحتاجها",
+      aiSetupTagTravel: "السفر",
+      aiSetupPromptTravel: "تأكيدات الرحلات والحجوزات التي أحتاجها",
+      aiSetupTagFinance: "المالية",
+      aiSetupPromptFinance: "الفواتير وكشوف الحسابات التي أحتاجها",
+      aiSetupArchiveExample:
+        "إشعارات الروبوتات وCI من GitHub وVercel وDependabot",
+      aiSetupFilteredExample:
+        "رسائل المبيعات غير المرغوبة والمجندون الذين لم أرد عليهم",
+      aiSetupSortingHeadline: "جارٍ تنظيم صندوق الوارد",
+      aiSetupSortingDescription:
+        "هذه هي النتائج التي وجدتها قواعدك في الرسائل الحديثة.",
+      aiSetupFindingRecentMail: "جارٍ العثور على الرسائل الحديثة…",
+      aiSetupRetry: "أعِد المحاولة",
+      aiSetupGmailStatusFailed: "تعذّر التحقق من اتصال Gmail",
+      aiSetupAutomationSettingsFailed:
+        "تعذّر التحقق من إعدادات نموذج الذكاء الاصطناعي",
+      aiSetupSortingProgress:
+        "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
+      aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",
+      aiSetupUndoBeforeRetry:
+        "تراجع عن التغييرات الجزئية قبل المحاولة مرة أخرى.",
+      aiSetupSortingFailed:
+        "تعذّر تنظيم صندوق الوارد. حُفظت قواعدك؛ حاول مرة أخرى.",
+      aiSetupUndoComplete: "أُعيدت {{count}} رسالة إلى حالتها السابقة.",
+      aiSetupUndoFailed:
+        "تعذّر التراجع عن تغييرات البريد الوارد هذه. حاول مرة أخرى.",
+      aiSetupUndoStatusFailed:
+        "تم إرسال طلب التراجع، لكن تعذّر تحميل أحدث النتائج.",
+      aiSetupRuleCount: "{{count}} مطابقة",
+      aiSetupNoMatches: "لم تطابق أي رسائل خلال آخر 14 يومًا هذه القواعد.",
+      aiSetupChatTip: "يمكنك تحسين القواعد أو إضافتها في الدردشة متى شئت.",
+      aiSetupChatPrompt: "أعطِ الأولوية لرسائل مديري…",
+      aiSetupNoRules: "لم يتم اختيار أي قواعد.",
+      aiSetupPartialFailure: "تعذّر تحديث {{count}} رسالة.",
+      aiSetupSortInbox: "نظّم صندوق الوارد",
+      aiSetupImportantExample: "كل ما يصل من مديري Priya ‏(priya@company.com)…",
+      aiSetupTagsDescription:
+        "تضع AI وسومًا على الرسائل المطابقة وتنشئ تبويبًا لكل وسم بجوار البريد الوارد.",
+      aiSetupImportantDescription:
+        "تضيف AI تصنيف «مهم» إلى الرسائل المطابقة لتظهر في تبويب المهم.",
+      aiSetupSkipInboxDescription:
+        "تؤرشف AI الرسائل المطابقة كي لا تصل إلى البريد الوارد. وتظل متاحة في «كل البريد» والبحث.",
+      aiSetupAddTab: "إضافة تبويب",
+      aiSetupAdjustRules: "تعديل القواعد",
+      aiSetupImportantBoss: "رسائل من مديري، ",
+      aiSetupImportantBossChip: "رسائل من مديري",
+      aiSetupImportantReply: "تحتاج إلى رد",
+      aiSetupImportantDeadlines: "المواعيد النهائية",
+      aiSetupImportantCustomers: "العملاء",
+      aiSetupImportantGitHub: "أشخاص على GitHub",
+      aiSetupImportantCalendar: "دعوات التقويم",
+      aiSetupSkipNewsletters: "النشرات البريدية",
+      aiSetupSkipPromotions: "العروض الترويجية",
+      aiSetupSkipBots: "تنبيهات الروبوتات وCI",
+      aiSetupSkipColdSales: "مبيعات غير مرغوبة",
+      aiSetupSkipRecruiters: "رسائل التوظيف",
+      aiSetupSkipSocial: "تنبيهات اجتماعية",
+      priorityFeedbackLabel: "تقييم الأهمية",
+      priorityScoreHigh: "أهمية عالية",
+      priorityScoreMedium: "أهمية متوسطة",
+      priorityScoreLow: "أهمية منخفضة",
+      priorityEditRules: "تعديل قواعد الأهمية",
+      aiSetupContinue: "متابعة",
     },
     toolbar: {
       toggleMenu: "تبديل القائمة",
@@ -40,7 +154,7 @@ const messages = {
       unpinSidebar: "إلغاء تثبيت الشريط الجانبي",
       closeSidebar: "إغلاق الشريط الجانبي",
       settings: "الإعدادات",
-      aiSettings: "وسوم وسبام بالذكاء الاصطناعي",
+      aiSettings: "إدارة الوسوم والقواعد",
     },
     search: {
       label: "بحث",
@@ -55,13 +169,16 @@ const messages = {
       filtersLimitReached: "يمكنك حفظ ما يصل إلى 20 فلترًا.",
     },
     tabSettings: {
+      splitInbox: "صندوق وارد مقسّم",
       views: "وجهات النظر",
       categories: "الفئات",
       rename: "إعادة تسمية",
       renameTab: "إعادة تسمية علامة التبويب",
       savedFilters: "الفلاتر المحفوظة",
       combinedInbox: "صندوق وارد موحد",
-      help: "تظهر العناصر المحددة كعلامات تبويب. رسائل التصنيفات تنفصل عن صندوق الوارد.",
+      allTab: "تبويب الكل",
+      help: "يعرض صندوق الوارد الموحّد جميع الحسابات معًا؛ أوقفه لتقسيم البريد إلى علامات تبويب.",
+      aiSetup: "إعداد وسوم وقواعد الذكاء الاصطناعي",
     },
     accounts: {
       remove: "إزالة",
@@ -95,6 +212,7 @@ const messages = {
       deleteDraft: "حذف المسودة",
       deleteDrafts: "حذف المسودات",
       reopenDraft: "إعادة فتح",
+      openInMail: "فتح في Mail",
       discardDraft: "تجاهل المسودة",
       enterLinkUrl: "أدخل عنوان URL للرابط.",
       forward: "Forward",
@@ -192,7 +310,10 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "إثراء جهات الاتصال وبيانات الشركة",
       hubspotDescription: "جهات اتصال CRM والصفقات والتذاكر",
-      gongDescription: "المكالمات الحديثة وذكاء المحادثات",
+      gongDescription: "سجل مكالمات Gong",
+      gongAccessCheckFailed: "تعذّر التحقق مما إذا كان بإمكانك ربط Gong.",
+      gongKeyPlaceholder: "مفتاح API لـ Gong",
+      gongKeyFormatHint: "أدخل مفتاح الوصول والسر بالتنسيق access_key:secret.",
       pylonDescription: "مشكلات الدعم وبيانات الحساب",
       gongCalls: "مكالمات Gong",
       deals: "الصفقات",
@@ -216,6 +337,14 @@ const messages = {
     },
     sendLater: {
       cancelScheduledSend: "إلغاء الإرسال المجدول",
+      deliveryUnknownWarning:
+        "حالة التسليم غير معروفة؛ تحقّق من عرض «المرسلة» في Mail قبل حلّ المشكلة.",
+      markSentAfterChecking: "تحققت من «المرسلة»؛ وضع علامة «تم الإرسال»",
+      sendNewCopy: "إرسال نسخة جديدة",
+      sendingStatus: "جارٍ إرسال البريد المجدول. الإجراءات غير متاحة مؤقتًا.",
+      confirmSendNewCopyTitle: "إرسال نسخة أخرى؟",
+      confirmSendNewCopyDescription:
+        "ربما تم تسليم الرسالة الأصلية بالفعل. تحقّق أولًا من عرض «المرسلة» في Mail. قد يؤدي إرسال نسخة أخرى إلى تكرار الرسالة.",
       dateInput: "التاريخ والوقت",
       noDateMatch: "لا يوجد وقت مستقبلي مطابق",
       inputPlaceholder: "جرّب: 8 صباحًا، 3 أيام، 7 أغسطس",
@@ -306,6 +435,7 @@ const messages = {
       tryDifferentKeywords: "جرّب كلمات مفتاحية مختلفة",
       nothingHere: "لا يوجد شيء هنا بعد",
       loadingMore: "جار تحميل المزيد...",
+      openAllMailForOlder: "افتح كل البريد للرسائل الأقدم",
     },
     toasts: {
       noEmailSelected: "لم يتم تحديد بريد.",
@@ -325,6 +455,10 @@ const messages = {
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "تم إرسال البريد المجدول.",
       scheduledSendFailed: "فشل إرسال البريد المجدول",
+      uncertainScheduledMarkedSent: "تم وضع علامة الإرسال على البريد المجدول.",
+      uncertainScheduledResolveFailed: "تعذّر حل حالة البريد المجدول.",
+      uncertainScheduledRetryStarted: "جارٍ إرسال نسخة جديدة.",
+      uncertainScheduledRetryFailed: "تعذّر إرسال نسخة جديدة.",
       scheduledCancelled: "تم إلغاء البريد المجدول.",
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
@@ -332,13 +466,14 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "تم إرسال الرسالة.",
       failedToSaveDraft: "تعذر حفظ المسودة.",
+      failedToRefreshInbox: "تعذر تحديث صندوق الوارد. حاول مرة أخرى بعد قليل.",
       failedToDeleteDraft: "تعذر حذف المسودة.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
       finishRecipientInput: "أكمل إضافة المستلم أو امسح النص قبل الإرسال.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "استخدم Builder.io (تتوفر فئة مجانية) أو محرك ذكاء اصطناعي آخر قبل استخدام «إنشاء».",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -373,6 +508,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "ربط حساب Google",
+      connectionNotConfigured:
+        "اتصال Gmail غير مُعدّ لهذا التطبيق. اطلب من مسؤول النظام تفعيله أو تخطَّ هذه الخطوة الآن.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -426,6 +563,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "غير مهم",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -438,9 +576,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -484,6 +619,8 @@ const messages = {
       labelNote:
         "يضيف تصنيف agent-native-filtered ويؤرشف المحادثة. يمكنك التراجع في أي وقت.",
       learningNote: "يبقي الرسالة في الوارد ويعلّم الفلتر ألا يكرر الخطأ.",
+      learningProgress:
+        "تم تأكيد {{count}} من أصل {{required}} أمثلة. ستتم مراجعة الرسائل الحديثة بعد تأكيد الأمثلة كلها.",
       rememberLabel: "تذكّر للرسائل المستقبلية (اختياري)",
       correctLabel: "ما الذي يجب أن يتعلمه؟ (اختياري)",
       rememberPlaceholder:
@@ -497,15 +634,59 @@ const messages = {
       keptToast: "تم إبقاء {{count}} من المحادثات في الوارد.",
       actionFailed: "تعذّر تحديث فلتر الذكاء الاصطناعي.",
       settingsFailed: "تعذّر حفظ إعدادات فلتر الذكاء الاصطناعي.",
+      automationRulesLoadFailed: "تعذّر تحميل قواعد الفرز.",
       instructionFailed: "تعذّر حفظ تعليمات فلتر الذكاء الاصطناعي.",
+      autoArchiveMode: "أرشفة تلقائية",
+      skipInboxMode: "تجاوز صندوق الوارد",
       spamMode: "مزعج",
       tagMode: "وسم",
+      aiTagsTitle: "وسوم الذكاء الاصطناعي",
+      ruleHelpLabel: "شرح قواعد {{mode}}",
+      aiTagRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضيف Jev هذه العلامة إلى الرسائل المطابقة.",
+      importantRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضع Jev علامة مهم على الرسائل المطابقة.",
+      skipInboxRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يؤرشف Jev الرسائل المطابقة لتجاوز صندوق الوارد.",
+      spamRuleHelp:
+        "اكتب توجيهًا بلغة طبيعية. يضيف Jev تصنيف agent-native-filtered إلى الرسائل المطابقة ويؤرشفها. هذا ليس Spam في Gmail.",
+      filteredMode: "مصفّى",
+      manageSettings: "إدارة",
+      askJev: "اسأل Jev",
+      askJevPrompt:
+        "ساعدني في تحسين قاعدة Mail هذه: {{condition}}. اسألني عما أريد تغييره ثم حدّثها.",
+      composerPlaceholder: "اطلب من Jev تنظيم صندوق الوارد…",
+      chatSuggestionFilter: "صفِّ الرسائل المشابهة لهذه",
+      chatSuggestionPriority: "أعطِ الأولوية لرسائل من…",
+      chatSuggestionArchive: "أرشف إشعارات الروبوتات تلقائيًا",
+      ruleBackfillStarting: "جارٍ تطبيق هذه القاعدة على البريد الحديث…",
+      ruleBackfillProgress:
+        "جارٍ التطبيق على البريد الحديث: {{processed}} من {{total}}",
+      ruleBackfillMatches: "تطابقت {{count}} رسالة حديثة",
+      ruleBackfillNoMatches: "لا توجد رسائل حديثة تطابق هذه القاعدة.",
+      ruleBackfillFailed: "تعذّر تطبيق هذه القاعدة على البريد الحديث.",
+      ruleBackfillRunFailed: "تعذّر إكمال تطبيق القواعد على البريد الحديث.",
+      backfillStatusLoadFailed: "تعذّر تحميل الحالة الحديثة للقواعد.",
+      ruleBackfillPartialFailure: "تعذّر تحديث {{count}} رسالة.",
+      ruleBackfillUndoing: "جارٍ استعادة البريد الحديث…",
+      ruleBackfillUndoComplete: "تمت استعادة {{count}} رسالة",
+      ruleBackfillReview: "مراجعة النتائج",
+      importantMode: "مهم",
+      notifyMode: "إشعار",
+      notifyModeHelp:
+        "تضع علامة مهم على الرسائل المطابقة وتعرض نافذة منبثقة في المتصفح ما دام Mail مفتوحًا والإشعارات مفعّلة من الجرس. تطبيق الهاتف قادم قريبًا.",
+      manageAutomationsLink: "المزيد من إجراءات الأتمتة",
+      notImportantMode: "غير مهم",
+      importantLabel: "مهم بالذكاء الاصطناعي",
+      reviewImportant: "عرض المهم",
+      importantPlaceholder: "مثال: الرسائل التي تحتاج إلى رد أو لها موعد نهائي",
       ruleAdded: "تمت إضافة قاعدة الذكاء الاصطناعي.",
       instructionHelp: "استخدم لغة طبيعية",
       tagNamePlaceholder: "اسم الوسم",
       spamLabelHint: "تُوسم المطابقات وتُنقل خارج الوارد.",
       spamPlaceholder: "مثال: الرسائل الترويجية أو غير المرغوب فيها بوضوح",
       tagPlaceholder: "مثال: الإيصالات وتأكيدات الطلبات من المتاجر الإلكترونية",
+      archivePlaceholder: "مثال: إشعارات GitHub الآلية التي لا تحتاج إلى انتباهي",
       addShortcut: "اضغط ⌘ Enter للإضافة",
       previewTitle: "معاينة البريد الأخير",
       previewDescription:
@@ -514,6 +695,7 @@ const messages = {
       previewButton: "تشغيل المعاينة",
       previewRunning: "جارٍ فحص بريد الوارد الأخير…",
       jevBadge: "Jev",
+      jevMatchProbability: "احتمال مطابقة Jev: {{percent}}%",
       feedbackLabel: "حدد المطابقات التي لا ينبغي تضمينها",
       notSpamShort: "ليس مزعجًا",
       notMatchShort: "ليس مطابقًا",
@@ -526,6 +708,17 @@ const messages = {
       addRuleToPreview: "أضف قاعدة ذكاء اصطناعي لمعاينة البريد الأخير.",
       previewEmpty: "شغّل المعاينة لرؤية المطابقات المحتملة هنا.",
       previewFailed: "تعذر معاينة البريد الأخير.",
+      promptRulesCleared: "تمت إزالة قواعد الفرز.",
+      tagTabsHelp: "وسم توضيحي يصبح علامة تبويب في الوارد",
+      addTag: "إضافة وسم",
+      triageTitle: "الفرز بالذكاء الاصطناعي",
+      connectJev: "اربط موفر ذكاء اصطناعي",
+      connectJevToRunTriage: "اربط موفر ذكاء اصطناعي لتشغيل الفرز",
+      freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
+      jevAvailabilityFailed: "تعذّر التحقق من توفر مزوّد قرارات ذكاء اصطناعي.",
+      connectBuilder: "استخدم Builder.io",
+      addJevApiKey: "أضف مفتاح Jev API",
+      addOpenAiApiKey: "أضف مفتاح OpenAI API",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -567,6 +760,16 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "مسودة بريد إلكتروني - Mail",
+    },
+    draftCard: {
+      loadFailed: "تعذّر تحميل هذه المسودة.",
+      notFoundTitle: "لم يتم العثور على المسودة",
+      threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
+      threadLookupFailed:
+        "تعذّر العثور على المحادثة التي ينتمي إليها هذا الرد، لذا لا يمكن إرساله بعد.",
+      earlierMessages: "الرسائل السابقة ({{count}})",
+      deleted: "تم حذف المسودة.",
     },
     agentEngine: {
       activeEngine: "Motor activo",
@@ -584,6 +787,9 @@ const messages = {
     suggestionSummarize: "لخص رسائلي غير المقروءة",
     suggestionReplies: "ما الذي يحتاج إلى ردي اليوم؟",
     suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
+    ruleSuggestionFilter: "تصفية الرسائل المشابهة لهذه",
+    ruleSuggestionImportant: "إعطاء الأولوية لرسائل مديري",
+    ruleSuggestionArchive: "أرشفة إشعارات الروبوتات تلقائيًا",
   },
   settings: {
     openAgentSettings: "إدارة الوكيل",
@@ -600,7 +806,6 @@ const messages = {
     peoplePlural: "{{count}} أشخاص",
     deleteAliasDescription:
       'حذف الاسم المستعار "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
-    aliasesDescription: "مجموعات عناوين يمكنك استخدامها عند كتابة الرسائل.",
     newAlias: "اسم مستعار جديد",
     noAliases: "لا توجد أسماء مستعارة بعد. أنشئ واحدًا للبدء.",
     applyLabel: "تطبيق تصنيف",
@@ -608,6 +813,7 @@ const messages = {
     markRead: "وضع علامة مقروء",
     star: "تمييز بنجمة",
     trash: "المهملات",
+    notify: "إشعار",
     labelName: "اسم التصنيف",
     addAction: "+ إضافة إجراء",
     ruleName: "اسم القاعدة",
@@ -618,15 +824,6 @@ const messages = {
     actions: "الإجراءات",
     editRule: "تعديل القاعدة",
     deleteRule: "حذف القاعدة",
-    noEventAutomations: "لا توجد أتمتات مستندة إلى أحداث البريد بعد.",
-    eventAutomationsPrompt:
-      'اطلب من الوكيل إنشاء أتمتة مثل "عندما تصلني رسالة من مديري، ميّزها بنجمة وأخبرني".',
-    disabled: "معطل",
-    on: "على",
-    when: "عندما",
-    lastRun: "آخر تشغيل:",
-    automationsDescription:
-      "قواعد تعالج رسائل البريد الجديدة تلقائيًا باستخدام الذكاء الاصطناعي.",
     allowAutomationSends: "السماح للأتمتات بإرسال رسائل البريد تلقائيًا",
     allowAutomationSendsDescription:
       "مغلق افتراضيًا. فعّله عندما تريد من الأتمتات إرسال الرسائل دون طلب موافقة في كل مرة.",
@@ -636,15 +833,11 @@ const messages = {
     noAutomationRules: "لا توجد قواعد أتمتة بعد.",
     noAutomationRulesDescription:
       "أنشئ قواعد لتصنيف الرسائل تلقائيًا وأرشفة النشرات وتمييز الرسائل المهمة وغير ذلك. يمكنك أيضًا أن تطلب من وكيل الذكاء الاصطناعي إعدادها.",
-    eventTriggers: "مشغلات الأحداث",
-    eventTriggersDescription:
-      "أتمتات تعمل عند حدوث أحداث البريد (مثل وصول رسالة جديدة). يديرها الوكيل.",
     importedSignature: "تم استيراد التوقيع من {{account}}.",
     noGmailSignature: "لم يتم العثور على توقيع Gmail لـ {{account}}.",
     importSignatureFailed: "فشل استيراد توقيع Gmail.",
     draftingSettingsSaved: "تم حفظ إعدادات المسودات.",
     draftingSettingsSaveFailed: "فشل حفظ إعدادات المسودات.",
-    draftingDescription: "تفضيلات تُستخدم عند كتابة وإنشاء مسودات البريد.",
     signature: "التوقيع",
     importFromGmail: "استيراد من Gmail",
     signatureHelp:
@@ -658,43 +851,14 @@ const messages = {
     writingStylePlaceholder: "قصير ومحدد ودافئ. تجنب الحشو الرسمي.",
     saveDraftingSettings: "حفظ إعدادات المسودات",
     reset: "إعادة تعيين",
-    trackingDescription:
-      "اعرف متى يفتح المستلمون رسائلك المرسلة وينقرون الروابط. تظهر الإحصاءات تحت كل رسالة مرسلة.",
     trackEmailOpens: "تتبع فتح الرسائل",
     trackEmailOpensDescription:
       "يضيف بكسل 1×1 إلى الرسائل الصادرة لمعرفة وقت فتحها.",
     trackLinkClicks: "تتبع نقرات الروابط",
     trackLinkClicksDescription:
       "يعيد كتابة الروابط الخارجية في الرسائل الصادرة لعد النقرات.",
-    slackLoadFailed: "فشل تحميل حالة Slack",
-    slackUpdateFailed: "فشل تحديث استقبال Slack",
-    slackConfigured: "تم تكوين بيانات اعتماد Slack.",
-    slackNeedsCredentials:
-      "يتطلب الاستقبال المخصص القديم SLACK_BOT_TOKEN وSLACK_SIGNING_SECRET. لأتمتة مراسلة Slack الجديدة، اربط مساحة عمل في الإعدادات > المراسلة.",
-    slackIntake: "استقبال Slack (قديم)",
-    slackDescription:
-      "تكامل مخصص قديم يتيح لأعضاء المؤسسة وضع مسودات البريد في قائمة الانتظار من Slack.",
-    enabled: "ممكّن",
-    disable: "تعطيل",
-    enable: "تمكين",
-    slackPostEndpoint: "نقطة نهاية Slack POST",
-    slackPostEndpointHelp:
-      "استخدمها في Slack Event Subscriptions. قد يعرض GET من المتصفح Not Found.",
-    teamDescription: "قم بإعداد فريق لمشاركة أتمتات البريد والإعدادات مع زملائك.",
-    title: "الإعدادات",
-    general: "عام",
-    generalDescription: "اللغة وتفضيلات مستوى الحساب في Mail.",
-    languageTitle: "اللغة",
-    languageDescription:
-      "اختر لغة الواجهة لهذا الحساب. يتذكر Mail اختيارك عبر الأجهزة.",
-    languageLabel: "لغة الواجهة",
-    whatsNew: "ما الجديد",
-    whatsNewDescription:
-      "التغييرات الأخيرة الموجهة للمستخدمين في Agent-Native Mail.",
     drafting: "الكتابة",
     snippets: "المقتطفات",
-    snippetsDescription:
-      "ردود محفوظة يمكنك إدراجها في مسودة الرسالة بكتابة / واسم المقتطف.",
     newSnippet: "مقتطف جديد",
     noSnippets: "لا توجد مقتطفات بعد. أنشئ واحدًا للبدء.",
     snippetName: "اسم المقتطف",
@@ -705,13 +869,18 @@ const messages = {
     deleteSnippet: "حذف المقتطف",
     deleteSnippetDescription:
       'هل تريد حذف المقتطف "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
-    automations: "الأتمتة",
-    aiFilter: "فلتر الذكاء الاصطناعي",
+    rules: "القواعد",
+    rulesModel: "نموذج القواعد",
+    rulesModelDescription: "يطابق البريد الوارد مع قواعدك.",
+    slackDraftRequests: "طلبات المسودات",
+    slackDraftQueue: "إضافة المسودات إلى القائمة من Slack",
+    slackDraftQueueDescription:
+      "يذكر زملاؤك الوكيل في Slack لطلب مسودة بريد إلكتروني. تنتظر المسودات المراجعة في قائمة انتظار المسودات.",
+    openDraftQueue: "فتح قائمة انتظار المسودات",
+    aiFilter: "الفرز بالذكاء الاصطناعي",
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",
-    slack: "Slack",
-    team: "الفريق",
     deleteAlias: "حذف الاسم المستعار",
     editAlias: "تحرير الاسم المستعار",
   },

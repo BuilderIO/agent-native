@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   defineEventHandler,
   setResponseHeader,
@@ -8,16 +10,37 @@ import {
 import * as jose from "jose";
 
 import "../authorization/check-action.js";
+import {
+  withExecutionFence,
+  type ExecutionFence,
+} from "../agent/execution-fence.js";
+import {
+  TURN_EXECUTION_LEASE_MS,
+  TurnExecutionLeaseBusyError,
+  claimTaskExecutionLease,
+  releaseTurnExecutionLease,
+  renewTaskExecutionLease,
+} from "../agent/run-store.js";
 import { redactArgsToJson } from "../audit/redact.js";
 import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import {
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
-import { isSameOriginRequest } from "../server/request-origin.js";
+import { hasSameOriginBrowserEvidence } from "../server/request-origin.js";
+import type { AgentProfileMetadata } from "../shared/agent-profile.js";
 import { generateAgentCard } from "./agent-card.js";
+import { addAgentProfileExamples } from "./app-profile.js";
 import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
@@ -25,18 +48,21 @@ import {
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
+  A2A_ORG_MEMBER_DELEGATION_TYPE,
+  organizationPrincipalClaims,
+  verifyA2AOrganizationIdentity,
+  type A2AOrganizationCredential,
+} from "./organization-identity.js";
+import {
   claimA2AApproval,
+  a2aTaskLeaseThreadId,
   getA2AApprovalForOwner,
   settleA2AApproval,
 } from "./task-store.js";
 import type { A2AConfig, AgentSkill } from "./types.js";
 
-/**
- * One-time warning when A2A is running unauthenticated in development. We
- * don't refuse the request (local templates need to work out of the box),
- * but we log a single noisy line so operators notice if they accidentally
- * deploy with no auth configured.
- */
+const A2A_TOKEN_ALGORITHMS = ["HS256"];
+
 let _warnedUnauthA2A = false;
 function warnA2AUnauthOnce(): void {
   if (_warnedUnauthA2A) return;
@@ -48,28 +74,147 @@ function warnA2AUnauthOnce(): void {
   );
 }
 
+const warnedDemotions = new Set<string>();
+// A token that asserts a user but resolves to an organization principal is the
+// signature of misaligned A2A secrets; without this the only symptom is every
+// delegated call from that org failing later with no verified user. Keyed by
+// org and cause so a changed cause logs again. Never log the secret or the
+// asserted email.
+function warnUserAssertionDemotedOnce(
+  orgId: string,
+  payload: jose.JWTPayload,
+  reason: string,
+): void {
+  if (typeof payload.sub !== "string" || !payload.sub.trim()) return;
+  const key = `${orgId}\n${reason}`;
+  if (warnedDemotions.has(key)) return;
+  warnedDemotions.add(key);
+  // eslint-disable-next-line no-console
+  console.warn(`[a2a] orgId=${orgId} ${reason}`);
+}
+
 /**
- * Result of verifying an inbound A2A JWT. `email` is the caller identity from
- * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
- * the verified `org_domain` claim when present, and `orgId` mirrors the
- * optional verified `org_id` claim used when a sender knows its exact org but
- * cannot resolve that org's domain.
+ * Result of verifying an inbound A2A JWT. `email` is present for deployment
+ * user assertions or an explicitly opted-in org-member delegation. `orgDomain`
+ * and `orgId` are bound to local organization metadata when present.
  */
 export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
   orgId?: string;
-  /** Verified claims are returned only to callers that explicitly request them. */
+  identityAssurance?: "user" | "organization" | "org-member";
   claims?: jose.JWTPayload;
 }
 
-function addSecretCandidate(
-  candidates: string[],
-  secret: string | undefined,
-): void {
-  const trimmed = secret?.trim();
-  if (!trimmed || candidates.includes(trimmed)) return;
-  candidates.push(trimmed);
+export class A2AIdentityVerificationUnavailableError extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("A2A identity verification is temporarily unavailable");
+    this.name = "A2AIdentityVerificationUnavailableError";
+    this.cause = cause;
+  }
+}
+
+export function isA2AIdentityVerificationUnavailableError(
+  error: unknown,
+): error is A2AIdentityVerificationUnavailableError {
+  return (
+    error instanceof A2AIdentityVerificationUnavailableError ||
+    (error instanceof Error &&
+      error.name === "A2AIdentityVerificationUnavailableError")
+  );
+}
+
+interface A2ATokenVerification {
+  payload: A2ATokenPayload;
+  /** Set only when the token's org claim was bound to local metadata. */
+  verifiedOrgId?: string;
+}
+
+function identityPayload(
+  payload: jose.JWTPayload,
+  audienceOptions?: { includeClaims?: boolean },
+  verifiedOrganization?: { orgId: string; orgDomain: string | null },
+  identityAssurance?: "org-member",
+): A2ATokenPayload {
+  const email =
+    typeof payload.sub === "string" && payload.sub.trim()
+      ? payload.sub.trim()
+      : null;
+  const claims = verifiedOrganization
+    ? {
+        ...payload,
+        org_id: verifiedOrganization.orgId,
+        ...(verifiedOrganization.orgDomain
+          ? { org_domain: verifiedOrganization.orgDomain }
+          : { org_domain: undefined }),
+      }
+    : payload;
+  return {
+    email,
+    orgDomain:
+      verifiedOrganization?.orgDomain ?? (payload.org_domain as string) ?? null,
+    ...(verifiedOrganization ? { orgId: verifiedOrganization.orgId } : {}),
+    ...(!email && verifiedOrganization
+      ? { identityAssurance: "organization" as const }
+      : {}),
+    ...(identityAssurance ? { identityAssurance } : {}),
+    ...(audienceOptions?.includeClaims ? { claims } : {}),
+  };
+}
+
+function validOrgMemberDelegationClaims(payload: jose.JWTPayload): boolean {
+  const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
+  const jti = typeof payload.jti === "string" ? payload.jti.trim() : "";
+  const issuedAt = payload.iat;
+  const expiresAt = payload.exp;
+  const now = Math.floor(Date.now() / 1_000);
+  const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  return (
+    payload.typ === A2A_ORG_MEMBER_DELEGATION_TYPE &&
+    email.length <= 320 &&
+    email.includes("@") &&
+    !/[\u0000-\u001f\u007f]/.test(email) &&
+    jti.length > 0 &&
+    jti.length <= 128 &&
+    !/[\u0000-\u001f\u007f]/.test(jti) &&
+    typeof issuedAt === "number" &&
+    Number.isSafeInteger(issuedAt) &&
+    typeof expiresAt === "number" &&
+    Number.isSafeInteger(expiresAt) &&
+    issuedAt <= now + 60 &&
+    expiresAt > now &&
+    expiresAt > issuedAt &&
+    expiresAt - issuedAt <= 15 * 60 &&
+    audiences.some(
+      (audience) => typeof audience === "string" && audience.trim(),
+    )
+  );
+}
+
+async function verifyJwtWithSecret(
+  token: string,
+  secret: string,
+  options: jose.JWTVerifyOptions,
+): Promise<jose.JWTPayload | null> {
+  try {
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode(secret),
+      options,
+    );
+    return isMcpCredential(payload) ? null : payload;
+  } catch {
+    // coercion-ok: invalid signatures, expiry, or audience are rejected tokens; credential lookup failures throw separately.
+    return null;
+  }
+}
+
+function isMcpCredential(payload: jose.JWTPayload): boolean {
+  return (
+    payload.scope === "mcp-connect" || payload.typ === "agent-native-mcp-oauth"
+  );
 }
 
 /**
@@ -93,16 +238,13 @@ function expectedJwtAudience(
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  const receiverBasePath = process.env.APP_BASE_PATH;
+  const receiverBasePath = getConfiguredAppBasePath() || undefined;
   if (fromEnv) {
     return audienceForRoute(
       canonicalA2AAudience(String(fromEnv), receiverBasePath),
       options,
     );
   }
-  // Best-effort: derive from the inbound request host. This is forgeable
-  // (Host-header attack), but only useful as a hint when env-derived URL
-  // is unset; the rest of the JWT verification still uses the secret.
   try {
     const proto = getRequestHeader(event, "x-forwarded-proto") || "https";
     const host = getRequestHeader(event, "host");
@@ -149,15 +291,18 @@ function isDirectReadSkill(skill: AgentSkill): boolean {
 /**
  * Verify an inbound A2A bearer token (HS256) exactly as the
  * `/_agent-native/a2a` endpoint does: it peeks at the unverified `org_domain`
- * claim to build an ordered candidate-secret set (`process.env.A2A_SECRET`
- * plus any org-level secret for that domain), then verifies the JWT — checking
+ * claim to locate an org credential after trying the global credential, then
+ * verifies the JWT — checking
  * `aud`/`iss` when the token carries them and `exp` always. Returns the
- * caller's email (`sub`) and org domain on success, or `{ email: null,
- * orgDomain: null }` on any failure (malformed, bad signature, expired, or no
- * secret configured), never throwing.
+ * caller's email (`sub`) and org domain on success, or an organization-only
+ * identity with no email when an org secret verifies. Invalid tokens return
+ * `{ email: null, orgDomain: null }`. If the organization credential cannot
+ * be read, throws
+ * `A2AIdentityVerificationUnavailableError` so callers cannot treat an
+ * unreadable authorization lookup as an unauthenticated fallback.
  *
  * Exported so workspaces can accept A2A callers on the HTTP action route with
- * the same routine — including org-level fallback secrets — instead of
+ * the same routine — including organization-only credentials — instead of
  * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
  * org-secret lookup and audience derivation; it is optional. A custom mounted
  * JSON-RPC route also passes its prefix so endpoint-bound tokens verify against
@@ -168,14 +313,170 @@ export async function verifyA2AToken(
   event?: any,
   audienceOptions?: {
     routePrefix?: string;
+    /** Trusted audience(s) supplied by the mounted route that is verifying the token. */
+    expectedAudience?: string | string[];
     allowBaseAudience?: boolean;
     includeClaims?: boolean;
     /** Only use the deployment-wide secret, never an org-domain secret. */
     globalSecretOnly?: boolean;
     /** Only use this explicitly configured credential; never fall back. */
     verificationSecret?: string;
+    /** Dedicated verifier for the typed Anthropic continuation credential. */
+    allowAnthropicManagedContinuation?: boolean;
+    requireAudience?: boolean;
   },
 ): Promise<A2ATokenPayload> {
+  return (await verifyA2ATokenInternal(token, event, audienceOptions)).payload;
+}
+
+export type A2ATokenFailureCause =
+  | "malformed"
+  | "secret-missing"
+  | "audience-unresolvable"
+  | "audience"
+  | "issuer"
+  | "expired"
+  | "signature"
+  | "algorithm"
+  | "invalid-claims"
+  | "mcp-credential"
+  | "missing-subject"
+  | "org-binding"
+  | "org-lookup-failed"
+  | "undetermined";
+
+type SecretCheck =
+  | { payload: jose.JWTPayload }
+  | { cause: A2ATokenFailureCause };
+
+async function checkAgainstSecret(
+  token: string,
+  secret: string,
+  options: jose.JWTVerifyOptions,
+): Promise<SecretCheck> {
+  try {
+    const { payload } = await jose.jwtVerify(
+      token,
+      new TextEncoder().encode(secret),
+      options,
+    );
+    return { payload };
+  } catch (error) {
+    const { code, claim } = error as { code?: unknown; claim?: unknown };
+    if (code === "ERR_JOSE_ALG_NOT_ALLOWED") return { cause: "algorithm" };
+    if (code === "ERR_JWT_EXPIRED") return { cause: "expired" };
+    if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") {
+      return { cause: "signature" };
+    }
+    if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED") {
+      if (claim === "aud") return { cause: "audience" };
+      if (claim === "iss") return { cause: "issuer" };
+    }
+    return { cause: "invalid-claims" };
+  }
+}
+
+async function diagnoseVerifiedPayload(
+  payload: jose.JWTPayload,
+): Promise<A2ATokenFailureCause> {
+  if (isMcpCredential(payload)) return "mcp-credential";
+  if (typeof payload.sub !== "string" || !payload.sub.trim()) {
+    return "missing-subject";
+  }
+  try {
+    const organization = await verifyA2AOrganizationIdentity(payload);
+    return organization === null ? "org-binding" : "undetermined";
+  } catch {
+    // coercion-ok: an unreadable organization registry is the typed "org-lookup-failed" cause.
+    return "org-lookup-failed";
+  }
+}
+
+/**
+ * Names why a token that `verifyA2AToken` resolved no identity for was
+ * refused. `verifyA2AToken` collapses a wrong audience, a wrong secret and an
+ * unbound organization into one empty identity; this re-checks the same inputs,
+ * against the deploy secret and then the organization's, to tell them apart.
+ * Diagnostic only: it never grants anything, and its answer must not be used as
+ * an authorization result.
+ */
+export async function diagnoseA2ATokenFailure(
+  token: string,
+  event?: any,
+): Promise<A2ATokenFailureCause> {
+  let claims: jose.JWTPayload;
+  try {
+    claims = jose.decodeJwt(token);
+  } catch {
+    // coercion-ok: an undecodable token is the typed "malformed" cause.
+    return "malformed";
+  }
+  const secret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+
+  const options: jose.JWTVerifyOptions = { algorithms: A2A_TOKEN_ALGORITHMS };
+  if (typeof claims.aud !== "undefined") {
+    const audience = expectedJwtAudience(event);
+    if (!audience) return "audience-unresolvable";
+    options.audience = audience;
+  }
+  if (typeof claims.iss === "string" && claims.iss.length > 0) {
+    options.issuer = claims.iss;
+  }
+
+  // The verifier goes on to the organization's own secret when the deploy secret
+  // is unset or does not verify the token, so neither is the final answer yet.
+  let deployCause: A2ATokenFailureCause = "secret-missing";
+  if (secret) {
+    const deploy = await checkAgainstSecret(token, secret, options);
+    if ("payload" in deploy) return diagnoseVerifiedPayload(deploy.payload);
+    deployCause = deploy.cause;
+  }
+
+  const orgDomain =
+    typeof claims.org_domain === "string" ? claims.org_domain.trim() : "";
+  if (
+    (deployCause !== "signature" && deployCause !== "secret-missing") ||
+    !orgDomain
+  ) {
+    return deployCause;
+  }
+
+  let organization: A2AOrganizationCredential | null;
+  try {
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+  } catch {
+    // coercion-ok: an unreadable organization registry is the typed "org-lookup-failed" cause.
+    return "org-lookup-failed";
+  }
+  if (!organization) return deployCause;
+
+  const orgCheck = await checkAgainstSecret(
+    token,
+    organization.secret,
+    options,
+  );
+  if ("cause" in orgCheck) return orgCheck.cause;
+  return organizationPrincipalClaims(orgCheck.payload, organization)
+    ? "undetermined"
+    : "org-binding";
+}
+
+async function verifyA2ATokenInternal(
+  token: string,
+  event?: any,
+  audienceOptions?: {
+    routePrefix?: string;
+    expectedAudience?: string | string[];
+    allowBaseAudience?: boolean;
+    includeClaims?: boolean;
+    globalSecretOnly?: boolean;
+    verificationSecret?: string;
+    allowAnthropicManagedContinuation?: boolean;
+    requireAudience?: boolean;
+  },
+): Promise<A2ATokenVerification> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
   // then verify the full JWT with that secret. If someone forges a JWT
@@ -185,40 +486,28 @@ export async function verifyA2AToken(
   let unverifiedPayload: jose.JWTPayload | undefined;
   try {
     unverifiedPayload = jose.decodeJwt(token);
-    orgDomainHint = unverifiedPayload.org_domain as string | undefined;
+    const domain = unverifiedPayload.org_domain;
+    if (typeof domain === "string" && domain.trim()) {
+      orgDomainHint = domain.trim();
+    }
   } catch {
     // Malformed token — fall through to global secret attempt
   }
 
-  // Step 2: Build a small, ordered set of candidate secrets. An explicit
-  // verification credential is isolated from the deployment-wide and
-  // org-level credentials so a caller cannot use one app's trust grant as
+  // An explicit verification credential is isolated from the deployment-wide
+  // and org-level credentials so a caller cannot use one app's trust grant as
   // another app's identity.
-  const candidateSecrets: string[] = [];
   const hasExplicitVerificationSecret =
     audienceOptions?.verificationSecret !== undefined;
-  addSecretCandidate(
-    candidateSecrets,
+  const globalSecret = (
     hasExplicitVerificationSecret
       ? audienceOptions?.verificationSecret
-      : readDeployCredentialEnv("A2A_SECRET"),
-  );
-  if (
-    orgDomainHint &&
-    !audienceOptions?.globalSecretOnly &&
-    !hasExplicitVerificationSecret
-  ) {
-    try {
-      const { getA2ASecretByDomain } = await import("../org/context.js");
-      const orgSecret = await getA2ASecretByDomain(orgDomainHint);
-      addSecretCandidate(candidateSecrets, orgSecret ?? undefined);
-    } catch {
-      // DB not ready or column doesn't exist yet — fall through
-    }
-  }
-  if (candidateSecrets.length === 0) return { email: null, orgDomain: null };
+      : readDeployCredentialEnv("A2A_SECRET")
+  )?.trim();
 
-  // Step 3: Verify JWT with the candidate secrets.
+  // Step 2: Build verification options once, then try the explicit/global
+  // credential first. A token accepted by that credential remains a global
+  // or explicitly delegated caller and does not depend on org-table reads.
   //
   // - `audience`: passed only when the token carries an `aud` claim
   //   (backward-compat: tokens minted by older `signA2AToken` versions
@@ -233,63 +522,209 @@ export async function verifyA2AToken(
   //   it was minted from", which `jose.jwtVerify` validates exactly when
   //   `issuer` is supplied as a string. Backward-compat: when the token
   //   has no `iss`, we skip the check.
-  try {
-    const verifyOptions: jose.JWTVerifyOptions = {};
-    if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
-      // Fail closed: the token was minted for a specific audience, but this
-      // receiver can't derive its own expected audience (no APP_URL/URL and no
-      // usable request host). Accepting here would let a correctly-signed token
-      // whose `aud` targets ANOTHER service verify against a shared secret. A
-      // token that self-declares an audience must be checked against ours, so
-      // when we have nothing to check it against we reject rather than skip.
-      const aud = expectedJwtAudience(event, audienceOptions);
-      if (!aud) return { email: null, orgDomain: null };
-      verifyOptions.audience = aud;
+  const hasAudience =
+    unverifiedPayload && typeof unverifiedPayload.aud !== "undefined";
+  if (audienceOptions?.requireAudience && !hasAudience) {
+    return { payload: { email: null, orgDomain: null } };
+  }
+
+  const verifyOptions: jose.JWTVerifyOptions = {
+    algorithms: A2A_TOKEN_ALGORITHMS,
+  };
+  if (hasAudience) {
+    // Fail closed: the token was minted for a specific audience, but this
+    // receiver can't derive its own expected audience (no APP_URL/URL and no
+    // usable request host). Accepting here would let a correctly-signed token
+    // whose `aud` targets ANOTHER service verify against a shared secret. A
+    // token that self-declares an audience must be checked against ours, so
+    // when we have nothing to check it against we reject rather than skip.
+    const aud =
+      audienceOptions?.expectedAudience ??
+      expectedJwtAudience(event, audienceOptions);
+    if (!aud || (Array.isArray(aud) && aud.length === 0)) {
+      return { payload: { email: null, orgDomain: null } };
     }
-    if (
-      unverifiedPayload &&
-      typeof unverifiedPayload.iss === "string" &&
-      unverifiedPayload.iss.length > 0
-    ) {
-      verifyOptions.issuer = unverifiedPayload.iss;
-    }
-    for (const secret of candidateSecrets) {
+    verifyOptions.audience = aud;
+  }
+  if (
+    unverifiedPayload &&
+    typeof unverifiedPayload.iss === "string" &&
+    unverifiedPayload.iss.length > 0
+  ) {
+    verifyOptions.issuer = unverifiedPayload.iss;
+  }
+
+  if (globalSecret) {
+    const payload = await verifyJwtWithSecret(
+      token,
+      globalSecret,
+      verifyOptions,
+    );
+    if (payload) {
+      // Typed credentials have their own verifier. Only the managed-agent
+      // confirmation verifier may accept its continuation token here.
+      if (typeof payload.typ !== "undefined") {
+        const managedContinuation =
+          payload.typ === "anthropic-managed-continuation" &&
+          audienceOptions?.globalSecretOnly === true &&
+          audienceOptions.allowAnthropicManagedContinuation === true &&
+          audienceOptions.includeClaims === true;
+        if (!managedContinuation) {
+          return { payload: { email: null, orgDomain: null } };
+        }
+      }
+      if (typeof payload.org_domain === "string" && payload.org_domain.trim()) {
+        let organization: {
+          orgId: string;
+          orgDomain: string;
+          secret: string;
+        } | null;
+        try {
+          const { resolveA2AOrganizationCredentialsByDomain } =
+            await import("../org/context.js");
+          organization = await resolveA2AOrganizationCredentialsByDomain(
+            payload.org_domain.trim(),
+          );
+        } catch (cause) {
+          throw new A2AIdentityVerificationUnavailableError(cause);
+        }
+        if (organization?.secret.trim() === globalSecret) {
+          const claims = organizationPrincipalClaims(payload, organization);
+          if (!claims) {
+            return { payload: { email: null, orgDomain: null } };
+          }
+          warnUserAssertionDemotedOnce(
+            organization.orgId,
+            payload,
+            "user assertion demoted: org secret equals deploy secret",
+          );
+          return {
+            payload: {
+              email: null,
+              orgDomain: organization.orgDomain,
+              orgId: organization.orgId,
+              identityAssurance: "organization",
+              ...(audienceOptions?.includeClaims ? { claims } : {}),
+            },
+            verifiedOrgId: organization.orgId,
+          };
+        }
+      }
+
+      let verifiedOrganization: Awaited<
+        ReturnType<typeof verifyA2AOrganizationIdentity>
+      >;
       try {
-        const { payload } = await jose.jwtVerify(
-          token,
-          new TextEncoder().encode(secret),
-          verifyOptions,
+        verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
+      } catch (cause) {
+        throw new A2AIdentityVerificationUnavailableError(cause);
+      }
+      if (verifiedOrganization === null) {
+        return { payload: { email: null, orgDomain: null } };
+      }
+      return {
+        payload: identityPayload(
+          payload,
+          audienceOptions,
+          verifiedOrganization,
+        ),
+        ...(verifiedOrganization
+          ? { verifiedOrgId: verifiedOrganization.orgId }
+          : {}),
+      };
+    }
+  }
+
+  if (
+    !orgDomainHint ||
+    audienceOptions?.globalSecretOnly ||
+    hasExplicitVerificationSecret
+  ) {
+    return { payload: { email: null, orgDomain: null } };
+  }
+
+  let organization: A2AOrganizationCredential | null;
+  try {
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    organization =
+      await resolveA2AOrganizationCredentialsByDomain(orgDomainHint);
+  } catch (cause) {
+    throw new A2AIdentityVerificationUnavailableError(cause);
+  }
+  if (!organization) return { payload: { email: null, orgDomain: null } };
+
+  const payload = await verifyJwtWithSecret(
+    token,
+    organization.secret,
+    verifyOptions,
+  );
+  if (!payload) return { payload: { email: null, orgDomain: null } };
+
+  const claims = organizationPrincipalClaims(payload, organization);
+  if (!claims) return { payload: { email: null, orgDomain: null } };
+
+  if (payload.typ === A2A_ORG_MEMBER_DELEGATION_TYPE) {
+    if (!validOrgMemberDelegationClaims(payload)) {
+      return { payload: { email: null, orgDomain: null } };
+    }
+    if (organization.secret.trim() === globalSecret) {
+      return { payload: { email: null, orgDomain: null } };
+    }
+
+    let isCurrentMember = false;
+    if (organization.a2aMemberDelegationEnabled) {
+      try {
+        const { isOrgMemberForA2A } = await import("../org/membership.js");
+        isCurrentMember = await isOrgMemberForA2A(
+          organization.orgId,
+          String(payload.sub).trim(),
+          event,
         );
-        const orgId =
-          typeof payload.org_id === "string" && payload.org_id.trim()
-            ? payload.org_id.trim()
-            : undefined;
-        return {
-          email: (payload.sub as string) ?? null,
-          orgDomain: (payload.org_domain as string) ?? null,
-          ...(orgId ? { orgId } : {}),
-          ...(audienceOptions?.includeClaims ? { claims: payload } : {}),
-        };
-      } catch {
-        // Try the next candidate without leaking which secret failed.
+      } catch (cause) {
+        throw new A2AIdentityVerificationUnavailableError(cause);
       }
     }
-  } catch {
-    // Keep malformed option construction indistinguishable from auth failure.
+    if (isCurrentMember) {
+      return {
+        payload: identityPayload(
+          payload,
+          audienceOptions,
+          organization,
+          "org-member",
+        ),
+        verifiedOrgId: organization.orgId,
+      };
+    }
+    return {
+      payload: {
+        email: null,
+        orgDomain: organization.orgDomain,
+        orgId: organization.orgId,
+        identityAssurance: "organization",
+        ...(audienceOptions?.includeClaims ? { claims } : {}),
+      },
+      verifiedOrgId: organization.orgId,
+    };
   }
-  return { email: null, orgDomain: null };
+
+  warnUserAssertionDemotedOnce(
+    organization.orgId,
+    payload,
+    "user token verified only with org secret",
+  );
+  return {
+    payload: {
+      email: null,
+      orgDomain: organization.orgDomain,
+      orgId: organization.orgId,
+      identityAssurance: "organization",
+      ...(audienceOptions?.includeClaims ? { claims } : {}),
+    },
+    verifiedOrgId: organization.orgId,
+  };
 }
 
-/**
- * Mount A2A protocol endpoints on an H3/Nitro app.
- *
- * - GET /.well-known/agent-card.json — public agent card (no auth)
- * - POST /_agent-native/a2a — JSON-RPC endpoint (with optional auth)
- *
- * When A2A_SECRET is set, inbound Bearer tokens are verified as JWTs
- * and the caller's email is extracted from the `sub` claim. This provides
- * cryptographic identity verification for cross-app A2A calls.
- */
 export function mountA2A(
   nitroApp: any,
   config: A2AConfig,
@@ -311,44 +746,81 @@ export function mountA2A(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
+      setResponseHeader(event, "cache-control", "private, no-store");
       const protocol =
         getRequestHeader(event, "x-forwarded-proto") ||
         (event.url?.protocol?.replace(":", "") ?? "http");
       const host = getRequestHeader(event, "host") ?? "localhost";
       const baseUrl = `${protocol}://${host}`;
 
-      // The anonymous card may only advertise actions safe to disclose
-      // publicly (`requiresAuth !== true`). A verified caller instead sees the
-      // authenticated surface: schemas for direct read invocation plus concise
-      // message-only capabilities for writes owned by the receiving agent.
-      // Anonymous fetches keep the public list unchanged.
       let skills = filterPublicAgentCardSkills(config);
-      if (config.authenticatedSkills?.length) {
+      let description = config.description;
+      let profileResolved = false;
+      if (
+        config.authenticatedSkills?.length ||
+        config.resolveAuthenticatedProfile ||
+        config.resolvePublicProfile
+      ) {
         const bearer = extractBearerToken(
           getRequestHeader(event, "authorization"),
         );
         if (bearer) {
-          const payload = await verifyA2AToken(bearer, event, {
-            routePrefix,
-            // Capability discovery may begin from either the app URL or an
-            // already-advertised endpoint URL. Both identify this receiver;
-            // direct POST invocation below remains endpoint-bound.
-            allowBaseAudience: true,
-          });
-          if (payload.email) {
-            skills = tokenHasAudienceClaim(bearer)
-              ? config.authenticatedSkills
-              : config.authenticatedSkills.filter(
-                  (skill) => !isDirectReadSkill(skill),
-                );
+          try {
+            const { payload } = await verifyA2ATokenInternal(bearer, event, {
+              routePrefix,
+              allowBaseAudience: true,
+            });
+            if (payload.email) {
+              if (config.authenticatedSkills?.length) {
+                skills = tokenHasAudienceClaim(bearer)
+                  ? config.authenticatedSkills
+                  : config.authenticatedSkills.filter(
+                      (skill) => !isDirectReadSkill(skill),
+                    );
+              }
+              let profile: AgentProfileMetadata | undefined;
+              try {
+                profile = await config.resolveAuthenticatedProfile?.({
+                  userEmail: payload.email,
+                  ...(payload.orgId ? { orgId: payload.orgId } : {}),
+                });
+              } catch {
+                console.warn("[a2a] authenticated profile resolution failed");
+              }
+              if (profile) {
+                description = profile.description ?? description;
+                skills = addAgentProfileExamples(skills, profile);
+                profileResolved = true;
+              }
+            }
+          } catch (error) {
+            if (!(error instanceof A2AIdentityVerificationUnavailableError)) {
+              throw error;
+            }
+            setResponseStatus(event, 503);
+            return {
+              error: "A2A identity verification is temporarily unavailable",
+            };
           }
         }
       }
 
+      if (!profileResolved) {
+        try {
+          const profile = await config.resolvePublicProfile?.();
+          if (profile) {
+            description = profile.description ?? description;
+            skills = addAgentProfileExamples(skills, profile);
+          }
+        } catch {
+          console.warn("[a2a] public profile resolution failed");
+        }
+      }
+
       return generateAgentCard(
-        { ...config, skills },
+        { ...config, description, skills },
         baseUrl,
-        `${routePrefix}/a2a`,
+        publicFrameworkPath(`${routePrefix}/a2a`),
       );
     }),
   );
@@ -369,8 +841,8 @@ export function mountA2A(
         return { error: "Approval not found" };
       }
 
-      const { getSession } = await import("../server/auth.js");
-      const session = await getSession(event);
+      const { getBrowserCookieSession } = await import("../server/auth.js");
+      const session = await getBrowserCookieSession(event);
       if (!session?.email) {
         setResponseStatus(event, 401);
         return { error: "Sign in to review this approval" };
@@ -409,16 +881,18 @@ export function mountA2A(
         );
         setResponseHeader(event, "referrer-policy", "no-referrer");
         const expired = approval.expiresAt <= Date.now();
-        const active = approval.status === "pending" && !expired;
+        const pending = approval.status === "pending" && !expired;
+        const active = pending || approval.status === "processing";
         const displayStatus = expired ? "expired" : approval.status;
-        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1><p>This action is paused until you approve it. Approval can be used once.</p><h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${active ? "Approve and run" : esc(displayStatus)}</button><span id="status">${active ? "" : esc(approval.result ?? displayStatus)}</span><script>document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';}catch(e){document.getElementById('status').textContent='Could not run the action.'}}</script></main></body></html>`;
+        // guard:allow-raw-color — this standalone approval page has no app theme stylesheet to consume.
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1>${pending ? "<p>This action is paused until you approve it. Approval can be used once.</p>" : ""}<h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${pending ? "Approve and run" : esc(displayStatus)}</button><span id="status">${pending || approval.status === "processing" ? "" : esc(approval.result ?? displayStatus)}</span><script>const approvalPending=${pending};document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';if(r.status===409)this.disabled=false;}catch(e){document.getElementById('status').textContent='Could not run the action.';if(!approvalPending)this.disabled=false;}}</script></main></body></html>`;
       }
 
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      if (!isSameOriginRequest(event)) {
+      if (!hasSameOriginBrowserEvidence(event)) {
         setResponseStatus(event, 403);
         return { error: "Cross-origin approval denied" };
       }
@@ -427,45 +901,95 @@ export function mountA2A(
         return { error: "Approval execution is not configured" };
       }
 
-      const approval = await claimA2AApproval(
+      const existing = await getA2AApprovalForOwner(
         approvalId,
         session.email,
         session.orgId ?? null,
       );
-      if (!approval) {
-        const current = await getA2AApprovalForOwner(
-          approvalId,
-          session.email,
-          session.orgId ?? null,
-        );
-        setResponseStatus(event, current ? 409 : 404);
-        return {
-          error: current
-            ? `Approval is ${current.status} and cannot be run again`
-            : "Approval not found",
-        };
+      if (!existing) {
+        setResponseStatus(event, 404);
+        return { error: "Approval not found" };
       }
 
-      const { runWithRequestContext } =
-        await import("../server/request-context.js");
-      let execution: { status: "completed" | "failed"; output: string };
+      let fence: ExecutionFence;
       try {
-        execution = await runWithRequestContext(
-          { userEmail: session.email, orgId: session.orgId ?? undefined },
-          () => config.executeApproval!(approval),
+        fence = await claimTaskExecutionLease(
+          a2aTaskLeaseThreadId(existing.taskId),
+          existing.taskId,
+          `a2a-approval:${randomUUID()}`,
         );
       } catch (error) {
-        execution = {
-          status: "failed",
-          output:
-            error instanceof Error
-              ? error.message
-              : "Approval execution failed",
-        };
+        if (!(error instanceof TurnExecutionLeaseBusyError)) throw error;
+        setResponseStatus(event, 409);
+        return { error: "Approval is already processing" };
       }
-      await settleA2AApproval(approval.id, execution.status, execution.output);
-      if (execution.status === "failed") setResponseStatus(event, 500);
-      return execution;
+
+      const controller = new AbortController();
+      let renewing = false;
+      const renewTimer = setInterval(
+        () => {
+          if (renewing) return;
+          renewing = true;
+          void renewTaskExecutionLease(fence)
+            .catch(() => controller.abort())
+            .finally(() => {
+              renewing = false;
+            });
+        },
+        Math.max(1_000, Math.floor(TURN_EXECUTION_LEASE_MS / 3)),
+      );
+
+      try {
+        const approval = await withExecutionFence(fence, () =>
+          claimA2AApproval(approvalId, session.email, session.orgId ?? null),
+        );
+        if (!approval) {
+          const current = await getA2AApprovalForOwner(
+            approvalId,
+            session.email,
+            session.orgId ?? null,
+          );
+          setResponseStatus(event, current ? 409 : 404);
+          return {
+            error: current
+              ? `Approval is ${current.status} and cannot be run again`
+              : "Approval not found",
+          };
+        }
+
+        const { runWithRequestContext } =
+          await import("../server/request-context.js");
+        let execution: import("./types.js").A2AActionExecutionResult;
+        try {
+          execution = await runWithRequestContext(
+            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            () =>
+              withExecutionFence(fence, () =>
+                config.executeApproval!(approval, {
+                  signal: controller.signal,
+                  threadId: fence.threadId,
+                  turnId: fence.turnId,
+                }),
+              ),
+          );
+        } catch (error) {
+          execution = {
+            status: "failed",
+            output:
+              error instanceof Error
+                ? error.message
+                : "Approval execution failed",
+          };
+        }
+        await withExecutionFence(fence, () =>
+          settleA2AApproval(approval.id, execution.status, execution.output),
+        );
+        if (execution.status === "failed") setResponseStatus(event, 500);
+        return execution;
+      } finally {
+        clearInterval(renewTimer);
+        await releaseTurnExecutionLease(fence).catch(() => {});
+      }
     }),
   );
 
@@ -523,13 +1047,15 @@ export function mountA2A(
         return { ok: true };
       } catch (err: any) {
         console.error("[a2a] process-task failed:", err);
-        setResponseStatus(event, 500);
+        setResponseStatus(
+          event,
+          err instanceof ServicePrincipalRefusedError ? err.statusCode : 500,
+        );
         return { error: err?.message ?? "process-task failed" };
       }
     }),
   );
 
-  // JSON-RPC A2A endpoint (with optional auth)
   getH3App(nitroApp).use(
     `${routePrefix}/a2a`,
     defineEventHandler(async (event) => {
@@ -538,11 +1064,6 @@ export function mountA2A(
         return { error: "Method not allowed" };
       }
 
-      // h3 prefix-matches mounts, so a request to `/a2a/_process-task`
-      // reaches this handler too. The dedicated mount above runs first and
-      // takes the request, but if that returns `undefined` (or h3 ever
-      // changes ordering semantics) defensively bail here. event.path is
-      // stripped to the remainder after the mount prefix.
       const sub = (event.path || "/").split("?")[0].replace(/^\//, "");
       if (sub.startsWith("_process-task")) return;
 
@@ -550,8 +1071,16 @@ export function mountA2A(
       const bearerToken = extractBearerToken(authHeader);
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
+      let verifiedOrgId: string | undefined;
+      let verifiedIdentityAssurance:
+        | "user"
+        | "organization"
+        | "org-member"
+        | undefined;
+      let servicePrincipalAllowedActions: string[] | null | undefined;
       let verifiedAudienceBound = false;
       let legacyApiKeyAuthenticated = false;
+      let bearerTokenVerified = false;
       let bearerTokenRejectedByJwt = false;
 
       // SECURITY: when neither A2A_SECRET nor an apiKeyEnv is configured,
@@ -562,21 +1091,72 @@ export function mountA2A(
       const hasA2ASecret = hasConfiguredA2ASecret();
       const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
 
-      // Try JWT verification first (org-level or global A2A_SECRET-based identity)
       if (bearerToken) {
-        const tokenPayload = await verifyA2AToken(bearerToken, event, {
-          routePrefix,
-        });
+        let tokenPayload: A2ATokenPayload;
+        try {
+          const verification = await verifyA2ATokenInternal(
+            bearerToken,
+            event,
+            { routePrefix },
+          );
+          tokenPayload = verification.payload;
+          verifiedOrgId = verification.verifiedOrgId;
+        } catch (error) {
+          if (!(error instanceof A2AIdentityVerificationUnavailableError)) {
+            throw error;
+          }
+          setResponseStatus(event, 503);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: -32003,
+              message: "A2A identity verification is temporarily unavailable",
+            },
+          };
+        }
+        try {
+          const admission = await assertServicePrincipalMayRun(
+            tokenPayload.email,
+            verifiedOrgId,
+          );
+          if (parseServiceIdentityEmail(tokenPayload.email)) {
+            servicePrincipalAllowedActions = admission.allowedActions;
+          }
+        } catch (error) {
+          if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          if (error.statusCode === 403) {
+            await recordServicePrincipalDenial({
+              email: tokenPayload.email,
+              orgId: verifiedOrgId,
+              actionName: "a2a:admission",
+              caller: "a2a",
+              error,
+            });
+          }
+          setResponseStatus(event, error.statusCode);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: error.statusCode === 503 ? -32003 : -32001,
+              message: error.message,
+              data: { errorCode: error.errorCode },
+            },
+          };
+        }
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
-        if (verifiedCallerEmail) {
-          verifiedAudienceBound = tokenHasAudienceClaim(bearerToken);
-        }
-        bearerTokenRejectedByJwt = !verifiedCallerEmail;
+        verifiedIdentityAssurance =
+          tokenPayload.identityAssurance ??
+          (tokenPayload.email ? "user" : undefined);
+        bearerTokenVerified = verifiedIdentityAssurance !== undefined;
+        verifiedAudienceBound =
+          bearerTokenVerified && tokenHasAudienceClaim(bearerToken);
+        bearerTokenRejectedByJwt = !bearerTokenVerified;
       }
 
-      // Fall back to legacy API key check (exact string match)
-      if (!verifiedCallerEmail && config.apiKeyEnv) {
+      if (!bearerTokenVerified && config.apiKeyEnv) {
         const expectedKey = process.env[config.apiKeyEnv];
         if (expectedKey) {
           if (!bearerToken) {
@@ -599,7 +1179,7 @@ export function mountA2A(
         }
       }
 
-      if (!verifiedCallerEmail && !legacyApiKeyAuthenticated) {
+      if (!bearerTokenVerified && !legacyApiKeyAuthenticated) {
         // Any supplied bearer token that failed JWT verification is an auth
         // failure after the legacy exact-match apiKeyEnv path has had a
         // chance to succeed. Do not let bad tokens fall through to tasks/get
@@ -643,16 +1223,24 @@ export function mountA2A(
         }
       }
 
-      // Store verified caller identity on the event context so the handler
-      // can set request context from a trusted source instead of metadata
       if (verifiedCallerEmail) {
         event.context.__a2aVerifiedEmail = verifiedCallerEmail;
+      }
+      if (verifiedIdentityAssurance) {
+        event.context.__a2aIdentityAssurance = verifiedIdentityAssurance;
       }
       if (verifiedAudienceBound) {
         event.context.__a2aAudienceVerified = true;
       }
       if (verifiedOrgDomain) {
         event.context.__a2aOrgDomain = verifiedOrgDomain;
+      }
+      if (verifiedOrgId) {
+        event.context.__a2aVerifiedOrgId = verifiedOrgId;
+      }
+      if (servicePrincipalAllowedActions !== undefined) {
+        event.context.__a2aServicePrincipalAllowedActions =
+          servicePrincipalAllowedActions;
       }
 
       const body = await readBody(event);

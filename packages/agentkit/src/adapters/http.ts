@@ -36,9 +36,11 @@ import {
   parseAgentEvent,
   parseGetRunInput,
   parseAgentQueuedMessages,
+  parseNullableAgentQueuedSubmissionStatus,
   parseAgentThread,
   parseAgentUploadTarget,
   parseAgentProtocolEnvelope,
+  parseAgentRunStartResult,
   parseFilePart,
   parseInvokeActionInput,
   parseListThreadsInput,
@@ -46,6 +48,7 @@ import {
   parseQueueMessageResult,
   parseResolveApprovalInput,
   parseResumeRunInput,
+  parseReorderQueuedMessagesInput,
   parseResolveConnectionRequestInput,
   parseStartRunInput,
   parseStartRunResult,
@@ -67,9 +70,7 @@ export interface AgentKitHttpTransportOptions {
   baseUrl: string;
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit | (() => HeadersInit | Promise<HeadersInit>);
-  /** Stable request correlation for distributed traces and deterministic tests. */
   createCorrelationId?: () => string;
-  /** Aborts every request owned by this transport lifecycle. */
   signal?: AbortSignal;
 }
 
@@ -286,8 +287,6 @@ async function* parseEventStream(
       false,
     );
   }
-  // AG-UI frames carry no envelope, so correlation is proven once for the whole
-  // stream here instead of per event. This throws on a mismatched response.
   responseCorrelationId(response, undefined, expectedCorrelationId);
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
@@ -502,6 +501,14 @@ export function createAgentKitHttpTransport(
         context,
       );
     },
+    getQueuedSubmissionStatus(input, context) {
+      return request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/receipt`,
+        parseNullableAgentQueuedSubmissionStatus,
+        {},
+        context,
+      );
+    },
     queueMessage(input, context) {
       return request(
         `/threads/${encodeURIComponent(input.threadId)}/queue`,
@@ -529,6 +536,25 @@ export function createAgentKitHttpTransport(
         `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}`,
         parseVoidResponse,
         { method: "DELETE" },
+        context,
+      );
+    },
+    async moveQueuedMessageToTop(input, context) {
+      await request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/move-to-top`,
+        parseVoidResponse,
+        { method: "POST" },
+        context,
+      );
+    },
+    async reorderQueuedMessages(input, context) {
+      await request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue`,
+        parseVoidResponse,
+        {
+          method: "PUT",
+          body: JSON.stringify(createAgentProtocolEnvelope("request", input)),
+        },
         context,
       );
     },
@@ -595,7 +621,7 @@ export function createAgentKitHttpTransport(
     resumeRun(input, context) {
       return request(
         `/runs/${encodeURIComponent(input.runId)}/resume`,
-        parseStartRunResult,
+        parseAgentRunStartResult,
         {
           method: "POST",
           body: JSON.stringify(createAgentProtocolEnvelope("request", input)),
@@ -686,16 +712,11 @@ export function createAgentKitHttpTransport(
 export interface AgentKitHttpServerRequestContext<
   TTrustedContext,
 > extends AgentRequestContext {
-  /**
-   * Host-resolved authority for this request. This value is never read from a
-   * protocol envelope and is never serialized into an AgentKit response.
-   */
   readonly trusted: TTrustedContext;
 }
 
 interface AgentKitHttpHandlerBaseOptions {
   basePath?: string;
-  /** Receives validation, transport, and backend failures for host logging. */
   onError?: (error: unknown, request: Request) => void | Promise<void>;
 }
 
@@ -703,7 +724,6 @@ export type AgentKitHttpHandlerOptions<TTrustedContext = never> =
   AgentKitHttpHandlerBaseOptions &
     (
       | {
-          /** A host-owned transport for handlers whose trust scope is static. */
           transport: AgentTransport;
           transportOwnership?: never;
           resolveRequestContext?: never;
@@ -711,19 +731,10 @@ export type AgentKitHttpHandlerOptions<TTrustedContext = never> =
         }
       | {
           transport?: never;
-          /**
-           * Request-created transports are owned by the handler by default.
-           * Use `borrowed` only when the factory returns a host-managed transport.
-           */
           transportOwnership?: "borrowed" | "owned";
-          /** Resolves authenticated, authorized host state from this request. */
           resolveRequestContext: (
             request: Request,
           ) => TTrustedContext | Promise<TTrustedContext>;
-          /**
-           * Creates a transport closed over the resolved authority. Transport
-           * operations still receive only cancellation and correlation state.
-           */
           createTransport: (
             context: AgentKitHttpServerRequestContext<TTrustedContext>,
           ) => AgentTransport | Promise<AgentTransport>;
@@ -935,7 +946,6 @@ function eventStream(
   );
 }
 
-/** Framework-neutral Fetch handler for serverless, Node, and edge runtimes. */
 export function createAgentKitHttpHandler<TTrustedContext = never>(
   options: AgentKitHttpHandlerOptions<TTrustedContext>,
 ): (request: Request) => Promise<Response> {
@@ -951,8 +961,6 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
       try {
         await options.onError?.(error, request);
       } catch (observerError) {
-        // Error observers must not prevent a standards-compliant response to
-        // the original failed request.
         console.error("AgentKit error observer failed.", observerError);
       }
     };
@@ -1032,9 +1040,6 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         : url.pathname;
       const transport = await getTransport();
       if (request.method === "GET" && path === "/capabilities") {
-        // Serve the boolean map from discovery so a transport that only
-        // implements discoverCapabilities does not report every capability as
-        // unknown here.
         return respond(
           await invoke(async (context) => {
             if (!transport.discoverCapabilities) {
@@ -1127,13 +1132,37 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         );
       }
       const queueItemMatch = path.match(
-        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer))?$/,
+        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer|move-to-top|receipt))?$/,
       );
       if (queueItemMatch?.[1] && queueItemMatch[2]) {
         const routeInput = {
           threadId: decodeURIComponent(queueItemMatch[1]),
           messageId: decodeURIComponent(queueItemMatch[2]),
         };
+        if (request.method === "GET" && queueItemMatch[3] === "receipt") {
+          const getQueuedSubmissionStatus = transport.getQueuedSubmissionStatus;
+          if (!getQueuedSubmissionStatus)
+            return notSupported(
+              "getQueuedSubmissionStatus",
+              "Queued submission status is not supported.",
+            );
+          const input = parseThreadMessageInput(routeInput);
+          assertRouteIdentifier(
+            routeInput.threadId,
+            input.threadId,
+            "threadId",
+          );
+          assertRouteIdentifier(
+            routeInput.messageId,
+            input.messageId,
+            "messageId",
+          );
+          return respond(
+            await invoke((context) =>
+              getQueuedSubmissionStatus(input, context),
+            ),
+          );
+        }
         if (request.method === "POST" && queueItemMatch[3] === "steer") {
           const steerQueuedMessage = transport.steerQueuedMessage;
           if (!steerQueuedMessage)
@@ -1155,6 +1184,17 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
           return respond(
             await invoke((context) => steerQueuedMessage(input, context)),
           );
+        }
+        if (request.method === "POST" && queueItemMatch[3] === "move-to-top") {
+          const moveQueuedMessageToTop = transport.moveQueuedMessageToTop;
+          if (!moveQueuedMessageToTop)
+            return notSupported(
+              "moveQueuedMessageToTop",
+              "Queue reordering is not supported.",
+            );
+          const input = parseThreadMessageInput(routeInput);
+          await invoke((context) => moveQueuedMessageToTop(input, context));
+          return respond(undefined);
         }
         if (request.method === "DELETE" && !queueItemMatch[3]) {
           const removeQueuedMessage = transport.removeQueuedMessage;
@@ -1197,6 +1237,18 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
             await invoke((context) => queueMessage(input, context)),
             201,
           );
+        }
+        if (request.method === "PUT") {
+          const reorderQueuedMessages = transport.reorderQueuedMessages;
+          if (!reorderQueuedMessages)
+            return notSupported(
+              "reorderQueuedMessages",
+              "Queue reordering is not supported.",
+            );
+          const input = await readPayload(parseReorderQueuedMessagesInput);
+          assertRouteIdentifier(threadId, input.threadId, "threadId");
+          await invoke((context) => reorderQueuedMessages(input, context));
+          return respond(undefined);
         }
       }
       const threadMatch = path.match(/^\/threads\/([^/]+)$/);

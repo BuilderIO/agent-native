@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act, createElement } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -94,6 +95,15 @@ describe("usePersistentSidebarCollapsed", () => {
 
     expect(state.collapsed).toBe(collapsed);
     expect(state.persistenceStatus).toBe("available");
+  });
+
+  it("restores a saved preference before the first paint", () => {
+    window.localStorage.setItem(STORAGE_KEY, "true");
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+    // flushSync runs layout effects but leaves passive effects for later.
+    flushSync(() => root.render(<Harness />));
+
+    expect(state.collapsed).toBe(true);
   });
 
   it("persists explicit updates and restores them on remount", () => {

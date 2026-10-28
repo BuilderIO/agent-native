@@ -1,8 +1,10 @@
 {
   "extends": "@agent-native/core/tsconfig.base.json",
   "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
     "ignoreDeprecations": "6.0",
-    "types": ["vite/client", "@webgpu/types"],
+    "types": ["vite/client"],
     "rootDirs": [".", "./.react-router/types"],
     "paths": {
       "*": ["./*"],

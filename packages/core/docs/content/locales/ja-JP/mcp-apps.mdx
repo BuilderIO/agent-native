@@ -18,6 +18,14 @@ MCP アプリは、互換性のあるホスト (Claude、Claude デスクトッ�
 
 Agent-Native アプリ独自のチャット内では、表、グラフ、入力された結果、承認アフォーダンスなどのファーストパーティ ウィジェットには [native chat renderers](/docs/native-chat-ui) を優先します。 Claude、ChatGPT、Copilot、Cursor、およびその他の互換性のあるホストの外部/クロスホスト インライン UI には MCP アプリを使用し、ユニバーサル ディープリンク フォールバックとしてアクション `link` を使用します。
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+OpenAI Plugin Extensions は、モデルが呼び出す MCP ツールにアプリの起動ポイントを追加します。インライン MCP Apps が有効な場合、共有 `open_app` ツールはグローバル サイドバーと会話のサイド パネルの両方にエントリポイントを表示します。ChatGPT は `{}` を渡して呼び出し、Core は現在のアプリのホーム画面をインライン MCP App として開きます。共有 MCP サーバーを使うアプリでは個別登録は不要です。[OpenAI Plugin Extensions ガイド](https://developers.openai.com/plugins/build/extensions)と[MCP Extensions 仕様](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md)を参照してください。
+
+埋め込みアプリのルートにあるボタンから `sendToAgentChat(...)` を呼び出すと、会話を続けられます。Core は選択状態を `annotations.audience: ["assistant"]` を付けて `ui/update-model-context` で送り、その後、表示するプロンプトを `ui/message` で送信します。ファイル ビューアー、コンポーザー メンション、その他の専用拡張にはアプリ固有の入力契約が必要です。
+
+古いホストでは、リクエストに選択済みまたは構造化されたコンテキストがなく、すべての内容をテキストで表現でき、転送するテキストの各 `annotations.audience` リストに `assistant` と `user` の両方が含まれる場合に限り、Core はテキストにフォールバックできます。いずれかの条件を満たさない場合、またはホストがコンテキスト更新を拒否した場合、`sendToAgentChat(...)` は `false` を返します。
+
 ## オーサリング: オプションの MCP アプリ UI {#mcp-apps}
 
 MCP アプリ拡張機能をサポートするホストの場合、アクションは `mcpApp` を使用してインライン UI リソースをアドバタイズすることもできます。これは、外部エージェントがテキストだけではなくインタラクティブなサーフェスをユーザーに渡す必要があるフローの進歩的な機能強化です。たとえば、電子メールの下書きのレビュー、カレンダーの招待状の編集、生成されたダッシュボードのバリエーションからの選択などです。
@@ -220,13 +228,13 @@ ChatGPT は、`window.openai` を通じて専用の互換性パスを取得し�
 
 拡張ページは、2 番目のルート iframe をナビゲートせずに、MCP チャット埋め込み内にサンドボックスを保持します。通常のアプリの使用では、`/_agent-native/extensions/:id/render` がサンドボックス化された子 iframe としてレンダリングされます。 MCP チャット ブリッジ モードでは、フレームワークはルート iframe 内でサンドボックス化された `srcDoc` と同じ拡張ドキュメントをレンダリングし、`sandbox="allow-scripts allow-forms"` を維持しながらホスト `frame-ancestors` / `X-Frame-Options` の障害を回避します。
 
-リソース シェルは外部ホスト サイズを所有します。 `embedApp({ height })` のデフォルトは `560px` で、シェルを `320-900px` にクランプし、小さいツールバー用に `44px` を予約するため、ルート ビューポートは `height - 44px` になります。埋め込まれたアプリのルートを内部でスクロール可能な状態に保ち、ランチャーがドキュメント全体の高さではなく、制限された固有の高さを報告できるようにします。そうしないと、ホストの自動サイズ変更により、通常のアプリ ページが非常に縦長のチャット アーティファクトに変わってしまう可能性があります。変更されたシェルは、新しい MCP アプリ リソースと新しいツール呼び出しにのみ影響します。古い ChatGPT/Claude 会話フレームは以前のリソースの動作を保持している可能性があるため、修正を判断する前に新しいインライン レンダリングでサイズを確認してください。
+リソース シェルは外部ホスト サイズを所有します。 `embedApp({ height })` のデフォルトは `560px` で、シェルを `320-900px` にクランプし、小さいツールバー用に `44px` を予約するため、ルート ビューポートは `height - 44px` になります。埋め込まれたアプリのルートを内部でスクロール可能な状態に保ち、ランチャーがドキュメント全体の高さではなく、制限された固有の高さを報告できるようにします。そうしないと、ホストの自動サイズ変更により、通常のアプリ ページが非常に縦長のチャット アーティファクトに変わってしまう可能性があります。変更されたシェルは、新しい MCP アプリ リソースと新しいツール呼び出しにのみ影響します。古い ChatGPT/Claude 会話フレームは以前のリソースの動作を保持している可能性があるため、修正を判断する前に新しいインライン レンダリングでサイズを確認してください。 ホストがフレームを所有している場合 (サイド パネル、全画面表示、ピクチャー イン ピクチャー表示、または `containerDimensions.height`)、シェルは代わりにフレーム全体を埋め、固有の高さを報告しなくなります。 ディレクトリ ウィジェット (ChatGPT と Codex のプラグイン アプリ) はホストのペイン内で動作するエディターであるため、常にフレームを埋めます。ホストがウィジェットの報告する高さだけでペインのサイズを決める場合 (Codex と ChatGPT のサイド パネルは高さではなく、小さな `containerDimensions.maxHeight` のヒントのみを公開します)、シェルはアプリのコンテンツの高さではなく、閲覧者の画面の高さを報告します。
 
 ### 埋め込みモード {#embed-modes}
 
 Claude は、デフォルトで単一フレーム移植パスを使用します。ホストのモジュール読み込み動作をデバッグするときに、`embedMode: "transplant"` または `frame: "transplant"` を使用して他のホストで強制することもできます。 `embedMode: "iframe"`、`renderMode: "iframe"`、`nested: true`、または `frame: "iframe"` を使用して、ネストされた診断 iframe を強制できます。 iframe がブロックされている場合、`embedApp()` はそれをオープンアプリのフォールバックに置き換えます。ユーザーはインラインで再試行するか、ホスト経由で新たに生成された埋め込みセッションを開くか、表示可能なルート URL を使用できます。アクションの `link` ターゲットは、依然として万能の脱出ハッチであるため、単独で有用なままにしておきます。
 
-ngrok を通じて Claude をテストする場合は、実稼働ビルド (`npx @agent-native/core@latest build`、次に `npx @agent-native/core@latest start`) またはデプロイされたプレビュー/実稼働 URL を使用します。 Claude の単一フレーム移植パスは、実稼働アセット チャンクで動作します。 `/app/root.tsx` などの生の Vite 開発モジュールはアプリ認証によって保護され、Claude リソース オリジンからの動的インポートに失敗する可能性があります。
+ngrok を通じて Claude をテストする場合は、実稼働ビルド (`pnpm build`、次に `npx @agent-native/core@latest start`) またはデプロイされたプレビュー/実稼働 URL を使用します。 Claude の単一フレーム移植パスは、実稼働アセット チャンクで動作します。 `/app/root.tsx` などの生の Vite 開発モジュールはアプリ認証によって保護され、Claude リソース オリジンからの動的インポートに失敗する可能性があります。
 
 ## ホストブリッジ API {#host-bridge}
 
@@ -249,11 +257,17 @@ ngrok を通じて Claude をテストする場合は、実稼働ビルド (`npx
 
 ## クライアントのサポートとキャッシュ {#client-support}
 
-現在の公式 MCP アプリ クライアント リストには、Claude、Claude デスクトップ、VS Code GitHub Copilot、Goose、Postman、MCPJam、ChatGPT、および Cursor が含まれています。ホストのサポートはプラン、リリース チャネル、クライアントのバージョンによって異なるため、[MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix) を確認してください。 ChatGPT カスタム MCP アプリは、ChatGPT Web 上の Business および Enterprise/Edu ワークスペースの開発者モードを通じて利用できます。 OpenAI の [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) メモを参照してください。
+MCP Apps をインライン表示するホストには、Web・デスクトップ・モバイルの Claude チャットと Claude Desktop の [Code](https://github.com/anthropics/claude-code/issues/103809) タブが含まれます。その他の対応ホスト: ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+); T3 Code (Codex). 対応状況はプラン、リリースチャネル、クライアントのバージョンによって異なります。参照：[MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix) を確認してください。 ChatGPT カスタム MCP アプリは、ChatGPT Web 上の Business および Enterprise/Edu ワークスペースの開発者モードを通じて利用できます。 OpenAI の [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) メモを参照してください。
 
-Claude コード、Codex、およびその他の CLI/コードエディター クライアントは、MCP アプリをサポートする場合でも同じリソースとメタデータを受け取りますが、その正確なサーフェスでのインライン iframe レンダリングを検証していない限り、それらをリンクアウト ホストとして扱います。ホストが iframe をレンダリングしないことを選択した場合でも、ディープ リンクは信頼性の高いフォールバックとして残ります。実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。
+Claude Code のターミナル、Cowork、claude.ai の Web 版 Code、Codex CLI では、代わりにディープリンクを使用してください。[Cowork はまだ MCP Apps への対応を宣言しておらず、同じコネクタで使用すると、コネクタを再接続するまで Chat のインラインアプリが表示されなくなることがあります。](https://github.com/anthropics/claude-code/issues/103924) ホストが iframe をレンダリングしないことを選択した場合でも、ディープ リンクは信頼性の高いフォールバックとして残ります。実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。
 
 Claude および ChatGPT は、既存のカスタム コネクタのツールとリソースのメタデータをキャッシュできます。 MCP アプリのメタデータを変更した後、新しいツール呼び出しで検証します。ホストがまだ古い記述子を使用している場合は、Claude コネクタを再接続するか、ChatGPT コネクタを再スキャン/レビューして、カタログを更新します。デプロイ後に Claude がツール記述子に存在する `_meta.ui.csp` または `_meta.ui.permissions` に関する警告をログに記録する場合、そのコネクタは古いメタデータを使用しています。Claude コネクタを削除または再接続し、新しいチャットを開始してください。
+
+## カードを受け取るユーザー {#who-gets-cards}
+
+接続されたチャットアプリが MCP App のカード（`_meta.ui` ツールメタデータとその `ui://` リソース）を受け取るのは、そのアプリがサインインしているユーザーが 設定 → ラボ で **チャットアプリでのアプリカード** ラボをオンにしている場合だけです。このラボは既定でオフで、各ユーザーの選択はそのユーザー自身の接続にだけ適用されます。変更したら、チャットアプリでアプリを再接続してツール一覧を読み込み直してください。ラボがオフのとき、ツールは `link` ディープリンク付きのシンプルな結果を返します。人としてサインインしていない接続も、シンプルな結果を受け取ります。たとえば、`AGENT_NATIVE_OWNER_EMAIL` のない共有 `ACCESS_TOKEN`、サービスプリンシパル、スタンドアロンの stdio サーバーです。
+
+ChatGPT アプリディレクトリのカタログ（`/mcp/directory`）と、`x-agent-native-mcp-inline-apps` ヘッダーを送る Agent-Native 自身のファーストパーティクライアントは、ラボの設定にかかわらずカードを受け取ります。環境変数 `AGENT_NATIVE_MCP_APPS_INLINE` と `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` は読み取られなくなりました。どちらかが設定されている場合、サーバーは警告を 1 回ログに記録します。
 
 ## テスト {#testing}
 

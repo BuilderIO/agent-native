@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   getAllDaySpan,
   groupAdjacentAllDayPlacements,
+  isCompactCalendarEvent,
   layoutAllDayEvents,
   partitionAllDayEvents,
 } from "./all-day-layout";
@@ -87,6 +88,24 @@ describe("all-day layout", () => {
         "Asia/Tokyo",
       ),
     ).toEqual({ startCol: 1, endCol: 1 });
+  });
+
+  it("keeps timed events over 24 hours in the compact lane", () => {
+    const longEvent = {
+      ...event("hold", "2026-07-06T09:00:00.000Z", "2026-07-08T10:00:00.000Z"),
+      allDay: false,
+    };
+
+    expect(isCompactCalendarEvent(longEvent)).toBe(true);
+    expect(
+      isCompactCalendarEvent({ ...longEvent, end: "2026-07-07T09:00:00.000Z" }),
+    ).toBe(false);
+    expect(isCompactCalendarEvent({ ...longEvent, end: "invalid" })).toBe(
+      false,
+    );
+    expect(
+      layoutAllDayEvents([longEvent], days, "UTC").placements,
+    ).toMatchObject([{ startCol: 1, endCol: 3, row: 0 }]);
   });
 
   it("assigns overlapping spans to deterministic non-overlapping rows", () => {

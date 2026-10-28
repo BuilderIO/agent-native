@@ -6,16 +6,26 @@ import test from "node:test";
 
 import {
   previewEligibleSiteNames,
+  previewSiteFromCommand,
   previewSitesForChangedPaths,
   workspacePackages,
 } from "./netlify-pr-preview-targets.ts";
 
-test("workspacePackages throws when a checkout has neither packages/ nor templates/", () => {
+test("workspacePackages throws when a checkout has no package manifests", () => {
   const emptyRepoRoot = mkdtempSync(path.join(tmpdir(), "netlify-preview-"));
   assert.throws(
     () => workspacePackages(emptyRepoRoot),
-    /neither packages\/ nor templates\/ exists/,
+    /neither packages\/, templates\/, nor community-templates\/ exists/,
   );
+});
+
+test("preview command must match one eligible site exactly, ignoring case", () => {
+  assert.equal(previewSiteFromCommand("/preview analytics"), "analytics");
+  assert.equal(previewSiteFromCommand("/PREVIEW ANALYTICS"), "analytics");
+  assert.equal(previewSiteFromCommand("/preview analytics\n"), undefined);
+  assert.equal(previewSiteFromCommand("/preview analytics\r\n"), undefined);
+  assert.equal(previewSiteFromCommand("/preview unknown"), undefined);
+  assert.equal(previewSiteFromCommand("/preview  analytics"), undefined);
 });
 
 test("selects the app sites touched by a PR", () => {
@@ -92,6 +102,12 @@ test("previews the docs site for app changes but skips prose and hidden template
     previewSitesForChangedPaths(["templates/factory/app.tsx"]),
     [],
   );
+  assert.deepEqual(
+    previewSitesForChangedPaths([
+      "community-templates/account-tiering/app.tsx",
+    ]),
+    [],
+  );
   assert.deepEqual(previewSitesForChangedPaths(["docs/netlify.md"]), []);
 });
 
@@ -156,11 +172,6 @@ test("limits a dependency-scoped package change to sites that depend on it", () 
 });
 
 test("previewEligibleSiteNames succeeds with only the cleanup job's sparse-checked-out manifests", () => {
-  // Mirrors .github/workflows/deploy-netlify-pr-previews.yml's cleanup job
-  // sparse-checkout list: only the scripts JSON plus each site's
-  // package.json/netlify.toml, nothing else. If the workflow's sparse list
-  // ever drifts from what resolveNetlifyPrebuiltTarget requires, this throws
-  // instead of the cleanup job silently failing before it deletes anything.
   const repoRoot = mkdtempSync(path.join(tmpdir(), "netlify-preview-"));
   mkdirSync(path.join(repoRoot, "scripts"), { recursive: true });
   writeFileSync(
@@ -182,7 +193,6 @@ test("previewEligibleSiteNames succeeds with only the cleanup job's sparse-check
     }),
   );
 
-  // templates/*/package.json + templates/*/netlify.toml, per the sparse list.
   const templateDirs = [
     "analytics",
     "assets",
@@ -204,7 +214,6 @@ test("previewEligibleSiteNames succeeds with only the cleanup job's sparse-check
     writeFileSync(path.join(templateDir, "netlify.toml"), "");
   }
 
-  // packages/docs/package.json + packages/docs/netlify.toml, per the sparse list.
   const docsDir = path.join(repoRoot, "packages", "docs");
   mkdirSync(docsDir, { recursive: true });
   writeFileSync(path.join(docsDir, "package.json"), "{}");

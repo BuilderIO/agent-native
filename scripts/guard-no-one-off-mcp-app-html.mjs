@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * guard-no-one-off-mcp-app-html.mjs
- *
- * Template MCP Apps must reuse the real app UI. Use embedApp() to launch the
- * app at a focused route instead of hand-writing product surfaces in inline
- * HTML. This catches the old _mcp-apps helper pattern and direct mcpApp HTML
- * blocks in template actions.
- */
 
 import { readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
@@ -153,8 +145,6 @@ for (const file of files) {
         reason: "defines direct MCP App HTML instead of embedApp()",
       });
     }
-    // Catalog-only configs (e.g. `{ compactCatalog: true }`) define no UI
-    // surface, so the full-app embed helper is not required for them.
     if (/\bresource\s*:/.test(block) && !block.includes("embedApp(")) {
       failures.push({
         file: rel,

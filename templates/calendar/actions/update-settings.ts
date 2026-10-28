@@ -1,4 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import { getDecisionsStatus } from "@agent-native/core/decisions";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -31,10 +32,34 @@ export default defineAction({
       .enum(["sunday", "monday"])
       .optional()
       .describe("First day shown in calendar weeks"),
+    eventRules: z
+      .object({
+        accept: z.string().max(2000).optional(),
+        decline: z.string().max(2000).optional(),
+        hide: z.string().max(2000).optional(),
+      })
+      .optional()
+      .describe("AI decision rules for new calendar invitations"),
   }),
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+    if (
+      args.eventRules &&
+      Object.values(args.eventRules).some((rule) => rule?.trim())
+    ) {
+      const status = await getDecisionsStatus(email);
+      if (!status.providers.some((provider) => provider.status === "ready")) {
+        fail("No AI decision provider is configured for this account.", {
+          errorCode: "jev_not_enabled",
+          statusCode: status.providers.some(
+            (provider) => provider.status === "unknown",
+          )
+            ? 503
+            : 403,
+        });
+      }
+    }
     return saveCalendarSettings(email, args);
   },
 });

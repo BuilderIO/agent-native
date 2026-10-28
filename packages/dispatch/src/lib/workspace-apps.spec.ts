@@ -6,13 +6,16 @@ import {
   isDefaultWorkspaceAppHiddenId,
   isDispatchWorkspaceAppId,
   isPathMountedWorkspaceApp,
+  isWorkspaceAppHostPageUrl,
   isWorkspaceAppVisibleInDefaultLaunchers,
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
+  workspaceAppSourceFromConnected,
   workspaceAppIdFromRoute,
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
+  workspaceAppDirectLaunchHref,
   workspaceAppHref,
   workspaceAppRoute,
 } from "./workspace-apps";
@@ -32,10 +35,108 @@ describe("workspace app routes", () => {
     ).toBe("https://workspace.example.test/feedback-leaderboard/leaderboard");
   });
 
+  it("opens grant-only apps directly at their registered URL", () => {
+    expect(
+      workspaceAppDirectLaunchHref({
+        path: "",
+        url: "https://sales.example.test/sales",
+      }),
+    ).toBe("https://sales.example.test/sales");
+    expect(
+      workspaceAppDirectLaunchHref({
+        path: "/sales",
+        url: "https://sales.example.test/sales",
+      }),
+    ).toBeNull();
+  });
+
   it("round-trips encoded app ids", () => {
     const route = workspaceAppRoute("sales ops");
     expect(route).toBe("/apps/sales%20ops");
     expect(workspaceAppIdFromRoute(route)).toBe("sales ops");
+  });
+
+  it("marks fallback app descriptions for localization but preserves custom copy", () => {
+    const calendar = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "calendar",
+          name: "Calendar",
+          description:
+            "Agent-Native Google Calendar — manage events, sync, and public booking",
+          path: "/calendar",
+        },
+      ],
+      [],
+    ).find((app) => app.id === "calendar");
+    expect(calendar).toMatchObject({
+      description:
+        "Agent-Native Google Calendar — manage events, sync, and public booking",
+      defaultDescriptionKey:
+        "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+    });
+
+    const mail = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "mail",
+          name: "Mail",
+          description: "A workspace-specific description",
+          path: "/mail",
+        },
+      ],
+      [],
+    ).find((app) => app.id === "mail");
+    expect(mail).toMatchObject({
+      description: "A workspace-specific description",
+      defaultDescriptionKey: undefined,
+    });
+
+    const emptyDescription = mergeChatFirstWorkspaceApps(
+      [{ id: "mail", name: "Mail", description: "", path: "/mail" }],
+      [],
+    ).find((app) => app.id === "mail");
+    expect(emptyDescription).toMatchObject({
+      description: "",
+      defaultDescriptionKey: undefined,
+    });
+  });
+
+  it("includes granted-only apps without replacing registered app summaries", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [{ id: "Calendar", name: "Workspace Calendar", path: "/calendar" }],
+      [],
+      [
+        {
+          id: "calendar",
+          name: "Granted Calendar",
+          url: "https://calendar.example.test",
+        },
+        {
+          id: "sales-tools",
+          name: "Sales Tools",
+          description: "Sales workspace tools",
+          url: "https://sales.example.test",
+        },
+      ],
+    );
+
+    const calendarApps = apps.filter(
+      (app) => app.id.toLowerCase() === "calendar",
+    );
+    expect(calendarApps).toHaveLength(1);
+    expect(calendarApps[0]).toMatchObject({
+      id: "calendar",
+      name: "Workspace Calendar",
+      path: "/calendar",
+    });
+    expect(apps.find((app) => app.id === "sales-tools")).toMatchObject({
+      name: "Sales Tools",
+      description: "Sales workspace tools",
+      path: "",
+      url: "https://sales.example.test",
+      status: "ready",
+    });
   });
 
   it("does not mark app paths or the apps index as an active app route", () => {
@@ -48,6 +149,38 @@ describe("workspace app routes", () => {
     expect(workspaceAppIdFromRoute("/apps/mail/inbox")).toBe("mail");
   });
 
+  it("recognizes the Dispatch page that hosts an app only on Dispatch's own origin", () => {
+    const origin = "https://beta.agent-workspace.builder.io";
+    const hostPage = { id: "coach", url: `${origin}/dispatch/apps/coach` };
+
+    expect(isWorkspaceAppHostPageUrl(hostPage, origin)).toBe(true);
+    expect(
+      isWorkspaceAppHostPageUrl(
+        { id: "Coach", url: `${origin}/dispatch/apps/coach/` },
+        origin,
+      ),
+    ).toBe(true);
+    expect(
+      isWorkspaceAppHostPageUrl(hostPage, "https://beta.dispatch.example.test"),
+    ).toBe(false);
+    expect(isWorkspaceAppHostPageUrl(hostPage, undefined)).toBe(false);
+    expect(
+      isWorkspaceAppHostPageUrl(
+        { id: "coach", url: `${origin}/coach` },
+        origin,
+      ),
+    ).toBe(false);
+    expect(
+      isWorkspaceAppHostPageUrl(
+        { id: "coach", url: `${origin}/dispatch/apps/mycoach` },
+        origin,
+      ),
+    ).toBe(false);
+    expect(isWorkspaceAppHostPageUrl({ id: "coach", url: null }, origin)).toBe(
+      false,
+    );
+  });
+
   it("preserves the initial app suffix for a standalone deep link", () => {
     expect(
       workspaceAppInitialPathFromSplat("inbox", "?view=unread", "#top"),
@@ -55,13 +188,39 @@ describe("workspace app routes", () => {
     expect(workspaceAppInitialPathFromSplat(undefined, "", "")).toBeUndefined();
   });
 
-  it("maps child routes to shareable Dispatch app routes", () => {
+  it("restores a child route from the flat Workspace app shell query", () => {
     expect(
-      workspaceAppRouteForChildPath(
-        { id: "design", path: "/", url: "https://design.example.test" },
-        "/foobar?mode=edit#canvas",
+      workspaceAppInitialPathFromSplat(
+        undefined,
+        "?__workspace_app_path=%2Ftriage%3Fview%3Dopen%23latest",
+        "",
       ),
-    ).toBe("/apps/design/foobar?mode=edit#canvas");
+    ).toBe("/triage?view=open#latest");
+    expect(
+      workspaceAppInitialPathFromSplat(
+        undefined,
+        "?__workspace_app_path=%2F%2Fevil.example",
+        "",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("maps child routes to shareable Dispatch app routes", () => {
+    const childPath = "/foobar?mode=edit#canvas";
+    const route = workspaceAppRouteForChildPath(
+      { id: "design", path: "/", url: "https://design.example.test" },
+      childPath,
+    );
+    expect(route).toBe(
+      "/apps/design?__workspace_app_path=%2Ffoobar%3Fmode%3Dedit%23canvas",
+    );
+    expect(
+      workspaceAppInitialPathFromSplat(
+        undefined,
+        new URL(route!, "https://dispatch.example.test").search,
+        "",
+      ),
+    ).toBe(childPath);
     expect(
       workspaceAppRouteForChildPath(
         {
@@ -71,7 +230,7 @@ describe("workspace app routes", () => {
         },
         "/design/foobar",
       ),
-    ).toBe("/apps/internal-design/foobar");
+    ).toBe("/apps/internal-design?__workspace_app_path=%2Ffoobar");
     expect(
       workspaceAppRouteForChildPath(
         { id: "design", path: "/", url: "https://design.example.test" },
@@ -187,8 +346,20 @@ describe("workspace app routes", () => {
     expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "mail" })).toBe(true);
   });
 
+  const ALL_CHAT_FIRST_DEFAULTS = [
+    "content",
+    "design",
+    "mail",
+    "calendar",
+    "clips",
+  ];
+
   it("maps default first-party apps to their canonical hosted origins", () => {
-    const apps = mergeChatFirstWorkspaceApps(undefined);
+    const apps = mergeChatFirstWorkspaceApps(
+      undefined,
+      ALL_CHAT_FIRST_DEFAULTS,
+    );
+    expect(apps.find((app) => app.id === "content")?.description).toBeTruthy();
     expect(apps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -228,7 +399,7 @@ describe("workspace app routes", () => {
     });
 
     try {
-      const apps = mergeChatFirstWorkspaceApps(undefined);
+      const apps = mergeChatFirstWorkspaceApps(undefined, ["mail"]);
       expect(apps.find((app) => app.id === "mail")?.url).toBe(
         "https://beta.mail.agent-native.com/",
       );
@@ -240,20 +411,105 @@ describe("workspace app routes", () => {
     }
   });
 
+  it("preserves configured built-in launch paths over canonical defaults", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      undefined,
+      ["clips"],
+      [
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://clips.agent-native.com/recordings",
+          source: "builtin",
+        },
+      ],
+    );
+
+    expect(apps.find((app) => app.id === "clips")?.url).toBe(
+      "https://clips.agent-native.com/recordings",
+    );
+  });
+
   it("lets a mounted workspace app override a default row", () => {
-    const apps = mergeChatFirstWorkspaceApps([
-      {
-        id: "mail",
-        name: "Internal Mail",
-        path: "/internal-mail",
-        url: null,
-        status: "ready",
-      },
-    ]);
+    const apps = mergeChatFirstWorkspaceApps(
+      [
+        {
+          id: "mail",
+          name: "Internal Mail",
+          path: "/internal-mail",
+          url: null,
+          status: "ready",
+        },
+      ],
+      ALL_CHAT_FIRST_DEFAULTS,
+    );
     expect(apps.find((app) => app.id === "mail")).toMatchObject({
       name: "Internal Mail",
       path: "/internal-mail",
       url: null,
+      source: "workspace",
+      description: expect.any(String),
     });
+  });
+
+  it("adds only the defaults in the server-resolved built-in list", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [{ id: "crm", name: "CRM", path: "/crm" }],
+      ["Mail", "slides"],
+    );
+    expect(apps.map((app) => [app.id, app.source])).toEqual([
+      ["mail", "builtin"],
+      ["crm", "workspace"],
+    ]);
+  });
+
+  it("adds every configured first-party app to the launcher", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [],
+      ["mail", "clips", "slides"],
+      [
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://mail.agent-native.com",
+          source: "builtin",
+        },
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://clips.agent-native.com",
+          source: "builtin",
+        },
+        {
+          id: "slides",
+          name: "Slides",
+          url: "https://slides.agent-native.com",
+          source: "builtin",
+        },
+      ],
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["mail", "clips", "slides"]);
+    expect(apps.map((app) => app.source)).toEqual([
+      "builtin",
+      "builtin",
+      "builtin",
+    ]);
+  });
+
+  it("adds no defaults when built-ins are off or not yet resolved", () => {
+    const workspace = [{ id: "crm", name: "CRM", path: "/crm" }];
+    expect(
+      mergeChatFirstWorkspaceApps(workspace, []).map((app) => app.id),
+    ).toEqual(["crm"]);
+    expect(
+      mergeChatFirstWorkspaceApps(workspace, undefined).map((app) => app.id),
+    ).toEqual(["crm"]);
+  });
+
+  it("maps list-connected-agents sources onto sidebar groups", () => {
+    expect(workspaceAppSourceFromConnected("builtin")).toBe("builtin");
+    expect(workspaceAppSourceFromConnected("custom")).toBe("connected");
+    expect(workspaceAppSourceFromConnected("workspace")).toBe("workspace");
   });
 });

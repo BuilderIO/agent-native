@@ -474,6 +474,11 @@ Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
 visible RSVP comment on a declined or tentative response; pass an empty note to
 clear an existing RSVP comment.
 
+When a guest comment contains a time proposal, the event detail highlights it
+and links to the event's Google Calendar page for review and acceptance.
+`rsvp-event` changes the ordinary RSVP status; it does not accept a proposed
+time.
+
 When adding guests to an existing event, prefer `update-event` with
 `addAttendees` so existing RSVP notes/statuses are preserved. Use
 `scope: "all"` only when the user wants a recurring-event guest change applied
@@ -482,6 +487,9 @@ to the whole series.
 Pass `optional: true` on an attendee object to mark someone optional when
 creating, drafting, or adding guests. To change optional/required after the
 fact, replace the full `attendees` list with `optional` set on that guest.
+
+`update-calendar-visual-preferences` can set `allDayMaxHeight` (48–320 pixels)
+to control the scrollable all-day section height in the week-style calendar.
 
 ## Working Locations
 

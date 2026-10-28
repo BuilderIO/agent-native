@@ -5,6 +5,8 @@ import { dispatchActions } from "./index.js";
 describe("dispatch action registry", () => {
   it("keeps workspace resources runtime-inherited instead of exposing sync actions", () => {
     expect(dispatchActions).toHaveProperty("list-workspace-resources-for-app");
+    expect(dispatchActions).toHaveProperty("list-connect-marketplace-apps");
+    expect(dispatchActions).toHaveProperty("inspect-connect-agent-card");
     expect(dispatchActions).toHaveProperty("connect-external-agent");
     expect(dispatchActions).toHaveProperty("import-agent");
     expect(dispatchActions).toHaveProperty("list-mcp-app-access");
@@ -13,8 +15,13 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("ask_app");
     expect(dispatchActions).toHaveProperty("ask_app_status");
     expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
+    expect(dispatchActions).toHaveProperty("verify-curated-community-app");
+    expect(dispatchActions["verify-curated-community-app"].readOnly).toBe(true);
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
+    expect(dispatchActions.create_embed_session.mcpApp?.visibility).toEqual([
+      "app",
+    ]);
     expect(dispatchActions).toHaveProperty(
       "create-workspace-app-embed-session",
     );
@@ -60,6 +67,17 @@ describe("dispatch action registry", () => {
     );
   });
 
+  it("keeps Connect URL inspection UI-only", () => {
+    expect(dispatchActions["list-connect-marketplace-apps"].agentTool).toBe(
+      false,
+    );
+    expect(dispatchActions["list-connect-marketplace-apps"].mcpTool).toBe(
+      false,
+    );
+    expect(dispatchActions["inspect-connect-agent-card"].agentTool).toBe(false);
+    expect(dispatchActions["inspect-connect-agent-card"].mcpTool).toBe(false);
+  });
+
   it("teaches MCP hosts to route through their existing Dispatch connection", () => {
     expect(dispatchActions.ask_app.tool.description).toContain(
       "do not require a separate app MCP connection",
@@ -80,6 +98,13 @@ describe("dispatch action registry", () => {
     expect(action.tool.description).toContain(
       "workspaceAppCreationsByUserMonth",
     );
-    expect(action.tool.description).toContain("app adoption metrics");
+    const firstSentence = action.tool.description.split(". ")[0];
+    expect(firstSentence).toContain("members of this organization");
+    expect(firstSentence).toContain("does NOT cover");
+    expect(firstSentence).toContain("external customers");
+    expect(firstSentence).toContain("describe-workspace-apps");
+    expect(JSON.stringify(action.tool.parameters)).toContain(
+      "Not for customers or other external accounts",
+    );
   });
 });

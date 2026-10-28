@@ -37,9 +37,7 @@ export interface MailInventoryAccountState {
   exhausted: boolean;
   pending: MailInventoryItem[];
   emittedCount: number;
-  /** Unique rows discovered so coverage remains visible before emission. */
   knownCount?: number;
-  /** Account-local thread ids already emitted by an earlier output page. */
   emittedThreadIds?: string[];
 }
 
@@ -212,7 +210,7 @@ export async function buildMailInventoryPage(
 
   const page: MailInventoryItem[] = [];
   const emittedKeys = new Set<string>();
-  let pageBytes = 2; // JSON array brackets
+  let pageBytes = 2;
   const emit = (
     account: MailInventoryAccountState,
     item: MailInventoryItem,
@@ -229,10 +227,6 @@ export async function buildMailInventoryPage(
   };
 
   while (page.length < pageLimit) {
-    // A global merge is only safe when every live account has a known
-    // frontier. Refill an emptied account before emitting an older candidate
-    // from another account; otherwise an unseen newer provider row can be
-    // skipped across the page boundary.
     await refillFrontiers();
     const candidates = state.accounts
       .filter((account) => account.pending.length > 0)
@@ -289,11 +283,6 @@ export async function createInventoryCursor(
   return id;
 }
 
-/**
- * Atomically leases a cursor without consuming it. Provider work happens only
- * after this short-lived CAS. Failures can release the lease; success settles
- * it into a distinct successor id (or deletes it at exhaustion).
- */
 export async function claimInventoryCursor(
   ownerEmail: string,
   id: string,
@@ -363,7 +352,6 @@ export async function releaseInventoryCursorClaim(
     );
 }
 
-/** Atomically consumes a leased id and optionally creates its successor. */
 export async function settleInventoryCursorClaim(
   claim: MailInventoryCursorClaim,
   state: MailInventoryCursorState,

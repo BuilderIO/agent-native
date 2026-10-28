@@ -1,9 +1,9 @@
 import { Navigate } from "react-router";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.extensions }];
+  return [{ title: enUSMessages.routeTitles.extensions }];
 }
 
 export default function ExtensionsRoute() {

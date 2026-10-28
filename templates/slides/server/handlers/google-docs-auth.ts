@@ -228,8 +228,6 @@ export const getGoogleDocsStatus = defineEventHandler(
               });
             }
           } catch (error) {
-            // Keep the status response actionable so a revoked managed token can
-            // still be repaired through the Connect Google CTA.
             googleSlidesUrlImportError = formatGoogleOAuthError(error);
           }
         }
@@ -237,11 +235,6 @@ export const getGoogleDocsStatus = defineEventHandler(
         const configured = await isGoogleDocsOAuthConfigured(owner);
         return {
           configured,
-          // Omitted rather than defaulted when it cannot be computed: this
-          // endpoint also drives Picker and import, and a verdict of
-          // "available" that nobody actually checked is the failure this gate
-          // exists to prevent. Absent means no verdict; the client keeps the
-          // export enabled and says nothing about it.
           ...(await googleSlidesExportField(
             event,
             owner,

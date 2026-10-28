@@ -1,6 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
 
+import { jwtVerify } from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { verifyA2AToken } from "../a2a/server.js";
 import { resetAppConfigForTests } from "../app-config/index.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import {
+  __resetProcessMemberOrgCacheForTests,
+  invalidateMemberOrgCaches,
+} from "./request-org-cache.js";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -22,12 +31,39 @@ vi.mock("./federation.js", () => ({
     mocks.validateFederatedOrganizationMembershipForCurrentRequest,
 }));
 
-import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
+import {
+  checkWorkspaceAppAccess,
+  isWorkspaceAppAccessAllowed,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+} from "./workspace-app-access.js";
+
+const CALLER = { email: "member@example.com", orgId: null } as const;
+
+function verifyJwtWithSecret(
+  token: string,
+  secret: string,
+): Record<string, unknown> {
+  const [header, payload, signature] = token.split(".");
+  const expected = createHmac("sha256", secret)
+    .update(`${header}.${payload}`)
+    .digest("base64url");
+  if (signature !== expected || !payload) {
+    throw new Error("JWT signature did not match the provided secret.");
+  }
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+}
 
 describe("isWorkspaceAppAccessAllowed", () => {
+  beforeEach(() => {
+    // The app row, member row, and registry answers are process-level caches;
+    // each case scripts its own database and registry, so none may carry over.
+    __resetProcessMemberOrgCacheForTests();
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     resetAppConfigForTests();
+    __resetProcessMemberOrgCacheForTests();
     vi.unstubAllGlobals();
     mocks.execute.mockReset();
     mocks.includeUser.mockReset();
@@ -165,6 +201,34 @@ describe("isWorkspaceAppAccessAllowed", () => {
         orgId: "org-1",
       }),
     ).resolves.toBe(true);
+  });
+
+  it("fails closed when an organization member role cannot be read", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "owner@example.com",
+            org_id: "org-1",
+            visibility: "org",
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("org member query unavailable"));
+
+    try {
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", {
+          email: "member@example.com",
+          orgId: "org-1",
+        }),
+      ).resolves.toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("allows a non-owner member to access a migrated ownerless legacy app", async () => {
@@ -332,6 +396,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(false);
 
     mocks.execute.mockReset();
+    // A second scripted database starts from an empty app-row cache, as a new
+    // instance would; otherwise the first case's row answers this one.
+    __resetProcessMemberOrgCacheForTests();
     mocks.execute
       .mockResolvedValueOnce({
         rows: [
@@ -357,7 +424,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
   });
 
   it("denies access when the local ACL record is missing", async () => {
-    mocks.execute.mockResolvedValueOnce({ rows: [] });
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
     await expect(
       isWorkspaceAppAccessAllowed("unregistered", {
@@ -367,22 +436,131 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(false);
   });
 
+  it("registers a configured workspace app when its organization owner opens it", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          description: "Account workspace",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+    expect(mocks.execute).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        sql: expect.stringContaining("INSERT INTO workspace_apps"),
+        args: [
+          "account-expert",
+          "Account Expert",
+          "Account workspace",
+          "/account-expert/",
+          expect.any(Number),
+          expect.any(Number),
+        ],
+      }),
+    );
+  });
+
+  it("does not register a configured workspace app for a regular member", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not register an app missing from the workspace manifest", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("unregistered", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.execute).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("INSERT INTO workspace_apps"),
+      }),
+    );
+  });
+
   it("uses the authoritative Dispatch registry when configured", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("VERCEL_URL", "dispatch.example.test");
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
+    // The second call for the same caller is answered by the registry read the
+    // first call made, so the only other request is the ownerless-app claim.
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify([{ id: "allowed-app" }, { id: "another-app" }]),
           { headers: { "content-type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ allowed: false }), {
+          headers: { "content-type": "application/json" },
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -399,7 +577,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(false);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://dispatch.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
     );
@@ -412,10 +590,10 @@ describe("isWorkspaceAppAccessAllowed", () => {
         }),
       }),
     );
-    expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       "https://dispatch.example.test/_agent-native/actions/claim-workspace-app-organization",
     );
-    expect(fetchMock.mock.calls[2]?.[1]).toEqual(
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ appId: "private-app" }),
@@ -424,12 +602,768 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
+  it("signs user registry reads with the deployment secret when an org secret exists", async () => {
+    vi.stubEnv("A2A_SECRET", "workspace-deployment-secret");
+    vi.stubEnv("APP_URL", "https://dispatch.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => ({
+      rows: sql?.includes("allowed_domain")
+        ? [{ id: "org-1", allowed_domain: "example.test" }]
+        : sql?.includes("a2a_secret")
+          ? [{ a2a_secret: "dispatch-org-secret" }]
+          : [],
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "allowed-app" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("allowed-app", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const token = authorization.slice("Bearer ".length);
+    expect(
+      mocks.execute.mock.calls.filter(([query]) =>
+        query?.sql?.includes("SELECT a2a_secret"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      verifyJwtWithSecret(token, "workspace-deployment-secret"),
+    ).toMatchObject({
+      sub: "member@example.com",
+      org_domain: "example.test",
+      aud: "https://dispatch.example.test",
+    });
+    expect(() => verifyJwtWithSecret(token, "dispatch-org-secret")).toThrow();
+    await expect(verifyA2AToken(token)).resolves.toMatchObject({
+      email: "member@example.com",
+      orgDomain: "example.test",
+      orgId: "org-1",
+    });
+  });
+
+  it("fails closed when the organization secret matches the deployment secret", async () => {
+    vi.stubEnv("A2A_SECRET", "test-shared-a2a-secret");
+    vi.stubEnv("APP_URL", "https://dispatch.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => ({
+      rows: sql?.includes("allowed_domain")
+        ? [{ id: "org-1", allowed_domain: "example.test" }]
+        : sql?.includes("a2a_secret")
+          ? [{ a2a_secret: "test-shared-a2a-secret" }]
+          : [],
+    }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await checkWorkspaceAppAccess("allowed-app", {
+      email: "member@example.com",
+      orgId: "org-1",
+    });
+
+    expect(outcome).toEqual({
+      status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+      reason: "token-signing-failed",
+      audience: "https://dispatch.example.test",
+      detail:
+        "Organization and deployment A2A secrets must differ for user identity.",
+    });
+    expect(JSON.stringify(outcome)).not.toContain("test-shared-a2a-secret");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the deployment secret when the active organization has no secret", async () => {
+    vi.stubEnv("A2A_SECRET", "workspace-deployment-secret");
+    vi.stubEnv("APP_URL", "https://dispatch.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => ({
+      rows: sql?.includes("allowed_domain")
+        ? [{ id: "org-without-secret", allowed_domain: "example.test" }]
+        : sql?.includes("a2a_secret")
+          ? [{ a2a_secret: null }]
+          : [],
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "allowed-app" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("allowed-app", {
+        email: "member@example.com",
+        orgId: "org-without-secret",
+      }),
+    ).resolves.toBe(true);
+
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const token = authorization.slice("Bearer ".length);
+    expect(
+      verifyJwtWithSecret(token, "workspace-deployment-secret"),
+    ).toMatchObject({
+      sub: "member@example.com",
+      org_domain: "example.test",
+      aud: "https://dispatch.example.test",
+    });
+    await expect(verifyA2AToken(token)).resolves.toMatchObject({
+      email: "member@example.com",
+      orgDomain: "example.test",
+      orgId: "org-without-secret",
+    });
+  });
+
+  it("uses a rotated organization secret after cache invalidation", async () => {
+    vi.stubEnv("A2A_SECRET", "workspace-deployment-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    let orgSecret = "first-org-secret";
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : query?.sql?.includes("SELECT a2a_secret")
+          ? [{ a2a_secret: orgSecret }]
+          : [],
+    }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([{ id: "allowed-app" }]), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const check = () =>
+      runWithRequestContext(
+        {
+          userEmail: "member@example.com",
+          orgId: "org-1",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          isWorkspaceAppAccessAllowed("allowed-app", {
+            email: "member@example.com",
+            orgId: "org-1",
+          }),
+      );
+
+    await expect(check()).resolves.toBe(true);
+    const firstAuthorization = fetchMock.mock.calls[0]?.[1]?.headers
+      ?.Authorization as string;
+    const firstToken = firstAuthorization.slice("Bearer ".length);
+    expect(verifyJwtWithSecret(firstToken, "first-org-secret")).toMatchObject({
+      org_domain: "example.test",
+      aud: "https://dispatch.example.test",
+    });
+
+    orgSecret = "rotated-org-secret";
+    invalidateMemberOrgCaches();
+
+    await expect(check()).resolves.toBe(true);
+    const secondAuthorization = fetchMock.mock.calls[1]?.[1]?.headers
+      ?.Authorization as string;
+    const secondToken = secondAuthorization.slice("Bearer ".length);
+    expect(
+      verifyJwtWithSecret(secondToken, "rotated-org-secret"),
+    ).toMatchObject({
+      org_domain: "example.test",
+      aud: "https://dispatch.example.test",
+    });
+    expect(() =>
+      verifyJwtWithSecret(firstToken, "rotated-org-secret"),
+    ).toThrow();
+    expect(
+      mocks.execute.mock.calls.filter(([query]) =>
+        query?.sql?.includes("SELECT a2a_secret"),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("omits the sender-local organization ID from registry auth tokens", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : query?.sql?.includes("SELECT a2a_secret")
+          ? [{ a2a_secret: "test-org-a2a-secret" }]
+          : [],
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "sender-local-org",
+      }),
+    ).resolves.toBe(true);
+
+    const authorization = (fetchMock.mock.calls[0]?.[1] as RequestInit)
+      .headers as Record<string, string>;
+    const token = authorization.Authorization.replace(/^Bearer /, "");
+    const claims = JSON.parse(
+      Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    expect(claims).toMatchObject({
+      sub: "member@example.com",
+      org_domain: "example.test",
+      aud: "https://dispatch.example.test",
+      jti: expect.any(String),
+    });
+    expect(claims).not.toHaveProperty("org_id");
+  });
+
+  it("preserves org-member assurance when signing for the hosted workspace registry", async () => {
+    vi.stubEnv("A2A_SECRET", "deployment-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://delegation-registry.example.test",
+    );
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ allowed_domain: "example.test" }] })
+      .mockResolvedValueOnce({ rows: [{ a2a_secret: "sender-org-secret" }] });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "member@example.com",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          isWorkspaceAppAccessAllowed("analytics", {
+            email: "member@example.com",
+            orgId: "delegated-org",
+          }),
+      ),
+    ).resolves.toBe(true);
+
+    const authorization = (fetchMock.mock.calls[0]?.[1] as RequestInit)
+      .headers as Record<string, string>;
+    const token = authorization.Authorization.replace(/^Bearer /, "");
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode("sender-org-secret"),
+      { audience: "https://delegation-registry.example.test" },
+    );
+    expect(payload).toMatchObject({
+      typ: "agent-native-org-member-delegation",
+      sub: "member@example.com",
+      org_domain: "example.test",
+      aud: "https://delegation-registry.example.test",
+      jti: expect.any(String),
+    });
+    await expect(
+      jwtVerify(token, new TextEncoder().encode("deployment-secret")),
+    ).rejects.toThrow();
+  });
+
+  it("does not call the registry with an unscoped token when the active org has no domain", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      checkWorkspaceAppAccess("analytics", {
+        email: "member@example.com",
+        orgId: "sender-local-org",
+      }),
+    ).resolves.toMatchObject({
+      status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+      reason: "org-domain-missing",
+      audience: "https://dispatch.example.test",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves a same-origin Dispatch registry mounted below the app path", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test/dispatch",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "account-expert" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://community.example.test/dispatch/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicit root Dispatch registry for a mounted app", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_URL", "https://community.example.test/account-expert");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "account-expert" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://community.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses the local ACL when a workspace has no Dispatch registry", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          owner_email: "owner@example.com",
+          org_id: "org-1",
+          visibility: "private",
+        },
+      ],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("uses the local ACL when a mounted app has only a generated root gateway", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test/account-expert");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          owner_email: "owner@example.com",
+          org_id: "org-1",
+          visibility: "private",
+        },
+      ],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an invalid workspace manifest instead of guessing its directory", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{ invalid json");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicit Dispatch directory when the workspace manifest is invalid", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_URL", "https://community.example.test/account-expert");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{ invalid json");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test",
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "account-expert" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://community.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects whitespace-only workspace app ids", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "   " }]),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with non-empty string ids.",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses Dispatch's mount path for a local gateway fallback", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", "");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "http://127.0.0.1:8080/dispatch/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+  });
+
+  it("shares pending registry lists across apps and rechecks after invalidation", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const pendingResponses: Array<(response: Response) => void> = [];
+    const responseFor = (apps: Array<{ id: string; orgEnabled?: boolean }>) =>
+      new Response(JSON.stringify(apps), {
+        headers: { "content-type": "application/json" },
+      });
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          pendingResponses.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const concurrent = Array.from({ length: 20 }, () =>
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    );
+    const otherApp = isWorkspaceAppAccessAllowed("content", {
+      email: "member@example.com",
+      orgId: null,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const otherUser = isWorkspaceAppAccessAllowed("analytics", {
+      email: "another@example.com",
+      orgId: null,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    pendingResponses[0]?.(
+      responseFor([{ id: "analytics" }, { id: "content", orgEnabled: false }]),
+    );
+    pendingResponses[1]?.(responseFor([{ id: "analytics" }]));
+
+    await expect(
+      Promise.all([...concurrent, otherApp, otherUser]),
+    ).resolves.toEqual([...Array(20).fill(true), false, true]);
+
+    // A settled registry answers this caller until it is invalidated.
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(responseFor([{ id: "analytics", orgEnabled: false }])),
+    );
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    invalidateMemberOrgCaches();
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("isolates pending registry lists by user, org, and signing credential", async () => {
+    vi.stubEnv("A2A_SECRET", "first-test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : [],
+    }));
+    const pendingResponses: Array<(response: Response) => void> = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          pendingResponses.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const call = (email: string, orgId: string | null) =>
+      isWorkspaceAppAccessAllowed("analytics", { email, orgId });
+
+    const primary = call("member@example.com", null);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const otherUser = call("another@example.com", null);
+    const otherOrg = call("member@example.com", "org-1");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3), {
+      timeout: 5_000,
+    });
+
+    vi.stubEnv("A2A_SECRET", "second-test-a2a-secret");
+    const otherCredential = call("member@example.com", null);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4), {
+      timeout: 5_000,
+    });
+
+    pendingResponses.forEach((resolve) =>
+      resolve(
+        new Response(JSON.stringify([{ id: "analytics" }]), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    await expect(
+      Promise.all([primary, otherUser, otherOrg, otherCredential]),
+    ).resolves.toEqual([true, true, true, true]);
+  });
+
+  it("isolates registry cache entries by identity assurance", async () => {
+    vi.stubEnv("A2A_SECRET", "deployment-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : query?.sql?.includes("SELECT a2a_secret")
+          ? [{ a2a_secret: "sender-org-secret" }]
+          : [],
+    }));
+    const pendingResponses: Array<(response: Response) => void> = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          pendingResponses.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const call = (assurance: "user" | "org-member") =>
+      runWithRequestContext(
+        {
+          userEmail: "member@example.com",
+          orgId: "org-1",
+          a2aIdentityAssurance: assurance,
+        },
+        () =>
+          isWorkspaceAppAccessAllowed("analytics", {
+            email: "member@example.com",
+            orgId: "org-1",
+          }),
+      );
+
+    const user = call("user");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const delegatedMember = call("org-member");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), {
+      timeout: 5_000,
+    });
+
+    pendingResponses.forEach((resolve) =>
+      resolve(
+        new Response(JSON.stringify([{ id: "analytics" }]), {
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    await expect(Promise.all([user, delegatedMember])).resolves.toEqual([
+      true,
+      true,
+    ]);
+    expect(fetchMock.mock.calls[0]?.[1]).not.toEqual(
+      fetchMock.mock.calls[1]?.[1],
+    );
+  });
+
+  it("returns unavailable when the hosted registry list times out", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    let resolveFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const fetchMock = vi.fn(
+      (_url: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+          resolveFetchStarted();
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    try {
+      const access = checkWorkspaceAppAccess("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      });
+      await fetchStarted;
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(access).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-timeout",
+        audience: "https://dispatch.example.test",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("asks Dispatch to claim a fresh hosted app", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : [],
+    }));
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -468,6 +1402,11 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : [],
+    }));
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([{ id: "analytics", orgEnabled: false }]), {
         headers: { "content-type": "application/json" },
@@ -501,5 +1440,307 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe("unavailable outcome names its cause", () => {
+    beforeEach(() => {
+      invalidateMemberOrgCaches();
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      invalidateMemberOrgCaches();
+    });
+
+    function stubDirectory(origin: string) {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", origin);
+    }
+
+    it("reports a missing deploy secret without calling the registry", async () => {
+      vi.stubEnv("A2A_SECRET", "");
+      vi.stubEnv(
+        "AGENT_NATIVE_ORG_DIRECTORY_URL",
+        "https://no-secret.example.test/dispatch",
+      );
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "a2a-secret-missing",
+        audience: "https://no-secret.example.test/dispatch",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("does not use an organization secret as a user identity when the deploy secret is missing", async () => {
+      vi.stubEnv("A2A_SECRET", "");
+      vi.stubEnv(
+        "AGENT_NATIVE_ORG_DIRECTORY_URL",
+        "https://org-secret-only.example.test/dispatch",
+      );
+      mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => ({
+        rows: sql?.includes("allowed_domain")
+          ? [{ allowed_domain: "example.test" }]
+          : sql?.includes("a2a_secret")
+            ? [{ a2a_secret: "org-only-secret" }]
+            : [],
+      }));
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", {
+          email: "member@example.com",
+          orgId: "org-secret-only",
+        }),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "a2a-secret-missing",
+        audience: "https://org-secret-only.example.test/dispatch",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        mocks.execute.mock.calls.some(([query]) =>
+          query?.sql?.includes("a2a_secret"),
+        ),
+      ).toBe(false);
+    });
+
+    it("reports an organization domain lookup failure without calling the registry", async () => {
+      stubDirectory("https://domain-lookup.example.test/dispatch");
+      mocks.execute.mockRejectedValue(
+        new Error("organization store unavailable"),
+      );
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", {
+          email: "member@example.com",
+          orgId: "org-domain-lookup-failure",
+        }),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "org-domain-lookup-failed",
+        audience: "https://domain-lookup.example.test/dispatch",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it.each(["user", "org-member"] as const)(
+      "reports an organization secret lookup failure for %s identity without calling the registry",
+      async (identity) => {
+        stubDirectory("https://secret-lookup.example.test/dispatch");
+        mocks.execute.mockImplementation(async ({ sql }: { sql?: string }) => {
+          if (sql?.includes("SELECT allowed_domain")) {
+            return { rows: [{ allowed_domain: "example.test" }] };
+          }
+          if (sql?.includes("SELECT a2a_secret")) {
+            throw new Error("org secret store unavailable");
+          }
+          throw new Error(`Unexpected org query: ${sql}`);
+        });
+        const fetchMock = vi.fn();
+        vi.stubGlobal("fetch", fetchMock);
+
+        const check = () =>
+          checkWorkspaceAppAccess("analytics", {
+            email: "member@example.com",
+            orgId: "org-secret-lookup-failure",
+          });
+        const outcome =
+          identity === "org-member"
+            ? runWithRequestContext(
+                {
+                  userEmail: "member@example.com",
+                  orgId: "org-secret-lookup-failure",
+                  a2aIdentityAssurance: "org-member",
+                },
+                check,
+              )
+            : check();
+
+        await expect(outcome).resolves.toEqual({
+          status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+          reason: "org-a2a-secret-lookup-failed",
+          audience: "https://secret-lookup.example.test/dispatch",
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it("reports the registry status, audience, and refusal text when Dispatch refuses the token", async () => {
+      stubDirectory("https://refused.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-http-error",
+        upstreamStatus: 401,
+        audience: "https://refused.example.test/dispatch",
+        detail: "Unauthorized",
+      });
+    });
+
+    it("keeps the status when the registry error body is not JSON", async () => {
+      stubDirectory("https://html-error.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response("<html>Bad gateway</html>", {
+            status: 502,
+            headers: { "content-type": "text/html" },
+          }),
+        ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-http-error",
+        upstreamStatus: 502,
+        audience: "https://html-error.example.test/dispatch",
+      });
+    });
+
+    it("reports a registry reply that is not a list of apps", async () => {
+      stubDirectory("https://malformed.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ apps: "none" }), {
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-malformed-response",
+        upstreamStatus: 200,
+      });
+    });
+
+    it("names the error class and code of a network failure without echoing its message", async () => {
+      stubDirectory("https://unreachable.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(
+          Object.assign(new TypeError("fetch failed: db.internal:5432"), {
+            cause: { code: "ECONNREFUSED" },
+          }),
+        ),
+      );
+
+      const outcome = await checkWorkspaceAppAccess("analytics", CALLER);
+
+      expect(outcome).toEqual({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "registry-fetch-failed",
+        audience: "https://unreachable.example.test/dispatch",
+        detail: "TypeError:ECONNREFUSED",
+      });
+      expect(JSON.stringify(outcome)).not.toContain("db.internal");
+    });
+
+    it("reports a refused claim with the claim status", async () => {
+      stubDirectory("https://claim.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify([{ id: "other-app" }]), {
+              headers: { "content-type": "application/json" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response(JSON.stringify({ error: "Unauthorized" }), {
+              status: 401,
+              headers: { "content-type": "application/json" },
+            }),
+          ),
+      );
+
+      await expect(
+        checkWorkspaceAppAccess("analytics", CALLER),
+      ).resolves.toMatchObject({
+        status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
+        reason: "claim-http-error",
+        upstreamStatus: 401,
+        detail: "Unauthorized",
+      });
+    });
+
+    it("keeps the legacy contract: isWorkspaceAppAccessAllowed still answers with the bare sentinel", async () => {
+      stubDirectory("https://legacy.example.test/dispatch");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", CALLER),
+      ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+    });
+
+    it("logs one cause once per instance even when the upstream detail changes every request", async () => {
+      stubDirectory("https://repeat.example.test/dispatch");
+      let requestNumber = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(
+          async () =>
+            new Response(
+              JSON.stringify({ error: `Unauthorized req-${++requestNumber}` }),
+              {
+                status: 401,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+        ),
+      );
+
+      await checkWorkspaceAppAccess("analytics", CALLER);
+      await checkWorkspaceAppAccess("analytics", CALLER);
+      await checkWorkspaceAppAccess("analytics", CALLER);
+
+      const reports = vi
+        .mocked(console.error)
+        .mock.calls.filter(
+          ([message, detail]) =>
+            message === "[workspace-app-access] unavailable" &&
+            (detail as { audience?: string }).audience ===
+              "https://repeat.example.test/dispatch",
+        );
+      expect(reports).toHaveLength(1);
+      expect(reports[0]?.[1]).toMatchObject({
+        reason: "registry-http-error",
+        upstreamStatus: 401,
+      });
+    });
   });
 });

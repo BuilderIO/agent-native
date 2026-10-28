@@ -54,10 +54,10 @@ describe("Realtime voice localization", () => {
   it("uses app overrides from the modern agentChat namespace", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
-    let entryButtonLabel = "";
+    let startVoiceModeLabel = "";
 
     function Consumer() {
-      entryButtonLabel = useRealtimeVoiceModeCopy().entryButtonLabel;
+      startVoiceModeLabel = useRealtimeVoiceModeCopy().startVoiceMode;
       return null;
     }
 
@@ -66,7 +66,7 @@ describe("Realtime voice localization", () => {
         createElement(ComposerRuntimeAdaptersProvider, {
           adapters: {
             translate: (key, options) =>
-              key === "agentChat.voiceMode.entryButtonLabel"
+              key === "agentChat.voiceMode.start"
                 ? "Modern voice override"
                 : String(options?.defaultValue ?? key),
           },
@@ -75,7 +75,7 @@ describe("Realtime voice localization", () => {
       );
     });
 
-    expect(entryButtonLabel).toBe("Modern voice override");
+    expect(startVoiceModeLabel).toBe("Modern voice override");
     act(() => root.unmount());
   });
 });
@@ -88,14 +88,24 @@ describe("Realtime voice client transport", () => {
         intelligence: "deep",
         voice: "cedar",
       }),
-    ).toEqual({ language: "en", intelligence: "deep", voice: "cedar" });
+    ).toEqual({
+      language: "en",
+      intelligence: "deep",
+      voice: "cedar",
+      intelligenceChosen: true,
+    });
     expect(
       normalizeRealtimeVoicePreferences({
         language: "xx",
         intelligence: "maximum",
         voice: "unknown",
       }),
-    ).toEqual({ language: "auto", intelligence: "instant", voice: "marin" });
+    ).toEqual({
+      language: "auto",
+      intelligence: "instant",
+      voice: "marin",
+      intelligenceChosen: false,
+    });
     expect(resolveRealtimeVoiceLanguage("auto", ["en-US", "fr"])).toBe("en");
     expect(resolveRealtimeVoiceLanguage("auto", ["nl-NL"])).toBe("en");
   });
@@ -137,7 +147,57 @@ describe("Realtime voice client transport", () => {
       type: "session.update",
       session: {
         delegation: {
-          responses: { reasoning: { effort: "medium" } },
+          type: "responses",
+          responses: { reasoning: { effort: "high" } },
+        },
+      },
+    });
+  });
+
+  it("gives each intelligence level its own GPT-Live reasoning effort", () => {
+    expect(realtimeVoiceReasoningEffort("instant", "live")).toBe("low");
+    expect(realtimeVoiceReasoningEffort("balanced", "live")).toBe("medium");
+    expect(realtimeVoiceReasoningEffort("deep", "live")).toBe("high");
+  });
+
+  it("treats an old save's default level as not picked, and keeps a new pick and the app's default", () => {
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "en",
+        intelligence: "instant",
+        voice: "cedar",
+      }).intelligenceChosen,
+    ).toBe(false);
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "en",
+        intelligence: "instant",
+        voice: "cedar",
+        intelligenceChosen: true,
+      }),
+    ).toMatchObject({ intelligence: "instant", intelligenceChosen: true });
+    expect(
+      normalizeRealtimeVoicePreferences({
+        language: "en",
+        intelligence: "balanced",
+        voice: "cedar",
+        intelligenceChosen: false,
+      }),
+    ).toMatchObject({ intelligence: "balanced", intelligenceChosen: false });
+  });
+
+  it("maps instant intelligence to a supported GPT-Live reasoning effort", () => {
+    expect(
+      createRealtimeVoicePreferenceUpdate(
+        { language: "auto", intelligence: "instant", voice: "cedar" },
+        { protocol: "live" },
+      ),
+    ).toEqual({
+      type: "session.update",
+      session: {
+        delegation: {
+          type: "responses",
+          responses: { reasoning: { effort: "low" } },
         },
       },
     });
@@ -325,6 +385,7 @@ describe("Realtime voice client transport", () => {
           language: "auto",
           intelligence: "instant",
           voice: "marin",
+          intelligenceChosen: true,
         },
         browserLanguages: ["en-US"],
       }),
@@ -355,6 +416,61 @@ describe("Realtime voice client transport", () => {
     expect(JSON.stringify(fetchMock.mock.calls)).not.toContain(
       "OPENAI_API_KEY",
     );
+  });
+
+  it("lets the app default apply until the user picks a level", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("answer-sdp", {
+          status: 200,
+          headers: {
+            "X-Agent-Native-Realtime-Protocol": "live",
+            "X-Agent-Native-Realtime-Intelligence": "balanced",
+            "X-Agent-Native-Realtime-Priority-Tools":
+              "edit-design, bad name,update-slide",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createRealtimeVoiceSessionWithCapability("offer-sdp", {
+        preferences: {
+          language: "en",
+          intelligence: "instant",
+          voice: "marin",
+          intelligenceChosen: false,
+        },
+      }),
+    ).resolves.toEqual({
+      sdp: "answer-sdp",
+      protocol: "live",
+      intelligence: "balanced",
+      priorityToolNames: ["edit-design", "update-slide"],
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(init.headers).not.toHaveProperty(
+      "X-Agent-Native-Realtime-Intelligence",
+    );
+  });
+
+  it("sends the level of preferences that do not say whether it was chosen", async () => {
+    const fetchMock = vi.fn(async () => new Response("answer-sdp"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createRealtimeVoiceSessionWithCapability("offer-sdp", {
+      preferences: { language: "en", intelligence: "deep", voice: "marin" },
+    });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(init.headers).toMatchObject({
+      "X-Agent-Native-Realtime-Intelligence": "deep",
+    });
   });
 
   it("sends function calls to the authenticated Agent-Native tool bridge", async () => {
@@ -457,6 +573,66 @@ describe("Realtime voice dynamic tool manifests", () => {
     expect(names).toContain("open-dashboard");
     expect(names).toContain("list-dashboards");
     expect(names).not.toContain("old-26");
+  });
+
+  it("keeps the app's edit tools when a discovery fills the manifest", () => {
+    const current = [
+      ...Array.from({ length: 31 }, (_, index) => realtimeTool(`old-${index}`)),
+      realtimeTool("edit-design"),
+    ];
+    const discoveries = Array.from({ length: 8 }, (_, index) =>
+      realtimeTool(`found-${index}`),
+    );
+
+    expect(
+      mergeRealtimeVoiceToolManifest(current, discoveries).map(
+        (tool) => tool.name,
+      ),
+    ).not.toContain("edit-design");
+    const merged = mergeRealtimeVoiceToolManifest(
+      current,
+      discoveries,
+      "live",
+      ["edit-design"],
+    ).map((tool) => tool.name);
+    expect(merged[0]).toBe("edit-design");
+    expect(merged).toContain("found-7");
+  });
+
+  it("keeps the session's app edit tools through a coordinator expansion", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceToolManifestCoordinator((event) =>
+      sent.push(event),
+    );
+    coordinator.setProtocol("live");
+    coordinator.setPriorityToolNames(["update-slide"]);
+    coordinator.setSessionTools([
+      ...Array.from({ length: 31 }, (_, index) => realtimeTool(`old-${index}`)),
+      realtimeTool("update-slide"),
+    ]);
+    coordinator.enqueue({
+      callId: "call-search",
+      status: "completed",
+      output: "{}",
+      expandedTools: [realtimeTool("web-search")],
+    });
+
+    const update = sent[0] as {
+      session: { delegation: { responses: { tools: { name: string }[] } } };
+    };
+    const names = update.session.delegation.responses.tools.map(
+      (tool) => tool.name,
+    );
+    expect(names.slice(0, 2)).toEqual(["web-search", "update-slide"]);
+    expect(names).toHaveLength(32);
+    // A strict schema would make the delegated model fill every optional field.
+    expect(
+      new Set(
+        update.session.delegation.responses.tools.map(
+          (tool) => (tool as { strict?: unknown }).strict,
+        ),
+      ),
+    ).toEqual(new Set([false]));
   });
 
   it("packs dynamic schemas within the realtime session byte budget", () => {
@@ -1137,56 +1313,38 @@ describe("Realtime voice startup and transcript ordering", () => {
     ]);
   });
 
-  it("keeps overlapping GPT-Live transcript roles independent", () => {
+  // GPT-Live transcript deltas carry an id and their place on the session
+  // timeline; the SDK's grouper turns them into speaker turns.
+  let liveEventId = 0;
+  const liveDelta = (
+    role: "user" | "assistant",
+    delta: string,
+    start_ms: number,
+    end_ms: number,
+  ) => ({
+    type:
+      role === "user"
+        ? "session.input_transcript.delta"
+        : "session.output_transcript.delta",
+    event_id: `live-event-${++liveEventId}`,
+    delta,
+    start_ms,
+    end_ms,
+  });
+
+  it("orders GPT-Live turns by speaker", () => {
     const published: Array<{ role: string; text: string }> = [];
     const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
       published.push(transcript);
     });
 
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "Can you help ",
-      start_ms: 0,
-      end_ms: 400,
-    });
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "me?",
-      start_ms: 400,
-      end_ms: 500,
-    });
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Absolutely.",
-      start_ms: 300,
-      end_ms: 900,
-    });
-    expect(published).toEqual([]);
-
-    sequencer.handle({
-      type: "response.event",
-      event: { type: "response.completed" },
-    });
-    expect(published).toEqual([]);
-
-    sequencer.handle({
-      type: "session.input_transcript.delta",
-      delta: "Next question.",
-      start_ms: 2_000,
-      end_ms: 2_200,
-    });
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Next answer.",
-      start_ms: 2_300,
-      end_ms: 2_500,
-    });
-    expect(published).toEqual([
-      { role: "user", text: "Can you help me?" },
-      { role: "assistant", text: "Absolutely." },
-    ]);
-
+    sequencer.handle(liveDelta("user", "Can you help ", 0, 400));
+    sequencer.handle(liveDelta("user", "me?", 400, 500));
+    sequencer.handle(liveDelta("assistant", "Absolutely.", 1_100, 1_900));
+    sequencer.handle(liveDelta("user", "Next question.", 3_000, 3_400));
+    sequencer.handle(liveDelta("assistant", "Next answer.", 4_000, 4_500));
     sequencer.handle({ type: "session.closed" });
+
     expect(published).toEqual([
       { role: "user", text: "Can you help me?" },
       { role: "assistant", text: "Absolutely." },
@@ -1195,20 +1353,190 @@ describe("Realtime voice startup and transcript ordering", () => {
     ]);
   });
 
-  it("discards unconfirmed GPT-Live transcript buffers on reset", () => {
+  it("keeps a GPT-Live reply spoken with pauses as one message", () => {
     const published: Array<{ role: string; text: string }> = [];
     const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
       published.push(transcript);
     });
 
-    sequencer.handle({
-      type: "session.output_transcript.delta",
-      delta: "Possibly incomplete.",
+    sequencer.handle(
+      liveDelta("assistant", "I found a solid overview. ", 0, 1_000),
+    );
+    sequencer.handle(
+      liveDelta(
+        "assistant",
+        "They explain the meaning of life, ",
+        2_000,
+        3_000,
+      ),
+    );
+    sequencer.handle(
+      liveDelta("assistant", "and meaning in life.", 4_500, 5_500),
+    );
+    sequencer.handle({ type: "session.closed" });
+
+    expect(published).toEqual([
+      {
+        role: "assistant",
+        text: "I found a solid overview. They explain the meaning of life, and meaning in life.",
+      },
+    ]);
+  });
+
+  it("starts a new GPT-Live message after the assistant goes quiet", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
     });
+
+    sequencer.handle(liveDelta("assistant", "On it, looking it ", 0, 400));
+    sequencer.handle(liveDelta("assistant", "up.", 400, 600));
+    // A tool runs in the silence before the answer.
+    sequencer.handle(
+      liveDelta("assistant", "Here is what I found.", 6_000, 7_000),
+    );
+    sequencer.handle({ type: "session.closed" });
+
+    expect(published).toEqual([
+      { role: "assistant", text: "On it, looking it up." },
+      { role: "assistant", text: "Here is what I found." },
+    ]);
+  });
+
+  it("discards unconfirmed GPT-Live transcripts on reset", () => {
+    const published: Array<{ role: string; text: string }> = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer((transcript) => {
+      published.push(transcript);
+    });
+
+    sequencer.handle(liveDelta("assistant", "Possibly incomplete.", 0, 500));
     sequencer.reset();
     sequencer.flush();
 
     expect(published).toEqual([]);
+  });
+
+  it("rejects a GPT-Live transcript delta without its timing", () => {
+    const sequencer = createRealtimeVoiceTranscriptSequencer(() => undefined);
+
+    expect(() =>
+      sequencer.handle({
+        type: "session.output_transcript.delta",
+        event_id: "untimed",
+        delta: "Hello",
+      }),
+    ).toThrow(/timing/);
+  });
+});
+
+describe("Realtime voice transcript streaming", () => {
+  type Update = { role: string; text: string; providerId?: string };
+  function streamingSequencer() {
+    const streamed: Update[] = [];
+    const published: Update[] = [];
+    const sequencer = createRealtimeVoiceTranscriptSequencer(
+      (transcript) => published.push(transcript),
+      (transcript) => streamed.push(transcript),
+    );
+    return { sequencer, streamed, published };
+  }
+
+  it("streams each turn under the id its final transcript keeps", () => {
+    const { sequencer, streamed, published } = streamingSequencer();
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "user-1",
+      delta: "Make the ",
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "user-1",
+      delta: "header blue",
+    });
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "user-1",
+      transcript: "Make the header blue.",
+    });
+
+    expect(streamed).toEqual([
+      { role: "user", text: "Make the", providerId: "user-1" },
+      { role: "user", text: "Make the header blue", providerId: "user-1" },
+    ]);
+    expect(published).toEqual([
+      { role: "user", text: "Make the header blue.", providerId: "user-1" },
+    ]);
+  });
+
+  it("holds a reply until the question it answers has appeared", () => {
+    const { sequencer, streamed } = streamingSequencer();
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "user-1", type: "message", role: "user" },
+    });
+    sequencer.handle({
+      type: "conversation.item.added",
+      item: { id: "assistant-1", type: "message", role: "assistant" },
+    });
+    sequencer.handle({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant-1",
+      delta: "Sure.",
+    });
+    expect(streamed).toEqual([]);
+
+    sequencer.handle({
+      type: "conversation.item.input_audio_transcription.delta",
+      item_id: "user-1",
+      delta: "Can you help?",
+    });
+    expect(streamed.map(({ role }) => role)).toEqual(["user", "assistant"]);
+  });
+
+  it("finalizes a streamed turn that never completed when the session flushes", () => {
+    const { sequencer, published } = streamingSequencer();
+    sequencer.handle({
+      type: "response.output_audio_transcript.delta",
+      item_id: "assistant-1",
+      delta: "Cut off mid",
+    });
+    sequencer.flush();
+
+    expect(published).toEqual([
+      { role: "assistant", text: "Cut off mid", providerId: "assistant-1" },
+    ]);
+  });
+
+  it("streams GPT-Live turns under the id their final transcript keeps", () => {
+    const { sequencer, streamed, published } = streamingSequencer();
+    for (const [index, [delta, start_ms, end_ms]] of (
+      [
+        ["Hello ", 0, 200],
+        ["there", 200, 400],
+      ] as const
+    ).entries()) {
+      sequencer.handle({
+        type: "session.input_transcript.delta",
+        event_id: `stream-${index}`,
+        delta,
+        start_ms,
+        end_ms,
+      });
+    }
+    sequencer.handle({ type: "session.closed" });
+
+    const [id] = published.map(({ providerId }) => providerId);
+    expect(streamed).toEqual([
+      { role: "user", text: "Hello", providerId: id },
+      { role: "user", text: "Hello there", providerId: id },
+    ]);
+    expect(published).toEqual([
+      { role: "user", text: "Hello there", providerId: id },
+    ]);
   });
 });
 

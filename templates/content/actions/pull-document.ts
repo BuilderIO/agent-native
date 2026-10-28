@@ -7,36 +7,6 @@ import "../server/db/index.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
-/**
- * Collab-aware "ingest the final" read for external agents.
- *
- * The `documents.content` column can lag behind a live Yjs collab session: the
- * editor holds the authoritative Y.XmlFragment in memory and only debounces it
- * back to SQL via `update-document`. To hand an external agent the document the
- * user actually sees, we ask the OPEN editor to flush instead of duplicating a
- * ProseMirror -> markdown serializer server-side:
- *
- *   1. If a collab session exists for this doc, write a one-shot
- *      `flush-request-<id>` app-state key under the DOCUMENT OWNER's session
- *      (and, for back-compat, the caller's own session). The open editor polls
- *      `/_agent-native/application-state/flush-request-<id>`, which the
- *      framework scopes to the *logged-in browser user* — i.e. the human with
- *      the editor open, which is the document owner. Scoping the write to the
- *      external agent caller's session (the old behavior) meant the editor
- *      never saw the key, so every external `pull-document` waited the full
- *      timeout and returned stale DB content.
- *   2. The editor polls that key, serializes its current Y.Doc to markdown
- *      through its existing serializer, calls `update-document`, then writes an
- *      explicit success/error acknowledgement for that request id.
- *   3. We poll every active collaborator session for the acknowledgement, fail
- *      closed on editor errors/timeouts, and then read the now-fresh row.
- *
- * When there is no live collab session the DB column is authoritative and we
- * skip the handshake entirely. The helper bounds the wait so stale collab
- * presence with no tab actually open can never hang the request longer than a
- * few seconds.
- */
-
 function formatDocumentContent(markdown: string, format: "markdown" | "text") {
   return format === "text"
     ? markdown
@@ -60,7 +30,16 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  // Saving an open editor first writes, so external agents get a write: a
+  // read-only MCP token cannot call it, and A2A does not offer it as a direct
+  // read. It only persists edits the editor already holds.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  mcpTool: true,
+  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async ({ id, format }) => {
     const access = await resolveAccess("document", id);
     if (
@@ -71,15 +50,11 @@ export default defineAction({
       throw new Error(`Document "${id}" not found`);
     }
 
-    // If a live Yjs collab session is open, the in-memory editor doc is fresher
-    // than the SQL column. Ask the open editor to serialize + save, then wait
-    // for its explicit request-id-matched acknowledgement.
-    await flushOpenDocumentEditorToSql({
+    const editorFlush = await flushOpenDocumentEditorToSql({
       documentId: id,
       ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
     });
 
-    // Re-resolve so we read the now-fresh row (and re-check access).
     const fresh = await resolveAccess("document", id);
     if (
       !fresh ||
@@ -88,7 +63,9 @@ export default defineAction({
     ) {
       throw new Error(`Document "${id}" not found`);
     }
-    const doc = fresh.resource;
+    const snapshot =
+      editorFlush.status === "flushed" ? editorFlush.snapshot : undefined;
+    const doc = snapshot ? { ...fresh.resource, ...snapshot } : fresh.resource;
     const markdown = (doc.content as string) ?? "";
     const content = formatDocumentContent(markdown, format);
 
@@ -98,6 +75,10 @@ export default defineAction({
       description: (doc.description as string | null | undefined) ?? "",
       content,
       format,
+      editorFlush:
+        editorFlush.status === "flushed"
+          ? { status: editorFlush.status, editors: editorFlush.editors }
+          : editorFlush,
       deepLink: buildDeepLink({
         app: "content",
         view: "editor",

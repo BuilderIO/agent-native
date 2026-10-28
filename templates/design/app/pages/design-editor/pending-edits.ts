@@ -1,8 +1,10 @@
+import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
 import { removeBreakpointMediaDeclaration } from "@shared/breakpoint-media";
 import {
   applyOrdinaryVisualStyleBatch,
   applyVisualEdit,
   type ApplyVisualEditResult,
+  buildCodeLayerProjection,
   type CodeLayerSource,
   type VisualStyleBatchResult,
 } from "@shared/code-layer";
@@ -23,7 +25,9 @@ import {
   normalizeDesignSourceType,
   type DesignSourceType,
 } from "@shared/source-mode";
+import { isVectorEndpointProperty } from "@shared/vector-endpoints";
 
+import type { RelativeStyleOperation } from "@/components/design/edit-panel/style-change-types";
 import type { ElementInfo } from "@/components/design/types";
 
 import {
@@ -42,6 +46,44 @@ export interface RuntimeStructureNodeSignature {
   component?: string;
 }
 
+export type PendingRelativeStyleOperation = RelativeStyleOperation;
+
+export function relativeOperationsForStyles(
+  styles: Record<string, string>,
+  metadata: {
+    relativeDelta?: number;
+    relativeExpression?: ScrubRelativeExpression;
+    relativeDeltaProperties?: string[];
+  } = {},
+): Record<string, PendingRelativeStyleOperation> | undefined {
+  const requestedProperties =
+    metadata.relativeDeltaProperties ??
+    (Object.keys(styles).length === 1 ? [Object.keys(styles)[0]!] : []);
+  const properties = requestedProperties.filter((property) =>
+    Object.prototype.hasOwnProperty.call(styles, property),
+  );
+  if (properties.length === 0) return undefined;
+  const expression = metadata.relativeExpression;
+  if (expression) {
+    return Object.fromEntries(
+      properties.map((property) => [
+        property,
+        { kind: "expression" as const, ...expression },
+      ]),
+    );
+  }
+  const delta = metadata.relativeDelta;
+  if (typeof delta === "number") {
+    return Object.fromEntries(
+      properties.map((property) => [
+        property,
+        { kind: "delta" as const, delta },
+      ]),
+    );
+  }
+  return undefined;
+}
+
 export function normalizeRuntimeStructureClasses(
   values: readonly string[],
 ): string[] {
@@ -53,8 +95,6 @@ export function normalizeRuntimeStructureClasses(
 export function normalizeRuntimeStructureText(
   value: string | null | undefined,
 ): string {
-  // The code-layer projection collapses text before it reaches this matcher;
-  // keep this cap below that projection's 157-character snippet ceiling.
   return value?.replace(/\s+/g, " ").trim().slice(0, 120) ?? "";
 }
 
@@ -78,44 +118,20 @@ export function runtimeStructureNodeSignature(args: {
 
 export interface PendingVisualStyleEdit {
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
   sourceId?: string | null;
-  /**
-   * The selector/node id the canvas bridge reported, kept when the host
-   * canonicalized the selection onto its source projection
-   * (canonicalElementInfoForCodeLayerNode). A localhost screen runs two
-   * disjoint node-id namespaces: the injected bridge stamps `runtime-…` ids on
-   * the live document, while the host stamps `an-…` ids on the source html it
-   * fetched separately. Only this pair addresses the running app, so every
-   * replay into the live frame must prefer it. Absent for inline/snapshot
-   * screens, where the bridge reuses the ids already in the document and the
-   * two pairs are the same value.
-   */
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
   sourceAnchor?: ReactSourceAnchor;
   tagName?: string | null;
   classes: string[];
   styles: Record<string, string>;
-  /**
-   * Element pseudo-class being authored. Omitted for ordinary/base styles.
-   * Localhost screens cannot persist the editor's managed HTML block because
-   * their DesignFile content is the route URL, so interaction-state edits use
-   * the same guarded coding-agent handoff as other live visual edits while the
-   * iframe bridge keeps a temporary state-scoped preview.
-   */
+  relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   interactionState?: InteractionState;
-  /** Base computed values used only to restore inspector fields after the
-   * first pending state override is undone. Runtime preview cleanup still
-   * uses `originalStyles` (empty values remove the temporary CSSOM rule). */
   baseStyles?: Record<string, string>;
-  /**
-   * Inline style values to replay when the user discards the live preview.
-   * Missing authored inline values are stored as "" so the bridge removes the
-   * temporary inline style and lets the app's real CSS win again.
-   */
   originalStyles: Record<string, string>;
   updatedAt: number;
   /**
@@ -132,8 +148,18 @@ export interface PendingVisualStyleEdit {
   };
 }
 
+let lastPendingLiveEditTimestamp = 0;
+
+export function nextPendingLiveEditTimestamp(now = Date.now()): number {
+  lastPendingLiveEditTimestamp = Math.max(
+    lastPendingLiveEditTimestamp + 1,
+    now,
+  );
+  return lastPendingLiveEditTimestamp;
+}
+
 function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
-  return `${edit.screenId}:${edit.sourceId?.trim() || edit.selector.trim()}`;
+  return `${edit.screenId}:${edit.routePath ?? ""}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
 
 export function mergePendingLiveNonStyleEdits(
@@ -142,11 +168,6 @@ export function mergePendingLiveNonStyleEdits(
   const merged: PendingLiveNonStyleEdit[] = [];
   for (const edit of edits) {
     if (edit.kind === "structure") {
-      // Deleting a node this session INSERTED nets to zero in source: the
-      // markup was never written there. Queuing both would hand the coding
-      // agent markup to add plus a node to delete, and an apply that runs the
-      // insert can resurrect exactly what the user deleted. Both entries stay
-      // on the undo stack, so undoing the delete re-queues the insertion.
       const supersededInsertIndex = edit.removed
         ? merged.findIndex(
             (candidate) =>
@@ -159,6 +180,24 @@ export function mergePendingLiveNonStyleEdits(
       if (supersededInsertIndex !== -1) {
         merged.splice(supersededInsertIndex, 1);
         continue;
+      }
+      if (edit.transactionId) {
+        const transactionIndex = merged.findIndex(
+          (candidate) =>
+            candidate.kind === "structure" &&
+            candidate.transactionId === edit.transactionId,
+        );
+        if (transactionIndex !== -1) {
+          const previous = merged[transactionIndex] as PendingLiveStructureEdit;
+          merged[transactionIndex] = {
+            ...edit,
+            groupedEdits: [
+              ...(previous.groupedEdits ?? [previous]),
+              ...(edit.groupedEdits ?? [edit]),
+            ],
+          };
+          continue;
+        }
       }
       merged.push(edit);
       continue;
@@ -187,6 +226,29 @@ export function mergePendingLiveNonStyleEdits(
       };
       continue;
     }
+    if (edit.kind === "layer-name") {
+      const index = merged.findIndex(
+        (candidate) =>
+          candidate.kind === "layer-name" &&
+          pendingLiveEditSubjectKey(candidate) ===
+            pendingLiveEditSubjectKey(edit),
+      );
+      if (index === -1) {
+        merged.push(edit);
+        continue;
+      }
+      const previous = merged[index] as PendingLiveLayerNameEdit;
+      if (previous.originalName === edit.name) {
+        merged.splice(index, 1);
+        continue;
+      }
+      merged[index] = {
+        ...previous,
+        ...edit,
+        originalName: previous.originalName,
+      };
+      continue;
+    }
     const nextKey = pendingLiveEditSubjectKey(edit);
     const index = merged.findIndex(
       (candidate) =>
@@ -198,11 +260,20 @@ export function mergePendingLiveNonStyleEdits(
       continue;
     }
     const previous = merged[index] as PendingLiveTextEdit;
+    const relativeOperations = {
+      ...previous.relativeOperations,
+      ...edit.relativeOperations,
+    };
     merged[index] = {
       ...previous,
       ...edit,
+      ...(Object.keys(relativeOperations).length > 0
+        ? { relativeOperations }
+        : {}),
       originalValue: previous.originalValue,
-      originalHtml: previous.originalHtml,
+      ...(previous.originalHtml !== undefined
+        ? { originalHtml: previous.originalHtml }
+        : {}),
     };
   }
   return merged;
@@ -232,6 +303,7 @@ export function pendingLiveTextUndoRevertValue(
 export interface PendingLiveTextEdit {
   kind: "text";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -241,6 +313,7 @@ export interface PendingLiveTextEdit {
   classes: string[];
   value: string;
   html?: string;
+  relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   originalValue: string;
   originalHtml?: string;
   updatedAt: number;
@@ -249,6 +322,7 @@ export interface PendingLiveTextEdit {
 export interface PendingLiveLayerStateEdit {
   kind: "layer-state";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   layerId: string;
@@ -260,6 +334,23 @@ export interface PendingLiveLayerStateEdit {
   state: "hidden" | "locked";
   enabled: boolean;
   originalEnabled: boolean;
+  updatedAt: number;
+}
+
+export interface PendingLiveLayerNameEdit {
+  kind: "layer-name";
+  screenId: string;
+  routePath?: string;
+  filename: string;
+  screenName: string;
+  layerId: string;
+  selector: string;
+  sourceId?: string | null;
+  sourceAnchor?: ReactSourceAnchor;
+  tagName?: string | null;
+  classes: string[];
+  name: string;
+  originalName: string;
   updatedAt: number;
 }
 
@@ -276,6 +367,18 @@ export function pendingLiveLayerStateUndoRevertValue(
   return currentForTarget?.enabled ?? nextEdit.originalEnabled;
 }
 
+export function pendingLiveLayerNameUndoRevertValue(
+  currentEdits: readonly PendingLiveNonStyleEdit[],
+  nextEdit: PendingLiveLayerNameEdit,
+): string {
+  const currentForTarget = currentEdits.find(
+    (edit): edit is PendingLiveLayerNameEdit =>
+      edit.kind === "layer-name" &&
+      pendingLiveEditSubjectKey(edit) === pendingLiveEditSubjectKey(nextEdit),
+  );
+  return currentForTarget?.name ?? nextEdit.originalName;
+}
+
 export function shouldRedoPendingLiveNonStyleBeforeStyle(
   styleEntry: { edit: { updatedAt: number } } | undefined,
   nonStyleEntry: { edit: { updatedAt: number } } | undefined,
@@ -289,6 +392,7 @@ export function shouldRedoPendingLiveNonStyleBeforeStyle(
 export interface PendingLiveStructureEdit {
   kind: "structure";
   screenId: string;
+  routePath?: string;
   filename: string;
   screenName: string;
   selector: string;
@@ -299,54 +403,42 @@ export interface PendingLiveStructureEdit {
   anchorSourceId?: string | null;
   anchorSourceAnchor?: ReactSourceAnchor;
   anchorSignature?: RuntimeStructureNodeSignature;
-  /**
-   * Project-relative route module reported by the localhost manifest. A
-   * top-level canvas insert targets the live document body, which intentionally
-   * has no framework element provenance; this keeps Apply bounded to the route
-   * source without inventing a fake body line/column.
-   */
   routeSourceFile?: string;
   placement: "before" | "after" | "inside";
-  /** Runtime layout semantics captured at drop time. These are required for
-   * the coding agent to distinguish a flow/auto-layout insertion from an
-   * absolute child whose visual offset must be rebased into its new parent. */
   dropMode?: "flow-insert" | "absolute-container";
   forceFlowPositionOverride?: boolean;
   sourceRect?: { x: number; y: number; width: number; height: number };
   anchorRect?: { x: number; y: number; width: number; height: number };
-  /**
-   * Markup this edit ADDED to the running app. Present only for a drop whose
-   * subject had no counterpart in the screen's source, so the coding agent
-   * must insert this markup rather than relocate an existing element.
-   */
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
   insertedHtml?: string;
-  /** The inserted markup replaced `selector` instead of landing beside it. */
+  remintCollidingNodeIds?: boolean;
   replaced?: true;
-  /** Runtime identity of the optimistic replacement used for verification. */
   replacementSelector?: string;
   replacementSourceId?: string | null;
   replacementSignature?: RuntimeStructureNodeSignature;
-  /** Expected visual tree captured by the bridge while it still owns the
-   * original DOM element. Runtime ids and computed styles are excluded.
-   * Missing evidence or later context changes cannot prove replacement. */
   replacementSnapshotSignature?: string;
-  /**
-   * This edit DELETED the subject from the running app. A removal has no
-   * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
-   * consumer that pairs a subject with a target (the semantic handoff, the
-   * source-path collection before apply, runtime verification) must branch on
-   * this instead of reading anchor fields that were never captured.
-   */
   removed?: true;
   requestId?: string;
+  transactionId?: string;
+  groupedEdits?: PendingLiveStructureEdit[];
   updatedAt: number;
 }
 
-/**
- * Convert bridge provenance into a bounded semantic source anchor. Runtime
- * ids remain useful for correlating the live preview, but they are never
- * treated as source identities by the coding-agent handoff.
- */
 interface NormalizedResolvablePath {
   value: string;
   absolute: boolean;
@@ -365,7 +457,6 @@ function normalizeResolvablePath(
   let caseInsensitive = false;
   const drive = raw.match(/^([a-z]):(\/.*)?$/i);
   if (drive) {
-    // `C:foo` is drive-relative and must not be treated as a project path.
     if (!drive[2]?.startsWith("/")) return undefined;
     prefix = `${drive[1]!.toUpperCase()}:/`;
     remainder = drive[2].slice(1);
@@ -383,7 +474,6 @@ function normalizeResolvablePath(
     remainder = raw.slice(1);
     absolute = true;
   } else if (/^[a-z]+:/i.test(raw)) {
-    // URL-like values and unsupported drive-relative paths are not files.
     return undefined;
   }
 
@@ -394,7 +484,6 @@ function normalizeResolvablePath(
       if (segments.length > 0) {
         segments.pop();
       } else if (!absolute) {
-        // A relative path may not escape its unknown project root.
         return undefined;
       }
       continue;
@@ -485,19 +574,12 @@ export function reactSourceAnchorForPendingEdit(args: {
       args.info?.sourceId?.trim() ||
       args.info?.selector?.trim() ||
       undefined,
-    // Keep the raw Fiber value here so prompt serialization can retain an
-    // absolute path when the connection root cannot resolve a relPath.
     sourceFile,
     ...(relPath ? { relPath } : {}),
     line: provenance.line,
     column: provenance.column,
-    // Which tier produced line/column, so no consumer can read a React 19
-    // owner-stack (transformed) position as the authored JSX line.
     ...(provenance.method ? { method: provenance.method } : {}),
     component: provenance.component,
-    // The nearest component's INSTANTIATION site — the `.map()` call site for a
-    // mapped instance. Dropping it here is what left the handoff unable to say
-    // where a mapped sibling actually comes from.
     ...(ownerSourceFile ? { ownerSourceFile } : {}),
     ...(ownerRelPath ? { ownerRelPath } : {}),
     ...(provenance.ownerLine ? { ownerLine: provenance.ownerLine } : {}),
@@ -505,11 +587,7 @@ export function reactSourceAnchorForPendingEdit(args: {
     ...(provenance.ownerComponentName
       ? { ownerComponent: provenance.ownerComponentName }
       : {}),
-    // The owner's own tier: a data-attribute element can still owe its owner
-    // line to a transformed owner stack.
     ...(provenance.ownerMethod ? { ownerMethod: provenance.ownerMethod } : {}),
-    // Every `.map()` sibling shares one call site, so runtimeMultiplicity alone
-    // cannot say WHICH instance was selected; the React key can.
     ...(provenance.ownerKey ? { ownerKey: provenance.ownerKey } : {}),
     runtimeMultiplicity,
     ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
@@ -518,12 +596,6 @@ export function reactSourceAnchorForPendingEdit(args: {
   };
 }
 
-/**
- * Why an anchor could not be built: a runtime that reports it exposes no
- * source locations at all is a permanent answer, not a slow one. Returns
- * undefined when nothing has reported a reason yet — that case is still
- * "loading", and callers must not present it as unsupported.
- */
 export function reactSourceAnchorUnavailableReason(
   infos: ReadonlyArray<Pick<ElementInfo, "provenance"> | null | undefined>,
 ): ElementProvenanceUnavailableReason | undefined {
@@ -538,13 +610,13 @@ export function reactSourceAnchorUnavailableReason(
 export type PendingLiveNonStyleEdit =
   | PendingLiveTextEdit
   | PendingLiveLayerStateEdit
+  | PendingLiveLayerNameEdit
   | PendingLiveStructureEdit;
 export type PendingVisualStyleUndoTarget = {
   edit: PendingVisualStyleEdit;
   revertStyles: Record<string, string>;
 };
 export type PendingVisualStyleUndoEntry = PendingVisualStyleUndoTarget & {
-  /** All targets changed by one inspector gesture share one undo entry. */
   gestureId?: string;
   groupedTargets?: PendingVisualStyleUndoTarget[];
 };
@@ -591,25 +663,35 @@ export type PendingLiveTextUndoEntry = {
 export type PendingLiveStructureUndoEntry = {
   kind: "structure";
   edit: PendingLiveStructureEdit;
+  groupedEdits?: PendingLiveStructureEdit[];
 };
 export type PendingLiveLayerStateUndoEntry = {
   kind: "layer-state";
   edit: PendingLiveLayerStateEdit;
   revertEnabled: boolean;
 };
+export type PendingLiveLayerNameUndoEntry = {
+  kind: "layer-name";
+  edit: PendingLiveLayerNameEdit;
+  revertName: string;
+};
 export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
   | PendingLiveLayerStateUndoEntry
+  | PendingLiveLayerNameUndoEntry
   | PendingLiveStructureUndoEntry;
 
-/** Coalesce consecutive same-target ticks so slider/keystroke streams stay O(1)
- * per event. The first revert is kept so one undo still restores the pre-gesture value. */
 export function appendPendingVisualStyleUndoEntry(
   stack: PendingVisualStyleUndoEntry[],
   entry: PendingVisualStyleUndoEntry,
 ): void {
   const last = stack[stack.length - 1];
-  if (entry.gestureId && last?.gestureId === entry.gestureId) {
+  if (
+    entry.gestureId &&
+    last?.gestureId === entry.gestureId &&
+    pendingVisualStylePropertyKey(last.edit) ===
+      pendingVisualStylePropertyKey(entry.edit)
+  ) {
     const targets = pendingVisualStyleUndoTargets(last);
     const index = targets.findIndex(
       (target) =>
@@ -641,27 +723,7 @@ export function appendPendingVisualStyleUndoEntry(
         last.groupedTargets![index - 1] = nextTarget;
       }
     }
-    // Undo ordering compares the primary edit's timestamp with other pending
-    // edit kinds, so keep it at the time of the latest tick in this gesture.
     last.edit = { ...last.edit, updatedAt: entry.edit.updatedAt };
-    return;
-  }
-  if (
-    !entry.gestureId &&
-    !last?.gestureId &&
-    last &&
-    pendingVisualStyleEditKey(last.edit) ===
-      pendingVisualStyleEditKey(entry.edit)
-  ) {
-    last.edit = {
-      ...entry.edit,
-      styles: { ...last.edit.styles, ...entry.edit.styles },
-      originalStyles: {
-        ...entry.edit.originalStyles,
-        ...last.edit.originalStyles,
-      },
-    };
-    last.revertStyles = { ...entry.revertStyles, ...last.revertStyles };
     return;
   }
   stack.push(entry);
@@ -687,11 +749,36 @@ export function pendingVisualStyleEditsFromUndoStack(
 export function appendPendingLiveNonStyleUndoEntry(
   stack: PendingLiveNonStyleUndoEntry[],
   entry: PendingLiveNonStyleUndoEntry,
+  coalesceAdjacent = true,
 ): void {
   const last = stack[stack.length - 1];
   if (
+    coalesceAdjacent &&
     last?.kind === "text" &&
     entry.kind === "text" &&
+    pendingLiveEditSubjectKey(last.edit) ===
+      pendingLiveEditSubjectKey(entry.edit)
+  ) {
+    last.edit = entry.edit;
+    return;
+  }
+  if (
+    last?.kind === "structure" &&
+    entry.kind === "structure" &&
+    entry.edit.transactionId &&
+    last.edit.transactionId === entry.edit.transactionId
+  ) {
+    last.groupedEdits = [
+      ...(last.groupedEdits ?? [last.edit]),
+      ...pendingLiveStructureEditsFromUndoEntry(entry),
+    ];
+    last.edit = entry.edit;
+    return;
+  }
+  if (
+    coalesceAdjacent &&
+    last?.kind === "layer-name" &&
+    entry.kind === "layer-name" &&
     pendingLiveEditSubjectKey(last.edit) ===
       pendingLiveEditSubjectKey(entry.edit)
   ) {
@@ -701,52 +788,308 @@ export function appendPendingLiveNonStyleUndoEntry(
   stack.push(entry);
 }
 
-/**
- * Project-relative source files that must be read before this edit can be
- * handed off. A removal has no anchor, and an INSERT has no subject — its
- * markup exists in no source file yet — so demanding both paths rejected every
- * insert as "anchors still loading". `null` means a path this edit does need
- * has not resolved yet, which is the only honest "not ready" answer.
- */
+export function pendingLiveStructureEditsFromUndoEntry(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit[] {
+  return entry.groupedEdits ?? pendingLiveStructureEditsFromEdit(entry.edit);
+}
+
+export function pendingLiveStructureRedoSourceEdit(
+  entry: PendingLiveStructureUndoEntry,
+): PendingLiveStructureEdit {
+  const edits = pendingLiveStructureEditsFromUndoEntry(entry);
+  return edits.length > 1 ? { ...entry.edit, groupedEdits: edits } : entry.edit;
+}
+
+export function pendingLiveStructureEditsFromEdit(
+  edit: PendingLiveStructureEdit,
+): PendingLiveStructureEdit[] {
+  return edit.groupedEdits ?? [edit];
+}
+
+export function pendingLiveNonStyleEditsFromUndoStack(
+  stack: readonly PendingLiveNonStyleUndoEntry[],
+): PendingLiveNonStyleEdit[] {
+  const edits: PendingLiveNonStyleEdit[] = [];
+  for (const entry of stack) {
+    if (entry.kind === "structure") {
+      edits.push(...pendingLiveStructureEditsFromUndoEntry(entry));
+    } else {
+      edits.push(entry.edit);
+    }
+  }
+  return edits;
+}
+
+export function pendingLiveEditFrameTargets(
+  styleEdits: readonly PendingVisualStyleEdit[],
+  liveEdits: readonly PendingLiveNonStyleEdit[],
+): Map<string, Set<string>> {
+  const targets = new Map<string, Set<string>>();
+  const addTarget = (screenId: string, frameId: string) => {
+    const frameIds = targets.get(screenId) ?? new Set<string>();
+    frameIds.add(frameId);
+    targets.set(screenId, frameIds);
+  };
+  for (const edit of styleEdits) {
+    addTarget(
+      edit.screenId,
+      edit.breakpoint
+        ? `breakpoint:${edit.breakpoint.activeWidthPx}`
+        : "primary",
+    );
+  }
+  for (const edit of liveEdits) {
+    const members =
+      edit.kind === "structure"
+        ? pendingLiveStructureEditsFromEdit(edit)
+        : [edit];
+    for (const member of members) addTarget(member.screenId, "primary");
+  }
+  return targets;
+}
+
+export function shouldClearPendingLiveEditsAfterReload(
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
+  reloadedTargets: ReadonlySet<string>,
+  reloadingScreenId: string,
+  reloadingFrameId: string,
+): boolean {
+  if (!pendingTargets.get(reloadingScreenId)?.has(reloadingFrameId)) {
+    return false;
+  }
+  const completedTargets = new Set(reloadedTargets);
+  completedTargets.add(`${reloadingScreenId}\0${reloadingFrameId}`);
+  return haveAllPendingLiveEditFramesReloaded(pendingTargets, completedTargets);
+}
+
+export function haveAllPendingLiveEditFramesReloaded(
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>,
+  reloadedTargets: ReadonlySet<string>,
+): boolean {
+  return (
+    pendingTargets.size > 0 &&
+    Array.from(pendingTargets).every(([screenId, frameIds]) =>
+      Array.from(frameIds).every((frameId) =>
+        reloadedTargets.has(`${screenId}\0${frameId}`),
+      ),
+    )
+  );
+}
+
+export function activeRuntimeReloadFrameId(
+  activeBreakpointWidthPx: number | undefined,
+): string {
+  return activeBreakpointWidthPx === undefined
+    ? "primary"
+    : `breakpoint:${activeBreakpointWidthPx}`;
+}
+
+export function shouldPublishVisualEditHandoff(args: {
+  designId: string | null | undefined;
+  pendingEditCount: number;
+  clearRequestedDesignId: string | null;
+  hadPendingDesignId: string | null;
+}): boolean {
+  return (
+    Boolean(args.designId) &&
+    (args.pendingEditCount > 0 ||
+      args.clearRequestedDesignId === args.designId ||
+      args.hadPendingDesignId === args.designId)
+  );
+}
+
+export interface VisualEditHandoffPublicationState {
+  designId: string;
+  publicationRevision: number;
+  serverRevision: number | null;
+  localBridgeConfirmed: boolean;
+}
+
+export function isVisualEditHandoffPublicationUnconfirmed(
+  state: VisualEditHandoffPublicationState | null,
+  designId: string | null | undefined,
+): boolean {
+  if (!designId) return false;
+  if (!state || state.designId !== designId) return true;
+  return state.serverRevision === null && !state.localBridgeConfirmed;
+}
+
+export function shouldFinalizePendingLiveEditReload(args: {
+  pendingTargets: ReadonlyMap<string, ReadonlySet<string>>;
+  reloadedTargets: ReadonlySet<string>;
+  handoff: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+}): boolean {
+  return (
+    haveAllPendingLiveEditFramesReloaded(
+      args.pendingTargets,
+      args.reloadedTargets,
+    ) && !isVisualEditHandoffPublicationUnconfirmed(args.handoff, args.designId)
+  );
+}
+
+type VisualEditHandoffPublicationEvent =
+  | {
+      status: "queued";
+      designId: string;
+      publicationRevision: number;
+    }
+  | {
+      status: "ready";
+      designId: string;
+      publicationRevision: number;
+      serverRevision: number;
+    }
+  | {
+      status: "local-ready";
+      designId: string;
+      publicationRevision: number;
+    }
+  | {
+      status: "empty" | "failed";
+      designId: string;
+      publicationRevision: number;
+    };
+
+export function updateVisualEditHandoffPublication(
+  current: VisualEditHandoffPublicationState | null,
+  event: VisualEditHandoffPublicationEvent,
+): VisualEditHandoffPublicationState | null {
+  if (event.status === "queued") {
+    return current?.designId === event.designId &&
+      current.publicationRevision > event.publicationRevision
+      ? current
+      : {
+          designId: event.designId,
+          publicationRevision: event.publicationRevision,
+          serverRevision: null,
+          localBridgeConfirmed: false,
+        };
+  }
+  if (!current || current.designId !== event.designId) {
+    return current;
+  }
+  if (event.status === "empty") {
+    return current.publicationRevision <= event.publicationRevision
+      ? null
+      : current;
+  }
+  if (current.publicationRevision !== event.publicationRevision) return current;
+  if (event.status === "ready") {
+    return { ...current, serverRevision: event.serverRevision };
+  }
+  if (event.status === "local-ready") {
+    return { ...current, localBridgeConfirmed: true };
+  }
+  return current;
+}
+
+export function updateReloadedVisualEditHandoff(
+  current: VisualEditHandoffPublicationState | null,
+  event: Exclude<VisualEditHandoffPublicationEvent, { status: "queued" }>,
+): VisualEditHandoffPublicationState | null {
+  if (event.status === "local-ready") return current;
+  if (
+    !current ||
+    current.designId !== event.designId ||
+    current.publicationRevision > event.publicationRevision
+  ) {
+    return current;
+  }
+  if (event.status === "ready") {
+    return { ...current, serverRevision: event.serverRevision };
+  }
+  return event.status === "empty" ||
+    current.publicationRevision === event.publicationRevision
+    ? null
+    : current;
+}
+
+export function shouldSuppressReloadedVisualEditHandoff(args: {
+  marker: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+  status: "empty" | "ready" | undefined;
+  revision: number | null | undefined;
+}): boolean {
+  if (!args.marker || args.marker.designId !== args.designId) return false;
+  if (args.status !== "ready") return false;
+  return (
+    args.marker.serverRevision === null ||
+    args.revision == null ||
+    args.revision <= args.marker.serverRevision
+  );
+}
+
+export function shouldClearReloadedVisualEditHandoff(args: {
+  marker: VisualEditHandoffPublicationState | null;
+  designId: string | null | undefined;
+  status: "empty" | "ready" | undefined;
+  revision: number | null | undefined;
+}): boolean {
+  if (
+    !args.marker ||
+    args.marker.designId !== args.designId ||
+    args.marker.serverRevision === null
+  ) {
+    return false;
+  }
+  return (
+    (args.status === "empty" &&
+      args.revision !== null &&
+      args.revision !== undefined &&
+      args.revision >= args.marker.serverRevision) ||
+    (args.status === "ready" &&
+      args.revision !== null &&
+      args.revision !== undefined &&
+      args.revision > args.marker.serverRevision)
+  );
+}
+
 export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
-  const required = [
-    ...(edit.insertedHtml && !edit.replaced
+  const required = pendingLiveStructureEditsFromEdit(edit).flatMap((member) => [
+    ...(member.insertedHtml && !member.replaced
       ? []
-      : [edit.sourceAnchor?.relPath ?? edit.sourceAnchor?.ownerRelPath]),
-    ...(edit.removed || edit.replaced
+      : [member.sourceAnchor?.relPath ?? member.sourceAnchor?.ownerRelPath]),
+    ...(member.removed || member.replaced
       ? []
       : [
-          edit.anchorSourceAnchor?.relPath ??
-            edit.anchorSourceAnchor?.ownerRelPath ??
-            (edit.insertedHtml ? edit.routeSourceFile : undefined),
+          member.anchorSourceAnchor?.relPath ??
+            member.anchorSourceAnchor?.ownerRelPath ??
+            (member.insertedHtml ? member.routeSourceFile : undefined),
         ]),
-  ];
+  ]);
   if (required.some((path) => !path)) return null;
   return required as string[];
 }
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string; replaceAnchor?: boolean }
+  | {
+      kind: "insert";
+      html: string;
+      replaceAnchor?: boolean;
+      remintCollidingNodeIds?: boolean;
+    }
   | { kind: "move" };
 
-/**
- * Which runtime command replays this edit. Undoing an insert REMOVED the node,
- * so replaying it as a move would address an element that is no longer in the
- * document and the bridge would return silently — a redo that reports success
- * and does nothing.
- */
 export function pendingStructureRedoCommand(
   edit: PendingLiveStructureEdit,
 ): PendingStructureRedoCommand {
-  if (edit.removed) return { kind: "delete" };
-  return edit.insertedHtml
+  const insertedEdit = [edit, ...(edit.groupedEdits ?? [])].find(
+    (candidate) => candidate.insertedHtml,
+  );
+  if (!insertedEdit && edit.removed) return { kind: "delete" };
+  return insertedEdit?.insertedHtml
     ? {
         kind: "insert",
-        html: edit.insertedHtml,
-        ...(edit.replaced ? { replaceAnchor: true } : {}),
+        html: insertedEdit.insertedHtml,
+        ...(insertedEdit.replaced ? { replaceAnchor: true } : {}),
+        ...(insertedEdit.remintCollidingNodeIds
+          ? { remintCollidingNodeIds: true }
+          : {}),
       }
     : { kind: "move" };
 }
@@ -773,9 +1116,14 @@ export function pendingLiveStructureEditsMatch(
 function pendingVisualStyleEditKey(edit: PendingVisualStyleEdit): string {
   return [
     edit.screenId,
+    edit.routePath ?? "",
     edit.sourceId?.trim() || edit.selector.trim() || "unknown",
     edit.interactionState ?? "default",
   ].join("::");
+}
+
+function pendingVisualStylePropertyKey(edit: PendingVisualStyleEdit): string {
+  return Object.keys(edit.styles).sort().join("::");
 }
 
 export function mergePendingVisualStyleEdit(
@@ -792,6 +1140,7 @@ export function mergePendingVisualStyleEdit(
       ...nextEdit,
       classes: nextEdit.classes.length > 0 ? nextEdit.classes : edit.classes,
       styles: { ...edit.styles, ...nextEdit.styles },
+      relativeOperations: mergeRelativeStyleOperations(edit, nextEdit),
       originalStyles: {
         ...nextEdit.originalStyles,
         ...edit.originalStyles,
@@ -800,6 +1149,16 @@ export function mergePendingVisualStyleEdit(
     };
   });
   return merged ? next : [...edits, nextEdit];
+}
+
+function mergeRelativeStyleOperations(
+  current: PendingVisualStyleEdit,
+  next: PendingVisualStyleEdit,
+): PendingVisualStyleEdit["relativeOperations"] {
+  const operations = { ...current.relativeOperations };
+  for (const property of Object.keys(next.styles)) delete operations[property];
+  Object.assign(operations, next.relativeOperations);
+  return Object.keys(operations).length > 0 ? operations : undefined;
 }
 
 export function mergePendingVisualStyleEdits(
@@ -870,11 +1229,9 @@ export function buildPendingVisualStyleRevertPatches(
   return edits
     .map((edit) => ({
       screenId: edit.screenId,
+      routePath: edit.routePath,
       selector: edit.selector,
       sourceId: edit.sourceId,
-      // Carried, not resolved: consumers replay into the live frame (prefer the
-      // runtime pair) and into the source projection (prefer the canonical
-      // one), so the patch has to keep both.
       ...(edit.runtimeSelector
         ? { runtimeSelector: edit.runtimeSelector }
         : {}),
@@ -891,11 +1248,13 @@ export function buildPendingVisualStyleRevertPatches(
 
 export type PendingVisualStyleRuntimePatch = {
   screenId: string;
+  routePath?: string;
   selector: string;
   sourceId?: string | null;
   runtimeSelector?: string | null;
   runtimeSourceId?: string | null;
   styles: Record<string, string>;
+  interactionState?: InteractionState;
 };
 
 function nodeIdSelector(nodeId: string): string {
@@ -904,14 +1263,6 @@ function nodeIdSelector(nodeId: string): string {
     .replace(/"/g, '\\"')}"]`;
 }
 
-/**
- * How a pending edit addresses the RUNNING document. The runtime pair wins
- * because a localhost screen's canonical selector/sourceId name nodes in the
- * host's source projection, which the live frame has never seen. Candidates
- * stay a runtime-first superset so nothing that used to resolve stops
- * resolving, and an inline screen — which records no runtime pair — produces
- * byte-identical output to the canonical-only list.
- */
 export function runtimeStyleTarget(target: {
   selector: string;
   sourceId?: string | null;
@@ -944,15 +1295,18 @@ export type SendPendingVisualStyleRuntimeProperty = (
   options: {
     selectorCandidates: string[];
     nodeId?: string | null;
+    routePath?: string;
+    interactionState?: InteractionState;
   },
 ) => boolean;
 
-/**
- * Forward, undo, and redo all use this exact per-property runtime channel.
- * The screen id is part of the command boundary so a retained/remounted
- * overview iframe cannot accidentally receive history intended for another
- * screen.
- */
+export function pendingVisualStyleRouteMatches(
+  patch: Pick<PendingVisualStyleRuntimePatch, "routePath">,
+  currentRoutePath: string | null | undefined,
+): boolean {
+  return !patch.routePath || patch.routePath === currentRoutePath;
+}
+
 export function replayPendingVisualStyleRuntimePatch(
   patch: PendingVisualStyleRuntimePatch,
   sendProperty: SendPendingVisualStyleRuntimeProperty,
@@ -960,25 +1314,19 @@ export function replayPendingVisualStyleRuntimePatch(
   const entries = Object.entries(patch.styles);
   if (entries.length === 0) return false;
   const target = runtimeStyleTarget(patch);
-  // No candidate at all is not "apply it to the obvious element": the bridge
-  // falls back to its own current selection when the candidate list is empty,
-  // so an unaddressable revert would silently restyle whatever happens to be
-  // selected. Report failure and let the caller surface it.
   if (target.selectorCandidates.length === 0) return false;
   return entries.every(([property, value]) =>
     sendProperty(patch.screenId, target.selector, property, value, {
       selectorCandidates: target.selectorCandidates,
       nodeId: target.nodeId,
+      ...(patch.routePath ? { routePath: patch.routePath } : {}),
+      ...(patch.interactionState
+        ? { interactionState: patch.interactionState }
+        : {}),
     }),
   );
 }
 
-/**
- * Badge number on the Apply bar: how many user-meaningful updates Apply would
- * hand to the agent. A style edit is already coalesced by screen, target, and
- * interaction state, so counting its individual CSS declarations inflates one
- * inspector gesture into several apparent updates.
- */
 export function getPendingVisualEditCount(
   edits: readonly PendingVisualStyleEdit[],
   liveEdits: readonly PendingLiveNonStyleEdit[] = [],
@@ -997,11 +1345,6 @@ export function shouldBlockPendingVisualStyleNavigation(args: {
   );
 }
 
-/**
- * Inserted markup is the only unbounded field in the pending-edit payload, and
- * that payload is JSON.stringified straight into an agent prompt. Truncation is
- * reported so the agent never mistakes a cut-off tree for the whole node.
- */
 const MAX_INSERTED_HTML_LENGTH = 4_000;
 
 function boundedInsertedHtml(html: string): {
@@ -1021,13 +1364,7 @@ export function formatPendingVisualStylePrompt(args: {
   localhostConnectionId?: string | null;
   edits: readonly PendingVisualStyleEdit[];
   liveEdits?: readonly PendingLiveNonStyleEdit[];
-  /**
-   * A coding agent has the repo and none of the Design source tools, and a
-   * screen's `.html` filename is the editor's own bookkeeping — naming it sends
-   * that agent hunting for a file the project does not contain.
-   */
   audience?: "design-agent" | "coding-agent";
-  /** Screen id → the route it renders, for naming screens the way the app does. */
   screenRoutes?: Readonly<Record<string, string>>;
 }): string {
   if (args.edits.length === 0 && (args.liveEdits?.length ?? 0) === 0) {
@@ -1038,15 +1375,23 @@ export function formatPendingVisualStylePrompt(args: {
     (codingAgent ? args.screenRoutes?.[screenId] : undefined) ?? filename;
   const title = args.designTitle?.trim();
   const editPayload = args.edits.map((edit) => ({
+    operation: "update-style" as const,
     screenId: edit.screenId,
+    ...(edit.routePath ? { routePath: edit.routePath } : {}),
     screen: nameScreen(edit.screenId, edit.filename),
     screenName: edit.screenName,
     selector: edit.selector,
     sourceId: edit.sourceId ?? null,
     sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+    provenance: redactReactSourceAnchor(edit.sourceAnchor),
     tagName: edit.tagName ?? null,
     classes: edit.classes,
     styles: edit.styles,
+    ...(edit.relativeOperations
+      ? { relativeOperations: edit.relativeOperations }
+      : {}),
+    before: edit.originalStyles,
+    after: edit.styles,
     ...(edit.interactionState
       ? { interactionState: edit.interactionState }
       : {}),
@@ -1055,6 +1400,11 @@ export function formatPendingVisualStylePrompt(args: {
   const hasBreakpointScopedEdits = args.edits.some(
     (edit) => edit.breakpoint && edit.breakpoint.upperBoundPx !== null,
   );
+  const hasRelativeOperations =
+    args.edits.some((edit) => edit.relativeOperations) ||
+    (args.liveEdits ?? []).some(
+      (edit) => edit.kind === "text" && edit.relativeOperations,
+    );
   const reactSourceAnchors = [
     ...args.edits.map((edit) => edit.sourceAnchor),
     ...(args.liveEdits ?? []).flatMap((edit) =>
@@ -1080,17 +1430,27 @@ export function formatPendingVisualStylePrompt(args: {
   const liveEditPayload = (args.liveEdits ?? []).map((edit) => {
     if (edit.kind === "text") {
       return {
+        operation: "update-text" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         value: edit.value,
         html: edit.html,
+        beforeHtml: edit.originalHtml,
+        afterHtml: edit.html,
+        ...(edit.relativeOperations
+          ? { relativeOperations: edit.relativeOperations }
+          : {}),
+        before: edit.originalValue,
+        after: edit.value,
       };
     }
     if (edit.kind === "layer-state") {
@@ -1103,21 +1463,46 @@ export function formatPendingVisualStylePrompt(args: {
           })
         : null;
       return {
+        operation: "update-layer-state" as const,
         kind: edit.kind,
         screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
         screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
         sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
         tagName: edit.tagName ?? null,
         classes: edit.classes,
         state: edit.state,
         enabled: edit.enabled,
+        before: edit.originalEnabled,
+        after: edit.enabled,
         attributeName: `data-agent-native-${edit.state}`,
         ...(semanticHandoff?.ok
           ? { semanticHandoff: semanticHandoff.handoff }
           : {}),
+      };
+    }
+    if (edit.kind === "layer-name") {
+      return {
+        operation: "metadata" as const,
+        kind: edit.kind,
+        screenId: edit.screenId,
+        ...(edit.routePath ? { routePath: edit.routePath } : {}),
+        screen: nameScreen(edit.screenId, edit.filename),
+        screenName: edit.screenName,
+        selector: edit.selector,
+        sourceId: edit.sourceId ?? null,
+        sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+        provenance: redactReactSourceAnchor(edit.sourceAnchor),
+        tagName: edit.tagName ?? null,
+        classes: edit.classes,
+        metadata: "data-agent-native-layer-name",
+        before: edit.originalName,
+        after: edit.name,
+        desiredChange: `Set the source layer metadata name to ${JSON.stringify(edit.name)} for the anchored element. Preserve the existing component structure and use the project's idiomatic naming convention.`,
       };
     }
     const subjectAnchor = edit.sourceAnchor
@@ -1126,10 +1511,6 @@ export function formatPendingVisualStylePrompt(args: {
     const targetAnchor = edit.anchorSourceAnchor
       ? { ...edit.anchorSourceAnchor, id: "target" }
       : undefined;
-    // An insert's subject is markup that does not exist in the program yet, so
-    // it has no source anchor and cannot be described as a move. Telling the
-    // agent to relocate an element the file has never contained is worse than
-    // reporting nothing.
     const insertedHtml = edit.insertedHtml
       ? boundedInsertedHtml(edit.insertedHtml)
       : undefined;
@@ -1225,6 +1606,12 @@ export function formatPendingVisualStylePrompt(args: {
                       : edit.dropMode === "absolute-container"
                         ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
                         : "Preserve the runtime layout behavior observed in the preview.",
+                    edit.gridPlacement
+                      ? `The target is grid cell column ${edit.gridPlacement.column} / ${edit.gridPlacement.columnEnd}, row ${edit.gridPlacement.row} / ${edit.gridPlacement.rowEnd}; preserve this explicit placement in source.`
+                      : "",
+                    edit.gridDisplacements?.length
+                      ? `The target cell was occupied; move ${edit.gridDisplacements.length} displaced element(s) into the recorded free grid cells.`
+                      : "",
                   ].join(" "),
                   sourceAnchors: [subjectAnchor, targetAnchor],
                   runtimeRelationship: {
@@ -1234,8 +1621,6 @@ export function formatPendingVisualStylePrompt(args: {
                     screenId: edit.screenId,
                     description: `${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
                   },
-                  // The packet intentionally starts without a hash: its execution
-                  // contract requires read-local-file before every write.
                   versionHashes: [],
                 })
               : {
@@ -1247,18 +1632,54 @@ export function formatPendingVisualStylePrompt(args: {
                   },
                 };
     return {
+      operation: edit.removed
+        ? "remove"
+        : edit.replaced
+          ? "replace"
+          : edit.insertedHtml
+            ? "insert"
+            : edit.placement === "inside"
+              ? "reparent"
+              : "move",
       kind: edit.kind,
       screenId: edit.screenId,
+      ...(edit.routePath ? { routePath: edit.routePath } : {}),
       screen: nameScreen(edit.screenId, edit.filename),
       screenName: edit.screenName,
+      ...(edit.transactionId ? { transactionId: edit.transactionId } : {}),
+      ...(edit.groupedEdits
+        ? {
+            groupedEdits: edit.groupedEdits.map((member) => ({
+              selector: member.selector,
+              ...(member.routePath ? { routePath: member.routePath } : {}),
+              sourceId: member.sourceId ?? null,
+              sourceAnchor: redactReactSourceAnchor(member.sourceAnchor),
+              anchorSelector: member.anchorSelector,
+              anchorSourceId: member.anchorSourceId ?? null,
+              anchorSourceAnchor: redactReactSourceAnchor(
+                member.anchorSourceAnchor,
+              ),
+              placement: member.placement,
+              ...(member.dropMode ? { dropMode: member.dropMode } : {}),
+              ...(member.gridPlacement
+                ? { gridPlacement: member.gridPlacement }
+                : {}),
+              ...(member.gridDisplacements
+                ? { gridDisplacements: member.gridDisplacements }
+                : {}),
+            })),
+          }
+        : {}),
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
+      provenance: {
+        subject: redactReactSourceAnchor(edit.sourceAnchor),
+        target: redactReactSourceAnchor(edit.anchorSourceAnchor),
+      },
       ...(edit.subjectSignature
         ? { subjectSignature: edit.subjectSignature }
         : {}),
-      // A removal has no anchor; emitting empty anchor fields alongside a
-      // meaningless placement reads as a half-captured move.
       ...(edit.removed || edit.replaced
         ? edit.removed
           ? { removed: true as const }
@@ -1290,6 +1711,10 @@ export function formatPendingVisualStylePrompt(args: {
         : {}),
       ...(edit.sourceRect ? { sourceRect: edit.sourceRect } : {}),
       ...(edit.anchorRect ? { anchorRect: edit.anchorRect } : {}),
+      ...(edit.gridPlacement ? { gridPlacement: edit.gridPlacement } : {}),
+      ...(edit.gridDisplacements
+        ? { gridDisplacements: edit.gridDisplacements }
+        : {}),
       ...(insertedHtml
         ? {
             insertedHtml: insertedHtml.value,
@@ -1320,8 +1745,11 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     "",
     codingAgent
-      ? "These were made against the running app in a visual canvas, so the selectors and node ids below are runtime-only — they do not appear in source. Locate the component that renders each element using its tag, class names and current text, then make the change in that source file. Preserve layout, behavior, and unrelated styling."
+      ? "These were made against the running app in a visual canvas. Treat each item as a source operation: use provenance/sourceAnchor to locate the owning source, compare before with the live after, and make the smallest idiomatic source edit. Runtime selectors and node ids are correlation hints only; never hand off inline-style mutations as the final implementation. Preserve layout, behavior, and unrelated styling."
       : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    hasRelativeOperations
+      ? "A relativeOperations entry is the authoritative source intent for that property. styles, after, and text html may contain only the immediate DOM-preview result; do not replace calc(), var(), or another authored expression with that absolute preview value. Apply the recorded delta/expression to the existing source expression and preserve its relative semantics."
+      : "",
     hasOutsideConnectedRootPaths
       ? "Some source anchors include an absolute or served path outside the connected root. Keep that sourceFile path and the `outside-connected-root` status in the diagnosis; inspect it read-only or ask for the correct connection, and never silently omit the file."
       : "",
@@ -1369,38 +1797,97 @@ export function formatPendingVisualStylePrompt(args: {
 
 export function formatVisualEditClipboardPrompt(
   prompt: string,
-  host: "chatgpt" | "claude" | "webmcp" | null | undefined,
+  host: "chatgpt" | "claude" | "codex" | "webmcp" | null | undefined,
+  fullPrompt = true,
+  designId?: string | null,
 ): string {
-  return host === "chatgpt" || host === "claude" || host === "webmcp"
-    ? "Call the get-visual-edit-prompt WebMCP tool and apply the returned instructions."
-    : prompt;
+  const design = designId
+    ? ` { designId: "${designId}" }`
+    : " using the design ID from this URL";
+  if (fullPrompt) {
+    return [
+      `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : " Use the design ID from this URL."}`,
+      "Use the supplied source provenance to make idiomatic code changes; do not leave editor-only DOM or inline-style mutations as the implementation. Verify the running app after HMR, then use the Agent-Native Design MCP tool get-visual-edit-pending to obtain the current revision, acknowledge only after verification, and pull again to confirm it cleared.",
+      "If Design MCP is unavailable, apply the included edits and verify the running app. This copied prompt cannot acknowledge the handoff, so it will remain pending until Design MCP is available; then pull the current revision, verify the edits are already present (apply only anything missing), acknowledge that revision, and pull again to confirm it cleared.",
+      "",
+      prompt,
+    ].join("\n");
+  }
+  const mcpHandoff = [
+    `Apply these visual edits to the connected app's source code.${designId ? ` Design ID: ${designId}.` : ""}`,
+    `Use the Agent-Native Design MCP tool get-visual-edit-pending with${design} to pull the latest revision, then verify the running app and call acknowledge-visual-edit-pending with that revision.`,
+    `If Design MCP is unavailable, apply the included edit details directly and verify the running app. This copied prompt cannot acknowledge the handoff, so it will remain pending until Design MCP is available; then pull the current revision, verify the edits are already present (apply only anything missing), acknowledge that revision, and pull again to confirm it cleared. This Visual Edit page has no "Apply design updates in Design" button.`,
+    "",
+    prompt,
+  ].join("\n");
+  return host === "webmcp"
+    ? `${mcpHandoff}\n\nIf you cannot access the Design MCP server but can use this open Design tab, use its page-local get-visual-edit-prompt WebMCP tool to retrieve edit details; it cannot acknowledge or clear the handoff.`
+    : mcpHandoff;
+}
+
+export function isVisualEditHandoffAcknowledged(args: {
+  expectedPublisherId: string;
+  expectedClientRevision: number | null;
+  publisherId: string | null;
+  clientRevision: number | null;
+  serverRevision: number | null;
+  pendingEditCount: number;
+  revision: number | null;
+  status: string;
+}): boolean {
+  return (
+    args.pendingEditCount > 0 &&
+    args.status === "empty" &&
+    args.publisherId === args.expectedPublisherId &&
+    args.expectedClientRevision !== null &&
+    args.clientRevision === args.expectedClientRevision &&
+    args.serverRevision !== null &&
+    args.revision !== null &&
+    args.revision >= args.serverRevision
+  );
 }
 
 export function resolveOverviewScreenSourceType(
   screen:
-    | { sourceType?: unknown; bridgeUrl?: string | null }
+    | {
+        sourceType?: unknown;
+        bridgeUrl?: string | null;
+        url?: string | null;
+        previewUrl?: string | null;
+        content?: string;
+      }
     | null
     | undefined,
   fallbackSourceType: DesignSourceType = "inline",
 ): DesignSourceType {
   if (!screen) return fallbackSourceType;
-  return (
+  const screenSourceType =
     normalizeDesignSourceType(screen.sourceType) ??
-    (screen.bridgeUrl ? "localhost" : undefined) ??
-    fallbackSourceType
-  );
+    (screen.bridgeUrl ? "localhost" : undefined);
+  if (screenSourceType) return screenSourceType;
+  if (fallbackSourceType !== "localhost") return fallbackSourceType;
+  if (screen.url || screen.previewUrl) return "localhost";
+  if (typeof screen.content !== "string") return "inline";
+  const content = screen.content.trim();
+  if (!content) return "localhost";
+  // Every localhost screen records its own sourceType; adding one flips the
+  // whole design to localhost, so unmarked markup screens are still inline.
+  return /^https?:\/\//i.test(content) ? "localhost" : "inline";
 }
 
 export function shouldUseRuntimeLayerProjection(args: {
   screen:
-    | { sourceType?: unknown; bridgeUrl?: string | null }
+    | {
+        sourceType?: unknown;
+        bridgeUrl?: string | null;
+        url?: string | null;
+        previewUrl?: string | null;
+      }
     | null
     | undefined;
   fallbackSourceType?: DesignSourceType;
   content: string;
 }): boolean {
-  // A running app's live DOM is the ground truth; only inline screens carry
-  // their own source.
   if (
     !isRunningAppSourceType(
       resolveOverviewScreenSourceType(
@@ -1424,10 +1911,6 @@ export function shouldPreferRuntimeLayerProjection(args: {
   runtimeNodeCount: number;
   sourceNodeCount: number;
 }): boolean {
-  // A hydrated localhost tree is the visible app's ground truth even when SSR
-  // happened to emit the same number of nodes (or more wrappers). Keep the
-  // source projection separately for writes; never use counts to decide which
-  // tree represents the live Layers panel.
   void args.sourceNodeCount;
   return args.eligible && args.runtimeNodeCount > 0;
 }
@@ -1472,8 +1955,6 @@ export function applyScopedVisualStyleEdit(args: {
   value: string;
   upperBoundPx: number | null;
   source?: CodeLayerSource;
-  /** Inclusive lower bound for an exact-range edit. Omit for the normal
-   * desktop-down “this breakpoint and smaller” cascade. */
   lowerBoundPx?: number | null;
 }): ApplyVisualEditResult {
   const {
@@ -1486,6 +1967,40 @@ export function applyScopedVisualStyleEdit(args: {
     source,
   } = args;
   const normalizedProperty = normalizeCssPropertyName(property);
+  if (value === "") {
+    return applyVisualEdit(
+      content,
+      upperBoundPx == null
+        ? {
+            kind: "style",
+            operation: "remove",
+            target,
+            property: normalizedProperty,
+          }
+        : {
+            kind: "breakpoint-style",
+            operation: "remove",
+            target,
+            maxWidthPx: upperBoundPx,
+            property: normalizedProperty,
+          },
+      { source },
+    );
+  }
+  if (upperBoundPx != null && isVectorEndpointProperty(normalizedProperty)) {
+    return applyVisualEdit(
+      content,
+      {
+        kind: "breakpoint-style",
+        target,
+        maxWidthPx: upperBoundPx,
+        property: normalizedProperty,
+        value,
+        operation: "set",
+      },
+      { source },
+    );
+  }
   if (
     lowerBoundPx != null &&
     upperBoundPx != null &&
@@ -1507,15 +2022,20 @@ export function applyScopedVisualStyleEdit(args: {
       { source },
     );
     if (maxPatch.result.status !== "applied") return maxPatch;
+    const ruleNodeId = breakpointRuleNodeId(
+      maxPatch.content,
+      target.nodeId,
+      source,
+    );
     const withoutCascade = removeBreakpointMediaDeclaration(maxPatch.content, {
-      nodeId: target.nodeId,
+      nodeId: ruleNodeId,
       maxWidthPx: upperBoundPx,
       property: normalizedProperty,
     });
     return {
       ...maxPatch,
       content: setExactBreakpointDeclaration(withoutCascade, {
-        nodeId: target.nodeId,
+        nodeId: ruleNodeId,
         property: normalizedProperty,
         value,
         minWidthPx: Math.round(lowerBoundPx),
@@ -1524,9 +2044,9 @@ export function applyScopedVisualStyleEdit(args: {
     };
   }
   const cleanedContent =
-    "nodeId" in target
+    "nodeId" in target && content.includes(EXACT_BREAKPOINT_ATTR)
       ? removeExactBreakpointDeclarations(content, {
-          nodeId: target.nodeId,
+          nodeId: breakpointRuleNodeId(content, target.nodeId, source),
           property: normalizedProperty,
         })
       : content;
@@ -1537,7 +2057,6 @@ export function applyScopedVisualStyleEdit(args: {
       {
         kind: "responsive-class",
         target,
-        // `prefix` is ignored when maxWidthPx is set (desktop-down scope).
         prefix: "base",
         maxWidthPx: plan.boundPx,
         operation: "replace",
@@ -1580,6 +2099,18 @@ export function applyScopedVisualStyleEdit(args: {
 }
 
 const EXACT_BREAKPOINT_ATTR = "data-agent-native-breakpoint-range";
+
+/** Breakpoint rules select `data-agent-native-node-id`, not the projection id. */
+function breakpointRuleNodeId(
+  content: string,
+  projectionNodeId: string,
+  source?: CodeLayerSource,
+): string {
+  const node = buildCodeLayerProjection(content, { source }).nodes.find(
+    (candidate) => candidate.id === projectionNodeId,
+  );
+  return node?.dataAttributes["data-agent-native-node-id"] ?? projectionNodeId;
+}
 
 function exactBreakpointMarker(
   nodeId: string,
@@ -1651,7 +2182,6 @@ function removeExactBreakpointDeclarationsBatch(
   });
 }
 
-/** Base-scope K scaling writes all ordinary properties as one atomic patch. */
 export function applyScopedVisualStyleBatch(args: {
   content: string;
   source?: CodeLayerSource;
@@ -1687,7 +2217,7 @@ function setExactBreakpointDeclaration(
   const block = `<style ${EXACT_BREAKPOINT_ATTR}="${marker}">
 @media (min-width: ${args.minWidthPx}px) and (max-width: ${args.maxWidthPx}px) {
   [data-agent-native-node-id="${selectorId}"][data-agent-native-node-id="${selectorId}"] {
-    ${args.property}: ${args.value.trim()};
+    ${args.property}: ${args.value.trim()} !important;
   }
 }
 </style>`;
@@ -1725,21 +2255,6 @@ export function resolveVisualStyleCommitContent(args: {
   return { error: args.scopedFailure };
 }
 
-/**
- * Interaction-states phase 2 — the pure content transform behind
- * `commitInteractionStateStyles` (DesignEditor's useCallback wrapper, which
- * only resolves `activeFile`/`selectedElement`/`canEditDesign` and calls
- * `applyFileContentUpdate`). Extracted as a top-level function so it's
- * unit-testable the same way `applyScopedVisualStyleEdit` is above.
- *
- * Writes every property in `styles` into the managed
- * `[data-agent-native-node-id="<nodeId>"]:<state> { … }` rule
- * (`upsertStateStyles`) and regenerates that rule's forced-preview twin
- * (`duplicateStatePreviewRules`) in one pass, so a caller that folds the
- * result into a single `applyFileContentUpdate`/history-recording call gets
- * exactly one undo step for the whole commit — see
- * `shared/interaction-states.ts`'s module doc for the twin-rule mechanism.
- */
 export function applyInteractionStateStyleCommit(
   content: string,
   nodeId: string,
@@ -1760,18 +2275,6 @@ export function applyInteractionStateStyleCommit(
   return duplicateStatePreviewRules(withStateStyles);
 }
 
-/**
- * Interaction-states phase 2 — the pure decision behind `statePreviewTarget`,
- * the value DesignEditor forwards into both the single-screen and overview
- * `DesignCanvas` instances' `statePreviewTarget` prop, which in turn drives
- * the `state-preview` postMessage that sets/clears the bridge's
- * `data-an-state-preview` attribute (see interaction-states.ts's "Forced-
- * preview mechanism" doc comment for the full pipeline). Returns null
- * whenever there's no active non-default interaction state OR no resolvable
- * single-element screen/node target — both must be present for a preview to
- * make sense, matching EditPanel's InteractionStatePanel only ever offering
- * the state selector for a single selection with a stable node id.
- */
 export function deriveStatePreviewTarget(
   activeState: InteractionState | null,
   screenId: string | null | undefined,

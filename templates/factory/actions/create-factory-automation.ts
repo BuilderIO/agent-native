@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -7,7 +8,6 @@ import {
   VaultUnavailableError,
   assertFactoryConnectorReady,
 } from "../server/connectors/credentials.js";
-import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
   FACTORY_INBOX_LIMIT_MAX,
   FACTORY_WORK_LIMIT_MAX,
@@ -18,6 +18,7 @@ import {
   sourceForTemplate,
   type FactoryAutomationConfig,
 } from "../server/lib/factory-automation-config.js";
+import { readFactoryDefinition } from "../server/lib/factory-definitions.js";
 import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
@@ -29,18 +30,11 @@ import {
 } from "../server/plugins/factory-scheduler-job.js";
 
 const sourceSchema = z.enum(["slack", "github", "sentry"]);
-const templateSchema = z.enum([
-  "blank",
-  "slack-feedback",
-  "github-issues",
-  "pr-governance",
-  "pr-babysit",
-  "sentry-errors",
-]);
+const templateSchema = z.enum(["blank", "pr-governance"]);
 
 export default defineAction({
   description:
-    "Create one Slack, GitHub, or Sentry job on an existing Factory. Use this when the user asks to create an automation. Do not save a graph or rename the factory. Ask for a Slack channel id, GitHub repository, or Sentry slugs if missing. Opens the Automations tab. Reply with the job name and source, not pipeline stages. Hosted jobs need a workspace connection or vault token. Pass author ids (Slack U/W or GitHub numeric ids), not names. Limits are action-enforced.",
+    "Create one scheduled agent job on an existing Factory: a Slack, GitHub, or Sentry job such as PR governance. This is not how Factory automates work: a request to automate something (a digest, a routing rule, a follow-up) is a workflow, built with save-factory-workflow. Do not save a graph or rename the factory. Slack source jobs need a source channel. Ask for the relevant Slack source channel, GitHub repository, or Sentry slugs if missing. Opens the factory's Settings tab, where scheduler health shows. Reply with the job name and source, not pipeline stages. Hosted jobs need workspace connections or vault tokens for every source and destination. Pass author ids (Slack U/W or GitHub numeric ids), not names. Limits are action-enforced.",
   schema: z.object({
     factoryId: factoryIdSchema,
     displayName: z.string().trim().min(1).max(120),
@@ -74,16 +68,13 @@ export default defineAction({
     enabled: z.boolean().default(false),
   }),
   http: { method: "POST" },
+  needsApproval: (_input, ctx) => isOutsideAgentCall(ctx),
   link: ({ result }) => ({
     url: buildDeepLink({
       app: "factory",
       view: "factory",
-      params: {
-        factoryId: result.factoryId,
-        tab: "automations",
-        automationId: result.id,
-      },
-      to: `/factory?factoryId=${encodeURIComponent(result.factoryId)}&tab=automations&automationId=${encodeURIComponent(result.id)}`,
+      params: { factoryId: result.factoryId, tab: "settings" },
+      to: `/factory?factoryId=${encodeURIComponent(result.factoryId)}&tab=settings`,
     }),
     label: `Open ${result.displayName} in Factory`,
   }),
@@ -179,6 +170,7 @@ export default defineAction({
         config,
         enabled: input.enabled,
       },
+      context,
     );
     if (
       context?.caller === "tool" ||
@@ -187,7 +179,7 @@ export default defineAction({
     ) {
       await writeAppStateForCurrentTab("navigate", {
         view: "factory",
-        path: `/factory?factoryId=${encodeURIComponent(input.factoryId)}&tab=automations&automationId=${encodeURIComponent(created.id)}`,
+        path: `/factory?factoryId=${encodeURIComponent(input.factoryId)}&tab=settings`,
         _writeId: `${Date.now()}-create-factory-automation`,
       });
     }

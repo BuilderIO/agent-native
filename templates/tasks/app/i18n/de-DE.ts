@@ -30,12 +30,6 @@ const messages = {
     pageExtension: "Erweiterung",
     pageExtensions: "Erweiterungen",
   },
-  settings: {
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
-  },
   agent: {
     emptyState: "Bitte den Agenten, diese App zu prüfen oder zu ändern.",
     suggestionCalendar:
@@ -163,6 +157,11 @@ const messages = {
     },
   },
   taskFields: {
+    suggestRoute: "Warteschlange vorschlagen",
+    noQueueMatch: "Keine passende Warteschlange",
+    urgentProbability: "Dringlichkeitswahrscheinlichkeit {{percent}} %",
+    applyRoute: "Warteschlange übernehmen",
+    routingError: "Warteschlange konnte nicht vorgeschlagen werden.",
     panelTitle: "Felder",
     panelSubtitle: "Aufgabendetails",
     closeLabel: "Felder-Panel schließen",

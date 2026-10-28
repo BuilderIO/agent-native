@@ -1,6 +1,6 @@
 import { IconCalendar } from "@tabler/icons-react";
 import { format, parse, isValid } from "date-fns";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "../utils.js";
 import { Button } from "./button.js";
@@ -8,11 +8,12 @@ import { Calendar } from "./calendar.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover.js";
 
 interface DatePickerProps {
-  /** Date string in YYYY-MM-DD format */
   value: string;
   onChange: (value: string) => void;
   className?: string;
   placeholder?: string;
+  disabled?: boolean;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function DatePicker({
@@ -20,16 +21,25 @@ export function DatePicker({
   onChange,
   className,
   placeholder = "Pick a date",
+  disabled = false,
+  onCloseAutoFocus,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   const date = value ? parse(value, "yyyy-MM-dd", new Date()) : undefined;
   const validDate = date && isValid(date) ? date : undefined;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open && !disabled}
+      onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}
+    >
       <PopoverTrigger asChild>
         <Button
+          disabled={disabled}
           variant="outline"
           className={cn(
             "h-8 justify-start text-start font-normal text-xs gap-2 px-2.5",
@@ -46,8 +56,11 @@ export function DatePicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent
+        hidden={disabled}
+        inert={disabled}
         className="w-auto max-w-[calc(100vw-2rem)] p-0"
         align="start"
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         <Calendar
           mode="single"

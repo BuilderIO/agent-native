@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
     "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "module": "ESNext",
@@ -8,6 +12,7 @@
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
+    "types": ["node", "vite/client"],
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -19,5 +24,14 @@
     "incremental": true,
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/toolkit.tsbuildinfo"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.e2e-host.tsx"
+  ]
 }

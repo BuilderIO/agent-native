@@ -38,57 +38,30 @@ import type {
   AgentHarnessTurnInput,
 } from "./types.js";
 
-/** Grace period between SIGTERM and SIGKILL when tearing a session down. */
 const SIGKILL_GRACE_MS = 2_000;
-/** Keep a bounded tail of child stderr for diagnostics. */
 const STDERR_TAIL_LIMIT = 8_000;
 
-/**
- * The optional package that carries the ACP protocol transport. Loaded lazily;
- * `resolveAgentHarness` surfaces a clear install error when it is missing.
- */
 export const ACP_PACKAGE = "@zed-industries/agent-client-protocol";
 
 export interface AcpHarnessAdapterOptions {
-  /** Adapter id, e.g. "acp:gemini". Defaults to "acp". */
   name?: string;
-  /** Human-readable label for pickers. */
   label?: string;
-  /** Short description for pickers and diagnostics. */
   description?: string;
-  /** Executable to spawn (the ACP agent binary), e.g. "gemini" or "npx". */
   command?: string;
-  /** Arguments passed to the agent binary, e.g. ["--experimental-acp"]. */
   args?: string[];
-  /**
-   * Extra environment variables for the agent process. Merged over the parent
-   * environment, which the agent inherits so it can reuse the user's local CLI
-   * login.
-   */
   env?: Record<string, string>;
-  /** Default working directory when a turn does not specify one. */
   cwd?: string;
-  /** Hint shown when the optional ACP package is missing. */
   installPackage?: string;
 }
 
 const DEFAULT_CAPABILITIES: AgentHarnessCapabilities = {
-  // The agent runs locally with its own workspace access; Agent-Native does not
-  // provide it an isolated sandbox.
   sandbox: false,
-  // Best-effort: resumable when the agent advertises the `loadSession`
-  // capability. Degrades to a fresh session per turn otherwise.
   resumable: true,
   approvals: true,
-  // ACP host tools would flow through MCP servers; not wired in this adapter.
   hostTools: false,
   fileEvents: true,
 };
 
-/**
- * Indirect dynamic import so bundlers/TS do not try to resolve the optional ACP
- * package at build time (mirrors the AI SDK harness adapter).
- */
 const dynamicImport = new Function("specifier", "return import(specifier)") as (
   specifier: string,
 ) => Promise<any>;
@@ -162,7 +135,7 @@ class AcpHarnessSession implements AgentHarnessSession {
   private readonly acp: any;
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly command: string;
-  private readonly cwd: string;
+  private cwd: string;
   private readonly permissionMode: AgentHarnessPermissionMode;
   private connection: any;
   private acpSessionId = "";
@@ -183,7 +156,6 @@ class AcpHarnessSession implements AgentHarnessSession {
     this.command = deps.command;
     this.cwd = deps.cwd;
     this.permissionMode = deps.permissionMode;
-    // Placeholder until newSession/loadSession assigns the real id.
     this.id = `acp-${Math.random().toString(36).slice(2)}`;
 
     this.child.stderr?.on("data", (chunk: Buffer) => {
@@ -235,10 +207,15 @@ class AcpHarnessSession implements AgentHarnessSession {
     this.supportsLoad = Boolean(initResponse?.agentCapabilities?.loadSession);
 
     const resume = opts.resumeState as
-      | { sessionId?: string }
+      | { sessionId?: unknown; cwd?: unknown }
       | undefined
       | null;
-    if (resume?.sessionId && this.supportsLoad) {
+    if (
+      typeof resume?.sessionId === "string" &&
+      resume.sessionId.length > 0 &&
+      this.supportsLoad
+    ) {
+      this.cwd = await resolveAcpResumeCwd(resume.cwd, this.cwd);
       try {
         await this.connection.loadSession({
           sessionId: resume.sessionId,
@@ -303,17 +280,30 @@ class AcpHarnessSession implements AgentHarnessSession {
     yield* queue;
   }
 
-  async approve(approval: AgentHarnessApproval): Promise<void> {
+  approve(approval: AgentHarnessApproval): Promise<void> {
     const pending = this.pendingPermissions.get(approval.id);
-    if (!pending) return;
+    if (!pending) {
+      throw new Error(
+        `[acp-harness] Approval ${approval.id} is not pending in this process.`,
+      );
+    }
     this.pendingPermissions.delete(approval.id);
     pending.resolve(
       buildAcpPermissionResponse(pending.options, approval.approved),
     );
+    return Promise.resolve();
+  }
+
+  canResolveApproval(approval: AgentHarnessApproval): boolean {
+    return this.pendingPermissions.has(approval.id);
+  }
+
+  async checkpoint(): Promise<unknown> {
+    return { sessionId: this.acpSessionId, cwd: this.cwd };
   }
 
   async detach(): Promise<unknown> {
-    const state = { sessionId: this.acpSessionId, cwd: this.cwd };
+    const state = await this.checkpoint();
     await this.destroy();
     return state;
   }
@@ -342,8 +332,6 @@ class AcpHarnessSession implements AgentHarnessSession {
     }
   }
 
-  // --- ACP Client implementation (agent -> client) ---
-
   private createClient() {
     return {
       sessionUpdate: async (params: AcpSessionNotification) => {
@@ -369,8 +357,6 @@ class AcpHarnessSession implements AgentHarnessSession {
     ) {
       this.toolInputs.set(update.toolCallId, update.rawInput);
     }
-    // Updates that arrive without an active turn are history replay from
-    // loadSession; the transcript already contains them, so drop them.
     if (!this.queue) return;
     for (const event of acpUpdateToHarnessEvents(update, {
       titleFor: (id) => this.toolTitles.get(id),
@@ -393,7 +379,6 @@ class AcpHarnessSession implements AgentHarnessSession {
       if (optionId) return { outcome: { outcome: "selected", optionId } };
     }
     if (!this.queue) {
-      // No surface to prompt on: decline rather than hang the agent's turn.
       return buildAcpPermissionResponse(params.options ?? [], false);
     }
     const id = `acp-approval-${++this.approvalCounter}`;
@@ -458,9 +443,6 @@ class AcpHarnessSession implements AgentHarnessSession {
   }
 }
 
-// --- Pure helpers (exported for testing) ---
-
-/** Build the ACP prompt content blocks for a turn. */
 export function buildAcpPromptBlocks(input: {
   prompt?: string;
   messages?: AgentHarnessMessage[];
@@ -498,11 +480,6 @@ function messageToText(content: string | unknown[]): string {
     .join("");
 }
 
-/**
- * Translate a single ACP `session/update` payload into harness events. Pure and
- * stateless; the caller supplies a resolver for tool titles seen on earlier
- * `tool_call` updates so completion events can be labelled.
- */
 export function acpUpdateToHarnessEvents(
   update: AcpSessionUpdate,
   resolvers?:
@@ -526,7 +503,6 @@ export function acpUpdateToHarnessEvents(
       return text ? [{ type: "thinking-delta", text }] : [];
     }
     case "user_message_chunk":
-      // The user's own message; already in the transcript.
       return [];
     case "tool_call": {
       const events: AgentHarnessEvent[] = [
@@ -588,7 +564,6 @@ function isTerminalToolStatus(status: unknown): boolean {
   return status === "completed" || status === "failed";
 }
 
-/** Extract displayable text from an ACP content block. */
 export function acpContentBlockToText(
   block: AcpContentBlock | undefined,
 ): string {
@@ -617,7 +592,6 @@ function acpToolContentText(
     .join("\n");
 }
 
-/** Derive file-change events from a tool call's `diff` content blocks. */
 export function acpFileChangeEventsFromToolContent(
   content: AcpToolCallContent[] | undefined | null,
 ): AgentHarnessEvent[] {
@@ -697,11 +671,6 @@ function buildAcpPermissionResponse(
   return { outcome: { outcome: "cancelled" } };
 }
 
-/**
- * Resolve a path requested by the agent against the session workspace, refusing
- * anything that escapes it. The agent already has its own filesystem tools;
- * this `fs/*` surface is a scoped convenience, not an arbitrary read/write hole.
- */
 export function resolveAcpWorkspacePath(
   cwd: string,
   requestedPath: string,
@@ -721,6 +690,37 @@ export function resolveAcpWorkspacePath(
     );
   }
   return abs;
+}
+
+export async function resolveAcpResumeCwd(
+  checkpointCwd: unknown,
+  fallbackCwd: string,
+): Promise<string> {
+  if (checkpointCwd === undefined || checkpointCwd === null) {
+    return path.resolve(fallbackCwd);
+  }
+  if (typeof checkpointCwd !== "string" || !path.isAbsolute(checkpointCwd)) {
+    throw new Error(
+      "[acp-harness] Checkpoint working directory must be an absolute path.",
+    );
+  }
+
+  const cwd = path.resolve(checkpointCwd);
+  let stats: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stats = await fs.stat(cwd);
+  } catch (error) {
+    throw new Error(
+      `[acp-harness] Checkpoint working directory is not accessible: ${cwd}`,
+      { cause: error },
+    );
+  }
+  if (!stats.isDirectory()) {
+    throw new Error(
+      `[acp-harness] Checkpoint working directory is not a directory: ${cwd}`,
+    );
+  }
+  return cwd;
 }
 
 function sliceTextFile(
@@ -768,8 +768,6 @@ function isExplicitlyMissingAcpSession(error: unknown): boolean {
     message,
   );
 }
-
-// --- Minimal structural mirrors of the ACP schema (avoids a build-time dep) ---
 
 interface AcpContentBlock {
   type: string;
@@ -870,7 +868,6 @@ interface AcpPromptResponse {
   stopReason?: string;
 }
 
-/** Minimal async queue bridging ACP's callback updates to an async iterable. */
 class AsyncEventQueue<T> implements AsyncIterable<T> {
   private readonly values: T[] = [];
   private readonly resolvers: Array<(result: IteratorResult<T>) => void> = [];

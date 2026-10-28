@@ -1,10 +1,9 @@
-// View config CRUD: create, normalize, update, add, rename, duplicate, delete, move views.
-// Pure logic — no React, no icons.
 import type {
   ContentDatabaseView,
   ContentDatabaseViewConfig,
   ContentDatabaseViewType,
 } from "@shared/api";
+import { contentDatabaseItemLayoutField } from "@shared/database-item-layout";
 
 import {
   type DatabaseColumnCalculation,
@@ -38,6 +37,7 @@ export function createDatabaseView(
     id,
     name: name.trim() || databaseViewDefaultName(normalizedType),
     type: normalizedType,
+    icon: values.icon,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -61,6 +61,7 @@ export function createDatabaseView(
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
+    ...contentDatabaseItemLayoutField(values.itemLayout),
   };
 }
 
@@ -200,6 +201,7 @@ export function duplicateDatabaseView(
     uniqueDatabaseViewName(normalized.views, `${view.name} copy`),
     createDatabaseViewId(),
     {
+      icon: view.icon,
       sorts: view.sorts,
       filters: view.filters,
       filterMode: view.filterMode,
@@ -219,6 +221,7 @@ export function duplicateDatabaseView(
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
       formQuestions: view.formQuestions,
+      itemLayout: view.itemLayout,
     },
     view.type,
   );
@@ -323,6 +326,7 @@ function normalizeClientDatabaseView(
       : databaseViewDefaultName(type),
     value.id,
     {
+      icon: value.icon,
       sorts: Array.isArray(value.sorts)
         ? value.sorts.filter(isDatabaseSort)
         : [],
@@ -359,6 +363,7 @@ function normalizeClientDatabaseView(
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
       formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
+      itemLayout: value.itemLayout,
     },
     type,
   );
@@ -528,7 +533,6 @@ export function uniqueDatabaseViewName(
   }
 }
 
-// Normalize helpers used by normalizeClientDatabaseView and createDatabaseView.
 export function normalizeClientDatabaseFilterMode(
   value: unknown,
 ): import("./types").DatabaseFilterMode {

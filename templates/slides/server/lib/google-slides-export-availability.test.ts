@@ -45,7 +45,6 @@ describe("resolveGoogleSlidesExportAvailability", () => {
         preflight,
       }),
     ).resolves.toEqual({ available: true });
-    // Nothing is about to start an authorization request, so nothing to probe.
     expect(preflight).not.toHaveBeenCalled();
   });
 

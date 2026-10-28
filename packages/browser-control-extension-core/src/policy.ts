@@ -1,4 +1,3 @@
-// Policy validation belongs beside the protocol, before any Chrome API call.
 import type {
   BrowserCommand,
   BrowserKey,

@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import {
   forwardRef,
@@ -26,6 +26,11 @@ import { NativeSignInSheet } from "@/components/NativeSignInSheet";
 import { WebView } from "@/components/uniwind-interop";
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { registerMobileSlidesWebView } from "@/lib/mobile-deck-save-bridge";
+import {
+  settleMobileSessionStorageRead,
+  shouldShowMobileSessionLoadError,
+} from "@/lib/mobile-session-bootstrap";
 import { buildMobileGuestThemeScript } from "@/lib/mobile-theme";
 import { useNativeAppAuthState } from "@/lib/native-app-auth";
 import {
@@ -49,6 +54,7 @@ import {
 import {
   buildMobileWebViewAuthUrl,
   canCaptureMobileWebViewSession,
+  mobileWebViewTargetPath,
   resolveStickyWebViewUrl,
 } from "@/lib/webview-auth-url";
 import {
@@ -76,6 +82,8 @@ interface AppWebViewProps {
   sessionOwnerKey?: string;
   /** Workspace app id for the parent-authenticated embed-session path. */
   workspaceAppId?: string;
+  /** Enables the Slides-only save handshake for scoped mobile history restore. */
+  enableMobileDeckSaveFlushBridge?: boolean;
   /** Shown in the load-failure message, e.g. "Failed to load Calendar". */
   appName?: string;
 }
@@ -243,15 +251,6 @@ async function resolveGoogleAuthUrl(startUrl: string): Promise<string | null> {
   }
 }
 
-function embedTargetPath(rawUrl: string): string {
-  try {
-    const parsed = new URL(rawUrl);
-    return `${parsed.pathname || "/"}${parsed.search}`;
-  } catch {
-    return "/";
-  }
-}
-
 // Mirrors the framework's auth-entry grammar (see core's sign-in-journey):
 // an app can land on any of these when its session is gone.
 const SIGN_IN_ENTRY_PATHS = [
@@ -291,11 +290,15 @@ function AppWebView(
     parentSessionTokenKey,
     sessionOwnerKey,
     workspaceAppId,
+    enableMobileDeckSaveFlushBridge = false,
     appName,
   }: AppWebViewProps,
   ref: React.Ref<AppWebViewHandle>,
 ) {
   const webviewRef = useRef<WebViewRef>(null);
+  const mobileDeckSaveBridgeRef = useRef<ReturnType<
+    typeof registerMobileSlidesWebView
+  > | null>(null);
   const { destructive, foreground, primaryForeground, theme } =
     useMobileThemeColors();
   const [loading, setLoading] = useState(true);
@@ -305,6 +308,13 @@ function AppWebView(
     null,
   );
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  const [sessionLoadError, setSessionLoadError] = useState(false);
+  const sessionBootstrapCompleteRef = useRef(false);
+  const sessionBootstrapSucceededRef = useRef(false);
+  const sessionLoadErrorRef = useRef(false);
+  const sessionReadGenerationRef = useRef(0);
+  const sessionReadInFlightRef = useRef<Promise<void> | null>(null);
+  const hasFocusedSessionScreenRef = useRef(false);
   const [workspaceEmbedUrl, setWorkspaceEmbedUrl] = useState<string | null>(
     null,
   );
@@ -321,6 +331,10 @@ function AppWebView(
   const oauthInFlightRef = useRef(false);
   const sessionUrlLoadedRef = useRef(false);
   const isFocusedRef = useRef(false);
+  const invalidatePendingSessionReads = useCallback(() => {
+    sessionReadGenerationRef.current += 1;
+    sessionReadInFlightRef.current = null;
+  }, []);
   /**
    * The URL the mounted WebView is showing, and which account it belongs to.
    * The owner matters: a document loaded for a previous account must never be
@@ -402,47 +416,167 @@ function AppWebView(
   useImperativeHandle(ref, () => ({ reload }), [reload]);
 
   useEffect(() => {
+    if (
+      !enableMobileDeckSaveFlushBridge ||
+      (workspaceAppId !== undefined && workspaceAppId !== "slides")
+    ) {
+      return;
+    }
+    const bridge = registerMobileSlidesWebView((script) => {
+      const webview = webviewRef.current;
+      if (!webview) throw new Error("Slides WebView is not mounted.");
+      webview.injectJavaScript(script);
+    });
+    mobileDeckSaveBridgeRef.current = bridge;
+    return () => {
+      bridge.dispose();
+      if (mobileDeckSaveBridgeRef.current === bridge) {
+        mobileDeckSaveBridgeRef.current = null;
+      }
+    };
+  }, [enableMobileDeckSaveFlushBridge, workspaceAppId]);
+
+  useEffect(() => {
     webviewRef.current?.injectJavaScript(buildMobileGuestThemeScript(theme));
   }, [theme]);
 
-  const readStoredSessions = useCallback(async () => {
-    const [targetToken, parentToken] = await Promise.all([
-      getSessionToken(sessionTokenKey),
-      getSessionToken(resolvedParentSessionTokenKey),
-    ]);
-    let nextTargetToken = targetToken;
-    let nextParentToken = parentToken;
-    if (nativeAuthEnabled && parentToken) {
-      const parentCheck = await inspectNativeSessionShared(
-        parentToken,
-        NATIVE_AUTH_BASE_URL,
-      );
-      if (parentCheck.status === "invalid") {
-        const currentParentToken = await getSessionToken(
-          resolvedParentSessionTokenKey,
-        );
-        if (currentParentToken === parentToken) {
-          // A child WebView can observe a stale or transient validation
-          // failure while another app is using the same parent. Keep the
-          // central credential available for the next app; native sign-out
-          // is the only owner allowed to delete it.
-          nextParentToken = null;
-          if (sessionTokenKey === resolvedParentSessionTokenKey) {
-            nextTargetToken = null;
+  const readStoredSessions = useCallback(
+    (refresh = false) => {
+      if (!refresh && sessionReadInFlightRef.current) {
+        return sessionReadInFlightRef.current;
+      }
+
+      const generation = ++sessionReadGenerationRef.current;
+
+      if (!sessionBootstrapCompleteRef.current || sessionLoadErrorRef.current) {
+        setSessionLoaded(false);
+      }
+      sessionLoadErrorRef.current = false;
+      setSessionLoadError(false);
+      const request = (async () => {
+        try {
+          const result = await settleMobileSessionStorageRead(async () => {
+            const [targetToken, parentToken] = await Promise.all([
+              getSessionToken(sessionTokenKey),
+              getSessionToken(resolvedParentSessionTokenKey),
+            ]);
+            return { parentToken, targetToken };
+          });
+
+          if (generation !== sessionReadGenerationRef.current) return;
+
+          if (result.status === "error") {
+            if (
+              shouldShowMobileSessionLoadError(
+                sessionBootstrapSucceededRef.current,
+              )
+            ) {
+              lastTokenRef.current = null;
+              setSessionToken(null);
+              setParentSessionToken(null);
+              sessionLoadErrorRef.current = true;
+              setSessionLoadError(true);
+            }
+            console.warn(
+              "[mobile auth] stored session check did not complete",
+              {
+                reason: result.reason,
+              },
+            );
+            return;
           }
-        } else {
-          nextParentToken = currentParentToken;
-          if (sessionTokenKey === resolvedParentSessionTokenKey) {
-            nextTargetToken = currentParentToken;
+
+          let nextTargetToken = result.value.targetToken;
+          let nextParentToken = result.value.parentToken;
+          if (nativeAuthEnabled && result.value.parentToken) {
+            const parentCheck = await inspectNativeSessionShared(
+              result.value.parentToken,
+              NATIVE_AUTH_BASE_URL,
+            );
+            if (generation !== sessionReadGenerationRef.current) return;
+
+            if (parentCheck.status === "invalid") {
+              const currentParentResult = await settleMobileSessionStorageRead(
+                () => getSessionToken(resolvedParentSessionTokenKey),
+              );
+              if (generation !== sessionReadGenerationRef.current) return;
+              if (currentParentResult.status === "error") {
+                if (
+                  shouldShowMobileSessionLoadError(
+                    sessionBootstrapSucceededRef.current,
+                  )
+                ) {
+                  lastTokenRef.current = null;
+                  setSessionToken(null);
+                  setParentSessionToken(null);
+                  sessionLoadErrorRef.current = true;
+                  setSessionLoadError(true);
+                }
+                console.warn(
+                  "[mobile auth] stored parent session check did not complete",
+                  { reason: currentParentResult.reason },
+                );
+                return;
+              }
+
+              const currentParentToken = currentParentResult.value;
+              if (currentParentToken === result.value.parentToken) {
+                // A child WebView can observe a stale or transient validation
+                // failure while another app is using the same parent. Keep the
+                // central credential available for the next app; native sign-out
+                // is the only owner allowed to delete it.
+                nextParentToken = null;
+                if (sessionTokenKey === resolvedParentSessionTokenKey) {
+                  nextTargetToken = null;
+                }
+              } else {
+                nextParentToken = currentParentToken;
+                if (sessionTokenKey === resolvedParentSessionTokenKey) {
+                  nextTargetToken = currentParentToken;
+                }
+              }
+            }
+          }
+
+          sessionBootstrapSucceededRef.current = true;
+          lastTokenRef.current = nextTargetToken;
+          setSessionToken(nextTargetToken);
+          setParentSessionToken(nextParentToken);
+          sessionLoadErrorRef.current = false;
+        } catch (error) {
+          if (generation !== sessionReadGenerationRef.current) return;
+          if (
+            shouldShowMobileSessionLoadError(
+              sessionBootstrapSucceededRef.current,
+            )
+          ) {
+            lastTokenRef.current = null;
+            setSessionToken(null);
+            setParentSessionToken(null);
+            sessionLoadErrorRef.current = true;
+            setSessionLoadError(true);
+          }
+          console.warn("[mobile auth] stored session check failed", {
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+        } finally {
+          if (generation === sessionReadGenerationRef.current) {
+            sessionBootstrapCompleteRef.current = true;
+            setSessionLoaded(true);
           }
         }
-      }
-    }
-    lastTokenRef.current = nextTargetToken;
-    setSessionToken(nextTargetToken);
-    setParentSessionToken(nextParentToken);
-    setSessionLoaded(true);
-  }, [nativeAuthEnabled, resolvedParentSessionTokenKey, sessionTokenKey]);
+      })();
+      sessionReadInFlightRef.current = request;
+      const clearInFlight = () => {
+        if (sessionReadInFlightRef.current === request) {
+          sessionReadInFlightRef.current = null;
+        }
+      };
+      void request.then(clearInFlight, clearInFlight);
+      return request;
+    },
+    [nativeAuthEnabled, resolvedParentSessionTokenKey, sessionTokenKey],
+  );
 
   // Load stored session tokens on mount. The parent token and target app token
   // are intentionally separate for Clips and other app-scoped sessions.
@@ -486,7 +620,7 @@ function AppWebView(
       const mint = () =>
         createWorkspaceAppEmbedSession({
           app: workspaceAppId!,
-          path: embedTargetPath(url),
+          path: mobileWebViewTargetPath(url),
         });
       const known = peekWorkspaceSsoEnabled(parentSessionToken);
       if (known === false) {
@@ -539,7 +673,9 @@ function AppWebView(
   useFocusEffect(
     useCallback(() => {
       isFocusedRef.current = true;
-      void readStoredSessions();
+      const refresh = hasFocusedSessionScreenRef.current;
+      hasFocusedSessionScreenRef.current = true;
+      void readStoredSessions(refresh);
       return () => {
         isFocusedRef.current = false;
       };
@@ -567,7 +703,7 @@ function AppWebView(
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         setTimeout(() => {
-          void readStoredSessions();
+          void readStoredSessions(true);
         }, 1000);
       }
     });
@@ -633,18 +769,39 @@ function AppWebView(
         console.log("[oauth] auth session result:", result.type);
         if (result.type !== "success" || !result.url) return;
         const token = await completeOAuthCallback(result.url, oauthContext);
-        if (token && token !== lastTokenRef.current) {
-          lastTokenRef.current = token;
-          setSessionToken(token);
+        if (token) {
+          invalidatePendingSessionReads();
+          if (sessionTokenKey === resolvedParentSessionTokenKey) {
+            setParentSessionToken(token);
+          }
+          if (token !== lastTokenRef.current) {
+            lastTokenRef.current = token;
+            setSessionToken(token);
+          }
           return;
         }
         // The root deep-link handler can win the callback race on a cold or
         // resumed app. In that case it already persisted the validated token;
         // pick it up here so the WebView still transitions out of sign-in.
-        const storedToken = await getSessionToken(sessionTokenKey);
-        if (storedToken && storedToken !== lastTokenRef.current) {
-          lastTokenRef.current = storedToken;
-          setSessionToken(storedToken);
+        const storedTokenResult = await settleMobileSessionStorageRead(() =>
+          getSessionToken(sessionTokenKey),
+        );
+        if (storedTokenResult.status === "error") {
+          console.warn("[oauth] stored session check did not complete", {
+            reason: storedTokenResult.reason,
+          });
+          return;
+        }
+        const storedToken = storedTokenResult.value;
+        if (storedToken) {
+          invalidatePendingSessionReads();
+          if (sessionTokenKey === resolvedParentSessionTokenKey) {
+            setParentSessionToken(storedToken);
+          }
+          if (storedToken !== lastTokenRef.current) {
+            lastTokenRef.current = storedToken;
+            setSessionToken(storedToken);
+          }
         }
       } catch (e) {
         console.log("[oauth] auth session error:", String(e));
@@ -652,7 +809,13 @@ function AppWebView(
         oauthInFlightRef.current = false;
       }
     },
-    [oauthContext, persistOAuthReturnContext, sessionTokenKey],
+    [
+      invalidatePendingSessionReads,
+      oauthContext,
+      persistOAuthReturnContext,
+      resolvedParentSessionTokenKey,
+      sessionTokenKey,
+    ],
   );
 
   // Some core versions navigate the WebView straight to the auth-url endpoint,
@@ -722,6 +885,7 @@ function AppWebView(
       if (!isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)) return;
       try {
         const msg = JSON.parse(event.nativeEvent.data);
+        if (mobileDeckSaveBridgeRef.current?.receiveAck(msg)) return;
         if (workspaceAppId && msg.type === "agentNative.embedSessionExpired") {
           refreshWorkspaceEmbed(true);
           return;
@@ -738,6 +902,7 @@ function AppWebView(
           void (async () => {
             if (!isFocusedRef.current) return;
             await saveSessionToken(msg.token, sessionTokenKey);
+            invalidatePendingSessionReads();
             if (!isFocusedRef.current) return;
             if (sessionOwnerKey) {
               await AsyncStorage.setItem(
@@ -771,18 +936,28 @@ function AppWebView(
             // open or while the newly returned token is loading into the URL.
             if (oauthInFlightRef.current) return;
             if (!sessionUrlLoadedRef.current) {
-              const storedToken =
-                lastTokenRef.current ??
-                (await getSessionToken(sessionTokenKey));
+              const storedTokenResult = await settleMobileSessionStorageRead(
+                () => getSessionToken(sessionTokenKey),
+              );
+              if (storedTokenResult.status === "error") return;
+              const storedToken = storedTokenResult.value;
               if (storedToken) {
+                invalidatePendingSessionReads();
                 lastTokenRef.current = storedToken;
                 setSessionToken(storedToken);
+                if (sessionTokenKey === resolvedParentSessionTokenKey) {
+                  setParentSessionToken(storedToken);
+                }
                 return;
               }
             }
-            await clearSessionToken(sessionTokenKey);
-            if (sessionOwnerKey) {
-              await AsyncStorage.removeItem(sessionOwnerKey);
+            try {
+              await clearSessionToken(sessionTokenKey);
+              if (sessionOwnerKey) {
+                await AsyncStorage.removeItem(sessionOwnerKey);
+              }
+            } finally {
+              invalidatePendingSessionReads();
             }
             lastTokenRef.current = null;
             setSessionToken(null);
@@ -816,6 +991,8 @@ function AppWebView(
       openGoogleSession,
       refreshWorkspaceEmbed,
       workspaceAppId,
+      mobileDeckSaveBridgeRef,
+      invalidatePendingSessionReads,
     ],
   );
 
@@ -916,7 +1093,7 @@ function AppWebView(
 
   const handleNativeSignedIn = useCallback(async () => {
     setNativeSignInOpen(false);
-    await readStoredSessions();
+    await readStoredSessions(true);
     await import("@/lib/workspace-apps")
       .then(({ refreshWorkspaceApps }) => refreshWorkspaceApps())
       .catch(() => {});
@@ -930,6 +1107,28 @@ function AppWebView(
 
   if (!nativeAuthReady) {
     return <MobileWebViewLoading label="Preparing secure app sign-in…" />;
+  }
+
+  if (effectiveCaptureSessionToken && sessionLoadError) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background-pure px-7">
+        <Feather name="alert-circle" size={42} color={destructive} />
+        <Text className="mt-4 text-center text-white text-[18px] font-semibold">
+          Unable to check sign-in
+        </Text>
+        <TouchableOpacity
+          className="mt-5 flex-row items-center gap-2 rounded-lg bg-primary px-5 py-2.5 active:opacity-75"
+          onPress={() => void readStoredSessions(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Retry sign-in check"
+        >
+          <Feather name="refresh-cw" size={16} color={primaryForeground} />
+          <Text className="text-primary-foreground text-sm font-semibold">
+            Retry
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   if (effectiveCaptureSessionToken && !sessionLoaded) {

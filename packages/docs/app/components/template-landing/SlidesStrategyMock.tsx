@@ -54,11 +54,8 @@ const SLIDES_STRATEGY_MOCK_CSS = [
   ".slides-strategy-mock, .slides-strategy-mock * { box-sizing: border-box; }",
   ".slides-strategy-mock-frame { display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: var(--strategy-window-bg); border: 1px solid var(--strategy-window-border); font-family: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif; }",
 
-  // Mirrors the app tokens in templates/slides/app/global.css.
   ".slides-strategy-mock { --strategy-window-bg: hsl(0 0% 13%); --strategy-workspace-bg: hsl(0 0% 10%); --strategy-window-border: hsl(0 0% 24%); --strategy-fg-muted: hsl(0 0% 55%); }",
 
-  // The real contextual toolbar is a 40px row above the canvas with 28px ghost
-  // buttons, not a floating pill over the slide.
   ".slides-strategy-mock-toolbar { display: flex; height: 40px; flex-shrink: 0; align-items: center; gap: 2px; padding: 0 12px; }",
   ".slides-strategy-mock-btn { display: flex; width: 28px; height: 28px; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 6px; color: var(--strategy-fg-muted); }",
   ".slides-strategy-mock-divider { width: 1px; height: 18px; flex-shrink: 0; margin: 0 6px; background: var(--strategy-window-border); }",
@@ -72,9 +69,6 @@ const SLIDES_STRATEGY_MOCK_CSS = [
 
   SLIDE_ARTWORK_CSS,
 
-  // The slide is a fixed logical size, so its zoom steps down with the card:
-  // the use-case row narrows its media cell long before the page is anywhere
-  // near mobile. Stays after the artwork CSS so it wins on source order.
   "@media (max-width: 1320px) { .slides-strategy-mock-workspace { --sd-scale: 0.4; } }",
   "@media (max-width: 560px) { .slides-strategy-mock-workspace { --sd-scale: 0.29; padding: 16px; } }",
 ].join("\n");
@@ -96,7 +90,6 @@ export function SlidesStrategyMock({
       <div className="slides-strategy-mock-frame" aria-hidden="true">
         <div className="slides-strategy-mock-toolbar">
           {CONTEXT_TOOLS.map((Tool, index) => (
-            // Icon identity is the only distinguishing value in this list.
             <span key={index} className="slides-strategy-mock-btn">
               <Tool size={15} />
             </span>

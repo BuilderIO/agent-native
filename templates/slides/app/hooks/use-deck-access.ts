@@ -2,7 +2,6 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { toast } from "sonner";
 
 export type DeckAccessStatusResponse = {
   exists: boolean;
@@ -13,6 +12,10 @@ export type DeckAccessStatusResponse = {
   role: "owner" | "viewer" | "commenter" | "editor" | "admin" | null;
   visibility: "private" | "org" | "public" | null;
   accessRequestToken?: string;
+  pendingAccessRequest?: {
+    note: string | null;
+    notifiedOwner: boolean;
+  };
 };
 
 export function useDeckAccessStatus(deckId?: string) {
@@ -34,21 +37,14 @@ export type RequestDeckAccessResult = {
   message: string;
 };
 
-function showActionError(message: string) {
-  return (error: Error) => {
-    toast.error(
-      error.message
-        ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
-        : message,
-    );
-  };
-}
-
 export function useRequestDeckAccess() {
   return useActionMutation<
     RequestDeckAccessResult,
-    { accessRequestToken?: string; deckId: string; requesterEmail?: string }
-  >("request-deck-access", {
-    onError: showActionError("Failed to request access"),
-  });
+    {
+      accessRequestToken?: string;
+      deckId: string;
+      note?: string;
+      requesterEmail?: string;
+    }
+  >("request-deck-access");
 }

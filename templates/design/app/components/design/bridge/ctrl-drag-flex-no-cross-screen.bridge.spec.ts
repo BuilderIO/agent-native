@@ -3,17 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Figma parity (unique-paths-5): Ctrl/Cmd-drag overrides a flex/auto-layout
- * parent's normal reorder-only drag resistance, letting the child move (or
- * leave the row) freely. Reported bug: the drag instead got claimed by the
- * host's cross-screen reparent path the moment the pointer crossed the
- * screen's rendered edge, which has no ctrl-awareness at all — so the
- * child never actually left the flex row.
- *
- * Runs the real generated bridge in a real browser: flex layout and
- * getBoundingClientRect need a real layout engine, not happy-dom's stub.
- */
+const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
+
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -28,11 +19,6 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
-// Mirrors e2e/global-setup.ts's FIXTURE_HTML shape: an outer flex-COLUMN
-// (`main`, normal document flow, not absolutely positioned) containing a
-// nested flex-ROW of two named buttons, plus a trailing flow sibling to
-// drop onto — the exact structure parity-unique-paths.spec.ts's real e2e
-// test drags against.
 const FIXTURE = `<!doctype html><html><body style="margin:0">
   <main style="display:flex;flex-direction:column;gap:16px;padding:24px">
     <div data-agent-native-node-id="row" data-agent-native-layer-name="Row"
@@ -67,11 +53,6 @@ describe("Ctrl-drag out of an auto-layout parent", () => {
       });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
 
-      // Select Alpha directly via the same postMessage the Layers panel
-      // uses (app/components/design/bridge/editor-chrome.bridge.ts's
-      // "select-element" handler) — a click here would hit container-first
-      // selection ("row" first, since nothing is selected yet), which this
-      // test does not need to exercise.
       await page.evaluate(() => {
         window.postMessage(
           {
@@ -84,12 +65,12 @@ describe("Ctrl-drag out of an auto-layout parent", () => {
       await page.waitForTimeout(50);
 
       await page.mouse.move(74, 54);
-      await page.keyboard.down("Control");
+      await page.keyboard.down(IGNORE_AUTO_LAYOUT_KEY);
       await page.mouse.down();
       await page.mouse.move(74, 130, { steps: 10 });
       await page.waitForTimeout(50);
       await page.mouse.up();
-      await page.keyboard.up("Control");
+      await page.keyboard.up(IGNORE_AUTO_LAYOUT_KEY);
       await page.waitForTimeout(50);
 
       expect(
@@ -104,6 +85,130 @@ describe("Ctrl-drag out of an auto-layout parent", () => {
         rowHtml.includes('data-agent-native-node-id="alpha"'),
         `Ctrl-drag should be able to pull Alpha out of the flex row against normal auto-layout drag resistance; row still contains it: ${rowHtml}`,
       ).toBe(false);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("late Control cancels the host path before local Ignore Auto Layout resolves", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      const crossScreenMessages: string[] = [];
+      await page.exposeFunction("__pushCrossScreenLate", (phase: string) =>
+        crossScreenMessages.push(phase),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (e: MessageEvent) => {
+          const data = e.data as { type?: string; phase?: string };
+          if (data?.type === "agent-native:cross-screen-drag") {
+            (window as any).__pushCrossScreenLate(data.phase ?? "");
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="alpha"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+
+      await page.mouse.move(74, 54);
+      await page.mouse.down();
+      await page.mouse.move(74, 62, { steps: 2 });
+      const beforeModifier = crossScreenMessages.length;
+      await page.keyboard.down("Control");
+      await page.mouse.move(74, 260, { steps: 10 });
+      await page.waitForTimeout(50);
+      await page.mouse.up();
+      await page.keyboard.up("Control");
+
+      expect(
+        crossScreenMessages.slice(beforeModifier),
+        "a late Control transition must revoke the already-armed host gesture",
+      ).toEqual(["cancel"]);
+      const result = await page
+        .locator('[data-agent-native-node-id="alpha"]')
+        .evaluate((element) => ({
+          parent: element.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          position: getComputedStyle(element).position,
+        }));
+      expect(result.position).toBe("absolute");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("Control pressed after a host claim still cancels locally without another pointer move", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 800, height: 600 },
+      });
+      await page.setContent(FIXTURE);
+      const phases: string[] = [];
+      await page.exposeFunction("__pushCrossScreenNoMove", (phase: string) =>
+        phases.push(phase),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (e: MessageEvent) => {
+          const data = e.data as { type?: string; phase?: string };
+          if (data?.type !== "agent-native:cross-screen-drag") return;
+          (window as any).__pushCrossScreenNoMove(data.phase ?? "");
+          if (data.phase === "start") {
+            setTimeout(() => {
+              window.postMessage(
+                { type: "agent-native:cross-screen-claim", claimed: true },
+                "*",
+              );
+            }, 4);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="alpha"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+
+      await page.mouse.move(74, 54);
+      await page.mouse.down();
+      await page.mouse.move(74, 70, { steps: 3 });
+      await page.waitForTimeout(30);
+      await page.mouse.move(250, 200, { steps: 10 });
+      await page.keyboard.down("Control");
+      await page.mouse.up();
+      await page.keyboard.up("Control");
+      await page.waitForTimeout(50);
+
+      expect(phases).toContain("start");
+      expect(phases).toContain("cancel");
+      expect(phases).not.toContain("end");
+      const result = await page
+        .locator('[data-agent-native-node-id="alpha"]')
+        .evaluate((element) => ({
+          parent: element.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          position: getComputedStyle(element).position,
+        }));
+      expect(result.parent).not.toBe("row");
+      expect(result.position).toBe("absolute");
     } finally {
       await browser.close();
     }

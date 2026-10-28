@@ -6,10 +6,26 @@ const mocks = vi.hoisted(() => {
     where: vi.fn(),
   };
   selectChain.from.mockReturnValue(selectChain);
+  const contentSelectChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
+  contentSelectChain.from.mockReturnValue(contentSelectChain);
+  contentSelectChain.where.mockReturnValue(contentSelectChain);
+  const requestSelectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn(),
+  };
+  requestSelectChain.from.mockReturnValue(requestSelectChain);
+  requestSelectChain.where.mockReturnValue(requestSelectChain);
 
   return {
     getDb: vi.fn(() => ({
-      select: vi.fn(() => selectChain),
+      select: vi.fn((columns) =>
+        columns?.requesterEmail
+          ? requestSelectChain
+          : columns?.content
+            ? contentSelectChain
+            : selectChain,
+      ),
     })),
     parseCanvasFrameGeometryById: vi.fn((value) => value ?? []),
     listAppState: vi.fn(),
@@ -18,9 +34,12 @@ const mocks = vi.hoisted(() => {
     resolveAccess: vi.fn(),
     getReviewStatus: vi.fn(),
     getReviewThreadSummary: vi.fn(),
+    getReviewThreadRoot: vi.fn(),
     queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
+    contentSelectChain,
+    requestSelectChain,
     getDesignSystemRun: vi.fn(async ({ id }: { id: string }) => ({
       id,
       title: "Acme",
@@ -42,6 +61,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("@agent-native/core/review", () => ({
   getReviewStatus: mocks.getReviewStatus,
   getReviewThreadSummary: mocks.getReviewThreadSummary,
+  getReviewThreadRoot: mocks.getReviewThreadRoot,
   queryReviewComments: mocks.queryReviewComments,
   shouldRedactReviewIdentity: (
     ctx: { userEmail?: string | null } | undefined,
@@ -67,7 +87,9 @@ vi.mock("@agent-native/core/review", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ conditions })),
   eq: mocks.eq,
+  inArray: vi.fn((column, values) => ({ column, values })),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -80,6 +102,15 @@ vi.mock("../server/db/index.js", () => ({
       fileType: "designFiles.fileType",
       updatedAt: "designFiles.updatedAt",
       designId: "designFiles.designId",
+      content: "designFiles.content",
+    },
+    designReviewAgentRequests: {
+      id: "requests.id",
+      designId: "requests.designId",
+      threadId: "requests.threadId",
+      status: "requests.status",
+      intent: "requests.intent",
+      requesterEmail: "requests.requesterEmail",
     },
   },
 }));
@@ -103,7 +134,11 @@ describe("view-screen", () => {
     mocks.getReviewStatus.mockReset();
     mocks.getReviewThreadSummary.mockReset();
     mocks.queryReviewComments.mockReset();
+    mocks.getReviewThreadRoot.mockReset();
     mocks.selectChain.where.mockReset();
+    mocks.contentSelectChain.limit.mockResolvedValue([]);
+    mocks.requestSelectChain.limit.mockReset();
+    mocks.requestSelectChain.limit.mockResolvedValue([]);
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -119,15 +154,15 @@ describe("view-screen", () => {
       agentQueueCount: 0,
     });
     mocks.queryReviewComments.mockResolvedValue([]);
+    mocks.getReviewThreadRoot.mockResolvedValue(null);
   });
 
   it("reports the design's own linked design system, not just a template's", async () => {
-    // Choosing a system on an empty design writes it to the design row and
-    // nowhere else, so the agent's first read has to carry it.
     mocks.resolveAccess.mockResolvedValue({
       role: "editor",
       resource: {
         title: "Shared checkout",
+        liveCollaborationEnabled: true,
         designSystemId: "system-7",
         data: '{"canvasFrames":[]}',
       },
@@ -158,6 +193,7 @@ describe("view-screen", () => {
       expect.objectContaining({ compact: "true" }),
     );
     expect(result.design?.designSystemId).toBe("system-7");
+    expect(result.design?.liveCollaborationEnabled).toBe(true);
     expect(result.design?.designSystem).toMatchObject({
       status: "available",
       scope: "summary",
@@ -193,7 +229,172 @@ describe("view-screen", () => {
     expect(result.design?.designSystemId).toBeNull();
   });
 
+  it("shows the Interact preview's device and theme from the published selection", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "interact",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        interact: {
+          device: { name: "iPhone 17", width: 402, height: 874 },
+          theme: "dark",
+        },
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection.mode).toBe("interact");
+    expect(result.designSelection.interact).toEqual({
+      device: { name: "iPhone 17", width: 402, height: 874 },
+      theme: "dark",
+    });
+  });
+
+  it("reports a System theme as System, and describes the three themes to the agent", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "interact",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        interact: {
+          device: { name: "iPhone 17", width: 402, height: 874 },
+          theme: "system",
+        },
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection.interact.theme).toBe("system");
+    expect(action.tool.description).toMatch(
+      /theme, light, dark or system \(system, the default, shows the design as authored/,
+    );
+    expect(action.tool.description).not.toMatch(/follows the editor/);
+  });
+
+  it("hands the editor's mode, active tool and open panel to the agent as published", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        mode: "interact",
+        activeTool: "move",
+        leftPanel: "agent",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "interact",
+      activeTool: "move",
+      leftPanel: "agent",
+    });
+  });
+
+  it("hands the agent the Threads panel and the Comment tool while the user is pinning a comment", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        mode: "annotate",
+        activeTool: "comment",
+        leftPanel: "threads",
+      });
+    mocks.selectChain.where.mockResolvedValue([]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "annotate",
+      activeTool: "comment",
+      leftPanel: "threads",
+    });
+  });
+
+  it("does not report an inspector tab, even when a stale selection record has one", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "single",
+        mode: "edit",
+        activeFileId: "file_index",
+        activeFilename: "index.html",
+        inspectorTab: "comments",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.designSelection).toMatchObject({
+      mode: "edit",
+      activeFileId: "file_index",
+    });
+    expect(result.designSelection).not.toHaveProperty("inspectorTab");
+  });
+
   it("uses active file before overview multi-selection", async () => {
+    mocks.contentSelectChain.limit.mockResolvedValue([
+      {
+        content:
+          '<html><head><meta name="agent-native:frame-type" content="hubspot-email"></head><body>Email</body></html>',
+      },
+    ]);
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({
         view: "editor",
@@ -226,6 +427,7 @@ describe("view-screen", () => {
     expect(result.design.activeScreen).toMatchObject({
       id: "file_index",
       filename: "index.html",
+      frameType: "hubspot-email",
     });
   });
 
@@ -628,6 +830,272 @@ describe("view-screen", () => {
     expect(result.design.review).toMatchObject({
       openCount: 1,
       agentQueueCount: 0,
+    });
+  });
+
+  describe("the open review thread", () => {
+    function openEditorWithThread(reviewThreadId: string | null | undefined) {
+      mocks.readAppStateForCurrentTab
+        .mockResolvedValueOnce({
+          view: "editor",
+          editorView: "single",
+          designId: "design_123",
+          fileId: "file_checkout",
+        })
+        .mockResolvedValueOnce(
+          reviewThreadId === undefined
+            ? { activeFileId: "file_checkout" }
+            : { activeFileId: "file_checkout", reviewThreadId },
+        );
+      mocks.selectChain.where.mockResolvedValue([
+        {
+          id: "file_checkout",
+          filename: "checkout.html",
+          fileType: "html",
+          updatedAt: "2026-06-29T00:00:00.000Z",
+        },
+      ]);
+    }
+
+    const rootComment = {
+      id: "comment_root",
+      threadId: "thread_open",
+      parentCommentId: null,
+      targetId: "file_checkout",
+      status: "open",
+      body: "Hey @[Sam Lee](mailto:sam@example.com) make the button bigger",
+      anchor: { nodeId: "node_button", point: { xPct: 50, yPct: 50 } },
+      deletedAt: null,
+    };
+
+    it("is null when no thread is open, and does not look anything up", async () => {
+      openEditorWithThread(null);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toBeNull();
+      expect(mocks.getReviewThreadRoot).not.toHaveBeenCalled();
+    });
+
+    it("is null for a selection record that predates the field", async () => {
+      openEditorWithThread(undefined);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toBeNull();
+    });
+
+    it("summarizes a readable thread, including a resolved one", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue({
+        ...rootComment,
+        status: "resolved",
+      });
+      mocks.queryReviewComments.mockImplementation(
+        async (input: { includeResolved?: boolean }) =>
+          input.includeResolved
+            ? [
+                { ...rootComment, status: "resolved" },
+                {
+                  ...rootComment,
+                  id: "reply_1",
+                  parentCommentId: "comment_root",
+                  status: "resolved",
+                },
+                {
+                  ...rootComment,
+                  id: "other_root",
+                  threadId: "thread_other",
+                },
+              ]
+            : [],
+      );
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toEqual({
+        threadId: "thread_open",
+        screenId: "file_checkout",
+        anchorNodeId: "node_button",
+        status: "resolved",
+        activeAgentRequest: null,
+        commentCount: 2,
+        preview: "Hey @Sam Lee make the button bigger",
+      });
+      expect(mocks.getReviewThreadRoot).toHaveBeenCalledWith(
+        "thread_open",
+        { resourceType: "design", resourceId: "design_123" },
+        expect.anything(),
+        { bypassScope: true },
+      );
+      expect(mocks.queryReviewComments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          includeResolved: true,
+          includeDeleted: false,
+          targetId: "file_checkout",
+        }),
+      );
+    });
+
+    it("reports the agent run working on the thread, and whether it is the viewer's", async () => {
+      mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+      mocks.queryReviewComments.mockResolvedValue([rootComment]);
+      mocks.requestSelectChain.limit.mockResolvedValue([
+        {
+          id: "request_1",
+          status: "running",
+          intent: "apply-resolve",
+          requesterEmail: "me@example.com",
+        },
+      ]);
+
+      openEditorWithThread("thread_open");
+      const mine = JSON.parse(
+        await action.run({}, { caller: "tool", userEmail: "me@example.com" }),
+      );
+      openEditorWithThread("thread_open");
+      const theirs = JSON.parse(
+        await action.run({}, { caller: "tool", userEmail: "you@example.com" }),
+      );
+
+      expect(mine.design.review.openThread.activeAgentRequest).toEqual({
+        requestId: "request_1",
+        status: "running",
+        intent: "apply-resolve",
+        requesterIsMe: true,
+      });
+      expect(
+        theirs.design.review.openThread.activeAgentRequest.requesterIsMe,
+      ).toBe(false);
+    });
+
+    it("keeps an agent run that has not been classified yet as an unset intent", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+      mocks.queryReviewComments.mockResolvedValue([rootComment]);
+      mocks.requestSelectChain.limit.mockResolvedValue([
+        {
+          id: "request_2",
+          status: "classifying",
+          intent: null,
+          requesterEmail: "me@example.com",
+        },
+      ]);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread.activeAgentRequest).toMatchObject({
+        status: "classifying",
+        intent: null,
+      });
+    });
+
+    it("is unavailable, and logs, when the agent run lookup fails", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        openEditorWithThread("thread_open");
+        mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+        mocks.queryReviewComments.mockResolvedValue([rootComment]);
+        mocks.requestSelectChain.limit.mockRejectedValue(new Error("db down"));
+
+        const result = JSON.parse(await action.run({}));
+
+        expect(result.design.review.openThread).toEqual({
+          threadId: "thread_open",
+          unavailable: true,
+        });
+        expect(consoleError).toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("bounds the preview and reports a board thread with a null screen", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue({
+        ...rootComment,
+        targetId: null,
+        anchor: null,
+        body: "x".repeat(500),
+      });
+      mocks.queryReviewComments.mockResolvedValue([]);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toMatchObject({
+        threadId: "thread_open",
+        screenId: null,
+        anchorNodeId: null,
+        preview: "x".repeat(200),
+      });
+    });
+
+    it("says the count is cut off when the lookup hit its cap", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue(rootComment);
+      mocks.queryReviewComments.mockImplementation(async () =>
+        Array.from({ length: 500 }, (_, index) => ({
+          ...rootComment,
+          id: `comment_${index}`,
+        })),
+      );
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toMatchObject({
+        commentCount: 500,
+        commentCountTruncated: true,
+      });
+    });
+
+    it("is unavailable, not null, when the thread is not found", async () => {
+      openEditorWithThread("thread_gone");
+      mocks.getReviewThreadRoot.mockResolvedValue(null);
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toEqual({
+        threadId: "thread_gone",
+        unavailable: true,
+      });
+    });
+
+    it("is unavailable when the thread was deleted", async () => {
+      openEditorWithThread("thread_open");
+      mocks.getReviewThreadRoot.mockResolvedValue({
+        ...rootComment,
+        status: "deleted",
+        deletedAt: "2026-06-29T00:00:00.000Z",
+      });
+
+      const result = JSON.parse(await action.run({}));
+
+      expect(result.design.review.openThread).toEqual({
+        threadId: "thread_open",
+        unavailable: true,
+      });
+    });
+
+    it("is unavailable, and logs, when the lookup throws", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        openEditorWithThread("thread_open");
+        mocks.getReviewThreadRoot.mockRejectedValue(new Error("db down"));
+
+        const result = JSON.parse(await action.run({}));
+
+        expect(result.design.review.openThread).toEqual({
+          threadId: "thread_open",
+          unavailable: true,
+        });
+        expect(consoleError).toHaveBeenCalled();
+      } finally {
+        consoleError.mockRestore();
+      }
     });
   });
 

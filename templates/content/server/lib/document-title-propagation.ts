@@ -1,13 +1,52 @@
-import { eq, inArray } from "drizzle-orm";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq, inArray, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+
+const filesTitle = (title: string) => title.trim() || "Untitled";
+
+/**
+ * The title `propagateDocumentTitle` leaves on the page that backs
+ * `database`: the page of a Files space is never blank.
+ */
+export function propagatedPageTitle(
+  title: string,
+  database: { systemRole: string | null; spaceId: string | null } | undefined,
+): string {
+  return database?.systemRole === "files" && database.spaceId
+    ? filesTitle(title)
+    : title;
+}
 
 export async function propagateDocumentTitle(args: {
   db: ReturnType<typeof getDb>;
   documentId: string;
   title: string;
   updatedAt: string;
+  organizationIds: readonly string[];
+  databaseId: string | null;
 }): Promise<void> {
+  if (args.databaseId === null) return;
+  const userEmail = getRequestUserEmail();
+  const orgIds = new Set([
+    ...args.organizationIds,
+    ...(getRequestOrgId() ? [getRequestOrgId()!] : []),
+  ]);
+  const documentEditorAccess = or(
+    ...[
+      { userEmail: userEmail ?? undefined },
+      ...[...orgIds].map((orgId) => ({
+        userEmail: userEmail ?? undefined,
+        orgId,
+      })),
+    ].map((context) =>
+      accessFilter(schema.documents, schema.documentShares, context, "editor"),
+    ),
+  )!;
   const [database] = await args.db
     .select({
       id: schema.contentDatabases.id,
@@ -15,13 +54,17 @@ export async function propagateDocumentTitle(args: {
       systemRole: schema.contentDatabases.systemRole,
     })
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.documentId, args.documentId));
+    .where(
+      and(
+        eq(schema.contentDatabases.id, args.databaseId),
+        eq(schema.contentDatabases.documentId, args.documentId),
+      ),
+    )
+    .limit(1);
   if (!database) return;
 
   const title =
-    database.systemRole === "files"
-      ? args.title.trim() || "Untitled"
-      : args.title;
+    database.systemRole === "files" ? filesTitle(args.title) : args.title;
   await args.db
     .update(schema.contentDatabases)
     .set({ title, updatedAt: args.updatedAt })
@@ -31,7 +74,7 @@ export async function propagateDocumentTitle(args: {
   await args.db
     .update(schema.documents)
     .set({ title, updatedAt: args.updatedAt })
-    .where(eq(schema.documents.id, args.documentId));
+    .where(and(eq(schema.documents.id, args.documentId), documentEditorAccess));
   await args.db
     .update(schema.contentSpaces)
     .set({ name: title, updatedAt: args.updatedAt })
@@ -46,9 +89,12 @@ export async function propagateDocumentTitle(args: {
     .update(schema.documents)
     .set({ title, updatedAt: args.updatedAt })
     .where(
-      inArray(
-        schema.documents.id,
-        catalogReferences.map((reference) => reference.documentId),
+      and(
+        inArray(
+          schema.documents.id,
+          catalogReferences.map((reference) => reference.documentId),
+        ),
+        documentEditorAccess,
       ),
     );
 }

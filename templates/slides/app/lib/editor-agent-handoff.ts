@@ -1,20 +1,9 @@
-/**
- * Editor controls hand content to the agent through the browser chat bridge,
- * never through the isomorphic `agentChat` helper exported by
- * `@agent-native/core`. The isomorphic helper is a bare `postMessage`: it does
- * not ask the agent panel to open and does not buffer the submit. `AgentPanel`
- * only mounts the chat (and therefore the `agentNative.submitChat` listener)
- * while the sidebar is open or a run is active, so a bare post made from a
- * collapsed sidebar is dropped outright rather than delivered silently.
- */
-
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 
 import type { DrawAnnotation } from "../components/visual-editor/DrawOverlay";
 
 export interface EditorAgentPrompt {
   message: string;
-  /** false prefills the composer for review; true sends the turn. */
   submit: boolean;
 }
 
@@ -55,10 +44,45 @@ export function buildDrawingHandoffPrompt(args: {
   };
 }
 
-/**
- * Deliver an editor prompt to this app's agent sidebar, opening it first when
- * it is collapsed.
- */
+export type ContextToolbarQuickPick =
+  | "tightenTone"
+  | "polish"
+  | "translate"
+  | "makeMoreVisual"
+  | "generateImage"
+  | "removeBackground";
+
+// Agent-facing instructions, not UI copy: the visible labels are localized.
+const QUICK_PICK_INSTRUCTIONS: Record<ContextToolbarQuickPick, string> = {
+  tightenTone: "Tighten the tone of the selected text: shorter, more direct.", // i18n-ignore agent prompt
+  polish: "Polish the selected text: fix grammar and flow, keep the meaning.", // i18n-ignore agent prompt
+  translate:
+    "Translate the selected text. Ask which language if it is not obvious.", // i18n-ignore agent prompt
+  makeMoreVisual:
+    "Make the selected content more visual: replace prose with a clearer layout, diagram, or imagery.", // i18n-ignore agent prompt
+  generateImage: "Generate a new image to replace the selected image.", // i18n-ignore agent prompt
+  removeBackground: "Remove the background from the selected image.", // i18n-ignore agent prompt
+};
+
+export function buildQuickPickPrompt(args: {
+  pick: ContextToolbarQuickPick;
+  slideNumber: number;
+  slideId: string;
+  selectors: readonly string[];
+}): EditorAgentPrompt {
+  return {
+    message: [
+      `[Current selection on slide ${args.slideNumber} (${args.slideId}): ${args.selectors.join(", ")}]`,
+      QUICK_PICK_INSTRUCTIONS[args.pick],
+    ].join("\n"),
+    submit: true,
+  };
+}
+
+export function openAgentPanel(): void {
+  window.dispatchEvent(new Event("agent-panel:open"));
+}
+
 export function sendEditorPromptToAgent(prompt: EditorAgentPrompt): void {
   sendToAgentChat({
     message: prompt.message,

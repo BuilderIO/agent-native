@@ -1,27 +1,11 @@
-/**
- * Server-side agent-chat proxy for an app opened inside Dispatch.
- *
- * The Desktop app already solves this by pointing the rail's `apiUrl` at a
- * loopback relay onto the target app's `/_agent-native/agent-chat`, so parity
- * with the app's native chat holds structurally instead of by copying tools and
- * instructions into Dispatch's agent. This is the web equivalent: Dispatch
- * forwards the whole agent-chat subtree to the app's own server.
- *
- * Credential: the app's OWN embed session, minted through the existing paths in
- * `mcp-gateway.ts` — the same credential the app pane's iframe already runs on.
- * Dispatch consumes the one-time ticket server-side and reuses the resulting
- * short-lived embed token as a bearer, which is an authentication path the
- * framework already accepts (`resolveEmbedSessionFromRequest`). No new auth
- * scheme, and no token gains scope it did not already have.
- *
- * A dedicated Nitro route rather than an action: agent-chat streams (SSE for
- * `/runs/:id/events`, a token stream for the turn itself) and returns non-JSON
- * bodies, which is the documented exception in CLAUDE.md to the
- * actions-over-routes rule.
- */
-
 import { getOrgContext } from "@agent-native/core/org";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getAppProductionUrl,
+  getForwardedRequestOrigin,
+  getSession,
+  resolveAppRuntimeUrl,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
@@ -29,8 +13,8 @@ import {
 
 import { parseWorkspaceAppChatProxyPath } from "../../shared/workspace-app-chat.js";
 import {
-  createGrantedDispatchMcpEmbedSession,
-  createWorkspaceSsoEmbedSession,
+  createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
+  createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
 } from "./mcp-gateway.js";
 
 const TARGET_CHAT_PATH = "/_agent-native/agent-chat";
@@ -57,7 +41,6 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 
-/** Headers Dispatch owns on the upstream call, or that must not cross origins. */
 const DROPPED_REQUEST_HEADERS = new Set([
   "accept-encoding",
   "authorization",
@@ -69,10 +52,6 @@ const DROPPED_REQUEST_HEADERS = new Set([
   EMBED_TARGET_HEADER,
 ]);
 
-/**
- * `set-cookie` would land on Dispatch's origin, and the encoding/length headers
- * describe the upstream wire body, which `fetch` has already decoded.
- */
 const DROPPED_RESPONSE_HEADERS = new Set([
   "content-encoding",
   "content-length",
@@ -81,7 +60,6 @@ const DROPPED_RESPONSE_HEADERS = new Set([
 ]);
 
 export interface WorkspaceAppChatSession {
-  /** Target app root, including any configured base path. */
   appBaseUrl: string;
   token: string;
   embedTarget: string;
@@ -90,12 +68,75 @@ export interface WorkspaceAppChatSession {
 
 const sessionCache = new Map<string, Promise<WorkspaceAppChatSession>>();
 
+interface WorkspaceAppChatProxyEvent {
+  url: URL;
+  req: Request;
+  context?: Record<string, unknown>;
+}
+
 function sessionCacheKey(input: {
   appId: string;
   userEmail: string;
   orgId: string | undefined;
+  requestOrigin: string;
 }): string {
-  return [input.userEmail, input.orgId ?? "", input.appId].join("\u0000");
+  return [
+    input.userEmail,
+    input.orgId ?? "",
+    input.requestOrigin,
+    input.appId,
+  ].join("\u0000");
+}
+
+type HttpOriginResult =
+  | { kind: "absent" }
+  | { kind: "invalid"; cause: unknown }
+  | { kind: "valid"; origin: string };
+
+function httpOrigin(value: string | undefined): HttpOriginResult {
+  if (value === undefined) return { kind: "absent" };
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return {
+        kind: "invalid",
+        cause: new Error("Application origin must use HTTP or HTTPS."),
+      };
+    }
+    return { kind: "valid", origin: url.origin };
+  } catch (cause) {
+    return { kind: "invalid", cause };
+  }
+}
+
+function trustedWorkspaceRequestOrigin(
+  event: WorkspaceAppChatProxyEvent,
+): string {
+  const configured = httpOrigin(getAppProductionUrl());
+  const runtime = httpOrigin(resolveAppRuntimeUrl());
+  const request = httpOrigin(
+    getForwardedRequestOrigin(
+      event as unknown as Parameters<typeof getForwardedRequestOrigin>[0],
+    ),
+  );
+  const allowedOrigins = new Set(
+    [configured, runtime]
+      .filter(
+        (result): result is Extract<HttpOriginResult, { kind: "valid" }> =>
+          result.kind === "valid",
+      )
+      .map((result) => result.origin),
+  );
+
+  if (request.kind === "valid" && allowedOrigins.has(request.origin)) {
+    return request.origin;
+  }
+  if (configured.kind === "valid") return configured.origin;
+  if (runtime.kind === "valid") return runtime.origin;
+  if (configured.kind === "invalid" || runtime.kind === "invalid") {
+    throw new Error("Configured application origin is invalid.");
+  }
+  throw new Error("No trusted application origin is configured for app chat.");
 }
 
 function errorMessage(error: unknown): string {
@@ -127,17 +168,16 @@ export function embedSessionTokenExpiry(token: string): number {
   return exp * 1000;
 }
 
-async function mintEmbedStartUrl(appId: string): Promise<string> {
-  const input = { app: appId, path: "/", chrome: "minimal" } as const;
-  // Mirrors `WorkspaceAppFrame`: the workspace-sign-in mint when the rollout
-  // covers this app, the Dispatch MCP grant mint otherwise. Both return the
-  // target app's own embed session — neither is a fallback onto Dispatch's
-  // agent, which this proxy must never do.
+async function mintEmbedStartUrl(
+  appId: string,
+): Promise<{ startUrl: string; appBaseUrl: string }> {
   try {
-    return (await createWorkspaceSsoEmbedSession(input)).startUrl;
+    return await createWorkspaceSsoEmbedSessionForWorkspaceAppChat(appId);
   } catch (ssoError) {
     try {
-      return (await createGrantedDispatchMcpEmbedSession(input)).startUrl;
+      return await createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+        appId,
+      );
     } catch (grantError) {
       throw new Error(
         `Could not create an app session for "${appId}". ` +
@@ -148,13 +188,9 @@ async function mintEmbedStartUrl(appId: string): Promise<string> {
   }
 }
 
-/**
- * Exchange the one-time embed ticket for the reusable short-lived token. The
- * target's embed-start route answers a redirect whose location carries both the
- * token and the path the token is bound to.
- */
 export async function exchangeEmbedStartUrl(
   startUrl: string,
+  expectedAppBaseUrl: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WorkspaceAppChatSession> {
   const start = new URL(startUrl);
@@ -162,8 +198,6 @@ export async function exchangeEmbedStartUrl(
   if (startIndex < 0) {
     throw new Error("App session start URL is not an embed start route.");
   }
-  const appBaseUrl = `${start.origin}${start.pathname.slice(0, startIndex)}`;
-
   const response = await fetchImpl(start.toString(), { redirect: "manual" });
   await response.body?.cancel().catch(() => undefined);
   const location = response.headers.get("location");
@@ -174,22 +208,48 @@ export async function exchangeEmbedStartUrl(
   }
 
   const resolved = new URL(location, start);
+  if (resolved.origin !== start.origin) {
+    throw new Error("App session exchange redirected to an untrusted origin.");
+  }
+  const expectedApp = new URL(expectedAppBaseUrl);
+  if (
+    expectedApp.origin !== start.origin ||
+    !isWithinAppMount(expectedApp.pathname, resolved.pathname)
+  ) {
+    throw new Error("App session exchange redirected outside its app mount.");
+  }
   const token = resolved.searchParams.get(EMBED_TOKEN_QUERY_PARAM);
   if (!token) {
     throw new Error("App session exchange returned no embed token.");
   }
   return {
-    appBaseUrl,
+    appBaseUrl: `${expectedApp.origin}${expectedApp.pathname.replace(/\/+$/, "")}`,
     token,
     embedTarget: resolved.pathname,
     expiresAt: embedSessionTokenExpiry(token),
   };
 }
 
+function appPathSegments(pathname: string): string[] | null {
+  return pathname.split("/").filter(Boolean);
+}
+
+function isWithinAppMount(mountPath: string, targetPath: string): boolean {
+  const mount = appPathSegments(mountPath);
+  const target = appPathSegments(targetPath);
+  return (
+    mount !== null &&
+    target !== null &&
+    mount.length <= target.length &&
+    mount.every((segment, index) => target[index] === segment)
+  );
+}
+
 async function resolveWorkspaceAppChatSession(input: {
   appId: string;
   userEmail: string;
   orgId: string | undefined;
+  requestOrigin: string;
   fetchImpl: typeof fetch;
 }): Promise<WorkspaceAppChatSession> {
   const key = sessionCacheKey(input);
@@ -213,12 +273,16 @@ async function resolveWorkspaceAppChatSession(input: {
       {
         userEmail: input.userEmail,
         ...(input.orgId ? { orgId: input.orgId } : {}),
+        requestOrigin: input.requestOrigin,
       },
-      async () =>
-        exchangeEmbedStartUrl(
-          await mintEmbedStartUrl(input.appId),
+      async () => {
+        const embedSession = await mintEmbedStartUrl(input.appId);
+        return exchangeEmbedStartUrl(
+          embedSession.startUrl,
+          embedSession.appBaseUrl,
           input.fetchImpl,
-        ),
+        );
+      },
     ),
   );
   sessionCache.set(key, pending);
@@ -230,7 +294,6 @@ async function resolveWorkspaceAppChatSession(input: {
   }
 }
 
-/** Test seam: drop cached app sessions so a spec starts from a cold proxy. */
 export function clearWorkspaceAppChatSessions(): void {
   sessionCache.clear();
 }
@@ -249,17 +312,11 @@ function upstreamRequestHeaders(
   }
   headers.set("authorization", `Bearer ${session.token}`);
   headers.set(EMBED_TARGET_HEADER, session.embedTarget);
-  // Documented same-origin marker (see packages/core/src/server/csrf.ts). The
-  // proxy sends no cookies, but stating first-party intent keeps the contract
-  // explicit rather than relying on the no-cookie shortcut.
   headers.set(CSRF_MARKER_HEADER, "1");
   return headers;
 }
 
 function proxyErrorResponse(status: number, message: string): Response {
-  // An unavailable proxy is a visible failure. Dispatch must never answer an
-  // app-scoped chat request with its own agent: that would look like it worked
-  // while silently supplying the wrong tools and instructions.
   return new Response(JSON.stringify({ error: message }), {
     status,
     headers: {
@@ -269,27 +326,15 @@ function proxyErrorResponse(status: number, message: string): Response {
   });
 }
 
-/** h3 v2 request event: `url` is the parsed URL and `req` is the web Request. */
-interface WorkspaceAppChatProxyEvent {
-  url: URL;
-  req: Request;
-}
-
 export function createWorkspaceAppChatProxyHandler(
   options: { fetchImpl?: typeof fetch } = {},
 ) {
   const fetchImpl = options.fetchImpl ?? fetch;
   return async (event: WorkspaceAppChatProxyEvent): Promise<Response> => {
     const url = event.url;
-    // The framework's `.use(prefix, handler)` contract strips the mount prefix
-    // from `url.pathname` before invoking us. Parse the preserved full path so
-    // the app id is not lost in production while keeping direct handler calls
-    // and tests compatible.
-    const mountedPathname = (
-      event as WorkspaceAppChatProxyEvent & {
-        context?: { _mountedPathname?: string };
-      }
-    ).context?._mountedPathname;
+    const rawMountedPathname = event.context?._mountedPathname;
+    const mountedPathname =
+      typeof rawMountedPathname === "string" ? rawMountedPathname : undefined;
     const parsed = parseWorkspaceAppChatProxyPath(
       mountedPathname ?? url.pathname,
     );
@@ -297,9 +342,6 @@ export function createWorkspaceAppChatProxyHandler(
       return proxyErrorResponse(404, "Workspace app chat route not found.");
     }
 
-    // "Not signed in" and "the session store did not answer" are different
-    // failures. Telling a signed-in user to sign in during an outage is the
-    // confidently-wrong report this proxy must not produce.
     let session: Awaited<ReturnType<typeof getSession>>;
     let orgId: string | undefined;
     try {
@@ -315,12 +357,15 @@ export function createWorkspaceAppChatProxyHandler(
       return proxyErrorResponse(401, "Sign in to Dispatch to use app chat.");
     }
 
+    let requestOrigin: string;
     let appSession: WorkspaceAppChatSession;
     try {
+      requestOrigin = trustedWorkspaceRequestOrigin(event);
       appSession = await resolveWorkspaceAppChatSession({
         appId: parsed.appId,
         userEmail: session.email,
         orgId,
+        requestOrigin,
         fetchImpl,
       });
     } catch (error) {
@@ -341,9 +386,6 @@ export function createWorkspaceAppChatProxyHandler(
     target.search = url.search;
 
     const method = request.method.toUpperCase();
-    // The turn body is a small JSON payload, so buffering the REQUEST costs
-    // nothing and avoids half-duplex streaming support varying by runtime. The
-    // RESPONSE is the streaming half and is piped through untouched below.
     const body =
       method === "GET" || method === "HEAD"
         ? undefined
@@ -369,15 +411,13 @@ export function createWorkspaceAppChatProxyHandler(
       );
     }
 
-    // A rejected embed session is not a transport failure: drop the cached
-    // credential so the next request re-mints instead of looping on a token the
-    // app has already stopped honouring.
     if (upstream.status === 401 || upstream.status === 403) {
       sessionCache.delete(
         sessionCacheKey({
           appId: parsed.appId,
           userEmail: session.email,
           orgId,
+          requestOrigin,
         }),
       );
     }

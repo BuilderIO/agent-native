@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   extractMcpToolResultImages,
@@ -10,9 +11,6 @@ import {
   syncMcpActionEntries,
 } from "./index.js";
 import { McpClientManager } from "./manager.js";
-
-// Reuse the stdio/client fakes from manager.spec.ts so the ActionEntry
-// wrapper can exercise a real McpClientManager end-to-end.
 
 const serverFixtures: Record<
   string,
@@ -100,8 +98,8 @@ describe("mcpToolsToActionEntries", () => {
       "mcp__x__pong",
     ]);
     for (const entry of Object.values(entries)) {
-      // MCP tools must never be auto-exposed as HTTP endpoints.
       expect(entry.http).toBe(false);
+      expect(entry.fromMcpServer).toBe(true);
       expect(typeof entry.run).toBe("function");
       expect(typeof entry.planMode?.effect).toBe("function");
     }
@@ -146,7 +144,7 @@ describe("mcpToolsToActionEntries", () => {
 
   it("flattens text content blocks into the tool result string", async () => {
     serverFixtures["x-bin"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => ({
         content: [
           { type: "text", text: "line one" },
@@ -169,6 +167,75 @@ describe("mcpToolsToActionEntries", () => {
         { type: "text", text: "line two" },
       ],
     });
+  });
+
+  it("prefers full structured content for read-only MCP tools", async () => {
+    const content = "Full source content ".repeat(250);
+    const structuredContent = {
+      id: "source-1",
+      content,
+      provenance: { contentSha256: "abc123" },
+    };
+    serverFixtures["x-bin"] = {
+      tools: [
+        {
+          name: "get-source",
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      callImpl: () => ({
+        content: [
+          {
+            type: "text",
+            text: `${JSON.stringify(structuredContent).slice(0, 1999)}…`,
+          },
+          {
+            type: "resource_link",
+            uri: "https://example.test/source-1",
+            mimeType: "text/markdown",
+          },
+          { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        ],
+        structuredContent,
+        _meta: { authorization: "private metadata" },
+      }),
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const result = await mcpToolsToActionEntries(mgr)["mcp__x__get-source"].run(
+      {},
+    );
+
+    expect(isMcpActionResult(result)).toBe(true);
+    if (!isMcpActionResult(result)) throw new Error("Expected MCP result");
+    expect(result.text).toContain(content);
+    expect(result.text).toContain('"contentSha256": "abc123"');
+    expect(result.text).toContain(
+      "[resource: text/markdown https://example.test/source-1]",
+    );
+    expect(result.text).toContain("[image: image/png]");
+    expect(result.text).not.toContain("private metadata");
+  });
+
+  it("keeps text content for non-read-only MCP tools with structured content", async () => {
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "write" }],
+      callImpl: () => ({
+        content: [{ type: "text", text: "Mutation completed" }],
+        structuredContent: { status: "ok" },
+      }),
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const result = await mcpToolsToActionEntries(mgr)["mcp__x__write"].run({});
+
+    expect(isMcpActionResult(result)).toBe(true);
+    if (!isMcpActionResult(result)) throw new Error("Expected MCP result");
+    expect(result.text).toBe("Mutation completed");
   });
 
   it("threads MCP readOnlyHint annotations into ActionEntry metadata", async () => {
@@ -222,7 +289,140 @@ describe("mcpToolsToActionEntries", () => {
     expect(entries["mcp__x__mutate"].allowPersistentApproval).toBe(false);
   });
 
-  it("updates existing MCP ActionEntry metadata when the manager tool set changes", () => {
+  it("rechecks app authorization immediately before every MCP invocation", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    let allowed = false;
+    const authorize = vi.fn(
+      async (_args: Record<string, unknown>, _context?: ActionRunContext) =>
+        allowed,
+    );
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+    const context = {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      caller: "tool",
+    } satisfies ActionRunContext;
+    const args = { recordId: "record-1" };
+
+    await expect(entry.run(args, context)).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message: "Not authorized",
+    });
+    expect(callImpl).not.toHaveBeenCalled();
+
+    allowed = true;
+    const result = await entry.run(args, context);
+
+    expect(isMcpActionResult(result)).toBe(true);
+    expect(callImpl).toHaveBeenCalledWith("mutate", args);
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(authorize).toHaveBeenNthCalledWith(1, args, context);
+    expect(authorize).toHaveBeenNthCalledWith(2, args, context);
+  });
+
+  it("authorizes once when the manager resolver supersedes the wrapper fallback", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const authorize = vi.fn(async () => true);
+    mgr.setToolAuthorizationResolver(() => authorize);
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+    const context = {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      caller: "tool",
+    } satisfies ActionRunContext;
+    const args = { recordId: "record-1" };
+
+    const result = await entry.run(args, context);
+
+    expect(isMcpActionResult(result)).toBe(true);
+    expect(authorize).toHaveBeenCalledOnce();
+    expect(authorize).toHaveBeenCalledWith(args, context);
+    expect(callImpl).toHaveBeenCalledOnce();
+  });
+
+  it("propagates a custom 403 authorization error", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "updated" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "mutate", description: "Mutate state" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+    const denied = Object.assign(new Error("Workspace access revoked"), {
+      statusCode: 403,
+    });
+    const authorize = vi.fn(async () => {
+      throw denied;
+    });
+    const entry = mcpToolsToActionEntries(mgr, {
+      resolveActionEntry: () => ({ authorize }),
+    })["mcp__x__mutate"];
+
+    await expect(
+      entry.run(
+        { recordId: "record-1" },
+        {
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+          caller: "tool",
+        },
+      ),
+    ).rejects.toBe(denied);
+    expect(callImpl).not.toHaveBeenCalled();
+  });
+
+  it("updates existing MCP ActionEntry policy when the manager tool set changes", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "inspected" }],
+    }));
+    serverFixtures["x-bin"] = {
+      tools: [
+        {
+          name: "inspect",
+          description: "New description",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+          annotations: { readOnlyHint: true },
+        },
+      ],
+      callImpl,
+    };
+    const manager = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await manager.start();
     const target: Record<string, ActionEntry> = {
       mcp__x__inspect: {
         tool: {
@@ -233,30 +433,13 @@ describe("mcpToolsToActionEntries", () => {
         run: async () => "old",
       },
     };
-    const manager = {
-      getTools: () => [
-        {
-          source: "x",
-          name: "mcp__x__inspect",
-          originalName: "inspect",
-          description: "New description",
-          inputSchema: {
-            type: "object",
-            properties: { id: { type: "string" } },
-            required: ["id"],
-          },
-          annotations: { readOnlyHint: true },
-          raw: { annotations: { readOnlyHint: true } },
-        },
-      ],
-      callTool: vi.fn(),
-      readResourceForTool: vi.fn(),
-    } as unknown as McpClientManager;
+    const authorize = vi.fn(async () => false);
 
     syncMcpActionEntries(manager, target, {
       resolveActionEntry: () => ({
         needsApproval: true,
         allowPersistentApproval: false,
+        authorize,
       }),
     });
 
@@ -271,13 +454,25 @@ describe("mcpToolsToActionEntries", () => {
     expect(target["mcp__x__inspect"].readOnly).toBe(true);
     expect(target["mcp__x__inspect"].needsApproval).toBe(true);
     expect(target["mcp__x__inspect"].allowPersistentApproval).toBe(false);
+    await expect(
+      target["mcp__x__inspect"].run(
+        { id: "record-1" },
+        { caller: "tool", userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
+    expect(authorize).toHaveBeenCalledWith(
+      { id: "record-1" },
+      { caller: "tool", userEmail: "owner@example.com" },
+    );
+    expect(callImpl).not.toHaveBeenCalled();
   });
 
   it("prefixes error-flagged results with 'Error:'", async () => {
     serverFixtures["x-bin"] = {
-      tools: [{ name: "boom" }],
+      tools: [{ name: "boom", annotations: { readOnlyHint: true } }],
       callImpl: () => ({
         content: [{ type: "text", text: "server exploded" }],
+        structuredContent: { status: "unexpected structured result" },
         isError: true,
       }),
     };

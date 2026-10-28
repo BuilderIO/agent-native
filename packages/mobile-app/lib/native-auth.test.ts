@@ -143,6 +143,37 @@ describe("mobile parent authentication", () => {
     ]);
   });
 
+  it("keeps an unverified password signup pending without storing a session", async () => {
+    const verificationMessage =
+      "Your email isn't verified yet. Check your inbox for a verification link.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: verificationMessage }), {
+          status: 403,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      authenticateWithPassword({
+        mode: "sign-up",
+        email: "pending@example.com",
+        password: "password-not-stored",
+        baseUrl: "https://dispatch.example",
+      }),
+    ).rejects.toThrow(verificationMessage);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://dispatch.example/_agent-native/auth/register",
+      "https://dispatch.example/_agent-native/auth/login",
+    ]);
+    await expect(getSessionToken()).resolves.toBeNull();
+  });
+
   it("surfaces server auth errors without persisting a token", async () => {
     vi.stubGlobal(
       "fetch",
@@ -191,6 +222,7 @@ describe("mobile parent authentication", () => {
           Accept: "application/json",
           Authorization: "Bearer parent-session",
         },
+        signal: expect.any(AbortSignal),
       },
     );
   });
@@ -319,6 +351,7 @@ describe("mobile parent authentication", () => {
         Accept: "application/json",
         Authorization: "Bearer google-session",
       },
+      signal: expect.any(AbortSignal),
     });
   });
 

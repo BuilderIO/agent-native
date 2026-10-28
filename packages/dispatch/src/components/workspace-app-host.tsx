@@ -1,10 +1,4 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import {
-  ChatFirstAppPane,
-  defaultChatFirstCopy,
-  type ChatFirstCopy,
-} from "@agent-native/core/client/chat-first";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionMutation,
@@ -13,6 +7,9 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat/AgentSidebar";
+import { defaultChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first-copy";
+import type { ChatFirstCopy } from "@agent-native/toolkit/app/chat/chat-first/types";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -31,7 +28,7 @@ import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
-  mergeChatFirstWorkspaceApps,
+  isWorkspaceAppHostPageUrl,
   isWorkspaceSsoApp,
   isDispatchWorkspaceAppId,
   navigateToWorkspaceApp,
@@ -39,18 +36,18 @@ import {
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
   workspaceAppHref,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { DISPATCH_WORKSPACE_SSO_FLAG } from "../shared/feature-flags";
 import { workspaceAppChatProxyPath } from "../shared/workspace-app-chat";
 import { ActionQueryError } from "./action-query-error";
+import { ChatFirstAppPane } from "./deferred-chat-components.js";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 
-// The server mint spends up to a 95s cold-boot budget waiting on a target app
-// that is still starting; aborting sooner reports a booting app as unreachable.
 const EMBED_SESSION_TIMEOUT_MS = 100_000;
 
 interface EmbedSessionResult {
@@ -62,16 +59,6 @@ interface EmbedSessionInput {
   path?: string;
   url?: string;
   chrome: "minimal";
-}
-
-interface GrantedWorkspaceAppSummary {
-  id: string;
-  name: string;
-  url?: string | null;
-}
-
-interface GrantedWorkspaceAppsResult {
-  apps: GrantedWorkspaceAppSummary[];
 }
 
 type WorkspaceAppTheme = "light" | "dark";
@@ -109,13 +96,6 @@ async function readWorkspaceAppChatProxyError(
   return body.trim() || `Agent chat proxy returned ${response.status}.`;
 }
 
-/**
- * Point the app pane's chat rail at the app's OWN agent through the Dispatch
- * proxy, and prove the proxy answers before claiming it works. A rail that
- * quietly fell back to Dispatch's agent would look identical while running the
- * wrong tools, instructions, and app resources, so a failed probe is a visible
- * error state instead.
- */
 function useWorkspaceAppChatApi(appId: string) {
   const apiUrl = useMemo(
     () => agentNativePath(workspaceAppChatProxyPath(appId)),
@@ -127,8 +107,6 @@ function useWorkspaceAppChatApi(appId: string) {
   useEffect(() => {
     let cancelled = false;
     setUnavailable(false);
-    // `/mode` is the app's own dev-mode surface: reaching it proves the proxy
-    // minted an app session and the app's agent-chat routes answer.
     void fetch(`${apiUrl}/mode`, { credentials: "include" })
       .then(async (response) => {
         if (response.ok) return;
@@ -163,13 +141,6 @@ export interface WorkspaceAppChatRailProps {
   onFullscreenRequest?: () => void;
 }
 
-/**
- * The chat beside an open workspace app. Every surface that hosts an app pane
- * must go through here so the rail is always the app's own agent — same tools,
- * AGENTS.md, skills, app-scoped resources, and dev-mode surface as the app's
- * native chat — and so an unreachable app is one visible error state rather
- * than a per-surface silent handoff back to Dispatch's agent.
- */
 export function WorkspaceAppChatRail({
   appId,
   appName,
@@ -227,9 +198,6 @@ export function WorkspaceAppChatRail({
         contextKey: `workspace-app:${appId}`,
       }}
       isolateHistoryByScope
-      // The app's own server answers this chat, so its tools, AGENTS.md,
-      // skills, app-scoped resources, and dev-mode surface are the real ones
-      // rather than a copy maintained inside Dispatch.
       apiUrl={appChat.apiUrl}
       agentChatSurface="app"
       showTabBar
@@ -257,13 +225,9 @@ export interface WorkspaceAppFrameApp {
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
   navigateToTopWindow?: (href: string) => boolean | void;
-  /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
-  /** Standalone Dispatch routes seed the iframe once from their initial suffix. */
   initialPath?: string;
-  /** Standalone Dispatch hosts mirror child route changes into the shell URL. */
   onChildRouteChange?: (path: string) => void;
-  /** Chat-first app surfaces own the parent chat rail around the iframe. */
   chatSidebar?: boolean;
   copy?: ChatFirstCopy;
 }
@@ -299,6 +263,10 @@ export function WorkspaceAppFrame({
     );
   }, [theme]);
   const handleFrameLoad = useCallback(() => {
+    embedFrameRef.current?.contentWindow?.postMessage(
+      { type: "agentNative.frameOrigin", origin: window.location.origin },
+      "*",
+    );
     postThemeToFrame();
     if (isDirectFallback) setEmbedError(null);
   }, [isDirectFallback, postThemeToFrame]);
@@ -318,30 +286,35 @@ export function WorkspaceAppFrame({
     skipActionQueryInvalidation: true,
     timeoutMs: EMBED_SESSION_TIMEOUT_MS,
   });
+  const isHostPageUrl = isWorkspaceAppHostPageUrl(
+    app,
+    typeof window === "undefined" ? undefined : window.location.origin,
+  );
+  const appUrl = isHostPageUrl ? null : (app.url ?? null);
   const appHref = workspaceAppHref({
     id: app.id,
     name: app.name,
     path: app.path ?? "",
     homePath: app.homePath ?? undefined,
-    url: app.url,
+    url: appUrl,
     isDispatch: app.isDispatch ?? isDispatchWorkspaceAppId(app.id),
   });
   const topWindowHref = useMemo(() => {
     if (embedPath !== undefined) {
       return workspaceAppDirectHref(
-        { path: app.path, url: app.url },
+        { path: app.path ?? null, url: appUrl },
         embedPath,
       );
     }
     if (initialPath !== undefined) {
       return workspaceAppDirectHref(
-        { path: app.path, url: app.url },
+        { path: app.path ?? null, url: appUrl },
         initialPath,
       );
     }
 
     return appHref;
-  }, [appHref, embedPath, initialPath]);
+  }, [app.path, appHref, appUrl, embedPath, initialPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${initialPath ?? ""}\u0000${embedAttempt}`;
   const topWindowSsoAttemptedRef = useRef<string | null>(null);
@@ -353,12 +326,26 @@ export function WorkspaceAppFrame({
       return buildChatFirstEmbedSessionInput(app.id, initialPath);
     }
     if (!appHref) return null;
+    if (isHostPageUrl) {
+      return buildChatFirstEmbedSessionInput(
+        app.id,
+        workspaceAppTargetPath({ homePath: app.homePath ?? null }),
+      );
+    }
     return {
       app: app.id,
-      ...(app.url?.trim() ? { url: appHref } : { path: appHref }),
+      ...(appUrl?.trim() ? { url: appHref } : { path: appHref }),
       chrome: "minimal",
     };
-  }, [app.id, app.path, app.url, appHref, embedPath, initialPath]);
+  }, [
+    app.homePath,
+    app.id,
+    appHref,
+    appUrl,
+    embedPath,
+    initialPath,
+    isHostPageUrl,
+  ]);
 
   useEffect(() => {
     if (openInTopWindow && useWorkspaceSso && embedInput) {
@@ -434,10 +421,6 @@ export function WorkspaceAppFrame({
         if (cancelled) return;
         const error = cause instanceof Error ? cause : new Error(String(cause));
         if (useWorkspaceSso) {
-          // An SSO-enabled pane must never fall back to the child app's
-          // unauthenticated shell. Keep the parent-owned retry surface in
-          // place so a transient exchange failure cannot expose another
-          // login form.
           setIsDirectFallback(false);
           setEmbedUrl(null);
           setEmbedError(error);
@@ -448,7 +431,7 @@ export function WorkspaceAppFrame({
         const fallbackHref =
           initialPath !== undefined || embedPath !== undefined
             ? workspaceAppDirectHref(
-                { path: app.path ?? "", url: app.url },
+                { path: app.path ?? "", url: appUrl },
                 initialPath ?? embedPath ?? "/",
               )
             : appHref;
@@ -523,7 +506,7 @@ export function WorkspaceAppFrame({
       }
 
       const route = workspaceAppRouteForChildPath(
-        { id: app.id, path: app.path ?? "", url: app.url },
+        { id: app.id, path: app.path ?? "", url: appUrl },
         message.path,
       );
       if (route) onChildRouteChange(route);
@@ -531,7 +514,7 @@ export function WorkspaceAppFrame({
 
     window.addEventListener("message", handleWorkspaceAppRoute);
     return () => window.removeEventListener("message", handleWorkspaceAppRoute);
-  }, [app.id, app.path, app.url, embedUrl, onChildRouteChange]);
+  }, [app.id, app.path, appUrl, embedUrl, onChildRouteChange]);
 
   useEffect(() => {
     postThemeToFrame();
@@ -596,61 +579,10 @@ export function WorkspaceAppHost({
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
   );
-  const workspaceApps = useMemo(
-    () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
+  const apps = useMemo(
+    () => (workspaceAppsQuery.data ?? []).filter((item) => !item.archived),
     [workspaceAppsQuery.data],
   );
-  const visibleWorkspaceApps = useMemo(
-    () => workspaceApps.filter((item) => !item.archived),
-    [workspaceApps],
-  );
-  const workspaceAppIds = useMemo(
-    () => new Set(workspaceApps.map((item) => item.id.trim().toLowerCase())),
-    [workspaceApps],
-  );
-  const workspaceApp = useMemo(
-    () =>
-      visibleWorkspaceApps.find(
-        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
-      ) ?? null,
-    [appId, visibleWorkspaceApps],
-  );
-  const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
-    "list_apps",
-    {},
-    {
-      // Mounted workspace apps are already fully described by the workspace
-      // registry. Defer the broader MCP grant/discovery scan until that
-      // lookup misses; it is only needed for externally granted apps.
-      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
-    },
-  );
-  const apps = useMemo(() => {
-    const merged = new Map<string, WorkspaceAppSummary>();
-
-    for (const app of visibleWorkspaceApps) {
-      merged.set(app.id.trim().toLowerCase(), app);
-    }
-    for (const app of grantedAppsQuery.data?.apps ?? []) {
-      const id = app.id.trim();
-      if (
-        !id ||
-        workspaceAppIds.has(id.toLowerCase()) ||
-        merged.has(id.toLowerCase())
-      ) {
-        continue;
-      }
-      merged.set(id.toLowerCase(), {
-        id,
-        name: app.name.trim() || id,
-        path: "",
-        url: app.url?.trim() || null,
-        status: "ready",
-      });
-    }
-
-    return [...merged.values()];
-  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps, workspaceAppIds]);
   const app = useMemo(
     () =>
       apps.find(
@@ -658,12 +590,10 @@ export function WorkspaceAppHost({
       ) ?? null,
     [appId, apps],
   );
-  const isLoading = workspaceAppsQuery.isLoading || grantedAppsQuery.isLoading;
+  const isLoading = workspaceAppsQuery.isLoading;
   const queryError = workspaceAppsQuery.isError
     ? workspaceAppsQuery.error
-    : grantedAppsQuery.isError
-      ? grantedAppsQuery.error
-      : null;
+    : null;
 
   if (queryError && !app) {
     return (
@@ -671,10 +601,7 @@ export function WorkspaceAppHost({
         <div className="w-full max-w-2xl">
           <ActionQueryError
             error={queryError}
-            onRetry={() => {
-              void workspaceAppsQuery.refetch();
-              void grantedAppsQuery.refetch();
-            }}
+            onRetry={() => void workspaceAppsQuery.refetch()}
           />
         </div>
       </div>

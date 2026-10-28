@@ -28,11 +28,6 @@ interface FieldRendererProps {
   preview?: boolean;
 }
 
-// Radix Select / RadioGroup throw at render time if any item value is an
-// empty string, and React warns on duplicate keys. The builder lets users
-// edit option text live, so mid-edit state can produce both. Filter both
-// out for the live preview — the underlying data still keeps whatever the
-// user typed.
 function dedupeRenderableOptions(options: string[] | undefined): string[] {
   if (!options) return [];
   const seen = new Set<string>();

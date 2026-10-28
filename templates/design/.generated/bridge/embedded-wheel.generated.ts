@@ -9,8 +9,10 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
     var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
     var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
+    var interactionMode = __INTERACTION_MODE__;
     var leftButtonEnabled = false;
     var temporarySpacePanEnabled = false;
+    var forwardedSpaceKeyDown = false;
     var activePointerId = null;
     var activeButton = null;
     var captureTarget = null;
@@ -23,6 +25,11 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var lastShiftKey = false;
     var lastAltKey = false;
     var freezeStyle = null;
+    var pendingWheels = [];
+    var wheelAwaitingHost = false;
+    var wheelReadTimer = null;
+    var wheelSeq = 0;
+    var hostAnswersWheels = false;
     function syncEditingSafetyStyle() {
       var currentStyle = freezeStyle || document.querySelector(
         "style[data-agent-native-editing-safety-style]"
@@ -71,14 +78,61 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       } catch {
       }
     }
+    function sendWheel(wheel) {
+      wheelSeq += 1;
+      wheelAwaitingHost = true;
+      if (wheelReadTimer !== null) window.clearTimeout(wheelReadTimer);
+      wheelReadTimer = window.setTimeout(
+        sendNextWheel,
+        hostAnswersWheels ? 1e3 : 100
+      );
+      postToParent({
+        type: "embedded-canvas-wheel",
+        deltaX: wheel.deltaX,
+        deltaY: wheel.deltaY,
+        deltaZ: wheel.deltaZ,
+        deltaMode: wheel.deltaMode,
+        clientX: wheel.clientX,
+        clientY: wheel.clientY,
+        ctrlKey: wheel.ctrlKey,
+        metaKey: wheel.metaKey,
+        shiftKey: wheel.shiftKey,
+        altKey: wheel.altKey,
+        steps: wheel.steps,
+        seq: wheelSeq
+      });
+    }
+    function sendNextWheel() {
+      if (wheelReadTimer !== null) {
+        window.clearTimeout(wheelReadTimer);
+        wheelReadTimer = null;
+      }
+      wheelAwaitingHost = false;
+      var next = pendingWheels.shift();
+      if (next) sendWheel(next);
+    }
+    function onWheelRead(seq) {
+      if (seq !== wheelSeq) return;
+      hostAnswersWheels = true;
+      sendNextWheel();
+    }
+    function resetWheelForwarding() {
+      if (wheelReadTimer !== null) {
+        window.clearTimeout(wheelReadTimer);
+        wheelReadTimer = null;
+      }
+      wheelAwaitingHost = false;
+      pendingWheels = [];
+    }
     function onWheel(e) {
+      if (interactionMode) return;
       var zoomIntent = !!(e.ctrlKey || e.metaKey);
       if (!wheelEnabled && !zoomIntent) return;
       stopNativeInteraction(e);
-      postToParent({
-        type: "embedded-canvas-wheel",
+      var deltaY = clamp(e.deltaY, 240);
+      var wheel = {
         deltaX: clamp(e.deltaX, 240),
-        deltaY: clamp(e.deltaY, 240),
+        deltaY,
         deltaZ: clamp(e.deltaZ, 240),
         deltaMode: e.deltaMode,
         clientX: clamp(e.clientX, 1e5),
@@ -86,8 +140,27 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         ctrlKey: !!e.ctrlKey,
         metaKey: !!e.metaKey,
         shiftKey: !!e.shiftKey,
-        altKey: !!e.altKey
-      });
+        altKey: !!e.altKey,
+        steps: 1,
+        // MAX_PINCH_DELTA_PX in core's zoom-gesture.
+        notch: zoomIntent && Math.abs(deltaY) >= 40
+      };
+      if (!wheelAwaitingHost) {
+        sendWheel(wheel);
+        return;
+      }
+      var pending = pendingWheels.length > 0 ? pendingWheels[pendingWheels.length - 1] : null;
+      if (pending && pending.steps < 32 && pending.deltaMode === wheel.deltaMode && pending.ctrlKey === wheel.ctrlKey && pending.metaKey === wheel.metaKey && pending.shiftKey === wheel.shiftKey && pending.altKey === wheel.altKey && pending.notch === wheel.notch && (!wheel.notch || Math.sign(pending.deltaY) === Math.sign(wheel.deltaY))) {
+        pending.deltaX += wheel.deltaX;
+        pending.deltaY += wheel.deltaY;
+        pending.deltaZ += wheel.deltaZ;
+        pending.clientX = wheel.clientX;
+        pending.clientY = wheel.clientY;
+        pending.steps += 1;
+        return;
+      }
+      if (pendingWheels.length >= 16) return;
+      pendingWheels.push(wheel);
     }
     function shouldStartPan(e) {
       if (e.button === 1) return true;
@@ -137,7 +210,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       }, 0);
     }
     function onPointerDown(e) {
-      if (activePointerId !== null || !shouldStartPan(e)) return;
+      if (interactionMode || activePointerId !== null || !shouldStartPan(e)) {
+        return;
+      }
       activePointerId = e.pointerId;
       activeButton = e.button === 1 ? 1 : 0;
       suppressClick = true;
@@ -183,13 +258,21 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
       ));
     }
+    function shouldLetEditorChromeHandleSpace() {
+      return !spaceKeyForwardingEnabled && editingSafetyEnabled && !!document.querySelector("[data-agent-native-editor-chrome-host]");
+    }
     function onKeyDown(e) {
-      if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
+      if (interactionMode || e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
         return;
       }
       temporarySpacePanEnabled = true;
+      if (shouldLetEditorChromeHandleSpace()) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
       stopNativeInteraction(e);
-      if (e.repeat) return;
+      if (e.repeat || !spaceKeyForwardingEnabled) return;
+      forwardedSpaceKeyDown = true;
       postToParent({
         type: "design-hotkey",
         key: e.key,
@@ -202,14 +285,20 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       });
     }
     function onKeyUp(e) {
-      if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space") {
-        return;
-      }
+      if (e.key !== " " || e.code !== "Space") return;
       var wasTemporarySpacePanEnabled = temporarySpacePanEnabled;
       temporarySpacePanEnabled = false;
-      if (!wasTemporarySpacePanEnabled && isTypingTarget(e.target)) return;
+      var wasSpaceKeyForwarded = forwardedSpaceKeyDown;
+      forwardedSpaceKeyDown = false;
+      if (!wasTemporarySpacePanEnabled && !wasSpaceKeyForwarded) return;
+      if (shouldLetEditorChromeHandleSpace() && !wasSpaceKeyForwarded) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
       stopNativeInteraction(e);
-      postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+      if (wasSpaceKeyForwarded) {
+        postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+      }
     }
     function onHostMessage(e) {
       if (e.source !== window.parent) return;
@@ -218,15 +307,43 @@ export const embeddedWheelBridgeScript: string = `"use strict";
         cancelActivePan();
         return;
       }
+      if (e.data.type === "embedded-canvas-wheel-read") {
+        onWheelRead(e.data.seq);
+        return;
+      }
       if (e.data.type === "embedded-canvas-pan-mode") {
         leftButtonEnabled = !!e.data.leftButtonEnabled;
+        return;
+      }
+      if (e.data.type === "set-interaction-mode") {
+        interactionMode = e.data.interact === true;
+        if (interactionMode) {
+          resetWheelForwarding();
+          cancelActivePan();
+          if (forwardedSpaceKeyDown) {
+            forwardedSpaceKeyDown = false;
+            postToParent({ type: "design-hotkey-up", key: " ", code: "Space" });
+          }
+        }
         return;
       }
       if (e.data.type === "embedded-canvas-gesture-mode") {
         wheelEnabled = !!e.data.wheelEnabled;
         spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
         if (typeof e.data.editingSafetyEnabled === "boolean") {
-          editingSafetyEnabled = e.data.editingSafetyEnabled;
+          var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
+          if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
+            cancelActivePan();
+            if (forwardedSpaceKeyDown) {
+              forwardedSpaceKeyDown = false;
+              postToParent({
+                type: "design-hotkey-up",
+                key: " ",
+                code: "Space"
+              });
+            }
+          }
+          editingSafetyEnabled = nextEditingSafetyEnabled;
           syncEditingSafetyStyle();
         }
       }

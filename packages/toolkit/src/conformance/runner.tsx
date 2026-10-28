@@ -150,8 +150,6 @@ function assertInlineLayout(
     return;
   }
 
-  // happy-dom does not calculate layout. Still reject adapters that explicitly
-  // stack the tab contents, while browser-backed runs use the geometry check.
   const commonAncestor = (() => {
     let candidate: Element | null = icon;
     while (candidate && !candidate.contains(label)) {

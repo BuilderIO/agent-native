@@ -135,19 +135,6 @@ export function resolveNetlifyPrebuiltTarget(
     );
   }
 
-  const migrationSite =
-    target === "beta"
-      ? readJson<Record<string, ProductionSite>>(
-          "netlify-production-sites.json",
-          repoRoot,
-        )[canonicalSiteName("production", siteName)]
-      : site;
-  if (!migrationSite) {
-    throw new Error(
-      `No production migration site is configured for ${target} site: ${siteName}`,
-    );
-  }
-
   const project = sourceProject(siteName, repoRoot);
   if (
     !existsSync(path.join(project.packageDirectory, "package.json")) ||
@@ -162,7 +149,7 @@ export function resolveNetlifyPrebuiltTarget(
     clientDirectory: project.clientDirectory,
     functionsDirectory: project.functionsDirectory,
     host: site.host,
-    migrationSiteId: migrationSite.siteId,
+    migrationSiteId: site.siteId,
     publishDirectory: project.publishDirectory,
     siteId: site.siteId,
     siteName,

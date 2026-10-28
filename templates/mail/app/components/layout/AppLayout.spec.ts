@@ -19,96 +19,164 @@ function commandPaletteFocusSource(): string {
   );
 }
 
+function mailGlobalCss(): string {
+  return readFileSync(new URL("../../global.css", import.meta.url), "utf8");
+}
+
 describe("AppLayout inbox tab bar", () => {
-  it("distinguishes the active top-bar tab with a padded, accessible treatment", () => {
+  it("clears in-memory thread bodies when the session or mailbox scope changes", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      'aria-current={tab.isActive ? "page" : undefined}',
-    );
-    expect(source).toContain(
-      "rounded-md px-3 py-1.5 text-[13px] transition-colors",
-    );
-    expect(source).toContain('"bg-accent text-foreground font-semibold"');
-    expect(source).toContain("hover:bg-accent/50 hover:text-foreground/80");
+    expect(source).toContain("setThreadCacheSessionScope(");
+    expect(source).toContain("session?.authUserId");
+    expect(source).toContain("setThreadCacheAccountScope(");
+    expect(source).toContain("connected:");
+    expect(source).toContain("selected:");
+    expect(source).toContain("useEffect(() => () => clearThreadCache(), []);");
   });
 
-  it("reads the whole-mailbox unread count off the synced label list, not loaded rows", () => {
-    const source = appLayoutSource();
+  it("uses SQL inbox rows instead of the Gmail list API for connected accounts", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
-      "const inboxSidebarUnreadCount = inboxThreads.data?.labels.find(",
-    );
-    expect(source).not.toContain('getInboxCount("unread")');
-    expect(source).not.toContain("labelThreadCounts");
-  });
-
-  it("collapses the native rail while the per-app chat is open", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain(
-      'import { usePerAppChatOpen } from "@agent-native/core/client/hooks";',
+      'const useInboxThreadsForActionTargets = view === "inbox" && hasAccounts && activeSearchQuery === null && activeSavedFilterQuery === undefined && activeLabel === null',
     );
     expect(source).toContain(
-      "(sidebarPinned\n      ? sidebarCollapsed\n      : perAppChatOpen && !sidebarExpandedWhileChatOpen)",
+      'enabled: isMailboxView && (view !== "inbox" || (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady))',
+    );
+    expect(source).toContain(
+      "const currentViewEmails = useInboxThreadsForActionTargets ? (inboxThreads.data?.items ?? []) : legacyCurrentViewEmails",
     );
   });
 
-  it("keeps the unpinned rail toggleable while per-app chat is open", () => {
+  it("scopes mailbox actions to the active search and label", () => {
     const source = appLayoutSource();
 
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("isMailboxView ? shellQueryScope.emailView");
+    expect(source).toContain("shellQueryScope.effectiveLabel");
+  });
+
+  it("keeps inbox action targets inside the active pinned-label or Other tab", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+    const targetStart = source.indexOf("const targetEmail = useMemo(() => {");
+    const targetEnd = source.indexOf("const dismissEmail", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(source).toContain("pinnedTriageLabels(pinnedLabels).includes(");
+    expect(source).toContain("filterInboxTabEmails(");
     expect(source).toContain(
-      "const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =",
+      "actionTargetTab === OTHER_INBOX_TAB_PARAM ? null : actionTargetTab",
     );
-    expect(source).toContain("perAppChatOpen && !sidebarExpandedWhileChatOpen");
-    expect(source).toContain(
-      "sidebarPinned || (perAppChatOpen && showSidebar)",
+    expect(targetSelection).toContain("actionTargetEmails.find(");
+    expect(targetSelection).toContain(
+      "return actionTargetEmails[0] ?? undefined",
+    );
+    expect(targetSelection).not.toContain("currentViewEmails");
+  });
+
+  it("keys the shell mailbox query to the active saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toMatch(
+      /const activeSavedFilterQuery = savedFilters\.find\(\s*\(filter\) => filter\.id === activeFilterId,\s*\)\?\.query;/,
     );
     expect(source).toContain(
-      "setSidebarExpandedWhileChatOpen((value) => !value)",
+      "activeSavedFilterQuery ?? activeSearchQuery ?? undefined",
     );
   });
 
-  it("reserves desktop content space while the unpinned sidebar is open", () => {
+  it("does not target previous-query rows while filters change", () => {
     const source = appLayoutSource();
+    const hookSource = readFileSync(
+      new URL("../../hooks/use-emails.ts", import.meta.url),
+      "utf8",
+    );
 
-    expect(source).toContain("!isMobile &&\n              showSidebar &&");
-    expect(source).toContain('!isMobile && sidebarOpen && "ps-[260px]"');
+    expect(hookSource).toContain("isPlaceholderData: q.isPlaceholderData");
+    const targetStart = source.indexOf("const actionTargetEmails = useMemo(");
+    const targetEnd = source.indexOf("const reportSpam", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(targetSelection).toContain("currentViewEmailsArePlaceholder");
+    expect(targetSelection).toContain("filterInboxTabEmails(");
+    expect(source).toContain("return actionTargetEmails[0] ?? undefined;");
   });
 
-  it("resolves every tab from the server response and links through inboxTabHref", () => {
+  it("keeps Mail navigation in a mobile drawer and supports desktop pinning", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
+      "const [sidebarOpen, setSidebarOpen] = useState(false)",
     );
-    expect(source).toContain("const tabs = inboxThreads.data?.tabs ?? [];");
-    expect(source).toContain("href: inboxTabHref(tab.id)");
-    expect(source).toContain("tooltip: tab.query");
-    expect(source).toContain("total: tab.total");
-    expect(source).toContain("unread: tab.unread");
+    expect(source).toContain(
+      "const [sidebarPinned, setSidebarPinned] = useState(false)",
+    );
+    expect(source).toContain(
+      'window.localStorage.getItem("mail-sidebar-pinned") === "true"',
+    );
+    expect(source).toContain("if (!sidebarPinPreferenceLoaded) return;");
+    expect(source).toContain(
+      'localStorage.setItem("mail-sidebar-pinned", "true")',
+    );
+    expect(source).toContain("open={sidebarOpen || isPinnedSidebarVisible}");
+    expect(source).toContain("modal={!isPinnedSidebarVisible}");
+    expect(source).toContain("<DialogTrigger asChild>");
+    expect(source).toContain(
+      "if (isPinnedSidebarVisible) event.preventDefault();",
+    );
+    expect(source).toMatch(
+      /overlayClassName=\{\s*isPinnedSidebarVisible\s*\?\s*"hidden"\s*:\s*"bg-background\/20 backdrop-blur-none"\s*\}/,
+    );
+    expect(source).toContain("<DialogContent");
+    expect(source).toContain("aria-modal={!isPinnedSidebarVisible}");
+    expect(source).toContain('<DialogTitle className="sr-only">');
+    expect(source).toContain("start-0 left-0 right-auto flex h-dvh w-[260px]");
+    expect(source).toContain('t("mail.toolbar.pinSidebar")');
+    expect(source).toContain('t("mail.toolbar.unpinSidebar")');
+    expect(source).not.toContain("railNavItems");
+    expect(source).not.toContain("showCollapsedSidebar");
   });
 
-  it("keeps the search restoration path", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain('params.set("tab", tab)');
-    expect(source).toContain('params.set("filter", filter)');
-  });
-
-  it("opens search from the command palette through the existing focus path", () => {
-    const source = appLayoutSource();
+  it("does not reuse placeholder metadata from a previous account filter", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
-      'onSearch={() => document.getElementById("mail-search")?.focus()}',
+      "inboxOverview.data ?? (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data)",
     );
-    expect(source).toContain("onFocus={() => setSearchFocused(true)}");
+  });
+
+  it("opens the current agent chat in the full-page chat route", () => {
+    const source = appLayoutSource();
+    const chatRoute = readFileSync(
+      new URL("../../routes/chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("onFullscreenRequest={(threadId?: string) =>");
+    expect(source).toContain(
+      '`/chat/${encodeURIComponent(threadId)}` : "/chat"',
+    );
+    expect(source).toContain("enabled={!isAgentChatRoute}");
+    expect(source).toContain('pathname === "/chat"');
+    expect(source).toContain('pathname.startsWith("/chat/")');
+    expect(chatRoute).toContain("<AgentChatSurface");
+    expect(chatRoute).toContain("browserTabId={TAB_ID}");
+    expect(chatRoute).toContain("showTabBar");
   });
 
   it("accepts Shift when an international layout types the Search slash", () => {
     const source = appLayoutSource();
 
     expect(source).toContain('key: "/",\n      shift: "either",');
+  });
+
+  it("lets the thread own Escape when search is inactive", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'key: "Escape",\n      shouldHandle: () => Boolean(activeSearchQuery || searchFocused),',
+    );
   });
 
   it("keeps global triage mutations scoped to the focused mailbox account", () => {
@@ -125,60 +193,6 @@ describe("AppLayout inbox tab bar", () => {
     );
   });
 
-  it("labels the hidden keyboard-shortcut target for Search", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain(
-      'id="mail-search"\n              aria-label={t("mail.search.label")}\n              className="sr-only"',
-    );
-  });
-
-  it("names the account filter trigger and preserves its pressed state", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain('aria-label={t("mail.toolbar.accounts")}');
-    expect(source).toContain("aria-label={account.email}");
-    expect(source).toContain("aria-pressed={isChecked}");
-  });
-
-  it("restores the invoking control's focus after Escape closes the palette", () => {
-    const appLayout = appLayoutSource();
-    const focusHook = commandPaletteFocusSource();
-
-    expect(appLayout).toContain("onCloseAutoFocus={restorePaletteFocus}");
-    expect(appLayout).toContain(
-      "} = useCommandPaletteFocus(paletteOpen, setPaletteOpen);",
-    );
-    expect(focusHook).toContain(
-      "escapeDismissRef.current = !commandInput?.value",
-    );
-    expect(focusHook).toContain(
-      "const focusTarget = returnFocusTarget?.isConnected",
-    );
-    expect(focusHook).toContain("document.getElementById(returnFocusTargetId)");
-    expect(focusHook).toContain("focusTarget.focus({ preventScroll: true })");
-  });
-
-  it("uses the tab cog to persist and apply the combined inbox preference", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain(
-      "const combineInbox = settings?.combineInbox === true;",
-    );
-    expect(source).toContain("updateSettings.mutate({ combineInbox: next });");
-    expect(source).toContain("combinedInbox={combineInbox}");
-    expect(source).toContain(
-      "onCombinedInboxChange={handleCombinedInboxChange}",
-    );
-    expect(source).toContain("!isInboxScopedAppLabel(activeLabel)");
-    expect(source).toContain("resolveDefaultMailHref({");
-    expect(source).toContain("if (combineInbox) return [];");
-    expect(source).toContain(
-      '<Switch\n          id="combined-inbox-toggle"\n          checked={combinedInbox}\n          onCheckedChange={onCombinedInboxChange}',
-    );
-    expect(source).toContain('t("mail.tabSettings.combinedInbox")');
-  });
-
   it("routes saved searches through the Gmail query path", () => {
     const source = appLayoutSource();
 
@@ -189,24 +203,6 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("savedFilters: [...savedFilters, filter]");
     expect(source).toContain("savedFilters.length >= 20");
     expect(source).toContain("filtersLimitReached");
-  });
-
-  it("cycles top-bar tabs globally with the Tab key", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain("const cycleTab = useCallback(");
-    expect(source).toContain("const activeIdx = topBarTabs.findIndex(");
-    expect(source).toContain("(tab) => tab.isActive");
-    expect(source).toContain('key: "Tab"');
-    expect(source).toContain("shouldHandle: canCycleTab");
-    expect(source).toContain("handler: () => cycleTab(false)");
-    expect(source).toContain("handler: () => cycleTab(true)");
-    expect(source).toContain("void navigate(topBarTabs[nextIdx].href);");
-    expect(source).toContain("canCycleTab");
-    expect(source).toContain("shouldCycleMailTab(event.target)");
-    expect(
-      source.match(/key: "Tab",[\s\S]{0,200}?skipInInput: false/g),
-    ).toHaveLength(2);
   });
 
   it("routes G+A to All Mail without changing the separate Archive route", () => {
@@ -223,19 +219,10 @@ describe("AppLayout inbox tab bar", () => {
   it("closes the captured popout drafts through the save-aware close-all path", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "compose.closeAll(\n                popoutDrafts.map((draft) => draft.id),\n              )",
-    );
+    expect(source).toContain("const savePromises = compose.closeAll(");
+    expect(source).toContain("popoutDrafts.map((draft) => draft.id)");
     expect(source).toContain("compose.setActiveId(snapshot.id)");
     expect(source).toContain("compose.discard(snapshot.id)");
-  });
-
-  it("no longer runs a client-side per-tab prefetch loop", () => {
-    const source = appLayoutSource();
-
-    expect(source).not.toContain("prefetchMailTabTargets");
-    expect(source).not.toContain("getTabPrefetchTarget");
-    expect(source).not.toContain('queryKey: ["email-prefetch"]');
   });
 
   it("builds pin mutations from the resolved visible pins", () => {
@@ -270,39 +257,63 @@ describe("AppLayout inbox tab bar", () => {
     );
   });
 
-  it("mirrors the server-resolved label/filter tabs on mobile", () => {
-    const source = appLayoutSource();
-
-    expect(source).toContain("const mobileInboxTabs = dataTabs;");
-    expect(source).toContain("{mobileInboxTabs.map((tab) => {");
-    expect(source).toContain("const count = tab.unread;");
-  });
-
   it("scopes both the tab bar and the label list to the selected accounts", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain(
-      "useLabels(\n    activeAccounts.size > 0 ? [...activeAccounts] : undefined,\n  )",
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined)",
     );
     expect(source).toContain("accountEmails: inboxAccountEmails,");
   });
 
-  it("never shows a red list-labels banner — useLabels degrades on its own", () => {
-    const source = appLayoutSource();
-
-    expect(source).not.toContain('role="alert"');
-    expect(source).not.toContain("mail.error.retrying");
-    expect(source).toContain("data: labelsData");
-  });
-
-  it("shows a compact inline indicator only while the inbox is syncing", () => {
-    const source = appLayoutSource();
+  it("exposes Filtered as a system view when its rule, label, or pin exists", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
-      "const inboxSyncing = inboxThreads.data?.syncing === true;",
+      "data: connectedLabelsData, accountErrors: connectedLabelErrors, isError: connectedLabelsFailed, } = useLabels();",
     );
-    expect(source).toContain("{inboxSyncing && (");
-    expect(source).toContain('{t("mail.inbox.syncing")}');
+    expect(source).toContain(
+      "accountErrors: labelAccountErrors, isError: labelsFailed, } = useLabels(",
+    );
+    expect(source).toContain("connectedLabelsFailed ||");
+    expect(source).toContain("Boolean(connectedLabelErrors?.length)");
+    expect(source).toContain(
+      "[connectedLabelsData ?? EMPTY_LABELS, labels].some(",
+    );
+    expect(source).toContain(
+      "const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;",
+    );
+    expect(source).toContain(
+      "hasFilteredRule || hasFilteredLabel || hasFilteredPin",
+    );
+    expect(source).toContain(
+      'id: AI_FILTER_LABEL, labelKey: "mail.aiFilter.filteredMode"',
+    );
+    expect(source).toContain(
+      "return pinnedLabels .filter((id) => systemViews.some((v) => v.id === id))",
+    );
+    expect(source).toContain("label: t(sysView.labelKey)");
+    expect(source).toContain(
+      "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
+    );
+    expect(source).toContain(
+      "href: mailboxWideLabelTab ? labelTabHref(tab.id, labels) : inboxTabHref(tab.id)",
+    );
+    expect(source).toContain(
+      'const mailboxWideLabelTab = tab.kind === "label" && !isInboxScopedLabel(tab.id, labels);',
+    );
+    expect(source).toContain(
+      "mailboxWideLabelTab ? label?.totalCount : tab.total",
+    );
+    expect(source).toContain(
+      "isLabelCountLowerBound(labelsFailed, labelAccountErrors)",
+    );
+    expect(source.replace(/\s+/g, " ")).toContain(
+      "[ activeLabel, activeInboxTabId, aiTagDisplayNames, inboxTabs, labels, labelsFailed, labelAccountErrors, t, view, ]",
+    );
+    expect(source).toContain(
+      "dataTabs.some((tab) => tab.isActive && tab.pinnedId === activeLabel)",
+    );
   });
 
   it("reuses the existing Google reconnect UI for a needs_reauth account", () => {
@@ -321,20 +332,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("void invalidateInboxThreads(queryClient);");
   });
 
-  // Repro: with no Google account connected, `view` for an unmatched URL
-  // (e.g. /this-route-should-not-exist-xyz) was still "not settings" and
-  // "not draft-queue", so the no-accounts takeover replaced `{children}` —
-  // the routed NotFound page — with the Google-connect banner instead. The
-  // page's <title> was correct (computed separately in $view.tsx's meta())
-  // while the rendered body silently became the inbox shell.
   it("only shows the Google-connect takeover for a known mail view", () => {
-    const source = appLayoutSource();
+    const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain(
       'import { isKnownMailView } from "@/routes/$view";',
     );
     expect(source).toContain(
-      "isKnownMailView(view) &&\n          (googleConfigured || canOfferGoogleOAuthSetup) ? (\n            <GoogleConnectBanner",
+      "isKnownMailView(view) && (googleConfigured || canOfferGoogleOAuthSetup) ? ( <GoogleConnectBanner",
     );
   });
 });

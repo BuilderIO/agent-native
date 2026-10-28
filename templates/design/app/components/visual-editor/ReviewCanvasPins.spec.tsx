@@ -1,10 +1,21 @@
 // @vitest-environment happy-dom
 
 import type { ReviewComment, ReviewMention } from "@agent-native/core/review";
-import { act } from "react";
+import { act, Profiler, useState } from "react";
 import type { TextareaHTMLAttributes } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { isCanvasOverlayInteractionTarget } from "@/components/design/canvas-interactions/review-overlay-interaction";
+import { stubFaithfulWheelEvent } from "@/components/design/canvas-interactions/test-wheel-event";
+import { useReviewFocusRequest } from "@/hooks/use-review-focus-request";
+import { ReviewAgentProvider } from "@/lib/review-agent/review-agent-context";
+import {
+  makeReviewAgentRequest,
+  REVIEW_AGENT_TEST_NOW,
+} from "@/lib/review-agent/test-review-agent-request";
+import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
 
 const mocks = vi.hoisted(() => ({
   createMutate: vi.fn(),
@@ -13,10 +24,19 @@ const mocks = vi.hoisted(() => ({
   resolveMutate: vi.fn(),
   unreadMutate: vi.fn(),
   updateMutate: vi.fn(),
+  deleteMutate: vi.fn(),
   callAction: vi.fn().mockResolvedValue({ cancelled: true }),
   setClientAppState: vi.fn().mockResolvedValue(undefined),
   sendToAgent: vi.fn().mockResolvedValue({ delivered: true }),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  agentStart: vi.fn(),
+  agentStop: vi.fn(),
+  agentRetry: vi.fn(),
+  agentOpen: vi.fn(),
+  agentMarkSurfaceUsed: vi.fn(),
   useRealComposer: false,
+  useRealThreads: false,
   uploadImage: vi.fn().mockResolvedValue({
     src: "https://cdn.example.com/review.png",
   }),
@@ -65,6 +85,29 @@ const comment: ReviewComment = vi.hoisted(
 
 let reviewComments: ReviewComment[] = [comment];
 
+// The composer's ProseMirror root exposes its tiptap editor on the DOM node.
+interface Editor {
+  state: {
+    selection: { empty: boolean; from: number };
+    doc: { content: { size: number } };
+    tr: { insertText: (text: string) => object };
+  };
+  view: { dispatch: (transaction: object) => void };
+}
+
+function makeReply(overrides: Partial<ReviewComment> = {}): ReviewComment {
+  return {
+    ...comment,
+    id: "reply-1",
+    parentCommentId: comment.id,
+    body: "A reply",
+    authorEmail: "replier@example.com",
+    createdAt: "2026-07-13T13:05:00.000Z",
+    updatedAt: "2026-07-13T13:05:00.000Z",
+    ...overrides,
+  };
+}
+
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
   setClientAppState: mocks.setClientAppState,
@@ -73,6 +116,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/uploads", () => ({
   uploadEditorImage: mocks.uploadImage,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: mocks.toastSuccess },
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -85,15 +132,17 @@ vi.mock("@agent-native/core/client/org", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/review", async () => {
+vi.mock("@agent-native/toolkit/app/review", async () => {
   const actual = await vi.importActual<
-    typeof import("@agent-native/core/client/review")
-  >("@agent-native/core/client/review");
+    typeof import("@agent-native/toolkit/app/review")
+  >("@agent-native/toolkit/app/review");
 
   return {
     ...actual,
     buildReviewThreads: (comments: ReviewComment[]) =>
-      comments.map((root) => ({ root, replies: [] })),
+      mocks.useRealThreads
+        ? actual.buildReviewThreads(comments)
+        : comments.map((root) => ({ root, replies: [] })),
     ReviewCommentComposer: (
       props: Parameters<typeof actual.ReviewCommentComposer>[0],
     ) =>
@@ -102,12 +151,22 @@ vi.mock("@agent-native/core/client/review", async () => {
       ) : (
         <MockReviewCommentComposer {...props} />
       ),
+  };
+});
+
+vi.mock("@agent-native/core/client/review", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/client/review")
+  >("@agent-native/core/client/review");
+
+  return {
+    ...actual,
     useCreateReviewComment: () => ({
       mutate: mocks.createMutate,
       isPending: false,
     }),
     useDeleteReviewComment: () => ({
-      mutate: vi.fn(),
+      mutate: mocks.deleteMutate,
       isPending: false,
     }),
     useReplyReviewComment: () => ({
@@ -143,10 +202,15 @@ function MockReviewCommentComposer(props: {
   onSubmit: (target: "human" | "agent") => void;
   mentions?: readonly ReviewMention[];
   onMentionsChange?: (mentions: ReviewMention[]) => void;
+  mentionOptions?: readonly ReviewMention[];
+  agentsLabel?: string;
   showCommentAction?: boolean;
   showAgentAction?: boolean;
   showCommentTools?: boolean;
   commentToolsEnd?: React.ReactNode;
+  attachments?: React.ReactNode;
+  variant?: "expanded" | "reply";
+  placeholder?: string;
   commentLabel?: string;
   contextLabel?: string;
   agentAction?: React.ReactNode;
@@ -162,11 +226,12 @@ function MockReviewCommentComposer(props: {
     props.onSubmit(target);
   };
   return (
-    <div>
+    <div data-review-test-composer={props.variant ?? "expanded"}>
       {props.contextLabel ? <span>{props.contextLabel}</span> : null}
       <textarea
         {...props.textareaProps}
         data-review-test-textarea
+        placeholder={props.placeholder}
         autoFocus={props.autoFocus}
         disabled={props.disabled}
         value={props.value}
@@ -182,12 +247,31 @@ function MockReviewCommentComposer(props: {
           }
         }}
       />
+      {props.attachments}
+      <span data-review-test-mention-options>
+        {(props.mentionOptions ?? []).map((option) => option.label).join("|")}
+      </span>
+      <span data-review-test-agents-label>{props.agentsLabel}</span>
       {props.showCommentTools || props.commentToolsEnd ? (
         <div data-review-comment-tools>
           {props.showCommentTools ? (
             <>
               <button type="button" aria-label="review.addEmoji" />
               <button type="button" aria-label="review.mention" />
+              <button
+                type="button"
+                data-review-test-agent-mention
+                onClick={() => {
+                  props.onChange("@Claude Sonnet 5.5 make it bigger");
+                  props.onMentionsChange?.([
+                    {
+                      label: "Claude Sonnet 5.5",
+                      email: null,
+                      id: "agent:anthropic:claude-sonnet-5-5",
+                    },
+                  ]);
+                }}
+              />
               <button
                 type="button"
                 data-review-test-mention
@@ -228,24 +312,68 @@ function MockReviewCommentComposer(props: {
       ) : null}
       {props.showAgentAction
         ? (props.agentAction ?? (
-            <button type="button" data-review-test-agent-action />
+            <button
+              type="button"
+              data-review-test-agent-action
+              onClick={() => submit("agent")}
+            />
           ))
         : null}
     </div>
   );
 }
 
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string, values?: { count?: number }) =>
-    key === "review.commentNumber"
-      ? `Review comment ${values?.count ?? ""}`
-      : key,
+// Most keys echo back so the tests can name them. The pin and reaction labels
+// read the real English catalog, so a key the component misspells fails here.
+vi.mock("@agent-native/core/client/i18n", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/client/i18n")
+  >("@agent-native/core/client/i18n");
+  const { default: english } =
+    await vi.importActual<typeof import("@/i18n/en-US")>("@/i18n/en-US");
+  const catalogEntry = (key: string): unknown =>
+    key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          typeof node === "object" && node !== null
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        english,
+      );
+  const englishCopy = (
+    key: string,
+    values: Record<string, unknown>,
+  ): string | null => {
+    if (!/^review\.(pin|reaction)\./.test(key)) return null;
+    const plural =
+      typeof values.count === "number"
+        ? `_${new Intl.PluralRules("en").select(values.count)}`
+        : "";
+    const message = catalogEntry(`${key}${plural}`);
+    if (typeof message !== "string") return null;
+    return message.replace(/\{\{(\w+)\}\}/g, (_, name: string) =>
+      String(values[name]),
+    );
+  };
+  return {
+    ...actual,
+    useT:
+      () =>
+      (key: string, values: Record<string, unknown> = {}) =>
+        englishCopy(key, values) ?? key,
+  };
+});
+
+vi.mock("@agent-native/core/client/use-avatar", () => ({
+  useAvatarUrl: () => null,
 }));
 
 vi.mock("@/lib/agent-chat", () => ({
   sendToDesignAgentChatAndConfirm: mocks.sendToAgent,
 }));
 
+import { createReviewActiveThreadReporter } from "./review-active-thread-reporter";
 import {
   materializeBoardReviewAnchor,
   ReviewCanvasPins,
@@ -254,6 +382,43 @@ import {
 class ResizeObserverMock {
   observe() {}
   disconnect() {}
+}
+
+const SONNET = {
+  model: "claude-sonnet-5-5",
+  engine: "anthropic",
+  provider: "Anthropic",
+};
+
+function makeAgentController(
+  overrides: Partial<ReviewAgentController> = {},
+): ReviewAgentController {
+  return {
+    enabled: true,
+    requests: [],
+    requestForThread: () => undefined,
+    isThreadBusy: () => false,
+    startingThreadIds: new Set(),
+    startingAgentName: () => null,
+    stoppingRequestIds: new Set(),
+    start: mocks.agentStart,
+    stop: mocks.agentStop,
+    retry: mocks.agentRetry,
+    open: mocks.agentOpen,
+    models: { ready: true, options: [SONNET], selected: SONNET },
+    mentionOptions: [
+      {
+        id: "agent:anthropic:claude-sonnet-5-5",
+        label: "Claude Sonnet 5.5",
+        email: null,
+        description: "Anthropic",
+      },
+    ],
+    resolveMention: (mention) =>
+      mention.id === "agent:anthropic:claude-sonnet-5-5" ? SONNET : null,
+    markSurfaceUsed: mocks.agentMarkSurfaceUsed,
+    ...overrides,
+  };
 }
 
 describe("ReviewCanvasPins persisted thread popover", () => {
@@ -265,15 +430,24 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     mocks.useRealComposer = false;
+    mocks.useRealThreads = false;
     mocks.createMutate.mockReset();
     mocks.replyMutate.mockReset();
     mocks.reactMutate.mockReset();
     mocks.resolveMutate.mockReset();
     mocks.unreadMutate.mockReset();
     mocks.updateMutate.mockReset();
+    mocks.deleteMutate.mockReset();
     mocks.callAction.mockClear();
     mocks.setClientAppState.mockClear();
     mocks.sendToAgent.mockClear();
+    mocks.toastError.mockReset();
+    mocks.toastSuccess.mockReset();
+    mocks.agentStart.mockReset().mockResolvedValue("started");
+    mocks.agentStop.mockReset().mockResolvedValue(undefined);
+    mocks.agentRetry.mockReset().mockResolvedValue("started");
+    mocks.agentOpen.mockReset();
+    mocks.agentMarkSurfaceUsed.mockReset();
     mocks.uploadImage.mockReset().mockResolvedValue({
       src: "https://cdn.example.com/review.png",
     });
@@ -311,6 +485,46 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not retry hidden pin mode when its close callback changes", async () => {
+    const onClose = vi.fn();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          hidden
+          onClose={onClose}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    const nextOnClose = vi.fn();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          hidden
+          onClose={nextOnClose}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(nextOnClose).not.toHaveBeenCalled();
+  });
+
   it("keeps a clicked persisted thread open outside pin-placement mode", async () => {
     await act(async () => {
       root.render(
@@ -339,6 +553,374 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).not.toContain("Keep this popover open");
   });
 
+  it("opens the thread card with the reply box collapsed until it is focused", async () => {
+    mocks.useRealComposer = true;
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve={false}
+        />,
+      );
+    });
+
+    const pin = document.querySelector<HTMLButtonElement>("[data-review-pin]");
+    pin?.focus();
+    await act(async () => pin?.click());
+
+    const replyInput = document.querySelector<HTMLElement>(
+      "[data-review-reply-input]",
+    );
+    expect(replyInput).not.toBeNull();
+    expect(document.activeElement).not.toBe(replyInput);
+    const replyField = replyInput?.closest("[data-review-composer-field]");
+    expect(replyField).not.toBeNull();
+    expect(replyField?.hasAttribute("data-expanded")).toBe(false);
+
+    await act(async () => replyInput?.focus());
+
+    expect(document.activeElement).toBe(replyInput);
+    expect(replyField?.hasAttribute("data-expanded")).toBe(true);
+  });
+
+  describe("Escape", () => {
+    // Design's global hotkeys listen on window before the review surfaces
+    // mount, preventDefault() every Escape, and re-render the editor in the
+    // same keydown. A re-render there gives the surface a fresh `onClose`, so a
+    // listener that re-subscribes on it is gone before it runs.
+    let rerenderHost: (() => void) | null = null;
+    const hotkeysLikeDesign = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      flushSync(() => rerenderHost?.());
+    };
+
+    // happy-dom still calls a listener that was removed during the dispatch;
+    // browsers skip it. Skip it here too, for window keydown listeners.
+    const skipRemovedKeydownListeners = () => {
+      type Registration = {
+        listener: EventListenerOrEventListenerObject;
+        capture: boolean;
+        wrapper: EventListener;
+        removed: boolean;
+      };
+      const registrations: Registration[] = [];
+      const captureOf = (options?: boolean | AddEventListenerOptions) =>
+        typeof options === "boolean" ? options : Boolean(options?.capture);
+      const add = window.addEventListener.bind(window);
+      const remove = window.removeEventListener.bind(window);
+      const addSpy = vi
+        .spyOn(window, "addEventListener")
+        .mockImplementation((type, listener, options) => {
+          if (type !== "keydown" || !listener) {
+            return add(type, listener, options);
+          }
+          const registration: Registration = {
+            listener,
+            capture: captureOf(options),
+            removed: false,
+            wrapper: (event) => {
+              if (registration.removed) return;
+              if (typeof listener === "function") listener(event);
+              else listener.handleEvent(event);
+            },
+          };
+          registrations.push(registration);
+          add(type, registration.wrapper, options);
+        });
+      const removeSpy = vi
+        .spyOn(window, "removeEventListener")
+        .mockImplementation((type, listener, options) => {
+          const registration = registrations.find(
+            (candidate) =>
+              !candidate.removed &&
+              candidate.listener === listener &&
+              candidate.capture === captureOf(options),
+          );
+          if (type !== "keydown" || !registration) {
+            return remove(type, listener, options);
+          }
+          registration.removed = true;
+          remove(type, registration.wrapper, options);
+        });
+      return () => {
+        addSpy.mockRestore();
+        removeSpy.mockRestore();
+        for (const registration of registrations) {
+          if (registration.removed) continue;
+          registration.removed = true;
+          remove("keydown", registration.wrapper, registration.capture);
+        }
+      };
+    };
+    let restoreListeners: (() => void) | null = null;
+
+    beforeEach(() => {
+      mocks.useRealComposer = true;
+      restoreListeners = skipRemovedKeydownListeners();
+      window.addEventListener("keydown", hotkeysLikeDesign);
+    });
+
+    afterEach(() => {
+      window.removeEventListener("keydown", hotkeysLikeDesign);
+      restoreListeners?.();
+      rerenderHost = null;
+    });
+
+    function EscapeHost({
+      onClose,
+      surfaces = 1,
+      ...props
+    }: Partial<React.ComponentProps<typeof ReviewCanvasPins>> & {
+      surfaces?: number;
+    }) {
+      const [, setTick] = useState(0);
+      rerenderHost = () => setTick((tick) => tick + 1);
+      return (
+        <>
+          {Array.from({ length: surfaces }, (_, index) => (
+            <ReviewCanvasPins
+              key={index}
+              active={false}
+              onClose={() => onClose?.()}
+              canvasSelector=".review-test-canvas"
+              resourceType="design"
+              resourceId="design-1"
+              targetId="screen-1"
+              canPost
+              canResolve={false}
+              currentUserEmail="reviewer@example.com"
+              {...props}
+            />
+          ))}
+        </>
+      );
+    }
+
+    const renderEscapeCase = async (
+      props: React.ComponentProps<typeof EscapeHost> = {},
+    ) => {
+      await act(async () => {
+        root.render(<EscapeHost {...props} />);
+      });
+    };
+    const openFirstThread = async () => {
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+      });
+    };
+    const openMenuFrom = async (label: string) => {
+      await act(async () => {
+        document
+          .querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+          ?.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              button: 0,
+              pointerType: "mouse",
+            }),
+          );
+      });
+    };
+    const openThreadMenu = () => openMenuFrom("review.moreActions");
+    // Dispatched outside act(): act holds passive effects until it exits, which
+    // hides a listener being re-subscribed between the capture and bubble
+    // phases of the one keydown.
+    const pressEscape = async (target?: Element | null) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+      try {
+        (target ?? document.activeElement ?? document.body).dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      } finally {
+        vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      }
+      await act(async () => {});
+    };
+    const cardOpen = () =>
+      document.body.textContent?.includes("Keep this popover open") ?? false;
+    const placeDraft = async () => {
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 200,
+              clientY: 180,
+            }),
+          );
+      });
+      expect(
+        document.querySelector("[data-review-thread-card]"),
+      ).not.toBeNull();
+      await act(async () =>
+        (document.activeElement as HTMLElement | null)?.blur(),
+      );
+    };
+
+    it("closes the thread card on a plain Escape from the page body", async () => {
+      await renderEscapeCase();
+      await openFirstThread();
+      expect(cardOpen()).toBe(true);
+
+      await pressEscape(document.body);
+      expect(cardOpen()).toBe(false);
+    });
+
+    it("closes only the open thread menu on the first Escape, then the card", async () => {
+      await renderEscapeCase();
+      await openFirstThread();
+      await openThreadMenu();
+      expect(
+        document.querySelector('[role="menu"][data-review-popover]'),
+      ).not.toBeNull();
+
+      await pressEscape();
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      expect(cardOpen()).toBe(true);
+
+      await pressEscape(document.body);
+      expect(cardOpen()).toBe(false);
+    });
+
+    it("closes only the open reaction picker on the first Escape, then the card", async () => {
+      mocks.useRealThreads = true;
+      reviewComments = [comment, makeReply({ id: "reply-1" })];
+      await renderEscapeCase({ canResolve: true });
+      await openFirstThread();
+      await openMenuFrom("review.addReaction");
+      expect(
+        document.querySelector('[role="menu"][data-review-popover]'),
+      ).not.toBeNull();
+
+      await pressEscape();
+      expect(document.querySelector('[role="menu"]')).toBeNull();
+      expect(cardOpen()).toBe(true);
+
+      await pressEscape(document.body);
+      expect(cardOpen()).toBe(false);
+    });
+
+    it("closes only the delete confirmation on the first Escape, then the card", async () => {
+      await renderEscapeCase();
+      await openFirstThread();
+      await openThreadMenu();
+      await act(async () => {
+        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+          .find((item) => item.textContent?.trim() === "review.deleteComment")
+          ?.click();
+      });
+      expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+
+      await pressEscape();
+      expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+      expect(cardOpen()).toBe(true);
+
+      await pressEscape(document.body);
+      expect(cardOpen()).toBe(false);
+    });
+
+    it("closes the card when Escape is pressed in the reply editor", async () => {
+      await renderEscapeCase();
+      await openFirstThread();
+      const editor = document.querySelector<HTMLElement>(
+        '[data-review-thread-card] [contenteditable="true"]',
+      );
+      expect(editor).not.toBeNull();
+      await act(async () => editor?.focus());
+
+      await pressEscape(editor);
+      expect(cardOpen()).toBe(false);
+    });
+
+    it("cancels an open draft on the first Escape and exits comment mode on the second", async () => {
+      const onClose = vi.fn();
+      await renderEscapeCase({ active: true, onClose });
+      await placeDraft();
+
+      await pressEscape(document.body);
+      expect(document.querySelector("[data-review-thread-card]")).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
+
+      await pressEscape(document.body);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps comment mode on while another mounted surface cancels its draft", async () => {
+      const onClose = vi.fn();
+      await renderEscapeCase({ active: true, onClose, surfaces: 2 });
+      await placeDraft();
+
+      await pressEscape(document.body);
+      expect(document.querySelector("[data-review-thread-card]")).toBeNull();
+      expect(onClose).not.toHaveBeenCalled();
+
+      await pressEscape(document.body);
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it("confirms deleting in comment wording, since only the root comment is removed", async () => {
+    mocks.useRealComposer = true;
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve={false}
+          currentUserEmail="reviewer@example.com"
+        />,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="review.moreActions"]',
+        )
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+    });
+    const deleteItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "review.deleteComment");
+    await act(async () => deleteItem?.click());
+
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.textContent).toContain("review.deleteCommentTitle");
+    expect(dialog?.textContent).toContain("review.deleteCommentDescription");
+    expect(dialog?.textContent).not.toContain("review.deleteThread");
+    const confirm = Array.from(
+      dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    ).find((button) => button.textContent?.trim() === "review.deleteComment");
+    expect(confirm).toBeDefined();
+    await act(async () => confirm?.click());
+    expect(mocks.deleteMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: "comment-1" }),
+      expect.any(Object),
+    );
+  });
+
   it("portals review chrome outside a transformed canvas owner", async () => {
     container.style.transform = "scale(0.2)";
     await act(async () => {
@@ -360,7 +942,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "[data-review-popover]",
     );
     expect(reviewChrome).not.toBeNull();
-    expect(reviewChrome?.parentElement).toBe(document.body);
+    expect(
+      reviewChrome?.closest("[data-review-overlay-root]")?.parentElement,
+    ).toBe(document.body);
   });
 
   it("marks an unread thread as read when its pin opens", async () => {
@@ -493,7 +1077,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     ).toBe(true);
     expect(
       document.querySelector("[data-review-attachment-button]"),
-    ).toBeNull();
+    ).not.toBeNull();
     await act(async () => {
       clickPlane?.dispatchEvent(
         new MouseEvent("click", {
@@ -515,9 +1099,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         .querySelector<HTMLButtonElement>("[data-review-test-type]")
         ?.click();
     });
-    expect(
-      document.querySelector("[data-review-attachment-button]"),
-    ).not.toBeNull();
     expect(
       document
         .querySelector("[data-review-comment-tools]")
@@ -979,6 +1560,36 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).toContain("Keep this popover open");
   });
 
+  it("retires a focus request for a thread with no anchor without opening it", async () => {
+    reviewComments = [{ ...comment, anchor: null }];
+    const onActiveThreadChange = vi.fn();
+    const onConsumed = vi.fn();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          focusRequest={{
+            nonce: 1,
+            anchor: null,
+            targetId: "screen-1",
+            threadId: "thread-1",
+            onConsumed,
+          }}
+          onActiveThreadChange={onActiveThreadChange}
+          canPost
+          canResolve
+        />,
+      );
+    });
+    expect(onConsumed).toHaveBeenCalledTimes(1);
+    expect(onActiveThreadChange).not.toHaveBeenCalled();
+  });
+
   it("routes a nullable board focus only to the board surface", async () => {
     const boardCanvas = document.createElement("div");
     boardCanvas.id = "board-review-test-canvas";
@@ -1051,7 +1662,366 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     }
   });
 
-  it("keeps pin numbering contiguous when an earlier anchor is malformed", async () => {
+  it("retires a focus request once the overlay has opened its thread", async () => {
+    const onConsumed = vi.fn();
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          focusRequest={{
+            nonce: 1,
+            anchor: comment.anchor,
+            targetId: "screen-1",
+            threadId: "thread-1",
+            onConsumed,
+          }}
+          canPost
+          canResolve
+        />,
+      );
+    });
+    expect(document.body.textContent).toContain("Keep this popover open");
+    expect(onConsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay a handled focus request when another overlay mounts later", async () => {
+    // Creating the first frame on an empty board swaps the board's overlay for a
+    // new one while the editor still holds the request the user made earlier.
+    const boardAnchor = {
+      point: { xPct: 90, yPct: 90 },
+      worldPoint: { x: 7200, y: 8100 },
+    };
+    reviewComments = [{ ...comment, targetId: null, anchor: boardAnchor }];
+    const boardCanvas = document.createElement("div");
+    boardCanvas.id = "board-review-test-canvas";
+    boardCanvas.getBoundingClientRect = canvas.getBoundingClientRect;
+    document.body.appendChild(boardCanvas);
+    let issue!: ReturnType<typeof useReviewFocusRequest>[1];
+    function Editor({ overlay }: { overlay: "empty-board" | "board-frame" }) {
+      const [request, issueRequest] = useReviewFocusRequest();
+      issue = issueRequest;
+      return (
+        <ReviewCanvasPins
+          key={overlay}
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector={
+            overlay === "empty-board"
+              ? ".review-test-canvas"
+              : "#board-review-test-canvas"
+          }
+          resourceType="design"
+          resourceId="design-1"
+          targetId={null}
+          boardGeometry={{ x: 0, y: 0, width: 800, height: 600 }}
+          onFocusBoardPoint={vi.fn()}
+          focusRequest={request}
+          canPost
+          canResolve
+        />
+      );
+    }
+    const requestThread = {
+      anchor: boardAnchor,
+      targetId: null,
+      threadId: "thread-1",
+    };
+    try {
+      await act(async () => root.render(<Editor overlay="empty-board" />));
+      expect(document.body.textContent).not.toContain("Keep this popover open");
+
+      await act(async () => issue(requestThread));
+      expect(document.body.textContent).toContain("Keep this popover open");
+
+      await act(async () => root.render(<Editor overlay="board-frame" />));
+      expect(document.body.textContent).not.toContain("Keep this popover open");
+
+      await act(async () => issue(requestThread));
+      expect(document.body.textContent).toContain("Keep this popover open");
+    } finally {
+      boardCanvas.remove();
+    }
+  });
+
+  // `targetId: null` cannot travel in a GET query string, so the board
+  // overlay's list arrives with every screen's threads too. The mocked list is
+  // unscoped for the same reason: a screen overlay keeps to its own target, and
+  // the board draws a screen's threads only while that screen has no overlay.
+  describe("overlay scope", () => {
+    const boardGeometry = { x: 0, y: 0, width: 800, height: 600 };
+    // A screen thread's worldPoint is the click mapped through the board's
+    // geometry, so the board draws it away from the frame it lives on when the
+    // frame's own overlay is mounted.
+    const resolvedOnScreen: ReviewComment = {
+      ...comment,
+      id: "comment-d",
+      threadId: "thread-d",
+      status: "resolved",
+      anchor: {
+        screenId: "screen-1",
+        screenPoint: { xPct: 60, yPct: 40 },
+        point: { xPct: 60, yPct: 40 },
+        worldPoint: { x: 640, y: 480 },
+      },
+    };
+    const openOnBoard: ReviewComment = {
+      ...comment,
+      id: "comment-board",
+      threadId: "thread-board",
+      targetId: null,
+      anchor: { point: { xPct: 10, yPct: 10 }, worldPoint: { x: 80, y: 60 } },
+    };
+    const pinPositions = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-review-pin]")].map(
+        (pin) =>
+          `${pin.parentElement?.style.left},${pin.parentElement?.style.top}`,
+      );
+
+    const boardOverlay = (active: boolean) => (
+      <ReviewCanvasPins
+        active={active}
+        onClose={vi.fn()}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId={null}
+        boardGeometry={boardGeometry}
+        canPost
+        canResolve
+      />
+    );
+    const screenOverlay = (
+      <ReviewCanvasPins
+        active={false}
+        onClose={vi.fn()}
+        canvasSelector=".review-test-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId="screen-1"
+        screenId="screen-1"
+        canPost
+        canResolve
+      />
+    );
+    const sortedPinPositions = () => pinPositions().sort();
+
+    it("draws a screen thread once, not again on the board, through a draft", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(
+          <>
+            {boardOverlay(true)}
+            {screenOverlay}
+          </>,
+        );
+      });
+      expect(sortedPinPositions()).toEqual(["480px,240px", "80px,60px"]);
+
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 300,
+              clientY: 240,
+            }),
+          );
+      });
+      expect(sortedPinPositions()).toEqual([
+        "300px,240px",
+        "480px,240px",
+        "80px,60px",
+      ]);
+
+      await act(async () => {
+        document
+          .querySelector("[data-review-test-textarea]")
+          ?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          );
+      });
+      expect(sortedPinPositions()).toEqual(["480px,240px", "80px,60px"]);
+    });
+
+    it("draws a screen's thread on the board while that screen has no overlay", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(boardOverlay(false));
+      });
+      expect(sortedPinPositions()).toEqual(["640px,480px", "80px,60px"]);
+    });
+
+    it("hands a screen's thread to its overlay when it mounts, and takes it back when it unmounts", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(boardOverlay(false));
+      });
+      expect(sortedPinPositions()).toEqual(["640px,480px", "80px,60px"]);
+
+      await act(async () => {
+        root.render(
+          <>
+            {boardOverlay(false)}
+            {screenOverlay}
+          </>,
+        );
+      });
+      expect(sortedPinPositions()).toEqual(["480px,240px", "80px,60px"]);
+
+      await act(async () => {
+        root.render(boardOverlay(false));
+      });
+      expect(sortedPinPositions()).toEqual(["640px,480px", "80px,60px"]);
+    });
+
+    it("draws only its own screen's threads on a screen overlay", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            screenId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+      expect(pinPositions()).toEqual(["480px,240px"]);
+    });
+  });
+
+  describe("wheel over the comment overlay", () => {
+    beforeEach(stubFaithfulWheelEvent);
+
+    const wheel = (init: WheelEventInit) =>
+      new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 200,
+        clientY: 150,
+        deltaY: -120,
+        ...init,
+      });
+
+    async function renderWithCanvasThatTakesWheels(active = false) {
+      const seen: WheelEvent[] = [];
+      // Stands in for the canvas, which zooms on a pinch and pans on a scroll.
+      canvas.addEventListener("wheel", (event) => {
+        seen.push(event);
+        event.preventDefault();
+      });
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={active}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+      return seen;
+    }
+
+    it("hands a pinch over a pin to the canvas so the browser does not zoom", async () => {
+      const seen = await renderWithCanvasThatTakesWheels();
+      const pin = document.querySelector<HTMLElement>("[data-review-pin]")!;
+
+      const pinch = wheel({ ctrlKey: true });
+      pin.dispatchEvent(pinch);
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({ ctrlKey: true, deltaY: -120 });
+      expect(pinch.defaultPrevented).toBe(true);
+    });
+
+    it("hands a two-finger scroll over a pin to the canvas to pan", async () => {
+      const seen = await renderWithCanvasThatTakesWheels();
+      const pin = document.querySelector<HTMLElement>("[data-review-pin]")!;
+
+      const scroll = wheel({ deltaX: 8, deltaY: 60 });
+      pin.dispatchEvent(scroll);
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({ ctrlKey: false, deltaY: 60 });
+      expect(scroll.defaultPrevented).toBe(true);
+    });
+
+    it("hands a pinch over the open thread card to the canvas but leaves its scroll to the card", async () => {
+      const seen = await renderWithCanvasThatTakesWheels();
+      await act(async () =>
+        document.querySelector<HTMLElement>("[data-review-pin]")?.click(),
+      );
+      const card = document.querySelector<HTMLElement>(
+        "[data-review-thread-card]",
+      )!;
+      expect(card).not.toBeNull();
+
+      const pinch = wheel({ ctrlKey: true });
+      card.dispatchEvent(pinch);
+      expect(seen).toHaveLength(1);
+      expect(pinch.defaultPrevented).toBe(true);
+
+      const scroll = wheel({ deltaY: 60 });
+      card.dispatchEvent(scroll);
+      expect(seen).toHaveLength(1);
+      expect(scroll.defaultPrevented).toBe(false);
+    });
+
+    it("hands a pinch over the new-comment draft card to the canvas", async () => {
+      const seen = await renderWithCanvasThatTakesWheels(true);
+      await act(async () =>
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 320,
+              clientY: 180,
+            }),
+          ),
+      );
+      const card = document.querySelector<HTMLElement>(
+        "[data-review-thread-card]",
+      )!;
+      expect(card).not.toBeNull();
+
+      const pinch = wheel({ ctrlKey: true });
+      card.dispatchEvent(pinch);
+      expect(seen).toHaveLength(1);
+      expect(pinch.defaultPrevented).toBe(true);
+    });
+
+    it("hands a scroll over the placement plane to the canvas to pan", async () => {
+      const seen = await renderWithCanvasThatTakesWheels(true);
+      const plane = document.querySelector<HTMLElement>(
+        "[data-review-click-plane]",
+      )!;
+
+      const scroll = wheel({ deltaY: 60 });
+      plane.dispatchEvent(scroll);
+
+      expect(seen).toHaveLength(1);
+      expect(scroll.defaultPrevented).toBe(true);
+    });
+  });
+
+  it("renders the valid pin when an earlier anchor is malformed", async () => {
     reviewComments = [
       { ...comment, id: "broken", threadId: "broken", anchor: null },
       {
@@ -1079,7 +2049,263 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       document
         .querySelector<HTMLButtonElement>("[data-review-pin]")
         ?.getAttribute("aria-label"),
-    ).toBe("Review comment 1");
+    ).toBe("Thread by reviewer@example.com, 1 comment");
+  });
+
+  describe("pin badge", () => {
+    const reply = (id: string, authorEmail: string): ReviewComment => ({
+      ...comment,
+      id,
+      parentCommentId: "comment-1",
+      authorEmail,
+      authorName: null,
+      body: `Reply ${id}`,
+    });
+    const renderPinsOnly = async () => {
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+    };
+    const pin = () =>
+      document.querySelector<HTMLButtonElement>("[data-review-pin]");
+
+    beforeEach(() => {
+      mocks.useRealThreads = true;
+    });
+
+    afterEach(() => {
+      mocks.useRealThreads = false;
+    });
+
+    it("shows one avatar and no count for a single-comment thread", async () => {
+      await renderPinsOnly();
+
+      expect(pin()?.textContent).toBe("R");
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by reviewer@example.com, 1 comment",
+      );
+    });
+
+    it("stacks unique authors and counts every comment in the thread", async () => {
+      reviewComments = [
+        comment,
+        reply("reply-1", "second@example.com"),
+        reply("reply-2", "reviewer@example.com"),
+      ];
+      await renderPinsOnly();
+
+      // The root author replied too, so two avatars and a total of three.
+      expect(pin()?.textContent).toBe("RS3");
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by reviewer@example.com and second@example.com, 3 comments",
+      );
+    });
+
+    it("shows at most three authors but still counts every comment", async () => {
+      reviewComments = [
+        comment,
+        reply("reply-1", "second@example.com"),
+        reply("reply-2", "third@example.com"),
+        reply("reply-3", "fourth@example.com"),
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.textContent).toBe("RST4");
+    });
+
+    it("draws an agent author with its brand mark instead of an initial", async () => {
+      reviewComments = [
+        {
+          ...comment,
+          authorEmail: null,
+          authorName: "Claude",
+          createdBy: "agent",
+        },
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.querySelector("svg")).not.toBeNull();
+      expect(pin()?.textContent).toBe("");
+    });
+
+    it("rings the pin of the open thread in the pin ring token, offset from the pin", async () => {
+      await renderPinsOnly();
+      expect(pin()?.className).not.toContain(
+        "ring-[hsl(var(--review-pin-ring))]",
+      );
+
+      await act(async () => pin()?.click());
+
+      expect(pin()?.className).toContain("ring-[hsl(var(--review-pin-ring))]");
+      expect(pin()?.className).toContain("ring-offset-2");
+    });
+
+    it("names the pin by its authors, comment count and state", async () => {
+      mocks.discussion.threadPreferences = {
+        "thread-1": { muted: false, unread: true },
+      };
+      reviewComments = [
+        { ...comment, authorName: "Sam", authorEmail: "sam@example.com" },
+        { ...reply("reply-1", "alex@example.com"), authorName: "Alex" },
+        { ...reply("reply-2", "kim@example.com"), authorName: "Kim" },
+        { ...reply("reply-3", "lee@example.com"), authorName: "Lee" },
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by Sam, Alex, and 2 others, 4 comments, unread",
+      );
+      expect(
+        pin()?.querySelector("[data-review-pin-unread-dot]"),
+      ).not.toBeNull();
+    });
+
+    it("names one other author in the singular", async () => {
+      reviewComments = [
+        { ...comment, authorName: "Sam", authorEmail: "sam@example.com" },
+        { ...reply("reply-1", "alex@example.com"), authorName: "Alex" },
+        { ...reply("reply-2", "kim@example.com"), authorName: "Kim" },
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by Sam, Alex, and 1 other, 3 comments",
+      );
+    });
+
+    it("says resolved, and unread and resolved together, in the pin name", async () => {
+      reviewComments = [{ ...comment, status: "resolved" }];
+      await renderPinsOnly();
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by reviewer@example.com, 1 comment, resolved",
+      );
+
+      mocks.discussion.threadPreferences = {
+        "thread-1": { muted: false, unread: true },
+      };
+      await renderPinsOnly();
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by reviewer@example.com, 1 comment, unread and resolved",
+      );
+    });
+
+    it("marks a resolved pin with a check instead of dimming it", async () => {
+      reviewComments = [{ ...comment, status: "resolved" }];
+      await renderPinsOnly();
+
+      expect(
+        pin()?.querySelector("[data-review-pin-resolved-check]"),
+      ).not.toBeNull();
+      expect(pin()?.className).not.toContain("opacity");
+      expect(pin()?.closest("[data-review-popover]")?.className).not.toContain(
+        "opacity",
+      );
+
+      reviewComments = [comment];
+      await renderPinsOnly();
+
+      expect(
+        pin()?.querySelector("[data-review-pin-resolved-check]"),
+      ).toBeNull();
+    });
+
+    it("names an agent author by its name, or by Agent when it has none", async () => {
+      reviewComments = [
+        {
+          ...comment,
+          authorEmail: null,
+          authorName: "Claude",
+          createdBy: "agent",
+        },
+        {
+          ...reply("reply-1", "owner@example.com"),
+          authorEmail: null,
+          authorName: null,
+          createdBy: "agent",
+        },
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by Claude and review.agentBadge, 2 comments",
+      );
+    });
+
+    it("sets aria-expanded on the pin only while its card is open", async () => {
+      await renderPinsOnly();
+      expect(pin()?.getAttribute("aria-expanded")).toBe("false");
+      expect(pin()?.getAttribute("aria-haspopup")).toBe("dialog");
+
+      await act(async () => pin()?.click());
+      expect(pin()?.getAttribute("aria-expanded")).toBe("true");
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      });
+      expect(pin()?.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("reads a draft pin as a draft comment, not a one-comment thread", async () => {
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 600,
+              clientY: 400,
+            }),
+          );
+      });
+
+      const draftPin = [
+        ...document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+      ].find((candidate) => candidate !== pin());
+      expect(draftPin?.getAttribute("aria-label")).toBe("Draft comment");
+      expect(draftPin?.getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("counts the threads in a cluster by thread, not by comment", async () => {
+      reviewComments = [
+        comment,
+        {
+          ...comment,
+          id: "comment-2",
+          threadId: "thread-2",
+          anchor: { point: { xPct: 26, yPct: 30 } },
+        },
+      ];
+      await renderPinsOnly();
+
+      expect(
+        document.querySelector("[data-review-pin-cluster]")?.textContent,
+      ).toBe("R2");
+    });
   });
 
   it("clusters close pins, opens the first thread, and dismisses on outside click", async () => {
@@ -1119,6 +2345,462 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       );
     });
     expect(document.body.textContent).not.toContain("Keep this popover open");
+  });
+
+  it("keeps the portaled reaction menu from closing the thread", async () => {
+    mocks.useRealThreads = true;
+    reviewComments = [comment, makeReply({ id: "reply-1" })];
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+    const reactionPicker = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="review.addReaction"]',
+    );
+    expect(reactionPicker).not.toBeNull();
+    await act(async () => {
+      reactionPicker?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      reactionPicker?.click();
+    });
+
+    const reactionMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(reactionMenu).not.toBeNull();
+    await act(async () => {
+      reactionMenu?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(document.body.textContent).toContain("Keep this popover open");
+  });
+
+  it("keeps the portaled thread menu from closing the thread, and only that menu", async () => {
+    mocks.useRealThreads = true;
+    reviewComments = [comment, makeReply({ id: "reply-1" })];
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+    const moreActions = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="review.moreActions"]',
+    );
+    await act(async () => {
+      moreActions?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      moreActions?.click();
+    });
+    const copyLink = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("review.copyLink"));
+    expect(copyLink).not.toBeUndefined();
+    expect(isCanvasOverlayInteractionTarget(copyLink!)).toBe(true);
+    await act(async () => {
+      copyLink!.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(document.body.textContent).toContain("Keep this popover open");
+
+    // A Radix popper that is not review UI still counts as outside the thread.
+    const unrelatedWrapper = document.createElement("div");
+    unrelatedWrapper.setAttribute("data-radix-popper-content-wrapper", "");
+    const unrelatedMenu = document.createElement("div");
+    unrelatedMenu.setAttribute("role", "menu");
+    unrelatedWrapper.append(unrelatedMenu);
+    document.body.append(unrelatedWrapper);
+    await act(async () => {
+      unrelatedMenu.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(document.body.textContent).not.toContain("Keep this popover open");
+    unrelatedWrapper.remove();
+  });
+
+  it("marks the portaled delete dialog and its backdrop as review UI", async () => {
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+    const moreActions = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="review.moreActions"]',
+    );
+    expect(moreActions).not.toBeNull();
+    await act(async () => {
+      moreActions?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      moreActions?.click();
+    });
+    const deleteAction = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("review.deleteComment"));
+    expect(deleteAction).not.toBeUndefined();
+    await act(async () => deleteAction?.click());
+
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    const overlay = document.querySelector<HTMLElement>(
+      "[data-review-confirmation-overlay]",
+    );
+    expect(dialog?.hasAttribute("data-review-popover")).toBe(true);
+    expect(overlay?.hasAttribute("data-review-popover")).toBe(true);
+    expect(isCanvasOverlayInteractionTarget(dialog)).toBe(true);
+    expect(isCanvasOverlayInteractionTarget(overlay)).toBe(true);
+    await act(async () => {
+      dialog?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    expect(document.body.textContent).toContain("Keep this popover open");
+  });
+
+  it("skips rerendering when a hover reply leaves the target unchanged", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML = "<button>Hover target</button>";
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+    const onRender = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <Profiler id="review-pins" onRender={onRender}>
+          <ReviewCanvasPins
+            active
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />
+        </Profiler>,
+      );
+    });
+    const clickPlane = document.querySelector<HTMLElement>(
+      "[data-review-click-plane]",
+    );
+    expect(clickPlane).not.toBeNull();
+    const sendHoverReply = async () => {
+      await act(async () => {
+        clickPlane?.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX: 100,
+            clientY: 100,
+          }),
+        );
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      });
+      const requests = postMessage.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .filter(
+          (message) => message.type === "agent-native:review-anchor-at-point",
+        );
+      const request = requests[requests.length - 1];
+      expect(request?.correlationId).toBeTruthy();
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:review-anchor-at-point-result",
+              correlationId: request?.correlationId,
+              nodeId: "hover-target",
+              hitSelector: "source-equivalent:v1:body > button:nth-of-type(1)",
+              rect: { left: 10, top: 20, width: 50, height: 30 },
+              viewportWidth: 800,
+              viewportHeight: 600,
+            },
+          }),
+        );
+      });
+    };
+
+    await sendHoverReply();
+    const renderCount = onRender.mock.calls.length;
+    expect(renderCount).toBeGreaterThan(1);
+    await sendHoverReply();
+    expect(onRender).toHaveBeenCalledTimes(renderCount);
+  });
+
+  it("skips unchanged selector-box replies and updates changed geometry", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML = "<main>Review target</main>";
+    reviewComments = [
+      {
+        ...comment,
+        anchor: {
+          selector: "source-equivalent:v1:body > main:nth-of-type(1)",
+          point: { xPct: 25, yPct: 30 },
+        },
+      },
+    ];
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+    const onRender = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <Profiler id="review-pins" onRender={onRender}>
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />
+        </Profiler>,
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+
+    const selectorRequests = () =>
+      postMessage.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .filter(
+          (message) => message.type === "agent-native:review-selector-rects",
+        );
+    const sendSelectorReply = async (
+      request: Record<string, unknown>,
+      left: number,
+    ) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:review-selector-rects-result",
+              correlationId: request.correlationId,
+              selectorStatus: "matched",
+              rect: { left, top: 20, width: 50, height: 30 },
+              viewportWidth: 800,
+              viewportHeight: 600,
+            },
+          }),
+        );
+      });
+    };
+    const sendLayoutTick = async () => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: { type: "agent-native:review-layout" },
+          }),
+        );
+      });
+    };
+
+    const firstRequests = selectorRequests();
+    const firstRequest = firstRequests[firstRequests.length - 1];
+    expect(firstRequest).toBeDefined();
+    await sendSelectorReply(firstRequest!, 10);
+
+    await sendLayoutTick();
+    const identicalReplyRenderCount = onRender.mock.calls.length;
+    const secondRequests = selectorRequests();
+    const secondRequest = secondRequests[secondRequests.length - 1];
+    expect(secondRequest?.correlationId).not.toBe(firstRequest?.correlationId);
+    await sendSelectorReply(secondRequest!, 10);
+    expect(onRender).toHaveBeenCalledTimes(identicalReplyRenderCount);
+
+    await sendLayoutTick();
+    const changedReplyRenderCount = onRender.mock.calls.length;
+    const thirdRequests = selectorRequests();
+    const thirdRequest = thirdRequests[thirdRequests.length - 1];
+    expect(thirdRequest?.correlationId).not.toBe(secondRequest?.correlationId);
+    await sendSelectorReply(thirdRequest!, 40);
+    expect(onRender.mock.calls.length).toBeGreaterThan(changedReplyRenderCount);
+  });
+
+  it("does not reuse a sibling hover box for a repeated node-ID popover", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML =
+      '<main><section data-loc="src:repeated">First</section><section data-loc="src:repeated">Second</section></main>';
+    reviewComments = [
+      {
+        ...comment,
+        anchor: {
+          nodeId: "src:repeated",
+          relativePoint: { xPct: 50, yPct: 50 },
+          point: { xPct: 50, yPct: 50 },
+        },
+      },
+    ];
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    const clickPlane = document.querySelector<HTMLElement>(
+      "[data-review-click-plane]",
+    );
+    expect(clickPlane).not.toBeNull();
+    await act(async () => {
+      clickPlane?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: 100,
+          clientY: 100,
+        }),
+      );
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+    });
+    const request = postMessage.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .find(
+        (message) => message.type === "agent-native:review-anchor-at-point",
+      );
+    expect(request?.correlationId).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          data: {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: request?.correlationId,
+            nodeId: "src:repeated",
+            rect: { left: 10, top: 20, width: 50, height: 30 },
+            viewportWidth: 800,
+            viewportHeight: 600,
+          },
+        }),
+      );
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+    });
+
+    expect(document.querySelector("[data-review-hover-highlight]")).toBeNull();
   });
 
   it("persists drag and keyboard relocation for an editable pin", async () => {
@@ -1187,6 +2869,108 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           screenId: "screen-1",
           screenPoint: { xPct: 38.5, yPct: 40 },
         },
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("keeps a moved repeated-source pin anchored through its saved selector", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    const iframeDocument = document.implementation.createHTMLDocument();
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: iframeDocument,
+    });
+    iframeDocument.body.innerHTML =
+      '<main><section data-loc="src:1">First</section><section data-loc="src:1">Second</section></main>';
+    const selectedElement = iframeDocument.querySelectorAll("section")[1];
+    if (!selectedElement)
+      throw new Error("Expected the second source instance");
+    selectedElement.getBoundingClientRect = () =>
+      ({
+        left: 400,
+        top: 100,
+        right: 500,
+        bottom: 180,
+        width: 100,
+        height: 80,
+      }) as DOMRect;
+    iframe.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    reviewComments = [
+      {
+        ...comment,
+        anchor: {
+          nodeId: "src:1",
+          selector: "body > main > section:nth-of-type(2)",
+          point: { xPct: 56.25, yPct: 23.3333 },
+          relativePoint: { xPct: 50, yPct: 50 },
+        },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          screenId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    const pin = document.querySelector<HTMLButtonElement>("[data-review-pin]");
+    expect(pin).not.toBeNull();
+
+    await act(async () => {
+      pin?.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          clientX: 450,
+          clientY: 140,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent("pointermove", {
+          bubbles: true,
+          clientX: 470,
+          clientY: 150,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent("pointerup", {
+          bubbles: true,
+          clientX: 470,
+          clientY: 150,
+        }),
+      );
+    });
+
+    expect(mocks.updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commentId: "comment-1",
+        anchor: expect.objectContaining({
+          selector: "body > main > section:nth-of-type(2)",
+          point: { xPct: 58.75, yPct: 25 },
+          relativePoint: { xPct: 70, yPct: 62.5 },
+        }),
       }),
       expect.any(Object),
     );
@@ -1285,6 +3069,94 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     ).toBe(true);
   });
 
+  describe("hidden image input", () => {
+    const renderPins = async (active: boolean) => {
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={active}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+    };
+    const input = () =>
+      document.querySelector<HTMLInputElement>(
+        "[data-review-attachment-input]",
+      );
+    // What a Tab key walks through: every control not taken out of the order.
+    const tabStops = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "button, input, textarea, [tabindex]",
+        ),
+      ).filter((element) => element.tabIndex >= 0);
+    const expectOutOfTreeAndTabOrder = async () => {
+      const attachInput = input();
+      if (!attachInput) throw new Error("the image input did not render");
+      expect(attachInput.type).toBe("file");
+      // `hidden` (display: none) leaves the accessibility tree: an unnamed file
+      // input there fails axe's `label` rule, and a named one would repeat the
+      // image button's name.
+      expect(attachInput.classList.contains("hidden")).toBe(true);
+      expect(attachInput.classList.contains("sr-only")).toBe(false);
+      expect(attachInput.getAttribute("tabindex")).toBe("-1");
+      expect(tabStops()).not.toContain(attachInput);
+
+      // The visible image button is the one named control and the keyboard
+      // route to the input.
+      const named = document.querySelectorAll(
+        '[aria-label="review.attachImage"]',
+      );
+      expect(named).toHaveLength(1);
+      const button = document.querySelector<HTMLButtonElement>(
+        "[data-review-attachment-button]",
+      );
+      expect(named[0]).toBe(button);
+      expect(tabStops()).toContain(button);
+      const pickFiles = vi.spyOn(attachInput, "click");
+      await act(async () => button?.click());
+      expect(pickFiles).toHaveBeenCalledTimes(1);
+    };
+
+    it("is out of the accessibility tree and tab order in an open thread's reply composer", async () => {
+      await renderPins(false);
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+      });
+
+      await expectOutOfTreeAndTabOrder();
+    });
+
+    it("is out of the accessibility tree and tab order in the new-comment composer", async () => {
+      await renderPins(true);
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 200,
+              clientY: 180,
+            }),
+          );
+      });
+      await act(async () => {
+        document
+          .querySelector<HTMLButtonElement>("[data-review-test-type]")
+          ?.click();
+      });
+
+      await expectOutOfTreeAndTabOrder();
+    });
+  });
+
   it("keeps comment actions disabled until an image upload settles", async () => {
     let resolveUpload: ((value: { src: string }) => void) | undefined;
     mocks.uploadImage.mockImplementation(
@@ -1359,27 +3231,22 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
   it("persists selected mentions through draft and reply submissions", async () => {
     mocks.useRealComposer = true;
-    const setTextareaValue = async (
-      textarea: HTMLTextAreaElement,
-      value: string,
+    const typeInto = async (
+      editor: HTMLElement & { editor: Editor },
+      text: string,
     ) => {
       await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(
-          HTMLTextAreaElement.prototype,
-          "value",
-        )?.set;
-        setter?.call(textarea, value);
-        textarea.setSelectionRange(value.length, value.length);
-        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+        const { state, view } = editor.editor;
+        view.dispatch(state.tr.insertText(text));
       });
     };
     const selectAlice = async (
-      textarea: HTMLTextAreaElement,
+      editor: HTMLElement & { editor: Editor },
       prefix: string,
     ) => {
-      await setTextareaValue(textarea, prefix);
+      await typeInto(editor, prefix);
       await act(async () => {
-        textarea.dispatchEvent(
+        editor.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "@",
             bubbles: true,
@@ -1387,13 +3254,15 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           }),
         );
       });
-      await setTextareaValue(textarea, `${prefix}@Ali`);
+      await typeInto(editor, "Ali");
       const alice = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
       ).find((item) => item.textContent?.includes("Alice"));
       expect(alice).toBeTruthy();
       await act(async () => alice?.click());
-      expect(textarea.value).toBe(`${prefix}@Alice`);
+      expect(
+        editor.querySelector("[data-review-mention-chip]")?.textContent,
+      ).toBe("@Alice");
     };
 
     await act(async () => {
@@ -1421,13 +3290,13 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           }),
         );
     });
-    const draftTextarea = document.querySelector<HTMLTextAreaElement>(
-      "[data-review-popover] textarea",
-    );
-    expect(draftTextarea).not.toBeNull();
-    await selectAlice(draftTextarea!, "Draft ");
+    const draftEditor = document.querySelector<
+      HTMLElement & { editor: Editor }
+    >('[data-review-popover] [role="textbox"]');
+    expect(draftEditor).not.toBeNull();
+    await selectAlice(draftEditor!, "Draft ");
     await act(async () => {
-      draftTextarea
+      draftEditor
         ?.closest("form")
         ?.querySelector<HTMLButtonElement>('button[type="submit"]')
         ?.click();
@@ -1455,13 +3324,13 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     await act(async () => {
       document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
     });
-    const replyTextarea = document.querySelector<HTMLTextAreaElement>(
-      "[data-review-reply-input]",
-    );
-    expect(replyTextarea).not.toBeNull();
-    await selectAlice(replyTextarea!, "Reply ");
+    const replyEditor = document.querySelector<
+      HTMLElement & { editor: Editor }
+    >("[data-review-reply-input]");
+    expect(replyEditor).not.toBeNull();
+    await selectAlice(replyEditor!, "Reply ");
     await act(async () => {
-      replyTextarea
+      replyEditor
         ?.closest("form")
         ?.querySelector<HTMLButtonElement>('button[type="submit"]')
         ?.click();
@@ -1493,7 +3362,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     await act(async () => {
       document
-        .querySelector<HTMLButtonElement>('[data-review-reaction="👍"]')
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="👍, 2 reactions, including you"]',
+        )
         ?.click();
     });
     expect(mocks.reactMutate.mock.calls[0]?.[0]).toMatchObject({
@@ -1509,12 +3380,10 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     const tools = document.querySelector<HTMLElement>(
       "[data-review-comment-tools]",
     );
-    const attachments = document.querySelector<HTMLElement>(
-      "[data-review-attachments]",
-    );
-    expect(attachments?.closest("[data-review-comment-tools]")).toBe(tools);
     expect(
-      attachments?.closest("[data-review-comment-tools-end]"),
+      tools
+        ?.querySelector("[data-review-comment-tools-end]")
+        ?.querySelector("[data-review-attachment-button]"),
     ).not.toBeNull();
     expect(
       tools?.querySelector('[aria-label="review.mention"]'),
@@ -1538,8 +3407,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
 
     await act(async () => {
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-        .find((button) => button.textContent?.includes("review.resolve"))
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="review.resolve"]')
         ?.click();
     });
     expect(mocks.resolveMutate.mock.calls[0]?.[0]).toMatchObject({
@@ -1604,15 +3473,19 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
     });
     expect(document.querySelector("[data-review-reply-input]")).toBeNull();
-    expect(document.querySelector("[data-review-reaction-picker]")).toBeNull();
+    expect(
+      document.querySelector('[aria-label="review.addReaction"]'),
+    ).toBeNull();
   });
 
   it("projects stored canvas pins through camera changes without scaling the marker", async () => {
     const previousAnchor = comment.anchor;
+    const previousTargetId = comment.targetId;
     comment.anchor = {
       point: { xPct: 41.25, yPct: (205 / 600) * 100 },
       canvasPoint: { x: -100, y: -150 },
     } as ReviewComment["anchor"];
+    comment.targetId = null;
     const world = document.createElement("div");
     world.setAttribute("data-multi-screen-canvas-world", "");
     world.style.transform = "translate(50px, 25px) scale(2)";
@@ -1639,7 +3512,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       const popover = pin?.parentElement;
       expect(popover?.style.left).toBe("330px");
       expect(popover?.style.top).toBe("205px");
-      expect(pin?.className).toContain("size-6");
+      expect(pin?.className).toContain("h-7");
 
       await act(async () => {
         world.style.transform = "translate(100px, 50px) scale(1)";
@@ -1648,13 +3521,14 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
       expect(popover?.style.left).toBe("240px");
       expect(popover?.style.top).toBe("140px");
-      expect(pin?.className).toContain("size-6");
+      expect(pin?.className).toContain("h-7");
     } finally {
       comment.anchor = previousAnchor;
+      comment.targetId = previousTargetId;
     }
   });
 
-  it("shows agent dispatch only when the host provides that capability", async () => {
+  it("keeps agent controls out of the draft card even when the host can dispatch", async () => {
     await act(async () => {
       root.render(
         <ReviewCanvasPins
@@ -1685,10 +3559,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     expect(
       document.querySelector("[data-review-test-agent-action]"),
-    ).not.toBeNull();
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("review.sendToAgent");
   });
 
-  it("enriches opaque iframe clicks with a bridge-resolved node anchor", async () => {
+  it("clears a structural guess when the bridge resolves a source-location ID", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
     iframe.getBoundingClientRect = () =>
@@ -1706,6 +3581,23 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     Object.defineProperty(iframe, "clientWidth", { value: 800 });
     Object.defineProperty(iframe, "clientHeight", { value: 600 });
     canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML =
+      '<h1 data-loc="src:hero-title">Hello</h1>';
+    const heroTitle = iframe.contentDocument!.querySelector("h1");
+    if (!heroTitle) throw new Error("Expected the source-location heading");
+    heroTitle.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+      }) as DOMRect;
+    Object.defineProperty(iframe.contentDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [heroTitle],
+    });
     const postMessage = vi.fn();
     Object.defineProperty(iframe.contentWindow, "postMessage", {
       configurable: true,
@@ -1753,7 +3645,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           data: {
             type: "agent-native:review-anchor-at-point-result",
             correlationId: bridgeRequest?.correlationId,
-            nodeId: "hero-title",
+            nodeId: "src:hero-title",
+            hitSelector: "source-equivalent:v1:body > h1:nth-of-type(1)",
             layerName: "Hero title",
             tagName: "h1",
           },
@@ -1763,8 +3656,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         .querySelector<HTMLButtonElement>("[data-review-test-type]")
         ?.click();
     });
-    expect(document.body.textContent).toContain("review.sendToAgent");
-    expect(document.body.textContent).toContain(
+    expect(document.body.textContent).not.toContain("review.sendToAgent");
+    expect(document.body.textContent).not.toContain(
       "designEditor.nodeRewrite.willPreview",
     );
     await act(async () => {
@@ -1775,11 +3668,673 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
       anchor: {
-        nodeId: "hero-title",
+        nodeId: "src:hero-title",
         point: { xPct: 50, yPct: 50 },
+        relativePoint: { xPct: 50, yPct: 50 },
       },
       metadata: { layerName: "Hero title", tagName: "h1" },
     });
+    expect(mocks.createMutate.mock.calls[0]?.[0]?.anchor).toHaveProperty(
+      "selector",
+      "source-equivalent:v1:body > h1:nth-of-type(1)",
+    );
+    expect(mocks.createMutate.mock.calls[0]?.[0]?.metadata).not.toHaveProperty(
+      "targetSelector",
+    );
+  });
+
+  it("keeps a canvas point when the bridge returns an ambiguous repeated node ID", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML =
+      '<main><section data-loc="src:repeated">First</section><section data-loc="src:repeated">Second</section></main>';
+    const repeatedNodes = iframe.contentDocument!.querySelectorAll("section");
+    const hit = repeatedNodes.item(1);
+    expect(hit).not.toBeNull();
+    if (!hit) throw new Error("Expected a repeated source-location node");
+    hit.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe.contentDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [hit],
+    });
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 400,
+            clientY: 300,
+          }),
+        );
+    });
+
+    const bridgeRequest = postMessage.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .find(
+        (message) => message.type === "agent-native:review-anchor-at-point",
+      );
+    expect(bridgeRequest?.correlationId).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          data: {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: bridgeRequest?.correlationId,
+            nodeId: "src:repeated",
+            hitSelector: "",
+            tagName: "section",
+          },
+        }),
+      );
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    const submitted = mocks.createMutate.mock.calls[0]?.[0];
+    expect(submitted?.anchor).toMatchObject({
+      point: { xPct: 50, yPct: 50 },
+    });
+    expect(submitted?.anchor).toHaveProperty("nodeId", "src:repeated");
+    expect(submitted?.anchor).not.toHaveProperty("selector");
+    expect(submitted?.anchor).not.toHaveProperty("relativePoint");
+    expect(submitted?.metadata).not.toHaveProperty("targetSelector");
+  });
+
+  it("measures a data-loc hit relative to its matching ancestor", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    const iframeDocument = iframe.contentDocument!;
+    iframeDocument.body.innerHTML =
+      '<main data-loc="src:hero"><span>Child</span></main>';
+    const ancestor = iframeDocument.querySelector("main");
+    const child = iframeDocument.querySelector("span");
+    if (!ancestor || !child) throw new Error("Expected the hit-test elements");
+    ancestor.getBoundingClientRect = () =>
+      ({
+        left: 200,
+        top: 100,
+        right: 600,
+        bottom: 400,
+        width: 400,
+        height: 300,
+      }) as DOMRect;
+    child.getBoundingClientRect = () =>
+      ({
+        left: 300,
+        top: 175,
+        right: 400,
+        bottom: 225,
+        width: 100,
+        height: 50,
+      }) as DOMRect;
+    Object.defineProperty(iframeDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [child],
+    });
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 400,
+            clientY: 250,
+          }),
+        );
+    });
+
+    const bridgeRequest = postMessage.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .find(
+        (message) => message.type === "agent-native:review-anchor-at-point",
+      );
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          data: {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: bridgeRequest?.correlationId,
+            nodeId: "src:hero",
+            hitSelector: "body > main:nth-of-type(1)",
+            tagName: "main",
+          },
+        }),
+      );
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+      anchor: {
+        nodeId: "src:hero",
+        relativePoint: { xPct: 50, yPct: 50 },
+      },
+    });
+  });
+
+  it("clears the parent hit relative point when the bridge refines a clone to its ancestor", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    const iframeDocument = iframe.contentDocument!;
+    iframeDocument.body.innerHTML =
+      '<main><section data-loc="src:card"><button data-loc="src:button">First clone</button></section><section data-loc="src:card"><button data-loc="src:button">Second clone</button></section></main>';
+    const secondClone = iframeDocument.querySelectorAll("button")[1];
+    if (!secondClone) throw new Error("Expected the second source clone");
+    secondClone.getBoundingClientRect = () =>
+      ({
+        left: 320,
+        top: 200,
+        right: 400,
+        bottom: 240,
+        width: 80,
+        height: 40,
+      }) as DOMRect;
+    Object.defineProperty(iframeDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [secondClone],
+    });
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 360,
+            clientY: 220,
+          }),
+        );
+    });
+
+    const bridgeRequest = postMessage.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .find(
+        (message) => message.type === "agent-native:review-anchor-at-point",
+      );
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          data: {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: bridgeRequest?.correlationId,
+            nodeId: "src:card",
+            hitSelector: "body > main:nth-of-type(1) > section:nth-of-type(2)",
+            tagName: "section",
+          },
+        }),
+      );
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    const submitted = mocks.createMutate.mock.calls[0]?.[0];
+    expect(submitted).toMatchObject({
+      anchor: {
+        nodeId: "src:card",
+        selector: "body > main:nth-of-type(1) > section:nth-of-type(2)",
+        point: { xPct: 45, yPct: 36.666666666666664 },
+      },
+    });
+    expect(submitted?.anchor).not.toHaveProperty("relativePoint");
+  });
+
+  it("falls back to the stored point when a persisted legacy selector is malformed", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    const iframeDocument = document.implementation.createHTMLDocument();
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: iframeDocument,
+    });
+    iframeDocument.body.innerHTML = "<main>Preview</main>";
+    canvas.appendChild(iframe);
+    reviewComments = [
+      {
+        ...comment,
+        anchor: {
+          selector: "[",
+          point: { xPct: 37.5, yPct: 40 },
+          relativePoint: { xPct: 50, yPct: 50 },
+        },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+
+    const pin = document.querySelector<HTMLButtonElement>("[data-review-pin]");
+    expect(pin).not.toBeNull();
+    expect(pin?.parentElement?.style.left).toBe("300px");
+    expect(pin?.parentElement?.style.top).toBe("240px");
+  });
+
+  it("saves a bridge selector when a source-location ID is ambiguous", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML =
+      '<main><section data-loc="src:1">First</section><section data-loc="src:1">Second</section></main>';
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          onDispatchCommentToAgent={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 400,
+            clientY: 300,
+          }),
+        );
+    });
+
+    const bridgeRequest = postMessage.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .find(
+        (message) => message.type === "agent-native:review-anchor-at-point",
+      );
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          data: {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: bridgeRequest?.correlationId,
+            nodeId: "src:1",
+            hitSelector: "body > main > section:nth-of-type(2)",
+            tagName: "section",
+          },
+        }),
+      );
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+      anchor: {
+        nodeId: "src:1",
+        selector: "body > main > section:nth-of-type(2)",
+      },
+    });
+  });
+
+  it.each([
+    {
+      identityCase: "a source location collides with a plain id",
+      html: '<main><h1 id="hero">By id</h1><section data-loc="hero">By source</section></main>',
+      hitSelector: "body > main > section:nth-of-type(1)",
+      expectedSelector: true,
+    },
+    {
+      identityCase: "only repeated plain ids match",
+      html: '<main><section id="hero">First</section><section id="hero">Second</section></main>',
+      hitSelector: "body > main > section:nth-of-type(2)",
+      expectedSelector: true,
+    },
+  ])(
+    "keeps bridge selector behavior when $identityCase",
+    async ({ html, hitSelector, expectedSelector }) => {
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("data-design-preview-iframe", "");
+      iframe.getBoundingClientRect = () =>
+        ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 800,
+          bottom: 600,
+          width: 800,
+          height: 600,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      Object.defineProperty(iframe, "clientWidth", { value: 800 });
+      Object.defineProperty(iframe, "clientHeight", { value: 600 });
+      canvas.appendChild(iframe);
+      iframe.contentDocument!.body.innerHTML = html;
+      const postMessage = vi.fn();
+      Object.defineProperty(iframe.contentWindow, "postMessage", {
+        configurable: true,
+        value: postMessage,
+      });
+
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 400,
+              clientY: 300,
+            }),
+          );
+      });
+
+      const bridgeRequest = postMessage.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .find(
+          (message) => message.type === "agent-native:review-anchor-at-point",
+        );
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              type: "agent-native:review-anchor-at-point-result",
+              correlationId: bridgeRequest?.correlationId,
+              nodeId: "hero",
+              hitSelector,
+              tagName: "section",
+            },
+          }),
+        );
+        document
+          .querySelector<HTMLButtonElement>("[data-review-test-type]")
+          ?.click();
+      });
+      await act(async () => {
+        document
+          .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+          ?.click();
+      });
+
+      const anchor = mocks.createMutate.mock.calls[0]?.[0]?.anchor;
+      expect(anchor).toMatchObject({ nodeId: "hero" });
+      if (expectedSelector) {
+        expect(anchor).toMatchObject({ selector: hitSelector });
+      } else {
+        expect(anchor).not.toHaveProperty("selector");
+      }
+    },
+  );
+
+  it("sends a reprompt through the saved instance selector of a repeated source", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    iframe.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+    iframe.contentDocument!.body.innerHTML =
+      '<main><section data-loc="src:1">First</section><section data-loc="src:1">Second</section></main>';
+    Object.defineProperty(iframe.contentDocument, "elementsFromPoint", {
+      configurable: true,
+      value: () => [],
+    });
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          sourceType="inline"
+          sourceVersionHash="hash-1"
+          repromptDraftRequest={{
+            nonce: 1,
+            fileId: "screen-1",
+            target: {
+              nodeId: "src:1",
+              selector:
+                "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+            },
+            point: { xPct: 50, yPct: 50 },
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    expect(mocks.createMutate).not.toHaveBeenCalled();
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "begin-node-rewrite-request",
+      expect.objectContaining({
+        target: {
+          nodeId: "src:1",
+          selector:
+            "source-equivalent:v1:body > main:nth-of-type(1) > section:nth-of-type(2)",
+        },
+      }),
+    );
+    expect(mocks.sendToAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining(
+          '<section data-loc="src:1">Second</section>',
+        ),
+      }),
+      { timeoutMs: 10_000 },
+    );
   });
 
   it("anchors to a bridge-resolved layer selector instead of the body", async () => {
@@ -1883,8 +4438,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       configurable: true,
       value: iframeDocument,
     });
-    iframeDocument.body.innerHTML =
-      '<section data-agent-native-node-id="hero">Hero</section>';
+    iframeDocument.body.innerHTML = '<section data-loc="src:1">Hero</section>';
     iframe.getBoundingClientRect = () =>
       ({
         left: 0,
@@ -1918,8 +4472,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             nonce: 1,
             fileId: "screen-1",
             target: {
-              nodeId: "hero",
-              selector: '[data-agent-native-node-id="hero"]',
+              nodeId: "stale-node",
+              selector: '[data-loc="src:1"]',
             },
             point: { xPct: 50, yPct: 40 },
           }}
@@ -1931,34 +4485,18 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         .querySelector<HTMLButtonElement>("[data-review-test-type]")
         ?.click();
     });
-    const send = Array.from(
-      document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) =>
-      button.textContent?.includes("designEditor.nodeRewrite.modeRegenerate"),
+    const send = document.querySelector<HTMLButtonElement>(
+      "[data-review-test-submit]",
     );
     expect(document.body.textContent).toContain(
       "designEditor.nodeRewrite.willPreview",
     );
-    expect(document.body.textContent).not.toContain("review.commentMode");
-    expect(document.body.textContent).not.toContain("review.clickToPin");
-    const modeMenuTrigger = document.querySelector<HTMLButtonElement>(
-      '[aria-label="designEditor.nodeRewrite.agentModeOptions"]',
+    expect(document.body.textContent).toContain(
+      "designEditor.nodeRewrite.composerTitle",
     );
-    await act(async () => {
-      modeMenuTrigger?.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
-      modeMenuTrigger?.click();
-    });
-    expect(
-      document
-        .querySelector("[data-review-mode-menu]")
-        ?.hasAttribute("data-review-popover"),
-    ).toBe(true);
+    expect(document.body.textContent).not.toContain("review.threadTitle");
+    expect(document.body.textContent).not.toContain("review.sendToAgent");
+    expect(document.body.textContent).not.toContain("review.clickToPin");
     await act(async () => send?.click());
 
     expect(mocks.createMutate).not.toHaveBeenCalled();
@@ -1970,8 +4508,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         baseVersionHash: "hash-1",
         instruction: "Make the background darker",
         target: {
-          nodeId: "hero",
-          selector: '[data-agent-native-node-id="hero"]',
+          nodeId: "stale-node",
+          selector: '[data-loc="src:1"]',
         },
       }),
     );
@@ -1979,7 +4517,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(mocks.sendToAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Make the background darker",
-        context: expect.stringContaining("[Reprompt selection]"),
+        context: expect.stringContaining(
+          '<section data-loc="src:1">Hero</section>',
+        ),
       }),
       { timeoutMs: 10_000 },
     );
@@ -2004,6 +4544,110 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       pinsBeforePreview.length - 1,
     );
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a failed reprompt and keeps its draft available for retry", async () => {
+    const onClose = vi.fn();
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    const iframeDocument = document.implementation.createHTMLDocument();
+    Object.defineProperty(iframe, "contentDocument", {
+      configurable: true,
+      value: iframeDocument,
+    });
+    iframeDocument.body.innerHTML = '<section data-loc="src:1">Hero</section>';
+    iframe.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 600,
+        right: 800,
+        bottom: 600,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(iframe, "clientWidth", { value: 800 });
+    Object.defineProperty(iframe, "clientHeight", { value: 600 });
+    canvas.appendChild(iframe);
+
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={onClose}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          sourceType="inline"
+          sourceVersionHash="hash-1"
+          repromptDraftRequest={{
+            nonce: 1,
+            fileId: "screen-1",
+            target: {
+              nodeId: "stale-node",
+              selector: '[data-loc="src:1"]',
+            },
+            point: { xPct: 50, yPct: 40 },
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-type]")
+        ?.click();
+    });
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+        ?.click();
+    });
+
+    const beginCall = mocks.callAction.mock.calls.find(
+      ([name]) => name === "begin-node-rewrite-request",
+    );
+    const pending = beginCall?.[1] as {
+      fileId: string;
+      repromptId: string;
+    };
+    const pins = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+    );
+    const pin = pins[pins.length - 1];
+    expect(pin?.querySelector("svg")).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("design:node-reprompt-preview-failed", {
+          detail: {
+            repromptId: pending.repromptId,
+            fileId: pending.fileId,
+            reason: "future-bridge-reason",
+          },
+        }),
+      );
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "designEditor.nodeRewrite.previewFailed",
+    );
+    const retryPins = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+    );
+    const retryPin = retryPins[retryPins.length - 1];
+    expect(retryPin?.querySelector("svg")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => retryPin?.click());
+    expect(
+      document.querySelector<HTMLTextAreaElement>("[data-review-test-textarea]")
+        ?.value,
+    ).toBe("Make the background darker");
   });
 
   it("leaves an overview reprompt for the active visible canvas to consume", async () => {
@@ -2048,7 +4692,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     );
   });
 
-  it("resets composer-local mode when a reprompt replaces an open comment draft", async () => {
+  it("replaces an open comment draft with the reprompt composer", async () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
     const iframeDocument = document.implementation.createHTMLDocument();
@@ -2072,9 +4716,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       }) as DOMRect;
     Object.defineProperty(iframe, "clientWidth", { value: 800 });
     Object.defineProperty(iframe, "clientHeight", { value: 600 });
-    Object.defineProperty(iframeDocument, "elementFromPoint", {
+    Object.defineProperty(iframeDocument, "elementsFromPoint", {
       configurable: true,
-      value: () => iframeDocument.querySelector("[data-agent-native-node-id]"),
+      value: () => [
+        iframeDocument.querySelector("[data-agent-native-node-id]"),
+      ],
     });
     canvas.appendChild(iframe);
 
@@ -2095,7 +4741,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         sourceType="inline"
         sourceVersionHash="hash-1"
         onDispatchCommentToAgent={vi.fn()}
-        repromptDraftRequest={repromptDraftRequest}
+        {...(repromptDraftRequest ? { repromptDraftRequest } : {})}
       />
     );
 
@@ -2116,8 +4762,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         .querySelector<HTMLButtonElement>("[data-review-test-question]")
         ?.click();
     });
-    expect(document.body.textContent).toContain(
-      "designEditor.nodeRewrite.willAsk",
+    expect(document.body.textContent).toContain("review.threadTitle");
+    expect(document.body.textContent).not.toContain(
+      "designEditor.nodeRewrite.willPreview",
     );
 
     await act(async () => {
@@ -2137,8 +4784,2011 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "designEditor.nodeRewrite.willPreview",
     );
     expect(document.body.textContent).toContain(
-      "designEditor.nodeRewrite.modeRegenerate",
+      "designEditor.nodeRewrite.composerTitle",
     );
-    expect(document.querySelector("[data-review-test-submit]")).toBeNull();
+    expect(document.body.textContent).not.toContain("review.threadTitle");
+  });
+
+  describe("thread card and draft card", () => {
+    const renderPins = async (
+      props: Partial<React.ComponentProps<typeof ReviewCanvasPins>> = {},
+      agent: ReviewAgentController | null = null,
+    ) => {
+      await act(async () => {
+        root.render(
+          <ReviewAgentProvider controller={agent}>
+            <ReviewCanvasPins
+              active={false}
+              onClose={vi.fn()}
+              canvasSelector=".review-test-canvas"
+              resourceType="design"
+              resourceId="design-1"
+              targetId="screen-1"
+              canPost
+              canResolve
+              {...props}
+            />
+          </ReviewAgentProvider>,
+        );
+      });
+    };
+    const openFirstThread = async () => {
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+      });
+    };
+
+    const openCardMenu = async () => {
+      const moreActions = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="review.moreActions"]',
+      );
+      await act(async () => {
+        moreActions?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        moreActions?.click();
+      });
+    };
+    const menuLayout = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[role="menuitem"], [role="separator"]',
+        ),
+      ).map((item) =>
+        item.getAttribute("role") === "separator"
+          ? "---"
+          : item.textContent?.trim(),
+      );
+    const menuItem = (label: string) =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((item) => item.textContent?.trim() === label);
+
+    it("titles the thread card and lists the menu in the Figma order for an editor on an open thread", async () => {
+      mocks.discussion.canSetThreadPreferences = true;
+      await renderPins(
+        {
+          currentUserEmail: "reviewer@example.com",
+          onSendThreadToAgent: vi.fn(),
+        },
+        makeAgentController(),
+      );
+      await openFirstThread();
+
+      const card = document.querySelector<HTMLElement>(
+        "[data-review-thread-card]",
+      );
+      expect(card?.closest("[data-review-popover]")).not.toBeNull();
+      expect(card?.textContent).toContain("review.threadTitle");
+      expect(
+        card?.querySelector('button[aria-label="review.closeThread"]'),
+      ).not.toBeNull();
+      expect(
+        card?.querySelector('button[aria-label="review.resolve"]'),
+      ).not.toBeNull();
+
+      await openCardMenu();
+      expect(menuLayout()).toEqual([
+        "review.sendToAgent",
+        "review.suggestChanges",
+        "review.replyInThread",
+        "---",
+        "review.applyChangesAndResolve",
+        "---",
+        "review.editComment",
+        "---",
+        "review.copyLink",
+        "review.deleteComment",
+      ]);
+      // Marking as unread stays off the card menu even though the viewer may
+      // set preferences.
+      expect(document.body.textContent).not.toContain("review.markUnread");
+      expect(document.body.textContent).not.toContain("review.markRead");
+      expect(document.body.textContent).not.toContain("review.deleteThread");
+    });
+
+    it("keeps the agent items away from viewers who cannot edit the design", async () => {
+      await renderPins({
+        canResolve: false,
+        currentUserEmail: "reviewer@example.com",
+        onSendThreadToAgent: vi.fn(),
+      });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuLayout()).toEqual([
+        "review.editComment",
+        "---",
+        "review.copyLink",
+        "review.deleteComment",
+      ]);
+    });
+
+    it("keeps the agent items away when the host offers no agent hand-off", async () => {
+      await renderPins({ currentUserEmail: "reviewer@example.com" });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuLayout()).toEqual([
+        "review.editComment",
+        "---",
+        "review.copyLink",
+        "review.deleteComment",
+      ]);
+    });
+
+    it("hides the agent items once the thread is resolved", async () => {
+      reviewComments = [{ ...comment, status: "resolved" }];
+      await renderPins({
+        currentUserEmail: "reviewer@example.com",
+        onSendThreadToAgent: vi.fn(),
+      });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuLayout()).toEqual([
+        "review.editComment",
+        "---",
+        "review.copyLink",
+        "review.deleteComment",
+      ]);
+    });
+
+    it("offers Edit to the comment's author and not to anyone else", async () => {
+      await renderPins({ currentUserEmail: "someone-else@example.com" });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteComment"]);
+    });
+
+    it("matches the author's email without regard to case or spaces", async () => {
+      await renderPins({ currentUserEmail: " Reviewer@Example.com " });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuItem("review.editComment")).toBeDefined();
+    });
+
+    it("withholds Edit from a viewer who cannot post", async () => {
+      await renderPins({
+        canPost: false,
+        currentUserEmail: "reviewer@example.com",
+      });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuItem("review.editComment")).toBeUndefined();
+    });
+
+    describe("editing a comment", () => {
+      beforeEach(() => {
+        mocks.useRealComposer = true;
+      });
+
+      const editor = () =>
+        document.querySelector<HTMLElement & { editor: Editor }>(
+          '[data-review-comment-editing] [role="textbox"]',
+        );
+      const typeIntoEditor = async (text: string) => {
+        await act(async () => {
+          const { state, view } = editor()!.editor;
+          view.dispatch(state.tr.insertText(text));
+        });
+      };
+      const startEditing = async () => {
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCardMenu();
+        await act(async () => menuItem("review.editComment")?.click());
+      };
+      const pressEscapeIn = async (target: Element | null) => {
+        await act(async () => {
+          target?.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+      };
+
+      it("opens the comment in place for editing, with its text and focus", async () => {
+        await startEditing();
+
+        expect(editor()).not.toBeNull();
+        expect(editor()?.textContent).toBe("Keep this popover open");
+        expect(
+          document.querySelector(
+            '[data-review-comment="comment-1"][data-review-comment-variant="root"]',
+          ),
+        ).toBeNull();
+        await vi.waitFor(() =>
+          expect(editor()?.contains(document.activeElement)).toBe(true),
+        );
+      });
+
+      it("saves the edited body and closes the editor", async () => {
+        await startEditing();
+        await typeIntoEditor(" please");
+        await act(async () =>
+          editor()
+            ?.closest("form")
+            ?.querySelector<HTMLButtonElement>('button[type="submit"]')
+            ?.click(),
+        );
+
+        expect(mocks.updateMutate).toHaveBeenCalledTimes(1);
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          commentId: "comment-1",
+          body: "Keep this popover open please",
+        });
+        await act(async () =>
+          mocks.updateMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+        expect(editor()).toBeNull();
+        expect(document.body.textContent).toContain("Keep this popover open");
+        expect(document.activeElement).toBe(
+          document.querySelector("[data-review-thread-card]"),
+        );
+      });
+
+      it("cancels on Escape without saving, keeps the card open and returns focus to it", async () => {
+        await startEditing();
+        await typeIntoEditor(" and more");
+
+        await pressEscapeIn(editor());
+
+        expect(editor()).toBeNull();
+        expect(mocks.updateMutate).not.toHaveBeenCalled();
+        expect(document.body.textContent).toContain("Keep this popover open");
+        expect(document.body.textContent).not.toContain("and more");
+        expect(document.activeElement).toBe(
+          document.querySelector("[data-review-thread-card]"),
+        );
+      });
+    });
+
+    it("hands the thread and the chosen action to the host", async () => {
+      const onSendThreadToAgent = vi.fn();
+      await renderPins(
+        {
+          currentUserEmail: "reviewer@example.com",
+          onSendThreadToAgent,
+        },
+        makeAgentController(),
+      );
+      await openFirstThread();
+      const choices = [
+        ["review.sendToAgent", "send"],
+        ["review.suggestChanges", "suggest"],
+        ["review.replyInThread", "reply"],
+        ["review.applyChangesAndResolve", "apply"],
+      ] as const;
+      for (const [label, action] of choices) {
+        await openCardMenu();
+        await act(async () => menuItem(label)?.click());
+        expect(onSendThreadToAgent).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            root: expect.objectContaining({ threadId: "thread-1" }),
+          }),
+          action,
+        );
+      }
+      expect(onSendThreadToAgent).toHaveBeenCalledTimes(choices.length);
+    });
+
+    it("disables the agent items, but not Copy link, while a hand-off is in flight", async () => {
+      const onSendThreadToAgent = vi.fn();
+      await renderPins(
+        {
+          currentUserEmail: "reviewer@example.com",
+          onSendThreadToAgent,
+          sendingThreadId: "thread-1",
+        },
+        makeAgentController(),
+      );
+      await openFirstThread();
+      await openCardMenu();
+      const disabled = (label: string) =>
+        menuItem(label)?.getAttribute("aria-disabled") === "true";
+      expect(disabled("review.sendToAgent")).toBe(true);
+      expect(disabled("review.suggestChanges")).toBe(true);
+      expect(disabled("review.replyInThread")).toBe(true);
+      expect(disabled("review.applyChangesAndResolve")).toBe(true);
+      expect(disabled("review.copyLink")).toBe(false);
+      await act(async () => menuItem("review.sendToAgent")?.click());
+      expect(onSendThreadToAgent).not.toHaveBeenCalled();
+    });
+
+    it("ends the card with a collapsed-style reply row for the current user", async () => {
+      await renderPins({ currentUserEmail: "reviewer@example.com" });
+      await openFirstThread();
+      const row = document
+        .querySelector("[data-review-reply-input]")
+        ?.closest("[data-review-test-composer]");
+      expect(row?.getAttribute("data-review-test-composer")).toBe("reply");
+      expect(
+        row
+          ?.querySelector("[data-review-reply-input]")
+          ?.getAttribute("placeholder"),
+      ).toBe("review.reply");
+    });
+
+    it("gives the draft card a title bar and no agent control", async () => {
+      await renderPins({
+        active: true,
+        onDispatchCommentToAgent: vi.fn(),
+      });
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 200,
+              clientY: 180,
+            }),
+          );
+      });
+      const card = document.querySelector<HTMLElement>(
+        "[data-review-thread-card]",
+      );
+      expect(card?.textContent).toContain("review.threadTitle");
+      expect(
+        card?.querySelector('button[aria-label="designEditor.close"]'),
+      ).not.toBeNull();
+      expect(
+        card?.querySelector('button[aria-label="review.moreActions"]'),
+      ).toBeNull();
+      expect(
+        card?.querySelector('button[aria-label="review.resolve"]'),
+      ).toBeNull();
+      expect(
+        card
+          ?.querySelector("[data-review-test-composer]")
+          ?.getAttribute("data-review-test-composer"),
+      ).toBe("expanded");
+      expect(
+        document.querySelector("[data-review-test-agent-action]"),
+      ).toBeNull();
+      expect(document.body.textContent).not.toContain("review.sendToAgent");
+    });
+
+    it("reports the open thread id, and null once it closes or unmounts", async () => {
+      const onActiveThreadChange = vi.fn();
+      await renderPins({ onActiveThreadChange });
+      expect(onActiveThreadChange).not.toHaveBeenCalled();
+
+      await openFirstThread();
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(
+        "thread-1",
+        expect.any(String),
+      );
+      const reporterId = onActiveThreadChange.mock.calls[0]?.[1];
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      });
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(null, reporterId);
+      expect(onActiveThreadChange).toHaveBeenCalledTimes(2);
+
+      await openFirstThread();
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(
+        "thread-1",
+        reporterId,
+      );
+      await act(async () => root.unmount());
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(null, reporterId);
+      root = createRoot(container);
+    });
+
+    describe("two overlays sharing one open-thread report", () => {
+      const published = vi.fn();
+      const report = createReviewActiveThreadReporter(published);
+      const threadsAtTwoPoints = () => {
+        reviewComments = [
+          { ...comment, body: "First thread" },
+          {
+            ...comment,
+            id: "comment-2",
+            threadId: "thread-2",
+            body: "Second thread",
+            anchor: { point: { xPct: 75, yPct: 70 } },
+          },
+        ];
+      };
+      const overlay = (key: string) => (
+        <ReviewCanvasPins
+          key={key}
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          onActiveThreadChange={report}
+        />
+      );
+      const renderOverlays = async (withFirst = true) => {
+        await act(async () => {
+          root.render(
+            <>
+              {withFirst ? overlay("first") : null}
+              {overlay("second")}
+            </>,
+          );
+        });
+      };
+      // The overlays portal into the body in render order.
+      const overlayRoot = (index: number) =>
+        document.querySelectorAll<HTMLElement>("[data-review-overlay-root]")[
+          index
+        ]!;
+      const openThread = async (overlayIndex: number, pinIndex: number) => {
+        await act(async () => {
+          overlayRoot(overlayIndex)
+            .querySelectorAll<HTMLButtonElement>("[data-review-pin]")
+            [pinIndex]?.click();
+        });
+      };
+      const closeCardOf = async (overlayIndex: number) => {
+        await act(async () => {
+          overlayRoot(overlayIndex)
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="review.closeThread"]',
+            )
+            ?.click();
+        });
+      };
+      const everyReport = () => published.mock.calls.map(([id]) => id);
+
+      beforeEach(() => {
+        published.mockClear();
+        threadsAtTwoPoints();
+      });
+
+      it("keeps the thread another overlay opened when this one closes its card", async () => {
+        await renderOverlays();
+        await openThread(0, 0);
+        await openThread(1, 1);
+        expect(published).toHaveBeenLastCalledWith("thread-2");
+
+        await closeCardOf(0);
+
+        expect(published).toHaveBeenLastCalledWith("thread-2");
+        expect(everyReport()).not.toContain(null);
+
+        await closeCardOf(1);
+        expect(published).toHaveBeenLastCalledWith(null);
+      });
+
+      it("keeps the thread another overlay opened when this one unmounts", async () => {
+        await renderOverlays();
+        await openThread(0, 0);
+        await openThread(1, 1);
+
+        await renderOverlays(false);
+
+        expect(published).toHaveBeenLastCalledWith("thread-2");
+        expect(everyReport()).not.toContain(null);
+
+        await closeCardOf(0);
+        expect(published).toHaveBeenLastCalledWith(null);
+      });
+
+      it("falls back to the thread still open elsewhere when the latest one closes", async () => {
+        await renderOverlays();
+        await openThread(0, 0);
+        await openThread(1, 1);
+
+        await closeCardOf(1);
+
+        expect(published).toHaveBeenLastCalledWith("thread-1");
+        expect(everyReport()).not.toContain(null);
+      });
+
+      it("leaves an idle overlay's mount and unmount out of the report", async () => {
+        await renderOverlays();
+        await openThread(1, 1);
+        await renderOverlays(false);
+
+        expect(everyReport()).toEqual(["thread-2"]);
+      });
+    });
+
+    describe("keyboard focus", () => {
+      const pin = () =>
+        document.querySelector<HTMLButtonElement>("[data-review-pin]");
+      const card = () =>
+        document.querySelector<HTMLElement>("[data-review-thread-card]");
+      const pressEscape = async (target: Element | null) => {
+        await act(async () => {
+          target?.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+      };
+      // A keyboard user opens the card from the pin, which holds focus.
+      const openFromPin = async () => {
+        pin()?.focus();
+        await openFirstThread();
+      };
+
+      it("moves focus to the card on open, named by its title, with the reply field collapsed", async () => {
+        mocks.useRealComposer = true;
+        await renderPins();
+        await openFromPin();
+
+        expect(card()).not.toBeNull();
+        expect(document.activeElement).toBe(card());
+        expect(card()?.getAttribute("role")).toBe("dialog");
+        const titleId = card()?.getAttribute("aria-labelledby");
+        expect(titleId).toBeTruthy();
+        expect(document.getElementById(titleId ?? "")?.textContent).toBe(
+          "review.threadTitle",
+        );
+        expect(
+          document
+            .querySelector("[data-review-reply-input]")
+            ?.closest("[data-review-composer-field]")
+            ?.hasAttribute("data-expanded"),
+        ).toBe(false);
+      });
+
+      it("moves focus to the card of the thread a pin opens next", async () => {
+        reviewComments = [
+          { ...comment, body: "First thread" },
+          {
+            ...comment,
+            id: "comment-2",
+            threadId: "thread-2",
+            body: "Second thread",
+            anchor: { point: { xPct: 75, yPct: 70 } },
+          },
+        ];
+        await renderPins();
+        await openFromPin();
+        const pins =
+          document.querySelectorAll<HTMLButtonElement>("[data-review-pin]");
+        await act(async () => pins[1]?.click());
+
+        expect(card()?.textContent).toContain("Second thread");
+        expect(document.activeElement).toBe(card());
+      });
+
+      it("returns focus to the pin on Escape", async () => {
+        await renderPins();
+        await openFromPin();
+        expect(document.activeElement).toBe(card());
+
+        await pressEscape(document.activeElement);
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+        expect(document.activeElement).not.toBe(document.body);
+      });
+
+      it("returns focus to the pin on Escape from the reply editor", async () => {
+        mocks.useRealComposer = true;
+        await renderPins();
+        await openFromPin();
+        const editor = document.querySelector<HTMLElement>(
+          '[data-review-thread-card] [role="textbox"]',
+        );
+        await act(async () => editor?.focus());
+        expect(document.activeElement).not.toBe(card());
+
+        await pressEscape(editor);
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("returns focus to the pin from the close button", async () => {
+        await renderPins();
+        await openFromPin();
+
+        await act(async () =>
+          card()
+            ?.querySelector<HTMLButtonElement>(
+              'button[aria-label="review.closeThread"]',
+            )
+            ?.click(),
+        );
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("returns focus to the pin once a thread is resolved", async () => {
+        await renderPins();
+        await openFromPin();
+        await act(async () =>
+          card()
+            ?.querySelector<HTMLButtonElement>(
+              'button[aria-label="review.resolve"]',
+            )
+            ?.click(),
+        );
+        expect(card()).not.toBeNull();
+
+        await act(async () =>
+          mocks.resolveMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("leaves a thread opened meanwhile open when an earlier resolve finishes", async () => {
+        reviewComments = [
+          comment,
+          {
+            ...comment,
+            id: "comment-2",
+            threadId: "thread-2",
+            body: "Second thread",
+            anchor: { point: { xPct: 75, yPct: 70 } },
+          },
+        ];
+        await renderPins();
+        await openFromPin();
+        await act(async () =>
+          card()
+            ?.querySelector<HTMLButtonElement>(
+              'button[aria-label="review.resolve"]',
+            )
+            ?.click(),
+        );
+        await act(async () =>
+          document
+            .querySelectorAll<HTMLButtonElement>("[data-review-pin]")[1]
+            ?.click(),
+        );
+        expect(card()?.textContent).toContain("Second thread");
+
+        await act(async () =>
+          mocks.resolveMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+
+        expect(card()?.textContent).toContain("Second thread");
+      });
+
+      it("returns focus to the pin once a comment is deleted", async () => {
+        await renderPins();
+        await openFromPin();
+        await openCardMenu();
+        await act(async () => menuItem("review.deleteComment")?.click());
+        await act(async () =>
+          Array.from(
+            document.querySelectorAll<HTMLButtonElement>(
+              '[role="alertdialog"] button',
+            ),
+          )
+            .find(
+              (button) => button.textContent?.trim() === "review.deleteComment",
+            )
+            ?.click(),
+        );
+
+        await act(async () =>
+          mocks.deleteMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+        // Radix hands focus back to the dialog's trigger from a timer.
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+
+        expect(card()).toBeNull();
+        expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("leaves focus where the user clicked when an outside click closes the card", async () => {
+        await renderPins();
+        await openFromPin();
+        const elsewhere = document.createElement("button");
+        document.body.appendChild(elsewhere);
+        try {
+          await act(async () => {
+            elsewhere.dispatchEvent(
+              new MouseEvent("pointerdown", { bubbles: true }),
+            );
+            elsewhere.focus();
+          });
+
+          expect(card()).toBeNull();
+          expect(document.activeElement).toBe(elsewhere);
+        } finally {
+          elsewhere.remove();
+        }
+      });
+
+      it("has nowhere to put focus once the overlay has unmounted with its last pin and the editor has no Pin comment tool", async () => {
+        await renderPins();
+        await openFromPin();
+        reviewComments = [];
+        await renderPins();
+
+        await pressEscape(document.body);
+
+        expect(card()).toBeNull();
+        expect(pin()).toBeNull();
+        expect(document.querySelector("[data-review-overlay-root]")).toBeNull();
+        expect(document.activeElement).toBe(document.body);
+      });
+
+      it("keeps one nameless fallback target inside the overlay, and the overlay root itself out of the focus order", async () => {
+        await renderPins({ active: true });
+
+        const roots = document.querySelectorAll("[data-review-overlay-root]");
+        expect(roots).toHaveLength(1);
+        const fallbacks = roots[0]?.querySelectorAll(
+          "[data-review-focus-fallback]",
+        );
+        expect(fallbacks).toHaveLength(1);
+        const target = fallbacks?.[0];
+        // `display: contents` has no box, so Chromium cannot focus the root;
+        // the span needs the box `sr-only` gives it.
+        expect(roots[0]?.hasAttribute("tabindex")).toBe(false);
+        expect(target?.getAttribute("tabindex")).toBe("-1");
+        expect(target?.classList.contains("sr-only")).toBe(true);
+        expect(target?.closest('[aria-hidden="true"]')).toBeNull();
+        expect(target?.hasAttribute("aria-label")).toBe(false);
+        expect(target?.textContent).toBe("");
+      });
+
+      describe("when there is no pin to return to", () => {
+        const threadBy = (
+          author: string,
+          xPct: number,
+          yPct: number,
+        ): ReviewComment => ({
+          ...comment,
+          id: `comment-${author}`,
+          threadId: `thread-${author}`,
+          authorEmail: `${author}@example.com`,
+          body: `Thread by ${author}`,
+          anchor: { point: { xPct, yPct } },
+        });
+        const first = threadBy("first", 20, 20);
+        const second = threadBy("second", 50, 50);
+        const third = threadBy("third", 80, 80);
+        const pins = () =>
+          Array.from(
+            document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+          );
+        const overlayRoot = () =>
+          document.querySelector<HTMLElement>("[data-review-overlay-root]");
+        const focusFallback = () =>
+          document.querySelector<HTMLElement>("[data-review-focus-fallback]");
+        // The editor's bottom toolbar, which this component only reads.
+        const addCommentTool = () => {
+          const toolbar = document.createElement("div");
+          toolbar.setAttribute("data-design-bottom-toolbar", "");
+          const group = document.createElement("div");
+          group.setAttribute("data-design-toolbar-group", "comment");
+          const button = document.createElement("button");
+          button.setAttribute("aria-label", "designEditor.pinComment");
+          group.appendChild(button);
+          toolbar.appendChild(group);
+          document.body.appendChild(toolbar);
+          return toolbar;
+        };
+        const confirmButton = () =>
+          Array.from(
+            document.querySelectorAll<HTMLButtonElement>(
+              '[role="alertdialog"] button',
+            ),
+          ).find(
+            (button) => button.textContent?.trim() === "review.deleteComment",
+          );
+        // Opens a pin's card from the keyboard, then deletes its thread. The
+        // optimistic delete takes the pin off the canvas before the request
+        // settles, and the dialog's confirm button holds focus until then.
+        const deleteThread = async (
+          index: number,
+          remaining: ReviewComment[],
+          props: Partial<React.ComponentProps<typeof ReviewCanvasPins>> = {},
+        ) => {
+          const target = pins()[index];
+          target?.focus();
+          await act(async () => target?.click());
+          await openCardMenu();
+          await act(async () => menuItem("review.deleteComment")?.click());
+          await act(async () => confirmButton()?.click());
+          await act(async () => confirmButton()?.focus());
+          reviewComments = remaining;
+          await renderPins(props);
+          await act(async () =>
+            mocks.deleteMutate.mock.calls[0]?.[1]?.onSuccess(),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+        };
+        const openDraft = async () => {
+          await act(async () => {
+            document
+              .querySelector<HTMLElement>("[data-review-click-plane]")
+              ?.dispatchEvent(
+                new MouseEvent("click", {
+                  bubbles: true,
+                  clientX: 600,
+                  clientY: 100,
+                }),
+              );
+          });
+          await vi.waitFor(() =>
+            expect(
+              document
+                .querySelector('[data-review-popover] [role="textbox"]')
+                ?.contains(document.activeElement),
+            ).toBe(true),
+          );
+        };
+
+        beforeEach(() => {
+          reviewComments = [first, second, third];
+        });
+
+        it("moves focus to the next pin when the deleted thread's pin was in the middle", async () => {
+          await renderPins();
+          await deleteThread(1, [first, third]);
+
+          expect(card()).toBeNull();
+          expect(pins()).toHaveLength(2);
+          expect(document.activeElement).toBe(pins()[1]);
+          expect(document.activeElement?.getAttribute("aria-label")).toContain(
+            "third@example.com",
+          );
+        });
+
+        it("moves focus to the previous pin when the deleted thread's pin was the last", async () => {
+          await renderPins();
+          await deleteThread(2, [first, second]);
+
+          expect(pins()).toHaveLength(2);
+          expect(document.activeElement).toBe(pins()[1]);
+          expect(document.activeElement?.getAttribute("aria-label")).toContain(
+            "second@example.com",
+          );
+        });
+
+        it("moves focus to the overlay's fallback target when the deleted thread had the only pin", async () => {
+          reviewComments = [first];
+          await renderPins({ active: true });
+          await deleteThread(0, [], { active: true });
+
+          expect(card()).toBeNull();
+          expect(pins()).toHaveLength(0);
+          expect(overlayRoot()).not.toBeNull();
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(focusFallback());
+        });
+
+        it("moves focus to the Pin comment tool when the overlay unmounts with the only pin", async () => {
+          const tool = addCommentTool();
+          try {
+            reviewComments = [first];
+            await renderPins();
+            await deleteThread(0, []);
+
+            expect(card()).toBeNull();
+            expect(pins()).toHaveLength(0);
+            expect(overlayRoot()).toBeNull();
+            expect(document.activeElement).toBe(tool.querySelector("button"));
+          } finally {
+            tool.remove();
+          }
+        });
+
+        it("leaves focus on the next pin, not the Pin comment tool, while pins remain", async () => {
+          const tool = addCommentTool();
+          try {
+            await renderPins();
+            await deleteThread(1, [first, third]);
+
+            expect(document.activeElement).toBe(pins()[1]);
+            expect(document.activeElement).not.toBe(
+              tool.querySelector("button"),
+            );
+          } finally {
+            tool.remove();
+          }
+        });
+
+        it("moves focus off the confirm button while the dialog is still animating out", async () => {
+          // Radix keeps a closed dialog mounted until its exit animation ends.
+          const realGetComputedStyle = window.getComputedStyle.bind(window);
+          const getComputedStyleSpy = vi
+            .spyOn(window, "getComputedStyle")
+            .mockImplementation((element, pseudo) => {
+              const style = realGetComputedStyle(element, pseudo);
+              if (element.getAttribute("role") !== "alertdialog") return style;
+              return new Proxy(style, {
+                get: (target, property) =>
+                  property === "animationName"
+                    ? element.getAttribute("data-state") === "closed"
+                      ? "dialog-out"
+                      : "dialog-in"
+                    : Reflect.get(target, property, target),
+              });
+            });
+          try {
+            await renderPins();
+            await deleteThread(1, [first, third]);
+
+            const dialog = document.querySelector('[role="alertdialog"]');
+            expect(dialog?.getAttribute("data-state")).toBe("closed");
+            expect(document.activeElement).toBe(pins()[1]);
+
+            await act(async () => {
+              dialog?.dispatchEvent(
+                new AnimationEvent("animationend", {
+                  animationName: "dialog-out",
+                  bubbles: true,
+                }),
+              );
+            });
+
+            expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+            expect(document.activeElement).toBe(pins()[1]);
+          } finally {
+            getComputedStyleSpy.mockRestore();
+          }
+        });
+
+        it("moves focus off <body> when Escape cancels the new-comment draft", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+
+          await pressEscape(document.activeElement);
+
+          expect(
+            document.querySelector('[data-review-popover] [role="textbox"]'),
+          ).toBeNull();
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(pins()[2]);
+        });
+
+        it("moves focus off <body> when Escape reaches the window with nothing focused", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+          await act(async () =>
+            (document.activeElement as HTMLElement | null)?.blur(),
+          );
+          expect(document.activeElement).toBe(document.body);
+
+          await pressEscape(document.body);
+
+          expect(
+            document.querySelector('[data-review-popover] [role="textbox"]'),
+          ).toBeNull();
+          expect(document.activeElement).toBe(pins()[2]);
+        });
+
+        it("moves focus off <body> when the draft's close button cancels it", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+
+          await act(async () =>
+            document
+              .querySelector<HTMLButtonElement>(
+                'button[aria-label="designEditor.close"]',
+              )
+              ?.click(),
+          );
+
+          expect(
+            document.querySelector('[data-review-popover] [role="textbox"]'),
+          ).toBeNull();
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(pins()[2]);
+        });
+
+        it("moves focus to the overlay's fallback target when the cancelled draft was the only pin", async () => {
+          mocks.useRealComposer = true;
+          reviewComments = [];
+          await renderPins({ active: true });
+          await openDraft();
+
+          await pressEscape(document.activeElement);
+
+          expect(pins()).toHaveLength(0);
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(focusFallback());
+        });
+
+        it("moves focus to the overlay's fallback target when the draft's close button cancels it and no pin remains", async () => {
+          mocks.useRealComposer = true;
+          reviewComments = [];
+          await renderPins({ active: true });
+          await openDraft();
+
+          await act(async () =>
+            document
+              .querySelector<HTMLButtonElement>(
+                'button[aria-label="designEditor.close"]',
+              )
+              ?.click(),
+          );
+
+          expect(pins()).toHaveLength(0);
+          expect(document.activeElement).toBe(focusFallback());
+        });
+
+        it("leaves focus alone when the draft is cancelled by another control taking focus", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+          const elsewhere = document.createElement("button");
+          document.body.appendChild(elsewhere);
+          try {
+            await act(async () => elsewhere.focus());
+
+            await pressEscape(elsewhere);
+
+            expect(
+              document.querySelector('[data-review-popover] [role="textbox"]'),
+            ).toBeNull();
+            expect(document.activeElement).toBe(elsewhere);
+          } finally {
+            elsewhere.remove();
+          }
+        });
+      });
+
+      it("keeps a new comment's editor focused when its draft card opens", async () => {
+        mocks.useRealComposer = true;
+        await renderPins({ active: true });
+        await act(async () => {
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 600,
+                clientY: 400,
+              }),
+            );
+        });
+
+        await vi.waitFor(() =>
+          expect(
+            document
+              .querySelector('[data-review-popover] [role="textbox"]')
+              ?.contains(document.activeElement),
+          ).toBe(true),
+        );
+        expect(document.activeElement).not.toBe(card());
+      });
+    });
+
+    it("shows the Agent badge on an agent's reply", async () => {
+      mocks.useRealThreads = true;
+      reviewComments = [
+        comment,
+        makeReply({
+          id: "reply-agent",
+          createdBy: "agent",
+          authorName: "Claude",
+          authorEmail: null,
+          body: "Done, the heading is bigger.",
+        }),
+      ];
+      await renderPins();
+      await openFirstThread();
+      const reply = document.querySelector<HTMLElement>(
+        '[data-review-comment="reply-agent"]',
+      );
+      expect(reply?.getAttribute("data-review-comment-variant")).toBe("reply");
+      expect(reply?.textContent).toContain("Claude");
+      expect(reply?.textContent).toContain("review.agentBadge");
+      expect(reply?.textContent).toContain("Done, the heading is bigger.");
+    });
+
+    describe("agent runs", () => {
+      const savedComment = (overrides: Partial<ReviewComment> = {}) => ({
+        ...comment,
+        id: "comment-new",
+        threadId: "thread-new",
+        ...overrides,
+      });
+      const click = (selector: string) =>
+        act(async () => {
+          document.querySelector<HTMLElement>(selector)?.click();
+        });
+      const openDraftComposer = async () => {
+        await act(async () => {
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 200,
+                clientY: 180,
+              }),
+            );
+        });
+      };
+      const succeed = (
+        mutate: typeof mocks.createMutate,
+        saved: ReviewComment,
+      ) =>
+        act(async () => {
+          const handlers = mutate.mock.calls[0]?.[1] as
+            | { onSuccess?: (comment: ReviewComment) => void }
+            | undefined;
+          handlers?.onSuccess?.(saved);
+        });
+      const mentionOptionLabels = () =>
+        Array.from(
+          document.querySelectorAll("[data-review-test-mention-options]"),
+        ).map((node) => node.textContent);
+      const statusRow = () =>
+        document.querySelector<HTMLElement>("[data-review-agent-status]");
+
+      describe("composer and submit", () => {
+        it("offers the connected models in the picker, under the Agents heading, after the people", async () => {
+          mocks.useRealComposer = false;
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          expect(mentionOptionLabels()).toEqual(["Claude Sonnet 5.5"]);
+          expect(
+            document.querySelector("[data-review-test-agents-label]")
+              ?.textContent,
+          ).toBe("review.agent.sectionLabel");
+        });
+
+        it("lists the people before the agents", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          const editor = document.querySelector<
+            HTMLElement & { editor: Editor }
+          >('[data-review-popover] [role="textbox"]');
+          expect(editor).not.toBeNull();
+          await act(async () => {
+            editor?.dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "@",
+                bubbles: true,
+                cancelable: true,
+              }),
+            );
+          });
+          const items = Array.from(
+            document.querySelectorAll<HTMLElement>('[role="option"]'),
+          ).map((item) => item.textContent);
+          const alice = items.findIndex((text) => text?.includes("Alice"));
+          const claude = items.findIndex((text) =>
+            text?.includes("Claude Sonnet 5.5"),
+          );
+          expect(alice).toBeGreaterThanOrEqual(0);
+          expect(claude).toBeGreaterThan(alice);
+          expect(document.body.textContent).toContain(
+            "review.agent.sectionLabel",
+          );
+        });
+
+        it("offers no agents without a controller, or to someone who cannot edit", async () => {
+          await renderPins({ active: true });
+          await openDraftComposer();
+          expect(mentionOptionLabels()).toEqual([""]);
+          expect(
+            document.querySelector("[data-review-test-agent-mention]"),
+          ).not.toBeNull();
+          await act(async () => root.unmount());
+          root = createRoot(container);
+
+          await renderPins(
+            { active: true, canResolve: false },
+            makeAgentController(),
+          );
+          await openDraftComposer();
+          expect(mentionOptionLabels()).toEqual([""]);
+        });
+
+        it("starts an automatic run for a new thread only after the comment is saved", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          await click("[data-review-test-agent-mention]");
+          await click("[data-review-test-submit]");
+
+          expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+            body: "@Claude Sonnet 5.5 make it bigger",
+            mentions: [
+              {
+                label: "Claude Sonnet 5.5",
+                id: "agent:anthropic:claude-sonnet-5-5",
+              },
+            ],
+          });
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+
+          await succeed(mocks.createMutate, savedComment());
+          expect(mocks.agentStart).toHaveBeenCalledExactlyOnceWith({
+            threadId: "thread-new",
+            mode: "auto",
+            triggerCommentId: "comment-new",
+            selection: SONNET,
+          });
+        });
+
+        it("does not start a run when the comment fails to save", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          await click("[data-review-test-agent-mention]");
+          await click("[data-review-test-submit]");
+          await act(async () => {
+            const handlers = mocks.createMutate.mock.calls[0]?.[1] as
+              | { onError?: () => void }
+              | undefined;
+            handlers?.onError?.();
+          });
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+          expect(mocks.toastError).toHaveBeenCalledWith("review.postFailed");
+        });
+
+        it("starts no run for a comment that mentions only people", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          await openDraftComposer();
+          await click("[data-review-test-mention]");
+          await click("[data-review-test-submit]");
+          await succeed(mocks.createMutate, savedComment());
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("starts a run for a reply with an agent chip, keyed to the reply", async () => {
+          await renderPins({}, makeAgentController());
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-agent-mention]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+
+          expect(mocks.replyMutate.mock.calls[0]?.[0]).toMatchObject({
+            commentId: "comment-1",
+            mentions: [{ id: "agent:anthropic:claude-sonnet-5-5" }],
+          });
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+
+          await succeed(
+            mocks.replyMutate,
+            savedComment({ id: "reply-new", threadId: "thread-1" }),
+          );
+          expect(mocks.agentStart).toHaveBeenCalledExactlyOnceWith({
+            threadId: "thread-1",
+            mode: "auto",
+            triggerCommentId: "reply-new",
+            selection: SONNET,
+          });
+        });
+
+        it("starts no run for a reply without an agent chip", async () => {
+          await renderPins({}, makeAgentController());
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-type]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+          await succeed(mocks.replyMutate, savedComment({ id: "reply-new" }));
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("starts no run for a commenter even when the comment carries an agent chip", async () => {
+          await renderPins({ canResolve: false }, makeAgentController());
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-agent-mention]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+          await succeed(mocks.replyMutate, savedComment({ id: "reply-new" }));
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("tells the person when the chip's model is no longer connected, and starts nothing", async () => {
+          await renderPins(
+            {},
+            makeAgentController({ resolveMention: () => null }),
+          );
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-agent-mention]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+          await succeed(mocks.replyMutate, savedComment({ id: "reply-new" }));
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+          expect(mocks.toastError).toHaveBeenCalledWith(
+            "review.agent.startFailed",
+          );
+        });
+      });
+
+      describe("card menu", () => {
+        const itemLabels = [
+          "review.sendToAgent",
+          "review.suggestChanges",
+          "review.replyInThread",
+          "review.applyChangesAndResolve",
+        ];
+        const agentItems = () =>
+          menuLayout().filter((label) => itemLabels.includes(label ?? ""));
+
+        it("offers every item to an editor on an inline screen's thread", async () => {
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+              sourceType: "inline",
+            },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual(itemLabels);
+        });
+
+        it("keeps only Send to agent without a controller", async () => {
+          await renderPins({
+            currentUserEmail: "reviewer@example.com",
+            onSendThreadToAgent: vi.fn(),
+          });
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual(["review.sendToAgent"]);
+        });
+
+        it("keeps only Send to agent when the controller is not enabled for this person", async () => {
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+            },
+            makeAgentController({ enabled: false }),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual(["review.sendToAgent"]);
+        });
+
+        it.each([
+          ["a localhost screen", { sourceType: "localhost" as const }],
+          ["a fusion screen", { sourceType: "fusion" as const }],
+        ])(
+          "hides Apply for %s but keeps Suggest and Reply",
+          async (_name, props) => {
+            await renderPins(
+              {
+                currentUserEmail: "reviewer@example.com",
+                onSendThreadToAgent: vi.fn(),
+                ...props,
+              },
+              makeAgentController(),
+            );
+            await openFirstThread();
+            await openCardMenu();
+            expect(agentItems()).toEqual([
+              "review.sendToAgent",
+              "review.suggestChanges",
+              "review.replyInThread",
+            ]);
+          },
+        );
+
+        it("hides Apply for a board-level thread", async () => {
+          reviewComments = [{ ...comment, targetId: null }];
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+              targetId: null,
+            },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(agentItems()).toEqual([
+            "review.sendToAgent",
+            "review.suggestChanges",
+            "review.replyInThread",
+          ]);
+        });
+
+        it("hands each choice to the host: the three run modes and Send to agent", async () => {
+          const onSendThreadToAgent = vi.fn();
+          await renderPins(
+            { currentUserEmail: "reviewer@example.com", onSendThreadToAgent },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          const choices = [
+            ["review.suggestChanges", "suggest"],
+            ["review.replyInThread", "reply"],
+            ["review.applyChangesAndResolve", "apply"],
+            ["review.sendToAgent", "send"],
+          ] as const;
+          for (const [label, action] of choices) {
+            await openCardMenu();
+            await act(async () => menuItem(label)?.click());
+            expect(onSendThreadToAgent).toHaveBeenLastCalledWith(
+              expect.objectContaining({
+                root: expect.objectContaining({ threadId: "thread-1" }),
+              }),
+              action,
+            );
+          }
+          // The host starts the run; the card itself never starts one from the menu.
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+        });
+
+        it("disables the agent items while an agent works on the thread, but not Copy link", async () => {
+          const onSendThreadToAgent = vi.fn();
+          await renderPins(
+            { currentUserEmail: "reviewer@example.com", onSendThreadToAgent },
+            makeAgentController({
+              isThreadBusy: (threadId) => threadId === "thread-1",
+            }),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          const disabled = (label: string) =>
+            menuItem(label)?.getAttribute("aria-disabled") === "true";
+          for (const label of itemLabels) expect(disabled(label)).toBe(true);
+          expect(disabled("review.copyLink")).toBe(false);
+          await act(async () => menuItem("review.suggestChanges")?.click());
+          expect(onSendThreadToAgent).not.toHaveBeenCalled();
+        });
+
+        it("leaves the items enabled when the agent works on another thread", async () => {
+          await renderPins(
+            {
+              currentUserEmail: "reviewer@example.com",
+              onSendThreadToAgent: vi.fn(),
+            },
+            makeAgentController({
+              isThreadBusy: (threadId) => threadId === "thread-2",
+            }),
+          );
+          await openFirstThread();
+          await openCardMenu();
+          expect(
+            menuItem("review.suggestChanges")?.getAttribute("aria-disabled"),
+          ).not.toBe("true");
+        });
+      });
+
+      describe("status row", () => {
+        const recent = () =>
+          new Date(REVIEW_AGENT_TEST_NOW - 5_000).toISOString();
+
+        beforeEach(() => {
+          vi.useFakeTimers({ toFake: ["Date"] });
+          vi.setSystemTime(REVIEW_AGENT_TEST_NOW);
+        });
+        afterEach(() => {
+          vi.useRealTimers();
+        });
+
+        it("shows the run's status in the card, between the comments and the reply box", async () => {
+          const request = makeReviewAgentRequest({
+            status: "running",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          const row = statusRow();
+          expect(row?.getAttribute("data-review-agent-status")).toBe("running");
+          expect(row?.textContent).toContain("review.agent.working");
+          const card = document.querySelector("[data-review-thread-card]");
+          const nodes = Array.from(card?.querySelectorAll("*") ?? []);
+          const comments = card?.querySelector(
+            '[data-review-comment="comment-1"]',
+          );
+          const reply = card?.querySelector("[data-review-test-composer]");
+          expect(comments && row && reply).toBeTruthy();
+          expect(nodes.indexOf(row as Element)).toBeGreaterThan(
+            nodes.indexOf(comments as Element),
+          );
+          expect(nodes.indexOf(row as Element)).toBeLessThan(
+            nodes.indexOf(reply as Element),
+          );
+        });
+
+        it("shows nothing when the thread has no run, or there is no controller", async () => {
+          await renderPins({}, makeAgentController());
+          await openFirstThread();
+          expect(statusRow()).toBeNull();
+          await act(async () => root.unmount());
+          root = createRoot(container);
+
+          await renderPins({});
+          await openFirstThread();
+          expect(statusRow()).toBeNull();
+        });
+
+        it("acknowledges a start at once, before the request exists", async () => {
+          await renderPins(
+            {},
+            makeAgentController({
+              startingThreadIds: new Set(["thread-1"]),
+              startingAgentName: () => "Claude Sonnet 5.5",
+            }),
+          );
+          await openFirstThread();
+          expect(statusRow()?.getAttribute("data-review-agent-status")).toBe(
+            "starting",
+          );
+        });
+
+        it("wires Open chat and Cancel to the controller with the request", async () => {
+          const request = makeReviewAgentRequest({
+            status: "running",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          const press = (label: string) =>
+            act(async () =>
+              Array.from(statusRow()?.querySelectorAll("button") ?? [])
+                .find((button) => button.textContent === label)
+                ?.click(),
+            );
+          await press("review.agent.openChat");
+          expect(mocks.agentOpen).toHaveBeenCalledExactlyOnceWith(request);
+          await press("review.agent.cancel");
+          expect(mocks.agentStop).toHaveBeenCalledExactlyOnceWith(request);
+        });
+
+        it("wires Try again to the controller for a failed run", async () => {
+          const request = makeReviewAgentRequest({
+            status: "failed",
+            errorCode: "run_failed",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          await act(async () =>
+            Array.from(statusRow()?.querySelectorAll("button") ?? [])
+              .find((button) => button.textContent === "review.agent.retry")
+              ?.click(),
+          );
+          expect(mocks.agentRetry).toHaveBeenCalledExactlyOnceWith(request);
+        });
+
+        it("disables Cancel while that request's stop is in flight", async () => {
+          const request = makeReviewAgentRequest({
+            status: "running",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({
+              requestForThread: () => request,
+              stoppingRequestIds: new Set([request.requestId]),
+            }),
+          );
+          await openFirstThread();
+          const cancel = Array.from(
+            statusRow()?.querySelectorAll("button") ?? [],
+          ).find((button) => button.textContent === "review.agent.cancel");
+          expect(cancel?.disabled).toBe(true);
+        });
+
+        it("keeps the status on a resolved thread too, where the reply box is gone", async () => {
+          reviewComments = [{ ...comment, status: "resolved" }];
+          const request = makeReviewAgentRequest({
+            status: "applied",
+            updatedAt: recent(),
+          });
+          await renderPins(
+            {},
+            makeAgentController({ requestForThread: () => request }),
+          );
+          await openFirstThread();
+          expect(statusRow()?.textContent).toContain("review.agent.applied");
+        });
+      });
+
+      describe("model list", () => {
+        it("asks for the model list once a comment surface is open, and not before", async () => {
+          await renderPins({ active: false }, makeAgentController());
+          expect(mocks.agentMarkSurfaceUsed).not.toHaveBeenCalled();
+
+          await openFirstThread();
+          expect(mocks.agentMarkSurfaceUsed).toHaveBeenCalled();
+        });
+
+        it("asks for it while comment mode is on", async () => {
+          await renderPins({ active: true }, makeAgentController());
+          expect(mocks.agentMarkSurfaceUsed).toHaveBeenCalled();
+        });
+
+        it("does not ask for it while the comments are hidden, or without agent access", async () => {
+          await renderPins(
+            { active: true, hidden: true },
+            makeAgentController(),
+          );
+          expect(mocks.agentMarkSurfaceUsed).not.toHaveBeenCalled();
+          await renderPins(
+            { active: true, canResolve: false },
+            makeAgentController(),
+          );
+          expect(mocks.agentMarkSurfaceUsed).not.toHaveBeenCalled();
+        });
+      });
+    });
+  });
+
+  describe("editor chrome and hidden comments", () => {
+    const chrome: HTMLElement[] = [];
+    const addChrome = (
+      attribute: string,
+      rect: { left: number; top: number; right: number; bottom: number },
+    ) => {
+      const element = document.createElement("div");
+      const [name, value = ""] = attribute.split("=");
+      element.setAttribute(name!, value);
+      element.getBoundingClientRect = () =>
+        ({
+          ...rect,
+          x: rect.left,
+          y: rect.top,
+          width: rect.right - rect.left,
+          height: rect.bottom - rect.top,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      document.body.appendChild(element);
+      chrome.push(element);
+    };
+    const commentAt = (id: number, xPct: number, yPct: number) => ({
+      ...comment,
+      id: `comment-${id}`,
+      threadId: `thread-${id}`,
+      anchor: { point: { xPct, yPct } },
+    });
+    const renderPins = async (props: { active?: boolean; hidden?: boolean }) =>
+      act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={props.active ?? false}
+            hidden={props.hidden}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            screenId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+    const pinLabels = () =>
+      [...document.querySelectorAll("[data-review-pin]")].map((pin) =>
+        pin.getAttribute("aria-label"),
+      );
+
+    afterEach(() => {
+      chrome.splice(0).forEach((element) => element.remove());
+    });
+
+    it("renders no pins, thread popover or placement plane while hidden", async () => {
+      await renderPins({ active: true });
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click(),
+      );
+      expect(document.body.textContent).toContain("Keep this popover open");
+      expect(
+        document.querySelector("[data-review-click-plane]"),
+      ).not.toBeNull();
+
+      await renderPins({ active: true, hidden: true });
+
+      expect(document.querySelector("[data-review-pin]")).toBeNull();
+      expect(document.querySelector("[data-review-pin-cluster]")).toBeNull();
+      expect(document.querySelector("[data-review-popover]")).toBeNull();
+      expect(document.querySelector("[data-review-click-plane]")).toBeNull();
+      expect(document.body.textContent).not.toContain("Keep this popover open");
+    });
+
+    // The canvas is 800x600 at the origin, so an anchor of (xPct, yPct) sits
+    // at (8 * xPct, 6 * yPct) in the viewport; the in-view pin is at (400, 300).
+    it.each([
+      {
+        name: "the left panel",
+        attribute: "data-design-chrome-region=left-shell",
+        rect: { left: 0, top: 0, right: 300, bottom: 768 },
+        covered: { xPct: 25, yPct: 30 },
+      },
+      {
+        name: "the top bar",
+        attribute: "data-design-chrome-region=top-bar",
+        rect: { left: 0, top: 0, right: 1024, bottom: 48 },
+        covered: { xPct: 50, yPct: 5 },
+      },
+      {
+        name: "the inspector",
+        attribute: "data-design-chrome-region=right-panel",
+        rect: { left: 650, top: 0, right: 1024, bottom: 768 },
+        covered: { xPct: 90, yPct: 50 },
+      },
+      {
+        name: "the bottom toolbar",
+        attribute: "data-design-bottom-toolbar=",
+        rect: { left: 250, top: 520, right: 550, bottom: 580 },
+        covered: { xPct: 50, yPct: 94 },
+      },
+    ])(
+      "does not render a pin anchored under $name",
+      async ({ attribute, rect, covered }) => {
+        addChrome(attribute, rect);
+        reviewComments = [
+          commentAt(1, 50, 50),
+          commentAt(2, covered.xPct, covered.yPct),
+        ];
+        await renderPins({});
+
+        expect(pinLabels()).toEqual([
+          "Thread by reviewer@example.com, 1 comment",
+        ]);
+      },
+    );
+
+    it("renders every pin that sits inside the working area", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 200,
+        bottom: 768,
+      });
+      reviewComments = [commentAt(1, 30, 30), commentAt(2, 60, 60)];
+      await renderPins({});
+
+      expect(pinLabels()).toEqual([
+        "Thread by reviewer@example.com, 1 comment",
+        "Thread by reviewer@example.com, 1 comment",
+      ]);
+    });
+
+    it("renders only the in-view pin when an earlier pin is off the working area", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 300,
+        bottom: 768,
+      });
+      reviewComments = [commentAt(1, 25, 30), commentAt(2, 60, 30)];
+      await renderPins({});
+
+      expect(pinLabels()).toEqual([
+        "Thread by reviewer@example.com, 1 comment",
+      ]);
+      const wrapper =
+        document.querySelector<HTMLElement>("[data-review-pin]")?.parentElement;
+      expect(Number.parseFloat(wrapper?.style.left ?? "")).toBeGreaterThan(300);
+    });
+
+    it("renders a cluster in view and none for pins under chrome", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 300,
+        bottom: 768,
+      });
+      reviewComments = [
+        commentAt(1, 25, 30),
+        commentAt(2, 26, 30),
+        commentAt(3, 70, 30),
+        commentAt(4, 71, 30),
+      ];
+      await renderPins({});
+
+      expect(
+        document.querySelectorAll("[data-review-pin-cluster]"),
+      ).toHaveLength(1);
+      expect(document.querySelector("[data-review-pin]")).toBeNull();
+    });
+
+    it("clips the layer to the area chrome leaves and keeps an open thread inside it", async () => {
+      addChrome("data-design-chrome-region=left-shell", {
+        left: 0,
+        top: 0,
+        right: 300,
+        bottom: 768,
+      });
+      addChrome("data-design-chrome-region=right-panel", {
+        left: 800,
+        top: 0,
+        right: 1024,
+        bottom: 768,
+      });
+      // The pin is at x=500: a 360px popover opening right would end at 872.
+      reviewComments = [commentAt(1, 62.5, 30)];
+      await renderPins({});
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click(),
+      );
+
+      expect(
+        document.querySelector<HTMLElement>("[data-review-layer]")?.style
+          .clipPath,
+      ).toBe("polygon(300px 0px, 800px 0px, 800px 768px, 300px 768px)");
+      const popover = document.querySelector<HTMLElement>(
+        "[data-review-popover] [data-review-popover]",
+      );
+      expect(popover).not.toBeNull();
+      const left = 500 + Number.parseFloat(popover!.style.left);
+      const width = Number.parseFloat(popover!.style.width);
+      expect(left).toBeGreaterThanOrEqual(300);
+      expect(left + width).toBeLessThanOrEqual(800);
+    });
+
+    describe("popovers beside the bottom toolbar", () => {
+      // happy-dom does no layout, so give an open popover a content height.
+      const POPOVER_HEIGHT = 200;
+      const TOOLBAR = { left: 250, top: 520, right: 550, bottom: 580 };
+      const scrollHeight = Object.getOwnPropertyDescriptor(
+        HTMLElement.prototype,
+        "scrollHeight",
+      );
+
+      beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+          configurable: true,
+          get(this: HTMLElement) {
+            return this.hasAttribute("data-review-popover") &&
+              this.parentElement?.hasAttribute("data-review-popover")
+              ? POPOVER_HEIGHT
+              : 0;
+          },
+        });
+        addChrome("data-design-bottom-toolbar=", TOOLBAR);
+      });
+
+      afterEach(() => {
+        if (scrollHeight) {
+          Object.defineProperty(
+            HTMLElement.prototype,
+            "scrollHeight",
+            scrollHeight,
+          );
+        } else {
+          Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+        }
+      });
+
+      // The canvas is 800x600 and the viewport region 1024x768, so a pin at
+      // (xPct, yPct) sits at (8 * xPct, 6 * yPct).
+      const openPopoverRect = (pin: { x: number; y: number }) => {
+        const popover = document.querySelector<HTMLElement>(
+          "[data-review-popover] [data-review-popover]",
+        );
+        expect(popover).not.toBeNull();
+        const top = pin.y + Number.parseFloat(popover!.style.top);
+        const maxHeight = Number.parseFloat(popover!.style.maxHeight);
+        return {
+          left: pin.x + Number.parseFloat(popover!.style.left),
+          right:
+            pin.x +
+            Number.parseFloat(popover!.style.left) +
+            Number.parseFloat(popover!.style.width),
+          top,
+          bottom: top + Math.min(POPOVER_HEIGHT, maxHeight),
+        };
+      };
+      const clearsToolbar = (rect: {
+        left: number;
+        right: number;
+        bottom: number;
+      }) =>
+        rect.right <= TOOLBAR.left ||
+        rect.left >= TOOLBAR.right ||
+        rect.bottom <= TOOLBAR.top;
+
+      it("opens a thread above a pin whose below placement would run into the toolbar", async () => {
+        reviewComments = [commentAt(1, 40, 78)];
+        await renderPins({});
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-pin]")
+            ?.click(),
+        );
+
+        // Below would span y 472..672: inside the viewport, but through the
+        // toolbar that starts at 520. The whole box has to stay above it.
+        const rect = openPopoverRect({ x: 320, y: 468 });
+        expect(rect.bottom).toBeLessThanOrEqual(TOOLBAR.top);
+        expect(rect.top).toBeGreaterThanOrEqual(0);
+        expect(clearsToolbar(rect)).toBe(true);
+      });
+
+      it("opens a draft composer above a pin whose below placement would run into the toolbar", async () => {
+        await renderPins({ active: true });
+        await act(async () =>
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 320,
+                clientY: 468,
+              }),
+            ),
+        );
+
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).not.toBeNull();
+        const rect = openPopoverRect({ x: 320, y: 468 });
+        expect(rect.bottom).toBeLessThanOrEqual(TOOLBAR.top);
+        expect(rect.top).toBeGreaterThanOrEqual(0);
+        expect(clearsToolbar(rect)).toBe(true);
+      });
+
+      it("keeps a thread popover below a pin that is far from the toolbar", async () => {
+        reviewComments = [commentAt(1, 40, 30)];
+        await renderPins({});
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-pin]")
+            ?.click(),
+        );
+
+        const popover = document.querySelector<HTMLElement>(
+          "[data-review-popover] [data-review-popover]",
+        );
+        expect(popover?.style.top).toBe("4px");
+        expect(popover?.style.left).toBe("12px");
+      });
+
+      it("keeps a draft composer below a pin that is far from the toolbar", async () => {
+        await renderPins({ active: true });
+        await act(async () =>
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 320,
+                clientY: 180,
+              }),
+            ),
+        );
+
+        const popover = document.querySelector<HTMLElement>(
+          "[data-review-popover] [data-review-popover]",
+        );
+        expect(popover?.style.top).toBe("4px");
+        expect(popover?.style.left).toBe("12px");
+      });
+    });
   });
 });
