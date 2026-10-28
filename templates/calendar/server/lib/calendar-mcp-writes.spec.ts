@@ -35,6 +35,8 @@ const mocks = vi.hoisted(() => ({
   approval: vi.fn(),
   deleteDrafts: vi.fn(),
   drafts: new Map<string, unknown>(),
+  // Drafts another caller saves right after this call's existence check.
+  racingDrafts: new Map<string, unknown>(),
 }));
 
 const { approvalAuth, approvalStore, userSettings } = vi.hoisted(() => ({
@@ -94,9 +96,25 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/application-state")
   >()),
-  readAppState: async (key: string) => mocks.drafts.get(key) ?? null,
+  readAppState: async (key: string) => {
+    const value = mocks.drafts.get(key) ?? null;
+    if (mocks.racingDrafts.has(key)) {
+      mocks.drafts.set(key, mocks.racingDrafts.get(key));
+      mocks.racingDrafts.delete(key);
+    }
+    return value;
+  },
   writeAppState: async (key: string, value: unknown) => {
     mocks.drafts.set(key, value);
+  },
+  compareAndSetAppState: async (
+    key: string,
+    expected: unknown,
+    next: unknown,
+  ) => {
+    if (expected !== null || mocks.drafts.has(key)) return false;
+    mocks.drafts.set(key, next);
+    return true;
   },
   deleteAppStateByPrefix: mocks.deleteDrafts,
 }));
@@ -225,6 +243,7 @@ describe("Calendar direct MCP writes", () => {
     mocks.rsvpEvent.mockResolvedValue(undefined);
     mocks.deleteDrafts.mockResolvedValue(3);
     mocks.drafts.clear();
+    mocks.racingDrafts.clear();
     mocks.approval.mockResolvedValue({
       action: "accept",
       content: { decision: "deny" },
@@ -350,6 +369,19 @@ describe("Calendar direct MCP writes", () => {
       id: "draft-new",
       title: "Planning",
     });
+  });
+
+  it("refuses a create that loses a race for the same draft ID", async () => {
+    const winner = { id: "draft-race", title: "Saved first" };
+    mocks.racingDrafts.set("calendar-draft-draft-race", winner);
+    const client = await clientFor();
+    const refused = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "create", id: "draft-race", title: "Saved second" },
+    });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toContain("already exists");
+    expect(mocks.drafts.get("calendar-draft-draft-race")).toBe(winner);
   });
 
   it("deletes all drafts only after the MCP client approves the call", async () => {

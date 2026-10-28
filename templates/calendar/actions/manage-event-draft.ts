@@ -3,6 +3,7 @@ import { fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
+  compareAndSetAppState,
   deleteAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
@@ -37,6 +38,13 @@ function sanitizeDraftId(id: string): string | null {
 
 function draftKey(id: string) {
   return `${DRAFT_PREFIX}${id}`;
+}
+
+function failDraftIdTaken(id: string): never {
+  fail(
+    `Calendar event draft "${id}" already exists; use action "update" to change it, or omit id to create a new draft.`,
+    { errorCode: "calendar_draft_id_taken", statusCode: 409 },
+  );
 }
 
 function eventDraftDeepLink(draft: CalendarEventDraft): string {
@@ -220,12 +228,7 @@ export default defineAction({
     if (action === "update" && !existing) {
       throw new Error(`Calendar event draft "${id}" not found`);
     }
-    if (action === "create" && existing) {
-      fail(
-        `Calendar event draft "${id}" already exists; use action "update" to change it, or omit id to create a new draft.`,
-        { errorCode: "calendar_draft_id_taken", statusCode: 409 },
-      );
-    }
+    if (action === "create" && existing) failDraftIdTaken(id);
 
     const now = new Date().toISOString();
     const draft: CalendarEventDraft = {
@@ -304,10 +307,16 @@ export default defineAction({
     });
     Object.assign(draft, reminderFields);
 
-    await writeAppState(
-      draftKey(id),
-      draft as unknown as Record<string, unknown>,
-    );
+    const record = draft as unknown as Record<string, unknown>;
+    if (action === "create") {
+      // Insert only if the key is still free, so two creates racing on one
+      // ID can't overwrite each other.
+      if (!(await compareAndSetAppState(draftKey(id), null, record))) {
+        failDraftIdTaken(id);
+      }
+    } else {
+      await writeAppState(draftKey(id), record);
+    }
 
     return {
       id,
