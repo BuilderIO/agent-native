@@ -114,6 +114,29 @@ describe("addWorkspaceConnectionMcpServers", () => {
     });
   });
 
+  it("reports two personal connections as ambiguous instead of picking one", async () => {
+    resolveWorkspaceConnectionsForApp.mockResolvedValue([
+      hubspotConnection("hubspot-sandbox"),
+      hubspotConnection("hubspot-org", { scope: "organization" }),
+      hubspotConnection("hubspot-production"),
+    ]);
+    const servers: Record<string, McpServerConfig> = {};
+
+    await addWorkspaceConnectionMcpServers(servers, alice);
+
+    const server = servers[hubspotKey];
+    expect(server).toMatchObject({
+      type: "http",
+      url: "https://mcp.hubspot.com",
+    });
+    expect(server).not.toHaveProperty("workspaceConnection");
+    expect(
+      server?.type === "http" ? server.configurationError?.message : undefined,
+    ).toBe(
+      "You have 2 personal hubspot connections for this app, so the hubspot MCP server can't tell which account to use. Disconnect the extra ones, or add the hubspot MCP server yourself.",
+    );
+  });
+
   it("keeps a server already configured for the same endpoint", async () => {
     const servers: Record<string, McpServerConfig> = {
       user_abc_hubspot: { type: "http", url: "https://mcp.hubspot.com/" },

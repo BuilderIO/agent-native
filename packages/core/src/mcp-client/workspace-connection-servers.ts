@@ -70,7 +70,7 @@ export async function addWorkspaceConnectionMcpServers(
       principal.userEmail,
     );
     const description = `${provider} through your ${provider} workspace connection`;
-    let connectionId: string | null = null;
+    let connectionIds: string[];
     try {
       const connections = await runWithRequestContext(
         {
@@ -79,13 +79,14 @@ export async function addWorkspaceConnectionMcpServers(
         },
         () => resolveWorkspaceConnectionsForApp({ appId, provider }),
       );
-      connectionId =
-        connections.find(
+      connectionIds = connections
+        .filter(
           (connection) =>
             connection.status === "connected" &&
             connection.ownerEmail.trim().toLowerCase() === caller &&
             connection.config.workspaceConnectionScope === "user",
-        )?.id ?? null;
+        )
+        .map((connection) => connection.id);
     } catch (error) {
       // Keep other MCP servers working, but report this one as unreadable
       // rather than as an absent connection.
@@ -100,6 +101,21 @@ export async function addWorkspaceConnectionMcpServers(
       };
       continue;
     }
+    // The server has no account selector, so with two personal connections
+    // (e.g. a sandbox and a production portal) any pick could write to the
+    // wrong account.
+    if (connectionIds.length > 1) {
+      servers[key] = {
+        type: "http",
+        url,
+        description,
+        configurationError: new Error(
+          `You have ${connectionIds.length} personal ${provider} connections for this app, so the ${provider} MCP server can't tell which account to use. Disconnect the extra ones, or add the ${provider} MCP server yourself.`,
+        ),
+      };
+      continue;
+    }
+    const connectionId = connectionIds[0];
     if (!connectionId) continue;
     servers[key] = {
       type: "http",
