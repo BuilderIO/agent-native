@@ -378,8 +378,7 @@ export function combineSnapshotBands(
       "At least two cohorts are required for a side-by-side tree.",
     );
   }
-  const first = bands.at(0);
-  if (!first) throw new Error("A side-by-side tree needs two cohorts.");
+  const [first] = bands;
   const appRootN: Record<string, number> = {};
   const nodes: SnapshotNode[] = [];
   const nodeKeys = new Set<string>();

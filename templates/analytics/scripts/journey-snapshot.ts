@@ -858,9 +858,7 @@ async function publishCanvas(args: {
     capture,
     key: canvasBandKey(args.app, capture.target.key),
   }));
-  const firstBand = keyedBands.at(0);
-  if (!firstBand)
-    throw checkFailure(`${args.app} has no captured cohort tree.`);
+  const [firstBand] = keyedBands;
   const tree =
     keyedBands.length > 1
       ? combineSnapshotBands(
