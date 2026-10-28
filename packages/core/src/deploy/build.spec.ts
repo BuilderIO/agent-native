@@ -1456,6 +1456,73 @@ describe("Cloudflare module bare externals", () => {
     expect(mod.value).toBeNull();
     expect(mod.other).toBe("fallback");
   });
+
+  it("keeps a default export whose value is null", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "null-default.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const value = 'named';\nexport default null;\n",
+    );
+    const outFile = path.join(dir, "null-default-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["value"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.default).toBeNull();
+    expect(mod.value).toBe("named");
+  });
+
+  it("re-exports names that are reserved words", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "reserved.mjs");
+    fs.writeFileSync(
+      esm,
+      "const c = 'class';\nconst d = 'delete';\nexport { c as class, d as delete };\n",
+    );
+    const entry = 'import{class as C,delete as D}from"pkg";';
+    const names = collectNamedImportsFrom(entry, "pkg");
+    expect(names).toEqual(["class", "delete"]);
+    const outFile = path.join(dir, "reserved-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, names),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.class).toBe("class");
+    expect(mod.delete).toBe("delete");
+  });
 });
 
 describe("Vercel sweep cron", () => {

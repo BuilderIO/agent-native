@@ -4565,32 +4565,27 @@ export function rewriteModuleImportSpecifier(
  * esbuild entry that re-bundles a bare external for a Cloudflare Worker. A
  * namespace import works for CommonJS and for ES modules with or without a
  * default export; `import x from` and `export { default } from` fail to
- * bundle an ES module that has no default export. A named export the module
- * defines is used as is, even when its value is `null` or `undefined`; the
- * default export's property is only a fallback for names the module lacks.
+ * bundle an ES module that has no default export. A default export is kept
+ * as is, even when it is `null` or `undefined`, and so is a named export the
+ * module defines; the default export's property is only a fallback for names
+ * the module lacks. Each name is exported from a local binding, so a reserved
+ * word such as `class` is still a legal export and no export can collide with
+ * the entry's own bindings.
  */
 export function cloudflareExternalBundleEntry(
   resolvedMod: string,
   neededExports: Iterable<string>,
 ): string {
   const names = Array.from(neededExports);
-  // The entry's own bindings must not collide with an exported name.
-  const localName = (base: string) => {
-    let name = base;
-    while (names.includes(name)) name = `_${name}`;
-    return name;
-  };
-  const ns = localName("_ns");
-  const mod = localName("_mod");
   return [
-    `import * as ${ns} from "${resolvedMod}";`,
-    `const ${mod} = ${ns}.default ?? ${ns};`,
-    `export default ${mod};`,
+    `import * as _ns from "${resolvedMod}";`,
+    `const _mod = "default" in _ns ? _ns.default : _ns;`,
+    `export default _mod;`,
     ...(names.length > 0
-      ? names.map(
-          (n) =>
-            `export const ${n} = ${JSON.stringify(n)} in ${ns} ? ${ns}.${n} : ${mod}?.${n};`,
-        )
+      ? names.flatMap((n, i) => [
+          `const _e${i} = ${JSON.stringify(n)} in _ns ? _ns.${n} : _mod?.${n};`,
+          `export { _e${i} as ${n} };`,
+        ])
       : [`export * from "${resolvedMod}";`]),
   ].join("\n");
 }
