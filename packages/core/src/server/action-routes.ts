@@ -1346,8 +1346,10 @@ function mountActionRoutesInternal(
         const verifiedServiceIdentity =
           getVerifiedServiceIdentityFromEvent(event);
 
+        const requestId = getHttpRequestTelemetryId(event);
         return runWithRequestContext(
           {
+            ...(requestId ? { requestId } : {}),
             userEmail,
             ...(verifiedServiceIdentity &&
             verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
@@ -1853,7 +1855,6 @@ function mountActionRoutesInternal(
                         : {}),
                     };
               }
-              const requestId = getHttpRequestTelemetryId(event);
               const captureId = captureError(err, {
                 route: routePath,
                 method: reqMethod,

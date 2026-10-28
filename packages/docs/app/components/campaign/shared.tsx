@@ -1,6 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT, useFormatters } from "@agent-native/core/client/i18n";
-import { IconClock, IconCopy, IconLink } from "@tabler/icons-react";
+import { IconCopy, IconLink } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
@@ -15,28 +15,13 @@ import { Button } from "../website-redesign/ds/button";
 import { copyText } from "../website-redesign/ds/clipboard";
 import { SectionHeader } from "../website-redesign/ds/section-header";
 import { useSnackbar } from "../website-redesign/ds/snackbar";
-import { safeHref, type Article, type UseCase } from "./public-content";
+import { safeHref, type Article } from "./public-content";
 
-export function CampaignView({ item }: { item: UseCase | Article }) {
-  const article = "topic" in item;
-  const { slug, job_id } = item;
-  const app = article ? undefined : item.app;
-  const use_case = article ? item.use_case : undefined;
-  const topic = article ? item.topic : undefined;
-  const [searchParams] = useSearchParams();
-  const angle =
-    !article &&
-    item.angles?.some((entry) => entry.id === searchParams.get("angle"))
-      ? searchParams.get("angle")!
-      : "base";
+export function CampaignView({ item }: { item: Article }) {
+  const { slug, job_id, use_case, topic } = item;
   useEffect(() => {
-    trackEvent(
-      article ? "article_view" : "use_case_view",
-      article
-        ? { slug, use_case, job_id, topic }
-        : { slug, job_id, app, angle },
-    );
-  }, [article, slug, job_id, app, use_case, topic, angle]);
+    trackEvent("article_view", { slug, use_case, job_id, topic });
+  }, [slug, job_id, use_case, topic]);
   return null;
 }
 
@@ -44,19 +29,12 @@ export function CampaignCta({
   item,
   location,
 }: {
-  item: UseCase | Article;
-  location: "hero" | "inline" | "band";
+  item: Article;
+  location: "inline" | "band";
 }) {
   const [searchParams] = useSearchParams();
-  const search = new URLSearchParams(searchParams);
-  const angle =
-    !("topic" in item) &&
-    item.angles?.some((entry) => entry.id === search.get("angle"))
-      ? search.get("angle")!
-      : "base";
-  if (!("topic" in item) && angle === "base") search.delete("angle");
   const href = safeHref(
-    buildCampaignCtaUrl(item.app_cta_url, item.job_id, search.toString()),
+    buildCampaignCtaUrl(item.app_cta_url, item.job_id, searchParams.toString()),
   );
   if (!href) throw new Error("Campaign CTA requires a safe destination");
   return (
@@ -65,24 +43,13 @@ export function CampaignCta({
       variant="primary"
       className="max-w-full whitespace-normal"
       onClick={() => {
-        trackEvent(
-          "topic" in item ? "article_cta_click" : "use_case_cta_click",
-          "topic" in item
-            ? {
-                slug: item.slug,
-                use_case: item.use_case,
-                job_id: item.job_id,
-                topic: item.topic,
-                location,
-              }
-            : {
-                slug: item.slug,
-                job_id: item.job_id,
-                app: item.app,
-                location,
-                angle,
-              },
-        );
+        trackEvent("article_cta_click", {
+          slug: item.slug,
+          use_case: item.use_case,
+          job_id: item.job_id,
+          topic: item.topic,
+          location,
+        });
       }}
     >
       {item.cta_label}
@@ -90,20 +57,7 @@ export function CampaignCta({
   );
 }
 
-export function CampaignFrequencyTag({ text }: { text: string }) {
-  const t = useT();
-  return (
-    <span
-      className="campaign-frequency-tag"
-      aria-label={t("campaign.frequencyLabel", { text })}
-    >
-      <IconClock size={14} aria-hidden="true" />
-      {text}
-    </span>
-  );
-}
-
-export function CampaignBand({ item }: { item: UseCase | Article }) {
+export function CampaignBand({ item }: { item: Article }) {
   return (
     <TemplateFinalCta contentClassName="campaign-section">
       <div className="flex flex-col items-start gap-[var(--spacing-4)] text-start">
@@ -115,8 +69,8 @@ export function CampaignBand({ item }: { item: UseCase | Article }) {
   );
 }
 
-export function CampaignScreenshot({ item }: { item: UseCase | Article }) {
-  const app = "app" in item ? item.app : item.apps?.[0];
+export function CampaignScreenshot({ item }: { item: Article }) {
+  const app = item.apps?.[0];
   if (!app) return null;
   const appKey = app === "plans" ? "plan" : app;
   return (

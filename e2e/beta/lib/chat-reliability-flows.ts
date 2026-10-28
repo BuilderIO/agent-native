@@ -184,6 +184,71 @@ export async function secondMessageWhileRunning(
   });
 }
 
+export async function busyPostWithReferenceAttachment(
+  s: ChatReliabilitySession,
+): Promise<void> {
+  const first = newNonce();
+  const second = newNonce();
+  const messageId = `direct-${newNonce().toLowerCase()}`;
+  const attachment = {
+    type: "file" as const,
+    name: "manifest.json",
+    mediaType: "application/json",
+    url: `${s.origin}/manifest.json`,
+    referenceOnly: true as const,
+  };
+  const turns: ExpectedTurn[] = [
+    { userToken: first, answerToken: lineToken(first, STOP_ANSWER_LINES) },
+    { userToken: second, answerToken: second },
+  ];
+
+  await s.send(longAnswerPrompt(first, STOP_ANSWER_LINES), first);
+  await s.waitUntil(
+    "the first answer to start streaming before the attachment POST",
+    (state) => streaming(state, first),
+    { timeoutMs: 60_000 },
+  );
+  const threadId = await s.captureThreadId(first);
+  if (!threadId) throw new Error("could not identify the active chat thread");
+
+  await s.assertDirectBusySubmissionReceipt({
+    threadId,
+    messageId,
+    text: exactReplyPrompt(second),
+    attachment,
+  });
+  await s.waitUntil(
+    "both answers to complete after the attached busy POST",
+    (state) => turnsFinished(state, turns),
+    { timeoutMs: 330_000 },
+  );
+  await s.assertComposerUsable();
+  await s.assertClean("after the attached busy POST");
+  await s.assertServerRunIdle(20_000);
+  await s.assertDirectSubmissionWasSubmitted({ threadId, messageId });
+  await s.assertThreadPersisted({
+    minMessages: 4,
+    answerTokens: [lineToken(first, STOP_ANSWER_LINES), second],
+  });
+  await s.assertThreadAttachmentPersisted({
+    name: attachment.name,
+    url: attachment.url,
+  });
+
+  await s.reload();
+  await s.waitUntil(
+    "the attached queued turn and both answers to survive a reload",
+    (state) => turnsFinished(state, turns),
+    { timeoutMs: 60_000 },
+  );
+  await s.assertThreadAttachmentPersisted({
+    name: attachment.name,
+    url: attachment.url,
+  });
+  await s.assertComposerUsable();
+  await s.assertClean("after reloading the attached queued turn");
+}
+
 export async function stopMidStream(s: ChatReliabilitySession): Promise<void> {
   const first = newNonce();
   const followUp = newNonce();

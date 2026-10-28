@@ -92,6 +92,7 @@ describe("queueAutomationRunNow", () => {
       expect.objectContaining({ userEmail: "collaborator@example.com" }),
       resource,
       "organization",
+      undefined,
     );
     expect(startAutomationRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -240,6 +241,23 @@ describe("queueAutomationRunNow", () => {
       }),
     ).rejects.toThrow("Specify either an automation name or a path, not both.");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
+
+  it("hands the caller's additional job app ids to the run check", async () => {
+    resourceGetByPathMock.mockResolvedValue(resourceAt("jobs/digest.md"));
+
+    await queueAutomationRunNow({
+      ...organizationRun,
+      name: "digest",
+      additionalJobAppIds: ["factory-workflows"],
+    });
+
+    expect(canQueueAutomationRunNowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: "factory" }),
+      expect.objectContaining({ path: "jobs/digest.md" }),
+      "organization",
+      ["factory-workflows"],
+    );
   });
 
   it("rejects when the caller cannot queue the run", async () => {

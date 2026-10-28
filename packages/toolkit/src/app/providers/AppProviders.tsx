@@ -2,6 +2,8 @@ import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cac
 import {
   agentNativePath,
   frameworkRoutePrefix,
+  isWorkspaceRuntime,
+  resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
 import {
   AgentNativeI18nProvider,
@@ -133,10 +135,17 @@ function EarlyBetaRedirectScript() {
 // Marks <html> as an MCP App widget before the server-rendered skeleton below
 // paints, so the widget never flashes the app's own sidebar.
 function McpAppWidgetBootScript() {
+  const workspaceRuntime = isWorkspaceRuntime();
+  // Workspace mount metadata is available to the inline browser script.
   return (
     <script
       data-agent-native-mcp-widget-boot="1"
-      dangerouslySetInnerHTML={{ __html: getMcpAppWidgetEmbedBootScriptBody() }}
+      dangerouslySetInnerHTML={{
+        __html: getMcpAppWidgetEmbedBootScriptBody(
+          workspaceRuntime ? undefined : resolveAppBasePath(),
+          workspaceRuntime,
+        ),
+      }}
     />
   );
 }

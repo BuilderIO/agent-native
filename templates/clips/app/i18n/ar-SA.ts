@@ -214,6 +214,7 @@ const messages = {
     spaces: "المساحات",
     meetings: "الاجتماعات",
     dictate: "إملاء",
+    fromContent: "من Content",
     archive: "الأرشيف",
     trash: "المهملات",
     agent: "الوكيل",
@@ -268,6 +269,10 @@ const messages = {
     archive: {
       title: "لا توجد تسجيلات مؤرشفة",
       body: "تبقى Clips المؤرشفة هنا حتى تصبح مستعدًا لإعادتها.",
+    },
+    fromContent: {
+      title: "لا توجد عمليات رفع من Content بعد",
+      body: "تُحفظ هنا مقاطع الفيديو التي ترفعها إلى صفحة في Content بصفتها Clips.",
     },
     trash: {
       title: "المهملات فارغة",
@@ -1665,10 +1670,10 @@ const messages = {
     openDesktopApp: "Open desktop app (مترجم)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (مترجم)",
+    untitled: "مقطع بدون عنوان",
     renameFailed: "Failed to rename clip (مترجم)",
     emptyTitle: "Title cannot be empty (مترجم)",
-    generatingTitle: "Generating title (مترجم)",
+    generatingTitle: "توليد العنوان",
     placeholder: "Clip title (مترجم)",
     editLabel: "Edit clip title (مترجم)",
   },
@@ -2288,6 +2293,8 @@ const messages = {
     goHome: "الانتقال إلى الصفحة الرئيسية",
     testMic: "اختبار الميكروفون",
     archivePageTitle: "الأرشيف · Clips",
+    fromContentPageTitle: "من Content · Clips",
+    openContentPage: "فتح الصفحة",
     insightsPageTitle: "الرؤى · Clips",
     folderPageTitle: "المجلد · Clips",
     spacePageTitle: "المساحة · Clips",

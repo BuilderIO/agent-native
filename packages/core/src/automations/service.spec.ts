@@ -2070,4 +2070,66 @@ Observe Slack.`),
     });
     expect(executeMock).not.toHaveBeenCalled();
   });
+
+  describe("canQueueAutomationRunNow for Factory jobs", () => {
+    const factoryActor = {
+      userEmail: "admin@example.com",
+      orgId: "org-1",
+      appId: "factory",
+    };
+    const factoryJob = (appIdLine: string) =>
+      resource(
+        `---
+schedule: "*/5 * * * *"
+enabled: true
+triggerType: schedule
+domain: factory
+${appIdLine}orgId: "org-1"
+createdBy: alice@example.com
+runAs: creator
+---
+
+Run the job.`,
+        orgOwner,
+        { path: "jobs/factories/demo/workflow-digest-1a2b3c4d.md" },
+      );
+    const queue = (
+      job: ReturnType<typeof resource>,
+      additionalJobAppIds?: readonly string[],
+    ) =>
+      canQueueAutomationRunNow(
+        factoryActor,
+        job,
+        "organization",
+        additionalJobAppIds,
+      );
+
+    beforeEach(() => {
+      resolveAutomationAccessMock.mockResolvedValue(null);
+      executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    });
+
+    it("lets an organization admin run a job under the app id or with none", async () => {
+      expect(await queue(factoryJob("appId: factory\n"))).toBe(true);
+      expect(await queue(factoryJob(""))).toBe(true);
+    });
+
+    it("refuses a job under another app id unless the caller lists it", async () => {
+      const workflowJob = factoryJob("appId: factory-workflows\n");
+      expect(await queue(workflowJob)).toBe(false);
+      expect(await queue(workflowJob, ["factory-workflows"])).toBe(true);
+      expect(await queue(workflowJob, ["calendar"])).toBe(false);
+    });
+
+    it("still needs run access or an admin role for a listed app id", async () => {
+      const workflowJob = factoryJob("appId: factory-workflows\n");
+      executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
+      expect(await queue(workflowJob, ["factory-workflows"])).toBe(false);
+
+      resolveAutomationAccessMock.mockResolvedValue(
+        accessible(workflowJob, "collaborate"),
+      );
+      expect(await queue(workflowJob, ["factory-workflows"])).toBe(true);
+    });
+  });
 });

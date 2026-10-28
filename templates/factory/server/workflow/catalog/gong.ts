@@ -17,6 +17,8 @@ export const gongOperations: OperationDefinitionInput[] = [
       query: { fromDateTime: "{since}", toDateTime: "{until}" },
     },
     window: { fromParam: "since", toParam: "until" },
+    // A range with no calls answers 404 {"requestId", "errors": ["No calls found corresponding to the provided filters"]}.
+    emptyRange: { errorIncludes: "no calls found" },
     itemMapping: {
       kind: "call",
       itemsPath: "calls",

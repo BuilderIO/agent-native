@@ -372,6 +372,26 @@ describe("new comment responsive draft", () => {
     expect(richEditorValue(input())).toBe("");
   });
 
+  it("keeps a written new comment open when another thread opens, and closes an empty one", async () => {
+    await show(1280);
+    await open();
+    await act(async () => owner.setPendingComment(null, { keepWritten: true }));
+    await settle();
+    expect(owner.pendingComment).toBeNull();
+    expect(richEditor(container)).toBeNull();
+
+    await open();
+    await type("Half a thought");
+    await act(async () => owner.setPendingComment(null, { keepWritten: true }));
+    await settle();
+    expect(owner.pendingComment).not.toBeNull();
+    expect(richEditorValue(input())).toBe("Half a thought");
+    // Closing it on purpose still works.
+    await act(async () => owner.setPendingComment(null));
+    await settle();
+    expect(owner.pendingComment).toBeNull();
+  });
+
   it("isolates document drafts and does not preserve text when a new selection replaces one", async () => {
     await show(390);
     await open();
@@ -648,6 +668,8 @@ describe("new comment responsive draft", () => {
     );
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");
+    // Opening a thread keeps a new comment someone has written.
+    expect(source).toContain("setPendingComment(null, { keepWritten: true });");
     expect(source).not.toMatch(
       /\[pendingComment,\s*setPendingComment\]\s*=\s*useState/,
     );

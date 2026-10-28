@@ -1,0 +1,111 @@
+slug: ai-funnel-analysis
+app: analytics
+roles:
+  - product
+  - founders
+  - engineering
+title: "اعرف أين يتوقف المستخدمون الجدد"
+seo_title: "تحليل مسار التحويل بالذكاء الاصطناعي وإعادة الجلسة"
+meta_description: "اسأل Agent-Native Analytics بلغة عادية عن خطوة التسجيل التي تخسر فيها المستخدمين الجدد، واحصل على المسار من أحداثك، ثم شاهد جلسات من غادروا."
+updated: 2026-10-27
+hero:
+  body: "اسأل Agent-Native Analytics عن خطوة التسجيل التي تخسر فيها أكبر عدد من الناس، فيبني الوكيل المسار من أحداثك أنت. ثم شاهد إعادة جلسات من غادروا واسأل الوكيل عن السبب."
+  button:
+    label: "اكتشف أين تخسرهم"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F55295bda356c490984f639946e838ebe
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd84d0fd7f856406e85b739ac0429b0f3
+    alt: "نافذة Analytics على لوحة «Activation funnel». للمسار أربع خطوات: Signed up وCreated a project وConnected a data source وInvited a teammate. تعرض كل خطوة عددها ونسبتها من التسجيلات والانخفاض عن الخطوة السابقة، وأكبر انخفاض عند Created a project. وتشرح محادثة الوكيل بجانبها أين توقفت تسجيلات الأسبوع الماضي."
+how_to:
+  heading: "كيف تحلّل مسار التحويل بالذكاء الاصطناعي"
+  steps:
+    - title: "اسأل أين يتوقف المستخدمون الجدد"
+      body: "أدخل أحداث التسجيل إلى Analytics. اسأل في **اسأل**، فيكتب الوكيل SQL ويضيف [لوحة مسار](https://www.agent-native.com/docs/template-analytics-dashboards/) بعدد كل خطوة والانخفاض فيها. جرّب: «أضف مسارًا إلى لوحة Activation funnel: أين توقفت تسجيلات الأسبوع الماضي؟»"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa752431cecb8420c88d3d6a8f7980ea9
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F16ab210c27504ed1b71c37ebdabea744
+        alt: "محادثة الوكيل مع ذلك الطلب ورد الوكيل، بجانب المسار الذي أضافه. الخطوات: Signed up 1,240، وCreated a project 612، وConnected a data source 418، وInvited a teammate 302، ولكل منها الانخفاض."
+    - title: "اعثر على من توقفوا"
+      body: "فعّل فرز الجلسات في إعدادات Analytics. في **الجلسات**، افتح **الأحداث**. اختر **حدث** للخطوة السابقة للانخفاض، مثل «signed_up»، و**لم يحدث** للخطوة التي لم يصلوا إليها، مثل «project_created»."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F327bf36c28ab452da87cf4f4dc65debe
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F49b79e0de78041bb93444ec4d24ce11a
+        alt: "لقطة مقرّبة لصفحة Sessions وفلتر Events مفتوح، وsigned_up مضبوط على Did وproject_created على Didn't. وتحته القائمة المفلترة لجلسات المستخدمين الجدد، ولكل منها مدتها وصفحتها والنقرات الغاضبة."
+    - title: "اسأل عمّا حدث في الجلسة"
+      body: "افتح إعادة الجلسة لتشاهد الصفحة والنقرات وطلبات الشبكة. انقر على **اسأل الوكيل عن هذه الجلسة** واسأل «ماذا حدث في هذه الجلسة؟». يلخّص الوكيل الأخطاء والنقرات المتكررة والصفحات التي رآها ذلك الشخص."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7e0b3a4750a143f6bcd609e1c5460fd2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe44e9321e80d4c3f826bd7b25fa54025
+        alt: "إعادة جلسة لمستخدم جديد في صفحة إنشاء مشروع، وإجابة الوكيل بجانبها. كتب الشخص اسم المشروع ونقر على Create project ثلاث مرات. وفشل الطلب إلى API المشاريع في كل مرة، فغادر."
+features:
+  heading: "كل ما تحتاجه لتكتشف أين تخسرهم وتعالجه"
+  items:
+    - title: "التخطي ليس مغادرة"
+      body: "أخبر الوكيل بالخطوات التي يمكن تخطيها، فيفصل المسار من تخطّاها عمّن غادر التطبيق عندها."
+    - title: "أسماء أحداثك أنت"
+      body: "يصف المسؤولون أحداثك ومقاييسك في صفحة **الطبقة الدلالية**، ويستخدم الوكيل تلك الأسماء بالضبط في كل استعلام."
+    - title: "شاهد الطلب الفاشل"
+      body: "افتح **أدوات المطوّر** في إعادة الجلسة لتقرأ وحدة التحكم وطلبات الشبكة، وانتقل إلى لحظة فشل الطلب."
+    - title: "جلسات منقّحة للوكلاء"
+      body: "يحصل الوكيل الخارجي على سجلات وحدة التحكم والشبكة من الجلسة، والأخطاء أولًا، لا التسجيل نفسه. وتنتهي صلاحية رابطه بعد ساعتين."
+    - title: "خاصة افتراضيًا"
+      body: "الكتابة مخفية في كل إعادة جلسة، وأنت تختار الأجزاء الأخرى من الصفحة التي تبقى مخفية."
+    - title: "المسار كل يوم"
+      body: "اطلب من الوكيل إرسال لوحة المسار يوميًا، في الوقت الذي تختاره، بالبريد لما يصل إلى خمسة أشخاص أو إلى Slack."
+integrations:
+  heading: "اربط Analytics بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "اسأل عن الأحداث التي تتبّعها"
+      logos:
+        - name: PostHog
+        - name: Amplitude
+        - name: Mixpanel
+        - name: Google Analytics
+        - name: BigQuery
+      body: "يستعلم الوكيل بيانات المنتج التي تجمعها أصلًا في هذه الأدوات، أو الأحداث التي يرسلها تطبيقك إلى Analytics."
+    - title: "الصق الجلسة في وكيل البرمجة"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: "انقر على **نسخ للوكيل** في إعادة الجلسة والصق الرابط في وكيل البرمجة، ليصحّح الخلل من سجلات تلك الجلسة."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: GitHub
+        - name: Intercom
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Analytics"
+  cards:
+    - title: "أنشئ لوحة مؤشرات أداء لشركتك الناشئة"
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "صِف المؤشرات التي تتابعها، فيبني الوكيل لوحة تحكم واحدة من Stripe وHubSpot وبيانات المنتج."
+    - title: "اطرح أسئلتك على بياناتك بلغة عادية"
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: "اسأل عن بياناتك في BigQuery، فيكتب الوكيل SQL للقراءة فقط يمكنك التحقق منه."
+    - title: "أعدّ تقرير التسويق الأسبوعي دون جداول بيانات"
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "اسأل كيف كان أسبوعك التسويقي، فيجيب الوكيل من Google Analytics وHubSpot في لوحة تحكم."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Analytics مجاني؟"
+      a: "نعم، Agent-Native Analytics مجاني ومفتوح المصدر. استخدم التطبيق المستضاف، أو [شغّل نسختك الخاصة](https://www.agent-native.com/docs/template-analytics/). البيانات منك: أحداثك أنت، أو الأدوات التي تربطها. لا يزال Analytics في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "هل أحتاج إلى معرفة SQL؟"
+      a: "لا. اسأل بلغة عادية، فيكتب الوكيل SQL ويشغّله، ثم يجيب بمخطط أو جدول أو رقم. واطلب رؤية الاستعلام متى أردت التحقق منه. وقد يحتاج شخص يعرف بياناتك إلى [ربط مصادرك](https://www.agent-native.com/docs/template-analytics-connectors/) أولًا."
+    - q: "من أين تأتي إعادات الجلسات؟"
+      a: "من تطبيق الويب الخاص بك. أنشئ مفتاحًا عامًا في **مصادر البيانات**، ثم أضف مقتطف التتبع القصير من صفحة **الجلسات** إلى تطبيقك، مع تفعيل إعادة الجلسات. واربط مساحة تخزين للتسجيلات: Builder.io أو حاوية S3 الخاصة بك. وافتراضيًا، [تسجّل إعادات الجلسات](https://www.agent-native.com/docs/template-analytics-monitoring-and-sessions/) المستخدمين المسجّلين دخولهم فقط."
+    - q: "ماذا تسجّل إعادة الجلسة؟"
+      a: "تعيد إعادة الجلسة عرض الصفحة والنقرات والتمرير ومخرجات وحدة التحكم وطلبات الشبكة. الكتابة مخفية افتراضيًا، والحقول المسمّاة ككلمات مرور أو بيانات بطاقات لا تُلتقط أبدًا. ولإخفاء أي شيء آخر، أضف class إلى ذلك الجزء من الصفحة."
+    - q: "هل يمكنني استخدام بياناتي في PostHog أو Amplitude أو Mixpanel؟"
+      a: "نعم. اربطها في **مصادر البيانات** واسأل عن الأحداث التي تتبّعها هناك. يستعلم الوكيل كل أداة نيابةً عنك. أما إعادات الجلسات فتأتي من تتبّع Analytics نفسه فقط، فأضفه إلى تطبيقك لتشاهد من توقفوا."
+    - q: "كيف يختلف Analytics عن الذكاء الاصطناعي في أداة التحليلات لديّ؟"
+      a: "الذكاء الاصطناعي في أداة التحليلات يعمل على بيانات تلك الأداة. أما وكيل Analytics فيعمل عبر كل مصدر تربطه، ويجد جلسات الأشخاص الذين توقفوا بالضبط، ويشرح أيًا منها أو يسلّمه إلى وكيل البرمجة. وهو مفتوح المصدر أيضًا. وهذا [تطبيق وكيلي](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

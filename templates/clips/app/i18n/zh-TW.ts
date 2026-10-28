@@ -209,6 +209,7 @@ const messages = {
     spaces: "空間",
     meetings: "會議",
     dictate: "聽寫",
+    fromContent: "來自 Content",
     archive: "封存",
     trash: "廢紙簍",
     agent: "代理",
@@ -263,6 +264,10 @@ const messages = {
     archive: {
       title: "尚無封存的錄製",
       body: "封存的 Clips 會保存在這裡，直到你準備好將它們恢復。",
+    },
+    fromContent: {
+      title: "還沒有來自 Content 的上傳",
+      body: "你上傳到 Content 頁面的影片會以 Clips 的形式儲存在這裡。",
     },
     trash: {
       title: "廢紙簍是空的",
@@ -2178,6 +2183,8 @@ const messages = {
     goHome: "返回首頁",
     testMic: "測試麥克風",
     archivePageTitle: "封存 · Clips",
+    fromContentPageTitle: "來自 Content · Clips",
+    openContentPage: "開啟頁面",
     insightsPageTitle: "洞察 · Clips",
     folderPageTitle: "資料夾 · Clips",
     spacePageTitle: "空間 · Clips",

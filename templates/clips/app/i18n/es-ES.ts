@@ -227,6 +227,7 @@ const messages = {
     spaces: "Espacios",
     meetings: "Reuniones",
     dictate: "Dictar",
+    fromContent: "Desde Content",
     archive: "Archivo",
     trash: "Papelera",
     agent: "Agente",
@@ -283,6 +284,10 @@ const messages = {
     archive: {
       title: "No hay grabaciones archivadas",
       body: "Los Clips archivados se quedan aquí hasta que quieras recuperarlos.",
+    },
+    fromContent: {
+      title: "Aún no hay subidas desde Content",
+      body: "Los vídeos que subes a una página de Content se guardan aquí como Clips.",
     },
     trash: {
       title: "La papelera está vacía",
@@ -1713,10 +1718,10 @@ const messages = {
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {
-    untitled: "Untitled Clip",
+    untitled: "Clip sin título",
     renameFailed: "Failed to rename clip",
     emptyTitle: "Title cannot be empty",
-    generatingTitle: "Generating title",
+    generatingTitle: "Generando título",
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
@@ -2349,6 +2354,8 @@ const messages = {
     goHome: "Ir al inicio",
     testMic: "Probar micrófono",
     archivePageTitle: "Archivo · Clips",
+    fromContentPageTitle: "Desde Content · Clips",
+    openContentPage: "Abrir página",
     insightsPageTitle: "Información · Clips",
     folderPageTitle: "Carpeta · Clips",
     spacePageTitle: "Espacio · Clips",

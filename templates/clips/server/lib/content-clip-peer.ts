@@ -82,7 +82,7 @@ interface OpenedClip {
   binding: ContentClipBinding | null;
 }
 
-const PRIVATE_HEADERS = {
+export const PRIVATE_HEADERS = {
   "cache-control": "private, no-store",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
@@ -161,15 +161,25 @@ function isDocumentId(value: unknown): value is string {
   );
 }
 
+/** Who Content vouched for, on which document, before any Clip is named. */
+export interface VerifiedContentPeer {
+  contentApp: string;
+  documentId: string;
+  scope: ContentClipScope;
+  /** Null for a signed-out reader of a public document. */
+  viewerEmail: string | null;
+  viewerName: string | null;
+  claims: Record<string, unknown>;
+}
+
 /**
  * The reader Content vouched for, or the response refusing the request. Every
  * refusal is the same bare 401, so a caller learns nothing about the Clip.
  */
-async function verifyPeer(
+export async function verifyContentPeerToken(
   event: H3Event,
-  recordingId: string,
   scopes: readonly ContentClipScope[],
-): Promise<ContentClipPeer | Response> {
+): Promise<VerifiedContentPeer | Response> {
   const peerSecret = readContentPeerSecret();
   if (peerSecret.refused) {
     return json(peerSecret.refused.body, peerSecret.refused.status);
@@ -206,9 +216,6 @@ async function verifyPeer(
   const contentApp = contentAppFromIssuer(claims.iss);
   const documentId = claims[CONTENT_CLIP_CLAIMS.documentId];
   if (!contentApp || !isDocumentId(documentId)) return unauthorized();
-  if (claims[CONTENT_CLIP_CLAIMS.recordingId] !== recordingId) {
-    return unauthorized();
-  }
 
   // Content mints a token per call; a long-lived one would outlast the
   // document access Content checked when it signed it.
@@ -239,6 +246,27 @@ async function verifyPeer(
       ? name.trim().slice(0, MAX_VIEWER_NAME_CHARS) || null
       : null;
 
+  return {
+    contentApp,
+    documentId,
+    scope: claims.scope as ContentClipScope,
+    viewerEmail,
+    viewerName,
+    claims,
+  };
+}
+
+async function verifyPeer(
+  event: H3Event,
+  recordingId: string,
+  scopes: readonly ContentClipScope[],
+): Promise<ContentClipPeer | Response> {
+  const peer = await verifyContentPeerToken(event, scopes);
+  if (peer instanceof Response) return peer;
+  if (peer.claims[CONTENT_CLIP_CLAIMS.recordingId] !== recordingId) {
+    return unauthorized();
+  }
+  const { contentApp, documentId, viewerEmail, viewerName } = peer;
   return { contentApp, documentId, recordingId, viewerEmail, viewerName };
 }
 

@@ -1,0 +1,112 @@
+slug: visually-recap-agent-changes
+app: plans
+roles:
+  - engineering
+title: "अपने कोडिंग एजेंट के बदलावों का विज़ुअल रीकैप पाएँ"
+seo_title: "आपके कोडिंग एजेंट के बदलावों का विज़ुअल रीकैप"
+meta_description: "Agent-Native Plan दिखाता है कि आपके कोडिंग एजेंट ने क्या बदला: पहले-बाद की स्क्रीन्स, मार्क किए डेटा फ़ील्ड, फ़ाइल मैप और एनोटेटेड diffs, जिन पर आप कमेंट करें।"
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Plan दिखाता है कि आपके कोडिंग एजेंट ने क्या किया: पहले और बाद की स्क्रीन्स, मार्क किए गए डेटा बदलाव और बदली गई फ़ाइलों का मैप। कुछ गलत लगे तो उस पर कमेंट करें, और एजेंट उसे ठीक कर देता है।"
+  button:
+    label: "किसी बदलाव का रीकैप करें"
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa973dc8304494af9b6d069e9a409d409
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68e6bd29a3834942ad098459e08fbd42
+    alt: "Plan में कोडिंग एजेंट के उस बदलाव का तैयार रीकैप जो टीम इनवाइट्स जोड़ता है। सबसे ऊपर टाइटल और बदलाव की छोटी समरी है। उसके नीचे Members सेटिंग्स पेज के पहले और बाद के वायरफ़्रेम हैं, और बदली गई फ़ाइलों का फ़ाइल ट्री, जिसमें added और modified बैज लगे हैं।"
+how_to:
+  heading: "अपने एजेंट के बदलावों का विज़ुअल रीकैप कैसे करें"
+  steps:
+    - title: "अपने एजेंट से रीकैप माँगें"
+      body: "[एक लाइन के इंस्टॉल](https://www.agent-native.com/docs/template-plan/#install) से Plan को अपने कोडिंग एजेंट में जोड़ें। जिस चैट में एजेंट ने बदलाव किया था, उसी में `/visual-recap` चलाएँ और जो लिंक मिले उसे खोलें।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F060c82d850f34b3096f166c04ead386c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F287f076a9ec84124a0afc7fbaeda2ece
+        alt: 'कोडिंग एजेंट की चैट, जिसमें "/visual-recap of everything you changed in this thread" भेजा गया है, और एजेंट के जवाब में पब्लिश हुए रीकैप का लिंक है।'
+    - title: "पहले बदलाव को तस्वीरों में देखें"
+      body: "पहले और बाद के वायरफ़्रेम, मार्क किए गए डेटा बदलाव और बदली गई फ़ाइलों के मैप से शुरू करें। फिर **Key changes** खोलें, जहाँ हर अहम फ़ाइल का अपना टैब है, जिसमें आमने-सामने का diff और नोट्स हैं।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff15296c5ef824f5ead19d6e64de1388f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faf5572fc8bbd4962972bfc0b24cf2bc0
+        alt: "Members पेज के पहले और बाद के वायरफ़्रेम, जिनमें बाद वाले में Invite बटन और एक पेंडिंग इनवाइट जुड़ा है। उनके बगल में डेटा मॉडल नई invites टेबल को added और members के role फ़ील्ड को modified मार्क करता है, जो टेक्स्ट से रोल्स की तय लिस्ट बन गया है।"
+    - title: "अपने कमेंट्स एजेंट को भेजें"
+      body: "किसी भी टेक्स्ट या वायरफ़्रेम की किसी जगह पर [रिव्यू कमेंट्स](https://www.agent-native.com/docs/template-plan-review-workflow/) छोड़ें। **एजेंट को भेजें** पर क्लिक करें, **अपने एजेंट के लिए कॉपी करें** चुनें और प्रॉम्प्ट को अपने कोडिंग एजेंट में पेस्ट करें, जो बदलाव करके आपके कमेंट्स रिज़ॉल्व कर देता है।"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2256a69fdcd542a18a14a292050ff391
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2b4a48126c4f45c39c0b6f0389673387
+        alt: "बाद वाले वायरफ़्रेम के Invite बटन पर पिन किया गया एजेंट के लिए कमेंट, जो इसे सिर्फ़ एडमिन्स को दिखाने के लिए कहता है। Send to agent मेन्यू खुला है, जिसमें Copy for your agent और Send to inline agent हैं।"
+features:
+  heading: "विज़ुअल रीकैप में आपको जो कुछ चाहिए"
+  items:
+    - title: "कोड से पहले स्क्रीन्स"
+      body: "जब बदलाव UI को छूता है, तो रीकैप पहले और बाद के वायरफ़्रेम से शुरू होता है, ताकि आप पहले वही देखें जो यूज़र्स देखेंगे।"
+    - title: "डेटा बदलाव मार्क किए हुए"
+      body: "स्कीमा और API बदलावों में हर फ़ील्ड को जोड़ा गया, बदला गया, हटाया गया या रीनेम किया गया मार्क किया जाता है, और पुराना टाइप नए के बगल में दिखता है।"
+    - title: "हर बदली गई फ़ाइल का मैप"
+      body: "फ़ाइल ट्री में वे सभी फ़ाइलें होती हैं जिन्हें बदलाव ने छुआ, हर एक पर जोड़ी गई, बदली गई, हटाई गई या रीनेम का बैज और क्या बदला उसके नोट्स के साथ।"
+    - title: "एनोटेटेड मुख्य diffs"
+      body: "तीन से आठ अहम फ़ाइलों के आमने-सामने के diffs मिलते हैं, हर एक के साथ एक लाइन की समरी और ध्यान देने लायक लाइनों पर नोट्स।"
+    - title: "पूरे थ्रेड को कवर करता है"
+      body: "काम के बाद चैट में `/visual-recap` चलाएँ, और रीकैप में वह सब आता है जो एजेंट ने वहाँ किया, पहले बदलाव से लेकर आखिरी फ़िक्स तक।"
+    - title: "अपनी टीम के साथ रिव्यू करें"
+      body: "रीकैप का लिंक शेयर करें: गेस्ट उसे बिना अकाउंट के खोलते हैं और कमेंट करने के लिए साइन इन करते हैं। कॉपी रखने के लिए उसे HTML, Markdown या JSON में एक्सपोर्ट करें।"
+integrations:
+  heading: "Plan को उन टूल्स से जोड़ें जो आप पहले से इस्तेमाल करते हैं"
+  cards:
+    - title: "अपने कोडिंग एजेंट से चलाएँ"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "एक इंस्टॉल कमांड Claude Code, Codex, Cursor, OpenCode या GitHub Copilot में `/visual-recap` सेट कर देता है, और रीकैप चैट से ही खुलता है।"
+    - title: "हर पुल रिक्वेस्ट पर रीकैप"
+      logos:
+        - name: GitHub
+        - name: Anthropic
+        - name: OpenAI
+        - name: DeepSeek
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdd2aa693886c4451b8a65836931b6c5d
+      body: "एक GitHub Action हर पुल रिक्वेस्ट पर विज़ुअल रीकैप पोस्ट करता है, आपकी अपनी Anthropic, OpenAI या DeepSeek key, या किसी दूसरे OpenAI-compatible मॉडल से।"
+    - title: "MCP से कुछ भी कनेक्ट करें"
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Semgrep
+        - name: Supabase
+      more: true
+      body: "आपकी टीम जो टूल्स इस्तेमाल करती है, उन्हें MCP से कनेक्ट करें, या किसी भी MCP सर्वर को उसके URL से जोड़ें।"
+other_uses:
+  heading: "Agent-Native Plan से आप और क्या कर सकते हैं"
+  cards:
+    - title: "कोड लिखने से पहले अपने कोडिंग एजेंट का प्लान रिव्यू करें"
+      url: https://www.agent-native.com/use-cases/visual-plan-mode/
+      body: "अपने कोडिंग एजेंट का प्लान डायग्राम और एनोटेटेड कोड के रूप में पढ़ें, और एजेंट के शुरू करने से पहले उसे सुधारें।"
+    - title: "अपने कोडिंग एजेंट के साथ नई स्क्रीन्स प्लान करें"
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: "बनाने से पहले अपने कोडिंग एजेंट से नई स्क्रीन की हर स्थिति का स्केच बनवाएँ, और सही होने तक कमेंट करें।"
+faqs:
+  heading: "सवाल हैं? हमारे पास जवाब हैं"
+  items:
+    - q: "क्या Agent-Native Plan फ़्री है?"
+      a: "हाँ, Agent-Native Plan फ़्री और ओपन सोर्स है। हर विज़ुअल रीकैप आपके चुने हुए मॉडल पर एजेंट का पूरा सेशन चलाता है, इसलिए बड़े बदलाव उस मॉडल का ज़्यादा इस्तेमाल करते हैं। Plan अभी alpha में है, इसलिए बदलाव होते रहेंगे।"
+    - q: "किन बदलावों पर विज़ुअल रीकैप चलाना फ़ायदेमंद है?"
+      a: "बड़े बदलावों पर विज़ुअल रीकैप चलाएँ: जो कई फ़ाइलों में फैले हों या डेटा स्कीमा, किसी API या ऐप के हिस्सों के आपस में जुड़ने के तरीके को छूते हों। एक फ़ाइल के छोटे बदलाव के लिए रीकैप का इंतज़ार करने से सीधा diff पढ़ना जल्दी होता है।"
+    - q: "विज़ुअल रीकैप, diff पढ़ने से कैसे अलग है?"
+      a: "diff हर बदली गई लाइन को फ़ाइल-दर-फ़ाइल दिखाता है। विज़ुअल रीकैप इससे शुरू होता है कि बदलाव करता क्या है: उसने जो स्क्रीन्स बदलीं वे वायरफ़्रेम के रूप में, जो डेटा फ़ील्ड बदले वे, और शामिल फ़ाइलों का मैप। फिर वह नोट्स के साथ सिर्फ़ पढ़ने लायक diffs दिखाता है।"
+    - q: "Plan किन कोडिंग एजेंट्स के साथ काम करता है?"
+      a: "इंस्टॉल कमांड Plan को Claude Code, Codex, Cursor, OpenCode, VS Code के GitHub Copilot और Claude Cowork में सेट करता है, और आपको साइन इन भी करा देता है। Plan अपने होस्टेड कनेक्टर के ज़रिए Cline, Goose और MCP सर्वर से जुड़ने वाले किसी भी दूसरे एजेंट में भी काम करता है।"
+    - q: "क्या मुझे हर पुल रिक्वेस्ट पर रीकैप मिल सकता है?"
+      a: "हाँ। [PR Visual Recap GitHub Action](https://www.agent-native.com/docs/pr-visual-recap/) हर push पर आपकी अपनी API key के साथ Claude Code, Codex या कोई भी OpenAI-compatible मॉडल चलाता है। यह पुल रिक्वेस्ट पर एक कमेंट को रीकैप के स्क्रीनशॉट के साथ अपडेट रखता है, और कभी merge नहीं रोकता। लगभग 600 KB से बड़े diffs छोटे कर दिए जाते हैं।"
+    - q: "मेरे रीकैप्स कौन देख सकता है?"
+      a: "डिफ़ॉल्ट रूप से सिर्फ़ आपके संगठन में साइन इन किए लोग रीकैप खोल सकते हैं; उसे प्राइवेट करें तो सिर्फ़ आप। GitHub Action के साथ, पुल रिक्वेस्ट देखने वाला हर व्यक्ति रीकैप का स्क्रीनशॉट देखता है। [लोकल-फ़ाइल्स मोड](https://www.agent-native.com/docs/template-plan-local-and-desktop/) रीकैप को होस्टेड ऐप से दूर रखता है, हालाँकि आपके एजेंट का मॉडल वहीं चलता है जहाँ हमेशा चलता है।"

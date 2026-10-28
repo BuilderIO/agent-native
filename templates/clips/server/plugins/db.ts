@@ -1371,6 +1371,24 @@ export const migrations = runMigrations(
       CREATE INDEX IF NOT EXISTS recording_content_bindings_document_idx
         ON recording_content_bindings (content_app, document_id)`,
     },
+    {
+      version: 96,
+      name: "recording-content-binding-upload-key",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_content_bindings_upload_key_unique_idx
+        ON recording_content_bindings (content_app, document_id, created_by, upload_key)`,
+    },
+    {
+      version: 97,
+      name: "recording-content-binding-upload-file",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_mime_type TEXT;
+      ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_size_bytes BIGINT`,
+    },
+    {
+      version: 98,
+      name: "recording-content-binding-upload-start-failed",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );

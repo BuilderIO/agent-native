@@ -29,6 +29,7 @@ import {
   builderBodyHydrationAttemptIsTerminal,
   builderBodyHydrationNextAttemptAt,
   builderBodyHydrationFailureEvidence,
+  builderBodyIsRawPlaceholderOnly,
   builderBodyNeedsSourceComponentWrite,
   builderBodyReadSourceValues,
   knownBuilderReviewDocumentIds,
@@ -1112,6 +1113,24 @@ describe("database source helpers", () => {
     ).toBe(false);
   });
 
+  it("treats a body as a raw placeholder only when it has no text of its own", () => {
+    const raw = (summary: string) =>
+      `<BuilderRawBlock id="b1" rawRef="r1" rawHash="h1" componentName="Hero" summary={${JSON.stringify(summary)}} />`;
+    const plain = '<BuilderRawBlock id="b2" rawRef="r2" rawHash="h2" />';
+    expect(builderBodyIsRawPlaceholderOnly(raw("A hero />"))).toBe(true);
+    expect(builderBodyIsRawPlaceholderOnly(`${raw("One")}\n\n${plain}\n`)).toBe(
+      true,
+    );
+    expect(
+      builderBodyIsRawPlaceholderOnly(
+        `${raw("A hero")}\n\nA paragraph written in Content.`,
+      ),
+    ).toBe(false);
+    expect(
+      builderBodyIsRawPlaceholderOnly(`${plain}\n\n<BuilderText id="t1" />`),
+    ).toBe(false);
+  });
+
   it("keys open mock proposals by row, field set, kind, and body presence", () => {
     const headline = property("text", "Launch week");
     const fieldChange = buildMockFieldChange({
@@ -1611,6 +1630,92 @@ describe("database source helpers", () => {
     });
 
     expect(change).toBeNull();
+  });
+
+  it("proposes a Content body over a known-empty Builder body, not over an unread one", async () => {
+    const bodyChange = (sourceValues: Record<string, unknown>) =>
+      builderBodyChangeForSourceSnapshotDocument({
+        row: {
+          documentId: "doc-empty",
+          sourceRowId: "entry-empty",
+          sourceQualifiedId: "builder-cms://blog-article/entry-empty",
+          provenance: "Builder CMS read adapter",
+          sourceValuesJson: JSON.stringify({
+            published: "draft",
+            ...sourceValues,
+          }),
+        },
+        isHydrated: true,
+        allowUnsourcedCreate: false,
+        localContent: "Body written in Content.",
+      });
+
+    expect(
+      await bodyChange({ [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0 }),
+    ).toMatchObject({
+      currentHash: null,
+      proposedHash: expect.any(String),
+      proposedContent: "Body written in Content.",
+    });
+    expect(await bodyChange({})).toBeNull();
+  });
+
+  it("proposes an emptied Content body over Builder's live body", async () => {
+    const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      row: {
+        documentId: "doc-cleared",
+        sourceRowId: "entry-cleared",
+        sourceQualifiedId: "builder-cms://blog-article/entry-cleared",
+        provenance: "Builder CMS read adapter",
+        // Content saved an empty body over the live one.
+        sourceValuesJson: JSON.stringify({
+          published: "published",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+        }),
+      },
+      isHydrated: true,
+      allowUnsourcedCreate: false,
+      localContent: "",
+      liveBaseline: { blocksHash: "live-hash", bodyEmpty: false },
+    });
+
+    expect(bodyChange).toMatchObject({
+      currentHash: "live-hash",
+      proposedHash: expect.any(String),
+      proposedBlocksJson: "[]",
+    });
+  });
+
+  it("proposes an emptied Content body over a live body Builder sent no hash for, unless that body was empty", async () => {
+    const bodyChange = (liveBaseline: {
+      blocksHash: string | null;
+      bodyEmpty: boolean;
+    }) =>
+      builderBodyChangeForSourceSnapshotDocument({
+        row: {
+          documentId: "doc-cleared",
+          sourceRowId: "entry-cleared",
+          sourceQualifiedId: "builder-cms://blog-article/entry-cleared",
+          provenance: "Builder CMS read adapter",
+          sourceValuesJson: JSON.stringify({
+            published: "published",
+            [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+          }),
+        },
+        isHydrated: true,
+        allowUnsourcedCreate: false,
+        localContent: "",
+        liveBaseline,
+      });
+
+    expect(
+      await bodyChange({ blocksHash: null, bodyEmpty: false }),
+    ).toMatchObject({
+      currentHash: null,
+      proposedHash: expect.any(String),
+      proposedBlocksJson: "[]",
+    });
+    expect(await bodyChange({ blocksHash: null, bodyEmpty: true })).toBeNull();
   });
 
   it("converts a rich unsourced local body into a create-draft body payload", async () => {

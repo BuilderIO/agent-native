@@ -217,6 +217,7 @@ const messages = {
     spaces: "स्पेस",
     meetings: "मीटिंग्स",
     dictate: "डिक्टेट",
+    fromContent: "Content से",
     archive: "आर्काइव",
     trash: "ट्रैश",
     agent: "एजेंट",
@@ -271,6 +272,10 @@ const messages = {
     archive: {
       title: "कोई आर्काइव की गई रिकॉर्डिंग नहीं",
       body: "आर्काइव किए गए Clips यहाँ तब तक रहते हैं जब तक आप उन्हें वापस लाना न चाहें।",
+    },
+    fromContent: {
+      title: "Content से अभी तक कोई अपलोड नहीं",
+      body: "Content पेज पर अपलोड किए गए वीडियो यहाँ Clips के रूप में सहेजे जाते हैं।",
     },
     trash: {
       title: "ट्रैश खाली है",
@@ -1644,10 +1649,10 @@ const messages = {
     openDesktopApp: "Open desktop app (स्थानीयकृत)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (स्थानीयकृत)",
+    untitled: "शीर्षक रहित क्लिप",
     renameFailed: "Failed to rename clip (स्थानीयकृत)",
     emptyTitle: "Title cannot be empty (स्थानीयकृत)",
-    generatingTitle: "Generating title (स्थानीयकृत)",
+    generatingTitle: "शीर्षक उत्पन्न करना",
     placeholder: "Clip title (स्थानीयकृत)",
     editLabel: "Edit clip title (स्थानीयकृत)",
   },
@@ -2267,6 +2272,8 @@ const messages = {
     goHome: "होम पर जाएं",
     testMic: "माइक टेस्ट करें",
     archivePageTitle: "आर्काइव · Clips",
+    fromContentPageTitle: "Content से · Clips",
+    openContentPage: "पेज खोलें",
     insightsPageTitle: "इनसाइट्स · Clips",
     folderPageTitle: "फ़ोल्डर · Clips",
     spacePageTitle: "स्पेस · Clips",

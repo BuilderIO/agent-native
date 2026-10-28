@@ -50,6 +50,7 @@ import {
   isAgentConnectionRequiredError,
   actionCallIntent,
   ActionInputValidationError,
+  telemetryInvalidPaths,
   type ActionExecutionOutcome,
   invocationEffect,
   runPreparedActionCall,
@@ -1354,6 +1355,7 @@ export interface ActionEntry {
    *  decision, so they never count as the action declaring its hints. */
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  eagerInputStreaming?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
@@ -3018,7 +3020,7 @@ function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
   return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
 }
 
-function describeAttachmentPreUploadWarning(): string {
+export function describeAttachmentPreUploadWarning(): string {
   return '<chat-attachment-preparation-warning code="pre-upload-failed">The attachment pre-upload step failed. This may affect its durable URL, but it does not prove the contents are unreadable in this request. Inspect any inline payload or reference normally, and only report an attachment as unreadable if the actual payload is missing or invalid.</chat-attachment-preparation-warning>';
 }
 
@@ -5827,6 +5829,7 @@ export function actionsToEngineTools(
       name,
       description: entry.tool.description,
       inputSchema,
+      ...(entry.eagerInputStreaming ? { eagerInputStreaming: true } : {}),
     });
   }
   return tools;
@@ -9652,6 +9655,7 @@ export async function runAgentLoop(opts: {
         guidance: string,
         isError = false,
         errorClass?: ToolErrorClass,
+        invalidPaths?: string[],
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -9670,6 +9674,7 @@ export async function runAgentLoop(opts: {
             isError: true,
             completedSideEffect: false,
             ...(errorClass ? { errorClass } : {}),
+            ...(invalidPaths ? { invalidPaths } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9826,6 +9831,9 @@ export async function runAgentLoop(opts: {
           thrownToolResult(intent?.error),
           true,
           "input_invalid",
+          intent?.error instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(intent.error.paths)
+            : undefined,
         );
       }
 
@@ -11119,6 +11127,10 @@ export async function runAgentLoop(opts: {
             : callEffect === "none" && !actionIsReadOnly
               ? "rejected"
               : undefined;
+        const toolInvalidPaths =
+          thrown instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(thrown.paths)
+            : undefined;
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -11249,6 +11261,7 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(toolErrorClass ? { errorClass: toolErrorClass } : {}),
+          ...(toolInvalidPaths ? { invalidPaths: toolInvalidPaths } : {}),
           ...(callEffect === "unknown"
             ? { outcomeUnknown: true as const }
             : isError || receipt || callEffect === "committed"

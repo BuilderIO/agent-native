@@ -9,6 +9,7 @@ import {
   setClientAppState,
   writeClientAppState,
 } from "./application-state.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -352,6 +353,53 @@ describe("client application-state helpers", () => {
         signal: undefined,
       },
     );
+  });
+
+  it("updates a prior mount tab id when writing application state", async () => {
+    const stored = new Map<string, string>();
+    const fakeWindow = {
+      location: { pathname: "/risk/register" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/risk", "/chat"],
+      },
+    };
+    vi.stubGlobal("window", fakeWindow);
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => stored.set(key, value),
+    });
+
+    const priorMountTabId = getBrowserTabId();
+    fakeWindow.location.pathname = "/chat/thread-1";
+    const currentMountTabId = getBrowserTabId();
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(jsonResponse({ value: true })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await writeClientAppState(
+      "selection",
+      { value: true },
+      {
+        requestSource: priorMountTabId,
+      },
+    );
+    await deleteClientAppState("selection", {
+      requestSource: priorMountTabId,
+    });
+
+    expect(currentMountTabId).not.toBe(priorMountTabId);
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({
+      "Content-Type": "application/json",
+      "X-Agent-Native-Browser-Tab": currentMountTabId,
+      "X-Request-Source": currentMountTabId,
+    });
+    expect(fetchMock.mock.calls[1][1]?.headers).toEqual({
+      "X-Agent-Native-CSRF": "1",
+      "X-Agent-Native-Browser-Tab": currentMountTabId,
+      "X-Request-Source": currentMountTabId,
+    });
   });
 
   it("deletes app state directly and via nullish set values", async () => {

@@ -32,6 +32,7 @@ const {
   clipsLinkOrigins,
   mintContentClipToken,
   requestClips,
+  requestClipsUpload,
   resolveClipsAppUrl,
 } = await import("./clips-peer.js");
 
@@ -163,6 +164,39 @@ describe("mintContentClipToken", () => {
     expect(payload.sub).toBe("content-public-doc-reader");
     expect(payload.scope).toBe("content-clip:public-read");
     expect(payload.name).toBeUndefined();
+  });
+
+  it("signs an upload token that names the editor, the page and their address, and no recording", async () => {
+    const token = await mintContentClipToken({
+      reader: signedIn,
+      scope: "content-clip:upload",
+      documentId: "doc_1",
+      clientIp: "203.0.113.7",
+      clipsAppUrl: CLIPS_URL,
+      secret: PEER_SECRET,
+    });
+    const { payload } = await claimsOf(token, `${CLIPS_URL}/content-clips`);
+    expect(payload).toMatchObject({
+      sub: "reader@example.test",
+      iss: CONTENT_URL,
+      scope: "content-clip:upload",
+      document_id: "doc_1",
+      client_ip: "203.0.113.7",
+      name: "Robin Reader",
+    });
+    expect(payload).not.toHaveProperty("recording_id");
+    expect(Number(payload.exp) - Number(payload.iat)).toBe(60);
+
+    const withoutIp = await mintContentClipToken({
+      reader: signedIn,
+      scope: "content-clip:upload",
+      documentId: "doc_1",
+      clipsAppUrl: CLIPS_URL,
+      secret: PEER_SECRET,
+    });
+    expect(
+      (await claimsOf(withoutIp, `${CLIPS_URL}/content-clips`)).payload,
+    ).not.toHaveProperty("client_ip");
   });
 
   it("can't be verified with the deployment A2A secret", async () => {
@@ -383,4 +417,132 @@ describe("a Clips answer's size", () => {
       });
     },
   );
+});
+
+describe("requestClipsUpload", () => {
+  const start = {
+    fileName: "demo.mp4",
+    sizeBytes: 1_000_000,
+    mimeType: "video/mp4",
+    blockId: "block_1",
+    uploadKey: "picked-file-0001",
+  };
+  const ask = (withStart = false) =>
+    requestClipsUpload({
+      uploader: signedIn,
+      documentId: "doc_1",
+      clientIp: "203.0.113.7",
+      ...(withStart ? { start } : {}),
+    });
+
+  async function sentToken(fetchMock: ReturnType<typeof vi.fn>, call = 0) {
+    const init = (
+      fetchMock.mock.calls[call] as unknown as [string, RequestInit]
+    )[1];
+    const bearer = String(
+      (init.headers as Record<string, string>).authorization,
+    ).replace(/^Bearer /, "");
+    return (await claimsOf(bearer, `${CLIPS_URL}/content-clips`)).payload;
+  }
+
+  it("reads the editor's storage with an upload token", async () => {
+    const storage = { state: "free", remaining: 2, limit: 3, maxClipBytes: 9 };
+    const fetchMock = vi.fn(async () => clipsResponse(200, { storage }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(ask()).resolves.toEqual({
+      ok: true,
+      status: 200,
+      body: { storage },
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe(`${CLIPS_URL}/api/content-clips/upload-status`);
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(init.redirect).toBe("manual");
+    expect(await sentToken(fetchMock)).toMatchObject({
+      scope: "content-clip:upload",
+      document_id: "doc_1",
+      client_ip: "203.0.113.7",
+    });
+  });
+
+  it("starts an upload by posting the file's description, never the file", async () => {
+    const fetchMock = vi.fn(async () =>
+      clipsResponse(200, { recordingId: "rec_1" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(ask(true)).resolves.toMatchObject({ ok: true, status: 200 });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe(`${CLIPS_URL}/api/content-clips/uploads`);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual(start);
+    expect(await sentToken(fetchMock)).not.toHaveProperty("recording_id");
+  });
+
+  it.each([
+    [
+      409,
+      { code: "storage_required", storage: { state: "used_up", limit: 3 } },
+    ],
+    [413, { code: "upload_too_large", maxBytes: 9 }],
+  ])("passes a %i refusal on to read", async (status, body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => clipsResponse(status, body)),
+    );
+    await expect(ask(true)).resolves.toEqual({ ok: true, status, body });
+  });
+
+  it.each([
+    [401, { error: "Unauthorized" }, "clip_token_refused"],
+    [429, { code: "too_many_uploads" }, "clip_rate_limited"],
+    [503, { code: "content_clips_not_configured" }, "clips_not_configured"],
+    [503, { error: "down" }, "clip_upload_failed"],
+    [400, { error: "Invalid upload request" }, "clip_upload_failed"],
+    [500, { error: "boom" }, "clip_upload_failed"],
+    [302, {}, "clip_upload_failed"],
+  ])("maps Clips %i %j to %s", async (status, body, code) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => clipsResponse(status, body)),
+    );
+    await expect(ask(true)).resolves.toEqual({ ok: false, code });
+  });
+
+  it("tells a failed request apart from an answer it can't read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError("fetch failed"))
+        .mockResolvedValueOnce(new Response("not json", { status: 200 })),
+    );
+    await expect(ask()).resolves.toEqual({
+      ok: false,
+      code: "clips_unreachable",
+    });
+    await expect(ask()).resolves.toEqual({
+      ok: false,
+      code: "clip_upload_failed",
+    });
+  });
+
+  it("makes no request without a peer secret", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    configure({ CONTENT_CLIPS_PEER_SECRET: "" });
+    await expect(ask(true)).resolves.toEqual({
+      ok: false,
+      code: "clips_not_configured",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

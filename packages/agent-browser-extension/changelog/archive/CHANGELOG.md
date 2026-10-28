@@ -1,3 +1,14 @@
+## 0.1.245
+
+### Patch Changes
+
+- Updated dependencies [c90e034]
+- Updated dependencies [c90e034]
+- Updated dependencies [c90e034]
+- Updated dependencies [c90e034]
+- Updated dependencies [c90e034]
+  - @agent-native/core@0.169.0
+
 ## 0.1.244
 
 ### Patch Changes

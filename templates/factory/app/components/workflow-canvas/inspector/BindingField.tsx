@@ -11,6 +11,8 @@ import {
   type OperationField,
 } from "@/lib/workflow-editor";
 
+import type { PickerKind } from "../../workflow/pickers/picker-kinds";
+import { ProviderOptionCombobox } from "../../workflow/pickers/ProviderOptionCombobox";
 import {
   useWorkflowCanvasStrings,
   type WorkflowCanvasStrings,
@@ -25,6 +27,7 @@ import {
   TemplateInput,
 } from "./fields";
 import { useInvalidMark } from "./issue-marks";
+import { useMapTarget } from "./map-target";
 
 type Mode = FieldBinding["mode"];
 
@@ -99,18 +102,74 @@ function JsonValueInput({
   );
 }
 
+/** A resource the connection can list, still a drop target for a path the way a typed template is. */
+function PickerControl({
+  id,
+  kind,
+  value,
+  onChange,
+}: {
+  id: string;
+  kind: PickerKind;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const mapTarget = useMapTarget("template", value, onChange);
+  return (
+    <ProviderOptionCombobox
+      id={id}
+      kind={kind}
+      value={value}
+      onChange={onChange}
+      mapTarget={mapTarget}
+    />
+  );
+}
+
+/**
+ * A text field that is a dropdown while it holds a plain resource. Once its
+ * value has held `{{ }}` it stays a text box: deleting a brace mid-edit must
+ * not swap the box for a dropdown under the cursor.
+ */
+function ResourceControl({
+  id,
+  picker,
+  text,
+  context,
+  onChange,
+}: {
+  id: string;
+  picker?: PickerKind | undefined;
+  text: string;
+  context: FormContext;
+  onChange: (value: string) => void;
+}) {
+  const [template, setTemplate] = useState(() => text.includes("{{"));
+  if (!template && text.includes("{{")) setTemplate(true);
+  if (picker && !template) {
+    return (
+      <PickerControl id={id} kind={picker} value={text} onChange={onChange} />
+    );
+  }
+  return (
+    <TemplateInput id={id} value={text} context={context} onChange={onChange} />
+  );
+}
+
 function FixedControl({
   id,
   field,
   value,
   onChange,
   context,
+  picker,
 }: {
   id: string;
   field: OperationField;
   value: unknown;
   onChange: (value: unknown) => void;
   context: FormContext;
+  picker?: PickerKind;
 }) {
   switch (field.type) {
     case "boolean":
@@ -155,9 +214,10 @@ function FixedControl({
       );
     default:
       return (
-        <TemplateInput
+        <ResourceControl
           id={id}
-          value={typeof value === "string" ? value : ""}
+          picker={picker}
+          text={typeof value === "string" ? value : ""}
           context={context}
           onChange={onChange}
         />
@@ -171,11 +231,14 @@ export function BindingField({
   binding,
   onChange,
   context,
+  picker,
 }: {
   field: OperationField;
   binding: FieldBinding | undefined;
   onChange: (next: FieldBinding | undefined) => void;
   context: FormContext;
+  /** What a connection can list for this field, when it holds one of its resources. */
+  picker?: PickerKind;
 }) {
   const s = useWorkflowCanvasStrings();
 
@@ -234,6 +297,7 @@ export function BindingField({
           field={field}
           value={binding.value}
           context={context}
+          picker={picker}
           onChange={(value) => onChange({ mode: "fixed", value })}
         />
       )}

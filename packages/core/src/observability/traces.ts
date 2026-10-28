@@ -295,7 +295,37 @@ type GenerationToolCall = {
     | null;
   /** What the call did: nothing, a write, or possibly a write. */
   outcome: "no_side_effect" | "unknown" | "completed";
+  /** Failing argument paths of an `input_invalid` call; absent otherwise. */
+  invalid_paths?: string[];
 };
+
+type ToolCallTracking = Pick<
+  GenerationToolCall,
+  "error_class" | "outcome" | "invalid_paths"
+>;
+
+/** Failure class, effect and failing fields of one tool call, for tools[] and its tool span. */
+function toolCallTracking(
+  event: Extract<AgentChatEvent, { type: "tool_done" }>,
+  isError: boolean,
+): ToolCallTracking {
+  const explicitError = event.isError === true;
+  return {
+    error_class: !isError
+      ? null
+      : explicitError
+        ? (event.errorClass ?? "tool_error")
+        : "legacy_inferred_error",
+    outcome: event.outcomeUnknown
+      ? "unknown"
+      : event.completedSideEffect === true
+        ? "completed"
+        : "no_side_effect",
+    ...(event.invalidPaths?.length
+      ? { invalid_paths: event.invalidPaths }
+      : {}),
+  };
+}
 
 function prepareCapturedModelInput(messages: unknown): unknown {
   return redactSensitiveFields(toPostHogMessages(messages));
@@ -890,6 +920,7 @@ export async function instrumentAgentLoop(opts: {
   const toolSpanRoundTrip = new Map<string, number>();
   const toolCounterRoundTrip = new Map<number, number>();
   const toolSpanErrorClass = new Map<string, string>();
+  const toolSpanTracking = new Map<string, ToolCallTracking>();
   const toolSpanCallId = new Map<string, string>();
 
   const openOtelToolSpans = new Set<AgentSpan>();
@@ -1109,6 +1140,7 @@ export async function instrumentAgentLoop(opts: {
           ? (toolErrorMessage ?? toolErrorSignature(event.result))
           : null;
 
+        const tracking = toolCallTracking(event, isError);
         if (
           counter !== undefined &&
           counter < MAX_TRACKED_GENERATION_TOOL_CALLS &&
@@ -1119,16 +1151,7 @@ export async function instrumentAgentLoop(opts: {
             started_offset_ms: Math.max(0, pending.startMs - runStart),
             duration_ms: Math.max(0, finishedAt - pending.startMs),
             status: isError ? "error" : "success",
-            error_class: !isError
-              ? null
-              : explicitError
-                ? (event.errorClass ?? "tool_error")
-                : "legacy_inferred_error",
-            outcome: event.outcomeUnknown
-              ? "unknown"
-              : event.completedSideEffect === true
-                ? "completed"
-                : "no_side_effect",
+            ...tracking,
           });
         }
 
@@ -1184,6 +1207,7 @@ export async function instrumentAgentLoop(opts: {
             explicitError ? "tool_error" : "legacy_inferred_error",
           );
         }
+        toolSpanTracking.set(toolSpanId, tracking);
         const span: TraceSpan = {
           id: toolSpanId,
           runId,
@@ -1315,6 +1339,11 @@ export async function instrumentAgentLoop(opts: {
             ? interruptedMessage
             : null;
           toolSpanErrorClass.set(pending.spanId, "interrupted");
+          const interruptedTracking: ToolCallTracking = {
+            error_class: "interrupted",
+            outcome: "unknown",
+          };
+          toolSpanTracking.set(pending.spanId, interruptedTracking);
           recordAgentToolCall({
             toolName: pending.toolName,
             errorType: "interrupted",
@@ -1325,8 +1354,7 @@ export async function instrumentAgentLoop(opts: {
               started_offset_ms: Math.max(0, pending.startMs - runStart),
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
-              error_class: "interrupted",
-              outcome: "unknown",
+              ...interruptedTracking,
             });
           }
           if (pending.otelSpan) {
@@ -1804,6 +1832,7 @@ export async function instrumentAgentLoop(opts: {
               ...trackingIdentityProperties(),
               source: "agent_observability",
               span_type: "tool_call",
+              ...toolSpanTracking.get(span.id),
             },
           });
         }

@@ -1,0 +1,101 @@
+slug: ai-sales-analytics
+app: analytics
+roles:
+  - revops
+  - sales
+title: "راجع مسار مبيعاتك ببيانات HubSpot وGong"
+seo_title: "تحليل المبيعات بالذكاء الاصطناعي لـ HubSpot وGong"
+meta_description: "اعرف الصفقات المتعثرة وسبب تعثرها قبل مراجعة المسار. اسأل Agent-Native Analytics عن HubSpot وGong بلغة عادية، واحفظ الإجابات كلوحة تحكم."
+updated: 2026-10-27
+hero:
+  body: "يحوّل Agent-Native Analytics صفقاتك في HubSpot ومكالماتك في Gong إلى لوحة تحكم لكل مراجعة للمسار. تسأل بلغة عادية عن الصفقات المتعثرة وسببها، فيجيب الوكيل من الأداتين معًا."
+  button:
+    label: "اسأل عن مسارك"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe534007e491840cc86570110b7d00de4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4780c6d1885541bcaf3d949dbdbc1eb7
+    alt: "لوحة Weekly pipeline review في Analytics، فيها لوحات للمسار المفتوح حسب المرحلة، والصفقات حسب المسؤول، والصفقات المتوقفة منذ 30 يومًا. وتجيب محادثة الوكيل على اليمين عن سبب تعثر إحدى الصفقات، من سجل مراحلها في HubSpot وآخر مكالمة لها في Gong."
+how_to:
+  heading: "كيف تحلّل مسار مبيعاتك بالذكاء الاصطناعي"
+  steps:
+    - title: "اربط بيانات CRM والمكالمات"
+      body: "افتح **مصادر البيانات** وانقر على **ربط** بجانب HubSpot، ضمن **CRM & Sales**. الصق الرمز من تطبيق خاص تنشئه في إعدادات HubSpot، وانقر على **حفظ بيانات الاعتماد**. ويعمل Gong بالطريقة نفسها، بمفتاح وصول وسرّ."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
+        alt: "صفحة Data Sources وفيها HubSpot ضمن Connected وGong ضمن CRM & Sales. ولوحة إعداد Gong مفتوحة على خطوة Access Key Secret بعد لصقه، فوق زر Save Credentials."
+    - title: "اسأل عن مسارك"
+      body: "في **اسأل**، اسأل بلغة عادية: «ما الصفقات المفتوحة التي بقيت في المرحلة نفسها 30 يومًا أو أكثر؟». يبحث الوكيل في صفقاتك على HubSpot ويجيب بجدول يمكنك ترتيبه ومتابعة السؤال عنه."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a
+        alt: "محادثة Ask مع السؤال عن الصفقات المتوقفة منذ 30 يومًا. يجيب الوكيل بجدول لست صفقات مفتوحة: المرحلة والمسؤول والمبلغ والأيام في المرحلة."
+    - title: "احفظ الإجابات كلوحة تحكم"
+      body: "اطلب من الوكيل: «احفظ هذا كلوحة تحكم لمراجعة المسار». فيبني لوحة لكل إجابة، وتتحدّث اللوحات ببيانات جديدة من HubSpot. وشارك لوحة التحكم مع فريقك قبل مراجعة المسار."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F69b61731b5b74d61ad0e510f57522796
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2720d0e5fd8f40bfa3b72c056270f174
+        alt: "محادثة الوكيل تؤكد حفظ لوحة Weekly pipeline review، بجانب اللوحة الجديدة بجدول الصفقات المتوقفة ومخطط المسار حسب المرحلة."
+features:
+  heading: "كل ما تحتاجه لمراجعة المسار"
+  items:
+    - title: "صفقاتك ومكالماتك معًا"
+      body: "سؤال واحد يمكنه جلب مرحلة الصفقة ومسؤولها من HubSpot، وما قاله المشتري في مكالماتها من Gong."
+    - title: "لوحات تحكم يعدّلها الوكيل"
+      body: "اطلب لوحة جديدة أو فلترًا حسب المسؤول أو مخططًا مختلفًا، فيحدّث الوكيل لوحة التحكم التي يتشاركها فريقك."
+    - title: "إجابات يمكنك التحقق منها"
+      body: "يضع الوكيل علامة «Unverified» على أي رقم لم يأتِ من استعلام مباشر على HubSpot أو Gong، فتعرف ما الذي تتحقق منه."
+    - title: "مسارك بجانب الإيرادات"
+      body: "اربط Stripe وBigQuery أيضًا، فتجيب المحادثة نفسها عن أسئلة الإيرادات واستخدام المنتج بجانب صفقاتك."
+    - title: "تعريفاتك للمسار"
+      body: "يكتب المسؤول معنى الصفقة المتعثرة أو المسار المؤهل في صفحة **الطبقة الدلالية**، ويقرؤها الوكيل قبل أن يجيب."
+    - title: "تقرير يومي عن المسار"
+      body: "استلم لوحة التحكم يوميًا بالبريد لما يصل إلى خمسة أشخاص أو في قناة Slack، دون أن تفتح التطبيق."
+integrations:
+  heading: "اربط Analytics بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "نظام CRM ومكالماتك"
+      logos:
+        - name: HubSpot
+        - name: Gong
+      body: "يقرأ Analytics الصفقات والمسارات والمراحل والمسؤولين من HubSpot، وتسجيلات المكالمات ونصوصها من Gong."
+    - title: "شاركها حيث يقرأ فريقك"
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: "انشر لوحة تحكم في قناة Slack، أو صدّر جدول صفقات إلى ملف Google Sheets جديد في حساب Google المرتبط."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Exa
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Analytics"
+  cards:
+    - title: "أنشئ لوحة مؤشرات أداء لشركتك الناشئة"
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "اطلب المخططات التي تتابعها شركتك الناشئة واجمعها في لوحة تحكم واحدة."
+    - title: "أعدّ تقرير التسويق الأسبوعي دون جداول بيانات"
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "اسأل كيف كان الأسبوع في Google Analytics وHubSpot، واحتفظ بالتقرير."
+    - title: "اعرف أين يتوقف المستخدمون الجدد"
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "اعرف أين يتوقف المستخدمون الجدد، ثم شاهد الجلسات لتفهم السبب."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Analytics مجاني؟"
+      a: "نعم، Agent-Native Analytics مجاني ومفتوح المصدر. يعمل الوكيل على أرصدة Builder.io للذكاء الاصطناعي أو مفتاح الذكاء الاصطناعي الخاص بك، فاستخدام الذكاء الاصطناعي ليس بلا حدود. وقد تستهلك الأسئلة عن المكالمات أيضًا أرصدة Gong API، ويمكن للمسؤول إيقاف ذلك. لا يزال Analytics في مرحلة ألفا."
+    - q: "بأي أدوات CRM ومكالمات يتصل Agent-Native Analytics؟"
+      a: "يتصل Analytics بـ HubSpot لنظام CRM وبـ Gong لمكالمات المبيعات. ويتصل أيضًا بـ Apollo وClay لبيانات جهات الاتصال والشركات. يُربط كل منها [في صفحة مصادر البيانات](https://www.agent-native.com/docs/template-analytics-connectors/) بمفتاحه الخاص، ويمكن لسؤال واحد أن يستند إلى HubSpot وGong معًا."
+    - q: "هل أحتاج إلى كتابة SQL؟"
+      a: "لا. تسأل بلغة عادية، فيجد الوكيل البيانات في HubSpot أو Gong، ويشغّل الاستعلام، ويجيب برقم أو جدول أو مخطط. وعندما تحفظ إجابة في لوحة تحكم، يضبط الوكيل طريقة جلب كل لوحة للبيانات الجديدة."
+    - q: "هل يمكنني الوثوق بالأرقام؟"
+      a: "نعم، مع التحقق: يجيب الوكيل من بيانات HubSpot وGong المباشرة، ويضع علامة «Unverified» على أي رقم لم يأتِ من استعلام مباشر. ويتبع [تعريفات فريقك في صفحة الطبقة الدلالية](https://www.agent-native.com/docs/template-analytics-dashboards/). قارن الإجابات الأولى بـ HubSpot قبل أن تعتمد عليها."
+    - q: "كيف يختلف Agent-Native Analytics عن الذكاء الاصطناعي المدمج في HubSpot أو Gong؟"
+      a: "الذكاء الاصطناعي في HubSpot أو Gong مدمج في تلك الأداة وحدها. أما Analytics فيجيب عن سؤال واحد من HubSpot وGong معًا، ويقرأ أيضًا Stripe وBigQuery، ويحفظ الإجابة كلوحة تحكم يعود إليها فريقك كل أسبوع. وتواصل استخدام HubSpot وGong كما هما، ويقرأ Analytics منهما."
+    - q: "من يمكنه رؤية لوحات التحكم الخاصة بي؟"
+      a: "أنت وحدك، حتى تشارك إحداها. شارك لوحة التحكم مع زميل أو مع مؤسستك كلها كمشاهد أو محرر أو مسؤول. ويرى الزملاء بيانات HubSpot وGong عبر اتصالهم الخاص، أو عبر اتصال أعدّه مسؤول للمؤسسة؛ ومن دون أيٍّ منهما تعرض تلك اللوحات خطأ."

@@ -1,6 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
 import {
   useCreateReviewComment,
@@ -21,10 +20,15 @@ import type {
 } from "@agent-native/core/review";
 import {
   buildReviewThreads,
-  isTrustedReviewAttachmentUrl,
+  resolveReviewAgent,
+  ReviewAuthorAvatar,
+  ReviewCommentComposer,
+  ReviewCommentItem,
+  ReviewThreadCardFrame,
+  ReviewThreadMenu,
+  type ReviewMentionOption,
   type ReviewThread,
 } from "@agent-native/toolkit/app/review";
-import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
@@ -35,28 +39,18 @@ import {
   resolveSourceEquivalentSelectorResult,
   type SourceEquivalentSelectorStatus,
 } from "@shared/source-equivalent-selector";
-import {
-  IconChevronDown,
-  IconCircleCheck,
-  IconDots,
-  IconLink,
-  IconMail,
-  IconMessageCircle,
-  IconMoodSmile,
-  IconPaperclip,
-  IconSend,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react";
+import { IconMessageCircle, IconPhoto, IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -71,28 +65,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
-  formatNodeSelectionQuestion,
   formatNodeRepromptSubmission,
   NODE_REPROMPT_PREVIEW_FAILED_EVENT,
-  inferNodeRepromptSendMode,
   NODE_REPROMPT_PRESENTED_EVENT,
   NODE_REPROMPT_RESOLVED_EVENT,
-  type NodeRepromptSendMode,
 } from "@/lib/node-reprompt";
+import {
+  useReviewAgent,
+  useReviewAgentSurface,
+} from "@/lib/review-agent/review-agent-context";
+import { firstAgentMention } from "@/lib/review-agent/review-agent-models";
+import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
+import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import { cn } from "@/lib/utils";
 
 import { resolveLayerNameAttribute } from "../../../shared/layer-name";
@@ -108,7 +96,9 @@ import {
   type ReviewAnchorSelectorResolution,
   type ReviewCanvasPoint,
 } from "../../../shared/review-anchor";
+import { forwardReviewOverlayWheel } from "../design/canvas-interactions/review-overlay-interaction";
 import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
+import type { ReviewActiveThreadReporter } from "./review-active-thread-reporter";
 import {
   getReviewPinPosition,
   getReviewPopoverBox,
@@ -121,6 +111,16 @@ import {
   type ReviewPopoverPlacement,
   type ReviewVisibleRegion,
 } from "./review-canvas-state";
+import {
+  registerReviewOverlayTarget,
+  useReviewOverlayTargets,
+} from "./review-overlay-targets";
+import { ReviewAgentRequestStatus } from "./ReviewAgentRequestStatus";
+import {
+  type ReviewPinAuthor,
+  ReviewPinBadge,
+  uniqueReviewPinAuthors,
+} from "./ReviewPinBadge";
 
 export interface RepromptDraftRequest {
   nonce: number;
@@ -137,6 +137,8 @@ export interface ReviewFocusRequest {
   anchor: unknown;
   targetId?: string | null;
   threadId?: string;
+  /** Called once an overlay has acted on the request, so its owner can retire it. */
+  onConsumed?: () => void;
 }
 
 export interface ReviewCanvasPinRequest {
@@ -162,8 +164,15 @@ interface ReviewCanvasPinsProps {
   canResolve: boolean;
   focusRequest?: ReviewFocusRequest | null;
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
-  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  /** Backs the card menu's agent items; only editors get them. */
+  onSendThreadToAgent?: (
+    thread: ReviewThread,
+    action: ReviewThreadAgentAction,
+  ) => void;
+  /** The thread whose hand-off to the agent is still in flight. */
   sendingThreadId?: string | null;
+  /** The open thread's id, or null when no thread card is open. */
+  onActiveThreadChange?: ReviewActiveThreadReporter;
   sourceType?: "inline" | "localhost" | "fusion";
   sourceVersionHash?: string;
   repromptDraftRequest?: RepromptDraftRequest | null;
@@ -195,7 +204,6 @@ interface PendingReviewReaction {
 }
 
 const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
-const QUICK_REACTIONS = ["👍", "❤️", "🎉", "👀"];
 const REVIEW_IDENTITY_SELECTOR =
   "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]";
 
@@ -909,94 +917,67 @@ function reviewAgentAttachments(attachments: readonly ReviewImageAttachment[]) {
   }));
 }
 
-function reviewCommentAttachments(
-  comment: ReviewComment,
-): ReviewCommentAttachment[] {
-  const raw = comment.metadata?.attachments;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .flatMap((value) => {
-      if (!value || typeof value !== "object") return [];
-      const attachment = value as Record<string, unknown>;
-      const url = typeof attachment.url === "string" ? attachment.url : "";
-      const contentType =
-        typeof attachment.contentType === "string"
-          ? attachment.contentType
-          : undefined;
-      if (
-        !url ||
-        (contentType && !contentType.startsWith("image/")) ||
-        !isTrustedReviewAttachmentUrl(url)
-      ) {
-        return [];
-      }
-      return [
-        {
-          url,
-          name:
-            typeof attachment.name === "string" && attachment.name.trim()
-              ? attachment.name
-              : "image",
-        },
-      ];
-    })
-    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
-}
-
-interface ReviewCommentAttachment {
-  url: string;
-  name: string;
-}
-
-function ReviewCommentAttachmentStrip({
-  comment,
-  compact = false,
-}: {
-  comment: ReviewComment;
-  compact?: boolean;
-}) {
-  const attachments = reviewCommentAttachments(comment);
-  if (!attachments.length) return null;
-  return (
-    <div
-      className={cn(
-        "mt-2 flex flex-wrap gap-1.5",
-        compact ? "max-w-56" : "max-w-64",
-      )}
-      data-review-comment-attachments
-    >
-      {attachments.map((attachment) => (
-        <a
-          key={attachment.url}
-          href={attachment.url}
-          target="_blank"
-          rel="noreferrer"
-          className="block size-16 overflow-hidden rounded-md border border-border bg-muted"
-        >
-          <img
-            src={attachment.url}
-            alt={attachment.name}
-            loading="lazy"
-            className="size-full object-cover"
-          />
-        </a>
-      ))}
-    </div>
-  );
-}
-
-function displayReviewCommentBody(body: string): string {
-  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
-}
-
 // Everything here is portaled to <body> above the editor's stacking context,
 // so sidebars, the top bar and the bottom toolbar that overlap the canvas
 // would otherwise be painted over.
 const WORKING_AREA_CHROME_SELECTOR =
   '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
 const BOTTOM_TOOLBAR_SELECTOR = "[data-design-bottom-toolbar]";
+// The Pin comment tool, which the label cannot find: it is translated.
+const COMMENT_TOOL_SELECTOR = `${BOTTOM_TOOLBAR_SELECTOR} [data-design-toolbar-group="comment"] button`;
 const MAIN_SURFACE_SELECTOR =
   ".agent-sidebar-main-surface, .agent-layout-main-surface";
+const OPEN_REVIEW_OVERLAY_SELECTOR =
+  '[data-review-popover][role="menu"][data-state="open"], [role="alertdialog"][data-state="open"]';
+// Shared by every mounted surface, which all hear the same keydown.
+const overlayEscapes = new WeakSet<Event>();
+const ownedEscapes = new WeakSet<Event>();
+
+// Where focus goes once the card or draft that held it is gone.
+interface ReviewFocusReturn {
+  // The pin the card belongs to; null for a draft, which has no pin yet.
+  threadId: string | null;
+  // The overlay's pins in DOM order when the card closed. A deleted thread's
+  // pin is already unmounted by the time focus moves, so its neighbors are
+  // read from here.
+  pinOrder: readonly string[];
+}
+
+function pinThreadIdsInDomOrder(
+  pins: ReadonlyMap<string, HTMLElement>,
+): string[] {
+  return [...pins]
+    .sort(([, a], [, b]) =>
+      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+    )
+    .map(([threadId]) => threadId);
+}
+
+// The next pin after the dismissed one, else the previous. A draft sits after
+// every pin, so it lands on the last.
+function nearestPin(
+  { threadId, pinOrder }: ReviewFocusReturn,
+  pins: ReadonlyMap<string, HTMLElement>,
+): HTMLElement | null {
+  const at = threadId === null ? -1 : pinOrder.indexOf(threadId);
+  const after = at === -1 ? [] : pinOrder.slice(at + 1);
+  const before = (at === -1 ? [...pinOrder] : pinOrder.slice(0, at)).reverse();
+  for (const id of [...after, ...before]) {
+    const pin = pins.get(id);
+    if (pin) return pin;
+  }
+  return null;
+}
+
+// Focus that the dismissed card or its confirmation dialog left on a control
+// about to unmount is lost; focus anywhere else is the user's own.
+function focusIsLost(active: Element | null): boolean {
+  return (
+    active === null ||
+    active === document.body ||
+    active.closest('[role="alertdialog"]') !== null
+  );
+}
 
 function workingAreaRect(
   bounds: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
@@ -1069,6 +1050,7 @@ export function ReviewCanvasPins({
   onDispatchCommentToAgent,
   onSendThreadToAgent,
   sendingThreadId,
+  onActiveThreadChange,
   sourceType = "inline",
   sourceVersionHash,
   repromptDraftRequest,
@@ -1091,7 +1073,11 @@ export function ReviewCanvasPins({
     },
   );
   const { data: organizationMembers } = useOrgMembers();
-  const mentionOptions = useMemo<ReviewMention[]>(
+  const reviewAgentController = useReviewAgent();
+  // Only editors get agent features; the server refuses everyone else too.
+  const reviewAgent =
+    canResolve && reviewAgentController?.enabled ? reviewAgentController : null;
+  const peopleMentionOptions = useMemo<ReviewMention[]>(
     () =>
       (organizationMembers?.members ?? []).map((member) => ({
         label:
@@ -1099,6 +1085,10 @@ export function ReviewCanvasPins({
         email: member.email,
       })),
     [organizationMembers?.members],
+  );
+  const mentionOptions = useMemo<readonly ReviewMentionOption[]>(
+    () => [...peopleMentionOptions, ...(reviewAgent?.mentionOptions ?? [])],
+    [peopleMentionOptions, reviewAgent?.mentionOptions],
   );
   const createComment = useCreateReviewComment();
   const deleteComment = useDeleteReviewComment();
@@ -1117,6 +1107,20 @@ export function ReviewCanvasPins({
   >([]);
   const [draftComposerOpen, setDraftComposerOpen] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const onActiveThreadChangeRef = useRef(onActiveThreadChange);
+  onActiveThreadChangeRef.current = onActiveThreadChange;
+  const emittedThreadIdRef = useRef<string | null>(null);
+  useReviewAgentSurface(
+    Boolean(reviewAgent) &&
+      !hidden &&
+      (active || draftComposerOpen || activeThreadId !== null),
+  );
+  const reporterId = useId();
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
+  const pinElementsRef = useRef(new Map<string, HTMLButtonElement>());
+  const focusFallbackRef = useRef<HTMLSpanElement | null>(null);
+  const focusReturnRef = useRef<ReviewFocusReturn | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<ReviewMention[]>([]);
   const [replyAttachments, setReplyAttachments] = useState<
@@ -1239,9 +1243,24 @@ export function ReviewCanvasPins({
     };
   }, [cancelDraft, onClose, pendingRepromptId, t, targetId]);
 
+  const coveredTargets = useReviewOverlayTargets();
+  useEffect(() => {
+    if (targetId === null || hidden || !canvas) return;
+    return registerReviewOverlayTarget(targetId);
+  }, [canvas, hidden, targetId]);
+  // A null `targetId` is dropped from the GET query, so the board's list arrives
+  // with every screen's threads. A screen with its own overlay draws its own
+  // threads; the board draws only the rest, or each pin would show twice.
   const threads = useMemo(
-    () => buildReviewThreads(comments.data?.comments ?? []),
-    [comments.data?.comments],
+    () =>
+      buildReviewThreads(
+        (comments.data?.comments ?? []).filter((comment) =>
+          targetId === null
+            ? comment.targetId === null || !coveredTargets.has(comment.targetId)
+            : comment.targetId === targetId,
+        ),
+      ),
+    [comments.data?.comments, coveredTargets, targetId],
   );
   const discussion = comments.data?.discussion;
   const normalizedCurrentUserEmail =
@@ -1315,6 +1334,22 @@ export function ReviewCanvasPins({
     },
     [discussion?.canReact, reactToComment, resourceId, resourceType, t],
   );
+  // Several overlays can be mounted at once and share one callback, so every
+  // report carries this overlay's id: closing or unmounting here withdraws only
+  // this overlay's thread, never one another overlay has open.
+  useEffect(() => {
+    if (emittedThreadIdRef.current === activeThreadId) return;
+    emittedThreadIdRef.current = activeThreadId;
+    onActiveThreadChangeRef.current?.(activeThreadId, reporterId);
+  }, [activeThreadId, reporterId]);
+  useEffect(
+    () => () => {
+      if (emittedThreadIdRef.current === null) return;
+      emittedThreadIdRef.current = null;
+      onActiveThreadChangeRef.current?.(null, reporterId);
+    },
+    [reporterId],
+  );
   const closeActiveThread = useCallback(() => {
     setActiveThreadId(null);
     setReplyDraft("");
@@ -1324,10 +1359,53 @@ export function ReviewCanvasPins({
     setEditDraft("");
     setEditMentions([]);
   }, []);
+  const focusReturnTo = useCallback(
+    (threadId: string | null): ReviewFocusReturn => ({
+      threadId,
+      pinOrder: pinThreadIdsInDomOrder(pinElementsRef.current),
+    }),
+    [],
+  );
+  // Closing from the card itself (close button, Escape, delete, resolve) hands
+  // focus back to the pin it belongs to; clicking elsewhere leaves focus there.
+  const dismissActiveThread = useCallback(() => {
+    if (activeThreadIdRef.current !== null) {
+      focusReturnRef.current = focusReturnTo(activeThreadIdRef.current);
+    }
+    closeActiveThread();
+  }, [closeActiveThread, focusReturnTo]);
+  const dismissDraft = useCallback(() => {
+    focusReturnRef.current = focusReturnTo(null);
+    cancelDraft();
+  }, [cancelDraft, focusReturnTo]);
+  // The card or draft is unmounted by the time this runs, so focus is not
+  // dropped to <body>. A deleted thread has no pin left and a draft never had
+  // one: focus moves to the nearest pin, else the overlay's fallback target,
+  // else the Pin comment tool once the overlay has unmounted with its last pin,
+  // unless the user already put focus somewhere else.
+  useEffect(() => {
+    if (activeThreadId !== null || draftComposerOpen) return;
+    const target = focusReturnRef.current;
+    focusReturnRef.current = null;
+    if (!target) return;
+    const pins = pinElementsRef.current;
+    const pin =
+      target.threadId === null ? undefined : pins.get(target.threadId);
+    if (pin) {
+      pin.focus({ preventScroll: true });
+      return;
+    }
+    if (!focusIsLost(document.activeElement)) return;
+    (
+      nearestPin(target, pins) ??
+      focusFallbackRef.current ??
+      document.querySelector<HTMLElement>(COMMENT_TOOL_SELECTOR)
+    )?.focus({ preventScroll: true });
+  }, [activeThreadId, draftComposerOpen]);
   const copyThreadLink = useCallback(
     async (thread: ReviewThread) => {
       if (!navigator.clipboard) {
-        toast.error(t("review.postFailed"));
+        toast.error(t("review.copyLinkFailed"));
         return;
       }
       const link = new URL(window.location.href);
@@ -1336,7 +1414,7 @@ export function ReviewCanvasPins({
         await navigator.clipboard.writeText(link.toString());
         toast.success(t("review.linkCopied"));
       } catch {
-        toast.error(t("review.postFailed"));
+        toast.error(t("review.copyLinkFailed"));
       }
     },
     [t],
@@ -1766,7 +1844,11 @@ export function ReviewCanvasPins({
   ]);
 
   const focusAnchor = useCallback(
-    (anchor: unknown, nonce: number): boolean => {
+    (
+      anchor: unknown,
+      nonce: number,
+      onConsumed: (() => void) | undefined,
+    ): boolean => {
       if (!canvas) return false;
       const resolved = resolveReviewAnchor(
         anchor,
@@ -1814,6 +1896,7 @@ export function ReviewCanvasPins({
           pendingFocusNonceRef.current = null;
           if (payload.focused === true) {
             lastFocusNonceRef.current = nonce;
+            onConsumed?.();
             setLayoutTick((current) => current + 1);
           }
         });
@@ -1847,11 +1930,20 @@ export function ReviewCanvasPins({
         focusRequest.targetId !== targetId)
     )
       return;
-    if (focusAnchor(focusRequest.anchor, focusRequest.nonce)) {
+    if (
+      focusAnchor(
+        focusRequest.anchor,
+        focusRequest.nonce,
+        focusRequest.onConsumed,
+      )
+    ) {
       lastFocusNonceRef.current = focusRequest.nonce;
-      if (focusRequest.threadId) {
+      // A thread without an anchor has no pin to hold its card, and opening it
+      // would report a thread nobody can see.
+      if (focusRequest.threadId && parseReviewAnchor(focusRequest.anchor)) {
         setActiveThreadId(focusRequest.threadId);
       }
+      focusRequest.onConsumed?.();
     }
   }, [focusAnchor, focusRequest, layoutTick, targetId]);
 
@@ -1915,15 +2007,20 @@ export function ReviewCanvasPins({
     targetId,
   ]);
 
-  useEffect(() => {
-    if (!active && !activeThreadId && !draftComposerOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+  // The listeners below subscribe once and read the latest state through this
+  // ref. Other Escape handlers (Design's hotkeys, a Radix menu closing)
+  // re-render this component between the two phases of one keydown, and a
+  // listener re-subscribed in that gap is skipped or loses what capture saw.
+  const escapeRef = useRef({ owns: false, close: () => {} });
+  escapeRef.current = {
+    owns: Boolean(draftComposerOpen && draftPin) || Boolean(activeThreadId),
+    close: () => {
       if (draftComposerOpen && draftPin) {
-        cancelDraft();
+        dismissDraft();
         return;
       }
       if (activeThreadId) {
+        focusReturnRef.current = focusReturnTo(activeThreadId);
         setActiveThreadId(null);
         setReplyDraft("");
         setReplyAttachments([]);
@@ -1931,17 +2028,38 @@ export function ReviewCanvasPins({
         return;
       }
       if (active) onClose();
+    },
+  };
+  useEffect(() => {
+    // Capture runs before Radix closes an open menu or dialog, and before any
+    // review surface acts, so it records whose Escape this is: an overlay's, or
+    // the draft or thread of whichever surface owns one. Design's hotkeys call
+    // preventDefault() on every Escape, so defaultPrevented cannot tell.
+    const onKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector(OPEN_REVIEW_OVERLAY_SELECTOR)) {
+        overlayEscapes.add(event);
+      } else if (escapeRef.current.owns) {
+        ownedEscapes.add(event);
+      }
     };
+    // Bubble, so the composer's own Escape (which stops propagation) is
+    // handled by the composer alone. The board and overview surfaces are both
+    // mounted in comment mode: one that owns nothing leaves comment mode only
+    // when no other surface used this Escape to close its draft or thread.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || overlayEscapes.has(event)) return;
+      const { owns, close } = escapeRef.current;
+      if (!owns && ownedEscapes.has(event)) return;
+      close();
+    };
+    window.addEventListener("keydown", onKeyDownCapture, true);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    active,
-    activeThreadId,
-    cancelDraft,
-    draftComposerOpen,
-    draftPin,
-    onClose,
-  ]);
+    return () => {
+      window.removeEventListener("keydown", onKeyDownCapture, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     cancelDraft();
@@ -2368,6 +2486,26 @@ export function ReviewCanvasPins({
     dropCanvasPin(pinRequest.canvasPoint);
   }, [active, canPost, canvas, dropCanvasPin, hidden, pinRequest]);
 
+  // Runs after the comment is saved, so a failed start never loses it.
+  const startAgentFromComment = useCallback(
+    (comment: ReviewComment, mentions: readonly ReviewMention[]) => {
+      const chip = firstAgentMention(mentions);
+      if (!chip || !reviewAgent) return;
+      const selection = reviewAgent.resolveMention(chip);
+      if (!selection) {
+        toast.error(t("review.agent.startFailed"));
+        return;
+      }
+      void reviewAgent.start({
+        threadId: comment.threadId,
+        mode: "auto",
+        triggerCommentId: comment.id,
+        selection,
+      });
+    },
+    [reviewAgent, t],
+  );
+
   const postDraft = useCallback(
     (
       pin: ReviewDraftPin,
@@ -2399,6 +2537,7 @@ export function ReviewCanvasPins({
             if (pin.resolutionTarget === "agent") {
               onDispatchCommentToAgent?.(comment);
             }
+            startAgentFromComment(comment, mentions);
           },
           onError: () => toast.error(t("review.postFailed")),
         },
@@ -2410,6 +2549,7 @@ export function ReviewCanvasPins({
       onDispatchCommentToAgent,
       resourceId,
       resourceType,
+      startAgentFromComment,
       t,
       targetId,
     ],
@@ -2519,74 +2659,6 @@ export function ReviewCanvasPins({
     void submitReprompt(draftPin, []);
   }, [draftPin, submitReprompt]);
 
-  const submitSelectionQuestion = useCallback(
-    async (
-      pin: ReviewDraftPin,
-      attachments: readonly ReviewImageAttachment[],
-    ) => {
-      const instruction = pin.draft;
-      const resolved = resolveReviewAnchor(pin.anchor, () => null);
-      const nodeId = resolved?.anchor.nodeId;
-      const targetSelector =
-        typeof pin.metadata.targetSelector === "string"
-          ? pin.metadata.targetSelector
-          : resolved?.anchor.selector;
-      if (
-        !instruction.trim() ||
-        (!nodeId && !targetSelector) ||
-        !targetId ||
-        sourceType !== "inline" ||
-        agentSubmitting
-      ) {
-        return;
-      }
-      const target: NodeRewriteTarget = {
-        ...(nodeId ? { nodeId } : {}),
-        ...(targetSelector ? { selector: targetSelector } : {}),
-      };
-      let element = nodeId ? findNodeElement(canvas!, nodeId) : null;
-      if (!element && targetSelector && canvas) {
-        element = selectorElement(canvas, targetSelector);
-      }
-      setAgentSubmitting(true);
-      try {
-        const submission = formatNodeSelectionQuestion({
-          designId: resourceId,
-          fileId: targetId,
-          target,
-          instruction,
-          subtreeHtml: isRenderedElement(element)
-            ? element.outerHTML
-            : undefined,
-        });
-        const delivery = await sendToDesignAgentChatAndConfirm(
-          {
-            ...submission,
-            submit: true,
-            openSidebar: true,
-            ...(attachments.length
-              ? { attachments: reviewAgentAttachments(attachments) }
-              : {}),
-          },
-          { timeoutMs: 10_000 },
-        );
-        if (!delivery.delivered) {
-          throw new Error(delivery.reason ?? "Question was not delivered.");
-        }
-        cancelDraft();
-      } catch (error) {
-        toast.error(
-          error instanceof Error && error.message
-            ? error.message
-            : t("designEditor.nodeRewrite.sendFailed"),
-        );
-      } finally {
-        setAgentSubmitting(false);
-      }
-    },
-    [agentSubmitting, cancelDraft, canvas, resourceId, sourceType, t, targetId],
-  );
-
   const moveThread = useCallback(
     (thread: ReviewThread, point: ReviewAnchorPoint) => {
       if (
@@ -2683,6 +2755,18 @@ export function ReviewCanvasPins({
     ],
   );
 
+  // Native, not onWheel: React attaches wheel passively, which cannot cancel a pinch.
+  const overlayRootRef = useCallback(
+    (root: HTMLDivElement | null) => {
+      if (!root) return;
+      const handleWheel = (event: WheelEvent) =>
+        forwardReviewOverlayWheel(event, canvas);
+      root.addEventListener("wheel", handleWheel, { passive: false });
+      return () => root.removeEventListener("wheel", handleWheel);
+    },
+    [canvas],
+  );
+
   // Unmounting the plane fires no pointerleave, so a hover from before would survive toggling pin mode back on.
   const planeMounted =
     Boolean(canvas) &&
@@ -2731,16 +2815,13 @@ export function ReviewCanvasPins({
   });
 
   const visibleThreads = threads.filter((thread) => thread.root.anchor);
-  // Pin numbers stay stable while panning: index before dropping pins whose
-  // anchor is off the canvas or under editor chrome.
   const positionedThreads = visibleThreads
     .flatMap((thread) => {
       const position = pinPositionFor(thread.root.threadId, thread.root.anchor);
       return position ? [{ thread, position }] : [];
     })
-    .map((entry, index) => ({
+    .map((entry) => ({
       ...entry,
-      index,
       clientPoint: positionClientPoint(entry.position),
     }))
     .filter((entry) => isReviewPointVisible(region, entry.clientPoint));
@@ -2799,11 +2880,21 @@ export function ReviewCanvasPins({
 
   return createPortal(
     <div
+      ref={overlayRootRef}
       data-review-overlay-root
       className="contents"
       onMouseDown={stopReviewOverlayEvent}
       onClick={stopReviewOverlayEvent}
     >
+      {/* Focus lands here when the pin it was on is gone. The root is
+          `display: contents`, which cannot take focus, and this empty span
+          needs the real box `sr-only` gives it. */}
+      <span
+        ref={focusFallbackRef}
+        tabIndex={-1}
+        data-review-focus-fallback
+        className="sr-only"
+      />
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
@@ -2882,7 +2973,7 @@ export function ReviewCanvasPins({
             return (
               <ReviewPinCluster
                 key={group.key}
-                count={group.entries.length}
+                threads={group.entries.map(({ thread }) => thread)}
                 canvasRect={rect}
                 point={group.point}
                 onClick={() => {
@@ -2896,178 +2987,208 @@ export function ReviewCanvasPins({
               />
             );
           }
-          return group.entries.map(
-            ({ thread, index, position, clientPoint }) => (
-              <ReviewPin
-                key={thread.root.threadId}
-                index={index}
-                canvasRect={rect}
-                point={position.point}
-                clientPoint={clientPoint}
-                onClick={() => {
-                  if (!draftPin?.draft.trim()) setDraftPin(null);
-                  setDraftComposerOpen(false);
-                  setReplyDraft("");
-                  setReplyAttachments([]);
-                  setReplyMentions([]);
-                  setEditCandidate(null);
-                  setEditDraft("");
-                  setEditMentions([]);
-                  if (threadIsUnread(thread.root.threadId)) {
-                    setThreadUnread(thread, false);
-                  }
-                  setActiveThreadId(thread.root.threadId);
-                }}
-                active={activeThreadId === thread.root.threadId}
-                resolved={thread.root.status === "resolved"}
-                unread={threadIsUnread(thread.root.threadId)}
-                region={(() => {
-                  const parsed = parseReviewAnchor(
-                    optimisticAnchors[thread.root.threadId] ??
-                      thread.root.anchor,
-                  );
-                  return parsed?.worldRegion && boardGeometry
-                    ? (canvasRegionFromBoardWorldRegion(
-                        parsed.worldRegion,
-                        boardGeometry,
-                      ) ?? parsed.region)
-                    : parsed?.region;
-                })()}
-                canMove={
-                  canPost &&
-                  thread.root.canDelete === true &&
-                  !updateComment.isPending
+          return group.entries.map(({ thread, position, clientPoint }) => (
+            <ReviewPin
+              key={thread.root.threadId}
+              canvasRect={rect}
+              point={position.point}
+              clientPoint={clientPoint}
+              authors={threadPinAuthors(thread)}
+              commentCount={thread.replies.length + 1}
+              pinRef={(element) => {
+                if (element) {
+                  pinElementsRef.current.set(thread.root.threadId, element);
+                } else {
+                  pinElementsRef.current.delete(thread.root.threadId);
                 }
-                onMove={(point) => moveThread(thread, point)}
-              >
-                {activeThreadId === thread.root.threadId ? (
-                  <ReviewThreadPopover
-                    thread={thread}
-                    canResolve={canResolve}
-                    discussion={discussion}
-                    onReact={react}
-                    pendingReaction={
-                      reactToComment.isPending && reactToComment.variables
-                        ? reactToComment.variables
-                        : null
-                    }
-                    sending={sendingThreadId === thread.root.threadId}
-                    canReply={canPost && thread.root.status === "open"}
-                    canEdit={Boolean(
-                      canPost &&
-                      normalizedCurrentUserEmail &&
-                      thread.root.authorEmail?.trim().toLowerCase() ===
-                        normalizedCurrentUserEmail,
-                    )}
-                    editing={editCandidate?.id === thread.root.id}
-                    editDraft={editDraft}
-                    editMentions={editMentions}
-                    updating={updateComment.isPending}
-                    onEdit={() => {
-                      setEditCandidate(thread.root);
-                      setEditDraft(thread.root.body);
-                      setEditMentions([...thread.root.mentions]);
-                    }}
-                    onEditDraftChange={setEditDraft}
-                    onEditMentionsChange={setEditMentions}
-                    onEditCancel={() => {
-                      setEditCandidate(null);
-                      setEditDraft("");
-                      setEditMentions([]);
-                    }}
-                    onEditSubmit={submitEdit}
-                    unread={threadIsUnread(thread.root.threadId)}
-                    onCopyLink={() => void copyThreadLink(thread)}
-                    onSetUnread={(unread) => setThreadUnread(thread, unread)}
-                    onDelete={() => setDeleteCandidate(thread.root)}
-                    canDelete={canPost && (thread.root.canDelete ?? false)}
-                    anchor={popoverAnchorFor(position.point, clientPoint)}
-                    replyDraft={replyDraft}
-                    replyMentions={replyMentions}
-                    mentionOptions={mentionOptions}
-                    replyAttachments={replyAttachments}
-                    onReplyAttachmentsChange={setReplyAttachments}
-                    onReplyDraftChange={setReplyDraft}
-                    onReplyMentionsChange={setReplyMentions}
-                    onClose={closeActiveThread}
-                    onReply={() => {
-                      const body = replyDraft.trim();
-                      if (!body) return;
-                      replyComment.mutate(
-                        {
-                          resourceType,
-                          resourceId,
-                          commentId: thread.root.id,
-                          body,
-                          ...(replyMentions.length
-                            ? { mentions: [...replyMentions] }
-                            : {}),
-                          ...(replyAttachments.length
-                            ? {
-                                metadata: {
-                                  attachments:
-                                    reviewAttachmentMetadata(replyAttachments),
-                                },
-                              }
-                            : {}),
-                        },
-                        {
-                          onSuccess: () => {
-                            setReplyDraft("");
-                            setReplyAttachments([]);
-                            setReplyMentions([]);
-                          },
-                          onError: () => toast.error(t("review.replyFailed")),
-                        },
-                      );
-                    }}
-                    onStatusChange={() =>
-                      resolveThread.mutate(
-                        {
-                          resourceType,
-                          resourceId,
-                          threadId: thread.root.threadId,
-                          status:
-                            thread.root.status === "open" ? "resolved" : "open",
-                        },
-                        {
-                          onSuccess: () => {
-                            setActiveThreadId(null);
-                            if (thread.root.status === "open") {
-                              toast.success(t("review.resolved"), {
-                                action: {
-                                  label: t("review.undo"),
-                                  onClick: () =>
-                                    resolveThread.mutate({
-                                      resourceType,
-                                      resourceId,
-                                      threadId: thread.root.threadId,
-                                      status: "open",
-                                    }),
-                                },
-                              });
-                            } else {
-                              toast.success(t("review.reopen"));
+              }}
+              onClick={() => {
+                if (!draftPin?.draft.trim()) setDraftPin(null);
+                setDraftComposerOpen(false);
+                setReplyDraft("");
+                setReplyAttachments([]);
+                setReplyMentions([]);
+                setEditCandidate(null);
+                setEditDraft("");
+                setEditMentions([]);
+                if (threadIsUnread(thread.root.threadId)) {
+                  setThreadUnread(thread, false);
+                }
+                setActiveThreadId(thread.root.threadId);
+              }}
+              active={activeThreadId === thread.root.threadId}
+              resolved={thread.root.status === "resolved"}
+              unread={threadIsUnread(thread.root.threadId)}
+              region={(() => {
+                const parsed = parseReviewAnchor(
+                  optimisticAnchors[thread.root.threadId] ?? thread.root.anchor,
+                );
+                return parsed?.worldRegion && boardGeometry
+                  ? (canvasRegionFromBoardWorldRegion(
+                      parsed.worldRegion,
+                      boardGeometry,
+                    ) ?? parsed.region)
+                  : parsed?.region;
+              })()}
+              canMove={
+                canPost &&
+                thread.root.canDelete === true &&
+                !updateComment.isPending
+              }
+              onMove={(point) => moveThread(thread, point)}
+            >
+              {activeThreadId === thread.root.threadId ? (
+                <ReviewThreadPopover
+                  thread={thread}
+                  canResolve={canResolve}
+                  discussion={discussion}
+                  onReact={react}
+                  pendingReaction={
+                    reactToComment.isPending ? reactToComment.variables : null
+                  }
+                  currentUserEmail={currentUserEmail}
+                  canReply={canPost && thread.root.status === "open"}
+                  canEdit={Boolean(
+                    canPost &&
+                    normalizedCurrentUserEmail &&
+                    thread.root.authorEmail?.trim().toLowerCase() ===
+                      normalizedCurrentUserEmail,
+                  )}
+                  editing={editCandidate?.id === thread.root.id}
+                  editDraft={editDraft}
+                  editMentions={editMentions}
+                  updating={updateComment.isPending}
+                  onEdit={() => {
+                    setEditCandidate(thread.root);
+                    setEditDraft(thread.root.body);
+                    setEditMentions([...thread.root.mentions]);
+                  }}
+                  onEditDraftChange={setEditDraft}
+                  onEditMentionsChange={setEditMentions}
+                  onEditCancel={() => {
+                    setEditCandidate(null);
+                    setEditDraft("");
+                    setEditMentions([]);
+                  }}
+                  onEditSubmit={submitEdit}
+                  unread={threadIsUnread(thread.root.threadId)}
+                  onCopyLink={() => void copyThreadLink(thread)}
+                  onSetUnread={(unread) => setThreadUnread(thread, unread)}
+                  onDelete={() => setDeleteCandidate(thread.root)}
+                  canDelete={canPost && (thread.root.canDelete ?? false)}
+                  onAgentAction={
+                    onSendThreadToAgent &&
+                    canResolve &&
+                    thread.root.status === "open"
+                      ? (action) => onSendThreadToAgent(thread, action)
+                      : undefined
+                  }
+                  agentItems={{
+                    suggest: Boolean(reviewAgent),
+                    reply: Boolean(reviewAgent),
+                    // The server re-checks; this hides the item for a board
+                    // thread or a screen an agent cannot edit.
+                    apply:
+                      Boolean(reviewAgent) &&
+                      thread.root.targetId != null &&
+                      sourceType === "inline",
+                  }}
+                  agentActionsDisabled={
+                    Boolean(sendingThreadId) ||
+                    Boolean(reviewAgent?.isThreadBusy(thread.root.threadId))
+                  }
+                  reviewAgent={reviewAgent}
+                  anchor={popoverAnchorFor(position.point, clientPoint)}
+                  replyDraft={replyDraft}
+                  replyMentions={replyMentions}
+                  mentionOptions={mentionOptions}
+                  editMentionOptions={peopleMentionOptions}
+                  replyAttachments={replyAttachments}
+                  onReplyAttachmentsChange={setReplyAttachments}
+                  onReplyDraftChange={setReplyDraft}
+                  onReplyMentionsChange={setReplyMentions}
+                  onClose={dismissActiveThread}
+                  onReply={() => {
+                    const body = replyDraft.trim();
+                    if (!body) return;
+                    const sentMentions = replyMentions;
+                    replyComment.mutate(
+                      {
+                        resourceType,
+                        resourceId,
+                        commentId: thread.root.id,
+                        body,
+                        ...(replyMentions.length
+                          ? { mentions: [...replyMentions] }
+                          : {}),
+                        ...(replyAttachments.length
+                          ? {
+                              metadata: {
+                                attachments:
+                                  reviewAttachmentMetadata(replyAttachments),
+                              },
                             }
-                          },
-                          onError: () => toast.error(t("review.resolveFailed")),
+                          : {}),
+                      },
+                      {
+                        onSuccess: (comment) => {
+                          setReplyDraft("");
+                          setReplyAttachments([]);
+                          setReplyMentions([]);
+                          startAgentFromComment(comment, sentMentions);
                         },
-                      )
-                    }
-                    onSendToAgent={
-                      onSendThreadToAgent &&
-                      (thread.root.resolutionTarget === "human" ||
-                        Boolean(thread.root.consumedAt))
-                        ? () => onSendThreadToAgent(thread)
-                        : undefined
-                    }
-                    replying={replyComment.isPending}
-                    resolving={resolveThread.isPending}
-                  />
-                ) : null}
-              </ReviewPin>
-            ),
-          );
+                        onError: () => toast.error(t("review.replyFailed")),
+                      },
+                    );
+                  }}
+                  onStatusChange={() =>
+                    resolveThread.mutate(
+                      {
+                        resourceType,
+                        resourceId,
+                        threadId: thread.root.threadId,
+                        status:
+                          thread.root.status === "open" ? "resolved" : "open",
+                      },
+                      {
+                        onSuccess: () => {
+                          // The user may have opened another thread while this
+                          // request was in flight; that one stays open.
+                          if (
+                            activeThreadIdRef.current === thread.root.threadId
+                          ) {
+                            focusReturnRef.current = focusReturnTo(
+                              thread.root.threadId,
+                            );
+                            setActiveThreadId(null);
+                          }
+                          if (thread.root.status === "open") {
+                            toast.success(t("review.resolved"), {
+                              action: {
+                                label: t("review.undo"),
+                                onClick: () =>
+                                  resolveThread.mutate({
+                                    resourceType,
+                                    resourceId,
+                                    threadId: thread.root.threadId,
+                                    status: "open",
+                                  }),
+                              },
+                            });
+                          } else {
+                            toast.success(t("review.reopen"));
+                          }
+                        },
+                        onError: () => toast.error(t("review.resolveFailed")),
+                      },
+                    )
+                  }
+                  replying={replyComment.isPending}
+                  resolving={resolveThread.isPending}
+                />
+              ) : null}
+            </ReviewPin>
+          ));
         })}
         {draftPin &&
         draftPinPosition &&
@@ -3075,10 +3196,12 @@ export function ReviewCanvasPins({
         isReviewPointVisible(region, draftClientPoint) ? (
           <ReviewPin
             key={draftPin.id}
-            index={visibleThreads.length}
             canvasRect={rect}
             point={draftPinPosition.point}
             clientPoint={draftClientPoint}
+            authors={[
+              currentUserEmail !== undefined ? { email: currentUserEmail } : {},
+            ]}
             draft
             pending={Boolean(pendingRepromptId)}
             onClick={() => {
@@ -3094,7 +3217,11 @@ export function ReviewCanvasPins({
               <DraftComposer
                 value={draftPin.draft}
                 mentions={draftMentions}
-                mentionOptions={mentionOptions}
+                mentionOptions={
+                  draftMode === "reprompt"
+                    ? peopleMentionOptions
+                    : mentionOptions
+                }
                 onMentionsChange={setDraftMentions}
                 attachments={draftAttachments}
                 onAttachmentsChange={setDraftAttachments}
@@ -3108,40 +3235,29 @@ export function ReviewCanvasPins({
                     ),
                   );
                 }}
-                onCancel={cancelDraft}
-                onSubmit={(resolutionTarget) => {
-                  setDraftPin((current) =>
-                    current ? { ...current, resolutionTarget } : current,
-                  );
+                onCancel={dismissDraft}
+                onSubmit={() => {
+                  if (draftMode === "reprompt") {
+                    if (sourceType !== "inline") {
+                      toast.error(t("designEditor.nodeRewrite.sendFailed"));
+                      return;
+                    }
+                    void submitReprompt(draftPin, draftAttachments);
+                    return;
+                  }
                   postDraft(
-                    { ...draftPin, resolutionTarget },
+                    { ...draftPin, resolutionTarget: "human" },
                     draftAttachments,
                     draftMentions,
                   );
                 }}
-                onSmartSubmit={(mode) => {
-                  if (mode === "preview")
-                    void submitReprompt(draftPin, draftAttachments);
-                  else void submitSelectionQuestion(draftPin, draftAttachments);
-                }}
-                resolutionTarget={draftPin.resolutionTarget}
-                showAgentAction={
-                  Boolean(onDispatchCommentToAgent) || draftMode === "reprompt"
-                }
-                smartAgentAvailable={
-                  sourceType === "inline" &&
-                  Boolean(
-                    resolveReviewAnchor(draftPin.anchor, () => null)?.anchor
-                      .nodeId || draftPin.metadata.targetSelector,
-                  )
-                }
-                initialAgentMode={draftMode === "reprompt" ? "preview" : "auto"}
+                reprompt={draftMode === "reprompt"}
+                currentUserEmail={currentUserEmail}
                 anchor={popoverAnchorFor(
                   draftPinPosition.point,
                   draftClientPoint,
                 )}
-                commentSubmitting={createComment.isPending}
-                agentSubmitting={agentSubmitting}
+                submitting={createComment.isPending || agentSubmitting}
               />
             ) : null}
           </ReviewPin>
@@ -3178,12 +3294,17 @@ export function ReviewCanvasPins({
                 event.preventDefault();
                 const candidate = deleteCandidate;
                 if (!candidate) return;
+                // The optimistic delete unmounts the pin before this succeeds.
+                const returnTo = focusReturnTo(candidate.threadId);
                 deleteComment.mutate(
                   { resourceType, resourceId, commentId: candidate.id },
                   {
                     onSuccess: () => {
                       setDeleteCandidate(null);
-                      closeActiveThread();
+                      if (activeThreadIdRef.current === candidate.threadId) {
+                        focusReturnRef.current = returnTo;
+                        closeActiveThread();
+                      }
                     },
                     onError: () => toast.error(t("review.postFailed")),
                   },
@@ -3200,12 +3321,69 @@ export function ReviewCanvasPins({
   );
 }
 
+function reviewPinAuthor(comment: ReviewComment): ReviewPinAuthor {
+  return {
+    name: comment.authorName,
+    email: comment.authorEmail,
+    agent: resolveReviewAgent({
+      createdBy: comment.createdBy,
+      authorName: comment.authorName,
+    }),
+  };
+}
+
+function threadPinAuthors(thread: ReviewThread): ReviewPinAuthor[] {
+  return [thread.root, ...thread.replies].map(reviewPinAuthor);
+}
+
+const MAX_NAMED_PIN_AUTHORS = 2;
+
+// What the pin shows: who is in the thread, how many comments, and its state.
+function reviewThreadPinLabel({
+  t,
+  formatList,
+  authors,
+  count,
+  unread,
+  resolved,
+}: {
+  t: ReturnType<typeof useT>;
+  formatList: ReturnType<typeof useFormatters>["formatList"];
+  authors: ReviewPinAuthor[];
+  count: number;
+  unread: boolean;
+  resolved: boolean;
+}): string {
+  const names = uniqueReviewPinAuthors(authors).map((author) =>
+    author.agent
+      ? author.name?.trim() || t("review.agentBadge")
+      : author.name?.trim() || author.email?.trim() || t("review.reviewer"),
+  );
+  const named = names.slice(0, MAX_NAMED_PIN_AUTHORS);
+  const others = names.length - named.length;
+  const summary = t("review.pin.thread", {
+    authors: formatList(
+      others > 0
+        ? [...named, t("review.pin.authorsOther", { count: others })]
+        : named,
+    ),
+    count,
+  });
+  const states: string[] = [];
+  if (unread) states.push(t("review.pin.unread"));
+  if (resolved) states.push(t("review.pin.resolved"));
+  return states.length
+    ? formatList([summary, formatList(states)], { type: "unit" })
+    : summary;
+}
+
 function ReviewPin({
-  index,
   point,
   canvasRect,
   clientPoint,
   active,
+  authors,
+  commentCount,
   draft = false,
   pending = false,
   resolved = false,
@@ -3214,24 +3392,30 @@ function ReviewPin({
   canMove = false,
   onMove,
   onClick,
+  pinRef,
   children,
 }: {
-  index: number;
   point: ReviewAnchorPoint;
   canvasRect: DOMRect;
-  clientPoint?: ReviewCanvasPoint | null;
+  clientPoint?: ReviewCanvasPoint | null | undefined;
+  /** This pin's card is open. */
   active: boolean;
+  authors: ReviewPinAuthor[];
+  commentCount?: number;
+  /** The pin of a comment that is not posted yet; it reads as "Draft comment". */
   draft?: boolean;
   pending?: boolean;
   resolved?: boolean;
   unread?: boolean;
-  region?: ReviewAnchorRegion;
+  region?: ReviewAnchorRegion | undefined;
   canMove?: boolean;
   onMove?: (point: ReviewAnchorPoint) => void;
   onClick: () => void;
+  pinRef?: Ref<HTMLButtonElement> | undefined;
   children?: ReactNode;
 }) {
   const t = useT();
+  const { formatList } = useFormatters();
   const movedRef = useRef(false);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragPointRef = useRef<ReviewAnchorPoint | null>(null);
@@ -3322,19 +3506,19 @@ function ReviewPin({
           }}
         />
       ) : null}
-      <button
-        type="button"
+      <ReviewPinBadge
         data-review-pin
         data-review-unread={unread ? "true" : undefined}
+        authors={authors}
+        {...(commentCount !== undefined ? { count: commentCount } : {})}
+        ref={pinRef}
+        selected={active}
+        resolved={resolved}
+        unread={unread}
+        pending={pending}
         className={cn(
-          "flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full rounded-bl-none border text-[10px] font-semibold shadow-md transition-transform hover:scale-110",
-          draft
-            ? "border-primary bg-primary text-primary-foreground"
-            : resolved
-              ? "border-muted-foreground/50 bg-muted text-muted-foreground"
-              : "border-amber-200 bg-amber-400 text-amber-950",
-          active && "ring-2 ring-primary/40",
-          unread && "ring-2 ring-foreground/70",
+          "-translate-x-1/2 -translate-y-1/2 hover:scale-110",
+          unread && !active && "ring-2 ring-foreground/70",
           canMove && "cursor-grab active:cursor-grabbing",
         )}
         onClick={(event) => {
@@ -3365,62 +3549,68 @@ function ReviewPin({
             yPct: clampPercent(point.yPct + delta.yPct),
           });
         }}
-        aria-label={t("review.commentNumber", { count: index + 1 })}
+        ariaLabel={
+          draft
+            ? t("review.pin.draft")
+            : reviewThreadPinLabel({
+                t,
+                formatList,
+                authors,
+                count: commentCount ?? 1,
+                unread,
+                resolved,
+              })
+        }
+        aria-expanded={active}
+        aria-haspopup="dialog"
         aria-keyshortcuts={
           canMove ? "ArrowUp ArrowDown ArrowLeft ArrowRight" : undefined
         }
-      >
-        {pending ? <Spinner className="size-3" /> : index + 1}
-      </button>
+      />
       {children}
     </div>
   );
 }
 
 function ReviewPinCluster({
-  count,
+  threads,
   point,
   canvasRect,
   onClick,
 }: {
-  count: number;
+  threads: ReviewThread[];
   point: ReviewAnchorPoint;
   canvasRect: DOMRect;
   onClick: () => void;
 }) {
   const t = useT();
   return (
-    <button
-      type="button"
+    <ReviewPinBadge
       data-review-pin-cluster
-      className="pointer-events-auto fixed z-[45] flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-primary bg-primary text-xs font-semibold text-primary-foreground shadow-lg hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      authors={threads.map(({ root }) => reviewPinAuthor(root))}
+      count={threads.length}
+      className="pointer-events-auto fixed z-[45] -translate-x-1/2 -translate-y-1/2 hover:scale-110"
       style={{
         left: canvasRect.left + (point.xPct / 100) * canvasRect.width,
         top: canvasRect.top + (point.yPct / 100) * canvasRect.height,
       }}
-      aria-label={t("review.commentsInCluster", { count })}
+      ariaLabel={t("review.commentsInCluster", { count: threads.length })}
       onClick={(event) => {
         event.stopPropagation();
         onClick();
       }}
-    >
-      {count}
-    </button>
+    />
   );
 }
 
-function ReviewImageAttachments({
+function useReviewImageAttachments({
   attachments,
   disabled = false,
   onChange,
-  onUploadingChange,
-  className,
 }: {
   attachments: ReviewImageAttachment[];
   disabled?: boolean;
   onChange: (attachments: ReviewImageAttachment[]) => void;
-  onUploadingChange?: (uploading: boolean) => void;
-  className?: string;
 }) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -3445,7 +3635,6 @@ function ReviewImageAttachments({
     if (!selected.length) return;
 
     setUploading(true);
-    onUploadingChange?.(true);
     const results = await Promise.allSettled(
       selected.map(async (file) => {
         const uploaded = await uploadEditorImage(file);
@@ -3477,14 +3666,50 @@ function ReviewImageAttachments({
       toast.error(t("review.postFailed"));
     }
     setUploading(false);
-    onUploadingChange?.(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  return (
+  const toolsEnd = (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        data-review-attachment-button
+        className="size-7 rounded-full text-muted-foreground"
+        disabled={
+          disabled ||
+          uploading ||
+          attachments.length >= MAX_REVIEW_IMAGE_ATTACHMENTS
+        }
+        onClick={() => inputRef.current?.click()}
+        aria-label={t("review.attachImage")}
+      >
+        {uploading ? (
+          <Spinner className="size-4" />
+        ) : (
+          <IconPhoto className="size-4" />
+        )}
+      </Button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        data-review-attachment-input
+        // Out of the accessibility tree: the image button above is the one
+        // named, tabbable control, and it clicks this input.
+        tabIndex={-1}
+        className="hidden"
+        onChange={(event) => void handleFiles(event.currentTarget.files)}
+      />
+    </>
+  );
+
+  const strip = attachments.length ? (
     <div
       data-review-attachments
-      className={cn("flex flex-wrap items-center gap-1.5 px-3 pb-2", className)}
+      className="flex flex-wrap items-center gap-1.5"
     >
       {attachments.map((attachment, index) => (
         <div
@@ -3516,37 +3741,10 @@ function ReviewImageAttachments({
           </Button>
         </div>
       ))}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        data-review-attachment-button
-        className="text-muted-foreground"
-        disabled={
-          disabled ||
-          uploading ||
-          attachments.length >= MAX_REVIEW_IMAGE_ATTACHMENTS
-        }
-        onClick={() => inputRef.current?.click()}
-        aria-label={t("review.attachImage")}
-      >
-        {uploading ? (
-          <Spinner className="size-3.5" />
-        ) : (
-          <IconPaperclip className="size-3.5" />
-        )}
-      </Button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        data-review-attachment-input
-        className="sr-only"
-        onChange={(event) => void handleFiles(event.currentTarget.files)}
-      />
     </div>
-  );
+  ) : undefined;
+
+  return { uploading, toolsEnd, strip };
 }
 
 // Placement depends on the popover's own height, which is only known once its
@@ -3586,7 +3784,7 @@ function ReviewPopoverFrame({
     <div
       ref={ref}
       data-review-popover
-      className="absolute z-[260] overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-popover shadow-xl"
+      className="absolute z-[260] overflow-y-auto overflow-x-hidden rounded-xl shadow-xl"
       style={{
         left: box.left,
         top: box.top,
@@ -3610,297 +3808,110 @@ function DraftComposer({
   onChange,
   onCancel,
   onSubmit,
-  onSmartSubmit,
-  resolutionTarget,
-  showAgentAction,
-  smartAgentAvailable,
-  initialAgentMode,
+  reprompt,
+  currentUserEmail,
   anchor,
-  commentSubmitting,
-  agentSubmitting,
+  submitting,
 }: {
   value: string;
   mentions: readonly ReviewMention[];
-  mentionOptions: readonly ReviewMention[];
+  mentionOptions: readonly ReviewMentionOption[];
   onMentionsChange: (mentions: ReviewMention[]) => void;
   attachments: ReviewImageAttachment[];
   onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onChange: (value: string) => void;
   onCancel: () => void;
-  onSubmit: (target: "agent" | "human") => void;
-  onSmartSubmit: (mode: NodeRepromptSendMode) => void;
-  resolutionTarget: "agent" | "human";
-  showAgentAction: boolean;
-  smartAgentAvailable: boolean;
-  initialAgentMode: "auto" | NodeRepromptSendMode;
+  onSubmit: () => void;
+  reprompt: boolean;
+  currentUserEmail?: string | null;
   anchor: ReviewPopoverAnchor;
-  commentSubmitting: boolean;
-  agentSubmitting: boolean;
+  submitting: boolean;
 }) {
   const t = useT();
-  const [engaged, setEngaged] = useState(false);
-  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
-  const [modeOverride, setModeOverride] = useState<
-    "auto" | NodeRepromptSendMode
-  >(initialAgentMode);
-  const inferredMode = inferNodeRepromptSendMode(value, {
-    hasEditableTarget: smartAgentAvailable,
+  const images = useReviewImageAttachments({
+    attachments,
+    disabled: submitting,
+    onChange: onAttachmentsChange,
   });
-  const sendMode = modeOverride === "auto" ? inferredMode : modeOverride;
-  const submitting = commentSubmitting || agentSubmitting;
-  const busy = submitting || attachmentsUploading;
-  const revealTools =
-    engaged || Boolean(value.trim()) || attachments.length > 0;
-  const agentLabel =
-    modeOverride === "auto"
-      ? t("review.sendToAgent")
-      : sendMode === "preview"
-        ? t("designEditor.nodeRewrite.modeRegenerate")
-        : t("designEditor.nodeRewrite.modeAsk");
-  const agentAction = smartAgentAvailable ? (
-    <div className="flex w-full min-w-0 @2xs/review:flex-1">
-      <Button
-        type="button"
-        size="sm"
-        variant={initialAgentMode === "preview" ? "default" : "outline"}
-        className="min-w-0 flex-1 gap-1.5 rounded-e-none"
-        disabled={busy || !value.trim()}
-        onClick={() => onSmartSubmit(sendMode)}
-      >
-        {agentSubmitting ? (
-          <Spinner className="size-3.5" />
-        ) : (
-          <IconSend className="size-3.5" />
-        )}
-        <span className="truncate">{agentLabel}</span>
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="sm"
-            variant={initialAgentMode === "preview" ? "default" : "outline"}
-            className="shrink-0 rounded-s-none border-s-0 px-2"
-            disabled={busy}
-            aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
-          >
-            <IconChevronDown className="size-3" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          data-review-popover
-          data-review-mode-menu
-          align="end"
-          className="w-56"
-        >
-          <DropdownMenuRadioGroup
-            value={modeOverride}
-            onValueChange={(nextMode) =>
-              setModeOverride(nextMode as "auto" | NodeRepromptSendMode)
-            }
-          >
-            <DropdownMenuRadioItem value="auto">
-              {t("designEditor.nodeRewrite.modeAuto")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="ask">
-              {t("designEditor.nodeRewrite.modeAsk")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="preview">
-              {t("designEditor.nodeRewrite.modeRegenerate")}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  ) : undefined;
+  const busy = submitting || images.uploading;
   return (
     <ReviewPopoverFrame anchor={anchor}>
-      <div className="flex items-center justify-between px-3 pb-2 pt-3">
-        <span className="text-sm font-medium">
-          {initialAgentMode === "preview"
+      <ReviewThreadCardFrame
+        className="w-full"
+        title={
+          reprompt
             ? t("designEditor.nodeRewrite.composerTitle")
-            : t("review.newComment")}
-        </span>
-        <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            disabled={submitting}
-            onClick={onCancel}
-            aria-label={t("designEditor.close")}
-          >
-            <IconX className="size-3.5" />
-          </Button>
+            : t("review.threadTitle")
+        }
+        closeLabel={t("designEditor.close")}
+        onClose={() => {
+          if (!submitting) onCancel();
+        }}
+      >
+        <div className="flex items-start gap-2 px-3 py-4">
+          <ReviewAuthorAvatar
+            className="mt-0.5"
+            name={reviewUserLabel(currentUserEmail, t("review.reviewer"))}
+            email={currentUserEmail}
+            size={24}
+          />
+          <ReviewCommentComposer
+            className="min-w-0 flex-1"
+            autoFocus
+            value={value}
+            mentions={mentions}
+            onMentionsChange={onMentionsChange}
+            mentionOptions={mentionOptions}
+            agentsLabel={t("review.agent.sectionLabel")}
+            showCommentTools
+            emojiLabel={t("review.addEmoji")}
+            mentionLabel={t("review.mention")}
+            noMentionsLabel={t("review.noMentions")}
+            commentToolsEnd={images.toolsEnd}
+            attachments={images.strip}
+            disabled={busy}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            submittingTarget={submitting ? "human" : null}
+            placeholder={t("review.placeholder")}
+            commentLabel={t("review.commentMode")}
+            contextLabel={
+              reprompt ? t("designEditor.nodeRewrite.willPreview") : undefined
+            }
+            submitOnEnter
+            onEscape={onCancel}
+          />
         </div>
-      </div>
-      <ReviewCommentComposer
-        className="px-3 pb-3"
-        autoFocus
-        value={value}
-        mentions={mentions}
-        onMentionsChange={onMentionsChange}
-        mentionOptions={mentionOptions}
-        showCommentTools={revealTools}
-        emojiLabel={t("review.addEmoji")}
-        mentionLabel={t("review.mention")}
-        noMentionsLabel={t("review.noMentions")}
-        commentToolsEnd={
-          revealTools ? (
-            <ReviewImageAttachments
-              attachments={attachments}
-              disabled={busy}
-              onUploadingChange={setAttachmentsUploading}
-              onChange={(next) => {
-                setEngaged(true);
-                onAttachmentsChange(next);
-              }}
-              className="flex-nowrap p-0"
-            />
-          ) : undefined
-        }
-        disabled={busy}
-        onChange={(next) => {
-          setEngaged(true);
-          onChange(next);
-        }}
-        onSubmit={(target) => {
-          if (target === "agent" && smartAgentAvailable) {
-            onSmartSubmit(sendMode);
-            return;
-          }
-          onSubmit(target);
-        }}
-        submittingTarget={commentSubmitting ? resolutionTarget : null}
-        showCommentAction={initialAgentMode !== "preview"}
-        showAgentAction={showAgentAction}
-        agentAction={agentAction}
-        placeholder={t("review.placeholder")}
-        commentLabel={t("review.commentMode")}
-        agentLabel={t("review.sendToAgent")}
-        contextLabel={
-          smartAgentAvailable && (modeOverride !== "auto" || value.trim())
-            ? sendMode === "preview"
-              ? t("designEditor.nodeRewrite.willPreview")
-              : t("designEditor.nodeRewrite.willAsk")
-            : undefined
-        }
-        submitOnEnter
-        enterSubmitTarget={initialAgentMode === "preview" ? "agent" : "human"}
-        onEscape={onCancel}
-      />
+      </ReviewThreadCardFrame>
     </ReviewPopoverFrame>
   );
 }
 
-function ReviewReactionControls({
-  commentId,
-  reactions,
-  canReact,
-  onReact,
-  pendingReaction,
-}: {
-  commentId: string;
-  reactions: ReviewCommentReaction[];
-  canReact: boolean;
-  onReact: (commentId: string, reaction: string, active: boolean) => void;
-  pendingReaction: PendingReviewReaction | null;
-}) {
-  const t = useT();
-  const pendingForComment =
-    pendingReaction?.commentId === commentId ? pendingReaction : null;
-  const displayedReactions = [
+// A reaction in flight shows on the chip before the server confirms it.
+function reactionsWithPending(
+  reactions: readonly ReviewCommentReaction[],
+  commentId: string,
+  pending: PendingReviewReaction | null,
+): ReviewCommentReaction[] {
+  if (pending?.commentId !== commentId) return [...reactions];
+  const known = reactions.some((entry) => entry.reaction === pending.reaction);
+  return [
     ...reactions,
-    ...(pendingForComment?.active &&
-    !reactions.some((entry) => entry.reaction === pendingForComment.reaction)
-      ? [
-          {
-            reaction: pendingForComment.reaction,
-            count: 0,
-            reactedByMe: false,
-          },
-        ]
+    ...(!known && pending.active
+      ? [{ reaction: pending.reaction, count: 0, reactedByMe: false }]
       : []),
-  ];
-  if (!displayedReactions.length && !canReact) return null;
-
-  return (
-    <div
-      data-review-reactions
-      className="mt-1 flex flex-wrap items-center gap-1"
-      onClick={(event) => event.stopPropagation()}
-    >
-      {displayedReactions.map((entry) => {
-        const active =
-          pendingForComment?.reaction === entry.reaction
-            ? pendingForComment.active
-            : entry.reactedByMe;
-        const count =
-          entry.count +
-          (pendingForComment?.reaction === entry.reaction
-            ? Number(pendingForComment.active) - Number(entry.reactedByMe)
-            : 0);
-        return (
-          <button
-            key={entry.reaction}
-            type="button"
-            data-review-reaction={entry.reaction}
-            aria-pressed={active}
-            disabled={!canReact || Boolean(pendingReaction)}
-            className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent aria-pressed:bg-accent aria-pressed:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-            onClick={() => onReact(commentId, entry.reaction, !active)}
-          >
-            {entry.reaction} {Math.max(0, count)}
-          </button>
-        );
-      })}
-      {canReact ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              data-review-reaction-picker
-              className="size-7 text-muted-foreground"
-              disabled={Boolean(pendingReaction)}
-              aria-label={t("review.addReaction")}
-            >
-              <IconMoodSmile className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            data-review-popover
-            data-review-reaction-menu
-            align="end"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {QUICK_REACTIONS.map((reaction) => {
-              const current = displayedReactions.find(
-                (entry) => entry.reaction === reaction,
-              );
-              const active =
-                pendingForComment?.reaction === reaction
-                  ? pendingForComment.active
-                  : (current?.reactedByMe ?? false);
-              return (
-                <DropdownMenuCheckboxItem
-                  key={reaction}
-                  checked={active}
-                  disabled={Boolean(pendingReaction)}
-                  onCheckedChange={(checked) =>
-                    onReact(commentId, reaction, checked)
-                  }
-                >
-                  {reaction}
-                </DropdownMenuCheckboxItem>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-    </div>
-  );
+  ]
+    .map((entry) =>
+      entry.reaction === pending.reaction
+        ? {
+            ...entry,
+            count:
+              entry.count + Number(pending.active) - Number(entry.reactedByMe),
+            reactedByMe: pending.active,
+          }
+        : entry,
+    )
+    .filter((entry) => entry.count > 0);
 }
 
 function ReviewThreadPopover({
@@ -3909,7 +3920,6 @@ function ReviewThreadPopover({
   discussion,
   onReact,
   pendingReaction,
-  sending,
   replying,
   resolving,
   canReply,
@@ -3928,10 +3938,16 @@ function ReviewThreadPopover({
   onSetUnread,
   onDelete,
   canDelete,
+  onAgentAction,
+  agentItems,
+  agentActionsDisabled,
+  reviewAgent,
   anchor,
+  currentUserEmail,
   replyDraft,
   replyMentions,
   mentionOptions,
+  editMentionOptions,
   replyAttachments,
   onReplyAttachmentsChange,
   onReplyDraftChange,
@@ -3939,14 +3955,12 @@ function ReviewThreadPopover({
   onClose,
   onReply,
   onStatusChange,
-  onSendToAgent,
 }: {
   thread: ReviewThread;
   canResolve: boolean;
-  discussion?: ReviewDiscussionState;
+  discussion?: ReviewDiscussionState | undefined;
   onReact: (commentId: string, reaction: string, active: boolean) => void;
   pendingReaction: PendingReviewReaction | null;
-  sending: boolean;
   replying: boolean;
   resolving: boolean;
   canReply: boolean;
@@ -3965,10 +3979,19 @@ function ReviewThreadPopover({
   onSetUnread: (unread: boolean) => void;
   onDelete: () => void;
   canDelete: boolean;
+  /** Set only for editors on an open thread; it backs the agent menu items. */
+  onAgentAction: ((action: ReviewThreadAgentAction) => void) | undefined;
+  /** Send to agent always shows; the review-agent items need a connected controller. */
+  agentItems: { suggest: boolean; reply: boolean; apply: boolean };
+  agentActionsDisabled: boolean;
+  reviewAgent: ReviewAgentController | null;
   anchor: ReviewPopoverAnchor;
+  currentUserEmail?: string | null | undefined;
   replyDraft: string;
   replyMentions: readonly ReviewMention[];
-  mentionOptions: readonly ReviewMention[];
+  mentionOptions: readonly ReviewMentionOption[];
+  /** A comment edit never starts a run, so it offers people only. */
+  editMentionOptions: readonly ReviewMention[];
   replyAttachments: ReviewImageAttachment[];
   onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onReplyDraftChange: (value: string) => void;
@@ -3976,288 +3999,197 @@ function ReviewThreadPopover({
   onClose: () => void;
   onReply: () => void;
   onStatusChange: () => void;
-  onSendToAgent?: () => void;
 }) {
   const t = useT();
-  const editChosenFromMenuRef = useRef(false);
-  const rootAuthor = reviewAuthorLabel(thread.root, t("review.reviewer"));
-  const avatarUrl = useAvatarUrl(thread.root.authorEmail);
-  const [replyUploading, setReplyUploading] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  // The card takes focus when it opens, and again once an edit ends. The reply
+  // field stays collapsed until the user goes there, and an edit focuses its own editor.
+  useEffect(() => {
+    if (!editing) cardRef.current?.focus({ preventScroll: true });
+  }, [editing]);
+  const replyImages = useReviewImageAttachments({
+    attachments: replyAttachments,
+    disabled: replying || resolving,
+    onChange: onReplyAttachmentsChange,
+  });
+  const resolvedStatus = thread.root.status === "resolved";
+  const canToggleResolution =
+    canResolve && (thread.root.status === "open" || resolvedStatus);
+  const agentRequest = reviewAgent?.requestForThread(thread.root.threadId);
+  const itemLabels = {
+    reviewerLabel: t("review.reviewer"),
+    agentBadgeLabel: t("review.agentBadge"),
+    resolvedLabel: t("review.resolved"),
+    unreadLabel: t("review.unread"),
+    addReactionLabel: t("review.addReaction"),
+    reactionLabel: ({
+      emoji,
+      count,
+      includesYou,
+    }: {
+      emoji: string;
+      count: number;
+      includesYou: boolean;
+    }) =>
+      t(includesYou ? "review.reaction.labelMine" : "review.reaction.label", {
+        emoji,
+        count,
+      }),
+  };
+  const commentItem = (comment: ReviewComment, variant: "root" | "reply") => (
+    <ReviewCommentItem
+      key={comment.id}
+      comment={comment}
+      variant={variant}
+      {...itemLabels}
+      unread={variant === "root" && unread}
+      showReactions
+      reactions={reactionsWithPending(
+        discussion?.reactions[comment.id] ?? [],
+        comment.id,
+        pendingReaction,
+      )}
+      canReact={discussion?.canReact ?? false}
+      onReact={(target, reaction, active) =>
+        onReact(target.id, reaction, active)
+      }
+      editor={
+        variant === "root" && editing ? (
+          <ReviewCommentComposer
+            value={editDraft}
+            mentions={editMentions}
+            onMentionsChange={onEditMentionsChange}
+            mentionOptions={editMentionOptions}
+            showCommentTools
+            emojiLabel={t("review.addEmoji")}
+            mentionLabel={t("review.mention")}
+            noMentionsLabel={t("review.noMentions")}
+            textareaProps={{ "aria-label": t("review.editComment") }}
+            autoFocus
+            disabled={updating}
+            onChange={onEditDraftChange}
+            onSubmit={() => onEditSubmit()}
+            commentLabel={t("review.save")}
+            placeholder={t("review.editComment")}
+            submitOnEnter
+            onEscape={onEditCancel}
+          />
+        ) : undefined
+      }
+    />
+  );
   return (
     <ReviewPopoverFrame anchor={anchor}>
-      <div className="flex items-start gap-2.5 p-3">
-        <Avatar className="size-7 shrink-0">
-          {avatarUrl ? <AvatarImage src={avatarUrl} alt={rootAuthor} /> : null}
-          <AvatarFallback className="text-[10px] font-semibold text-muted-foreground">
-            {reviewAuthorInitials(rootAuthor)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <div className="truncate text-xs font-medium text-muted-foreground">
-              {rootAuthor}
+      <ReviewThreadCardFrame
+        ref={cardRef}
+        className="w-full"
+        title={t("review.threadTitle")}
+        menu={
+          <ReviewThreadMenu
+            moreActionsLabel={t("review.moreActions")}
+            sendToAgentLabel={t("review.sendToAgent")}
+            suggestChangesLabel={t("review.suggestChanges")}
+            replyInThreadLabel={t("review.replyInThread")}
+            applyAndResolveLabel={t("review.applyChangesAndResolve")}
+            copyLinkLabel={t("review.copyLink")}
+            linkCopiedLabel={t("review.linkCopied")}
+            copyLinkFailedLabel={t("review.copyLinkFailed")}
+            editLabel={t("review.editComment")}
+            deleteLabel={t("review.deleteComment")}
+            onSendToAgent={onAgentAction && (() => onAgentAction("send"))}
+            onSuggestChanges={
+              onAgentAction && agentItems.suggest
+                ? () => onAgentAction("suggest")
+                : undefined
+            }
+            onReplyInThread={
+              onAgentAction && agentItems.reply
+                ? () => onAgentAction("reply")
+                : undefined
+            }
+            onApplyAndResolve={
+              onAgentAction && agentItems.apply
+                ? () => onAgentAction("apply")
+                : undefined
+            }
+            agentActionsDisabled={agentActionsDisabled}
+            canEdit={canEdit}
+            onEdit={onEdit}
+            onCopyLink={onCopyLink}
+            onDelete={canDelete ? onDelete : undefined}
+          />
+        }
+        resolved={resolvedStatus}
+        onResolve={canToggleResolution ? onStatusChange : undefined}
+        onReopen={canToggleResolution ? onStatusChange : undefined}
+        resolving={resolving}
+        resolveLabel={t("review.resolve")}
+        reopenLabel={t("review.reopen")}
+        onClose={onClose}
+        closeLabel={t("review.closeThread")}
+      >
+        <div className={cn("flex flex-col", !canReply && "pb-3")}>
+          {commentItem(thread.root, "root")}
+          {thread.replies.map((reply) => commentItem(reply, "reply"))}
+        </div>
+        {reviewAgent ? (
+          <ReviewAgentRequestStatus
+            className={cn(!canReply && "pb-3")}
+            request={agentRequest}
+            thread={thread}
+            starting={reviewAgent.startingThreadIds.has(thread.root.threadId)}
+            startingAgentName={reviewAgent.startingAgentName(
+              thread.root.threadId,
+            )}
+            stopping={
+              agentRequest !== undefined &&
+              reviewAgent.stoppingRequestIds.has(agentRequest.requestId)
+            }
+            onStop={(request) => void reviewAgent.stop(request)}
+            onOpen={reviewAgent.open}
+            onRetry={(request) => void reviewAgent.retry(request)}
+          />
+        ) : null}
+        {canReply ? (
+          <div className="group/reply flex items-start gap-2 px-3 py-4">
+            <div className="mt-2 shrink-0 group-has-data-expanded/reply:mt-0.5">
+              <ReviewAuthorAvatar
+                name={reviewUserLabel(currentUserEmail, t("review.reviewer"))}
+                email={currentUserEmail}
+                size={24}
+              />
             </div>
-            {unread ? (
-              <span
-                data-review-unread
-                className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-              >
-                {t("review.markUnread")}
-              </span>
-            ) : null}
-          </div>
-          {editing ? (
             <ReviewCommentComposer
-              className="mt-2 p-0"
-              value={editDraft}
-              mentions={editMentions}
-              onMentionsChange={onEditMentionsChange}
+              className="min-w-0 flex-1"
+              variant="reply"
+              value={replyDraft}
+              mentions={replyMentions}
+              onMentionsChange={onReplyMentionsChange}
               mentionOptions={mentionOptions}
+              agentsLabel={t("review.agent.sectionLabel")}
               showCommentTools
+              commentToolsEnd={replyImages.toolsEnd}
+              attachments={replyImages.strip}
               emojiLabel={t("review.addEmoji")}
               mentionLabel={t("review.mention")}
               noMentionsLabel={t("review.noMentions")}
-              textareaProps={{ "aria-label": t("review.editComment") }}
-              autoFocus
-              disabled={updating}
-              onChange={onEditDraftChange}
-              onSubmit={() => onEditSubmit()}
-              commentLabel={t("review.save")}
-              placeholder={t("review.editComment")}
+              textareaProps={{ "data-review-reply-input": true }}
+              disabled={replying || resolving || replyImages.uploading}
+              onChange={onReplyDraftChange}
+              onSubmit={() => onReply()}
+              submittingTarget={replying ? "human" : null}
+              commentLabel={t("review.reply")}
+              placeholder={t("review.reply")}
               submitOnEnter
-              onEscape={onEditCancel}
+              onEscape={onClose}
             />
-          ) : (
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
-              {displayReviewCommentBody(thread.root.body)}
-            </p>
-          )}
-          <ReviewCommentAttachmentStrip comment={thread.root} />
-          {thread.root.status === "resolved" &&
-          reviewResolutionNote(thread.root) ? (
-            <div
-              data-review-resolution-note
-              className="mt-2 rounded-md bg-muted/60 px-2 py-1.5 text-xs text-muted-foreground"
-            >
-              {reviewResolutionNote(thread.root)}
-            </div>
-          ) : null}
-          <ReviewReactionControls
-            commentId={thread.root.id}
-            reactions={discussion?.reactions[thread.root.id] ?? []}
-            canReact={discussion?.canReact ?? false}
-            onReact={onReact}
-            pendingReaction={pendingReaction}
-          />
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="-mt-1 size-7 shrink-0 text-muted-foreground"
-              aria-label={t("review.moreActions")}
-            >
-              <IconDots className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            data-review-popover
-            align="end"
-            className="w-44"
-            onCloseAutoFocus={(event) => {
-              // Edit puts focus in its composer; leave it there. Other
-              // actions return to the button.
-              if (editChosenFromMenuRef.current) event.preventDefault();
-              editChosenFromMenuRef.current = false;
-            }}
-          >
-            {canEdit ? (
-              <DropdownMenuItem
-                onSelect={() => {
-                  editChosenFromMenuRef.current = true;
-                  onEdit();
-                }}
-              >
-                {t("review.editComment")}
-              </DropdownMenuItem>
-            ) : null}
-            {discussion?.canSetThreadPreferences ? (
-              <DropdownMenuItem onSelect={() => onSetUnread(!unread)}>
-                <IconMail className="size-4" />
-                {t(unread ? "review.markRead" : "review.markUnread")}
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem onSelect={onCopyLink}>
-              <IconLink className="size-4" />
-              {t("review.copyLink")}
-            </DropdownMenuItem>
-            {canDelete ? (
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onSelect={onDelete}
-              >
-                <IconTrash className="size-4" />
-                {t("review.deleteComment")}
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="-me-1 -mt-1 size-7 shrink-0 text-muted-foreground"
-          onClick={onClose}
-          aria-label={t("designEditor.close")}
-        >
-          <IconX className="size-3.5" />
-        </Button>
-      </div>
-      {thread.replies.length ? (
-        <div className="ms-12 me-3 mb-3 flex flex-col gap-2 border-s border-border ps-3">
-          {thread.replies.map((reply) => (
-            <div key={reply.id} className="min-w-0">
-              <div className="truncate text-[10px] font-medium text-muted-foreground">
-                {reviewAuthorLabel(reply, t("review.reviewer"))}
-              </div>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-5 text-foreground/90">
-                {displayReviewCommentBody(reply.body)}
-              </p>
-              <ReviewCommentAttachmentStrip comment={reply} compact />
-              <ReviewReactionControls
-                commentId={reply.id}
-                reactions={discussion?.reactions[reply.id] ?? []}
-                canReact={discussion?.canReact ?? false}
-                onReact={onReact}
-                pendingReaction={pendingReaction}
-              />
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {canReply ||
-      (canResolve &&
-        (thread.root.status === "open" ||
-          thread.root.status === "resolved")) ? (
-        <div className="border-t border-border bg-muted/25 p-2.5">
-          {canReply ? (
-            <>
-              <ReviewCommentComposer
-                className="p-0"
-                value={replyDraft}
-                mentions={replyMentions}
-                onMentionsChange={onReplyMentionsChange}
-                mentionOptions={mentionOptions}
-                showCommentTools
-                commentToolsEnd={
-                  <ReviewImageAttachments
-                    attachments={replyAttachments}
-                    disabled={replying || resolving || replyUploading}
-                    onChange={onReplyAttachmentsChange}
-                    onUploadingChange={setReplyUploading}
-                    className="flex-nowrap p-0"
-                  />
-                }
-                emojiLabel={t("review.addEmoji")}
-                mentionLabel={t("review.mention")}
-                noMentionsLabel={t("review.noMentions")}
-                textareaProps={{ "data-review-reply-input": true }}
-                autoFocus
-                disabled={replying || resolving || replyUploading}
-                onChange={onReplyDraftChange}
-                onSubmit={() => onReply()}
-                commentLabel={t("review.reply")}
-                placeholder={t("review.replyPlaceholder")}
-                submitOnEnter
-                onEscape={onClose}
-              />
-            </>
-          ) : null}
-          {canResolve &&
-          (thread.root.status === "open" ||
-            thread.root.status === "resolved") ? (
-            <div className="mt-2 flex items-center gap-1">
-              {thread.root.status === "open" && onSendToAgent ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 px-2 text-xs text-primary hover:text-primary"
-                  disabled={sending || resolving || replyUploading}
-                  onClick={onSendToAgent}
-                >
-                  {sending ? (
-                    <Spinner className="size-3.5" />
-                  ) : (
-                    <IconSend className="size-3.5" />
-                  )}
-                  {sending
-                    ? t("review.sendingToAgent")
-                    : t("review.sendToAgent")}
-                </Button>
-              ) : null}
-              <div className="min-w-0 flex-1" />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
-                disabled={resolving || sending || replyUploading}
-                onClick={onStatusChange}
-                aria-label={
-                  thread.root.status === "open"
-                    ? t("review.resolve")
-                    : t("review.reopen")
-                }
-              >
-                {resolving ? (
-                  <Spinner className="size-3.5" />
-                ) : (
-                  <IconCircleCheck className="size-3.5" />
-                )}
-                {resolving
-                  ? t("review.resolving")
-                  : thread.root.status === "open"
-                    ? t("review.resolve")
-                    : t("review.reopen")}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </ReviewThreadCardFrame>
     </ReviewPopoverFrame>
   );
 }
 
-function reviewAuthorLabel(comment: ReviewComment, fallback: string): string {
-  return comment.authorName ?? comment.authorEmail ?? fallback;
-}
-
-function reviewAuthorInitials(value: string): string {
-  const localPart = value.split("@")[0]?.trim() ?? "";
-  const initials = localPart
-    .split(/[\s._+-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-  return initials || "R";
-}
-
-function reviewResolutionNote(comment: ReviewComment): string | null {
-  const direct = comment.resolutionNote;
-  const metadata = comment.metadata;
-  const metadataNote =
-    typeof direct === "string"
-      ? direct
-      : typeof metadata?.resolutionNote === "string"
-        ? metadata.resolutionNote
-        : typeof metadata?.resolvedNote === "string"
-          ? metadata.resolvedNote
-          : typeof metadata?.note === "string"
-            ? metadata.note
-            : null;
-  const note = metadataNote?.trim();
-  return note || null;
+function reviewUserLabel(email: string | null | undefined, fallback: string) {
+  return email?.trim() || fallback;
 }

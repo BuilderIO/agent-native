@@ -1,4 +1,5 @@
 import type {
+  BuilderCmsPublicationTransitionIntent,
   BuilderCmsWriteEffect,
   DocumentPropertyValue,
 } from "../shared/api.js";
@@ -42,6 +43,48 @@ export interface BuilderCmsUnpublishedChanges {
   /** Builder's lastUpdated when Content last saved a body over it. */
   liveBodyLastUpdated?: number | string;
 }
+
+/**
+ * A publish or unpublish picked in Content, waiting for review and push.
+ * Refreshes keep it until Builder reaches that state.
+ */
+export const BUILDER_CMS_PUBLICATION_INTENT_KEY =
+  "__agent_native_builder_publication_intent";
+
+export type BuilderCmsPublicationIntentRead =
+  | { state: "none" }
+  | { state: "staged"; transition: BuilderCmsPublicationTransitionIntent }
+  | { state: "invalid" };
+
+/**
+ * The source fields Builder changed after Content edited them, while the
+ * edit waits for a push. A refresh keeps Content's edit, so the review flags
+ * these until the edit is pushed or matches Builder.
+ */
+export const BUILDER_CMS_EDIT_CONFLICTS_KEY =
+  "__agent_native_builder_edit_conflicts";
+
+/**
+ * The page title's entry in the edit-conflict record. A property named
+ * "Title" maps to Builder's `data.title` too, so the title keeps its own
+ * entry and neither writer clears the other's.
+ */
+export const BUILDER_CMS_TITLE_CONFLICT_KEY = "__builder.title";
+
+/** The edit-conflict entry a field change settles when it is pushed. */
+export function builderCmsEditConflictKey(change: {
+  localFieldKey: string;
+  sourceFieldKey: string;
+}) {
+  return change.localFieldKey === "title"
+    ? BUILDER_CMS_TITLE_CONFLICT_KEY
+    : change.sourceFieldKey;
+}
+
+export type BuilderCmsEditConflictsRead =
+  | { state: "none" }
+  | { state: "recorded"; sourceFieldKeys: string[] }
+  | { state: "invalid" };
 
 export type BuilderCmsUnpublishedChangesRead =
   | { state: "none" }
@@ -197,6 +240,61 @@ export function withBuilderCmsUnpublishedChanges(
   return next;
 }
 
+export function readBuilderCmsPublicationIntent(
+  sourceValues: Record<string, DocumentPropertyValue> | null | undefined,
+): BuilderCmsPublicationIntentRead {
+  const raw = sourceValues?.[BUILDER_CMS_PUBLICATION_INTENT_KEY];
+  if (raw === undefined || raw === null) return { state: "none" };
+  return raw === "publish" || raw === "unpublish"
+    ? { state: "staged", transition: raw }
+    : { state: "invalid" };
+}
+
+export function withBuilderCmsPublicationIntent(
+  sourceValues: Record<string, DocumentPropertyValue>,
+  transition: BuilderCmsPublicationTransitionIntent | null,
+): Record<string, DocumentPropertyValue> {
+  const next = { ...sourceValues };
+  if (transition) next[BUILDER_CMS_PUBLICATION_INTENT_KEY] = transition;
+  else delete next[BUILDER_CMS_PUBLICATION_INTENT_KEY];
+  return next;
+}
+
+export function readBuilderCmsEditConflicts(
+  sourceValues: Record<string, DocumentPropertyValue> | null | undefined,
+): BuilderCmsEditConflictsRead {
+  const raw = sourceValues?.[BUILDER_CMS_EDIT_CONFLICTS_KEY];
+  if (raw === undefined || raw === null) return { state: "none" };
+  return Array.isArray(raw) &&
+    raw.length > 0 &&
+    raw.every((key) => typeof key === "string" && key)
+    ? { state: "recorded", sourceFieldKeys: raw }
+    : { state: "invalid" };
+}
+
+/**
+ * Replaces one writer's keys in the edit-conflicts record: a refresh's fields,
+ * its title, a body read, and a push each own theirs and keep the others'. An
+ * unreadable record is replaced; the review flagged it until then.
+ */
+export function withBuilderCmsEditConflicts(
+  sourceValues: Record<string, DocumentPropertyValue>,
+  args: { ownedKeys: Iterable<string>; conflictedKeys: Iterable<string> },
+): Record<string, DocumentPropertyValue> {
+  const read = readBuilderCmsEditConflicts(sourceValues);
+  const owned = new Set(args.ownedKeys);
+  const keys = new Set(
+    read.state === "recorded"
+      ? read.sourceFieldKeys.filter((key) => !owned.has(key))
+      : [],
+  );
+  for (const key of args.conflictedKeys) keys.add(key);
+  const next = { ...sourceValues };
+  if (keys.size > 0) next[BUILDER_CMS_EDIT_CONFLICTS_KEY] = [...keys].sort();
+  else delete next[BUILDER_CMS_EDIT_CONFLICTS_KEY];
+  return next;
+}
+
 /**
  * Builder's own status words for an entry, as its content list shows them.
  * Unpublished changes are Content's saves or Builder's own autosaves. An
@@ -212,6 +310,88 @@ export function builderCmsEntryStatus(
     sourceValues?.[BUILDER_CMS_HAS_AUTOSAVES_KEY] === true
     ? "unpublished_changes"
     : "published";
+}
+
+/**
+ * The status Content shows for an entry: the one a staged publish or
+ * unpublish will give it, or else Builder's. Staged changes count only while
+ * the source allows them; the caller says whether it does.
+ */
+export function builderCmsShownEntryStatus(
+  sourceValues: Record<string, DocumentPropertyValue> | null | undefined,
+  options: { publicationTransitionsAllowed: boolean },
+): BuilderCmsEntryStatus | null {
+  const status = builderCmsEntryStatus(sourceValues);
+  if (!status || !options.publicationTransitionsAllowed) return status;
+  const intent = readBuilderCmsPublicationIntent(sourceValues);
+  if (intent.state !== "staged") return status;
+  return intent.transition === "publish" ? "published" : "draft";
+}
+
+/**
+ * The values a staged publish or unpublish is reviewed against: Builder's
+ * live ones. Content's saved values then differ from them, so they go out
+ * with the change and what goes live matches what Content shows.
+ */
+export function builderCmsLiveBaselineValues(
+  sourceValues: Record<string, DocumentPropertyValue>,
+): Record<string, DocumentPropertyValue> {
+  const read = readBuilderCmsUnpublishedChanges(sourceValues);
+  return read.state === "pending"
+    ? { ...sourceValues, ...read.changes.liveValues }
+    : sourceValues;
+}
+
+/**
+ * The live body a staged publish or unpublish is reviewed against, when
+ * Content saved a body over it; a null hash means the live check didn't read
+ * one, so Content's body always goes out.
+ */
+export function builderCmsLiveBodyBaseline(
+  sourceValues: Record<string, DocumentPropertyValue>,
+): { blocksHash: string | null; bodyEmpty: boolean } | null {
+  const read = readBuilderCmsUnpublishedChanges(sourceValues);
+  if (read.state !== "pending" || !hasBodyRecord(read.changes)) return null;
+  return {
+    blocksHash: read.changes.liveBlocksHash ?? null,
+    bodyEmpty: read.changes.liveBodyEmpty === true,
+  };
+}
+
+/**
+ * The publish or unpublish a refreshed row keeps. Builder reaching that state
+ * settles it, and so does a state Content can't move the entry out of.
+ */
+function publicationIntentAfterRead(args: {
+  existing: Record<string, DocumentPropertyValue> | null | undefined;
+  refreshed: Record<string, DocumentPropertyValue>;
+  builderValues?: Record<string, DocumentPropertyValue> | undefined;
+}): BuilderCmsPublicationTransitionIntent | null {
+  const intent = readBuilderCmsPublicationIntent(args.existing);
+  if (intent.state === "invalid") {
+    console.error(
+      "A Builder row's staged publication change is unreadable, so the refresh drops it; pick the status again to stage it.",
+    );
+    return null;
+  }
+  if (intent.state !== "staged") return null;
+  const builder = args.builderValues ?? {};
+  const status = builderCmsEntryStatus({
+    ...args.refreshed,
+    ...(hasKey(builder, "published") ? { published: builder.published } : {}),
+    ...(hasKey(builder, BUILDER_CMS_HAS_AUTOSAVES_KEY)
+      ? {
+          [BUILDER_CMS_HAS_AUTOSAVES_KEY]:
+            builder[BUILDER_CMS_HAS_AUTOSAVES_KEY],
+        }
+      : {}),
+  });
+  if (!status) return null;
+  const reached =
+    intent.transition === "publish"
+      ? status === "published"
+      : status === "draft";
+  return reached ? null : intent.transition;
 }
 
 /**
@@ -247,7 +427,25 @@ export function builderCmsBodyStillSavedOver(
  * A field Builder did not return says nothing about a change, and neither
  * does a read made before Content's latest save, so both keep Content's value.
  */
-export function builderSourceValuesKeepingUnpublishedChanges(args: {
+export function builderSourceValuesKeepingUnpublishedChanges(
+  args: KeepingUnpublishedChangesArgs,
+): Record<string, DocumentPropertyValue> {
+  const refreshed = sourceValuesKeepingUnpublishedChanges(args);
+  const next = withBuilderCmsPublicationIntent(
+    refreshed,
+    publicationIntentAfterRead({
+      existing: args.existing,
+      refreshed,
+      builderValues: args.builderValues,
+    }),
+  );
+  // Only the writer that compares an edit with Builder settles its conflict.
+  const conflicts = args.existing?.[BUILDER_CMS_EDIT_CONFLICTS_KEY];
+  if (conflicts !== undefined) next[BUILDER_CMS_EDIT_CONFLICTS_KEY] = conflicts;
+  return next;
+}
+
+interface KeepingUnpublishedChangesArgs {
   incoming: Record<string, DocumentPropertyValue>;
   existing: Record<string, DocumentPropertyValue> | null | undefined;
   /**
@@ -261,7 +459,11 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
    * row's copies are from before Content's save.
    */
   builderValues?: Record<string, DocumentPropertyValue>;
-}): Record<string, DocumentPropertyValue> {
+}
+
+function sourceValuesKeepingUnpublishedChanges(
+  args: KeepingUnpublishedChangesArgs,
+): Record<string, DocumentPropertyValue> {
   const read = readBuilderCmsUnpublishedChanges(args.existing);
   if (read.state === "invalid" && args.existing) {
     // Without the record, Content can't tell which values it saved, so
@@ -350,6 +552,7 @@ export function builderSourceValuesKeepingUnpublishedChanges(args: {
     ...(bodyKept && recorded.liveBlocksHash
       ? { liveBlocksHash: recorded.liveBlocksHash }
       : {}),
+    ...(bodyKept && recorded.liveBodyEmpty ? { liveBodyEmpty: true } : {}),
     ...(bodyKept && recorded.liveBodyLastUpdated !== undefined
       ? { liveBodyLastUpdated: recorded.liveBodyLastUpdated }
       : {}),

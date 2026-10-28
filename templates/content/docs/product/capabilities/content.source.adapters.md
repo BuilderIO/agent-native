@@ -171,6 +171,20 @@ takes the change live, and the execution summary says so. Unpublished changes
 someone else made in Builder are not visible to the reads, so a conflict with
 them is not detected.
 
+Each Builder row shows its Builder status in a read-only system property. When
+the source publishes updates and allows publication changes, picking Published
+or Draft there stages a publish or unpublish for that entry; nothing reaches
+Builder until the source review pushes it with that transition selected, and an
+unpublish still needs its confirmation. The staged change survives refreshes
+until Builder reports the target status, and clears when someone picks the
+entry's current status, turns publication changes off, or executes any publish
+or unpublish for the entry. A staged publish sends Content's saved but
+unpublished values with it, reviewed against Builder's live values. Published
+can't be picked while Builder reports unpublished changes Content didn't make:
+those live in Builder's editor, so only Builder can publish them. Disconnecting
+the last Builder source removes the status property and its shared view
+references; a personal view filter on it is not cleaned up.
+
 Prepared requests and receipts use identity-bound private blobs with verified
 readback; SQL stores compact opaque references. Exact replacement and deletion
 cleanup runs after confirmed database success; ambiguous outcomes retain

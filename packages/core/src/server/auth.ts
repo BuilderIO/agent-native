@@ -304,6 +304,11 @@ import {
 } from "./request-context.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
 import { captureAuthError } from "./sentry.js";
+import {
+  isSessionResolutionUnavailable,
+  markSessionResolutionUnavailable,
+  reportSessionResolutionUnavailable,
+} from "./session-resolution-unavailable.js";
 import { isTestIdentity } from "./test-identity.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
@@ -411,8 +416,34 @@ export interface AuthOptions {
    */
   getBrowserSession?: (event: H3Event) => Promise<AuthSession | null>;
   /**
-   * Set only when the custom provider independently verifies email ownership.
-   * Without this opt-in, an omitted `emailVerified` value remains unknown.
+   * An extra identity source, consulted before the built-in sessions. Unlike
+   * `getSession`, it does not replace them: a request it does not recognize
+   * (returns `null`) resolves exactly as it would without it, and the built-in
+   * sign-in routes stay mounted. Use it to let a host product vouch for its
+   * own users on a deployment that also serves everyone else. If it throws, the
+   * request is refused as session-unavailable (503) rather than falling
+   * through, so a browser holding two identities cannot silently become the
+   * other one. Ignored when `getSession` is set, which already takes over every
+   * session.
+   */
+  getAdditionalSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
+   * The cookie-only counterpart of `getAdditionalSession`, for browser UI
+   * capabilities and approvals. Never accept bearer tokens, query tokens, or
+   * other request headers here.
+   */
+  getAdditionalBrowserSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
+   * Called on sign-out to end the additional provider's own session (clear its
+   * cookie, drop any server-side state), which the built-in sign-out knows
+   * nothing about. Without it a user would still resolve as signed in on the
+   * next request.
+   */
+  clearAdditionalSession?: (event: H3Event) => void | Promise<void>;
+  /**
+   * Set only when the custom provider (`getSession` or
+   * `getAdditionalSession`) independently verifies email ownership. Without
+   * this opt-in, an omitted `emailVerified` value remains unknown.
    */
   trustCustomEmailVerification?: boolean;
   publicPaths?: string[];
@@ -2165,6 +2196,17 @@ async function performLogout(
     clearFirstRunOnboardingCookie(event);
     optOutOfAuthDisabledSession(event);
 
+    if (additionalClearSession) {
+      try {
+        await additionalClearSession(event);
+      } catch (error) {
+        // The user would still resolve as signed in through the additional
+        // provider, so sign-out has not worked.
+        revocationFailed = true;
+        captureAuthError(error, { route: "logout" });
+      }
+    }
+
     if (auth) {
       try {
         const result = await auth.api.signOut({
@@ -2336,6 +2378,11 @@ async function mapLegacySession(
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
 let customGetBrowserSession: AuthOptions["getBrowserSession"] | null = null;
+let additionalGetSession: AuthOptions["getAdditionalSession"] | null = null;
+let additionalGetBrowserSession:
+  | AuthOptions["getAdditionalBrowserSession"]
+  | null = null;
+let additionalClearSession: AuthOptions["clearAdditionalSession"] | null = null;
 let warnedMissingBrowserSession = false;
 let trustCustomEmailVerification = false;
 
@@ -2364,15 +2411,7 @@ let _authGuardConfig: AuthGuardConfig | null = null;
 const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
-const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
-
-export function isSessionResolutionUnavailable(event: H3Event): boolean {
-  return (
-    (event.context as Record<string, unknown> | undefined)?.[
-      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-    ] === true
-  );
-}
+export { isSessionResolutionUnavailable };
 
 async function getLegacyCookieSessionSafely(
   event: H3Event,
@@ -2381,9 +2420,7 @@ async function getLegacyCookieSessionSafely(
     return await getLegacyCookieSession(event);
   } catch (error) {
     console.error("[auth] legacy cookie session resolution error:", error);
-    (event.context as Record<string, unknown>)[
-      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-    ] = true;
+    markSessionResolutionUnavailable(event, "legacy-cookie", error);
     return null;
   }
 }
@@ -4821,6 +4858,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     ctx.__anSessionCache = (async () => {
       const identityResolutionStartedAtMs = Date.now();
       const session = await resolveSessionUncached(event);
+      if (!session?.email) reportSessionResolutionUnavailable(event);
       if (session?.email) {
         // A logout racing any credential lookup must win over work using its result.
         const embedCredential = verifyEmbedSessionToken(session.token);
@@ -4866,7 +4904,10 @@ export async function getBrowserCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   const session = await resolveBrowserCookieSession(event);
-  if (!session?.email) return null;
+  if (!session?.email) {
+    reportSessionResolutionUnavailable(event);
+    return null;
+  }
   const resolved = await backfillSessionOrg(session, event);
   await resumeIdentityRekeyForSession(resolved.email);
   return resolved;
@@ -4879,9 +4920,45 @@ export function getBrowserSessionConfigurationError(): string | undefined {
   return undefined;
 }
 
+/** The additional provider could not answer; the request must not resolve at all. */
+const ADDITIONAL_SESSION_FAILED = Symbol("additional-session-failed");
+
+/**
+ * The additional provider's verdict: a session, null to fall through to the
+ * built-in sessions, or a failure. A provider that cannot answer (a store
+ * outage, unreadable state) is not "no session": falling through would let a
+ * browser holding two identities silently become the other one, so the
+ * request is marked unavailable (503) instead.
+ */
+async function resolveAdditionalSession(
+  event: H3Event,
+  resolve: ((event: H3Event) => Promise<AuthSession | null>) | null | undefined,
+): Promise<AuthSession | null | typeof ADDITIONAL_SESSION_FAILED> {
+  if (!resolve || customGetSession) return null;
+  try {
+    const session = await resolve(event);
+    return session ? normalizeCustomSession(session) : null;
+  } catch (error) {
+    markSessionResolutionUnavailable(event, "additional-session", error);
+    return ADDITIONAL_SESSION_FAILED;
+  }
+}
+
+function hasBearerAuthorization(event: H3Event): boolean {
+  return /^bearer\s/i.test(getHeader(event, "authorization") ?? "");
+}
+
 async function resolveBrowserCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
+  if (additionalGetBrowserSession && getHeader(event, "cookie")) {
+    const additional = await resolveAdditionalSession(
+      event,
+      additionalGetBrowserSession,
+    );
+    if (additional === ADDITIONAL_SESSION_FAILED) return null;
+    if (additional) return additional;
+  }
   if (customGetSession) {
     if (!customGetBrowserSession) {
       if (!warnedMissingBrowserSession) {
@@ -4904,9 +4981,7 @@ async function resolveBrowserCookieSession(
       if (baSession?.user.email) return mapBetterAuthSession(baSession);
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
-      (event.context as Record<string, unknown>)[
-        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-      ] = true;
+      markSessionResolutionUnavailable(event, "better-auth", e);
     }
     const cookieSession = await getLegacyCookieSessionSafely(event);
     if (cookieSession) return cookieSession;
@@ -4947,6 +5022,16 @@ async function resolveSessionUncached(
     }
   }
 
+  // First, like the browser-cookie resolver, so a request carrying both an
+  // additional-provider session and a legacy cookie resolves to the same owner
+  // in every check. Not when the request names an explicit bearer credential:
+  // that is the caller's choice and wins over a cookie.
+  const additionalSession = hasBearerAuthorization(event)
+    ? null
+    : await resolveAdditionalSession(event, additionalGetSession);
+  if (additionalSession === ADDITIONAL_SESSION_FAILED) return null;
+  if (additionalSession) return additionalSession;
+
   const accessTokens = getAccessTokens();
   if (accessTokens.length > 0) {
     const cookieSession = await getLegacyCookieSessionSafely(event);
@@ -4983,9 +5068,7 @@ async function resolveSessionUncached(
       }
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
-      (event.context as Record<string, unknown>)[
-        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-      ] = true;
+      markSessionResolutionUnavailable(event, "better-auth", e);
     }
 
     const cookieSession = await getLegacyCookieSessionSafely(event);
@@ -7240,6 +7323,8 @@ async function mountBetterAuthRoutes(
             });
           }
         });
+        // The additional provider's own session ends with the rest.
+        if (additionalClearSession) await additionalClearSession(event);
         clearFrameworkSessionCookies(event);
         clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
@@ -7463,6 +7548,13 @@ export async function autoMountAuth(
       trustCustomEmailVerification =
         options.trustCustomEmailVerification === true;
     }
+    if (options.getAdditionalSession) {
+      additionalGetSession = options.getAdditionalSession;
+      additionalGetBrowserSession = options.getAdditionalBrowserSession ?? null;
+      additionalClearSession = options.clearAdditionalSession ?? null;
+      trustCustomEmailVerification =
+        options.trustCustomEmailVerification === true;
+    }
     if (_authGuardConfig) {
       if (
         options.googleOnly ||
@@ -7525,6 +7617,9 @@ export async function autoMountAuth(
     if (isDevEnvironment()) {
       customGetSession = null;
       customGetBrowserSession = null;
+      additionalGetSession = null;
+      additionalGetBrowserSession = null;
+      additionalClearSession = null;
       trustCustomEmailVerification = false;
       return false;
     }
@@ -7535,6 +7630,9 @@ export async function autoMountAuth(
 
   customGetSession = null;
   customGetBrowserSession = null;
+  additionalGetSession = null;
+  additionalGetBrowserSession = null;
+  additionalClearSession = null;
   trustCustomEmailVerification = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = resolveAuthPublicPaths(options.publicPaths);
@@ -7557,6 +7655,12 @@ export async function autoMountAuth(
   if (options.getSession) {
     customGetSession = options.getSession;
     customGetBrowserSession = options.getBrowserSession ?? null;
+    trustCustomEmailVerification =
+      options.trustCustomEmailVerification === true;
+  } else if (options.getAdditionalSession) {
+    additionalGetSession = options.getAdditionalSession;
+    additionalGetBrowserSession = options.getAdditionalBrowserSession ?? null;
+    additionalClearSession = options.clearAdditionalSession ?? null;
     trustCustomEmailVerification =
       options.trustCustomEmailVerification === true;
   }
