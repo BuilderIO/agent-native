@@ -3349,6 +3349,23 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
   });
 
+  // A missing page is the same for every visitor, so the worker stamps it with
+  // the deployment's policy, as the Nitro handler does.
+  it("caches a not-found answer that sets no window like the Nitro handler", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/missing"),
+      {},
+      {},
+    );
+
+    expect(response.status).toBe(404);
+    for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+  });
+
   it("stores nothing when a route's max age is malformed", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
       responseHeaders: { [SSR_MAX_AGE_HEADER]: "soon" },
