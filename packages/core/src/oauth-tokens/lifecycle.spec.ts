@@ -356,6 +356,22 @@ describe("OAuth credential lifecycle", () => {
     });
   });
 
+  it("marks expired credentials without a refresh token as reconnect_required", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1, refresh: "" }),
+    );
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        refresh: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
+  });
+
   it("reports nothing to mark when no credential is stored", async () => {
     await expect(markOAuthReconnectRequired(identity)).resolves.toBe(false);
     await expect(readOAuthCredentialState(identity)).resolves.toEqual({
@@ -615,6 +631,7 @@ describe("OAuth credential lifecycle", () => {
     await expect(competing).resolves.toMatchObject({
       accessToken: null,
       state: { kind: "expired" },
+      refreshFailure: "transient",
     });
     expect(competingRefresh).not.toHaveBeenCalled();
 
@@ -998,13 +1015,32 @@ describe("OAuth credential lifecycle", () => {
     expect(refresh).toHaveBeenCalledOnce();
   });
 
-  it("hands back the same token when a forced refresh has no refresh token", async () => {
+  it("does not reuse a refused token when its forced refresh fails", async () => {
+    await saveOAuthCredential(identity, credential());
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        forceRefresh: true,
+        refresh: async () => {
+          throw new Error("temporary provider failure");
+        },
+      }),
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "connected" },
+    });
+  });
+
+  it("does not hand back a refused token when a forced refresh has no refresh token", async () => {
     await saveOAuthCredential(identity, credential({ refresh: "" }));
     const refresh = vi.fn();
 
     await expect(
       resolveOAuthCredentialAccess(identity, { refresh, forceRefresh: true }),
-    ).resolves.toMatchObject({ accessToken: "<ACCESS_TOKEN>" });
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
     expect(refresh).not.toHaveBeenCalled();
   });
 
@@ -1023,6 +1059,31 @@ describe("OAuth credential lifecycle", () => {
     ).resolves.toMatchObject({
       accessToken: null,
       state: { kind: "reconnect_required" },
+    });
+  });
+
+  it("uses a concurrent reconnect saved during a failed refresh", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    vi.mocked(replaceOAuthTokensIfRevision).mockImplementationOnce(async () => {
+      await saveOAuthCredential(
+        identity,
+        credential({ access: "<CONCURRENT_RECONNECT_TOKEN>" }),
+      );
+      return false;
+    });
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        refresh: async () => {
+          throw new Error("refresh token rejected");
+        },
+      }),
+    ).resolves.toMatchObject({
+      accessToken: "<CONCURRENT_RECONNECT_TOKEN>",
+      state: { kind: "connected" },
     });
   });
 

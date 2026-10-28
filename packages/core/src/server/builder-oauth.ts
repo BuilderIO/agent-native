@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 
+import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
+
 import {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
+  McpOAuthReauthorizationRequiredError,
+  McpOAuthRefreshUnavailableError,
   markMcpOAuthReconnectRequired,
   readMcpOAuthCredentials,
   revokeMcpOAuthCredentials,
@@ -41,6 +45,18 @@ export const BUILDER_OAUTH_SCOPES = [
   "builder:designsystem:write",
 ] as const;
 export type BuilderOAuthPermissionScope = (typeof BUILDER_OAUTH_SCOPES)[number];
+
+function shouldMarkBuilderReconnectRequiredOnRefreshFailure(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof McpOAuthReauthorizationRequiredError ||
+    (error instanceof OAuthError &&
+      (error.code === OAuthErrorCode.InvalidGrant ||
+        error.code === OAuthErrorCode.InvalidClient ||
+        error.code === OAuthErrorCode.UnauthorizedClient))
+  );
+}
 
 const BUILDER_OAUTH_KEY = "builder-general-resource-v1";
 
@@ -419,6 +435,7 @@ export async function getBuilderOAuthSession(
   access: { forceRefresh?: boolean; orgOnly?: boolean } = {},
 ): Promise<BuilderOAuthSession | null> {
   let missingRequiredScope = false;
+  let transientRefreshFailure: McpOAuthRefreshUnavailableError | null = null;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
     forUse: true,
     orgOnly: access.orgOnly,
@@ -429,10 +446,22 @@ export async function getBuilderOAuthSession(
       `${options.scope}:${options.scopeId}`,
     );
     if (stored === null) continue;
-    const accessToken = await getMcpOAuthAccessToken({
-      ...options,
-      forceRefresh: access.forceRefresh,
-    });
+    let accessToken: string | null;
+    try {
+      accessToken = await getMcpOAuthAccessToken({
+        ...options,
+        ...(access.forceRefresh !== undefined
+          ? { forceRefresh: access.forceRefresh }
+          : {}),
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure:
+          shouldMarkBuilderReconnectRequiredOnRefreshFailure,
+      });
+    } catch (error) {
+      if (!(error instanceof McpOAuthRefreshUnavailableError)) throw error;
+      transientRefreshFailure ??= error;
+      continue;
+    }
     if (!accessToken) continue;
     const credentials = await readMcpOAuthCredentials(options);
     if (!credentials || !isBuilderCredential(credentials)) continue;
@@ -449,6 +478,7 @@ export async function getBuilderOAuthSession(
       connectionId: options.key,
     };
   }
+  if (transientRefreshFailure) throw transientRefreshFailure;
   if (requiredScope && missingRequiredScope) {
     throw new BuilderOAuthScopeError(requiredScope);
   }
