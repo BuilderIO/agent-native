@@ -13700,6 +13700,136 @@ describe("server/auth", () => {
       });
     });
   });
+
+  describe("additional session provider", () => {
+    const memberEmail = "member@example.com";
+    const hostEmail = "host-user@example.com";
+    let builtInSession: ReturnType<typeof vi.fn>;
+
+    function mockBuiltInAuth() {
+      builtInSession = vi.fn(async () => ({
+        user: { id: "ba-user", email: memberEmail },
+        session: { token: "ba-token" },
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: builtInSession,
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getRefusedLocalDatabaseSource: () => null,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./framework-request-handler.js", () => ({
+        getH3App: (app: any) => app,
+      }));
+    }
+
+    const cookieEvent = () =>
+      createMockEvent({ headers: { cookie: "host-login=1" } });
+
+    it("uses the provider's session when it recognizes the request", async () => {
+      mockBuiltInAuth();
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      const getAdditionalSession = vi.fn(async () => ({ email: hostEmail }));
+      await autoMountAuth(createMockApp(), { getAdditionalSession });
+
+      await expect(getSession(cookieEvent())).resolves.toMatchObject({
+        email: hostEmail,
+      });
+      expect(builtInSession).not.toHaveBeenCalled();
+    });
+
+    it("resolves the built-in session when the provider does not recognize the request", async () => {
+      mockBuiltInAuth();
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      const getAdditionalSession = vi.fn(async () => null);
+      await autoMountAuth(createMockApp(), { getAdditionalSession });
+
+      await expect(getSession(cookieEvent())).resolves.toMatchObject({
+        email: memberEmail,
+      });
+      expect(getAdditionalSession).toHaveBeenCalled();
+    });
+
+    it("never locks out built-in users when the provider throws", async () => {
+      mockBuiltInAuth();
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const { autoMountAuth, getSession } = await import("./auth.js");
+        await autoMountAuth(createMockApp(), {
+          getAdditionalSession: async () => {
+            throw new Error("provider down");
+          },
+        });
+
+        await expect(getSession(cookieEvent())).resolves.toMatchObject({
+          email: memberEmail,
+        });
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it("keeps the built-in sign-in routes instead of replacing them", async () => {
+      mockBuiltInAuth();
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, { getAdditionalSession: async () => null });
+
+      const mounted = app.use.mock.calls.map((call: any[]) => call[0]);
+      expect(mounted).toContain("/_agent-native/auth/ba");
+
+      const replaced = createMockApp();
+      await import("./auth.js").then(({ autoMountAuth: mount }) =>
+        mount(replaced, { getSession: async () => null }),
+      );
+      expect(
+        replaced.use.mock.calls.map((call: any[]) => call[0]),
+      ).not.toContain("/_agent-native/auth/ba");
+    });
+
+    it("leaves getSession in charge when both are set", async () => {
+      mockBuiltInAuth();
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      const getAdditionalSession = vi.fn(async () => ({ email: hostEmail }));
+      await autoMountAuth(createMockApp(), {
+        getSession: async () => ({ email: "custom@example.com" }),
+        getBrowserSession: async () => ({ email: "custom@example.com" }),
+        getAdditionalSession,
+      });
+
+      await expect(getSession(cookieEvent())).resolves.toMatchObject({
+        email: "custom@example.com",
+      });
+      expect(getAdditionalSession).not.toHaveBeenCalled();
+    });
+
+    it("marks the provider's sessions verified only when the host opts in", async () => {
+      mockBuiltInAuth();
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      await autoMountAuth(createMockApp(), {
+        getAdditionalSession: async () => ({ email: hostEmail }),
+        trustCustomEmailVerification: true,
+      });
+
+      await expect(getSession(cookieEvent())).resolves.toMatchObject({
+        email: hostEmail,
+        emailVerified: true,
+      });
+    });
+  });
 });
 
 function createMockApp(): any {

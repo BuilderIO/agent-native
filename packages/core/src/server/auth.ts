@@ -416,8 +416,25 @@ export interface AuthOptions {
    */
   getBrowserSession?: (event: H3Event) => Promise<AuthSession | null>;
   /**
-   * Set only when the custom provider independently verifies email ownership.
-   * Without this opt-in, an omitted `emailVerified` value remains unknown.
+   * An extra identity source, consulted before the built-in sessions. Unlike
+   * `getSession`, it does not replace them: a request it does not recognize
+   * (returns `null`) resolves exactly as it would without it, and the built-in
+   * sign-in routes stay mounted. Use it to let a host product vouch for its
+   * own users on a deployment that also serves everyone else. If it throws, the
+   * request falls through to the built-in sessions. Ignored when `getSession`
+   * is set, which already takes over every session.
+   */
+  getAdditionalSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
+   * The cookie-only counterpart of `getAdditionalSession`, for browser UI
+   * capabilities and approvals. Never accept bearer tokens, query tokens, or
+   * other request headers here.
+   */
+  getAdditionalBrowserSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
+   * Set only when the custom provider (`getSession` or
+   * `getAdditionalSession`) independently verifies email ownership. Without
+   * this opt-in, an omitted `emailVerified` value remains unknown.
    */
   trustCustomEmailVerification?: boolean;
   publicPaths?: string[];
@@ -2341,6 +2358,10 @@ async function mapLegacySession(
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
 let customGetBrowserSession: AuthOptions["getBrowserSession"] | null = null;
+let additionalGetSession: AuthOptions["getAdditionalSession"] | null = null;
+let additionalGetBrowserSession:
+  | AuthOptions["getAdditionalBrowserSession"]
+  | null = null;
 let warnedMissingBrowserSession = false;
 let trustCustomEmailVerification = false;
 
@@ -4878,9 +4899,34 @@ export function getBrowserSessionConfigurationError(): string | undefined {
   return undefined;
 }
 
+/**
+ * The additional provider's verdict, or null to fall through to the built-in
+ * sessions. A provider failure must never lock out everyone else.
+ */
+async function resolveAdditionalSession(
+  event: H3Event,
+  resolve: ((event: H3Event) => Promise<AuthSession | null>) | null | undefined,
+): Promise<AuthSession | null> {
+  if (!resolve || customGetSession) return null;
+  try {
+    const session = await resolve(event);
+    return session ? normalizeCustomSession(session) : null;
+  } catch (error) {
+    console.error("[auth] additional session provider error:", error);
+    return null;
+  }
+}
+
 async function resolveBrowserCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
+  if (additionalGetBrowserSession && getHeader(event, "cookie")) {
+    const additional = await resolveAdditionalSession(
+      event,
+      additionalGetBrowserSession,
+    );
+    if (additional) return additional;
+  }
   if (customGetSession) {
     if (!customGetBrowserSession) {
       if (!warnedMissingBrowserSession) {
@@ -4949,6 +4995,12 @@ async function resolveSessionUncached(
     const cookieSession = await getLegacyCookieSessionSafely(event);
     if (cookieSession) return cookieSession;
   }
+
+  const additionalSession = await resolveAdditionalSession(
+    event,
+    additionalGetSession,
+  );
+  if (additionalSession) return additionalSession;
 
   if (customGetSession) {
     const session = await customGetSession(event);
@@ -7458,6 +7510,12 @@ export async function autoMountAuth(
       trustCustomEmailVerification =
         options.trustCustomEmailVerification === true;
     }
+    if (options.getAdditionalSession) {
+      additionalGetSession = options.getAdditionalSession;
+      additionalGetBrowserSession = options.getAdditionalBrowserSession ?? null;
+      trustCustomEmailVerification =
+        options.trustCustomEmailVerification === true;
+    }
     if (_authGuardConfig) {
       if (
         options.googleOnly ||
@@ -7520,6 +7578,8 @@ export async function autoMountAuth(
     if (isDevEnvironment()) {
       customGetSession = null;
       customGetBrowserSession = null;
+      additionalGetSession = null;
+      additionalGetBrowserSession = null;
       trustCustomEmailVerification = false;
       return false;
     }
@@ -7530,6 +7590,8 @@ export async function autoMountAuth(
 
   customGetSession = null;
   customGetBrowserSession = null;
+  additionalGetSession = null;
+  additionalGetBrowserSession = null;
   trustCustomEmailVerification = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = resolveAuthPublicPaths(options.publicPaths);
@@ -7552,6 +7614,11 @@ export async function autoMountAuth(
   if (options.getSession) {
     customGetSession = options.getSession;
     customGetBrowserSession = options.getBrowserSession ?? null;
+    trustCustomEmailVerification =
+      options.trustCustomEmailVerification === true;
+  } else if (options.getAdditionalSession) {
+    additionalGetSession = options.getAdditionalSession;
+    additionalGetBrowserSession = options.getAdditionalBrowserSession ?? null;
     trustCustomEmailVerification =
       options.trustCustomEmailVerification === true;
   }
