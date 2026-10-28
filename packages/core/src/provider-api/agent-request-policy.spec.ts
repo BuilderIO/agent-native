@@ -26,6 +26,7 @@ describe("assertAgentProviderRequestAllowed", () => {
     { method: undefined, path: "/crm/v3/objects/deals" },
     { method: null, path: "/crm/v3/objects/deals" },
     { method: "POST", path: "/crm/v3/objects/contacts/search" },
+    { method: "POST", path: "/crm/objects/2026-09/contacts/search" },
   ])("allows a HubSpot read: %j", (request) => {
     expect(() =>
       assertAgentProviderRequestAllowed({ provider: "hubspot", ...request }),
@@ -34,6 +35,7 @@ describe("assertAgentProviderRequestAllowed", () => {
 
   it.each([
     { method: "POST", path: "/crm/v3/objects/contacts" },
+    { method: "POST", path: "/crm/objects/2026-09/contacts" },
     { method: "post", path: "/crm/v3/objects/contacts/batch/update" },
     { method: "PATCH", path: "/crm/v3/objects/deals/1" },
     { method: "PUT", path: "/crm/v3/objects/deals/1" },
