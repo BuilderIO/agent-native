@@ -473,6 +473,8 @@ export type AgentChatEvent =
       unknownCause?: UnknownWriteCause;
       /** Why a failed call failed, where the loop could tell. */
       errorClass?: ToolErrorClass;
+      /** With `input_invalid`: the failing argument paths, bounded, never values. */
+      invalidPaths?: string[];
       replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];
