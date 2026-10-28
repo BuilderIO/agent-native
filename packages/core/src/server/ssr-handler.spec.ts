@@ -9,6 +9,7 @@ import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
@@ -1318,6 +1319,78 @@ describe("createH3SSRHandler", () => {
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
         "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
       );
+    });
+
+    it("shortens the window for a route that names one", async () => {
+      mockHtmlResponse({
+        [SSR_MAX_AGE_HEADER]: "20",
+        "cache-control": "private, no-store",
+      });
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/p/doc-1"));
+
+      expect(response.headers.get("cache-control")).toBe(
+        CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      );
+      expect(response.headers.get("cdn-cache-control")).toBe(
+        "public, s-maxage=20, stale-while-revalidate=20",
+      );
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        "public, durable, s-maxage=20, stale-while-revalidate=20",
+      );
+      expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+    });
+
+    it("shortens the window on .data and 404 responses too", async () => {
+      mockDataResponse({ [SSR_MAX_AGE_HEADER]: "20" });
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("<html><body>not found</body></html>", {
+          status: 404,
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            [SSR_MAX_AGE_HEADER]: "20",
+          },
+        }),
+      );
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      for (const path of ["/p/doc-1.data", "/p/gone"]) {
+        const response = await handler(createEvent(path));
+        expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+          "public, durable, s-maxage=20, stale-while-revalidate=20",
+        );
+        expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+      }
+    });
+
+    it("stores nothing for a route that names zero seconds", async () => {
+      mockHtmlResponse({ [SSR_MAX_AGE_HEADER]: "0" });
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/p/doc-1"));
+
+      expectCacheHeaders(response, DISABLED_SSR_CACHE_HEADERS["cache-control"]);
+    });
+
+    it("never lets a route lengthen the deployment's window", async () => {
+      process.env.AGENT_NATIVE_SSR_CACHE = "off";
+      mockHtmlResponse({ [SSR_MAX_AGE_HEADER]: "20" });
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/p/doc-1"));
+
+      expectCacheHeaders(response, DISABLED_SSR_CACHE_HEADERS["cache-control"]);
+    });
+
+    it("keeps the deployment policy when a route's window doesn't parse", async () => {
+      mockHtmlResponse({ [SSR_MAX_AGE_HEADER]: "soon" });
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/p/doc-1"));
+
+      expectDefaultSsrCacheHeaders(response);
+      expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
     });
 
     it("caches a 404 shell so dead links stop re-invoking the function", async () => {

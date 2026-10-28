@@ -5,10 +5,14 @@ import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  parseSsrMaxAge,
   resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  resolveSsrCachePolicy,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
+  ssrCacheHeadersWithin,
 } from "../shared/cache-control.js";
 import {
   CHUNK_RECOVERY_PATH_SUFFIX,
@@ -319,6 +323,11 @@ function isSsrHtmlOrDataResponse(
  * │ PER-USER response variation — no `private`, no `Vary: Cookie`, and no     │
  * │ request-specific content. Recovery keeps a bounded alias and never adds  │
  * │ arbitrary query-key variation to the normally cached shell.               │
+ * │                                                                            │
+ * │ A route whose content can change or be taken down may SHORTEN its own     │
+ * │ window with `SSR_MAX_AGE_HEADER`: one duration for every visitor of that  │
+ * │ route, never longer than the deployment's, so it can't personalize the    │
+ * │ shell or poison a shared key.                                              │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * The same sharing rule governs any DIAGNOSTIC header on this response. A
@@ -339,6 +348,8 @@ function applyDefaultSsrCacheHeader(
   const responseRequestsQueryVary =
     headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
+  const routeMaxAge = parseSsrMaxAge(headers.get(SSR_MAX_AGE_HEADER));
+  headers.delete(SSR_MAX_AGE_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   // Current recovery uses one fixed path alias. Still-deployed clients use the
@@ -368,7 +379,11 @@ function applyDefaultSsrCacheHeader(
     else headers.delete("vary");
   }
 
-  for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
+  const cacheHeaders =
+    routeMaxAge === null
+      ? resolveSsrCacheHeaders()
+      : ssrCacheHeadersWithin(resolveSsrCachePolicy(), routeMaxAge);
+  for (const [name, value] of Object.entries(cacheHeaders)) {
     headers.set(name, value);
   }
   const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {

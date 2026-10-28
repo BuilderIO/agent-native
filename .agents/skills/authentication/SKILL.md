@@ -398,6 +398,17 @@ per-user SSR); it is enforced by `guard:ssr-cache-shell` and
 `ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`), and reverts
 will be rejected.
 
+A route whose rendered content can change or be taken down, such as a public
+share page, may shorten its own window with the `SSR_MAX_AGE_HEADER` response
+header (`x-agent-native-ssr-max-age`, whole seconds, from
+`@agent-native/core/shared`). The SSR handler removes the header and only ever
+shortens the deployment policy: browsers revalidate on each visit, shared
+caches keep the copy for at most that many seconds and serve it once more
+while refreshing, and `0` stores nothing. It names one duration for every
+visitor of the route, so it is not per-user variation. A thrown `Response`'s
+headers reach only the route that catches it, so a route that sets the header
+on its not-found answer needs its own `ErrorBoundary`.
+
 `AppProviders` applies `RequireSession` automatically on its private branch. It
 resolves the session on the client and redirects signed-out visitors to
 `/sign-in?return=…` before mounting the routed shell. The legacy

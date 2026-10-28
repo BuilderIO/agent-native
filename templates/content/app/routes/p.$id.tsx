@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   safeJsonForHtml,
@@ -35,6 +36,7 @@ import type {
 import { data, redirect, useLoaderData } from "react-router";
 
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
+import { ContentErrorBoundaryBody } from "@/components/ContentErrorBoundary";
 import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import {
@@ -76,29 +78,53 @@ type PublicDocumentLoaderData =
       unavailable: { reason: "private"; id: string; basePath: string };
     };
 
+// A public page can be edited, made private or moved to Trash at any moment,
+// and every answer here is cached for all visitors, so none is kept longer
+// than this. Readers see a change within twice this, well under a minute.
+export const PUBLIC_DOCUMENT_CACHE_SECONDS = 20;
+
+const PUBLIC_DOCUMENT_HEADERS = {
+  [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
+};
+
 const PRIVATE_AGENT_DOCUMENT_HEADERS = {
   "Cache-Control": "private, max-age=0, no-store",
   "Referrer-Policy": "no-referrer",
   [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+  [SSR_MAX_AGE_HEADER]: "0",
 };
 
 function publicDocumentLoaderData(
   payload: PublicDocumentLoaderData,
   privateAgentAccess = false,
 ) {
-  if (!privateAgentAccess) return payload;
   return data(payload, {
-    headers: PRIVATE_AGENT_DOCUMENT_HEADERS,
+    headers: privateAgentAccess
+      ? PRIVATE_AGENT_DOCUMENT_HEADERS
+      : PUBLIC_DOCUMENT_HEADERS,
   });
 }
 
-export function headers({ loaderHeaders }: HeadersArgs) {
-  return loaderHeaders;
+function publicDocumentNotFound() {
+  return new Response("Not found", {
+    status: 404,
+    headers: PUBLIC_DOCUMENT_HEADERS,
+  });
+}
+
+export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
+  return errorHeaders ?? loaderHeaders;
+}
+
+// React Router hands a thrown answer's headers only to the route that catches
+// it, so this route catches its own not-found to keep the short cache window.
+export function ErrorBoundary() {
+  return <ContentErrorBoundaryBody />;
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
-  if (!id) throw new Response("Not found", { status: 404 });
+  if (!id) throw publicDocumentNotFound();
   const agentAccessToken = new URL(request.url).searchParams.get(
     AGENT_ACCESS_PARAM,
   );
@@ -125,7 +151,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     .where(and(eq(schema.documents.id, id), isNull(schema.documents.trashedAt)))
     .limit(1);
 
-  if (!doc) throw new Response("Not found", { status: 404 });
+  if (!doc) throw publicDocumentNotFound();
   const tokenAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
         resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,

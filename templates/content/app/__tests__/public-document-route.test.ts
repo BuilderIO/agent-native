@@ -1,4 +1,7 @@
-import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
+import {
+  SSR_MAX_AGE_HEADER,
+  SSR_QUERY_CACHE_KEY_HEADER,
+} from "@agent-native/core/shared";
 import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,8 +72,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   AgentReadableDocumentDiscovery,
+  headers,
   loader,
   meta,
+  PUBLIC_DOCUMENT_CACHE_SECONDS,
   ReadOnlyMarkdownContent,
 } from "../routes/p.$id";
 
@@ -150,7 +155,7 @@ describe("public document route", () => {
   it("does not disclose private document fields to an anonymous share-page request", async () => {
     resultQueue.current = [documentRows("private")];
 
-    const result = await loader(requestFor());
+    const result = ((await loader(requestFor())) as any).data;
 
     expect(result).toMatchObject({
       document: null,
@@ -296,16 +301,16 @@ Second part
   it("hands the public page the Clips URL from deployment config", async () => {
     resultQueue.current = [documentRows("public")];
     await expect(loader(requestFor())).resolves.toMatchObject({
-      clipsAppUrl: "https://clips.example.test",
+      data: { clipsAppUrl: "https://clips.example.test" },
     });
   });
 
-  it("serves a public document without private loader headers", async () => {
+  it("serves a public document cached for seconds, without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 
-    const result = await loader(requestFor());
+    const result = (await loader(requestFor())) as any;
 
-    expect(result).toMatchObject({
+    expect(result.data).toMatchObject({
       document: {
         id: "doc-1",
         title: "Launch notes",
@@ -314,7 +319,9 @@ Second part
       basePath: "",
       origin: "https://content.example.test",
     });
-    expect((result as any).type).not.toBe("DataWithResponseInit");
+    expect(result.init.headers).toEqual({
+      [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
+    });
     expect(where).toHaveBeenCalledWith([
       { column: "id_col", value: "doc-1" },
       { column: "trashed_at_col", value: null },
@@ -336,6 +343,7 @@ Second part
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
       [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      [SSR_MAX_AGE_HEADER]: "0",
     });
     expect(result.data).toMatchObject({
       document: { id: "doc-1", title: "Launch notes" },
@@ -348,10 +356,34 @@ Second part
   it("does not load trashed documents for public previews", async () => {
     resultQueue.current = [[]];
 
-    await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
+    const error = (await loader(requestFor()).catch((e) => e)) as Response;
+    expect(error.status).toBe(404);
+    // Restoring a page from Trash brings its public link back within seconds.
+    expect(error.headers.get(SSR_MAX_AGE_HEADER)).toBe(
+      String(PUBLIC_DOCUMENT_CACHE_SECONDS),
+    );
     expect(where).toHaveBeenCalledWith([
       { column: "id_col", value: "doc-1" },
       { column: "trashed_at_col", value: null },
     ]);
+  });
+
+  it("keeps the short window on private notices", async () => {
+    resultQueue.current = [documentRows("private")];
+
+    const result = (await loader(requestFor())) as any;
+
+    expect(result.data).toMatchObject({ document: null });
+    expect(result.init.headers).toEqual({
+      [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
+    });
+  });
+
+  it("sends a not-found answer's own headers", () => {
+    const errorHeaders = new Headers({ [SSR_MAX_AGE_HEADER]: "20" });
+    const loaderHeaders = new Headers();
+
+    expect(headers({ errorHeaders, loaderHeaders } as any)).toBe(errorHeaders);
+    expect(headers({ loaderHeaders } as any)).toBe(loaderHeaders);
   });
 });

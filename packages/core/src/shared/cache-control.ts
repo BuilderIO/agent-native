@@ -23,6 +23,16 @@ export const SSR_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 
 export const SSR_QUERY_CACHE_KEY_HEADER = "x-agent-native-ssr-key";
 
+/**
+ * Response header a route sets to the most seconds its SSR response may be
+ * kept anywhere, for a page whose content can change or be taken down (a
+ * public share page, say). The SSR handler reads and removes it. It only ever
+ * shortens the deployment's policy, and it names one duration for every
+ * visitor of the route, so it can't vary the shell per request or per user.
+ * `0` means don't store it at all.
+ */
+export const SSR_MAX_AGE_HEADER = "x-agent-native-ssr-max-age";
+
 export type SsrHtmlContentTypeOptions = {
   varyByQuery?: boolean;
 };
@@ -120,8 +130,69 @@ export function ssrCacheHeadersForPolicy(
   };
 }
 
+// The shared-cache windows inside DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL.
+const DEFAULT_SSR_SHARED_MAX_AGE_SECONDS = 31_536_000;
+const DEFAULT_SSR_SHARED_STALE_SECONDS = 604_800;
+
+/** The route's `SSR_MAX_AGE_HEADER` value in seconds, or null when unset. */
+export function parseSsrMaxAge(raw: string | null | undefined): number | null {
+  const value = raw?.trim();
+  if (!value || !/^\d+$/.test(value)) return null;
+  return Math.min(Number(value), MAX_SSR_CACHE_SECONDS);
+}
+
+/**
+ * The deployment's policy with every window cut to at most `seconds`, for a
+ * route that set `SSR_MAX_AGE_HEADER`. Browsers revalidate on each visit, so
+ * shared caches alone bound how old a copy gets: fresh for `seconds`, then
+ * served once more while it refreshes, so never more than twice `seconds`
+ * after the render. Nothing is served stale on origin errors either, since a
+ * page taken down must not come back while origin is failing.
+ */
+export function ssrCacheHeadersWithin(
+  policy: SsrCachePolicy,
+  seconds: number,
+): SsrCacheHeaders {
+  if (policy.kind === "disabled" || seconds <= 0) {
+    return { ...DISABLED_SSR_CACHE_HEADERS };
+  }
+  const maxAge = Math.min(
+    seconds,
+    policy.kind === "maxAge"
+      ? policy.seconds
+      : DEFAULT_SSR_SHARED_MAX_AGE_SECONDS,
+  );
+  const stale = Math.min(
+    seconds,
+    policy.kind === "maxAge"
+      ? policy.seconds
+      : DEFAULT_SSR_SHARED_STALE_SECONDS,
+  );
+  const shared = `s-maxage=${maxAge}, stale-while-revalidate=${stale}`;
+  return {
+    "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    "cdn-cache-control": `public, ${shared}`,
+    "netlify-cdn-cache-control": `public, durable, ${shared}`,
+  };
+}
+
 let memoizedRaw: string | undefined;
 let memoizedHeaders: Readonly<SsrCacheHeaders> | undefined;
+let memoizedPolicyRaw: string | undefined;
+let memoizedPolicy: SsrCachePolicy | undefined;
+
+/** The deployment-wide policy from `AGENT_NATIVE_SSR_CACHE`. */
+export function resolveSsrCachePolicy(
+  env: Record<string, string | undefined> = typeof process === "undefined"
+    ? {}
+    : process.env,
+): SsrCachePolicy {
+  const raw = env[SSR_CACHE_ENV_VAR];
+  if (memoizedPolicy && raw === memoizedPolicyRaw) return memoizedPolicy;
+  memoizedPolicyRaw = raw;
+  memoizedPolicy = parseSsrCacheSetting(raw);
+  return memoizedPolicy;
+}
 
 export function resolveSsrCacheHeaders(
   env: Record<string, string | undefined> = typeof process === "undefined"
