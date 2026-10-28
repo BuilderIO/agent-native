@@ -48,9 +48,14 @@ import {
   builderCmsReferenceIdKey,
 } from "./_builder-cms-source-adapter.js";
 import {
+  builderCmsEditConflictKey,
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
+  readBuilderCmsEditConflicts,
+  readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsEditConflicts,
+  withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
 import type {
@@ -108,6 +113,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     >,
   ) => Promise<DatabaseRecord | null>;
   assertEditor: (database: DatabaseRecord) => Promise<void>;
+  assertPageEditor: (documentId: string) => Promise<void>;
   getSourceSnapshot: (
     database: DatabaseRecord,
   ) => Promise<ContentDatabaseSource | null>;
@@ -491,7 +497,29 @@ export function builderCmsReconciledSourceValuesJson(args: {
     ...(args.snapshotSourceValues ?? {}),
     ...parseSourceValues(args.existingSourceValuesJson),
   };
-  const next = { ...existing };
+  const effect = args.plan.payload.effect;
+  // A push settles the staged change it sent, and the one it started with
+  // when it sent the other transition instead. One staged while it was in
+  // flight, or left out of its review, still waits for a push.
+  const staged = readBuilderCmsPublicationIntent(existing);
+  const settledIntent =
+    staged.state === "staged" &&
+    (staged.transition === effect ||
+      ((effect === "publish" || effect === "unpublish") &&
+        staged.transition === args.changeSet.stagedPublicationTransition))
+      ? withBuilderCmsPublicationIntent(existing, null)
+      : { ...existing };
+  // It settles the edit conflicts it pushed over too: the review showed
+  // them, and the push overwrote Builder's change.
+  const pushedKeys = args.changeSet.fieldChanges.map(builderCmsEditConflictKey);
+  if (args.changeSet.bodyChange) pushedKeys.push(BUILDER_CMS_BODY_CONTENT_KEY);
+  const next =
+    readBuilderCmsEditConflicts(existing).state === "recorded"
+      ? withBuilderCmsEditConflicts(settledIntent, {
+          ownedKeys: pushedKeys,
+          conflictedKeys: [],
+        })
+      : settledIntent;
   const published = builderCmsPublishedAfterWrite({
     effect: args.plan.payload.effect,
     livePreflight: args.plan.payload.livePreflight,
@@ -745,6 +773,12 @@ function livePreflightBlockMessage(args: {
   }
   if (args.effect === "unpublish" && args.liveState.published !== "published") {
     return "Entry is not currently published.";
+  }
+  // An autosave in Builder's editor can leave the entry's update time alone,
+  // so the timestamp check above doesn't catch one made after the review.
+  // Content's own unpublished save doesn't account for it either.
+  if (args.effect === "publish" && args.liveState.hasAutosaves === true) {
+    return "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder.";
   }
   return null;
 }
@@ -1086,6 +1120,9 @@ export function realExecutionDeps(
     resolveDatabase: (args) => resolveDatabaseForSourceMutation(args),
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
+    },
+    assertPageEditor: async (documentId) => {
+      await assertAccess("document", documentId, "editor");
     },
     getSourceSnapshot: async (database) => {
       const [target] = changeSetId
@@ -1807,6 +1844,11 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (changeSet.direction !== "outbound") {
       throw new Error("Only outbound Builder change sets can be executed.");
     }
+    // A collection editor may only view a page, and publishing or
+    // unpublishing one needs edit access to it, as staging the pick does.
+    if (args.publicationTransition && changeSet.documentId) {
+      await deps.assertPageEditor(changeSet.documentId);
+    }
 
     const resolvedPushMode = resolveBuilderCmsExecutionPushMode({
       source,
@@ -2236,6 +2278,21 @@ export async function executeBuilderSourceExecutionWithDeps(
         ),
         livePreflight,
       };
+    }
+    // The claim and live preflight can take a while, so the page edit access
+    // a publish or unpublish needs is checked again just before it is sent.
+    if (args.publicationTransition && changeSet.documentId) {
+      try {
+        await deps.assertPageEditor(changeSet.documentId);
+      } catch (error) {
+        await releaseClaim({
+          state: execution.state,
+          summary: `${plan.summary} Execution stopped before write.`,
+          payload: validatedPayload,
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     }
     const writePlan: BuilderCmsExecutionPlan = {
       ...plan,

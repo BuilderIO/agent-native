@@ -11,10 +11,13 @@ scope: dev
 - Run `pnpm --filter analytics radar:watch --window daily`; use `--window
   hourly` for provisioning and environment-key checks.
 - Read the check status, numerator, denominator, seven-day comparison, and
-  coverage. `insufficient` is not a pass, and `unavailable` means the run exits
-  2.
+  coverage. `insufficient` is not a pass. `unavailable` and `insufficient`
+  remain explicit and make a completed watch exit 1; exit 2 means the run could
+  not complete.
 - Compare daily thresholds with the incident window and an ordinary week before
   changing them. Record both windows and the observed counts in the PR or report.
+- Use `pnpm --filter analytics radar:backtest` to compare the Oct 9–23 incident
+  window with the Oct 2–8 clean week.
 - Action success uses a weighted `action.response` rate. Keep its app-specific
   threshold below the quiet-week distribution; do not copy the 95% starting
   value without a backtest.

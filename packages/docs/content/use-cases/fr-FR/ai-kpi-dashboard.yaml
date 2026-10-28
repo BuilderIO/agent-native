@@ -1,0 +1,104 @@
+slug: ai-kpi-dashboard
+app: analytics
+roles:
+  - founders
+  - finance
+title: Créez le tableau de bord KPI de votre startup
+seo_title: Tableau de bord KPI par IA pour fondateurs
+meta_description: Décrivez les métriques que vous suivez, et Agent-Native Analytics crée le tableau de bord KPI de votre startup depuis Stripe, HubSpot et vos données produit.
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics réunit MRR, churn et inscriptions dans un tableau de bord issu de Stripe, HubSpot et vos données produit. Décrivez ce que vous suivez : l'agent le crée et explique chaque variation."
+  button:
+    label: Créez votre tableau de bord
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: Le tableau de bord KPI d'une startup dans Analytics, avec des cartes MRR, churn, nouvelles inscriptions et activation au-dessus de graphiques mensuels du MRR et des inscriptions. La barre latérale de l'agent indique quelle offre a porté la croissance du MRR ce trimestre, avec un tableau par offre.
+how_to:
+  heading: Comment créer un tableau de bord KPI avec l'IA
+  steps:
+    - title: Connectez vos données de revenus et produit
+      body: Dans la page **Sources de données**, collez votre clé secrète Stripe, puis ajoutez HubSpot et votre outil d'analytics produit. Choisissez **Tester la connexion** dans le menu d'une source pour vérifier qu'Analytics peut la lire.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: Gros plan sur Stripe dans la page Sources de données, marqué Connecté, avec sa clé secrète configurée et « Connexion réussie » après le test de connexion.
+    - title: Décrivez le tableau de bord voulu
+      body: Cliquez sur **Nouveau tableau de bord** et décrivez les [métriques SaaS que vous suivez](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/), par exemple « MRR et churn depuis Stripe, nouvelles inscriptions et activation depuis PostHog, mois par mois ». L'agent peut poser des questions, puis crée chaque panneau et ouvre le tableau de bord.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: Gros plan sur la fenêtre Nouveau tableau de bord, ouverte depuis la liste Tableaux de bord de la barre latérale, avec la description d'un tableau de bord KPI de startup saisie.
+    - title: Demandez pourquoi un chiffre a bougé
+      body: Choisissez **Discuter du panneau** dans le menu d'un graphique et posez une question, comme « Pourquoi le churn a-t-il augmenté en septembre ? ». L'agent répond à partir de vos données connectées, et ajoute un panneau au tableau de bord si vous le demandez.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: "Le panneau du churn par mois avec le chat de l'agent à côté. Interrogé sur la hausse du churn en septembre, l'agent la détaille par offre : le churn de Starter a presque doublé."
+features:
+  heading: Tout ce qu'il faut pour suivre les KPI de votre startup
+  items:
+    - title: Revenus, pipeline et usage réunis
+      body: Le MRR de Stripe, les deals de HubSpot et les inscriptions de PostHog ou Mixpanel côte à côte dans un seul tableau de bord.
+    - title: Modifiez à la main ou demandez
+      body: Changez un filtre vous-même ou demandez un panneau à l'agent. Tout arrive sur le même tableau de bord, et l'historique restaure toute version.
+    - title: La requête derrière chaque chiffre
+      body: Cliquez sur un point d'un graphique pour voir les enregistrements, le SQL qui les a trouvés et un export CSV.
+    - title: Votre définition du MRR
+      body: Notez comment votre entreprise compte le MRR ou un utilisateur actif dans **Couche sémantique**. L'agent la consulte avant chaque requête.
+    - title: Privé jusqu'au partage
+      body: Un nouveau tableau de bord n'est qu'à vous. Une fois prêt, partagez-le avec un associé ou l'entreprise, en lecture ou en édition.
+    - title: Vos KPI par e-mail
+      body: "Les chiffres viennent à vous : recevez le tableau de bord par e-mail chaque matin, à l'heure de votre choix, jusqu'à cinq personnes."
+integrations:
+  heading: Connectez Analytics aux outils que vous utilisez déjà
+  cards:
+    - title: Vos revenus et votre pipeline
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: Analytics lit les abonnements et paiements dans Stripe et les deals dans HubSpot, donc vos chiffres de revenus viennent directement de la source.
+    - title: L'usage de votre produit
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: Inscriptions, utilisateurs actifs et activation viennent de votre outil d'analytics produit ou de votre entrepôt de données.
+    - title: Connectez n'importe quoi via MCP
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
+other_uses:
+  heading: Autres usages d'Agent-Native Analytics
+  cards:
+    - title: Interrogez vos données en langage courant
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: Posez une question sur vos données BigQuery et obtenez la réponse sans écrire de SQL.
+    - title: Trouvez où décrochent vos nouveaux inscrits
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: Voyez où les nouveaux utilisateurs s'arrêtent dans vos étapes d'inscription et d'onboarding.
+    - title: Créez votre rapport marketing hebdomadaire sans tableur
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Créez votre rapport marketing hebdomadaire une fois pour toutes, sans le refaire à la main.
+faqs:
+  heading: Des questions ? Nous avons les réponses
+  items:
+    - q: Agent-Native Analytics est-il gratuit ?
+      a: Oui, Agent-Native Analytics est gratuit et open source. L'agent fonctionne avec les crédits IA Builder.io ou votre propre clé de modèle, et chaque source de données a besoin de ses propres identifiants, comme une clé secrète Stripe. Analytics est en alpha, les écrans et fonctions peuvent donc encore changer.
+    - q: Depuis quels outils Analytics peut-il récupérer mes KPI ?
+      a: Analytics se connecte à Stripe, HubSpot, PostHog, Mixpanel, Amplitude, Google Analytics (GA4), BigQuery et plus d'une douzaine d'autres sources. Vous ajoutez chacune dans la [page Sources de données](https://www.agent-native.com/docs/template-analytics-connectors/) avec sa propre clé, et un tableau de bord peut mêler plusieurs sources.
+    - q: Faut-il connaître le SQL pour créer un tableau de bord KPI ?
+      a: Non. Vous décrivez le tableau de bord ou posez une question en langage courant, et l'agent écrit le SQL. La requête reste visible derrière chaque graphique, pour qu'une personne qui connaît vos données puisse la vérifier ou la modifier.
+    - q: Comment savoir si les chiffres sont justes ?
+      a: Chaque chiffre du tableau de bord vient d'une requête que l'agent a exécutée sur vos données connectées, et vous pouvez ouvrir la requête et les enregistrements derrière n'importe quel graphique. Quand l'agent n'a pas pu exécuter de requête, il marque le chiffre « Unverified ». Vérifiez quelques chiffres dans Stripe avant de vous fier au tableau de bord.
+    - q: Qui peut voir mon tableau de bord KPI ?
+      a: Vous seul, jusqu'à ce que vous le partagiez. Vous pouvez [partager un tableau de bord](https://www.agent-native.com/docs/sharing/) avec un collègue ou toute votre organisation, en lecture, en édition ou en admin. Les filtres que vous changez ne s'appliquent qu'à vous ; enregistrez une vue ou envoyez le lien pour les partager.
+    - q: En quoi Analytics diffère-t-il de l'IA de mon outil d'analytics ?
+      a: "Un assistant IA intégré à un outil d'analytics travaille sur les données de cet outil. Analytics travaille sur Stripe, votre CRM et vos données produit, et son agent crée et modifie le tableau de bord que vous consultez, donc ses réponses deviennent des panneaux que vous gardez. C'est ce qui fait d'Analytics une [application agentique](https://www.agent-native.com/articles/what-is-an-agent-native-app/) : l'intelligence d'un agent, l'intuitivité d'une application."

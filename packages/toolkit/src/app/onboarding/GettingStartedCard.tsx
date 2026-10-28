@@ -157,7 +157,7 @@ export function GettingStartedCard({
                 <span
                   aria-hidden
                   className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                    "flex size-4 shrink-0 items-center justify-center rounded-sm border",
                     step.complete
                       ? "border-primary bg-primary text-primary-foreground"
                       : "border-muted-foreground/60",

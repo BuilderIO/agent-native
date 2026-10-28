@@ -287,7 +287,7 @@ tú mismo. Es el campo, no todo el tiempo de ejecución del chat.
 
 ### Contexto preparado en el compositor {#composer-context}
 
-`PromptComposer` y `TiptapComposer` aceptan `submissionDisabled` para bloquear el envío sin impedir preparar el borrador, los archivos y el contexto. La falta de configuración del proveedor bloquea el envío, no la preparación. `disabled` sigue desactivando todo el compositor.
+`PromptComposer` y `TiptapComposer` aceptan `submissionDisabled` para bloquear el envío sin impedir preparar el borrador, los archivos y el contexto. Con `requireAgentEngine`, la falta de configuración del proveedor impide escribir en `PromptComposer` mientras hay una tarjeta de configuración en pantalla, y un clic en él señala la tarjeta. Sin tarjeta en pantalla, solo bloquea el envío. `disabled` sigue desactivando todo el compositor.
 
 `PromptComposer`, `TiptapComposer` y `AgentKitComposer` aceptan `contextItems` y `contextMenuItems`. Las aplicaciones gestionan las lecturas de fuentes y las etiquetas traducidas.
 

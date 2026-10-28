@@ -32,6 +32,7 @@ export function DesignHomeLibrary({
 
   return (
     <section
+      id="design-home-library"
       className="agent-prompt-home-library mx-auto w-full max-w-[63rem]"
       aria-label={labels.templates}
     >

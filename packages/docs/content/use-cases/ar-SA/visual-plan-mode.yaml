@@ -1,0 +1,106 @@
+slug: visual-plan-mode
+app: plans
+roles:
+  - engineering
+title: "راجع خطة وكيل البرمجة قبل أن يكتب الكود"
+seo_title: "وضع التخطيط المرئي لـ Claude Code وCodex وCursor"
+meta_description: "يحوّل Agent-Native Plan خطة وكيل البرمجة إلى صفحة تراجعها، فيها مخططات وشجرة ملفات وكود مشروح، قبل أن يكتب الوكيل أي سطر من الكود."
+updated: 2026-10-27
+hero:
+  body: "يحوّل Agent-Native Plan الخطة التي يكتبها وكيلك إلى صفحة من المخططات وشجرة الملفات والكود المشروح. تعلّق على أي جزء، فيعدّل الوكيل الخطة ولا يغيّر أي كود حتى توافق عليها."
+  button:
+    label: "خطّط لما ستبنيه"
+    url: https://plan.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Faad0afc668dc461f9023eeba3ba55800
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c2e3c83e79248e69829bb38f71a6704
+    alt: "خطة لإضافة دعوات الفريق، مفتوحة في Plan. يعرض مخطط مسار الدعوة من صفحة الإعدادات عبر الـ API وجدول الدعوات حتى رسالة الدعوة بالبريد. وتحته شجرة ملفات تحدد الملفات الخمسة التي ستتغيّر. وتعليق من زميل موجّه إلى الوكيل مثبّت على خطوة البريد."
+how_to:
+  heading: "كيف تستخدم وضع التخطيط المرئي مع وكيل البرمجة"
+  steps:
+    - title: "اطلب خطة مرئية"
+      body: "أضف Plan إلى Claude Code أو Codex أو Cursor [بأمر تثبيت واحد](https://www.agent-native.com/docs/plan-plugin/). ثم اكتب `/visual-plan` والمهمة. يقرأ الوكيل الكود وينشر رابط الخطة."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15e26ab97a68472a958aabf9657fdeb2
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F01168fa31ed5412080d49febc37f1068
+        alt: "محادثة وكيل برمجة كتب فيها المستخدم /visual-plan مع مهمة لإضافة دعوات الفريق. يعرض الوكيل الملفات التي قرأها، وينشر الخطة، ويرد برابطها."
+    - title: "علّق على ما يجب تغييره"
+      body: "حدّد جملة أو موضعًا في المخطط واكتب ما يجب تغييره. [اضبط التعليق](https://www.agent-native.com/docs/template-plan-review-workflow/) على **الوكيل** ليعالجه الوكيل، أو على **بشري** ليعالجه زميل. وأجب كذلك عن أسئلة الخطة المفتوحة."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8a16bd566384f4080dde591a1b30c3f
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F598a137b56d149f98409ed79c024cb2b
+        alt: "لقطة مقرّبة لتعليق جديد مثبّت على خطوة رسالة الدعوة في مخطط الخطة، ومفتاح Agent وHuman مضبوط على Agent، ونص التعليق مكتوب."
+    - title: "أرسل تعليقاتك إلى الوكيل"
+      body: "انقر على **إرسال إلى الوكيل** واختر **نسخ لوكيلك** لتنسخ تعليقاتك كمطالبة. الصقها في محادثة وكيلك ليحدّث الخطة. وعندما تصبح الخطة صحيحة، وافق عليها هناك فيبدأ الوكيل البناء."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0f841d0983ec4e3386d13c4c4ad7895d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F356c269c867048c392ca26ef5c5767c8
+        alt: "لقطة مقرّبة لزر Send to agent في الخطة وقائمته مفتوحة: Copy for your agent وSend to inline agent، ولكل منهما وصف من سطر واحد."
+features:
+  heading: "كل ما تحتاجه لمراجعة خطة وكيلك"
+  items:
+    - title: "مخططات توضّح الطريقة"
+      body: "تُرسم مسارات الطلبات ونماذج البيانات ونقاط الـ API، فيظهر أي خطأ في نقطة API أو جدول ناقص قبل أن يُبنى."
+    - title: "اعرف الملفات التي ستتغيّر"
+      body: "تُظهر شجرة الملفات والكود المشروح أين سيقع العمل، وما الذي تعيد كل خطوة استخدامه من قاعدة الكود لديك."
+    - title: "أسئلة بإجابة مقترحة"
+      body: "القرارات التي لا يحسمها الوكيل من الكود تُجمع في نموذج واحد في النهاية، ومع كل منها الإجابة التي يوصي بها."
+    - title: "يبدأ من وضع التخطيط"
+      body: "لديك خطة من Claude Code أو Codex أو ملف Markdown؟ يبني `/visual-plan` الصفحة منها بدلًا من البدء من الصفر."
+    - title: "لا كود قبل الموافقة"
+      body: "تُبقي تعليمات Plan الوكيلَ على قراءة الكود فقط أثناء التخطيط، ولا يبدأ التعديل إلا بعد أن توافق على الخطة."
+    - title: "راجعها مع زميل"
+      body: "أرسل رابط الخطة إلى زميل. يمكنه قراءتها وتعديلها كضيف، ويسجّل الدخول بحساب Agent-Native ليعلّق."
+integrations:
+  heading: "اربط Plan بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "إضافة لوكيل البرمجة"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "ثبّت Plan كإضافة في Claude Code أو Codex، واستخدم `/visual-plan` في المحادثة التي تعمل فيها أصلًا."
+    - title: "أمر واحد للوكلاء الآخرين"
+      logos:
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: OpenCode
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F947e193ba37846a88afc8a076c9fec26
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: "أمر تثبيت واحد يجهّز Plan في Cursor أو OpenCode أو GitHub Copilot في VS Code، ويمكن لأي وكيل MCP آخر إضافته بعنوان URL."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Linear
+        - name: Sentry
+        - name: Context7
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Plan"
+  cards:
+    - title: "احصل على ملخص مرئي لتغييرات وكيل البرمجة"
+      url: https://www.agent-native.com/use-cases/visually-recap-agent-changes/
+      body: "حوّل طلب سحب أو commit أو diff إلى جولة مرئية تشرح ما تغيّر."
+    - title: "خطّط للشاشات الجديدة مع وكيل البرمجة"
+      url: https://www.agent-native.com/use-cases/ui-planning/
+      body: "اطلب من وكيل البرمجة رسم مخطط أولي للشاشة، وأبدِ ملاحظاتك قبل أن يبني أي شيء."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Plan مجاني؟"
+      a: "نعم، Agent-Native Plan مجاني ومفتوح المصدر. تعمل كل خطة كجلسة لوكيل البرمجة لديك، على النموذج الذي تختاره. وهذا يستهلك رموز وكيلك، والخطة الأكبر تستهلك أكثر. لا يزال Plan في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "مع أي وكلاء برمجة يعمل Plan؟"
+      a: "لـ Claude Code وCodex إضافات جاهزة للتثبيت. وأمر تثبيت واحد يجهّز Plan أيضًا في Cursor وOpenCode وGitHub Copilot في VS Code وClaude Cowork. ويمكن لأي مضيف MCP آخر، مثل Cline أو Goose، إضافة موصل Plan بعنوان URL الخاص به. وتراجع كل خطة في متصفحك."
+    - q: "كيف يختلف Plan عن وضع التخطيط في وكيل البرمجة لديّ؟"
+      a: "يعطيك وضع التخطيط في Claude Code أو Codex أو Cursor أو OpenCode الخطة نصًا في المحادثة. أما Plan فيحوّل تلك الخطة، أو خطة من ملف Markdown، إلى صفحة فيها مخططات وشجرة ملفات وكود مشروح. وهناك تعلّق على أجزاء محددة، وتجيب عن أسئلة الوكيل، وتُشرك زميلًا."
+    - q: "هل يغيّر الوكيل الكود أثناء التخطيط؟"
+      a: "لا. أثناء كتابة الخطة أو تعديلها، تُبقي تعليمات Plan الوكيلَ على قراءة الكود فقط. ويبدأ التعديل بعد أن توافق على الخطة، ويعيد قراءة الخطة المعتمدة قبل الخطوات الكبيرة."
+    - q: "هل يمكن لزميل مراجعة خطة دون حساب؟"
+      a: "جزئيًا. يمكن لأي شخص تشاركه الرابط فتح الخطة وتعديلها كضيف. أما التعليق والحفظ والمشاركة فتحتاج إلى حساب Agent-Native، لذا يسجّل الزميل الذي يريد التعليق دخوله أولًا."
+    - q: "هل يمكنني إبقاء الخطط على جهازي؟"
+      a: "نعم. [وضع الملفات المحلية](https://www.agent-native.com/docs/template-plan-local-and-desktop/) يحفظ الخطة كملفات MDX على جهازك، فلا يصل محتواها إلى التطبيق المستضاف. وفي المقابل، لا يمكنك مشاركة الخطة المحلية أو التعليق عليها في المتصفح، ولا يفتح رابطها إلا على جهازك. ولا يغيّر وضع الملفات المحلية مكان تشغيل نموذج الذكاء الاصطناعي لوكيل البرمجة."

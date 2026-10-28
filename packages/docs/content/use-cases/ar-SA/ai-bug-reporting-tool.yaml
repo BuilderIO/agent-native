@@ -1,0 +1,108 @@
+slug: ai-bug-reporting-tool
+app: clips
+roles:
+  - product
+  - engineering
+  - design
+title: "سجّل الأخطاء مع سجلات وحدة التحكم والشبكة"
+seo_title: "أداة ذكية للإبلاغ عن الأخطاء مع سجلات وحدة التحكم"
+meta_description: "اعرض الخطأ في Chrome، ويحوّل Agent-Native Clips تسجيلك إلى رابط واحد يضم أخطاء الصفحة وطلباتها الفاشلة لمهندسك أو وكيل البرمجة لديك."
+updated: 2026-10-27
+hero:
+  body: "يحوّل Agent-Native Clips تسجيل الخطأ إلى رابط واحد يستطيع مهندسك أو وكيل البرمجة لديك العمل عليه. تعرض الخطأ في Chrome، فتأتي معه أخطاء الصفحة وطلباتها الفاشلة."
+  button:
+    label: "سجّل خطأً"
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: "تسجيل لخطأ مفتوح في Clips، متوقف عند صفحة دفع تعرض رسالة خطأ. يسرد تبويب تصحيح الأخطاء بجانب الفيديو خطأً أحمر في وحدة التحكم وطلبًا فاشلًا بالحالة 500."
+how_to:
+  heading: "كيف تبلّغ عن خطأ بالذكاء الاصطناعي"
+  steps:
+    - title: "ابدأ التسجيل من Chrome"
+      body: "انقر على ملحق Clips لـ Chrome في شريط الأدوات واختر المصدر: علامة تبويب في المتصفح أو نافذة أو الشاشة كاملة. شغّل الكاميرا والميكروفون أو أوقفهما، ثم انقر على Start recording."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: "لقطة مقرّبة لنافذة ملحق Clips فوق تطبيق ويب، وقد اختير Browser tab مصدرًا، والكاميرا والميكروفون مشغّلان، وزر Start recording."
+    - title: "اعرض الخطأ واشرحه"
+      body: "انقر عبر الخطوات التي يحدث فيها العطل، وقل ما كنت تتوقع حدوثه. أثناء التسجيل يحفظ الملحق أخطاء الصفحة والطلبات التي أرسلتها، وهي التفاصيل التي كان المهندس سيستخرجها من أدوات المطوّر في Chrome."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: "أزرار التحكم في تسجيل Clips وفقاعة الكاميرا فوق صفحة الدفع في تطبيق ويب، حيث تظهر رسالة «Something went wrong»."
+    - title: "شارك رابطًا واحدًا"
+      body: "عندما توقف التسجيل ينسخ Clips رابطه لك. الصقه في تذكرة أو محادثة أو في وكيل البرمجة. كما يفتحه تبويب الوكلاء في قائمة المشاركة في Claude أو Claude Code أو Codex مباشرة."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: "لقطة مقرّبة لقائمة المشاركة في Clips على تبويب الوكلاء، وفيها نسخ مطالبة الوكيل وأزرار فتح في Claude وفتح في Claude Code وفتح في Codex."
+features:
+  heading: "كل ما تحتاجه للإبلاغ عن خطأ"
+  items:
+    - title: "مصمَّم لوكيل البرمجة لديك"
+      body: "الصق الرابط في Claude Code أو Cursor أو Codex. يقرأ الوكيل النص والإطارات والسجلات دون تنزيل الفيديو."
+    - title: "سجلات وحدة التحكم والشبكة"
+      body: "يحفظ Clips رسائل وحدة التحكم والأخطاء والطلبات من خمس علامات تبويب كحدٍّ أقصى، مع حالة كل طلب وزمنه وهل فشل."
+    - title: "الثلاثون ثانية السابقة"
+      body: "يعود Clips إلى ما قبل ضغطك على التسجيل بما يصل إلى 30 ثانية، فيمكن لخطأ حدث أثناء تحميل الصفحة أن يدخل التقرير."
+    - title: "الأسرار لا تُحفظ"
+      body: "لا يحفظ Clips أبدًا محتوى الطلبات أو ترويساتها أو ملفات تعريف الارتباط أو ما تكتبه، ويُخفي القيم التي تبدو كرموز أو كلمات مرور."
+    - title: "اقفز مباشرة إلى الخطأ"
+      body: "في تبويب تصحيح الأخطاء بالمقطع، انقر على الوقت بجانب خطأ أو طلب فاشل فينتقل الفيديو إلى تلك اللحظة."
+    - title: "ابحث في كل تقارير الأخطاء"
+      body: "اعثر على أي تقرير خطأ بما قيل فيه، أو اسأل وكيل Clips عبر كل التسجيلات في مكتبتك."
+integrations:
+  heading: "اربط Clips بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "سلّمه إلى وكيل الذكاء الاصطناعي"
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: "افتح المقطع في Claude Code أو Codex، أو الصق رابطه في Cursor أو ChatGPT، فيبدأ الوكيل العمل دون أن يسأل عمّا حدث."
+    - title: "ضعه حيث تُسجَّل الأخطاء"
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: "مع تطبيق Clips لـ Slack تُشغَّل التسجيلات العامة داخل Slack مباشرة. ومع تثبيت الملحق تُعرض معاينات روابطها أيضًا في مشكلات GitHub وتذاكر Jira."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Clips"
+  cards:
+    - title: "احصل على ملاحظات الاجتماعات دون بوت في المكالمة"
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: "احصل على ملخص وملاحظات وعناصر عمل من كل اجتماع، دون بوت في المكالمة."
+    - title: "أملِ مطالباتك بدلًا من كتابتها"
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "تحدّث بدلاً من الكتابة، ويظهر النص المنقّح في أي تطبيق تستخدمه."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Clips مجاني؟"
+      a: "نعم. Agent-Native Clips مجاني ومفتوح المصدر، بما في ذلك ملحق Chrome. تعمل العناوين والملخصات وتنظيف النص على أرصدة Builder.io للذكاء الاصطناعي افتراضيًا، فاستخدام الذكاء الاصطناعي ليس غير محدود، وتحتاج التسجيلات إلى مكان لتخزين الفيديو. لا يزال Clips في مرحلة ألفا، فتوقّع تغييرات مع تطوّره."
+    - q: "ماذا يلتقط Clips من متصفحي؟"
+      a: "يلتقط ملحق Clips لـ Chrome [رسائل وحدة التحكم وأخطاء JavaScript وطلبات الشبكة](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs) من خمس علامات تبويب كحدٍّ أقصى، ويعود إلى ما قبل ضغطك على التسجيل بما يصل إلى 30 ثانية. يحتفظ كل طلب بعنوانه وحالته وزمنه وهل فشل. ويرى المحررون كل ذلك في تبويب تصحيح الأخطاء بالمقطع، ويحصل الوكلاء عليه عبر الرابط."
+    - q: "هل يسجّل Clips كلمات المرور أو البيانات الخاصة؟"
+      a: "لا يحفظ Clips أبدًا محتوى الطلبات أو الاستجابات أو ترويساتها أو ملفات تعريف الارتباط أو النص الذي تكتبه، ويُخفي القيم التي تبدو كرموز أو كلمات مرور أو مفاتيح. ويمكنك إيقاف سجلات المطوّر من إعدادات الملحق. التسجيلات الجديدة عامة بالرابط، فاجعل تقرير الخطأ خاصًا أو لمؤسستك عندما يعرض بيانات داخلية."
+    - q: "كيف أعطي تسجيل خطأ إلى Claude Code أو Cursor أو Codex؟"
+      a: "الصق رابط المقطع في Claude Code أو Cursor أو Codex، فيقرأ الوكيل [النص والإطارات وسجلات المتصفح](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips) دون تنزيل الفيديو. وللمقطع الخاص، انقر على نسخ مطالبة الوكيل في تبويب الوكلاء بقائمة المشاركة، فيعطي الوكيل رابطًا يدوم ساعتين. ويفتح ذلك التبويب المقطع أيضًا في Claude Code أو Codex."
+    - q: "هل يلتقط Clips السجلات في متصفحات أخرى أو في تطبيق سطح المكتب؟"
+      a: "لا. تأتي سجلات وحدة التحكم والشبكة من ملحق Clips لـ Chrome فقط. أما Clips Desktop وتطبيق الويب فيسجّلان شاشتك وكاميراك وصوتك مع نص وملخص، لكن التسجيل لن يتضمن سجلات المتصفح."
+    - q: "هل Clips أداة لتتبع الأخطاء مثل Jira؟"
+      a: "لا. يصنع Clips [تقرير خطأ يستطيع المهندس العمل عليه](https://www.agent-native.com/articles/how-to-write-a-bug-report/)، وتحفظه أداة التتبع لديك: الصق الرابط في Jira أو GitHub أو Linear أو Slack. ويقرأ وكيل البرمجة لديك أو [وكيل Clips](https://www.agent-native.com/docs/template-clips-agent/) التسجيل نفسه وسجلاته. وهذا ما يجعل Clips [تطبيقًا وكيليًا](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

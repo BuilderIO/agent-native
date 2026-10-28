@@ -272,8 +272,8 @@ const messages = {
       openWorkflow: "فتح {{name}}",
       turnOn: "تفعيل {{name}}",
       turnOff: "تعطيل {{name}}",
-      dryRunRequired: "شغّل اختباراً قبل تفعيله.",
-      runTest: "تشغيل اختبار",
+      dryRunRequired: "نفّذ تشغيلاً تجريبياً قبل تفعيله.",
+      runTest: "تشغيل تجريبي",
       neverRun: "لا توجد عمليات تشغيل بعد",
       olderRun: "لا يوجد تشغيل حديث",
       runsFailed: "تعذّر تحميل عمليات التشغيل",
@@ -373,9 +373,9 @@ const messages = {
       connectionsNeeded: "{{count}} بحاجة إلى ربط",
       connectionsListName: "الاتصالات المطلوبة",
       jumpToProblem: "إظهار على اللوحة",
-      testRun: "تشغيل اختباري",
+      testRun: "تشغيل تجريبي",
       testing: "جارٍ البدء",
-      saveAndTest: "حفظ واختبار",
+      saveAndTest: "حفظ وتشغيل تجريبي",
       moreActions: "إجراءات أخرى",
       runNow: "تشغيل الآن",
       runNowSaveFirst: "احفظ تغييراتك قبل التشغيل الفعلي.",
@@ -415,7 +415,7 @@ const messages = {
       confirmTitle: "استعادة الإصدار {{version}}؟",
       confirmBody: "يُحفظ كإصدار جديد، فلا يضيع أي إصدار.",
       confirmDiscards: "سيتم تجاهل تغييراتك غير المحفوظة.",
-      confirmSwitchesOff: "سيتم تعطيل سير العمل إلى أن يُختبر مجدداً.",
+      confirmSwitchesOff: "سيبقى سير العمل معطّلاً حتى ينجح تشغيل تجريبي مجدداً.",
       restored: "تمت الاستعادة كإصدار {{version}}.",
       restoreFailed: "تعذّرت استعادة ذلك الإصدار.",
       restoreInvalid_zero: "لم يعد ذلك الإصدار يجتاز الفحوصات: {{count}} مشكلات.",
@@ -434,7 +434,8 @@ const messages = {
       invalid_few: "لم يتم الحفظ: {{count}} مشكلات يجب إصلاحها.",
       invalid_many: "لم يتم الحفظ: {{count}} مشكلة يجب إصلاحها.",
       invalid_other: "لم يتم الحفظ: {{count}} مشكلة يجب إصلاحها.",
-      switchedOff: "تم الحفظ. عُطّل سير العمل: اختبره ثم فعّله مجدداً.",
+      switchedOff:
+        "تم الحفظ. عُطّل سير العمل: نفّذ تشغيلاً تجريبياً له ثم فعّله مجدداً.",
       jobSyncFailed:
         "تم الحفظ، لكن تعذّر تحديث جدوله. احفظ مرة أخرى لإعادة المحاولة.",
       notFound: "لم يعد سير العمل هذا موجوداً.",
@@ -462,9 +463,9 @@ const messages = {
       cancel: "إلغاء",
     },
     run: {
-      started: "بدأ تشغيل الاختبار.",
-      unavailable: "تشغيل الاختبار غير متاح بعد.",
-      failed: "تعذّر بدء تشغيل الاختبار. {{reason}}",
+      started: "بدأ التشغيل التجريبي.",
+      unavailable: "التشغيلات التجريبية غير متاحة بعد.",
+      failed: "تعذّر بدء التشغيل التجريبي. {{reason}}",
       liveStarted: "بدأ التشغيل.",
       liveFailed: "تعذّر بدء التشغيل. {{reason}}",
       enableFailed: "تعذّر تغيير سير العمل. {{reason}}",
@@ -507,8 +508,8 @@ const messages = {
       ofTotal: "عرض {{shown}} من {{total}}",
       noInputConnected: "لا يوجد مدخل متصل",
       noInputData: "لا توجد بيانات مدخلة",
-      testWorkflowHint: "اختبر سير العمل لرؤية العناصر هنا",
-      testWorkflow: "اختبار سير العمل",
+      testWorkflowHint: "نفّذ تشغيلاً تجريبياً لسير العمل لرؤية العناصر هنا",
+      testWorkflow: "تشغيل تجريبي",
       noOutputData: "لا توجد بيانات مخرجة",
       previewHint: "شغّل سير العمل لرؤية القيم الفعلية",
       noMatchingItems: "لا توجد عناصر مطابقة",
@@ -522,7 +523,7 @@ const messages = {
       copyPath: "نسخ المسار",
       pathCopied: "تم نسخ المسار",
       pathCopyFailed: "تعذّر نسخ المسار",
-      dragHint: "اسحب فوق أي حقل لربطه",
+      dragHint: "اسحب هذا المقبض فوق أي حقل لربطه",
       mappedFirstField: "ربطتَ حقلاً للتوّ.",
     },
     diagnostics: {
@@ -950,8 +951,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "أضف الخطوة الأولى",
-      testWorkflow: "اختبار سير العمل",
-      saveAndTestWorkflow: "حفظ واختبار سير العمل",
+      testWorkflow: "تشغيل تجريبي",
+      saveAndTestWorkflow: "حفظ وتشغيل تجريبي",
       describeFirstPrefill: "أنشئ سير عمل بحيث ",
       describeTile: "صِفْه للوكيل",
       or: "أو",
@@ -1420,6 +1421,37 @@ const messages = {
       deleteMany: "حذف الخطوات المحددة ({{count}})",
       selectAll: "تحديد الكل",
       clearSelection: "إلغاء التحديد",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "اختر قناة",
+      repositories: "اختر مستودعاً",
+      organizations: "اختر مؤسسة",
+      projects: "اختر مشروعاً",
+    },
+    search: "ابحث أو اكتب قيمة",
+    useTyped: "استخدام “{{value}}”",
+    noMatches: "لا توجد نتائج",
+    loadMore: "تحميل المزيد",
+    retry: "إعادة المحاولة",
+    changeOrganization: "تغيير المؤسسة",
+    tag: {
+      private: "خاص",
+      botNotMember: "البوت غير موجود في القناة",
+      archived: "مؤرشف",
+    },
+    error: {
+      notConnected:
+        "{{provider}} غير متصل، لذلك لا يمكن تحميل القائمة. ما زال بإمكانك كتابة قيمة.",
+      refused:
+        "رفض {{provider}} بيانات الاعتماد المتصلة. ما زال بإمكانك كتابة قيمة.",
+      missingScope:
+        "يفتقر اتصال {{provider}} إلى صلاحية {{scope}}. ما زال بإمكانك كتابة قيمة.",
+      rateLimited:
+        "{{provider}} يحدّ من الطلبات. أعد المحاولة بعد لحظة، أو اكتب قيمة.",
+      unreadable:
+        "تعذّرت قراءة القائمة من {{provider}}. أعد المحاولة، أو اكتب قيمة.",
     },
   },
 };

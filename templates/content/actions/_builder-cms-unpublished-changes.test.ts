@@ -8,11 +8,17 @@ import {
   BUILDER_CMS_HAS_AUTOSAVES_KEY,
 } from "./_builder-cms-source-adapter";
 import {
+  BUILDER_CMS_PUBLICATION_INTENT_KEY,
   BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
   builderCmsEntryStatus,
+  builderCmsLiveBaselineValues,
+  builderCmsLiveBodyBaseline,
+  builderCmsShownEntryStatus,
   builderCmsUnpublishedChangesAfterWrite,
   builderSourceValuesKeepingUnpublishedChanges,
+  readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes";
 
@@ -605,6 +611,20 @@ describe("Builder unpublished changes", () => {
       existing,
     });
     expect(stillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+    // And through every refresh after that one.
+    const laterStillEmpty = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: {
+        published: "published",
+        lastUpdated: 3000,
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
+      existing: stillEmpty,
+    });
+    expect(laterStillEmpty[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("Saved body");
+    expect(builderCmsLiveBodyBaseline(laterStillEmpty)).toEqual({
+      blocksHash: null,
+      bodyEmpty: true,
+    });
 
     const published = builderSourceValuesKeepingUnpublishedChanges({
       incoming: {
@@ -784,5 +804,184 @@ describe("Builder unpublished changes", () => {
     ).toBe("unpublished_changes");
     expect(builderCmsEntryStatus({ published: "archived" })).toBeNull();
     expect(builderCmsEntryStatus(undefined)).toBeNull();
+  });
+});
+
+describe("Builder staged publication changes", () => {
+  it("shows a staged publish or unpublish only while the source allows it", () => {
+    const allowed = { publicationTransitionsAllowed: true };
+    const off = { publicationTransitionsAllowed: false };
+    const stagedPublish = withBuilderCmsPublicationIntent(
+      { published: "draft" },
+      "publish",
+    );
+    const stagedUnpublish = withBuilderCmsPublicationIntent(
+      { published: "published", [BUILDER_CMS_HAS_AUTOSAVES_KEY]: true },
+      "unpublish",
+    );
+
+    expect(builderCmsShownEntryStatus(stagedPublish, allowed)).toBe(
+      "published",
+    );
+    expect(builderCmsShownEntryStatus(stagedUnpublish, allowed)).toBe("draft");
+    expect(builderCmsShownEntryStatus(stagedPublish, off)).toBe("draft");
+    expect(builderCmsShownEntryStatus(stagedUnpublish, off)).toBe(
+      "unpublished_changes",
+    );
+    expect(
+      builderCmsShownEntryStatus(
+        withBuilderCmsPublicationIntent({ published: "archived" }, "publish"),
+        allowed,
+      ),
+    ).toBeNull();
+  });
+
+  it("tells an unreadable staged change apart from none", () => {
+    expect(readBuilderCmsPublicationIntent({ published: "draft" })).toEqual({
+      state: "none",
+    });
+    expect(
+      readBuilderCmsPublicationIntent({
+        [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "archive",
+      }),
+    ).toEqual({ state: "invalid" });
+    expect(
+      builderCmsShownEntryStatus(
+        { published: "draft", [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "archive" },
+        { publicationTransitionsAllowed: true },
+      ),
+    ).toBe("draft");
+  });
+
+  it("keeps a staged change through a refresh until Builder reaches it", () => {
+    const existing = withBuilderCmsPublicationIntent(
+      { published: "draft", "data.title": "Title" },
+      "publish",
+    );
+
+    const stillDraft = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: { published: "draft", "data.title": "Title" },
+      existing,
+    });
+    expect(readBuilderCmsPublicationIntent(stillDraft)).toEqual({
+      state: "staged",
+      transition: "publish",
+    });
+
+    const publishedInBuilder = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: { published: "published", "data.title": "Title" },
+      existing,
+    });
+    expect(readBuilderCmsPublicationIntent(publishedInBuilder)).toEqual({
+      state: "none",
+    });
+  });
+
+  it("keeps a staged publish over unpublished changes until they go live", () => {
+    const existing = withBuilderCmsPublicationIntent(
+      saved(
+        { published: "published", "data.title": "Saved title" },
+        { liveValues: { "data.title": "Live title" } },
+      ),
+      "publish",
+    );
+
+    const refreshed = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: { published: "published", "data.title": "Live title" },
+      existing,
+    });
+
+    expect(refreshed["data.title"]).toBe("Saved title");
+    expect(readBuilderCmsPublicationIntent(refreshed)).toEqual({
+      state: "staged",
+      transition: "publish",
+    });
+  });
+
+  it("settles a staged change by Builder's own status in a body read", () => {
+    const existing = withBuilderCmsPublicationIntent(
+      { published: "published", "data.title": "Title" },
+      "unpublish",
+    );
+
+    const refreshed = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: { published: "published", "data.title": "Title" },
+      existing,
+      incomingFilledFromRow: true,
+      builderValues: { published: "draft" },
+    });
+
+    expect(readBuilderCmsPublicationIntent(refreshed)).toEqual({
+      state: "none",
+    });
+  });
+
+  it("drops a staged change once the entry leaves published and draft", () => {
+    const refreshed = builderSourceValuesKeepingUnpublishedChanges({
+      incoming: { published: "archived" },
+      existing: withBuilderCmsPublicationIntent(
+        { published: "published" },
+        "unpublish",
+      ),
+    });
+
+    expect(readBuilderCmsPublicationIntent(refreshed)).toEqual({
+      state: "none",
+    });
+  });
+
+  it("drops an unreadable staged change on refresh and says so", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const refreshed = builderSourceValuesKeepingUnpublishedChanges({
+        incoming: { published: "draft" },
+        existing: {
+          published: "draft",
+          [BUILDER_CMS_PUBLICATION_INTENT_KEY]: "archive",
+        },
+      });
+
+      expect(readBuilderCmsPublicationIntent(refreshed)).toEqual({
+        state: "none",
+      });
+      expect(error).toHaveBeenCalledOnce();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("reviews a staged change against Builder's live values and body", () => {
+    const values = withBuilderCmsUnpublishedChanges(
+      {
+        published: "published",
+        "data.title": "Saved title",
+        "data.note": "Kept note",
+      },
+      {
+        liveValues: { "data.title": "Live title" },
+        liveBlocksHash: "live-hash",
+      },
+    );
+
+    expect(builderCmsLiveBaselineValues(values)).toMatchObject({
+      "data.title": "Live title",
+      "data.note": "Kept note",
+    });
+    expect(builderCmsLiveBodyBaseline(values)).toEqual({
+      blocksHash: "live-hash",
+      bodyEmpty: false,
+    });
+    expect(
+      builderCmsLiveBodyBaseline(
+        withBuilderCmsUnpublishedChanges(
+          { published: "published" },
+          { liveValues: {}, liveBodyEmpty: true },
+        ),
+      ),
+    ).toEqual({ blocksHash: null, bodyEmpty: true });
+    expect(builderCmsLiveBodyBaseline({ published: "draft" })).toBeNull();
+    expect(builderCmsLiveBaselineValues({ published: "draft" })).toEqual({
+      published: "draft",
+    });
   });
 });

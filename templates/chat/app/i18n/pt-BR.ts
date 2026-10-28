@@ -51,17 +51,12 @@ const messages = {
     untitledChat: "Chat sem título",
   },
   home: {
-    composerPlaceholder: "Chame a ação hello para Alex",
     communityTitle: "Fale com a gente",
     docsAddAction: "Adicionar uma ação",
     docsAddPage: "Adicionar uma página",
     docsGettingStarted: "Primeiros passos",
     docsKeyConcepts: "Conceitos principais",
     docsTitle: "Documentação",
-    editHint:
-      "Edite {{file}}, salve e pergunte de novo para ver a nova saudação.",
-    lead: "A interface do seu app e o agente dele compartilham as mesmas ações.",
-    leadTry: "Peça ao agente para chamar a ação hello.",
     title: "Comece aqui",
   },
   navigation: {

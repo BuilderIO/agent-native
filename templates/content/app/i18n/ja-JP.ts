@@ -720,6 +720,16 @@ const editor = {
     duplicate: "複製",
     delete: "削除",
     insertBelow: "下にブロックを挿入",
+    search: "操作を検索...",
+    noResults: "結果がありません",
+    block: "ブロック",
+    keyCtrl: "Ctrl",
+    keyShift: "Shift",
+    keyDelete: "Del",
+    lockedSource:
+      "ソースファイルのコンポーネントはここでは複製・削除できません。",
+    lockedSuggesting: "提案ではこの種類のブロックを追加・削除できません。",
+    lockedPage: "このページではその変更はできません。",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:
@@ -903,6 +913,10 @@ const editor = {
     moveColumnLeft: "列を左に移動",
     moveColumnRight: "列を右に移動",
     editProperty: "{{name}}を編集",
+    builderStatusPublishInBuilder:
+      "Builder のエディターで保存された変更は、Builder からのみ公開できます。",
+    builderStatusUnpublishedChangesInBuilder:
+      "未公開の変更は Builder のエディターから反映されるため、ここでは設定できません。",
     editStartDate: "{{name}} 開始日の編集",
     editValue: "{{name}} 値を編集する",
     empty: "空の",
@@ -1060,7 +1074,7 @@ const editor = {
     todoListDescription: "チェックリスト項目",
     toggle: "トグル",
     toggleDescription: "Notion スタイルのトグル ライン",
-    turnInto: "に変わる",
+    turnInto: "ブロックタイプの変換",
     video: "ビデオ",
     videoDescription: "ビデオをアップロードまたは埋め込む",
   },

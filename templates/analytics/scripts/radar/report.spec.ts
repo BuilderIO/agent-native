@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { RadarCheckResult } from "./checks.ts";
+import { RadarQueryError } from "./query.ts";
 import {
   acquisitionContextForWeek,
+  captureWeeklyPrefetchResult,
   completedReportWeekEnd,
   DEFAULT_WEEKLY_MAX_TOTAL_GB,
   formatWeeklyMarkdown,
@@ -52,6 +54,49 @@ describe("weekly recovery evidence", () => {
   });
 });
 
+describe("weekly prefetch failure", () => {
+  it("keeps the failed prefetch distinct so daily reads can be retried", async () => {
+    await expect(
+      captureWeeklyPrefetchResult(async () => {
+        throw new RadarQueryError("BigQuery request failed (HTTP 500).", 1);
+      }),
+    ).resolves.toEqual({
+      value: undefined,
+      failed: true,
+      completedQueries: 0,
+      error: "BigQuery request failed (HTTP 500).",
+    });
+  });
+
+  it("counts completed cached reads independently from physical query jobs", async () => {
+    await expect(
+      captureWeeklyPrefetchResult(async (queryCompleted) => {
+        queryCompleted();
+        return { cacheHit: true };
+      }),
+    ).resolves.toEqual({
+      value: { cacheHit: true },
+      failed: false,
+      completedQueries: 1,
+      error: null,
+    });
+  });
+
+  it("retains successful prefetch reads and the safe cause after a later failure", async () => {
+    await expect(
+      captureWeeklyPrefetchResult(async (queryCompleted) => {
+        queryCompleted();
+        throw new RadarQueryError("BigQuery request failed (HTTP 503).", 1);
+      }),
+    ).resolves.toEqual({
+      value: undefined,
+      failed: true,
+      completedQueries: 1,
+      error: "BigQuery request failed (HTTP 503).",
+    });
+  });
+});
+
 describe("weekly paid-acquisition context", () => {
   it("includes changes during the report week and preceding baseline week", () => {
     expect(acquisitionContextForWeek("2026-10-19", "2026-10-25")).toEqual([
@@ -84,6 +129,7 @@ describe("weekly report arguments", () => {
       week: "2026-10-19",
       skipJourneySnapshot: true,
       maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+      freshBigQuery: false,
     });
   });
 
@@ -92,6 +138,7 @@ describe("weekly report arguments", () => {
       week: "2026-10-19",
       skipJourneySnapshot: false,
       maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+      freshBigQuery: false,
     });
   });
 
@@ -102,6 +149,18 @@ describe("weekly report arguments", () => {
       week: "2026-10-19",
       skipJourneySnapshot: false,
       maxTotalGb: 25,
+      freshBigQuery: false,
+    });
+  });
+
+  it("can bypass the BigQuery cache for a complete scan measurement", () => {
+    expect(
+      parseReportArgs(["--week", "2026-10-19", "--fresh-bigquery"]),
+    ).toEqual({
+      week: "2026-10-19",
+      skipJourneySnapshot: false,
+      maxTotalGb: DEFAULT_WEEKLY_MAX_TOTAL_GB,
+      freshBigQuery: true,
     });
   });
 });
@@ -114,13 +173,25 @@ describe("weekly funnel cohort reporting", () => {
       weekEnd: "2026-11-01",
       coverage: {
         dailyRuns: { expected: 7, completed: 1, failedDates: [] },
-        campaignFollowup: false,
+        campaignFollowup: true,
         abReadout: false,
         replayTriage: false,
         journeySnapshot: "skipped",
+        weeklyPrefetch: {
+          status: "failed_fallback",
+          completedQueries: 2,
+          error: null,
+        },
         feedbackIngest: "agent_required",
         queryCount: 0,
-        bigQueryScan: { maxGb: 100, reservedBytes: 0, exceeded: false },
+        bigQueryScan: {
+          maxGb: 100,
+          reservedBytes: 12_340_000_000,
+          actualBytesProcessed: 9_876_000_000,
+          actualQueryCount: 7,
+          unaccountedQueryCount: 0,
+          exceeded: false,
+        },
       },
       dailyRuns: [
         {
@@ -129,8 +200,8 @@ describe("weekly funnel cohort reporting", () => {
             generatedAt: "2026-10-27T23:59:00.000Z",
             window: "daily",
             date: "2026-10-26",
-            exitCode: 2,
-            checks: [],
+            exitCode: 1,
+            checks: [check("insufficient")],
             journeyRows: [],
             campaignAnnotations: [],
             issues: [],
@@ -145,7 +216,23 @@ describe("weekly funnel cohort reporting", () => {
       triageSummary: null,
       triageError: "not run",
       abReadout: null,
-      campaignFollowup: null,
+      campaignFollowup: {
+        campaign: "outage_recovery_20261026",
+        sentRecipients: 1,
+        skippedRows: 0,
+        byRecipientApp: { clips: 1 },
+        rows: [
+          {
+            period: "after_send",
+            recipient_app: "clips",
+            activity_app: "clips",
+            metric: "any_visit",
+            recipients: 1,
+            recipients_with_activity: 1,
+          },
+        ],
+        observedAt: "2026-10-27T00:00:00.000Z",
+      },
       campaignAnnotations: [],
       acquisitionContext: [],
       firedIssues: [],
@@ -155,9 +242,71 @@ describe("weekly funnel cohort reporting", () => {
       exitCode: 2,
     } satisfies RadarWeeklyReport;
 
-    expect(formatWeeklyMarkdown(report)).toContain(
-      "| 2026-10-26 | 2026-10-25 | 2 | 0 | 0 | - |",
+    const formatted = formatWeeklyMarkdown(report);
+    expect(formatted).toContain(
+      "| 2026-10-26 | 2026-10-25 | 1 | 0 | 0 | 1 | - |",
     );
+    expect(formatted).toContain(
+      "BigQuery uses keyed HMAC-SHA256 matching; the PostgreSQL path uses bound recipient email values.",
+    );
+    expect(formatted).toContain(
+      "BigQuery actual bytes processed: 9.88 GB across 7 executed queries.",
+    );
+    expect(formatted).toContain("Dry-run estimate: 12.34 GB / 100 GB.");
+    expect(formatted).toContain(
+      "Weekly prefetch failed; 2/4 queries completed before daily fallback.",
+    );
+
+    expect(
+      formatWeeklyMarkdown({
+        ...report,
+        coverage: {
+          ...report.coverage,
+          weeklyPrefetch: {
+            status: "complete",
+            completedQueries: 4,
+            error: null,
+          },
+        },
+      }),
+    ).toContain("Weekly prefetch: complete; 4/4 queries completed.");
+    expect(
+      formatWeeklyMarkdown({
+        ...report,
+        coverage: {
+          ...report.coverage,
+          weeklyPrefetch: {
+            status: "not_applicable",
+            completedQueries: 0,
+            error: null,
+          },
+        },
+      }),
+    ).toContain(
+      "Weekly prefetch: not applicable; no BigQuery prefetch was needed.",
+    );
+
+    const partialAccounting = formatWeeklyMarkdown({
+      ...report,
+      coverage: {
+        ...report.coverage,
+        weeklyPrefetch: {
+          ...report.coverage.weeklyPrefetch,
+          error: "BigQuery request failed (HTTP 503).",
+        },
+        bigQueryScan: {
+          ...report.coverage.bigQueryScan,
+          unaccountedQueryCount: 1,
+        },
+      },
+    });
+    expect(partialAccounting).toContain(
+      "Cause: BigQuery request failed (HTTP 503).",
+    );
+    expect(partialAccounting).toContain(
+      "BigQuery actual bytes observed: 9.88 GB across 7 jobs with reported bytes; 1 submitted job(s) could not be fully accounted.",
+    );
+    expect(partialAccounting).not.toContain("BigQuery actual bytes processed:");
   });
 });
 

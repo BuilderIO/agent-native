@@ -87,6 +87,9 @@ export default defineAction({
         (candidate) => candidate.id === args.changeSetId,
       );
       if (!changeSet) throw new Error("Source change-set not found.");
+      if (args.publicationTransition && changeSet.documentId) {
+        await assertAccess("document", changeSet.documentId, "editor");
+      }
 
       const plan = buildBuilderCmsExecutionPlan({
         source,

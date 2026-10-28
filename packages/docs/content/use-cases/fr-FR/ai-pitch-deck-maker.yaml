@@ -1,0 +1,97 @@
+slug: ai-pitch-deck-maker
+app: slides
+roles:
+  - founders
+title: Transformez vos notes en pitch deck
+seo_title: Créateur de pitch deck par IA pour startups
+meta_description: Créez votre pitch deck à partir d'un doc, de votre site ou de notes brutes. Agent-Native Slides le rédige slide par slide, et vous le modifiez à la main ou en demandant à l'agent.
+updated: 2026-10-23
+hero:
+  body: "Agent-Native Slides rédige votre pitch deck à partir de ce que vous avez déjà : un doc, un PDF, votre site ou des notes brutes. L'agent le crée slide par slide, et vous modifiez chaque slide à la main ou en le demandant."
+  button:
+    label: Créer votre deck
+    url: https://slides.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8c62a5083d6f4836a73b216a59d6399f
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec52329368a54aa5aa2df755a202c6ef
+    alt: Un pitch deck à moitié construit dans l'éditeur Slides. Le panneau de l'agent montre le plan établi à partir des notes de réunion du fondateur, et les nouvelles slides apparaissent une à une.
+how_to:
+  heading: Comment créer un pitch deck avec l'IA
+  steps:
+    - title: Partez de vos propres contenus
+      body: "Sur l'écran d'accueil de Slides, décrivez le deck que vous voulez : votre entreprise, à qui il s'adresse et sa longueur. Joignez vos notes, docs ou documents de référence, puis créez le deck."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F12aade25b35944b396142acc3b8ff40c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff68c26a237fc45909db278af5b701e61
+        alt: "Gros plan sur la zone de saisie de Slides : la description du pitch d'un fondateur, un fichier de notes joint et les suggestions en dessous."
+    - title: Regardez l'agent construire chaque slide
+      body: L'agent Slides commence par établir le plan de votre pitch deck. Il construit ensuite chaque slide dans l'éditeur sous vos yeux. S'il ne peut pas lire un PDF ou un site, il vous le dit.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
+        alt: "L'éditeur Slides avec les slides 1 et 2 terminées et la slide 3, la solution, en cours de génération. Le chat de l'agent affiche le plan et « Ajout de la slide 3 · La solution »."
+    - title: Présentez ou exportez le deck terminé
+      body: Présentez votre pitch deck en plein écran depuis Slides, ou exportez-le. Vous pouvez exporter un fichier PowerPoint modifiable, un fichier à importer dans Google Slides ou un seul fichier HTML.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe65004f2089b48b6aaeb185fe529a28a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb621a0dad79042cc8bc145cc29c855b8
+        alt: Gros plan sur le menu Exporter de Slides, ouvert sur la slide de titre terminée, avec les options HTML, PDF, PowerPoint et Google Slides.
+features:
+  heading: Tout ce qu'il faut pour créer et pitcher votre deck
+  items:
+    - title: Des pitch decks à partir de vos notes
+      body: Partez d'un prompt, de vos notes, d'un doc ou de votre dernier deck. Parlez à l'agent de votre entreprise et de votre levée, et il crée le deck.
+    - title: Édition par IA et visuelle
+      body: Modifiez vous-même le texte et la mise en page sur la slide, ou sélectionnez une ligne et demandez à l'agent. Seul ce que vous visez change.
+    - title: Votre marque sur chaque slide
+      body: Enregistrez vos couleurs, polices et logo comme design system, et chaque deck que vous créez ressemble à votre entreprise.
+    - title: Images et logos
+      body: Demandez à l'agent de générer des images, de trouver des photos de stock ou d'ajouter des logos de clients et partenaires pour vos slides de traction.
+    - title: Collaboration entre cofondateurs
+      body: Modifiez le même deck avec votre cofondateur et l'agent, commentez n'importe quelle slide et restaurez une version antérieure.
+    - title: Pitchez, partagez et exportez
+      body: Présentez avec des notes d'orateur, partagez un lien en lecture seule avec vos investisseurs ou exportez un fichier PowerPoint modifiable.
+integrations:
+  heading: Connectez Slides aux outils que vous utilisez déjà
+  cards:
+    - title: Importez vos notes et docs
+      logos:
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+        - name: Google Drive
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F778b9f7274c74fc99a9f62b5b308f486
+        - name: Word
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
+      body: Partez des notes et docs que vous avez déjà, et l'agent les transforme en slides modifiables.
+    - title: Au format des investisseurs
+      logos:
+        - name: PowerPoint
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a
+        - name: Google Slides
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85b879db4a0c47caa8427a51379782d1
+        - name: PDF
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F41bdb33bacf14c309dd75ac568c13486
+      body: Exportez un fichier PowerPoint modifiable, ouvrez-le dans Google Slides ou envoyez un PDF.
+    - title: Connectez tout via MCP
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
+      more: true
+      body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
+faqs:
+  heading: Des questions ? Nous avons les réponses
+  items:
+    - q: Agent-Native Slides est-il gratuit ?
+      a: Oui, Agent-Native Slides est gratuit et open source. Créer un deck nécessite une connexion IA, via Builder.io ou votre propre clé IA, et générer des images nécessite votre propre clé Gemini ou OpenAI. Slides est en alpha, attendez-vous donc à des changements au fil de son évolution.
+    - q: Puis-je exporter mon pitch deck vers PowerPoint ou Google Slides ?
+      a: Slides exporte un fichier PowerPoint (PPTX) modifiable. Pour Google Slides, il vous donne un fichier PPTX avec un lien d'import, que vous ouvrez vous-même dans Google Slides. Vous pouvez aussi exporter le deck en un seul fichier HTML.
+    - q: Slides peut-il partir de mes notes, d'un doc ou de mon site ?
+      a: Décrivez votre pitch sur l'écran d'accueil de Slides et joignez vos notes ou un doc, ou ajoutez le lien de votre site. Vous pouvez aussi importer un Google Doc, un fichier Word ou un PowerPoint. Si l'agent ne peut pas lire un PDF ou un site, il vous le dit au lieu de deviner.
+    - q: En quoi Slides diffère-t-il d'un chatbot à qui l'on demande d'écrire ses slides ?
+      a: "Un chatbot vous donne du texte à copier vous-même dans des slides. Dans Slides, l'agent construit le vrai deck dans un éditeur que vous voyez. Vous pouvez modifier n'importe quelle slide à la main ou demander à l'agent, sur le même deck, et chaque modification peut être annulée. C'est ce qui fait de Slides une [app agentique](https://www.agent-native.com/articles/what-is-an-agent-native-app/) : l'intelligence d'un agent, la simplicité d'une app."
+    - q: Mon cofondateur peut-il modifier le pitch deck avec moi ?
+      a: Vous, votre cofondateur et l'agent pouvez modifier le même deck en même temps. Vous pouvez commenter une slide ou une partie de celle-ci. Slides enregistre une version avant chaque modification importante, pour que vous puissiez restaurer une version antérieure à tout moment.
+    - q: Combien de slides doit contenir un pitch deck ?
+      a: "Une dizaine de slides est une bonne longueur pour un premier pitch ([ce que doit contenir un pitch deck](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/)), et Slides suggère « Créer un pitch de 10 diapositives à partir de ce doc ». Indiquez une autre longueur à l'agent si vous le souhaitez, et il adapte le plan."

@@ -321,6 +321,10 @@ export default {
       chooseFrame: "フレームを選択",
       inspect: "確認",
       exportSvg: "SVG をエクスポート",
+      moreActions: "その他の操作",
+      askAboutFile: "このファイルについて質問",
+      askAboutFilePrompt:
+        "このリンクされたデザインファイルについて質問してください。{{url}}",
       actionsPrefill: "確認して送信",
       retry: "再試行",
       currentDesign: "現在のDesign",

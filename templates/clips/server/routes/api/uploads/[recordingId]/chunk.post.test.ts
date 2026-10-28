@@ -1,4 +1,5 @@
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
@@ -46,6 +47,7 @@ const mockGetAppConfig = vi.hoisted(() =>
   vi.fn(() => ({ clips: { hostedStorage: { maxClipBytes: 100_000_000 } } })),
 );
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
+const mockRefuseContentUploadChunk = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
 const mockUpdateRows = vi.hoisted(() => ({
   current: [] as Array<{
@@ -156,6 +158,9 @@ vi.mock("../../../../db/index.js", () => ({
   },
 }));
 
+vi.mock("../../../../lib/content-uploads.js", () => ({
+  refuseContentUploadChunk: mockRefuseContentUploadChunk,
+}));
 vi.mock("../../../../lib/recording-upload-state.js", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -358,6 +363,42 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         return deleted;
       },
     );
+  });
+
+  it("refuses a chunk for an upload from a Content page before reading it", async () => {
+    mockRefuseContentUploadChunk.mockRejectedValueOnce(
+      Object.assign(new Error("This upload came from a Content page."), {
+        statusCode: 409,
+      }),
+    );
+    setRequest({
+      query: { index: "0", total: "2", isFinal: "0", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(handler({} as H3Event)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    expect(mockRefuseContentUploadChunk).toHaveBeenCalledWith("rec-1");
+    expect(mockReadRawBody).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("leaves an upload's page binding to Content's own chunk route", async () => {
+    setRequest({
+      query: { index: "0", total: "2", isFinal: "0", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await handleRecordingChunk({} as H3Event, {
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      fromContentPage: true,
+    });
+
+    expect(mockRefuseContentUploadChunk).not.toHaveBeenCalled();
+    expect(mockReadRawBody).toHaveBeenCalled();
   });
 
   it("rejects chunk indices that cannot fit the exact scratch-key contract", async () => {

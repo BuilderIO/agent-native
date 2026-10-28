@@ -164,8 +164,10 @@ describe("tracking registry", () => {
         authUserId: "better-auth-user-1",
       },
       async () => {
+        const expected = assignFirstRunBuilderCreditsV2("better-auth-user-1");
         const assignment = await recordFirstRunBuilderCreditsV2Exposure({
           flagEnabled: true,
+          experimentVariant: expected!.experiment_variant,
         });
         expect(assignment).toMatchObject({
           authUserId: "better-auth-user-1",
@@ -211,7 +213,10 @@ describe("tracking registry", () => {
       { userEmail: "alice@example.com", authUserId: "better-auth-user-1" },
       async () => {
         await expect(
-          recordFirstRunBuilderCreditsV2Exposure({ flagEnabled: false }),
+          recordFirstRunBuilderCreditsV2Exposure({
+            flagEnabled: false,
+            experimentVariant: "control",
+          }),
         ).resolves.toBeNull();
         track("run_started", {});
       },
@@ -272,7 +277,10 @@ describe("tracking registry", () => {
       { userEmail: "alice@example.com", agentRunAnonymous: true },
       async () => {
         await expect(
-          recordFirstRunBuilderCreditsV2Exposure({ flagEnabled: true }),
+          recordFirstRunBuilderCreditsV2Exposure({
+            flagEnabled: true,
+            experimentVariant: "control",
+          }),
         ).resolves.toBeNull();
         track("run_started", {});
       },
