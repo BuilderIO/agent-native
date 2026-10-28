@@ -667,6 +667,85 @@ describe("Builder source review execution gates", () => {
     });
   });
 
+  it("holds a Builder entry for one collection's push at a time", async () => {
+    const model = `shared_model_${counter}`;
+    const entryId = `shared_entry_${counter}`;
+    const db = getDb();
+    const validatedAt = "2026-06-29T16:00:00.000Z";
+    const seedPush = async (name: string) => {
+      const seeded = await seedBuilderSource({
+        sourceTable: model,
+        changeSetState: "approved",
+      });
+      await db
+        .update(schema.contentDatabaseSourceRows)
+        .set({ sourceRowId: entryId })
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+      const executionId = `shared-entry-${name}-${counter}`;
+      await db.insert(schema.contentDatabaseSourceExecutions).values({
+        id: executionId,
+        ownerEmail: OWNER,
+        sourceId: seeded.sourceId,
+        changeSetId: seeded.changeSetId,
+        adapter: "builder-cms",
+        pushMode: "autosave",
+        state: "ready",
+        idempotencyKey: `builder-cms:${seeded.sourceId}:${seeded.changeSetId}:autosave`,
+        summary: "Ready.",
+        payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+        attemptToken: null,
+        lastError: null,
+        createdAt: validatedAt,
+        updatedAt: validatedAt,
+      });
+      const deps = realExecutionDeps(seeded.sourceId, seeded.changeSetId);
+      return {
+        executionId,
+        deps,
+        claim: () =>
+          deps.claimExecution({
+            executionId,
+            changeSetId: seeded.changeSetId,
+            expected: {
+              state: "ready",
+              updatedAt: validatedAt,
+              attemptToken: null,
+            },
+            summary: "Running.",
+            payload: { request: { method: "PATCH" } },
+            now: "2026-06-29T16:01:00.000Z",
+            staleBefore: "2026-06-29T15:51:00.000Z",
+            attemptToken: `attempt-${name}`,
+            builderEntry: { model, entryId },
+          }),
+      };
+    };
+    const first = await seedPush("first");
+    const second = await seedPush("second");
+
+    await expect(first.claim()).resolves.toBe(true);
+    await expect(second.claim()).rejects.toMatchObject({
+      errorCode: "builder_entry_write_in_progress",
+      statusCode: 409,
+    });
+    const [waiting] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, second.executionId));
+    expect(waiting).toMatchObject({ state: "ready", attemptToken: null });
+
+    await first.deps.releaseExecutionClaim({
+      executionId: first.executionId,
+      attemptToken: "attempt-first",
+      restore: { state: "blocked", attemptToken: null },
+      summary: "Blocked before write.",
+      payload: { request: { method: "PATCH" } },
+      lastError: "Builder entry changed since this diff was approved.",
+      now: "2026-06-29T16:01:10.000Z",
+    });
+    await expect(second.claim()).resolves.toBe(true);
+  });
+
   it("releases an unsent blocked claim as ready when blob storage is down", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
