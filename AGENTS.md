@@ -32,11 +32,11 @@ Use `/sidecar <task>` for read-only investigations.
 ## Always-On Rules
 
 - Scale effort: for small changes, read briefly, edit, and run existing checks;
+  skip surveys, unrequested tests, and browser automation. Explore deeply only
+  for ambiguous or cross-cutting work.
 - Keep routine replies concise: lead with the answer in 1–2 short sentences.
   Include only the requested detail and any essential result, blocker, or next
   step; omit recaps, process narration, and filler unless more detail is needed.
-  skip surveys, unrequested tests, and browser automation. Explore deeply only
-  for ambiguous or cross-cutting work.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
