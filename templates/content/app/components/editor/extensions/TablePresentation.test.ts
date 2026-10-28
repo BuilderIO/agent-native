@@ -88,4 +88,52 @@ describe("TablePresentation", () => {
       cells.some((element) => element.className.includes("chartreuse")),
     ).toBe(false);
   });
+
+  it("labels each value with its column's header, for cards", () => {
+    const cells = render({});
+
+    expect(
+      cells.map((element) => [
+        element.textContent,
+        element.getAttribute("data-label"),
+      ]),
+    ).toEqual([
+      ["A", null],
+      ["B", null],
+      ["C", "A"],
+      ["D", "B"],
+      ["E", "A"],
+      ["F", "B"],
+    ]);
+  });
+
+  it("marks empty cells", () => {
+    editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "table",
+            content: [
+              {
+                type: "tableRow",
+                content: [
+                  cell("tableCell", "A"),
+                  { type: "tableCell", content: [{ type: "paragraph" }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const [full, empty] = Array.from(
+      editor.view.dom.querySelectorAll<HTMLTableCellElement>("td"),
+    );
+
+    expect(full.hasAttribute("data-empty")).toBe(false);
+    expect(empty.hasAttribute("data-empty")).toBe(true);
+    expect(empty.hasAttribute("data-label")).toBe(false);
+  });
 });

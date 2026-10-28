@@ -62,6 +62,7 @@ import {
   tableGridSize,
   tableWithDuplicatedColumn,
 } from "./table-commands";
+import { COLUMN_SIZING_ATTRIBUTE } from "./table-sizing";
 
 interface TableHoverControlsProps {
   editor: Editor;
@@ -1555,8 +1556,12 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
         const bottom = rect.bottom - wrapperRect.top;
         const visibleCenter =
           (visibleLeft + visibleRight) / 2 - wrapperRect.left;
-        // A hidden handle lets clicks through to the cell under it.
-        const isColumnHandleVisible = hoveredEdges.columnTable === table;
+        // A hidden handle lets clicks through to the cell under it. Cards
+        // stack each row's cells, so they have no right edge to add a column
+        // at; the column menu still inserts one.
+        const isColumnHandleVisible =
+          hoveredEdges.columnTable === table &&
+          table.getAttribute(COLUMN_SIZING_ATTRIBUTE) !== "cards";
         const isRowHandleVisible = hoveredEdges.rowTable === table;
 
         return (

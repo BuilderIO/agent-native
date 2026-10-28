@@ -27,6 +27,11 @@ import {
   noteStoredBodyImageFailed,
   storedBodyOnScreen,
 } from "./stored-body-images";
+import {
+  COLUMN_SIZING_ATTRIBUTE,
+  ContentTableSizer,
+  labelTableCells,
+} from "./table-sizing";
 import { ContentTableView } from "./table-view";
 
 type Attrs = Record<string, string | null | undefined>;
@@ -744,6 +749,28 @@ export function StaticDocumentBody({
     }
     return handOver;
   }, [schema, content, documentId, imageBroken]);
+  // Sizes the drawn tables as the editor sizes its own, so its body doesn't
+  // move when it takes over.
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body || failed) return;
+    const sizers = Array.from(
+      body.querySelectorAll<HTMLTableElement>(
+        `table[${COLUMN_SIZING_ATTRIBUTE}]`,
+      ),
+    ).flatMap((table) => {
+      const wrapper = table.parentElement;
+      const colgroup = table.querySelector("colgroup");
+      if (!wrapper || !colgroup) return [];
+      labelTableCells(table);
+      const sizer = new ContentTableSizer(wrapper, table, colgroup, () =>
+        table.hasAttribute("data-fit-page-width"),
+      );
+      sizer.update(false);
+      return [sizer];
+    });
+    return () => sizers.forEach((sizer) => sizer.destroy());
+  }, [schema, content, documentId, imageBroken, failed]);
 
   if (failed) {
     return (
