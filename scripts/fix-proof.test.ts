@@ -44,6 +44,8 @@ sh("git", "rm", "-q", "gone.txt");
 unlinkSync(join(repo, "link.txt"));
 symlinkSync(outside, join(repo, "link.txt"));
 write("check.sh", "grep -q fixed app.txt\n");
+write("check-input.sh", 'grep -q fixed "$1"\n');
+write("input.txt", "fixed\n");
 write("app.test.ts", "check\n");
 sh("git", "add", "-A");
 sh("git", "commit", "-qm", "fix");
@@ -81,6 +83,18 @@ describe("fix-proof", () => {
     assertBackAtHead();
   });
 
+  it("reverts an added file passed to the check as input", () => {
+    const r = proof("sh", "check-input.sh", "input.txt");
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assertBackAtHead();
+  });
+
+  it("ignores untracked files the check writes", () => {
+    const r = proof("sh", "-c", "touch out.log; grep -q fixed app.txt");
+    rmSync(join(repo, "out.log"));
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+  });
+
   it("rejects a check that passes without the fix", () => {
     const r = proof("grep", "-q", "check", "app.test.ts");
     assert.equal(r.status, 1);
@@ -91,10 +105,10 @@ describe("fix-proof", () => {
     assert.equal(proof("false").status, 1);
   });
 
-  it("cannot run on a dirty tree", () => {
-    write("stray.txt", "x\n");
+  it("cannot run with uncommitted changes to tracked files", () => {
+    write("app.txt", "edited\n");
     const r = proof("true");
-    rmSync(join(repo, "stray.txt"));
+    write("app.txt", "fixed\n");
     assert.equal(r.status, 2);
   });
 });

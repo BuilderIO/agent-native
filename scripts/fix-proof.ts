@@ -4,8 +4,8 @@
 //
 //   node scripts/fix-proof.ts [--base <ref>] -- <command...>
 //
-// Run from the repo root. A file this branch adds that the command names (a
-// check helper such as `node scripts/check-x.ts`) stays at HEAD, like tests.
+// Run from the repo root. A check helper this branch adds and the command
+// runs (`node scripts/check-x.ts`) stays at HEAD, like tests.
 //
 // Exit 0: proven (green on HEAD, red on base). Exit 1: not proven (red on
 // HEAD, or the check still passes without the fix). Exit 2: could not run
@@ -53,28 +53,36 @@ if (
   realpathSync(process.cwd())
 )
   couldNotRun("run from the repo root");
-if (git("status", "--porcelain").trim())
-  couldNotRun("commit or set aside local changes first");
+// Untracked files are ignored: git never touches them, and checks often
+// write build output.
+const trackedChanges = () => git("status", "--porcelain", "-uno").trim();
+if (trackedChanges()) couldNotRun("commit or set aside local changes first");
 
 const head = git("rev-parse", "HEAD").trim();
 const base =
   baseFlag === -1
     ? git("merge-base", "HEAD", "origin/main").trim()
     : git("rev-parse", opts[baseFlag + 1]).trim();
-const named = new Set(command.map((arg) => arg.replace(/^\.\//, "")));
 // --no-renames reports a rename as an add plus a delete, so the old path
 // comes back on the red run too.
-const source = git("diff", "--name-status", "--no-renames", base, head)
+const changes = git("diff", "--name-status", "--no-renames", base, head)
   .split("\n")
   .filter(Boolean)
   .map((line) => {
     const [status, path] = line.split("\t");
     return { status, path };
-  })
-  .filter(
-    ({ status, path }) =>
-      !TEST_PATH.test(path) && !(status === "A" && named.has(path)),
-  );
+  });
+const added = new Set(
+  changes.filter(({ status }) => status === "A").map(({ path }) => path),
+);
+// Only the command's entry point, the first argument this branch adds, stays
+// at HEAD; any later argument is input to the check and must be reverted.
+const entryPoint = command
+  .map((arg) => arg.replace(/^\.\//, ""))
+  .find((arg) => added.has(arg));
+const source = changes.filter(
+  ({ path }) => !TEST_PATH.test(path) && path !== entryPoint,
+);
 if (source.length === 0)
   couldNotRun(`no non-test changes between ${base.slice(0, 9)} and HEAD`);
 const pathsWhere = (keep: (status: string) => boolean) =>
@@ -89,33 +97,28 @@ if (green.status !== 0) {
 }
 
 // git checkout and git rm replace symlinks instead of writing through them.
-let red: { status: number; tail: string } | undefined;
-const restoreErrors: string[] = [];
-try {
-  const atBase = pathsWhere((s) => s !== "A");
-  const addedOnBranch = pathsWhere((s) => s === "A");
-  if (atBase.length) git("checkout", base, "--", ...atBase);
-  if (addedOnBranch.length) git("rm", "-q", "-f", "--", ...addedOnBranch);
-  red = run();
-} finally {
-  const atHead = pathsWhere((s) => s !== "D");
-  const deletedOnBranch = pathsWhere((s) => s === "D");
-  for (const args of [
-    atHead.length ? ["checkout", head, "--", ...atHead] : null,
-    deletedOnBranch.length
-      ? ["rm", "-q", "-f", "--", ...deletedOnBranch]
-      : null,
-  ]) {
-    if (!args) continue;
-    const r = tryGit(...args);
-    if (r.status !== 0)
-      restoreErrors.push(`git ${args[0]}: ${r.stderr.trim()}`);
-  }
-}
-const left = git("status", "--porcelain").trim();
-if (restoreErrors.length || left)
+// Every step uses tryGit so a failure still reaches the restore below.
+const gitErrors: string[] = [];
+const step = (...args: string[]) => {
+  const r = tryGit(...args);
+  if (r.status !== 0)
+    gitErrors.push(`git ${args.join(" ")}: ${r.stderr.trim()}`);
+  return r.status === 0;
+};
+const atBase = pathsWhere((s) => s !== "A");
+const addedOnBranch = pathsWhere((s) => s === "A");
+const reverted =
+  (!atBase.length || step("checkout", base, "--", ...atBase)) &&
+  (!addedOnBranch.length || step("rm", "-q", "-f", "--", ...addedOnBranch));
+const red = reverted ? run() : undefined;
+const atHead = pathsWhere((s) => s !== "D");
+const deletedOnBranch = pathsWhere((s) => s === "D");
+if (atHead.length) step("checkout", head, "--", ...atHead);
+if (deletedOnBranch.length) step("rm", "-q", "-f", "--", ...deletedOnBranch);
+const left = trackedChanges();
+if (gitErrors.length || left)
   couldNotRun(
-    `the tree did not return to HEAD ${head.slice(0, 9)}; restore it with \`git checkout ${head.slice(0, 9)} -- .\`\n${[...restoreErrors, left].filter(Boolean).join("\n")}`,
+    `${left ? `the tree did not return to HEAD ${head.slice(0, 9)}; restore it with \`git checkout ${head.slice(0, 9)} -- .\`\n` : ""}${[...gitErrors, left].filter(Boolean).join("\n")}`,
   );
 if (!red) couldNotRun("the red run did not happen");
 

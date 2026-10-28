@@ -223,11 +223,12 @@ Put each report in one bucket:
   reaction and no reply.
 
 Take the Fix reports in order of how many people they hurt, and claim as
-many as the run can finish. Every bug-like root you leave unclaimed gets one
-line in the recap saying why, so nothing is dropped silently.
+many as the run can finish. A bug-like root you leave unclaimed gets no
+reaction, only one line in the recap saying why, so nothing is dropped
+silently.
 
-Then add 👀 to every Fix, Build, and Needs-a-person root in one pass, before you
-investigate. In an automation run, immediately list those roots (channel and
+Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
+pass, before you investigate. In an automation run, immediately list those roots (channel and
 ts) under "Claimed, not yet answered" in its `memory.md`, and remove each one
 once it has its reply. That list is how the next run tells an unfinished claim
 apart from Steve's own 👀.
