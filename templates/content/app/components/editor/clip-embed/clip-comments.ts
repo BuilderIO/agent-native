@@ -381,6 +381,7 @@ export function clipCommentThreads(
           videoTimestampMs: thread.videoTimestampMs,
           canComment: source.canComment,
           canResolve: source.canComment && (source.isOwner || own),
+          replyCount: thread.replyCount,
         },
         resolved: false,
         comments: [

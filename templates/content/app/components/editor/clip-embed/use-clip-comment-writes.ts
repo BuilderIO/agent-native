@@ -131,6 +131,23 @@ function withWrites(
 }
 
 /**
+ * Whether a read made after Clips took a write shows Clips' answer to it. A
+ * list that holds threads back can hold a new one back; a held-back reply
+ * still counts in its thread's replyCount.
+ */
+function settles(
+  list: ClipCommentList,
+  write: ClipCommentWrite,
+  savedId: string | undefined,
+) {
+  return (
+    write.kind !== "thread" ||
+    !list.truncated ||
+    list.threads.some((thread) => thread.id === savedId)
+  );
+}
+
+/**
  * A Clip's listed threads with the reader's writes to them: each shows from
  * the moment it's made until Clips refuses it, or until a read of the list
  * made after Clips took it has landed.
@@ -227,14 +244,22 @@ export function useClipCommentWrites(
           ),
         );
       }
-      // Shown until a read of the list made after Clips took it lands. The
-      // reread cancels any read already on its way; a failed or skipped one
-      // leaves the write showing.
-      const savedAt = Date.now();
+      // Shown until a read of the list begun after Clips took it lands and
+      // settles it. A read already on its way is cancelled first: the reread
+      // joins one that has no list yet rather than starting over. A failed
+      // or skipped read leaves the write showing.
       const queryKey = clipCommentListKey(documentId, recordingId);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const savedAt = Date.now();
       const stop = queryClient.getQueryCache().subscribe(() => {
-        const read = queryClient.getQueryState(queryKey);
-        if ((read?.dataUpdatedAt ?? 0) < savedAt) return;
+        const read = queryClient.getQueryState<ClipCommentList>(queryKey);
+        if (
+          !read?.data ||
+          read.dataUpdatedAt < savedAt ||
+          !settles(read.data, write, savedId)
+        ) {
+          return;
+        }
         stop();
         drop();
       });

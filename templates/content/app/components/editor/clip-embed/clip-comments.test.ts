@@ -52,8 +52,9 @@ describe("clipCommentThreads", () => {
         [
           source({
             threads: [
+              // Clips held two of its three replies back.
               thread("c1", 4_000, {
-                replyCount: 1,
+                replyCount: 3,
                 replies: [
                   {
                     id: "r1",
@@ -81,6 +82,7 @@ describe("clipCommentThreads", () => {
         videoTimestampMs: 4_000,
         canComment: true,
         canResolve: false,
+        replyCount: 3,
       },
     });
     expect(

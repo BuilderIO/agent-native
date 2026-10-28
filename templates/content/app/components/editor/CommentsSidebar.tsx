@@ -2123,7 +2123,12 @@ export function CommentsSidebar({
       return { id: result.id, threadId: result.threadId };
     } catch (error) {
       const isCurrentPendingComment = pendingCommentRef.current?.id === id;
-      if (!isAmbiguousCommentCreateError(error) && isCurrentPendingComment) {
+      // A text comment Content may have saved stays as a card it reconciles;
+      // a Clip comment has no such card, so its text comes back on any failure.
+      if (
+        (clip || !isAmbiguousCommentCreateError(error)) &&
+        isCurrentPendingComment
+      ) {
         pendingDraft.restoreSubmittedDraft(clientOperationId);
         setPendingHandoff(null);
       }

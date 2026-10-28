@@ -129,6 +129,10 @@ function latestCommentTime(thread: Pick<CommentThread, "comments">) {
   return latest;
 }
 
+export function commentThreadReplyCount(thread: CommentThread) {
+  return thread.clip?.replyCount ?? thread.comments.length - 1;
+}
+
 /**
  * The thread a folded stack shows: the one last touched, else the one with
  * the newest comment. Ties go to the first in document order.

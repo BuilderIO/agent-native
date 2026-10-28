@@ -451,6 +451,26 @@ describe("add-clip-comment", () => {
     expect(mocks.writeClipComment).not.toHaveBeenCalled();
   });
 
+  it("takes a moment given as text, and refuses a blank one rather than starting at 0:00", async () => {
+    await addClipComment.run({
+      ...args,
+      content: "Hi",
+      videoTimestampMs: "4200",
+    });
+    expect(mocks.writeClipComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        write: { operation: "add", content: "Hi", videoTimestampMs: 4_200 },
+      }),
+    );
+    mocks.writeClipComment.mockClear();
+    for (const videoTimestampMs of [null, "", " "]) {
+      await expect(
+        addClipComment.run({ ...args, content: "Hi", videoTimestampMs }),
+      ).rejects.toThrow();
+    }
+    expect(mocks.writeClipComment).not.toHaveBeenCalled();
+  });
+
   it("refuses a page reader who can't comment on the page, before asking Clips", async () => {
     mocks.resolveDocumentAccess.mockResolvedValue({ role: "viewer" });
     await expect(

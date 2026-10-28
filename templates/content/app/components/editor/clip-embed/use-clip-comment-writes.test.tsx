@@ -369,6 +369,73 @@ describe("useClipCommentWrites", () => {
     expect(ids()).toEqual(["c2"]);
   });
 
+  it("keeps a new thread through a read begun before Clips took it", async () => {
+    // The list's first read is still on its way when Clips takes the thread,
+    // and lands after the read made after it.
+    const before = deferred<ClipCommentList>();
+    const after = deferred<ClipCommentList>();
+    const reads = [before.promise, after.promise];
+    clips.read = () => defined(reads.shift());
+    await act(async () => {
+      void queryClient.resetQueries({ queryKey: KEY, exact: true });
+    });
+    defined(clips.byName["add-clip-comment"]).mockResolvedValue({
+      id: "c3",
+      threadId: "c3",
+    });
+    await act(async () => {
+      await defined(writes).startThread({
+        recordingId: "rec_1",
+        content: "Here",
+        videoTimestampMs: 5_000,
+        operationId: "op1",
+      });
+    });
+
+    await act(async () => {
+      after.resolve({
+        threads: [
+          thread("c1", 2_000),
+          thread("c3", 5_000, { content: "Here" }),
+          thread("c2", 9_000),
+        ],
+        truncated: false,
+      });
+      before.resolve({
+        threads: [thread("c1", 2_000), thread("c2", 9_000)],
+        truncated: false,
+      });
+      await Promise.all([before.promise, after.promise]);
+    });
+    expect(ids()).toEqual(["c1", "c3", "c2"]);
+  });
+
+  it("keeps a new thread through reads that hold it back", async () => {
+    defined(clips.byName["add-clip-comment"]).mockResolvedValue({
+      id: "c3",
+      threadId: "c3",
+    });
+    clips.read = () =>
+      Promise.resolve({
+        threads: [thread("c1", 2_000), thread("c2", 9_000)],
+        truncated: true,
+      });
+    await act(async () => {
+      await defined(writes).startThread({
+        recordingId: "rec_1",
+        content: "Here",
+        videoTimestampMs: 12_000,
+        operationId: "op1",
+      });
+    });
+    await act(() => new Promise((settle) => setTimeout(settle, 0)));
+    expect(ids()).toEqual(["c1", "c2", "c3"]);
+
+    // Someone resolved it in Clips, and the list holds nothing back now.
+    await readLands(thread("c1", 2_000), thread("c2", 9_000));
+    expect(ids()).toEqual(["c1", "c2"]);
+  });
+
   it("drops a resolved thread at once, and puts it back where it was on a refusal", async () => {
     const done = deferred<{ id: string; resolved: boolean }>();
     defined(clips.byName["resolve-clip-comment"]).mockReturnValue(done.promise);

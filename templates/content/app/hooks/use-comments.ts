@@ -111,6 +111,8 @@ export interface CommentThreadClip {
   canComment: boolean;
   /** Clips lets the reader resolve it: they wrote it, or own the Clip. */
   canResolve: boolean;
+  /** Its replies in Clips, which can be more than the list brought. */
+  replyCount: number;
 }
 
 export interface CommentThread {

@@ -18,6 +18,13 @@ import {
 
 const answerSchema = z.object({ id: z.string(), threadId: z.string() });
 
+// Coercion would read null or a blank as 0:00 and start a real thread there.
+const timestampArg = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() !== "" ? Number(value) : value,
+  z.number().int().min(0).max(CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS),
+);
+
 const ONE_TARGET =
   "Pass videoTimestampMs to start a thread or threadId to reply, not both";
 
@@ -38,11 +45,7 @@ export default defineAction({
         .min(1)
         .max(CONTENT_CLIP_MAX_COMMENT_CHARS)
         .describe("Comment text"),
-      videoTimestampMs: z.coerce
-        .number()
-        .int()
-        .min(0)
-        .max(CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS)
+      videoTimestampMs: timestampArg
         .optional()
         .describe(
           "Moment of the video to start a thread at, in milliseconds from its start. Omit when replying.",

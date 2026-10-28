@@ -217,7 +217,11 @@ describe("a Clip comment in the margin", () => {
     expect(completed).toHaveBeenCalledWith("clip:rec_1:c3");
   });
 
-  it("gives the draft back when Clips refuses it", async () => {
+  it.each([
+    [403, "clip_comments_disabled"],
+    // Clips timed out: nothing in Content can tell later whether it saved.
+    [502, "clips_unreachable"],
+  ])("gives the draft back when Clips answers %i", async (status, error) => {
     let owner!: ReturnType<typeof usePendingCommentDraft>;
     const completed = vi.fn();
     function Margin() {
@@ -251,7 +255,7 @@ describe("a Clip comment in the margin", () => {
     );
     await act(async () => found(submitButton(), "submit button").click());
 
-    await respond(403, { error: "clip_comments_disabled" });
+    await respond(status, { error });
     expect(completed).not.toHaveBeenCalled();
     expect(richEditorValue(found(richEditor(container), "composer"))).toBe(
       "Cut this pause",
