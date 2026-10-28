@@ -1600,7 +1600,11 @@ async function main(argv: string[]): Promise<number> {
         app,
         band: target,
         selectedTree: selection.tree,
-        runAppDir: path.join(runRoot, app),
+        runAppDir: path.join(
+          runRoot,
+          app,
+          ...(values.experiment ? ["experiments", values.experiment] : []),
+        ),
         analyticsUrl,
         analyticsToken,
         analyticsScopeHash,
