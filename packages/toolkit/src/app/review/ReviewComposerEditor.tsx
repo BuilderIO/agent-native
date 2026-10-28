@@ -47,12 +47,34 @@ export interface ReviewComposerEditorHandle {
   splitBlock: () => void;
 }
 
+/**
+ * What the editor tells assistive technology about the mention list it drives.
+ * DOM focus stays in the editor, so the highlighted option is named through
+ * `activeDescendant` rather than by moving focus. The editor is a
+ * `role="textbox"`, which does not allow `aria-expanded` or `aria-haspopup`;
+ * whether the list is open shows only through `controls`.
+ */
+export interface ReviewComposerEditorCombobox {
+  /** The listbox id, while it is open. */
+  controls?: string | undefined;
+  /** The highlighted option id, while the list is open. */
+  activeDescendant?: string | undefined;
+}
+
+const COMBOBOX_ATTRIBUTES = [
+  "aria-autocomplete",
+  "aria-controls",
+  "aria-activedescendant",
+] as const;
+
 export interface ReviewComposerEditorProps {
   value: string;
   mentions: readonly ReviewMention[];
   placeholder?: string;
   disabled?: boolean;
   attributes?: Record<string, string>;
+  /** Omit when the field has no list; the editor is then a plain textbox. */
+  combobox?: ReviewComposerEditorCombobox | undefined;
   className?: string;
   /** User edits only; programmatic changes to `value` never call this. */
   onTextChange: (text: string) => void;
@@ -69,6 +91,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
     placeholder,
     disabled = false,
     attributes,
+    combobox,
     className,
     onTextChange,
     onCaretChange,
@@ -186,6 +209,28 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
       dom.setAttribute(name, attribute);
     }
   }, [editor, attributes]);
+
+  const comboboxEnabled = combobox !== undefined;
+  const comboboxControls = combobox?.controls;
+  const comboboxActiveDescendant = combobox?.activeDescendant;
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const dom = editor.view.dom;
+    const next: Record<string, string | undefined> = comboboxEnabled
+      ? {
+          "aria-autocomplete": "list",
+          "aria-controls": comboboxControls,
+          "aria-activedescendant": comboboxActiveDescendant,
+        }
+      : {};
+    // Set on the live node rather than through `editorProps`, which would
+    // need a ProseMirror transaction to refresh and can only add attributes.
+    for (const name of COMBOBOX_ATTRIBUTES) {
+      const attribute = next[name];
+      if (attribute === undefined) dom.removeAttribute(name);
+      else dom.setAttribute(name, attribute);
+    }
+  }, [editor, comboboxEnabled, comboboxControls, comboboxActiveDescendant]);
 
   useImperativeHandle(
     ref,

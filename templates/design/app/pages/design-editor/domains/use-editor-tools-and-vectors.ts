@@ -43,6 +43,7 @@ import {
 import type { ElementSelectionIntent } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import { type DrawAnnotation } from "@/components/visual-editor/DrawOverlay";
+import { createReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
 import { useReviewFocusRequest } from "@/hooks/use-review-focus-request";
 import {
   isDesignHotkeyEditableTarget,
@@ -286,8 +287,12 @@ export function useEditorToolsAndVectors({
   const runtimeStructureInsertRevisionRef = useRef(0);
   const [reviewFocusRequest, issueReviewFocusRequest] = useReviewFocusRequest();
   // Reported by the canvas comment overlays; null when no thread card is open.
-  const [openReviewThreadId, setOpenReviewThreadId] = useState<string | null>(
-    null,
+  const [openReviewThreadId, publishOpenReviewThreadId] = useState<
+    string | null
+  >(null);
+  // Several overlays report here, so each report names its owner.
+  const [setOpenReviewThreadId] = useState(() =>
+    createReviewActiveThreadReporter(publishOpenReviewThreadId),
   );
   const openedReviewHashRef = useRef<string | null>(null);
   const layersRevealedForFirstCreateRef = useRef(false);

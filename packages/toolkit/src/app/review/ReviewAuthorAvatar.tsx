@@ -48,9 +48,10 @@ export function ReviewAuthorAvatar({
   return (
     <Avatar className={cn(sizeClass, className)}>
       {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
+      {/* text-muted-foreground on bg-muted is 4.23:1 in light mode, below AA. */}
       <AvatarFallback
         className={cn(
-          "font-semibold text-muted-foreground",
+          "bg-muted font-semibold text-foreground",
           size === 32 ? "text-xs" : "text-[10px]",
         )}
       >

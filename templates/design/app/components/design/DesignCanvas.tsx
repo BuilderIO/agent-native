@@ -82,6 +82,7 @@ import {
   type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
+import type { ReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import { useCanvasLoadOutcome } from "@/lib/canvas-load-outcome";
 import {
@@ -948,7 +949,7 @@ interface DesignCanvasProps {
   onReviewFocusBoardPoint?: (point: ReviewAnchorWorldPoint) => boolean | void;
   reviewCurrentUserEmail?: string | null;
   reviewFocusRequest?: ReviewFocusRequest | null;
-  onReviewActiveThreadChange?: (threadId: string | null) => void;
+  onReviewActiveThreadChange?: ReviewActiveThreadReporter;
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
   onSendThreadToAgent?: (
     thread: ReviewThread,

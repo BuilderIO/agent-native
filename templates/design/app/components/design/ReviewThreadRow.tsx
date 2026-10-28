@@ -4,6 +4,7 @@ import {
   resolveReviewAgent,
   type ReviewThread,
 } from "@agent-native/toolkit/app/review";
+import { IconCircleCheck } from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,22 @@ export function ReviewThreadRow({
   const formatters = useFormatters();
   const { root } = thread;
   const resolved = root.status === "resolved";
+  const agent = resolveReviewAgent({
+    createdBy: root.createdBy,
+    authorName: root.authorName,
+  });
+  // An agent's email is its owner's address, so only people fall back to it.
+  const author =
+    root.authorName?.trim() ||
+    (agent ? null : root.authorEmail?.trim()) ||
+    (agent ? t("review.agentBadge") : t("review.reviewer"));
+  const screenReaderName = [
+    author,
+    unread ? t("review.unread") : null,
+    resolved ? t("review.resolved") : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
 
   return (
     <button
@@ -38,25 +55,19 @@ export function ReviewThreadRow({
       className={cn(
         "relative flex h-8 w-full min-w-0 items-center gap-2 px-4 text-left transition-colors hover:bg-muted/60",
         active && "bg-secondary",
-        resolved && "opacity-60",
       )}
     >
       {unread ? (
-        <>
-          <span
-            aria-hidden="true"
-            className="absolute start-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary"
-          />
-          <span className="sr-only">{t("review.unread")}</span>
-        </>
+        <span
+          aria-hidden="true"
+          className="absolute start-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-primary"
+        />
       ) : null}
+      <span className="sr-only">{screenReaderName}</span>{" "}
       <ReviewInitialAvatar
         name={root.authorName}
         email={root.authorEmail}
-        agent={resolveReviewAgent({
-          createdBy: root.createdBy,
-          authorName: root.authorName,
-        })}
+        agent={agent}
         size={16}
       />
       <span
@@ -67,12 +78,24 @@ export function ReviewThreadRow({
       >
         {reviewThreadPreview(root.body)}
       </span>
-      <time
-        dateTime={root.createdAt}
-        className="shrink-0 text-[11px] leading-4 text-muted-foreground"
-      >
-        {formatReviewCommentRelativeTime(root.createdAt, formatters)}
-      </time>
+      <span className="flex shrink-0 items-center gap-1">
+        {resolved ? (
+          <IconCircleCheck
+            aria-hidden="true"
+            className="size-3 shrink-0 text-muted-foreground"
+          />
+        ) : null}
+        <time
+          dateTime={root.createdAt}
+          className={cn(
+            "text-[11px] leading-4",
+            // The active row sits on `bg-secondary`, where the muted token falls to 4.26:1.
+            active ? "text-foreground/70" : "text-muted-foreground",
+          )}
+        >
+          {formatReviewCommentRelativeTime(root.createdAt, formatters)}
+        </time>
+      </span>
     </button>
   );
 }

@@ -35,7 +35,7 @@ export function ReviewMentionChip({
       {agent ? (
         <ReviewAgentMark kind={agent.kind} className="size-3 shrink-0" />
       ) : null}
-      <span className="truncate">{mention.label}</span>
+      <span className="truncate">{`@${mention.label}`}</span>
     </span>
   );
 }

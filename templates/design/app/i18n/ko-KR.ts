@@ -3205,6 +3205,18 @@ export default {
     deleteThread: "스레드 삭제",
     deleteThreadTitle: "스레드를 삭제할까요?",
     deleteThreadDescription: "검토에서 스레드가 삭제됩니다.",
+    pin: {
+      thread_other: "{{authors}}의 스레드, 댓글 {{count}}개",
+      authorsOther_other: "외 {{count}}명",
+      unread: "읽지 않음",
+      resolved: "해결됨",
+      draft: "초안 댓글",
+    },
+    reaction: {
+      label_other: "{{emoji}}, 리액션 {{count}}개",
+      labelMine_other: "{{emoji}}, 리액션 {{count}}개 (내 리액션 포함)",
+    },
+    filtersActive: "필터 적용됨",
     suggestChanges: "변경 제안",
     replyInThread: "스레드에 답글 달기",
     applyChangesAndResolve: "변경 사항 적용 후 해결",

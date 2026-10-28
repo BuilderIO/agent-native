@@ -107,12 +107,12 @@ describe("ReviewCommentItem", () => {
     );
     expect(reactButton()).not.toBeNull();
     const chip = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="👍 1"]',
+      'button[aria-label="👍, 1 reaction"]',
     );
     expect(chip?.textContent?.trim()).toBe("👍");
     expect(
       container
-        .querySelector('button[aria-label="❤️ 3"]')
+        .querySelector('button[aria-label="❤️, 3 reactions"]')
         ?.textContent?.replace(/\s/g, ""),
     ).toBe("❤️3");
     act(() => chip?.click());
@@ -216,12 +216,39 @@ describe("ReviewCommentItem", () => {
         ]}
       />,
     );
-    const fire = container.querySelector('button[aria-label="🔥 1"]');
-    const heart = container.querySelector('button[aria-label="❤️ 3"]');
+    const fire = container.querySelector('button[aria-label="🔥, 1 reaction"]');
+    const heart = container.querySelector(
+      'button[aria-label="❤️, 3 reactions, including you"]',
+    );
     expect(fire?.textContent?.trim()).toBe("🔥");
     expect(heart?.textContent?.replace(/\s/g, "")).toBe("❤️3");
     expect(heart?.getAttribute("aria-pressed")).toBe("true");
     expect(fire?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("names reaction chips with the host's reaction label", () => {
+    render(
+      <ReviewCommentItem
+        comment={makeComment()}
+        variant="root"
+        showReactions
+        canReact
+        reactionLabel={({ emoji, count, includesYou }) =>
+          `${emoji} x${count}${includesYou ? " mine" : ""}`
+        }
+        reactions={[
+          { reaction: "👍", count: 3, reactedByMe: true },
+          { reaction: "🔥", count: 1, reactedByMe: false },
+        ]}
+      />,
+    );
+    expect(
+      Array.from(
+        container.querySelectorAll("[data-review-reaction-bar] button"),
+      )
+        .map((button) => button.getAttribute("aria-label"))
+        .filter((label) => label !== "Add reaction"),
+    ).toEqual(["👍 x3 mine", "🔥 x1"]);
   });
 
   it("toggles a chip off when the current user already reacted", () => {
@@ -238,7 +265,9 @@ describe("ReviewCommentItem", () => {
     );
     act(() =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="🎉 2"]')
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="🎉, 2 reactions, including you"]',
+        )
         ?.click(),
     );
     expect(onReact).toHaveBeenCalledWith(expect.anything(), "🎉", false);

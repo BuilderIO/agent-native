@@ -117,16 +117,16 @@ test("comments toolbar opens an anchored composer", async ({ app }) => {
   await expect(commentButton).toBeDisabled();
   await composer.fill("Browser comment check ");
   await composer.press("@");
-  const mentionMenu = page.getByRole("menu", { name: "Mention someone" });
+  const mentionMenu = page.getByRole("listbox", { name: "Mention someone" });
   await expect(mentionMenu).toBeVisible();
   await expect(composer).toHaveText("Browser comment check @");
   await composer.pressSequentially("Ali");
-  await expect(mentionMenu.getByRole("menuitem").first()).toContainText(
+  await expect(mentionMenu.getByRole("option").first()).toContainText(
     "alice+e2e",
   );
-  await mentionMenu.getByRole("menuitem").first().click();
+  await mentionMenu.getByRole("option").first().click();
   await expect(composer.locator("[data-review-mention-chip]")).toHaveText(
-    "alice+e2e",
+    "@alice+e2e",
   );
 
   const tools = (await draftForm

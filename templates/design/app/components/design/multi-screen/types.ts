@@ -12,6 +12,7 @@ import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode, RefObject } from "react";
 
+import type { ReviewActiveThreadReporter } from "@/components/visual-editor/review-active-thread-reporter";
 import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import type { TextCommitStatus } from "@/pages/design-editor/command-types";
 
@@ -212,7 +213,7 @@ export interface MultiScreenCanvasProps {
     threadId?: string;
   } | null;
   reviewCurrentUserEmail?: string | null;
-  onReviewActiveThreadChange?: (threadId: string | null) => void;
+  onReviewActiveThreadChange?: ReviewActiveThreadReporter;
   onExitReviewPinMode?: () => void;
   onDispatchCommentToAgent?: (comment: ReviewComment) => void;
   onSendThreadToAgent?: (

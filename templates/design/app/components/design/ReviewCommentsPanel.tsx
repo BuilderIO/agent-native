@@ -13,7 +13,7 @@ import {
   type ReviewThread,
 } from "@agent-native/toolkit/app/review";
 import { IconFilter, IconPlus, IconSearch } from "@tabler/icons-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,14 @@ export function ReviewCommentsPanel({
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [onlyCurrentPage, setOnlyCurrentPage] = useState(false);
   const [sortBy, setSortBy] = useState<ReviewThreadSort>("date");
+  const baseId = useId();
+  const searchToggleRef = useRef<HTMLButtonElement>(null);
+  const filtersActive =
+    showResolved ||
+    onlyMine ||
+    onlyUnread ||
+    onlyCurrentPage ||
+    sortBy !== "date";
   const setUnread = useSetReviewThreadUnread();
   const setUnreadBulk = useSetReviewThreadsUnread();
   const reviewState = useReviewComments({
@@ -250,7 +258,10 @@ export function ReviewCommentsPanel({
 
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border py-2 pl-4 pr-2">
         {/* `text-xs` here would be shrunk to 10px by `.design-sidebar-comments .text-xs` in global.css. */}
-        <span className="min-w-0 flex-1 truncate text-[12px] leading-4 text-muted-foreground">
+        <span
+          role="status"
+          className="min-w-0 flex-1 truncate text-[12px] leading-4 text-muted-foreground"
+        >
           {loading || failed
             ? null
             : t("review.threadsCount", { count: visibleThreads.length })}
@@ -263,6 +274,7 @@ export function ReviewCommentsPanel({
             "shrink-0 rounded-[10px]",
             searchOpen && "bg-secondary",
           )}
+          ref={searchToggleRef}
           aria-label={t("review.search")}
           aria-pressed={searchOpen}
           onClick={toggleSearch}
@@ -275,10 +287,20 @@ export function ReviewCommentsPanel({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="shrink-0 rounded-[10px]"
-              aria-label={t("review.filter")}
+              className="relative shrink-0 rounded-[10px]"
+              aria-label={
+                filtersActive
+                  ? `${t("review.filter")}, ${t("review.filtersActive")}`
+                  : t("review.filter")
+              }
             >
               <IconFilter className="size-4" />
+              {filtersActive ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute end-1.5 top-1.5 size-1.5 rounded-full bg-primary"
+                />
+              ) : null}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
@@ -361,6 +383,8 @@ export function ReviewCommentsPanel({
               if (event.key !== "Escape") return;
               event.stopPropagation();
               closeSearch();
+              // The input unmounts on close; keep focus on the control that opened it.
+              searchToggleRef.current?.focus();
             }}
             placeholder={t("review.search")}
             aria-label={t("review.search")}
@@ -380,34 +404,43 @@ export function ReviewCommentsPanel({
         ) : loading ? (
           <ReviewThreadsSkeleton label={t("review.loading")} />
         ) : groups.length ? (
-          groups.map((group, index) => (
-            <div
-              key={group.screen?.id ?? "board"}
-              role="group"
-              aria-label={group.screen?.name ?? t("review.boardGroup")}
-              className={cn(index > 0 && "border-t border-border")}
-            >
-              <div className="flex h-10 min-w-0 items-center gap-1 px-4 text-[11px] leading-4 tracking-[0.055px]">
-                <span className="min-w-0 truncate font-[550] text-foreground">
-                  {group.screen?.name ?? t("review.boardGroup")}
-                </span>
-                {group.screen?.route ? (
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {group.screen.route}
-                  </span>
-                ) : null}
+          groups.map((group, index) => {
+            const headingId = `${baseId}-group-${index}`;
+            return (
+              <div
+                key={group.screen?.id ?? "board"}
+                role="group"
+                aria-labelledby={headingId}
+                className={cn(index > 0 && "border-t border-border")}
+              >
+                <div className="flex h-10 min-w-0 items-center gap-1 px-4 text-[11px] leading-4 tracking-[0.055px]">
+                  <h3
+                    id={headingId}
+                    className="min-w-0 truncate font-[550] text-foreground"
+                  >
+                    {group.screen?.name ?? t("review.boardGroup")}
+                  </h3>
+                  {group.screen?.route ? (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {group.screen.route}
+                    </span>
+                  ) : null}
+                </div>
+                <ul className="m-0 list-none p-0">
+                  {group.threads.map((thread) => (
+                    <li key={thread.root.threadId}>
+                      <ReviewThreadRow
+                        thread={thread}
+                        unread={unreadThreadIds.has(thread.root.threadId)}
+                        active={activeThreadId === thread.root.threadId}
+                        onSelect={handleSelectThread}
+                      />
+                    </li>
+                  ))}
+                </ul>
               </div>
-              {group.threads.map((thread) => (
-                <ReviewThreadRow
-                  key={thread.root.threadId}
-                  thread={thread}
-                  unread={unreadThreadIds.has(thread.root.threadId)}
-                  active={activeThreadId === thread.root.threadId}
-                  onSelect={handleSelectThread}
-                />
-              ))}
-            </div>
-          ))
+            );
+          })
         ) : (
           <p className="px-4 py-6 text-center text-xs text-muted-foreground">
             {t("review.emptyState")}

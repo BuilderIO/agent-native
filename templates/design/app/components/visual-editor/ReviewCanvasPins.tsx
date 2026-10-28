@@ -1,5 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
 import {
   useCreateReviewComment,
@@ -43,12 +43,14 @@ import { IconMessageCircle, IconPhoto, IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -96,6 +98,7 @@ import {
 } from "../../../shared/review-anchor";
 import { forwardReviewOverlayWheel } from "../design/canvas-interactions/review-overlay-interaction";
 import { SURFACE_PADDING } from "../design/multi-screen/overview-layout";
+import type { ReviewActiveThreadReporter } from "./review-active-thread-reporter";
 import {
   getReviewPinPosition,
   getReviewPopoverBox,
@@ -109,7 +112,11 @@ import {
   type ReviewVisibleRegion,
 } from "./review-canvas-state";
 import { ReviewAgentRequestStatus } from "./ReviewAgentRequestStatus";
-import { type ReviewPinAuthor, ReviewPinBadge } from "./ReviewPinBadge";
+import {
+  type ReviewPinAuthor,
+  ReviewPinBadge,
+  uniqueReviewPinAuthors,
+} from "./ReviewPinBadge";
 
 export interface RepromptDraftRequest {
   nonce: number;
@@ -161,7 +168,7 @@ interface ReviewCanvasPinsProps {
   /** The thread whose hand-off to the agent is still in flight. */
   sendingThreadId?: string | null;
   /** The open thread's id, or null when no thread card is open. */
-  onActiveThreadChange?: (threadId: string | null) => void;
+  onActiveThreadChange?: ReviewActiveThreadReporter;
   sourceType?: "inline" | "localhost" | "fusion";
   sourceVersionHash?: string;
   repromptDraftRequest?: RepromptDraftRequest | null;
@@ -912,6 +919,8 @@ function reviewAgentAttachments(attachments: readonly ReviewImageAttachment[]) {
 const WORKING_AREA_CHROME_SELECTOR =
   '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
 const BOTTOM_TOOLBAR_SELECTOR = "[data-design-bottom-toolbar]";
+// The Pin comment tool, which the label cannot find: it is translated.
+const COMMENT_TOOL_SELECTOR = `${BOTTOM_TOOLBAR_SELECTOR} [data-design-toolbar-group="comment"] button`;
 const MAIN_SURFACE_SELECTOR =
   ".agent-sidebar-main-surface, .agent-layout-main-surface";
 const OPEN_REVIEW_OVERLAY_SELECTOR =
@@ -919,6 +928,52 @@ const OPEN_REVIEW_OVERLAY_SELECTOR =
 // Shared by every mounted surface, which all hear the same keydown.
 const overlayEscapes = new WeakSet<Event>();
 const ownedEscapes = new WeakSet<Event>();
+
+// Where focus goes once the card or draft that held it is gone.
+interface ReviewFocusReturn {
+  // The pin the card belongs to; null for a draft, which has no pin yet.
+  threadId: string | null;
+  // The overlay's pins in DOM order when the card closed. A deleted thread's
+  // pin is already unmounted by the time focus moves, so its neighbors are
+  // read from here.
+  pinOrder: readonly string[];
+}
+
+function pinThreadIdsInDomOrder(
+  pins: ReadonlyMap<string, HTMLElement>,
+): string[] {
+  return [...pins]
+    .sort(([, a], [, b]) =>
+      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+    )
+    .map(([threadId]) => threadId);
+}
+
+// The next pin after the dismissed one, else the previous. A draft sits after
+// every pin, so it lands on the last.
+function nearestPin(
+  { threadId, pinOrder }: ReviewFocusReturn,
+  pins: ReadonlyMap<string, HTMLElement>,
+): HTMLElement | null {
+  const at = threadId === null ? -1 : pinOrder.indexOf(threadId);
+  const after = at === -1 ? [] : pinOrder.slice(at + 1);
+  const before = (at === -1 ? [...pinOrder] : pinOrder.slice(0, at)).reverse();
+  for (const id of [...after, ...before]) {
+    const pin = pins.get(id);
+    if (pin) return pin;
+  }
+  return null;
+}
+
+// Focus that the dismissed card or its confirmation dialog left on a control
+// about to unmount is lost; focus anywhere else is the user's own.
+function focusIsLost(active: Element | null): boolean {
+  return (
+    active === null ||
+    active === document.body ||
+    active.closest('[role="alertdialog"]') !== null
+  );
+}
 
 function workingAreaRect(
   bounds: Pick<DOMRect, "left" | "top" | "right" | "bottom">,
@@ -1056,6 +1111,12 @@ export function ReviewCanvasPins({
       !hidden &&
       (active || draftComposerOpen || activeThreadId !== null),
   );
+  const reporterId = useId();
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
+  const pinElementsRef = useRef(new Map<string, HTMLButtonElement>());
+  const focusFallbackRef = useRef<HTMLSpanElement | null>(null);
+  const focusReturnRef = useRef<ReviewFocusReturn | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<ReviewMention[]>([]);
   const [replyAttachments, setReplyAttachments] = useState<
@@ -1254,20 +1315,21 @@ export function ReviewCanvasPins({
     },
     [discussion?.canReact, reactToComment, resourceId, resourceType, t],
   );
-  // Several overlays can be mounted at once, so an idle one must not report
-  // null over another's open thread: only a change from what it last said.
+  // Several overlays can be mounted at once and share one callback, so every
+  // report carries this overlay's id: closing or unmounting here withdraws only
+  // this overlay's thread, never one another overlay has open.
   useEffect(() => {
     if (emittedThreadIdRef.current === activeThreadId) return;
     emittedThreadIdRef.current = activeThreadId;
-    onActiveThreadChangeRef.current?.(activeThreadId);
-  }, [activeThreadId]);
+    onActiveThreadChangeRef.current?.(activeThreadId, reporterId);
+  }, [activeThreadId, reporterId]);
   useEffect(
     () => () => {
       if (emittedThreadIdRef.current === null) return;
       emittedThreadIdRef.current = null;
-      onActiveThreadChangeRef.current?.(null);
+      onActiveThreadChangeRef.current?.(null, reporterId);
     },
-    [],
+    [reporterId],
   );
   const closeActiveThread = useCallback(() => {
     setActiveThreadId(null);
@@ -1278,6 +1340,49 @@ export function ReviewCanvasPins({
     setEditDraft("");
     setEditMentions([]);
   }, []);
+  const focusReturnTo = useCallback(
+    (threadId: string | null): ReviewFocusReturn => ({
+      threadId,
+      pinOrder: pinThreadIdsInDomOrder(pinElementsRef.current),
+    }),
+    [],
+  );
+  // Closing from the card itself (close button, Escape, delete, resolve) hands
+  // focus back to the pin it belongs to; clicking elsewhere leaves focus there.
+  const dismissActiveThread = useCallback(() => {
+    if (activeThreadIdRef.current !== null) {
+      focusReturnRef.current = focusReturnTo(activeThreadIdRef.current);
+    }
+    closeActiveThread();
+  }, [closeActiveThread, focusReturnTo]);
+  const dismissDraft = useCallback(() => {
+    focusReturnRef.current = focusReturnTo(null);
+    cancelDraft();
+  }, [cancelDraft, focusReturnTo]);
+  // The card or draft is unmounted by the time this runs, so focus is not
+  // dropped to <body>. A deleted thread has no pin left and a draft never had
+  // one: focus moves to the nearest pin, else the overlay's fallback target,
+  // else the Pin comment tool once the overlay has unmounted with its last pin,
+  // unless the user already put focus somewhere else.
+  useEffect(() => {
+    if (activeThreadId !== null || draftComposerOpen) return;
+    const target = focusReturnRef.current;
+    focusReturnRef.current = null;
+    if (!target) return;
+    const pins = pinElementsRef.current;
+    const pin =
+      target.threadId === null ? undefined : pins.get(target.threadId);
+    if (pin) {
+      pin.focus({ preventScroll: true });
+      return;
+    }
+    if (!focusIsLost(document.activeElement)) return;
+    (
+      nearestPin(target, pins) ??
+      focusFallbackRef.current ??
+      document.querySelector<HTMLElement>(COMMENT_TOOL_SELECTOR)
+    )?.focus({ preventScroll: true });
+  }, [activeThreadId, draftComposerOpen]);
   const copyThreadLink = useCallback(
     async (thread: ReviewThread) => {
       if (!navigator.clipboard) {
@@ -1890,10 +1995,11 @@ export function ReviewCanvasPins({
     owns: Boolean(draftComposerOpen && draftPin) || Boolean(activeThreadId),
     close: () => {
       if (draftComposerOpen && draftPin) {
-        cancelDraft();
+        dismissDraft();
         return;
       }
       if (activeThreadId) {
+        focusReturnRef.current = focusReturnTo(activeThreadId);
         setActiveThreadId(null);
         setReplyDraft("");
         setReplyAttachments([]);
@@ -2759,6 +2865,15 @@ export function ReviewCanvasPins({
       onMouseDown={stopReviewOverlayEvent}
       onClick={stopReviewOverlayEvent}
     >
+      {/* Focus lands here when the pin it was on is gone. The root is
+          `display: contents`, which cannot take focus, and this empty span
+          needs the real box `sr-only` gives it. */}
+      <span
+        ref={focusFallbackRef}
+        tabIndex={-1}
+        data-review-focus-fallback
+        className="sr-only"
+      />
       {placementPlaneVisible ? (
         <div
           data-review-click-plane
@@ -2859,6 +2974,13 @@ export function ReviewCanvasPins({
               clientPoint={clientPoint}
               authors={threadPinAuthors(thread)}
               commentCount={thread.replies.length + 1}
+              pinRef={(element) => {
+                if (element) {
+                  pinElementsRef.current.set(thread.root.threadId, element);
+                } else {
+                  pinElementsRef.current.delete(thread.root.threadId);
+                }
+              }}
               onClick={() => {
                 if (!draftPin?.draft.trim()) setDraftPin(null);
                 setDraftComposerOpen(false);
@@ -2964,7 +3086,7 @@ export function ReviewCanvasPins({
                   onReplyAttachmentsChange={setReplyAttachments}
                   onReplyDraftChange={setReplyDraft}
                   onReplyMentionsChange={setReplyMentions}
-                  onClose={closeActiveThread}
+                  onClose={dismissActiveThread}
                   onReply={() => {
                     const body = replyDraft.trim();
                     if (!body) return;
@@ -3009,6 +3131,13 @@ export function ReviewCanvasPins({
                       },
                       {
                         onSuccess: () => {
+                          if (
+                            activeThreadIdRef.current === thread.root.threadId
+                          ) {
+                            focusReturnRef.current = focusReturnTo(
+                              thread.root.threadId,
+                            );
+                          }
                           setActiveThreadId(null);
                           if (thread.root.status === "open") {
                             toast.success(t("review.resolved"), {
@@ -3050,6 +3179,7 @@ export function ReviewCanvasPins({
             authors={[
               currentUserEmail !== undefined ? { email: currentUserEmail } : {},
             ]}
+            draft
             pending={Boolean(pendingRepromptId)}
             onClick={() => {
               if (pendingRepromptId) return;
@@ -3082,7 +3212,7 @@ export function ReviewCanvasPins({
                     ),
                   );
                 }}
-                onCancel={cancelDraft}
+                onCancel={dismissDraft}
                 onSubmit={() => {
                   if (draftMode === "reprompt") {
                     if (sourceType !== "inline") {
@@ -3124,9 +3254,11 @@ export function ReviewCanvasPins({
           }}
         >
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("review.deleteThreadTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("review.deleteCommentTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("review.deleteThreadDescription")}
+              {t("review.deleteCommentDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3139,11 +3271,16 @@ export function ReviewCanvasPins({
                 event.preventDefault();
                 const candidate = deleteCandidate;
                 if (!candidate) return;
+                // The optimistic delete unmounts the pin before this succeeds.
+                const returnTo = focusReturnTo(candidate.threadId);
                 deleteComment.mutate(
                   { resourceType, resourceId, commentId: candidate.id },
                   {
                     onSuccess: () => {
                       setDeleteCandidate(null);
+                      if (activeThreadIdRef.current === candidate.threadId) {
+                        focusReturnRef.current = returnTo;
+                      }
                       closeActiveThread();
                     },
                     onError: () => toast.error(t("review.postFailed")),
@@ -3151,7 +3288,7 @@ export function ReviewCanvasPins({
                 );
               }}
             >
-              {t("review.deleteThread")}
+              {t("review.deleteComment")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3176,6 +3313,47 @@ function threadPinAuthors(thread: ReviewThread): ReviewPinAuthor[] {
   return [thread.root, ...thread.replies].map(reviewPinAuthor);
 }
 
+const MAX_NAMED_PIN_AUTHORS = 2;
+
+// What the pin shows: who is in the thread, how many comments, and its state.
+function reviewThreadPinLabel({
+  t,
+  formatList,
+  authors,
+  count,
+  unread,
+  resolved,
+}: {
+  t: ReturnType<typeof useT>;
+  formatList: ReturnType<typeof useFormatters>["formatList"];
+  authors: ReviewPinAuthor[];
+  count: number;
+  unread: boolean;
+  resolved: boolean;
+}): string {
+  const names = uniqueReviewPinAuthors(authors).map((author) =>
+    author.agent
+      ? author.name?.trim() || t("review.agentBadge")
+      : author.name?.trim() || author.email?.trim() || t("review.reviewer"),
+  );
+  const named = names.slice(0, MAX_NAMED_PIN_AUTHORS);
+  const others = names.length - named.length;
+  const summary = t("review.pin.thread", {
+    authors: formatList(
+      others > 0
+        ? [...named, t("review.pin.authorsOther", { count: others })]
+        : named,
+    ),
+    count,
+  });
+  const states: string[] = [];
+  if (unread) states.push(t("review.pin.unread"));
+  if (resolved) states.push(t("review.pin.resolved"));
+  return states.length
+    ? formatList([summary, formatList(states)], { type: "unit" })
+    : summary;
+}
+
 function ReviewPin({
   point,
   canvasRect,
@@ -3183,6 +3361,7 @@ function ReviewPin({
   active,
   authors,
   commentCount,
+  draft = false,
   pending = false,
   resolved = false,
   unread = false,
@@ -3190,14 +3369,18 @@ function ReviewPin({
   canMove = false,
   onMove,
   onClick,
+  pinRef,
   children,
 }: {
   point: ReviewAnchorPoint;
   canvasRect: DOMRect;
   clientPoint?: ReviewCanvasPoint | null | undefined;
+  /** This pin's card is open. */
   active: boolean;
   authors: ReviewPinAuthor[];
   commentCount?: number;
+  /** The pin of a comment that is not posted yet; it reads as "Draft comment". */
+  draft?: boolean;
   pending?: boolean;
   resolved?: boolean;
   unread?: boolean;
@@ -3205,9 +3388,11 @@ function ReviewPin({
   canMove?: boolean;
   onMove?: (point: ReviewAnchorPoint) => void;
   onClick: () => void;
+  pinRef?: Ref<HTMLButtonElement> | undefined;
   children?: ReactNode;
 }) {
   const t = useT();
+  const { formatList } = useFormatters();
   const movedRef = useRef(false);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragPointRef = useRef<ReviewAnchorPoint | null>(null);
@@ -3303,8 +3488,10 @@ function ReviewPin({
         data-review-unread={unread ? "true" : undefined}
         authors={authors}
         {...(commentCount !== undefined ? { count: commentCount } : {})}
+        ref={pinRef}
         selected={active}
         resolved={resolved}
+        unread={unread}
         pending={pending}
         className={cn(
           "-translate-x-1/2 -translate-y-1/2 hover:scale-110",
@@ -3339,7 +3526,20 @@ function ReviewPin({
             yPct: clampPercent(point.yPct + delta.yPct),
           });
         }}
-        ariaLabel={t("review.pinLabel", { count: commentCount ?? 1 })}
+        ariaLabel={
+          draft
+            ? t("review.pin.draft")
+            : reviewThreadPinLabel({
+                t,
+                formatList,
+                authors,
+                count: commentCount ?? 1,
+                unread,
+                resolved,
+              })
+        }
+        aria-expanded={active}
+        aria-haspopup="dialog"
         aria-keyshortcuts={
           canMove ? "ArrowUp ArrowDown ArrowLeft ArrowRight" : undefined
         }
@@ -3474,7 +3674,10 @@ function useReviewImageAttachments({
         accept="image/*"
         multiple
         data-review-attachment-input
-        className="sr-only"
+        // Out of the accessibility tree: the image button above is the one
+        // named, tabbable control, and it clicks this input.
+        tabIndex={-1}
+        className="hidden"
         onChange={(event) => void handleFiles(event.currentTarget.files)}
       />
     </>
@@ -3775,6 +3978,12 @@ function ReviewThreadPopover({
   onStatusChange: () => void;
 }) {
   const t = useT();
+  const cardRef = useRef<HTMLDivElement>(null);
+  // The card takes focus when it opens, and again once an edit ends. The reply
+  // field stays collapsed until the user goes there, and an edit focuses its own editor.
+  useEffect(() => {
+    if (!editing) cardRef.current?.focus({ preventScroll: true });
+  }, [editing]);
   const replyImages = useReviewImageAttachments({
     attachments: replyAttachments,
     disabled: replying || resolving,
@@ -3790,6 +3999,19 @@ function ReviewThreadPopover({
     resolvedLabel: t("review.resolved"),
     unreadLabel: t("review.unread"),
     addReactionLabel: t("review.addReaction"),
+    reactionLabel: ({
+      emoji,
+      count,
+      includesYou,
+    }: {
+      emoji: string;
+      count: number;
+      includesYou: boolean;
+    }) =>
+      t(includesYou ? "review.reaction.labelMine" : "review.reaction.label", {
+        emoji,
+        count,
+      }),
   };
   const commentItem = (comment: ReviewComment, variant: "root" | "reply") => (
     <ReviewCommentItem
@@ -3836,6 +4058,7 @@ function ReviewThreadPopover({
   return (
     <ReviewPopoverFrame anchor={anchor}>
       <ReviewThreadCardFrame
+        ref={cardRef}
         className="w-full"
         title={t("review.threadTitle")}
         menu={
@@ -3848,7 +4071,8 @@ function ReviewThreadPopover({
             copyLinkLabel={t("review.copyLink")}
             linkCopiedLabel={t("review.linkCopied")}
             copyLinkFailedLabel={t("review.copyLinkFailed")}
-            deleteLabel={t("review.deleteThread")}
+            editLabel={t("review.editComment")}
+            deleteLabel={t("review.deleteComment")}
             onSendToAgent={onAgentAction && (() => onAgentAction("send"))}
             onSuggestChanges={
               onAgentAction && agentItems.suggest
@@ -3866,6 +4090,8 @@ function ReviewThreadPopover({
                 : undefined
             }
             agentActionsDisabled={agentActionsDisabled}
+            canEdit={canEdit}
+            onEdit={onEdit}
             onCopyLink={onCopyLink}
             onDelete={canDelete ? onDelete : undefined}
           />
