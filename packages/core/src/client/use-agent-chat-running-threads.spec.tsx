@@ -24,6 +24,21 @@ describe("getAgentChatRunningThreadId", () => {
     );
     expect(getAgentChatRunningThreadId("tab-never-ran")).toBeNull();
   });
+
+  it("reads a tab-only event as that tab's thread without replacing a reported one", () => {
+    dispatchAgentChatRunning({ isRunning: true, tabId: "tab-only" });
+    dispatchAgentChatRunning({
+      isRunning: true,
+      tabId: "tab-with-thread",
+      threadId: "thread-reported",
+    });
+    dispatchAgentChatRunning({ isRunning: false, tabId: "tab-with-thread" });
+
+    expect(getAgentChatRunningThreadId("tab-only")).toBe("tab-only");
+    expect(getAgentChatRunningThreadId("tab-with-thread")).toBe(
+      "thread-reported",
+    );
+  });
 });
 
 describe("useAgentChatRunningThreads", () => {

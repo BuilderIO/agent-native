@@ -43,8 +43,12 @@ export function rememberAgentChatRunningThread(
   detail: Partial<AgentChatRunningEventDetail> | null | undefined,
 ): void {
   const tabId = detail?.tabId?.trim();
-  const threadId = detail?.threadId?.trim();
-  if (!tabId || !threadId) return;
+  if (!tabId) return;
+  const explicitThreadId = detail?.threadId?.trim();
+  // A tab-only event names the tab as its thread, as the resolver reads it,
+  // but must not replace a thread the tab already reported explicitly.
+  if (!explicitThreadId && runningThreadIdsByTab.has(tabId)) return;
+  const threadId = explicitThreadId || tabId;
   runningThreadIdsByTab.delete(tabId);
   runningThreadIdsByTab.set(tabId, threadId);
   if (runningThreadIdsByTab.size > RUNNING_THREAD_HISTORY_LIMIT) {
