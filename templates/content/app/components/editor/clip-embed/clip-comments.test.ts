@@ -36,29 +36,39 @@ function source(overrides?: Partial<ClipCommentSource>): ClipCommentSource {
   };
 }
 
+/** The one margin thread a test expects. */
+function onlyThread<T>(threads: readonly T[]): T {
+  const [only] = threads;
+  if (threads.length !== 1 || only === undefined)
+    throw new Error(`Expected one margin thread, got ${threads.length}`);
+  return only;
+}
+
 describe("clipCommentThreads", () => {
   it("gives each Clip thread a margin id, its moment, and its replies", () => {
-    const [margin] = clipCommentThreads(
-      "doc_1",
-      [
-        source({
-          threads: [
-            thread("c1", 4_000, {
-              replyCount: 1,
-              replies: [
-                {
-                  id: "r1",
-                  content: "Agreed",
-                  authorEmail: "bo@example.test",
-                  authorName: "Bo",
-                  createdAt: "2026-10-23T12:05:00.000Z",
-                },
-              ],
-            }),
-          ],
-        }),
-      ],
-      "bo@example.test",
+    const margin = onlyThread(
+      clipCommentThreads(
+        "doc_1",
+        [
+          source({
+            threads: [
+              thread("c1", 4_000, {
+                replyCount: 1,
+                replies: [
+                  {
+                    id: "r1",
+                    content: "Agreed",
+                    authorEmail: "bo@example.test",
+                    authorName: "Bo",
+                    createdAt: "2026-10-23T12:05:00.000Z",
+                  },
+                ],
+              }),
+            ],
+          }),
+        ],
+        "bo@example.test",
+      ),
     );
     expect(margin).toMatchObject({
       threadId: "clip:rec_1:c1",
@@ -79,7 +89,7 @@ describe("clipCommentThreads", () => {
       ["c1", null],
       ["r1", "c1"],
     ]);
-    expect(margin.comments[0].thread_id).toBe("clip:rec_1:c1");
+    expect(margin.comments[0]?.thread_id).toBe("clip:rec_1:c1");
   });
 
   it("lets a thread's author and the Clip's owner resolve it, if Clips takes their comments", () => {
@@ -112,16 +122,18 @@ describe("clipCommentThreads", () => {
   });
 
   it("marks a comment Clips hasn't confirmed as pending", () => {
-    const [margin] = clipCommentThreads(
-      "doc_1",
-      [
-        source({
-          threads: [thread("optimistic-op1", 2_000, { operationId: "op1" })],
-        }),
-      ],
-      null,
+    const margin = onlyThread(
+      clipCommentThreads(
+        "doc_1",
+        [
+          source({
+            threads: [thread("optimistic-op1", 2_000, { operationId: "op1" })],
+          }),
+        ],
+        null,
+      ),
     );
-    expect(margin.comments[0].mutation).toEqual({
+    expect(margin.comments[0]?.mutation).toEqual({
       operationId: "op1",
       kind: "create",
       status: "pending",

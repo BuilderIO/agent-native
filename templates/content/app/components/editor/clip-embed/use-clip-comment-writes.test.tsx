@@ -44,7 +44,7 @@ vi.mock("@agent-native/core/client/hooks", async () => {
       useQuery({
         queryKey: ["action", name, params],
         queryFn: () => clips.read(),
-        enabled: options?.enabled,
+        enabled: options?.enabled ?? true,
       }),
   };
 });

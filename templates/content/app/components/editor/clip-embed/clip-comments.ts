@@ -7,10 +7,12 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Comment, CommentThread } from "@/hooks/use-comments";
 
 /** A comment shown before Clips has it: the id of the write saving it. */
-export type ClipCommentView = ClipComment & { operationId?: string };
+export type ClipCommentView = ClipComment & {
+  operationId?: string | undefined;
+};
 
 export type ClipThreadView = Omit<ClipCommentThread, "replies"> & {
-  operationId?: string;
+  operationId?: string | undefined;
   replies: ClipCommentView[];
 };
 
@@ -266,13 +268,13 @@ export function clipThreadPassed<T extends Pick<CommentThread, "threadId">>(
     if (ms <= playheadMs && ms > passedMs) passedMs = ms;
   }
   const frontMs = passedMs < 0 ? firstMs : passedMs;
-  const atPassed = threads.filter(
-    (thread) => thread.clip?.videoTimestampMs === frontMs,
-  );
-  return (
-    atPassed.find((thread) => thread.threadId === preferred) ??
-    (atPassed.length ? atPassed[atPassed.length - 1] : null)
-  );
+  let front: T | null = null;
+  for (const thread of threads) {
+    if (thread.clip?.videoTimestampMs !== frontMs) continue;
+    if (thread.threadId === preferred) return thread;
+    front = thread;
+  }
+  return front;
 }
 
 /**

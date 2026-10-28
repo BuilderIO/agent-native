@@ -2813,6 +2813,7 @@ export function CommentsSidebar({
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
     if (
       !threadCanResolve(thread) ||
+      !thread.comments[0] ||
       // Clips lists only open threads, so a resolved one is out of reach.
       (thread.clip && !resolved) ||
       thread.comments.some(

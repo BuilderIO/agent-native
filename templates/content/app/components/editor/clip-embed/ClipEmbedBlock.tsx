@@ -103,7 +103,7 @@ function ClipFrame({
 }: {
   recordingId: string;
   /** The margin's ids for the Clip's threads, which it places beside it. */
-  commentThreadIds?: readonly string[];
+  commentThreadIds?: readonly string[] | undefined;
   emphasis?: "pending" | "active" | null;
   frameRef?: (element: HTMLDivElement | null) => void;
   children: ReactNode;

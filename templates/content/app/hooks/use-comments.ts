@@ -154,21 +154,21 @@ export interface CreateCommentVariables {
   documentId: string;
   content: string;
   threadId?: string;
-  parentId?: string;
-  quotedText?: string;
-  anchorPrefix?: string;
-  anchorSuffix?: string;
-  anchorStartOffset?: number;
+  parentId?: string | undefined;
+  quotedText?: string | undefined;
+  anchorPrefix?: string | undefined;
+  anchorSuffix?: string | undefined;
+  anchorStartOffset?: number | undefined;
   /** Starts a thread on this Property instead of on quoted text. */
   propertyId?: string;
   /** The Collection that owns propertyId. */
-  databaseId?: string;
+  databaseId?: string | undefined;
   /** Starts a thread in this Blocks field's tab instead of the body. */
   fieldId?: string;
   /** Starts a thread on this whole block instead of on quoted text. */
   blockId?: string;
   blockType?: CommentAnchorBlockType;
-  mentions?: string;
+  mentions?: string | undefined;
 }
 
 export interface EditCommentVariables {

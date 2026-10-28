@@ -87,7 +87,7 @@ function clipThread(
     "bo@example.test",
   );
   expect(threads).toHaveLength(1);
-  return threads[0];
+  return found(threads[0], "margin thread");
 }
 
 /** The element a step needs, or a failed test naming the one missing. */

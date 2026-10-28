@@ -159,7 +159,10 @@ export function useClipThreadsWithWrites(
  */
 export function useClipCommentWrites(
   documentId: string,
-  author: { email?: string | null; name?: string | null },
+  author: {
+    email?: string | null | undefined;
+    name?: string | null | undefined;
+  },
 ) {
   const queryClient = useQueryClient();
   const add = useActionMutation<
