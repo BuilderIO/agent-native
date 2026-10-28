@@ -256,7 +256,13 @@ export const chatThreadsStore = defineStore({
           );
           if (!entry)
             throw new Error(`Missing chat schema migration ${version}`);
-          return splitSqlStatements(entry.sql);
+          const raw =
+            typeof entry.sql === "string" ? entry.sql : entry.sql.postgres;
+          if (!raw)
+            throw new Error(
+              `Missing PostgreSQL chat schema migration ${version}`,
+            );
+          return splitSqlStatements(raw);
         };
         const [table, pendingIndex] = sql(5);
         const [interruptRunId] = sql(6);
