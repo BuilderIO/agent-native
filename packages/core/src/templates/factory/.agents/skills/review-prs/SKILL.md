@@ -404,17 +404,13 @@ Factory governance submits approvals only through
 revalidates evidence. Never call GitHub write endpoints directly from Factory
 governance. If the invocation context is unknown, do not submit an approval.
 
-For a manual, non-Factory invocation, if a PR passes the applicable gate and
-lacks a current-head approval, submit one GitHub approval review pinned to the
-exact SHA whose complete diff you reviewed, and record the approval URL in the
-recap. Create it with the `commit_id` field on GitHub's create-review endpoint;
-do not omit that field or use an approval flow that defaults to the latest head:
-
-```bash
-gh api "repos/BuilderIO/agent-native/pulls/$PR_NUMBER/reviews" \
-  -f event=APPROVE \
-  -f commit_id="$reviewed_head_sha"
-```
+The following approval procedure is for manual, non-Factory invocations only;
+Factory governance must not use or adapt it. If a PR passes the applicable gate
+and lacks a current-head approval, submit one GitHub approval review pinned to
+the exact SHA whose complete diff you reviewed, and record the approval URL in
+the recap. The review creation request must set `event=APPROVE` and
+`commit_id=$reviewed_head_sha`; do not omit the reviewed SHA or use a flow that
+defaults to the latest head.
 
 Read the response and require its `commit_id` to equal
 `$reviewed_head_sha`. If the request fails, the returned SHA differs, or the
@@ -504,9 +500,12 @@ true for 10 consecutive minutes on that same head:
 Reset the 10-minute gate after a push, failed check, new actionable feedback,
 new commit, or merge conflict. Do not treat this skill or a ready disposition
 as standing merge authorization. For an external or membership-unknown author,
-never use `--admin`; follow `community-prs` for human approval and ordinary
-merge requirements, and leave the PR unmerged while any required approval is
-missing. For verified internal-member PRs only, GitHub's `--admin` merge is a
+this skill never submits an approval review. `community-prs` describes the
+human maintainer path for outside contributions; its “Merge as is” instruction
+does not authorize this skill or agent to approve that PR. Follow its ordinary
+merge requirements and leave the PR unmerged while any required human approval
+is missing. Never use `--admin` for those PRs. For verified internal-member
+PRs only, GitHub's `--admin` merge is a
 broad protection bypass, not one scoped to human approval. Use it only after
 verifying that any required independent review above is already satisfied and
 that missing human approval or
