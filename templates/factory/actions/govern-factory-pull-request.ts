@@ -502,6 +502,14 @@ export default defineAction({
         };
       }
     }
+    const initialAuthorMembership =
+      internalMember ??
+      (await github.checkOrganizationMemberById(
+        "BuilderIO",
+        pullRequest.userId,
+        pullRequest.userLogin,
+      ));
+    internalMember = initialAuthorMembership;
     const reconcileClaim = async (headSha: string, reason: string) => {
       if (!itemId) return;
       await getDb().transaction(async (tx) => {
@@ -539,6 +547,87 @@ export default defineAction({
             ),
           );
       });
+    };
+    const revalidateManualDisposition = async () => {
+      let livePullRequest: Awaited<
+        ReturnType<typeof github.getPullRequestSummary>
+      >;
+      try {
+        livePullRequest = await github.getPullRequestSummary(
+          repository,
+          pullRequestNumber,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "unknown GitHub error";
+        await reconcileClaim(
+          pullRequest.headSha,
+          `Live GitHub state could not be revalidated before recording a manual disposition: ${message}. Reconciliation is required before retrying.`,
+        );
+        throw error;
+      }
+      if (
+        livePullRequest.headSha !== pullRequest.headSha ||
+        livePullRequest.state !== "open" ||
+        livePullRequest.draft
+      ) {
+        return {
+          kind: "stale",
+          reason:
+            "Live GitHub pull-request state changed during evidence review; the latest state must be reviewed before recording a manual disposition.",
+        } as const;
+      }
+      try {
+        const liveAuthorMembership = await github.checkOrganizationMemberById(
+          "BuilderIO",
+          pullRequest.userId,
+          pullRequest.userLogin,
+        );
+        if (
+          liveAuthorMembership.isMember !== initialAuthorMembership.isMember
+        ) {
+          return {
+            kind: "stale",
+            reason:
+              "Pull-request author membership changed during evidence review; the latest governance eligibility must be reviewed before recording a manual disposition.",
+          } as const;
+        }
+        if (
+          !liveAuthorMembership.isMember &&
+          (await hasVerifiedBuilderAssignee(livePullRequest))
+        ) {
+          return {
+            kind: "excluded",
+            reason:
+              "This external fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
+          } as const;
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "unknown membership verification error";
+        await reconcileClaim(
+          pullRequest.headSha,
+          `External pull-request membership could not be revalidated before recording a manual disposition: ${message}. Reconciliation is required before retrying.`,
+        );
+        throw error;
+      }
+      return { kind: "current" } as const;
+    };
+    const stopForManualDispositionRecheck = async (
+      validation: Awaited<ReturnType<typeof revalidateManualDisposition>>,
+    ) => {
+      if (validation.kind === "current") return null;
+      await reconcileClaim(pullRequest.headSha, validation.reason);
+      return {
+        ok: true as const,
+        action:
+          validation.kind === "excluded"
+            ? ("skipped" as const)
+            : ("needs_manual" as const),
+        reason: validation.reason,
+      };
     };
     const [snapshot, changedFiles] = await Promise.all([
       github.getPullRequestEvidence(
@@ -649,6 +738,10 @@ export default defineAction({
     if (!hasUsableChangedFiles(changedFiles)) {
       const missingFilesReason =
         "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
+      const stopped = await stopForManualDispositionRecheck(
+        await revalidateManualDisposition(),
+      );
+      if (stopped) return stopped;
       await reconcileClaim(pullRequest.headSha, missingFilesReason);
       const disposition = await recordManualPullRequestDisposition({
         factoryId,
@@ -667,11 +760,6 @@ export default defineAction({
       }
       return { ok: true, action: "needs_manual", reason: missingFilesReason };
     }
-    internalMember ??= await github.checkOrganizationMemberById(
-      "BuilderIO",
-      pullRequest.userId,
-      pullRequest.userLogin,
-    );
     if (
       (currentApproval || attributedFactoryApproval) &&
       !internalMember.isMember
@@ -679,39 +767,10 @@ export default defineAction({
       const manualReason =
         "Factory governance does not approve external authors; the existing current-head approval does not change that, so this pull request needs a manual disposition.";
       await reconcileClaim(pullRequest.headSha, manualReason);
-      let livePullRequest: Awaited<
-        ReturnType<typeof github.getPullRequestSummary>
-      >;
-      try {
-        livePullRequest = await github.getPullRequestSummary(
-          repository,
-          pullRequestNumber,
-        );
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "unknown GitHub error";
-        await reconcileClaim(
-          pullRequest.headSha,
-          `Live GitHub state could not be revalidated before recording the external manual disposition: ${message}. Reconciliation is required before approval.`,
-        );
-        throw error;
-      }
-      if (
-        livePullRequest.headSha !== pullRequest.headSha ||
-        livePullRequest.state !== "open" ||
-        livePullRequest.draft
-      ) {
-        const staleReason =
-          "Live GitHub pull-request state changed before the external manual disposition was recorded; the latest state must be reviewed.";
-        await reconcileClaim(pullRequest.headSha, staleReason);
-        return { ok: true, action: "needs_manual", reason: staleReason };
-      }
-      if (await hasVerifiedBuilderAssignee(livePullRequest)) {
-        const exclusionReason =
-          "This external fork pull request was assigned to a verified BuilderIO member during evidence review and is excluded from Factory governance.";
-        await reconcileClaim(pullRequest.headSha, exclusionReason);
-        return { ok: true, action: "skipped", reason: exclusionReason };
-      }
+      const stopped = await stopForManualDispositionRecheck(
+        await revalidateManualDisposition(),
+      );
+      if (stopped) return stopped;
       const disposition = await recordManualPullRequestDisposition({
         factoryId,
         headSha: pullRequest.headSha,
@@ -758,6 +817,10 @@ export default defineAction({
           : !safetyFindingsClean
             ? "A current-head approval exists, but safety evidence is incomplete or contains an active finding."
             : "A current-head approval exists, but checks or review feedback still need manual handling.";
+        const stopped = await stopForManualDispositionRecheck(
+          await revalidateManualDisposition(),
+        );
+        if (stopped) return stopped;
         await reconcileClaim(pullRequest.headSha, manualReason);
         const disposition = await recordManualPullRequestDisposition({
           factoryId,
@@ -1057,6 +1120,13 @@ export default defineAction({
       factoryTriggered,
       checksCoverage: snapshot.checksCoverage,
     });
+
+    if (!governance.autoApprove && itemId) {
+      const stopped = await stopForManualDispositionRecheck(
+        await revalidateManualDisposition(),
+      );
+      if (stopped) return stopped;
+    }
 
     await recordFactoryAudit(
       context,
@@ -1585,10 +1655,13 @@ export default defineAction({
               });
             }
             const latestItem = latestItemResult.item;
-            if (isTerminalFactoryItemStatus(latestItem.status)) {
-              return { kind: "terminal", status: latestItem.status } as const;
+            if (
+              isTerminalFactoryItemStatus(latestItem.status) ||
+              latestItem.status === "reconciliation_required"
+            ) {
+              return { kind: "blocked", status: latestItem.status } as const;
             }
-            // Keep terminal transitions from committing between this check and GitHub's approval write.
+            // Keep item status changes from committing between this check and GitHub's approval write.
             const result = await github.approvePullRequest(
               repository,
               pullRequestNumber,
@@ -1601,15 +1674,17 @@ export default defineAction({
             );
             return { kind: "approved", result } as const;
           });
-          if (approvalAttempt.kind === "terminal") {
-            await reconcileClaim(
-              pullRequest.headSha,
-              `Factory item became ${approvalAttempt.status} before GitHub approval; the approval was not posted.`,
-            );
+          if (approvalAttempt.kind === "blocked") {
+            const needsReconciliation =
+              approvalAttempt.status === "reconciliation_required";
+            const reason = needsReconciliation
+              ? "Factory item requires reconciliation before another approval can be posted."
+              : `Factory item became ${approvalAttempt.status} before GitHub approval; no approval was posted.`;
+            await reconcileClaim(pullRequest.headSha, reason);
             return {
               ok: true,
-              action: "skipped",
-              reason: `Factory item became ${approvalAttempt.status} before GitHub approval; no approval was posted.`,
+              action: needsReconciliation ? "needs_manual" : "skipped",
+              reason,
             };
           }
           approval = approvalAttempt.result;

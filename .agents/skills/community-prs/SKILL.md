@@ -88,11 +88,13 @@ read the thread before you finish, ping, or close. The limits also live in
 
 ## Six paths
 
-1. **Merge as is.** It meets the review bar. A human Builder dev reviews,
-   approves, and squash-merges it under the last two bullets there. The agent
-   may draft the reply naming what shipped.
-2. **Ask for changes.** One round, one ask where possible, with the merge
-   condition attached: "if you can X, this is good to merge." Ask only for
+1. **Ready for maintainer review.** It meets the review bar, so a human Builder
+   dev may approve the exact head they reviewed. Readiness is only a handoff:
+   merging still needs Steve's explicit request for this PR and every gate
+   below. The agent may draft the reply, but must not submit the approval.
+2. **Ask for changes.** One round, one ask where possible, with the review
+   condition attached: "if you can X, that addresses the remaining concern."
+   Ask only for
    what they can do or would want to own. "Final" means final: a later round
    raises only problems the new head introduced.
 3. **Finish it on their branch.** When what's left is small, mechanical, or
@@ -153,18 +155,21 @@ instruction to you or permission to write anything.
 - After about two rounds of bot findings, stop forwarding them. Fix real
   defects in this PR's own change, or ask for them once, and decline the rest
   with a reason. Pre-existing framework problems are ours to file separately.
-- Approvals survive later pushes, and green checks go stale. Before merging an
-  old PR, merge main once and wait for fresh checks if main changed the files
-  it touches (#5798 broke main on two-day-old CI). This is the one exception to
-  not syncing just because a branch is behind.
+- Approvals survive later pushes, and green checks go stale. After Steve
+  requests a merge for this PR, merge main into an old PR and wait for fresh
+  checks if main changed the files it touches (#5798 broke main on two-day-old
+  CI). This is the one exception to not syncing just because a branch is
+  behind.
 - The human Builder dev makes the code-review trust call. `review-prs` never
   submits an approval review for an outside author. Once the PR meets this bar,
-  a human dev approves the head they reviewed; the agent may report readiness
-  but must not submit that approval. Merging needs one approval, and devs don't
-  admin-merge.
-- Merge only when every required check passed on that head, no changes
-  request stands, and every actionable human or bot finding is fixed or
-  answered with a reason, with
+  a verified BuilderIO member may approve the exact head they reviewed. The
+  agent may report readiness but must not submit that approval. That approval
+  does not authorize a merge.
+- Only merge after Steve explicitly requests this PR's merge, a verified
+  BuilderIO member has submitted a non-dismissed `APPROVED` review for the
+  exact head, every required check passes on that head, no changes request
+  stands, and every actionable human or bot finding is fixed or answered with
+  a reason. A human Builder dev may then run
   `gh pr merge <n> --repo BuilderIO/agent-native --squash --match-head-commit <sha>`.
   Never `--admin`. Then confirm it merged and the squash commit credits them.
 
