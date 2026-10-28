@@ -6,6 +6,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import React, { act } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import {
   afterEach,
@@ -28,6 +29,10 @@ import {
   CommentsPanel,
   relativeTime,
 } from "./comments-panel";
+import {
+  type PlaybackComment,
+  PlaybackCommentOverlay,
+} from "./playback-comment-overlay";
 import { TimestampedCommentBar } from "./timestamped-comment-button";
 
 type MockedMutationOptions = {
@@ -286,12 +291,14 @@ function ProofShare({
 
 // Like the share and recording routes: the page owns the draft, whether the
 // bar is open, and the time it comments at, taken from the playhead when it
-// opens; the bar paints inside the player only while the player is fullscreen.
+// opens; the bar paints inside the player only while the player is fullscreen,
+// where the player's own playback comments also paint.
 function FullscreenCommentPage({
   fullscreen,
   player,
   initialDraft = "",
   getPlayheadMs,
+  playbackComments,
   onClose,
   ...bar
 }: Omit<
@@ -302,12 +309,22 @@ function FullscreenCommentPage({
   player: HTMLElement;
   initialDraft?: string;
   getPlayheadMs?: () => number;
+  playbackComments?: PlaybackComment[];
 }) {
   const [draft, setDraft] = React.useState(initialDraft);
   const [open, setOpen] = React.useState(true);
   const [atMs, setAtMs] = React.useState(bar.atMs);
   return (
     <>
+      {playbackComments
+        ? createPortal(
+            <PlaybackCommentOverlay
+              comments={playbackComments}
+              currentMs={atMs}
+            />,
+            player,
+          )
+        : null}
       <button
         type="button"
         onClick={() => {
@@ -544,6 +561,20 @@ describe("CommentsPanel reply composer", () => {
     expect(row.querySelector('[role="alert"]')?.textContent).toBe(
       "notificationsRoute.sendFailed",
     );
+  };
+  // A fullscreen player is the stacking context, so the z-index of its child
+  // that holds an element decides whether a sibling paints over it.
+  const playerLayer = (
+    player: HTMLElement,
+    element: Element | null | undefined,
+  ) => {
+    let layer = element;
+    while (layer && layer.parentElement !== player) {
+      layer = layer.parentElement;
+    }
+    const zIndex = layer?.className.match(/(?:^|\s)z-\[?(\d+)\]?(?:\s|$)/)?.[1];
+    assert.isDefined(zIndex, "Expected a layered child of the player");
+    return Number(zIndex);
   };
 
   const commentCard = (content: string) =>
@@ -1904,6 +1935,50 @@ describe("CommentsPanel reply composer", () => {
       if (row) expectFailedBarComment("Fake first comment", "0:12");
     },
   );
+
+  it("keeps a fullscreen comment that fails behind newer typing, and the composer, above the player's playback comments, which stay once it closes", async () => {
+    const transport = deferredCommentTransport();
+    const { player, bar, isOpen, close } = renderFullscreenCommentPage({
+      recordingId: "recording-1",
+      atMs: 12_000,
+      initialDraft: "Fake first comment",
+      onClose: vi.fn(),
+      commentAccessToken: "fake-stale-proof",
+      getCommentAccessToken: transport.getCommentAccessToken,
+      playbackComments: [
+        {
+          id: "comment-playing",
+          content: "Fake playback comment",
+          videoTimestampMs: 12_000,
+          authorName: "Author",
+        },
+      ],
+    });
+    await act(async () => {
+      bar().send.click();
+    });
+    act(() => setTextareaValue(bar().composer, "Fake newer draft"));
+    await transport.renew(new Error("fake password changed"));
+    expectFailedBarComment("Fake first comment", "0:12");
+    const playbackComments = () =>
+      player.querySelector("[data-player-playback-comment]");
+    expect(playbackComments()?.textContent).toContain("Fake playback comment");
+
+    for (const control of [
+      failedBarCommentButton("Fake first comment", "libraryGrid.retry"),
+      failedBarCommentButton("Fake first comment", "commentsPanel.delete"),
+      bar().composer,
+      bar().send,
+    ]) {
+      expect(playerLayer(player, control)).toBeGreaterThan(
+        playerLayer(player, playbackComments()),
+      );
+    }
+
+    close("Cancel");
+    expect(isOpen()).toBe(false);
+    expect(playbackComments()?.textContent).toContain("Fake playback comment");
+  });
 
   it("keeps fullscreen comments that fail behind newer typing apart, lists one that fails again once, and deletes one without a request", async () => {
     const transport = deferredCommentTransport();
