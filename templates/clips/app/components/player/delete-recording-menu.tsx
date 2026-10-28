@@ -36,6 +36,7 @@ interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
   downloadLabel?: string;
   downloadingLabel?: string;
   onDownload?: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function RecordingOptionsMenu({
@@ -48,6 +49,7 @@ export function RecordingOptionsMenu({
   downloadLabel,
   downloadingLabel,
   onDownload,
+  onCloseAutoFocus,
 }: RecordingOptionsMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -112,6 +114,8 @@ export function RecordingOptionsMenu({
               event.preventDefault();
               pendingDeleteConfirmRef.current = false;
               setOpen(true);
+            } else {
+              onCloseAutoFocus?.(event);
             }
           }}
         >

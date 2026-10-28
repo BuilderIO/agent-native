@@ -19,14 +19,30 @@ interface RecordingTagsBarProps {
   recordingId: string;
   tags: string[];
   canEdit: boolean;
+  editRequest?: number;
 }
 
 export function RecordingTagsBar({
   recordingId,
   tags,
   canEdit,
+  editRequest = 0,
 }: RecordingTagsBarProps) {
   const t = useT();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const previousRequest = useRef(0);
+  const previousRecordingId = useRef(recordingId);
+  useEffect(() => {
+    if (recordingId !== previousRecordingId.current) {
+      previousRecordingId.current = recordingId;
+      setEditingId(null);
+    }
+    if (editRequest !== previousRequest.current) {
+      previousRequest.current = editRequest;
+      setEditingId(recordingId);
+    }
+  }, [editRequest, recordingId]);
+  const editing = editingId === recordingId;
   const update = useActionMutation<
     unknown,
     { recordingId: string; tag: string; op: TagOp }
@@ -125,12 +141,15 @@ export function RecordingTagsBar({
     { enabled: canEdit, staleTime: 60_000 },
   );
 
-  if (!canEdit && displayed.length === 0) return null;
+  if ((!canEdit || !editing) && displayed.length === 0) return null;
 
   return (
     <div className="mt-3">
-      {canEdit ? (
+      {canEdit && editing ? (
         <TagInput
+          key={editRequest}
+          autoFocus
+          onDismiss={() => setEditingId(null)}
           value={displayed}
           suggestions={suggestionsQ.data?.tags ?? []}
           onChange={commit}

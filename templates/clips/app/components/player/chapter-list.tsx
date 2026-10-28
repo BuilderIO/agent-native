@@ -266,6 +266,8 @@ interface ChapterListProps {
   /** Seek the player; takes original-media milliseconds. */
   onSeek: (originalMs: number) => void;
   className?: string;
+  editRequest?: number;
+  hideAddButton?: boolean;
 }
 
 export function ChapterList(props: ChapterListProps) {
@@ -366,6 +368,8 @@ function EditableChapterList({
   durationMs,
   onSeek,
   className,
+  editRequest = 0,
+  hideAddButton = false,
 }: ChapterListProps) {
   const t = useT();
   const headingId = useId();
@@ -449,6 +453,14 @@ function EditableChapterList({
     setFailedSave(null);
     setMode("edit");
   };
+
+  const lastEditRequest = useRef(editRequest);
+  useEffect(() => {
+    if (editRequest !== lastEditRequest.current) {
+      lastEditRequest.current = editRequest;
+      startEditing();
+    }
+  });
 
   const leaveEditing = () => {
     returnFocus.current = true;
@@ -619,6 +631,7 @@ function EditableChapterList({
   };
 
   if (mode === "view" && visible.length === 0) {
+    if (hideAddButton) return null;
     return (
       <div className={cn("mt-4", className)}>
         <Button

@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 
 interface TagInputProps {
   value: string[];
+  autoFocus?: boolean;
+  onDismiss?: () => void;
   suggestions?: string[];
   placeholder?: string;
   onChange: (next: string[]) => void;
@@ -19,6 +21,8 @@ interface TagInputProps {
 
 export function TagInput({
   value,
+  autoFocus,
+  onDismiss,
   suggestions = [],
   placeholder = "Add tag…",
   onChange,
@@ -59,6 +63,10 @@ export function TagInput({
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       addTag(draft);
+    } else if (e.key === "Escape" && onDismiss) {
+      e.preventDefault();
+      e.stopPropagation();
+      onDismiss();
     } else if (e.key === "Backspace" && !draft && value.length > 0) {
       onChange(value.slice(0, -1));
     }
@@ -72,6 +80,15 @@ export function TagInput({
             role="group"
             className="flex flex-wrap items-center gap-1 min-h-[2.25rem] rounded-md border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-ring"
             onClick={() => inputRef.current?.focus()}
+            onBlur={(event) => {
+              if (
+                !event.currentTarget.contains(
+                  event.relatedTarget as Node | null,
+                )
+              ) {
+                onDismiss?.();
+              }
+            }}
           >
             {value.map((tag) => (
               <span
@@ -93,6 +110,7 @@ export function TagInput({
             ))}
             <input
               ref={inputRef}
+              autoFocus={autoFocus}
               value={draft}
               onChange={(e) => {
                 setDraft(e.target.value);

@@ -8,7 +8,12 @@ const expiryAccess = vi.hoisted(() => ({
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
-const mockUpdateWhere = vi.hoisted(() => vi.fn(async () => undefined));
+const mockUpdateReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ id: "rec_1" }]),
+);
+const mockUpdateWhere = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockUpdateReturning })),
+);
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
@@ -18,6 +23,7 @@ const mockReadAppState = vi.hoisted(() =>
 );
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn(async () => true));
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
+const mockLoadAgentsContext = vi.hoisted(() => vi.fn(async () => ""));
 
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => ({
@@ -88,7 +94,7 @@ vi.mock("./cleanup-transcript.js", () => ({
 }));
 
 vi.mock("./lib/agents-md-context.js", () => ({
-  loadAgentsMdContext: vi.fn(async () => ""),
+  loadAgentsMdContext: mockLoadAgentsContext,
 }));
 
 vi.mock("./lib/builder-credits-state.js", () => ({
@@ -136,6 +142,8 @@ describe("regenerate-title fallback refinement", () => {
     mockSelectRows.queue = [];
     mockReadAppState.mockResolvedValue(null);
     mockCompareAndSetManyAppState.mockResolvedValue(true);
+    mockUpdateReturning.mockResolvedValue([{ id: "rec_1" }]);
+    mockLoadAgentsContext.mockResolvedValue("");
   });
 
   it.each([false, true])(
@@ -209,6 +217,131 @@ describe("regenerate-title fallback refinement", () => {
     },
   );
 
+  it("writes a provisional title before the title model completes", async () => {
+    let resolveTitle!: (result: { title: string; provider: string }) => void;
+    mockCleanupTranscriptRun.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveTitle = resolve;
+        }),
+    );
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText:
+            "The CPQ tool cannot show the SLA fee as a separate line item today.",
+          segmentsJson: "[]",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+      [{ title: "CPQ Tool Cannot Show the SLA Fee", titleSource: "context" }],
+    ];
+    const pending = regenerateTitle.run({
+      recordingId: "rec_1",
+      includeSummary: true,
+    });
+    await vi.waitFor(() => expect(mockCleanupTranscriptRun).toHaveBeenCalled());
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "CPQ Tool Cannot Show the SLA Fee",
+        titleSource: "context",
+      }),
+    );
+    resolveTitle({ title: "CPQ SLA Fee Limitation", provider: "builder" });
+    await expect(pending).resolves.toMatchObject({
+      title: "CPQ SLA Fee Limitation",
+    });
+  });
+
+  it("writes a provisional title before waiting for agent context", async () => {
+    let resolveContext!: (context: string) => void;
+    mockLoadAgentsContext.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveContext = resolve;
+        }),
+    );
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "A generated title",
+      provider: "builder",
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "Saved",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText:
+            "The CPQ tool cannot show the SLA fee as a separate line item today.",
+          segmentsJson: "[]",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+      [{ title: "CPQ Tool Cannot Show the SLA Fee", titleSource: "context" }],
+    ];
+    const pending = regenerateTitle.run({
+      recordingId: "rec_1",
+      includeSummary: true,
+    });
+    await vi.waitFor(() => expect(mockLoadAgentsContext).toHaveBeenCalled());
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "CPQ Tool Cannot Show the SLA Fee" }),
+    );
+    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
+    resolveContext("");
+    await expect(pending).resolves.toMatchObject({ updated: true });
+  });
+
+  it("does not overwrite a manual edit made while the generated title is being saved", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "Saved",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText: "A representative transcript for the recording.",
+          segmentsJson: "[]",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "Generated title",
+      provider: "builder",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({
+      updated: false,
+      skipped: true,
+      reason: "Recording title changed before generation completed",
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("keeps a heuristic title replaceable and queues richer metadata", async () => {
     const transcript = `
       It’s easier to just walk through this real quick.
@@ -236,6 +369,7 @@ describe("regenerate-title fallback refinement", () => {
         },
       ],
       [{ title: "Untitled recording", titleSource: "default" }],
+      [{ title: "Agent Credits Cost $63", titleSource: "context" }],
     ];
 
     const result = await regenerateTitle.run({

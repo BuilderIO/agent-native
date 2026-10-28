@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -95,7 +95,7 @@ export async function queueTitleRegenerationRequest({
     `Read the native transcript and AGENTS.md context in this request's context, summarize the actual subject instead of quoting the opening words, and call ` +
     `\`update-recording --id=${recordingId} --title="..."\`${summaryInstruction} ` +
     `Current title: "${currentTitle ?? ""}". Current description: "${currentDescription ?? ""}". ` +
-    "Do not prompt the user.";
+    "Write the title and description in the language of the transcript unless the user has requested another language. Do not prompt the user.";
   const kind = includeSummary
     ? ("generate-metadata" as const)
     : ("regenerate-title" as const);
@@ -216,11 +216,68 @@ export default defineAction({
       };
     }
 
+    let builderCreditsPaused = false;
+
+    const writeTitleIfUnchanged = async (
+      fresh: Pick<
+        typeof schema.recordings.$inferSelect,
+        "title" | "titleSource"
+      >,
+      title: string,
+      titleSource: "context" | "ai",
+    ) => {
+      const rows = await db
+        .update(schema.recordings)
+        .set({ title, titleSource, updatedAt: new Date().toISOString() })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            fresh.title == null
+              ? isNull(schema.recordings.title)
+              : eq(schema.recordings.title, fresh.title),
+            fresh.titleSource == null
+              ? isNull(schema.recordings.titleSource)
+              : eq(schema.recordings.titleSource, fresh.titleSource),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      return rows.length > 0;
+    };
+
+    let provisionalTitle: string | null = null;
+    if (
+      args.includeSummary &&
+      isAutoTitleReplaceable(rec.title, rec.titleSource)
+    ) {
+      provisionalTitle = fallbackTitleFromTranscript(transcriptText);
+      if (provisionalTitle) {
+        const [fresh] = await db
+          .select({
+            title: schema.recordings.title,
+            titleSource: schema.recordings.titleSource,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId))
+          .limit(1);
+        if (fresh && isAutoTitleReplaceable(fresh.title, fresh.titleSource)) {
+          assertRecordingNotExpired(
+            await assertAccess("recording", args.recordingId, "editor"),
+          );
+          if (await writeTitleIfUnchanged(fresh, provisionalTitle, "context")) {
+            await writeAppState("refresh-signal", { ts: Date.now() });
+          } else {
+            provisionalTitle = null;
+          }
+        } else {
+          provisionalTitle = null;
+        }
+      }
+    }
+
     const agentsContext = await loadAgentsMdContext({
       ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
       purpose: "title",
     });
-    let builderCreditsPaused = false;
 
     try {
       const result = await cleanupTranscript.run({
@@ -257,14 +314,14 @@ export default defineAction({
           assertRecordingNotExpired(
             await assertAccess("recording", args.recordingId, "editor"),
           );
-          await db
-            .update(schema.recordings)
-            .set({
-              title: generatedTitle,
-              titleSource: "ai",
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(schema.recordings.id, args.recordingId));
+          if (!(await writeTitleIfUnchanged(fresh, generatedTitle, "ai"))) {
+            return {
+              updated: false,
+              skipped: true,
+              reason: "Recording title changed before generation completed",
+              recordingId: args.recordingId,
+            };
+          }
           await writeAppState("refresh-signal", { ts: Date.now() });
           if (result.provider === "builder") {
             await clearBuilderCreditsExhausted();
@@ -330,21 +387,21 @@ export default defineAction({
         fallbackTitle.trim().toLocaleLowerCase();
 
       if (
-        !titleMatchesCurrent &&
+        (!titleMatchesCurrent || provisionalTitle === fallbackTitle) &&
         (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
           fresh.title === rec.title)
       ) {
         assertRecordingNotExpired(
           await assertAccess("recording", args.recordingId, "editor"),
         );
-        await db
-          .update(schema.recordings)
-          .set({
-            title: fallbackTitle,
-            titleSource: "context",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(schema.recordings.id, args.recordingId));
+        if (!(await writeTitleIfUnchanged(fresh, fallbackTitle, "context"))) {
+          return {
+            updated: false,
+            skipped: true,
+            reason: "Recording title changed before generation completed",
+            recordingId: args.recordingId,
+          };
+        }
         await writeAppState("refresh-signal", { ts: Date.now() });
         const queuedRequest = await queueTitleRegenerationRequest({
           recordingId: args.recordingId,

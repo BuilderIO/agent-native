@@ -240,7 +240,7 @@ function failureDetail(reason: string | null | undefined): string | null {
   return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
 }
 
-function shouldShowGeneratedTitleSkeleton(
+function shouldPollGeneratedTitle(
   recording: { title: string | null | undefined; createdAt?: string | null },
   transcriptStatus?: string,
 ): boolean {
@@ -248,15 +248,9 @@ function shouldShowGeneratedTitleSkeleton(
   if (transcriptStatus === "failed") return false;
 
   const createdAtMs = Date.parse(recording.createdAt ?? "");
-  if (
-    Number.isFinite(createdAtMs) &&
-    Date.now() - createdAtMs > 2 * 60 * 1000 &&
-    transcriptStatus !== "pending"
-  ) {
-    return false;
-  }
-
-  return true;
+  return (
+    Number.isFinite(createdAtMs) && Date.now() - createdAtMs <= 2 * 60 * 1000
+  );
 }
 
 export async function loader({ params, url }: LoaderFunctionArgs) {
@@ -820,7 +814,7 @@ export default function ShareRoute() {
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
       }
       if (payload?.transcript?.status === "pending") return 3000;
-      if (shouldShowGeneratedTitleSkeleton(rec, payload?.transcript?.status)) {
+      if (shouldPollGeneratedTitle(rec, payload?.transcript?.status)) {
         return 3000;
       }
       return false;
@@ -988,9 +982,6 @@ export default function ShareRoute() {
   );
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
   const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
-  const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
-    : false;
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : t("sharePage.untitledClip");
@@ -1867,16 +1858,9 @@ export default function ShareRoute() {
             <section className="flex shrink-0 flex-col gap-3 px-4 pt-1 sm:px-0">
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  {showTitleSkeleton ? (
-                    <Skeleton
-                      aria-label={t("sharePage.generatingTitle")}
-                      className="h-7 w-72 max-w-full"
-                    />
-                  ) : (
-                    <h1 className="truncate text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl">
-                      {visibleTitle}
-                    </h1>
-                  )}
+                  <h1 className="truncate text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl">
+                    {visibleTitle}
+                  </h1>
                   <div className="mt-2 flex min-w-0 items-center gap-2">
                     <ClipsAvatar
                       email={ownerEmail}

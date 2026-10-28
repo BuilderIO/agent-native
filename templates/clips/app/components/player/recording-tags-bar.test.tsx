@@ -92,6 +92,7 @@ function render(props: Partial<React.ComponentProps<typeof RecordingTagsBar>>) {
         recordingId="rec_1"
         tags={[]}
         canEdit={false}
+        editRequest={props.recordingId === "rec_2" ? 2 : 1}
         {...props}
       />,
     );
@@ -124,6 +125,13 @@ async function settle(count = mocks.inflight.length) {
 }
 
 describe("RecordingTagsBar", () => {
+  it("closes the editor when switching recordings", () => {
+    render({ canEdit: true, editRequest: 1 });
+    expect(container.querySelector("[data-testid=tag-input]")).not.toBeNull();
+    render({ canEdit: true, recordingId: "rec_2", editRequest: 1 });
+    expect(container.querySelector("[data-testid=tag-input]")).toBeNull();
+  });
+
   it("renders nothing for a viewer with no tags", () => {
     render({ canEdit: false, tags: [] });
     expect(container.textContent).toBe("");

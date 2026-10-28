@@ -707,6 +707,9 @@ export default function RecordingPage() {
     });
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [chapterEditRequest, setChapterEditRequest] = useState(0);
+  const [tagEditRequest, setTagEditRequest] = useState(0);
+  const openingMetadataEditor = useRef(false);
   const [currentMs, setCurrentMs] = useState(startMs);
   const requestedPlaybackRef = useRef<{
     recordingId: string;
@@ -929,7 +932,7 @@ export default function RecordingPage() {
           return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
         }
         if (data?.transcript?.status === "pending") return 3000;
-        if (shouldShowGeneratedTitleSkeleton(rec, data?.transcript?.status))
+        if (shouldPollGeneratedTitle(rec, data?.transcript?.status))
           return 3000;
         if (Date.now() < metadataRefreshUntil) return 2000;
         return false;
@@ -1334,11 +1337,6 @@ export default function RecordingPage() {
     recording &&
     isDefaultTitle(recording.title),
   );
-  const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus, {
-        titleGenerationPaused,
-      })
-    : false;
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
@@ -3251,6 +3249,12 @@ export default function RecordingPage() {
         {canEdit && !editing ? (
           <RecordingOptionsMenu
             recordingId={recording.id}
+            onCloseAutoFocus={(event) => {
+              if (openingMetadataEditor.current) {
+                event.preventDefault();
+                openingMetadataEditor.current = false;
+              }
+            }}
             canDelete={canDelete}
             canDownload={canDownloadRecording}
             downloadPending={downloading}
@@ -3263,11 +3267,28 @@ export default function RecordingPage() {
                 {t("recordingPage.edit")}
               </DropdownMenuItem>
             ) : null}
+            {isImage ? null : (
+              <DropdownMenuItem
+                onSelect={() => {
+                  openingMetadataEditor.current = true;
+                  setTimeout(() => setChapterEditRequest((n) => n + 1), 0);
+                }}
+              >
+                {t("chapterList.add")}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onSelect={() => {
+                openingMetadataEditor.current = true;
+                setTimeout(() => setTagEditRequest((n) => n + 1), 0);
+              }}
+            >
+              {t("recordingPage.addTag")}
+            </DropdownMenuItem>
             {/* Everything here reads the transcript or the timeline: asking
                 the agent about the clip, cleanup, filler words, silences,
                 chapters, an AI description, transcription. A screenshot has
-                none of those, so the menu keeps only what applies to it —
-                download and delete. */}
+                none of those, so those actions are hidden. */}
             {isImage ? null : (
               <>
                 <DropdownMenuItem onSelect={openAgentPanel}>
@@ -3275,69 +3296,68 @@ export default function RecordingPage() {
                   {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {isEmbedBacked ? null : (
-                  <>
-                    <DropdownMenuItem
-                      disabled={
-                        backgroundAiBusy ||
-                        !canAttemptTranscriptCleanup(transcriptStatus)
-                      }
-                      onSelect={() => {
-                        beginAiRequest("remove-filler-words");
-                        removeFillerWords.mutate({
-                          recordingId: recording.id,
-                        } as any);
-                      }}
-                    >
-                      {t("recordingPage.removeFillerWords")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={
-                        backgroundAiBusy ||
-                        !canAttemptTranscriptCleanup(transcriptStatus)
-                      }
-                      onSelect={() => {
-                        beginAiRequest("remove-silences");
-                        removeSilences.mutate({
-                          recordingId: recording.id,
-                          thresholdMs: 1200,
-                        } as any);
-                      }}
-                    >
-                      {t("recordingPage.removeSilences")}
-                    </DropdownMenuItem>
-                  </>
-                )}
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("regenerate-chapters");
-                    regenerateChapters.mutate({
-                      recordingId: recording.id,
-                      openInChat: true,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.autoChapters")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("regenerate-summary");
-                    regenerateSummary.mutate({
-                      recordingId: recording.id,
-                      openInChat: true,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.regenerateDescription")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     {t("recordingPage.enhanceRecording")}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
+                    {isEmbedBacked ? null : (
+                      <>
+                        <DropdownMenuItem
+                          disabled={
+                            backgroundAiBusy ||
+                            !canAttemptTranscriptCleanup(transcriptStatus)
+                          }
+                          onSelect={() => {
+                            beginAiRequest("remove-filler-words");
+                            removeFillerWords.mutate({
+                              recordingId: recording.id,
+                            } as any);
+                          }}
+                        >
+                          {t("recordingPage.removeFillerWords")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={
+                            backgroundAiBusy ||
+                            !canAttemptTranscriptCleanup(transcriptStatus)
+                          }
+                          onSelect={() => {
+                            beginAiRequest("remove-silences");
+                            removeSilences.mutate({
+                              recordingId: recording.id,
+                              thresholdMs: 1200,
+                            } as any);
+                          }}
+                        >
+                          {t("recordingPage.removeSilences")}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-chapters");
+                        regenerateChapters.mutate({
+                          recordingId: recording.id,
+                          openInChat: true,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.autoChapters")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-summary");
+                        regenerateSummary.mutate({
+                          recordingId: recording.id,
+                          openInChat: true,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.regenerateDescription")}
+                    </DropdownMenuItem>
                     {canTranscribe ? (
                       <DropdownMenuItem
                         disabled={requestTranscript.isPending}
@@ -3704,10 +3724,8 @@ export default function RecordingPage() {
                           title={recording.title}
                           canEdit={canEdit}
                           displayTitle={visibleTitle}
-                          showPendingSkeleton={showTitleSkeleton}
                           className="text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl"
                           inputClassName="h-9 text-xl font-semibold sm:text-2xl"
-                          skeletonClassName="h-7 w-72 max-w-full"
                         />
                         <div className="mt-2 flex min-w-0 items-center gap-2">
                           <ClipsAvatar
@@ -3791,6 +3809,8 @@ export default function RecordingPage() {
                         editsJson={recording.editsJson}
                         durationMs={recording.durationMs}
                         canEdit={canEdit}
+                        editRequest={chapterEditRequest}
+                        hideAddButton
                         onSeek={(ms) => playerRef.current?.seek(ms)}
                       />
                     )}
@@ -3798,6 +3818,7 @@ export default function RecordingPage() {
                       recordingId={recording.id}
                       tags={playerDataQ.data?.tags ?? []}
                       canEdit={canEdit}
+                      editRequest={tagEditRequest}
                     />
                   </div>
                 </div>
@@ -3895,25 +3916,17 @@ function sanitizeFilename(name: string): string {
   );
 }
 
-function shouldShowGeneratedTitleSkeleton(
+function shouldPollGeneratedTitle(
   recording: { title: string | null | undefined; createdAt?: string | null },
   transcriptStatus?: string,
-  options: { titleGenerationPaused?: boolean } = {},
 ): boolean {
-  if (options.titleGenerationPaused) return false;
   if (!isDefaultTitle(recording.title)) return false;
   if (transcriptStatus === "failed") return false;
 
   const createdAtMs = Date.parse(recording.createdAt ?? "");
-  if (
-    Number.isFinite(createdAtMs) &&
-    Date.now() - createdAtMs > 2 * 60 * 1000 &&
-    transcriptStatus !== "pending"
-  ) {
-    return false;
-  }
-
-  return true;
+  return (
+    Number.isFinite(createdAtMs) && Date.now() - createdAtMs <= 2 * 60 * 1000
+  );
 }
 
 function BuilderCreditsTitleNotice({ className }: { className?: string }) {
