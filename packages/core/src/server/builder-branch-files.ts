@@ -188,6 +188,7 @@ export async function readBuilderBranchFiles(
   try {
     authorization = await resolveBuilderRequestAuthorization({
       requiredScope: "builder:projects:read",
+      legacyCredentialKeys: [],
     });
   } catch (error) {
     const requiresReauthorization = isBuilderReauthorizationRequired(error);
@@ -198,10 +199,7 @@ export async function readBuilderBranchFiles(
         : "Builder read access could not be checked.",
     );
   }
-  if (
-    !authorization ||
-    (authorization.source === "legacy" && !authorization.legacyPublicKey)
-  ) {
+  if (!authorization || authorization.source !== "oauth") {
     throw new BuilderBranchFilesError(
       "not_connected",
       "Connect Builder with project read access.",
@@ -210,8 +208,6 @@ export async function readBuilderBranchFiles(
   const auth = authorization;
   async function request(pathname: string, body?: BranchRef): Promise<unknown> {
     const url = new URL(pathname, getBuilderApiHost());
-    if (auth.legacyPublicKey)
-      url.searchParams.set("apiKey", auth.legacyPublicKey);
     if (!body) {
       url.searchParams.set("projectId", input.projectId);
       url.searchParams.set("branchName", input.branchName);

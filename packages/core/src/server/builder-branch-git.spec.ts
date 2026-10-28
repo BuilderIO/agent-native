@@ -1,11 +1,12 @@
 import { execFile as execFileCallback } from "node:child_process";
+import fs from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { inflateSync } from "node:zlib";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BuilderGitBundleError,
@@ -247,6 +248,34 @@ describe("readBuilderGitBundle", () => {
         content: new TextEncoder().encode("export const value = 'ok';\n"),
       },
     ]);
+  });
+
+  it("reads a multi-file pack only once after indexing", async () => {
+    const files = Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => [
+        `apps/example/${index}.txt`,
+        `file ${index}`,
+      ]),
+    );
+    const { sha, bundle } = await fixture(files);
+    const readFileSpy = vi.spyOn(fs.promises, "readFile");
+
+    try {
+      const result = await readBuilderGitBundle({
+        bundle,
+        commitSha: sha,
+        appPath: "apps/example",
+      });
+
+      expect(result.files).toHaveLength(12);
+      expect(
+        readFileSpy.mock.calls.filter(([filename]) =>
+          String(filename).endsWith(".pack"),
+        ),
+      ).toHaveLength(2);
+    } finally {
+      readFileSpy.mockRestore();
+    }
   });
 
   it("rejects invalid requests and a commit not advertised by the bundle", async () => {

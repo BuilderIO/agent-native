@@ -201,6 +201,7 @@ describe("readBuilderBranchFiles", () => {
 
     expect(mocks.resolveAuthorization).toHaveBeenCalledWith({
       requiredScope: "builder:projects:read",
+      legacyCredentialKeys: [],
     });
     const calls = vi.mocked(fetch).mock.calls;
     expect(calls).toHaveLength(3);
@@ -241,19 +242,10 @@ describe("readBuilderBranchFiles", () => {
     });
   });
 
-  it("includes the legacy public key on Builder API calls", async () => {
+  it("rejects legacy authorization even when the public key is available", async () => {
     mocks.resolveAuthorization.mockResolvedValue(legacyAuthorization);
-    queueSuccessfulApiReadbacks();
-
-    await readBuilderBranchFiles(input);
-
-    for (const [urlText, init] of vi.mocked(fetch).mock.calls) {
-      const url = new URL(String(urlText));
-      expect(url.searchParams.get("apiKey")).toBe(PUBLIC_KEY);
-      expect(init?.headers).toMatchObject({
-        Authorization: "Bearer legacy-private-key-test",
-      });
-    }
+    await expectCode(readBuilderBranchFiles(input), "not_connected");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("rejects missing authorization and scopes only project reads", async () => {
@@ -261,13 +253,9 @@ describe("readBuilderBranchFiles", () => {
     await expectCode(readBuilderBranchFiles(input), "not_connected");
     expect(fetch).not.toHaveBeenCalled();
 
-    mocks.resolveAuthorization.mockResolvedValueOnce({
-      ...legacyAuthorization,
-      legacyPublicKey: undefined,
-    });
-    await expectCode(readBuilderBranchFiles(input), "not_connected");
     expect(mocks.resolveAuthorization).toHaveBeenLastCalledWith({
       requiredScope: "builder:projects:read",
+      legacyCredentialKeys: [],
     });
     expect(fetch).not.toHaveBeenCalled();
   });

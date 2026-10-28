@@ -80,6 +80,7 @@ async function readVerifiedObject(
   gitdir: string,
   oid: string,
   expectedType: "blob" | "commit" | "tree",
+  cache: object,
 ): Promise<Uint8Array> {
   if (!SHA1_PATTERN.test(oid)) fail("integrity_failed");
   try {
@@ -89,6 +90,7 @@ async function readVerifiedObject(
       gitdir,
       oid,
       format: "content",
+      cache,
     });
     if (
       object.type !== expectedType ||
@@ -109,11 +111,19 @@ async function readTree(
   gitdir: string,
   oid: string,
   maxEntries: number,
+  cache: object,
 ): Promise<{
   tree: Awaited<ReturnType<typeof git.readTree>>;
   entryCount: number;
 }> {
-  const rawTree = await readVerifiedObject(gitApi, root, gitdir, oid, "tree");
+  const rawTree = await readVerifiedObject(
+    gitApi,
+    root,
+    gitdir,
+    oid,
+    "tree",
+    cache,
+  );
   let entryCount = 0;
   for (let offset = 0; offset < rawTree.byteLength; ) {
     const nameEnd = rawTree.indexOf(0, offset);
@@ -125,7 +135,7 @@ async function readTree(
     offset = nameEnd + 21;
   }
   try {
-    const tree = await gitApi.readTree({ fs, dir: root, gitdir, oid });
+    const tree = await gitApi.readTree({ fs, dir: root, gitdir, oid, cache });
     if (tree.oid !== oid || tree.tree.length !== entryCount) {
       fail("integrity_failed");
     }
@@ -141,6 +151,7 @@ async function findTargetTree(
   gitdir: string,
   rootTreeOid: string,
   appPath: string,
+  cache: object,
 ): Promise<{ treeOid: string; entryCount: number }> {
   let treeOid = rootTreeOid;
   let traversedEntries = 0;
@@ -151,6 +162,7 @@ async function findTargetTree(
       gitdir,
       treeOid,
       MAX_TREE_ENTRIES - traversedEntries,
+      cache,
     );
     traversedEntries += current.entryCount;
     const matching = current.tree.tree.filter(
@@ -187,6 +199,7 @@ export async function readBuilderGitBundle(input: {
       fail("integrity_failed");
     }
     const gitApi: GitApi = (await import("isomorphic-git")).default;
+    const cache: object = {};
 
     const tempRoot = await mkdtemp(path.join(tmpdir(), "builder-git-bundle-"));
     root = tempRoot;
@@ -212,6 +225,7 @@ export async function readBuilderGitBundle(input: {
         dir: tempRoot,
         gitdir,
         filepath: path.relative(tempRoot, packPath),
+        cache,
       });
       indexedOids = indexed.oids;
     } catch {
@@ -233,6 +247,7 @@ export async function readBuilderGitBundle(input: {
       gitdir,
       input.commitSha,
       "commit",
+      cache,
     );
     let commit: Awaited<ReturnType<typeof git.readCommit>>;
     try {
@@ -241,6 +256,7 @@ export async function readBuilderGitBundle(input: {
         dir: tempRoot,
         gitdir,
         oid: input.commitSha,
+        cache,
       });
     } catch {
       fail("integrity_failed");
@@ -259,6 +275,7 @@ export async function readBuilderGitBundle(input: {
       gitdir,
       commit.commit.tree,
       input.appPath,
+      cache,
     );
     const files: Array<{ path: string; mode: string; content: Uint8Array }> =
       [];
@@ -278,6 +295,7 @@ export async function readBuilderGitBundle(input: {
         gitdir,
         treeOid,
         MAX_TREE_ENTRIES - traversedEntries,
+        cache,
       );
       traversedEntries += boundedTree.entryCount;
       const tree = boundedTree.tree;
@@ -303,7 +321,14 @@ export async function readBuilderGitBundle(input: {
         if (files.length >= MAX_FILES || !SHA1_PATTERN.test(entry.oid)) {
           fail("integrity_failed");
         }
-        await readVerifiedObject(gitApi, tempRoot, gitdir, entry.oid, "blob");
+        await readVerifiedObject(
+          gitApi,
+          tempRoot,
+          gitdir,
+          entry.oid,
+          "blob",
+          cache,
+        );
         let blob: Awaited<ReturnType<typeof git.readBlob>>;
         try {
           blob = await gitApi.readBlob({
@@ -311,6 +336,7 @@ export async function readBuilderGitBundle(input: {
             dir: tempRoot,
             gitdir,
             oid: entry.oid,
+            cache,
           });
         } catch {
           fail("integrity_failed");
