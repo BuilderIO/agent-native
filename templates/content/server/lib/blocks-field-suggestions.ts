@@ -1,5 +1,5 @@
 import { fail } from "@agent-native/core/action";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, sql, type DbExec } from "@agent-native/core/db";
 import type {
   SuggestionAdapter,
   SuggestionOperation,
@@ -99,15 +99,14 @@ async function readSuggestionField(
   fieldId: string,
 ) {
   const field = (
-    await tx.execute({
-      sql: `SELECT p.id, p.type, p.options_json, d.id AS database_id
-            FROM document_property_definitions p
-            INNER JOIN content_databases d ON d.id = p.database_id AND d.deleted_at IS NULL
-            INNER JOIN content_database_items i ON i.database_id = d.id AND i.document_id = ?
-            WHERE p.id = ?
-            LIMIT 1`,
-      args: [documentId, fieldId],
-    })
+    await tx.execute(
+      sql`SELECT p.id, p.type, p.options_json, d.id AS database_id
+          FROM document_property_definitions p
+          INNER JOIN content_databases d ON d.id = p.database_id AND d.deleted_at IS NULL
+          INNER JOIN content_database_items i ON i.database_id = d.id AND i.document_id = ${sql.value(documentId)}
+          WHERE p.id = ${sql.value(fieldId)}
+          LIMIT 1`,
+    )
   ).rows[0];
   if (
     !field ||
@@ -125,10 +124,9 @@ async function storedFieldRevision(
   fieldId: string,
 ) {
   const row = (
-    await tx.execute({
-      sql: "SELECT revision FROM document_block_fields WHERE id = ?",
-      args: [blocksFieldId(documentId, fieldId)],
-    })
+    await tx.execute(
+      sql`SELECT revision FROM document_block_fields WHERE id = ${sql.value(blocksFieldId(documentId, fieldId))}`,
+    )
   ).rows[0];
   return row ? Number(row.revision) : 0;
 }
@@ -203,10 +201,9 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     }
     const tx = (input.ctx?.transaction as DbExec | undefined) ?? getDbExec();
     const page = (
-      await tx.execute({
-        sql: "SELECT trashed_at FROM documents WHERE id = ?",
-        args: [input.resourceId],
-      })
+      await tx.execute(
+        sql`SELECT trashed_at FROM documents WHERE id = ${sql.value(input.resourceId)}`,
+      )
     ).rows[0];
     if (!page) throw new Error("Document not found");
     if (page.trashed_at)
@@ -215,10 +212,9 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     const revision = await storedFieldRevision(tx, input.resourceId, fieldId);
     const content = String(
       (
-        await tx.execute({
-          sql: "SELECT content FROM document_block_field_contents WHERE document_id = ? AND property_id = ?",
-          args: [input.resourceId, fieldId],
-        })
+        await tx.execute(
+          sql`SELECT content FROM document_block_field_contents WHERE document_id = ${sql.value(input.resourceId)} AND property_id = ${sql.value(fieldId)}`,
+        )
       ).rows[0]?.content ?? "",
     );
     if (

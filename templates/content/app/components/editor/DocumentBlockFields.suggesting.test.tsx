@@ -323,10 +323,9 @@ describe("DocumentBlockFields suggestion boundary", () => {
     const renderWith = async (suggesting: boolean) => {
       await act(async () => {
         root.render(
-          createElement(
-            BlocksFieldSuggestionsProvider,
-            { value: { ...provider, suggesting } as never },
-            createElement(DocumentBlockFields, {
+          createElement(BlocksFieldSuggestionsProvider, {
+            value: { ...provider, suggesting } as never,
+            children: createElement(DocumentBlockFields, {
               documentId: "doc-1",
               databaseId: "db-1",
               databaseDocumentId: "row-1",
@@ -334,7 +333,7 @@ describe("DocumentBlockFields suggestion boundary", () => {
               suggesting,
               primaryEditor: createElement("div"),
             }),
-          ),
+          }),
         );
       });
     };

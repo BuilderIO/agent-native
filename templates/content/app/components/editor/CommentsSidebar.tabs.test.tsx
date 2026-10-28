@@ -180,7 +180,6 @@ function tabSuggestion(id: string, fieldId: string): ResourceSuggestion {
     operations: [
       {
         id: `${id}-op`,
-        suggestionId: id,
         ordinal: 0,
         kind: "replace_text",
         targetId: fieldId,

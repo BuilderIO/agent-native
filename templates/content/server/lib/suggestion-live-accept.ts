@@ -1,6 +1,6 @@
 import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { LiveCopyError } from "@agent-native/core/collab";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, sql, type DbExec } from "@agent-native/core/db";
 import {
   getSuggestion,
   type ResourceSuggestion,
@@ -96,24 +96,17 @@ export async function acceptedRangesOnSameText(
   targetId?: string,
 ): Promise<MarkdownRange[]> {
   const rows = (
-    await tx.execute({
-      sql: `SELECT o.anchor_json FROM agent_review_suggestions s
-            INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
-            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
-              AND s.status = 'accepted' AND s.id <> ?
-              AND (o.before_json::jsonb ->> 'markdown') = ?${
-                targetId === undefined ? "" : " AND o.target_id = ?"
-              }`,
-      args: [
-        suggestion.resourceId,
-        suggestion.adapterKind,
-        suggestion.id,
-        beforeMarkdown,
-        ...(targetId === undefined ? [] : [targetId]),
-      ],
-    })
+    await tx.execute(
+      sql`SELECT o.anchor_json, o.target_id FROM agent_review_suggestions s
+          INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
+          WHERE s.resource_type = 'document' AND s.resource_id = ${sql.value(suggestion.resourceId)}
+            AND s.adapter_kind = ${sql.value(suggestion.adapterKind)}
+            AND s.status = 'accepted' AND s.id <> ${sql.value(suggestion.id)}
+            AND (o.before_json::jsonb ->> 'markdown') = ${sql.value(beforeMarkdown)}`,
+    )
   ).rows;
   return rows.flatMap((row) => {
+    if (targetId !== undefined && String(row.target_id) !== targetId) return [];
     const anchor = JSON.parse(
       String(row.anchor_json),
     ) as Partial<MarkdownRange> | null;

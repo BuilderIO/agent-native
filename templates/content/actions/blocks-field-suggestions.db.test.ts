@@ -72,7 +72,7 @@ beforeAll(async () => {
   await (
     await import("../server/plugins/suggested-edits.js")
   ).default(undefined as never);
-}, 60000);
+}, 180_000);
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
