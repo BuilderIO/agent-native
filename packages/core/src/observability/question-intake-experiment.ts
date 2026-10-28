@@ -12,6 +12,7 @@ export interface QuestionIntakeExperimentConfig {
   questionToolNames: string[];
   treatmentInstructions: string;
   trackedEventNames: string[];
+  clientTrackedEventNames?: string[];
 }
 
 export interface QuestionIntakeExperimentAssignment {

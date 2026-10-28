@@ -138,6 +138,7 @@ exports AS (
     AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND e.properties ->> 'experiment_variant' = a.variant
     AND e.properties ->> 'status' = 'completed'
+    AND e.properties ->> 'render_location' = 'server'
   GROUP BY a.person_key
 ),
 returns AS (
@@ -260,6 +261,7 @@ exports AS (
     AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(e.properties, '$.experiment_variant') = a.variant
     AND json_value(e.properties, '$.status') = 'completed'
+    AND json_value(e.properties, '$.render_location') = 'server'
   GROUP BY a.person_key
 ),
 returns AS (
@@ -536,7 +538,7 @@ export function formatDesignNoQuestionsReadout(
   }
   lines.push(
     "",
-    `Design-ready and completed-export rates use the mature exposed cohort. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
+    `Design-ready and completed-export rates use the mature exposed cohort. Exports count only completed server-recorded exports; browser-local exports are not attributed because their completion cannot be verified server-side. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
   );
   return lines.join("\n");
 }

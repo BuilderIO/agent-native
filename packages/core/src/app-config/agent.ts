@@ -37,6 +37,12 @@ export const agentConfig = z.object({
       questionToolNames: z.array(z.string().trim().min(1)).default([]),
       treatmentInstructions: z.string().trim().min(1),
       trackedEventNames: z.array(z.string().trim().min(1)).default([]),
+      clientTrackedEventNames: z
+        .array(z.string().trim().min(1))
+        .default([])
+        .meta({
+          doc: "Client-originated event names allowed to receive experiment assignment metadata. Keep outcome events restricted to server-confirmed behavior.",
+        }),
     })
     .optional()
     .meta({

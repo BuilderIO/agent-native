@@ -1,3 +1,4 @@
+import { callAction } from "@agent-native/core/client/hooks";
 import { GUIDED_QUESTIONS_SUBMITTED_EVENT } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import {
   DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
@@ -141,18 +142,23 @@ const RUN_STATUS_RETRY_MS = 1500;
  * also reports a truncated run as `completed` for older clients; only the
  * terminal reason `done` marks a run that actually finished.
  */
-async function runCompleted(threadId: string, runId: string): Promise<boolean> {
+async function completedRunTurnId(
+  threadId: string,
+  runId: string,
+): Promise<string | null> {
   for (let attempt = 0; attempt < RUN_STATUS_ATTEMPTS; attempt += 1) {
     const run = await readAgentRunStatus(threadId);
-    if (!run.ok || (run.runId && run.runId !== runId)) return false;
+    if (!run.ok || run.runId !== runId) return null;
     if (!run.active) {
-      if (run.status !== "completed") return false;
-      if (run.terminalReason) return run.terminalReason === "done";
+      if (run.status !== "completed") return null;
+      if (run.terminalReason) {
+        return run.terminalReason === "done" ? (run.turnId ?? null) : null;
+      }
       // The reason is written just after the status; read again.
     }
     await new Promise((resolve) => setTimeout(resolve, RUN_STATUS_RETRY_MS));
   }
-  return false;
+  return null;
 }
 
 /**
@@ -191,13 +197,13 @@ export function useDesignReadyViewTracking({
   latest.current = { designId, isOwner, designLoaded, files };
   const cancelSendsRef = useRef(new Set<() => void>());
 
-  const send = useRef((properties: Record<string, unknown>) => {
+  const send = useRef((callback: () => void) => {
     // runWhenTabVisible calls back synchronously when the tab is visible, so
     // the cancel handle may not exist yet when the send runs.
     let sent = false;
     const cancel = runWhenTabVisible(() => {
       sent = true;
-      trackDesignRelay("design_ready_viewed", properties);
+      callback();
     });
     if (!sent) cancelSendsRef.current.add(cancel);
   }).current;
@@ -233,20 +239,27 @@ export function useDesignReadyViewTracking({
         }
         if (detail?.isRunning !== false || !run || run.ending) return;
         run.ending = true;
-        void runCompleted(run.threadId, runId)
-          .then((completed) => {
-            if (disposed || !completed) return;
+        void completedRunTurnId(run.threadId, runId)
+          .then((turnId) => {
+            if (disposed || !turnId) return;
             const { designId, isOwner, files } = latest.current;
             const screenCount = generationOutputFiles(files).length;
             if (!designId || !isOwner || screenCount === 0) return;
             if (reportedReadyViewRuns.has(runId)) return;
             reportedReadyViewRuns.add(runId);
-            send({
-              output_id: designId,
-              output_type: "design",
-              screen_count: screenCount,
-              is_owner: true,
-              run_id: runId,
+            send(() => {
+              void callAction(
+                "get-design-generation-output",
+                {
+                  designId,
+                  runId,
+                  turnId,
+                  recordReadyView: true,
+                },
+                { method: "GET" },
+              ).catch(() => {
+                // coercion-ok: an analytics failure must never affect the editor.
+              });
             });
           })
           .catch(() => {
@@ -274,13 +287,15 @@ export function useDesignReadyViewTracking({
       const screenCount = generationOutputFiles(files).length;
       if (screenCount === 0) return;
       sentReadyViewAttempts.add(urlAttemptId);
-      send({
-        output_id: designId,
-        output_type: "design",
-        screen_count: screenCount,
-        is_owner: true,
-        generation_attempt_id: urlAttemptId,
-      });
+      send(() =>
+        trackDesignRelay("design_ready_viewed", {
+          output_id: designId,
+          output_type: "design",
+          screen_count: screenCount,
+          is_owner: true,
+          generation_attempt_id: urlAttemptId,
+        }),
+      );
     } catch {
       // coercion-ok: a failed analytics send must never affect the editor.
     }

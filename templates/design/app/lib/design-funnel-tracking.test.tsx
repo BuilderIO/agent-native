@@ -17,8 +17,14 @@ import {
 } from "./design-funnel-tracking";
 
 const mocks = vi.hoisted(() => ({
+  callAction: vi.fn(),
   trackDesignRelay: vi.fn(),
   readAgentRunStatus: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: (...args: unknown[]) => mocks.callAction(...args),
 }));
 
 vi.mock("@/lib/agent-run-status", () => ({
@@ -58,9 +64,22 @@ function ReadyHarness(props: ReadyProps) {
 }
 
 function readyEvents() {
-  return mocks.trackDesignRelay.mock.calls.filter(
+  const runEvents = mocks.callAction.mock.calls
+    .filter(([name]) => name === "get-design-generation-output")
+    .map(([, input]) => [
+      "design_ready_viewed",
+      {
+        output_id: input.designId,
+        output_type: "design",
+        run_id: input.runId,
+        turn_id: input.turnId,
+        is_owner: true,
+      },
+    ]);
+  const linkEvents = mocks.trackDesignRelay.mock.calls.filter(
     ([name]) => name === "design_ready_viewed",
   );
+  return [...runEvents, ...linkEvents];
 }
 
 async function renderReady(props: Partial<ReadyProps> = {}) {
@@ -112,6 +131,8 @@ beforeEach(() => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.trackDesignRelay.mockReset();
+  mocks.callAction.mockReset();
+  mocks.callAction.mockResolvedValue({ status: "has_output" });
   mocks.readAgentRunStatus.mockReset();
   lastRunId = "run-1";
   mocks.readAgentRunStatus.mockImplementation(async () => ({
@@ -119,6 +140,7 @@ beforeEach(() => {
     status: "completed",
     active: false,
     runId: lastRunId,
+    turnId: "turn-1",
     terminalReason: "done",
   }));
   resetDesignReadyViewsForTest();
@@ -211,12 +233,22 @@ describe("design_ready_viewed", () => {
         {
           output_id: "design-1",
           output_type: "design",
-          screen_count: 2,
-          is_owner: true,
           run_id: "run-1",
+          turn_id: "turn-1",
+          is_owner: true,
         },
       ],
     ]);
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-design-generation-output",
+      {
+        designId: "design-1",
+        runId: "run-1",
+        turnId: "turn-1",
+        recordReadyView: true,
+      },
+      { method: "GET" },
+    );
   });
 
   it("fires for a completed run even when the editor's file list has not caught up", async () => {
@@ -226,7 +258,7 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(1);
     expect(readyEvents()[0]![1]).toMatchObject({
       run_id: "run-1",
-      screen_count: 1,
+      turn_id: "turn-1",
     });
   });
 

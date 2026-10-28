@@ -24,6 +24,7 @@ describe("agent question-intake config", () => {
       questionToolNames: ["show-design-questions"],
       treatmentInstructions: "Design with sensible defaults.",
       trackedEventNames: ["design_ready_viewed"],
+      clientTrackedEventNames: [],
     });
   });
 

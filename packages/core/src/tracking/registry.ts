@@ -172,17 +172,22 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
-  const { authUserId, userId } = resolveTrackingSource(source);
+  const resolvedSource = resolveTrackingSource(source);
+  const { authUserId, userId } = resolvedSource;
   if (getRequestContext()?.isSyntheticTraffic === true) return;
   const testIdentity = testIdentityOf(userId, properties);
   if (testIdentity && name !== "$exception") return;
 
   const config = getAppConfig().agent.questionIntake;
+  const mayAttributeClientEvent =
+    resolvedSource.telemetryOrigin !== "client" ||
+    config?.clientTrackedEventNames.includes(name) === true;
   if (
     config?.enabled &&
     !config.disabled &&
     config.trackedEventNames.includes(name) &&
-    authUserId
+    authUserId &&
+    mayAttributeClientEvent
   ) {
     const experimentProperties = { ...(properties ?? {}) };
     delete experimentProperties.experiment_id;

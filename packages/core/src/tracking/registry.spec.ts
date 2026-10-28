@@ -292,6 +292,7 @@ describe("tracking registry", () => {
           questionToolNames: ["show-design-questions"],
           treatmentInstructions: "Design first.",
           trackedEventNames: ["design_prompt_submitted"],
+          clientTrackedEventNames: ["design_prompt_submitted"],
         },
       },
     });
@@ -335,6 +336,90 @@ describe("tracking registry", () => {
     );
   });
 
+  it("attributes only allowlisted client experiment events and keeps outcomes server-trusted", async () => {
+    const events = captureEvents();
+    const pending: Promise<unknown>[] = [];
+    const clientSource = {
+      userId: "carol@example.com",
+      authUserId: "better-auth-user-3",
+      telemetryOrigin: "client" as const,
+    };
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: [
+            "design_prompt_submitted",
+            "design_ready_viewed",
+            "design_exported",
+          ],
+          clientTrackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    mockQuestionIntakeAssignment.mockResolvedValue({
+      authUserId: "better-auth-user-3",
+      experimentId: "design_no_questions",
+      variantId: "no_questions",
+    });
+
+    await runWithRequestContext(
+      {
+        userEmail: "carol@example.com",
+        authUserId: "better-auth-user-3",
+        run: { waitUntil: (promise) => pending.push(promise) },
+      },
+      () => {
+        track(
+          "design_prompt_submitted",
+          { prompt_length_bucket: "1-50" },
+          clientSource,
+        );
+        track("design_ready_viewed", { status: "completed" }, clientSource);
+        track("design_exported", { status: "completed" }, clientSource);
+        track(
+          "design_exported",
+          { status: "completed" },
+          {
+            ...clientSource,
+            telemetryOrigin: "server",
+          },
+        );
+      },
+    );
+    await Promise.all(pending);
+
+    const promptEvent = events.find(
+      (event) => event.name === "design_prompt_submitted",
+    );
+    const clientReadyEvent = events.find(
+      (event) => event.name === "design_ready_viewed",
+    );
+    const clientExportEvent = events.find(
+      (event) =>
+        event.name === "design_exported" && !event.properties.experiment_id,
+    );
+    const serverExportEvent = events.find(
+      (event) =>
+        event.name === "design_exported" &&
+        event.properties.experiment_id === "design_no_questions",
+    );
+    expect(promptEvent?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+    });
+    expect(clientReadyEvent?.properties).not.toHaveProperty("experiment_id");
+    expect(clientExportEvent?.properties).not.toHaveProperty("experiment_id");
+    expect(serverExportEvent?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+    });
+    expect(mockQuestionIntakeAssignment).toHaveBeenCalledTimes(2);
+  });
+
   it("registers deferred experiment attribution before response-scope flush", async () => {
     const events = captureEvents();
     let resolveAssignment!: (assignment: {
@@ -351,6 +436,7 @@ describe("tracking registry", () => {
           questionToolNames: ["show-design-questions"],
           treatmentInstructions: "Design first.",
           trackedEventNames: ["design_prompt_submitted"],
+          clientTrackedEventNames: ["design_prompt_submitted"],
         },
       },
     });

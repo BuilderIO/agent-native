@@ -78,6 +78,7 @@ describe("Design no-questions readout query", () => {
       expect(sql).toContain("design_prompt_submitted");
       expect(sql).toContain("design_ready_viewed");
       expect(sql).toContain("design_exported");
+      expect(sql).toContain("render_location");
       expect(sql).toContain("no_questions");
       expect(sql).toContain("mature_1to7d");
       expect(sql).toContain("mature_24h");
@@ -135,6 +136,9 @@ describe("Design no-questions readout query", () => {
     });
     expect(formatDesignNoQuestionsReadout(result)).toContain(
       "358 per arm (716 total)",
+    );
+    expect(formatDesignNoQuestionsReadout(result)).toContain(
+      "Exports count only completed server-recorded exports",
     );
     expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
       buildPostgresDesignNoQuestionsAbSql(),
