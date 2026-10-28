@@ -150,6 +150,21 @@ Real replies that missed, and what to send instead:
 - Use the connected Slack integration for every Slack read and write. Confirm
   the connected profile is Steve before the first write.
 
+## Dry run
+
+When the invocation says "dry run" (the cloud factory always does), run
+every step, but nothing reaches a reporter, a reviewer, or `main`:
+
+| Step | In a dry run |
+| --- | --- |
+| Reactions and replies (the contract, step 5) | Add and post none. Record each reaction you would add and the exact reply you would send, written to the contract with the fix branch linked where the PR would be, and report them where the invocation says |
+| Open items first | Treat roots another run claimed as unclaimed, so the dry run works the same reports; still honor Steve's `:mag:`, his hand-added 👀, and a person handling the thread |
+| 3. Fix | Same rules, but publish each fix group as its own branch the way the invocation says; "one run, one PR" doesn't apply. A purely visual fix with no signed-in browser is 🎫 "needs visual proof" |
+| 4. Ship, `/ship`, GitHub issues | Skip: no PR, merge, issue comment, or close |
+| Slack profile check | Confirm the connected profile is the read-only account the invocation names, not Steve |
+| Automation `memory.md`, Codex goals | Use the state the invocation names |
+| 6. Recap | Same format, titled "Dry run", plus one row per report the live run also handled: its outcome next to yours |
+
 ## 1. Collect (keep it under ~15 minutes)
 
 Work in a task-owned worktree on fresh `origin/main`. If you start in a shared

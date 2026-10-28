@@ -20,6 +20,9 @@ merging, and leaving the worktree ready for the next task. Don't stop at
 "PR opened" or "CI green", and don't ask for approval of routine steps along
 the way. The request to ship already authorized them.
 
+In a dry run (see `review-latest-feedback`'s "Dry run"), don't ship: no PR,
+merge, or close-out.
+
 ## Ownership
 
 - Resolve the active login once: `gh api user --jq .login`.
