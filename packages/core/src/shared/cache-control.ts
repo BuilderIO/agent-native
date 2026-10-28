@@ -33,6 +33,12 @@ export const SSR_QUERY_CACHE_KEY_HEADER = "x-agent-native-ssr-key";
  */
 export const SSR_MAX_AGE_HEADER = "x-agent-native-ssr-max-age";
 
+/**
+ * Error statuses whose SSR HTML/`.data` answer still gets the shared cache
+ * policy: a missing or removed page is the same for every visitor.
+ */
+export const SSR_CACHEABLE_ERROR_STATUSES: readonly number[] = [404, 410];
+
 export type SsrHtmlContentTypeOptions = {
   varyByQuery?: boolean;
 };
@@ -130,10 +136,6 @@ export function ssrCacheHeadersForPolicy(
   };
 }
 
-// The shared-cache windows inside DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL.
-const DEFAULT_SSR_SHARED_MAX_AGE_SECONDS = 31_536_000;
-const DEFAULT_SSR_SHARED_STALE_SECONDS = 604_800;
-
 /** The route's `SSR_MAX_AGE_HEADER` value in seconds, or null when unset. */
 export function parseSsrMaxAge(raw: string | null | undefined): number | null {
   const value = raw?.trim();
@@ -141,22 +143,52 @@ export function parseSsrMaxAge(raw: string | null | undefined): number | null {
   return Math.min(Number(value), MAX_SSR_CACHE_SECONDS);
 }
 
+export type SsrSharedWindow = { maxAge: number; stale: number };
+
+export type SsrRouteCacheLimits = {
+  cdn: SsrSharedWindow;
+  netlify: SsrSharedWindow;
+};
+
+function directiveSeconds(control: string, name: string): number | null {
+  const match = new RegExp(`(?:^|,)\\s*${name}=(\\d+)\\s*(?:,|$)`, "i").exec(
+    control,
+  );
+  return match ? Number(match[1]) : null;
+}
+
+function sharedWindow(control: string): SsrSharedWindow {
+  return {
+    maxAge:
+      directiveSeconds(control, "s-maxage") ??
+      directiveSeconds(control, "max-age") ??
+      0,
+    stale: directiveSeconds(control, "stale-while-revalidate") ?? 0,
+  };
+}
+
 /**
  * The longest shared-cache windows a route's `SSR_MAX_AGE_HEADER` can ask for
- * under `policy`, or null when the deployment stores nothing. The generated
- * edge worker inlines these at build time.
+ * under `policy`, read from the headers the deployment would send, one per CDN
+ * header since they differ. Null when the deployment stores nothing. The
+ * generated edge worker inlines these at build time.
  */
 export function ssrRouteCacheLimits(
   policy: SsrCachePolicy,
-): { maxAge: number; stale: number } | null {
+): SsrRouteCacheLimits | null {
   if (policy.kind === "disabled") return null;
-  if (policy.kind === "maxAge") {
-    return { maxAge: policy.seconds, stale: policy.seconds };
-  }
+  const headers = ssrCacheHeadersForPolicy(policy);
   return {
-    maxAge: DEFAULT_SSR_SHARED_MAX_AGE_SECONDS,
-    stale: DEFAULT_SSR_SHARED_STALE_SECONDS,
+    cdn: sharedWindow(headers["cdn-cache-control"]),
+    netlify: sharedWindow(headers["netlify-cdn-cache-control"]),
   };
+}
+
+function sharedWithin(window: SsrSharedWindow, seconds: number): string {
+  return (
+    `s-maxage=${Math.min(seconds, window.maxAge)}, ` +
+    `stale-while-revalidate=${Math.min(seconds, window.stale)}`
+  );
 }
 
 /**
@@ -173,13 +205,13 @@ export function ssrCacheHeadersWithin(
 ): SsrCacheHeaders {
   const limits = ssrRouteCacheLimits(policy);
   if (!limits || seconds <= 0) return { ...DISABLED_SSR_CACHE_HEADERS };
-  const maxAge = Math.min(seconds, limits.maxAge);
-  const stale = Math.min(seconds, limits.stale);
-  const shared = `s-maxage=${maxAge}, stale-while-revalidate=${stale}`;
   return {
     "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
-    "cdn-cache-control": `public, ${shared}`,
-    "netlify-cdn-cache-control": `public, durable, ${shared}`,
+    "cdn-cache-control": `public, ${sharedWithin(limits.cdn, seconds)}`,
+    "netlify-cdn-cache-control": `public, durable, ${sharedWithin(
+      limits.netlify,
+      seconds,
+    )}`,
   };
 }
 

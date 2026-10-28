@@ -55,6 +55,7 @@ import {
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   resolveSsrCachePolicy,
+  SSR_CACHEABLE_ERROR_STATUSES,
   SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   ssrRouteCacheLimits,
@@ -2220,6 +2221,7 @@ const SSR_MAX_AGE_HEADER = ${JSON.stringify(SSR_MAX_AGE_HEADER)};
 const SSR_ROUTE_CACHE_LIMITS = ${JSON.stringify(ssrRouteLimits)};
 const SSR_UNSTORED_CACHE_HEADERS = ${JSON.stringify(DISABLED_SSR_CACHE_HEADERS)};
 const SSR_ROUTE_BROWSER_CACHE_CONTROL = ${JSON.stringify(CHUNK_RECOVERY_BROWSER_CACHE_CONTROL)};
+const SSR_CACHEABLE_ERROR_STATUSES = new Set(${JSON.stringify(SSR_CACHEABLE_ERROR_STATUSES)});
 const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
 const CHUNK_RECOVERY_QUERY_PARAM = ${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
 const CHUNK_RECOVERY_QUERY_VALUE = ${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
@@ -2302,7 +2304,8 @@ function injectDefaultSocialImageMeta(html, imageUrl) {
 }
 
 function isSsrHtmlOrDataResponse(headers, status, pathname) {
-  if (status < 200 || status >= 400) return false;
+  if (status < 200) return false;
+  if (status >= 400 && !SSR_CACHEABLE_ERROR_STATUSES.has(status)) return false;
   const contentType = (headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("text/html")) return true;
   return pathname.endsWith(".data") && contentType.includes("text/x-script");
@@ -2315,17 +2318,22 @@ function parseSsrMaxAge(raw) {
   return /^\\d+$/.test(value) ? Number(value) : null;
 }
 
+function sharedWithin(window, seconds) {
+  return (
+    "s-maxage=" +
+    Math.min(seconds, window.maxAge) +
+    ", stale-while-revalidate=" +
+    Math.min(seconds, window.stale)
+  );
+}
+
 function ssrCacheHeadersWithin(seconds) {
   if (!SSR_ROUTE_CACHE_LIMITS || seconds <= 0) return SSR_UNSTORED_CACHE_HEADERS;
-  const shared =
-    "s-maxage=" +
-    Math.min(seconds, SSR_ROUTE_CACHE_LIMITS.maxAge) +
-    ", stale-while-revalidate=" +
-    Math.min(seconds, SSR_ROUTE_CACHE_LIMITS.stale);
   return {
     "cache-control": SSR_ROUTE_BROWSER_CACHE_CONTROL,
-    "cdn-cache-control": "public, " + shared,
-    "netlify-cdn-cache-control": "public, durable, " + shared,
+    "cdn-cache-control": "public, " + sharedWithin(SSR_ROUTE_CACHE_LIMITS.cdn, seconds),
+    "netlify-cdn-cache-control":
+      "public, durable, " + sharedWithin(SSR_ROUTE_CACHE_LIMITS.netlify, seconds),
   };
 }
 

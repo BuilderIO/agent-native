@@ -1914,6 +1914,15 @@ export function createRequestHandler() {
         },
       });
     }
+    if (url.pathname === "/missing") {
+      return new Response("missing", {
+        status: 404,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          ...${JSON.stringify(options.responseHeaders ?? {})},
+        },
+      });
+    }
     if (url.pathname === "/private-html") {
       return new Response("<html></html>", {
         headers: {
@@ -3291,6 +3300,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
   it.each([
     [undefined, "20"],
     [undefined, "0"],
+    [undefined, "3600"],
     [undefined, "999999999999"],
     ["30s", "60"],
     ["off", "20"],
@@ -3318,6 +3328,26 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
       expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
     },
   );
+
+  it("shortens a route's not-found window like the Nitro handler", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+      responseHeaders: { [SSR_MAX_AGE_HEADER]: "20" },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/missing"),
+      {},
+      {},
+    );
+
+    expect(response.status).toBe(404);
+    for (const [name, value] of Object.entries(
+      ssrCacheHeadersWithin(parseSsrCacheSetting(undefined), 20),
+    )) {
+      expect(response.headers.get(name)).toBe(value);
+    }
+    expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+  });
 
   it("keeps the deployment window when a route's max age is malformed", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []), {

@@ -10,6 +10,7 @@ import {
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   resolveSsrCachePolicy,
+  SSR_CACHEABLE_ERROR_STATUSES,
   SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersWithin,
@@ -279,7 +280,7 @@ function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
-const CACHEABLE_ERROR_STATUSES = new Set([404, 410]);
+const CACHEABLE_ERROR_STATUSES = new Set(SSR_CACHEABLE_ERROR_STATUSES);
 
 function isSsrHtmlOrDataResponse(
   headers: Headers,

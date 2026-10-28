@@ -213,6 +213,17 @@ describe("ssrCacheHeadersWithin", () => {
     ).toBe("public, durable, s-maxage=31536000, stale-while-revalidate=604800");
   });
 
+  it("caps each CDN header at its own deployment window", () => {
+    const headers = ssrCacheHeadersWithin({ kind: "default" }, 3600);
+
+    expect(headers["cdn-cache-control"]).toBe(
+      "public, s-maxage=600, stale-while-revalidate=3600",
+    );
+    expect(headers["netlify-cdn-cache-control"]).toBe(
+      "public, durable, s-maxage=3600, stale-while-revalidate=3600",
+    );
+  });
+
   it("caps at the same windows the default policy names", () => {
     expect(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL).toContain(
       "s-maxage=31536000, stale-while-revalidate=604800",
