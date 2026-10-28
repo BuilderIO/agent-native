@@ -9724,7 +9724,7 @@ describe("server/auth", () => {
         await import("./ui-action-capability.js");
       const mounted = createMockApp();
       mountUiActionCapabilityRoute(mounted);
-      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", email: cookieOwner })}`;
+      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", projectId: "builder-3b0a2", email: cookieOwner })}`;
       const event = createMockEvent({
         path: "/_agent-native/ui-capability",
         headers: { cookie, "sec-fetch-site": "same-origin" },
