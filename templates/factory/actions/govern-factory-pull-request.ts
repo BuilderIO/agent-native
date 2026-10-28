@@ -1541,37 +1541,6 @@ export default defineAction({
               "Review evidence changed before approval; no duplicate or unsafe approval was posted.",
           };
         }
-        const latestItems = await getDb()
-          .select({ status: triageItems.status })
-          .from(triageItems)
-          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
-          .limit(1);
-        type LatestItemResult =
-          | { found: true; item: (typeof latestItems)[number] }
-          | { found: false };
-        let latestItemResult: LatestItemResult = { found: false };
-        for (const item of latestItems) {
-          latestItemResult = { found: true, item };
-          break;
-        }
-        if (!latestItemResult.found) {
-          fail("Factory item disappeared before GitHub approval.", {
-            errorCode: "factory_item_not_found",
-            statusCode: 404,
-          });
-        }
-        const latestItem = latestItemResult.item;
-        if (isTerminalFactoryItemStatus(latestItem.status)) {
-          await reconcileClaim(
-            pullRequest.headSha,
-            `Factory item became ${latestItem.status} before GitHub approval; the approval was not posted.`,
-          );
-          return {
-            ok: true,
-            action: "skipped",
-            reason: `Factory item became ${latestItem.status} before GitHub approval; no approval was posted.`,
-          };
-        }
         const decisionId = stableId(
           "pr-governance",
           orgId,
@@ -1580,16 +1549,56 @@ export default defineAction({
         );
         let approval: Awaited<ReturnType<typeof github.approvePullRequest>>;
         try {
-          approval = await github.approvePullRequest(
-            repository,
-            pullRequestNumber,
-            governance.trustException
-              ? `Factory auto-approved under decision ${decisionId}; verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
-              : governance.ownerException
-                ? `Factory auto-approved under decision ${decisionId}; verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
-                : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
-            pullRequest.headSha,
-          );
+          const approvalAttempt = await getDb().transaction(async (tx) => {
+            const latestItems = await tx
+              .select({ status: triageItems.status })
+              .from(triageItems)
+              .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+              .limit(1)
+              .for("update");
+            type LatestItemResult =
+              | { found: true; item: (typeof latestItems)[number] }
+              | { found: false };
+            let latestItemResult: LatestItemResult = { found: false };
+            for (const item of latestItems) {
+              latestItemResult = { found: true, item };
+              break;
+            }
+            if (!latestItemResult.found) {
+              fail("Factory item disappeared before GitHub approval.", {
+                errorCode: "factory_item_not_found",
+                statusCode: 404,
+              });
+            }
+            const latestItem = latestItemResult.item;
+            if (isTerminalFactoryItemStatus(latestItem.status)) {
+              return { kind: "terminal", status: latestItem.status } as const;
+            }
+            // Keep terminal transitions from committing between this check and GitHub's approval write.
+            const result = await github.approvePullRequest(
+              repository,
+              pullRequestNumber,
+              governance.trustException
+                ? `Factory auto-approved under decision ${decisionId}; verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
+                : governance.ownerException
+                  ? `Factory auto-approved under decision ${decisionId}; verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
+                  : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
+              pullRequest.headSha,
+            );
+            return { kind: "approved", result } as const;
+          });
+          if (approvalAttempt.kind === "terminal") {
+            await reconcileClaim(
+              pullRequest.headSha,
+              `Factory item became ${approvalAttempt.status} before GitHub approval; the approval was not posted.`,
+            );
+            return {
+              ok: true,
+              action: "skipped",
+              reason: `Factory item became ${approvalAttempt.status} before GitHub approval; no approval was posted.`,
+            };
+          }
+          approval = approvalAttempt.result;
         } catch (error) {
           if (error instanceof GitHubRequestError) {
             const definitiveRejection =

@@ -207,7 +207,7 @@ function governanceGitHub(input: {
   revalidatedSummary?: Record<string, unknown>;
   postApprovalSummary?: Record<string, unknown>;
   beforeEvidenceReturn?: (callNumber: number) => Promise<void>;
-  beforeApprovalReturn?: () => Promise<void>;
+  afterApprovalReturn?: () => Promise<void>;
   beforeSummaryReturn?: (callNumber: number) => Promise<void>;
 }) {
   const initialSummary = pullRequestSummary({
@@ -234,6 +234,7 @@ function governanceGitHub(input: {
   return {
     getPullRequestSummary: vi.fn(async () => {
       summaryCalls += 1;
+      if (summaryCalls === 5) await input.afterApprovalReturn?.();
       await input.beforeSummaryReturn?.(summaryCalls);
       const summaryOverrides =
         summaryCalls === 2
@@ -280,10 +281,11 @@ function governanceGitHub(input: {
     ),
     getAuthenticatedUser: vi.fn().mockResolvedValue({ login: "factory-bot" }),
     createPullRequestReview: vi.fn(),
-    approvePullRequest: vi.fn(async () => {
-      await input.beforeApprovalReturn?.();
-      return { htmlUrl: "https://github.test/BuilderIO/agent-native/pull/42" };
-    }),
+    approvePullRequest: vi
+      .fn()
+      .mockResolvedValue({
+        htmlUrl: "https://github.test/BuilderIO/agent-native/pull/42",
+      }),
   };
 }
 
@@ -1251,7 +1253,7 @@ describe("govern-factory-pull-request final check evidence", () => {
         internalMember: true,
         passingChecks: true,
         changedFiles: ["src/change.ts"],
-        beforeApprovalReturn: async () => {
+        afterApprovalReturn: async () => {
           await db
             .update(triageItems)
             .set({ status })
@@ -1285,7 +1287,7 @@ describe("govern-factory-pull-request final check evidence", () => {
       internalMember: true,
       passingChecks: true,
       changedFiles: ["src/change.ts"],
-      beforeApprovalReturn: async () => {
+      afterApprovalReturn: async () => {
         await db
           .update(triageDecisions)
           .set({ outcome: "needs_manual" })
