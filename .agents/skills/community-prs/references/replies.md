@@ -45,7 +45,7 @@ direction before you put more time in. I'll get back to you by [day].
 ## After their update
 
 ```text
-thanks, that covers it! [merging once checks pass / one thing left: ...]
+thanks, that covers it! [a human Builder dev will approve and squash-merge once checks pass / one thing left: ...]
 ```
 
 ## After pushing to their branch
@@ -115,7 +115,7 @@ a look.
 
 | Instead of                                             | Do                                                            |
 | ------------------------------------------------------ | ------------------------------------------------------------- |
-| "ready for internal approval" or "needs owner review"  | Approve and merge, or say "merging once checks pass"          |
+| "ready for internal approval" or "needs owner review"  | Say a human Builder dev will approve and squash-merge once checks pass, or name the remaining check |
 | "please rerun CI" or "resolve the conflicts with main" | Rerun it, or merge main yourself                              |
 | "take a look at the automated review comments"         | Decide which findings are real and ask for those, or fix them |
 | Five asks in one comment                               | One ask, or finish the rest yourself                          |

@@ -281,11 +281,9 @@ function governanceGitHub(input: {
     ),
     getAuthenticatedUser: vi.fn().mockResolvedValue({ login: "factory-bot" }),
     createPullRequestReview: vi.fn(),
-    approvePullRequest: vi
-      .fn()
-      .mockResolvedValue({
-        htmlUrl: "https://github.test/BuilderIO/agent-native/pull/42",
-      }),
+    approvePullRequest: vi.fn().mockResolvedValue({
+      htmlUrl: "https://github.test/BuilderIO/agent-native/pull/42",
+    }),
   };
 }
 
@@ -965,6 +963,48 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(item.status).toBe("pr_observed");
   });
 
+  it("skips a fork assigned to a verified BuilderIO member during evidence review", async () => {
+    await seedItem("pr_observed");
+    const github = governanceGitHub({
+      headRepository: "contributor/fork",
+      currentApproval: true,
+      changedFiles: ["src/change.ts"],
+      revalidatedSummary: {
+        assignees: [{ id: 456, login: "builder-assignee" }],
+      },
+      assigneeMember: true,
+    });
+
+    const result = await runGovernance(github);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decisions = await db
+      .select({ id: triageDecisions.id })
+      .from(triageDecisions);
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: "skipped",
+      reason: expect.stringContaining(
+        "assigned to a verified BuilderIO member",
+      ),
+    });
+    expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
+      "BuilderIO",
+      456,
+      "builder-assignee",
+    );
+    expect(github.getPullRequestSummary).toHaveBeenCalledTimes(2);
+    expect(github.getPullRequestEvidence).toHaveBeenCalledTimes(1);
+    expect(decisions).toEqual([]);
+    expect(item.status).toBe("pr_observed");
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+  });
+
   it.each(["merged", "resolved", "dismissed"] as const)(
     "reports a terminal %s item as skipped when changed-file evidence is missing",
     async (status) => {
@@ -1045,7 +1085,7 @@ describe("govern-factory-pull-request final check evidence", () => {
     },
   );
 
-  it("preserves a finalized approval when a later manual disposition is recorded", async () => {
+  it("reopens a finalized approval when an external author needs manual disposition", async () => {
     await seedItem("auto_approved");
     await db.insert(triageDecisions).values({
       id: governanceDecisionId(),
@@ -1080,7 +1120,7 @@ describe("govern-factory-pull-request final check evidence", () => {
       .from(triageDecisions)
       .where(eq(triageDecisions.itemId, "item-1"));
 
-    expect(item.status).toBe("auto_approved");
+    expect(item.status).toBe("needs_manual");
     expect(decisions).toHaveLength(2);
     expect(decisions).toContainEqual({
       id: governanceDecisionId(),

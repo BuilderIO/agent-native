@@ -279,6 +279,12 @@ describe("GitHub triage client", () => {
     const approvalRequest = fetchImpl.mock.calls.find(([input]) =>
       new URL(String(input)).pathname.endsWith("/reviews"),
     );
+    expect(approvalRequest?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(
+      mockedResolveConnectorSecret.mock.calls.filter(
+        ([key]) => key === "GITHUB_TOKEN",
+      ),
+    ).toHaveLength(1);
     expect(JSON.parse(String(approvalRequest?.[1]?.body))).toMatchObject({
       event: "APPROVE",
       body: "Factory approval",

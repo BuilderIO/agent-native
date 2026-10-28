@@ -193,7 +193,6 @@ async function recordManualPullRequestDisposition(input: {
   orgId: string;
   ownerEmail: string;
   reason: string;
-  reopenAutoApproved?: boolean;
 }): Promise<ManualDispositionResult> {
   const now = new Date().toISOString();
   const decisionId = stableId(
@@ -203,22 +202,18 @@ async function recordManualPullRequestDisposition(input: {
     input.headSha,
   );
   return getDb().transaction(async (tx) => {
-    const statusesToPreserve = input.reopenAutoApproved
-      ? ["reconciliation_required", "merged", "resolved", "dismissed"]
-      : [
-          "auto_approved",
-          "reconciliation_required",
-          "merged",
-          "resolved",
-          "dismissed",
-        ];
     const updatedItems = await tx
       .update(triageItems)
       .set({ status: "needs_manual", updatedAt: now })
       .where(
         and(
           orgFactoryScopedItemWhere(input.itemId, input.orgId, input.factoryId),
-          notInArray(triageItems.status, statusesToPreserve),
+          notInArray(triageItems.status, [
+            "reconciliation_required",
+            "merged",
+            "resolved",
+            "dismissed",
+          ]),
         ),
       )
       .returning({ id: triageItems.id });
@@ -240,7 +235,6 @@ async function recordManualPullRequestDisposition(input: {
         });
       }
       switch (existingItem.status) {
-        case "auto_approved":
         case "reconciliation_required":
           // Keep uncertain approval writes recoverable while recording the manual disposition.
           break;
@@ -429,6 +423,19 @@ export default defineAction({
       repository,
       pullRequestNumber,
     );
+    const hasVerifiedBuilderAssignee = async (summary: typeof pullRequest) => {
+      if (summary.headRepository === summary.baseRepository) return false;
+      const assigneeMembership = await Promise.all(
+        summary.assignees.map((assignee) =>
+          github.checkOrganizationMemberById(
+            "BuilderIO",
+            assignee.id,
+            assignee.login,
+          ),
+        ),
+      );
+      return assigneeMembership.some((assignee) => assignee.isMember);
+    };
     const pullRequestAuthor = pullRequest.userLogin.trim().toLowerCase();
     const pullRequestAuthorType = pullRequest.userType?.trim().toLowerCase();
     if (pullRequestAuthor === "steve8708" || pullRequestAuthorType === "bot") {
@@ -483,24 +490,16 @@ export default defineAction({
         pullRequest.userId,
         pullRequest.userLogin,
       );
-      if (!internalMember.isMember) {
-        const assigneeMembership = await Promise.all(
-          pullRequest.assignees.map((assignee) =>
-            github.checkOrganizationMemberById(
-              "BuilderIO",
-              assignee.id,
-              assignee.login,
-            ),
-          ),
-        );
-        if (assigneeMembership.some((assignee) => assignee.isMember)) {
-          return {
-            ok: true,
-            action: "skipped",
-            reason:
-              "This external fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
-          };
-        }
+      if (
+        !internalMember.isMember &&
+        (await hasVerifiedBuilderAssignee(pullRequest))
+      ) {
+        return {
+          ok: true,
+          action: "skipped",
+          reason:
+            "This external fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
+        };
       }
     }
     const reconcileClaim = async (headSha: string, reason: string) => {
@@ -707,6 +706,12 @@ export default defineAction({
         await reconcileClaim(pullRequest.headSha, staleReason);
         return { ok: true, action: "needs_manual", reason: staleReason };
       }
+      if (await hasVerifiedBuilderAssignee(livePullRequest)) {
+        const exclusionReason =
+          "This external fork pull request was assigned to a verified BuilderIO member during evidence review and is excluded from Factory governance.";
+        await reconcileClaim(pullRequest.headSha, exclusionReason);
+        return { ok: true, action: "skipped", reason: exclusionReason };
+      }
       const disposition = await recordManualPullRequestDisposition({
         factoryId,
         headSha: pullRequest.headSha,
@@ -761,7 +766,6 @@ export default defineAction({
           orgId,
           ownerEmail: userEmail,
           reason: manualReason,
-          reopenAutoApproved: true,
         });
         if (disposition.kind === "terminal") {
           return {

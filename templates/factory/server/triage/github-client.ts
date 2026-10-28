@@ -10,6 +10,7 @@ import type {
 
 const DEFAULT_BASE_URL = "https://api.github.com";
 const MAX_PAGE_SIZE = 100;
+const APPROVAL_REQUEST_TIMEOUT_MS = 10_000;
 
 type FetchLike = typeof fetch;
 
@@ -651,6 +652,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
 
   let cachedAppConfig: GitHubAppConfig | null | undefined;
   let cachedInstallationToken: { value: string; expiresAt: number } | undefined;
+  let cachedConnectorToken: string | undefined;
   let cachedAppBotIdentity: { login: string; id: number } | undefined;
 
   async function connectorSecret(key: string): Promise<string | undefined> {
@@ -687,7 +689,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
     return cachedAppConfig;
   }
 
-  async function token(): Promise<string> {
+  async function token(signal?: AbortSignal): Promise<string> {
     const app = await appConfig();
     if (app) {
       const now = Math.floor(Date.now() / 1000);
@@ -708,6 +710,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
             Authorization: `Bearer ${jwt}`,
             "X-GitHub-Api-Version": "2022-11-28",
           },
+          signal,
         },
       )) as JsonResponse;
       if (!response.ok) {
@@ -725,10 +728,12 @@ export function createGitHubClient(options: GitHubClientOptions) {
       cachedInstallationToken = { value, expiresAt };
       return value;
     }
+    if (cachedConnectorToken) return cachedConnectorToken;
     const value = await connectorSecret("GITHUB_TOKEN");
     if (!value)
       throw new Error("GITHUB_TOKEN is not configured for this workspace");
-    return value;
+    cachedConnectorToken = value;
+    return cachedConnectorToken;
   }
 
   async function graphqlRequest<T>(
@@ -776,7 +781,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
   ): Promise<T> {
     let requestAttempted = false;
     try {
-      const authorization = `Bearer ${await token()}`;
+      const authorization = `Bearer ${await token(init.signal ?? undefined)}`;
       requestAttempted = true;
       const response = (await fetchImpl(`${baseUrl}${path}`, {
         ...init,
@@ -1257,6 +1262,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
               ...(body ? { body: body.slice(0, 4_000) } : {}),
               ...(commitSha ? { commit_id: commitSha } : {}),
             }),
+            signal: AbortSignal.timeout(APPROVAL_REQUEST_TIMEOUT_MS),
           },
         ),
       );
