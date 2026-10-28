@@ -63,8 +63,7 @@ export default {
     recordingStarted: "रिकॉर्डिंग शुरू हुई",
     appBandHeading: "{app} · {count} सत्र",
     journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
+    journeyTitleAppBandsSummary: "{from} से {to} · अलग-अलग समूह{partial}",
     sessionCount: "{count} सत्र",
     otherPaths: "अन्य रास्ते",
     otherBranchesShown: "{total} में से {shown} शाखाएँ दिखाई गईं",
@@ -313,6 +312,9 @@ export default {
       chooseFrame: "Frame चुनें",
       inspect: "Inspect करें",
       exportSvg: "SVG export करें",
+      moreActions: "अधिक कार्रवाइयाँ",
+      askAboutFile: "इस फ़ाइल के बारे में पूछें",
+      askAboutFilePrompt: "इस लिंक की गई डिज़ाइन फ़ाइल के बारे में पूछें। {{url}}",
       actionsPrefill: "जाँचें, फिर भेजें",
       retry: "फिर कोशिश करें",
       currentDesign: "मौजूदा Design",
@@ -2180,6 +2182,19 @@ export default {
       viewportMobile: "Mobile",
       added: "Screen जोड़ी गई",
       addFailed: "Screen नहीं जोड़ी जा सकी",
+    },
+    localhostConsent: {
+      approvedTitle: "स्वीकृत — संपादन फिर से चलाएँ",
+      approvedDescription:
+        "फ़ाइल लिखने की अनुमति 8 घंटे के लिए है। जिस संपादन ने एक्सेस माँगा था, वह सहेजा नहीं गया।",
+      retryInChat: "चैट में फिर से चलाएँ",
+      retryPrompt:
+        "{{rootPath}} के लिए फ़ाइल लिखने की अनुमति स्वीकृत है। जिस संपादन को इसकी ज़रूरत थी, उसे फिर से चलाएँ।",
+      unavailableTitle: "यह लिखने का अनुरोध अब लंबित नहीं है",
+      unavailableDescription: "एक्सेस माँगने के लिए संपादन फिर से चलाएँ।",
+      close: "बंद करें",
+      prepareSignInError:
+        "साइन इन से पहले यह अनुरोध सहेजा नहीं जा सका। फिर से कोशिश करें।",
     },
     nodeRewrite: {
       composerTitle: "चयन के बारे में पूछें या बदलें",

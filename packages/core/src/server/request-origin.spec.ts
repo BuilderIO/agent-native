@@ -5,15 +5,19 @@ vi.mock("h3", () => ({
     Object.assign(new Error(details.statusMessage), details),
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
+  getRequestHeaders: (event: { headers?: Record<string, string> }) =>
+    event.headers ?? {},
   getRequestIP: (event: any) => event.ip,
   getRequestURL: (event: any) => new URL(event.url ?? "http://localhost/"),
 }));
 
 import {
   getForwardedRequestHostname,
-  getForwardedRequestHostnameFromHeaders,
+  getForwardedRequestOriginFromHeaders,
   getForwardedRequestOrigin,
   getForwardedRequestURL,
+  hasSameOriginBrowserEvidence,
+  isSameOriginPost,
   isSameOriginRequest,
 } from "./request-origin.js";
 
@@ -185,47 +189,52 @@ describe("getForwardedRequestOrigin", () => {
     );
   });
 
-  it("resolves the same normalized hostname from Node and Fetch headers", () => {
+  it("resolves the same public origin from Node and Fetch headers", () => {
     expect(
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "internal.gateway:3000",
           "x-forwarded-host":
-            "BETA.CALENDAR.AGENT-NATIVE.COM., internal.gateway:3000",
+            "BETA.CALENDAR.AGENT-NATIVE.COM:4443, internal.gateway:3000",
+          "x-forwarded-proto": "https",
         },
         "127.0.0.1",
       ),
-    ).toBe("beta.calendar.agent-native.com");
+    ).toBe("https://beta.calendar.agent-native.com:4443");
     expect(
-      getForwardedRequestHostnameFromHeaders(
-        new Headers({ "x-forwarded-host": "beta.calendar.agent-native.com" }),
+      getForwardedRequestOriginFromHeaders(
+        new Headers({
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "beta.calendar.agent-native.com:4443",
+          "x-forwarded-proto": "https",
+        }),
         "::1",
       ),
-    ).toBe("beta.calendar.agent-native.com");
+    ).toBe("https://beta.calendar.agent-native.com:4443");
   });
 
   it("ignores forwarded host headers from non-loopback peers", () => {
     expect(
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "app.example.test",
           "x-forwarded-host": "attacker.example.test",
         },
         "203.0.113.20",
       ),
-    ).toBe("app.example.test");
+    ).toBe("http://app.example.test");
   });
 
-  it("rejects malformed Node forwarded hostnames", () => {
+  it("rejects malformed Node forwarded origins", () => {
     expect(() =>
-      getForwardedRequestHostnameFromHeaders(
+      getForwardedRequestOriginFromHeaders(
         {
           host: "app.example.com",
           "x-forwarded-host": "app.example.com/path",
         },
         "127.0.0.1",
       ),
-    ).toThrow("Invalid forwarded request hostname");
+    ).toThrow("Invalid forwarded request origin");
   });
 });
 
@@ -331,6 +340,16 @@ describe("isSameOriginRequest", () => {
       expected: true,
     },
     {
+      name: "opaque iframe origin",
+      headers: { host: "app.example.com", origin: "null" },
+      expected: false,
+    },
+    {
+      name: "Origin without a request host",
+      headers: { origin: "https://app.example.com" },
+      expected: false,
+    },
+    {
       name: "Tauri production origin against loopback app host",
       headers: { host: "localhost:3000", origin: "tauri://localhost" },
       expected: true,
@@ -372,5 +391,22 @@ describe("isSameOriginRequest", () => {
     },
   ])("handles $name", ({ headers, expected }) => {
     expect(isSameOriginRequest(fakeEvent(headers))).toBe(expected);
+  });
+});
+
+describe("hasSameOriginBrowserEvidence", () => {
+  it.each([
+    [{}, false],
+    [{ "sec-fetch-site": "same-origin" }, true],
+    [{ "sec-fetch-site": "none" }, false],
+    [{ "sec-fetch-site": "cross-site" }, false],
+    [{ origin: "https://app.example.com" }, true],
+    [{ origin: "https://other.example.com" }, false],
+    [{ origin: "null" }, false],
+    [{ origin: "tauri://localhost" }, false],
+  ] as const)("checks %j", (headers, expected) => {
+    const event = fakeEvent(headers, { url: "https://app.example.com/action" });
+    expect(hasSameOriginBrowserEvidence(event)).toBe(expected);
+    expect(isSameOriginPost(event)).toBe(expected);
   });
 });

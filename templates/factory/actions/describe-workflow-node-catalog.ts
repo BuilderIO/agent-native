@@ -25,7 +25,11 @@ import {
   type NodeKind,
   type WorkflowNode,
 } from "../server/workflow/contract.js";
-import type { OperationDefinition } from "../server/workflow/operations.js";
+import {
+  operationOutputs,
+  type OperationDefinition,
+  type OperationOutput,
+} from "../server/workflow/operations.js";
 import {
   LIMIT_REACHED_PORT,
   OTHERWISE_PORT,
@@ -139,9 +143,14 @@ function indexFields(operation: OperationDefinition): string[] {
   );
 }
 
+// The names a graph may read from `nodes.<step>`, `?` after one that can hold null. Types and descriptions come with the operation read in full.
+function indexOutputs(outputs: readonly OperationOutput[]): string[] {
+  return outputs.map((output) => `${output.name}${output.nullable ? "?" : ""}`);
+}
+
 export default defineAction({
   description:
-    'Read the building blocks of a Factory workflow: the twelve node kinds with their ports and the shape of each kind\'s settings, the operation catalog (what each Source, Lookup, Action and Agent node can call, with its fields), the edge and graph shape, and whether each provider is connected for this person. The full catalog is too large for one tool result, so call it with view index first: connection status, the graph shape, every kind with its ports and a one-line settingsShape (key required, key? optional, "a"|"b" choices, 1-10 range, [x] list, {<name>:x} map, a bare name such as binding is defined in shapes), and one compact line per operation (id, label, provider, node kinds, effect, field names and types, ! for required). That is enough to write most graphs. Then read operations in full with one more call: operationIds (or provider) returns those operations\' fields and only the node kinds they serve; kind returns one kind\'s full settings JSON Schema. Call it before building or editing a graph with save-factory-workflow.',
+    'Read the building blocks of a Factory workflow: the twelve node kinds with their ports and the shape of each kind\'s settings, the operation catalog (what each Source, Lookup, Action and Agent node can call, with its fields), the edge and graph shape, and whether each provider is connected for this person. The full catalog is too large for one tool result, so call it with view index first: connection status, the graph shape, every kind with its ports and a one-line settingsShape (key required, key? optional, "a"|"b" choices, 1-10 range, [x] list, {<name>:x} map, a bare name such as binding is defined in shapes), and one compact line per operation (id, label, provider, node kinds, effect, field names and types, ! for required, and outputs: the only names a later step may read as nodes.<step>.<name>, ? after one that can be null, for the operations that declare them; a save that reads another name is refused). That is enough to write most graphs. Then read operations in full with one more call: operationIds (or provider) returns those operations\' fields and outputs, each with its description, and only the node kinds they serve; kind returns one kind\'s full settings JSON Schema. Call it before building or editing a graph with save-factory-workflow.',
   schema: z.object({
     view: z
       .enum(["full", "index"])
@@ -238,14 +247,21 @@ export default defineAction({
           for (const name of used) sharedUsed.add(name);
           return { ...base, settingsShape: shape };
         });
-        const operations = matching.map((operation) => ({
-          id: operation.id,
-          provider: operation.provider,
-          label: operation.label,
-          nodeKinds: operation.nodeKinds,
-          effect: operation.effect,
-          fields: compact && !named ? indexFields(operation) : operation.fields,
-        }));
+        const operations = matching.map((operation) => {
+          const outputs = operationOutputs(operation);
+          const indexed = compact && !named;
+          return {
+            id: operation.id,
+            provider: operation.provider,
+            label: operation.label,
+            nodeKinds: operation.nodeKinds,
+            effect: operation.effect,
+            fields: indexed ? indexFields(operation) : operation.fields,
+            ...(outputs
+              ? { outputs: indexed ? indexOutputs(outputs) : outputs }
+              : {}),
+          };
+        });
         const providerIds = [
           ...new Set(
             matching.map((operation) => operation.credential.provider),

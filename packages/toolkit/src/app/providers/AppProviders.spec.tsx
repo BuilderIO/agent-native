@@ -408,6 +408,32 @@ describe("AppProviders session gate", () => {
     expect(publicMarkup).not.toContain("data-agent-native-mcp-widget-boot");
   });
 
+  it("defers workspace widget storage-key resolution until the browser can read its mount", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", undefined);
+    let markup: string;
+    try {
+      markup = renderToStaticMarkup(
+        <AppProviders queryClient={new QueryClient()} i18n={false}>
+          <div>content</div>
+        </AppProviders>,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+
+    const bootScript = markup.match(
+      /<script data-agent-native-mcp-widget-boot="1">([\s\S]*?)<\/script>/,
+    )?.[1];
+    expect(bootScript).toContain(
+      'resolveMcpAppEmbedBasePath("workspace-path", w.location.pathname, workspaceOptions)',
+    );
+    expect(bootScript).not.toContain("agent-native:embed-auth-token:/");
+    expect(bootScript).not.toContain("agent-native:mcp-chat-bridge:/");
+  });
+
   it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
     useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 

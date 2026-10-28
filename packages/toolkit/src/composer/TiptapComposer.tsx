@@ -1334,6 +1334,11 @@ export interface TiptapComposerProps {
    */
   setupCardVisible?: boolean;
   /**
+   * Reports whether the loaded model list offers only connect paths, which
+   * is known before the server's readiness check answers.
+   */
+  onModelConnectionRequiredChange?: (required: boolean) => void;
+  /**
    * Optional secondary model menu (e.g. an image-generation model) rendered as
    * an extra section inside the model picker. Opt-in; omit for chat-only apps.
    */
@@ -1849,6 +1854,7 @@ function ModelSelector({
   terminalModeControl,
   imageModel,
   setupCardVisible = false,
+  onConnectionRequiredChange,
 }: {
   model: string;
   selectedEngine?: string;
@@ -1879,6 +1885,7 @@ function ModelSelector({
   imageModel?: ComposerImageModelMenu;
   open?: boolean;
   setupCardVisible?: boolean;
+  onConnectionRequiredChange?: (required: boolean) => void;
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate;
@@ -2159,6 +2166,18 @@ function ModelSelector({
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
+  // Only a loaded list that names providers, none of them connected, means
+  // setup. A selected model on an unconnected provider still has others, and
+  // an empty list is a catalog that failed to load, not proof of anything.
+  const connectionRequired =
+    onlyConnectPathAvailable && !modelListLoading && providerGroups.length > 0;
+  useEffect(() => {
+    onConnectionRequiredChange?.(connectionRequired);
+  }, [connectionRequired, onConnectionRequiredChange]);
+  useEffect(
+    () => () => onConnectionRequiredChange?.(false),
+    [onConnectionRequiredChange],
+  );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
   const selectedModelButtonLabel = selectedModelNeedsConnection
@@ -2937,6 +2956,7 @@ function TiptapComposerSurface({
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
+  onModelConnectionRequiredChange,
   imageModelMenu,
   draftScope,
   contextItems: providedContextItems,
@@ -6712,6 +6732,7 @@ function TiptapComposerSurface({
             terminalModeControl={terminalModeControl}
             imageModel={imageModelMenu}
             setupCardVisible={setupCardVisible}
+            onConnectionRequiredChange={onModelConnectionRequiredChange}
           />
         )}
         {actionButton ?? (

@@ -1,0 +1,108 @@
+slug: ai-bug-reporting-tool
+app: clips
+roles:
+  - product
+  - engineering
+  - design
+title: 录下 bug，附带控制台和网络日志
+seo_title: 带控制台日志的 AI 缺陷报告工具
+meta_description: 在 Chrome 中演示 bug，Agent-Native Clips 会把录屏变成一个链接，附带页面的报错和失败的请求，交给你的工程师或编码 agent。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Clips 把一段 bug 录屏变成一个链接，工程师或编码 agent 都能直接据此处理。你在 Chrome 里演示 bug，页面的报错和失败的请求会一起带上。
+  button:
+    label: 录制 bug
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: Clips 中打开的一段 bug 录屏，暂停在显示错误信息的结账页面。视频旁的调试标签页列出一条红色的控制台错误和一个状态码为 500 的失败请求。
+how_to:
+  heading: 如何用 AI 报告 bug
+  steps:
+    - title: 从 Chrome 开始录制
+      body: "点击工具栏中的 Clips Chrome 扩展，选择录制来源：浏览器标签页、窗口或整个屏幕。打开或关闭摄像头和麦克风，然后点击 Start recording。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: 网页应用上方的 Clips 扩展弹窗特写，来源选的是 Browser tab，摄像头和麦克风已打开，下方是 Start recording 按钮。
+    - title: 演示 bug 并说明情况
+      body: 点开出问题的那几步，并说出你本来期望发生什么。录制期间，扩展会保存页面的报错和它发出的请求，这些细节本来需要工程师从 Chrome 开发者工具里去挖。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: 网页应用结账页面上方的 Clips 录制控件和摄像头气泡，页面上出现“Something went wrong”的提示。
+    - title: 分享一个链接
+      body: 停止录制后，Clips 会替你复制录屏链接。把它粘贴到工单、聊天或你的编码 agent 里。分享菜单里的智能体标签页，还能直接在 Claude、Claude Code 或 Codex 中打开它。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: Clips 分享菜单智能体标签页的特写，有“复制代理提示”按钮，以及“在 Claude 中打开”“在 Claude Code 中打开”和“在 Codex 中打开”按钮。
+features:
+  heading: 报告 bug 所需的一切
+  items:
+    - title: 为你的编码 agent 而做
+      body: 把链接粘贴到 Claude Code、Cursor 或 Codex。agent 会读取转录、画面帧和日志，无需下载视频。
+    - title: 控制台和网络日志
+      body: Clips 最多保存五个标签页的控制台消息、报错和请求，包括每个请求的状态、耗时以及是否失败。
+    - title: 按下录制前的 30 秒
+      body: Clips 能回溯到你按下录制之前最多 30 秒，所以页面加载期间出现的报错也能进入报告。
+    - title: 敏感信息不外泄
+      body: Clips 从不保存请求体、请求头、Cookie 或你键入的内容，并会隐藏看起来像令牌或密码的值。
+    - title: 直接跳到报错处
+      body: 在录屏的调试标签页里，点击报错或失败请求旁边的时间，视频就会跳到那一刻。
+    - title: 搜索每一份 bug 报告
+      body: 按其中说过的话找到任意一份 bug 报告，或者让 Clips agent 在你资料库里的所有录屏中查找。
+integrations:
+  heading: 把 Clips 连接到你已经在用的工具
+  cards:
+    - title: 交给你的 AI agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: 在 Claude Code 或 Codex 中打开录屏，或把链接粘贴到 Cursor 或 ChatGPT，agent 不用再问发生了什么，直接开工。
+    - title: 放到提 bug 的地方
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: 有了 Clips Slack 应用，公开的录屏可以直接在 Slack 里播放。装上扩展后，它们的链接也能在 GitHub issue 和 Jira 工单中预览。
+    - title: 通过 MCP 连接任何工具
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: 通过 MCP 连接团队在用的工具，或通过 URL 添加任意 MCP 服务器。
+other_uses:
+  heading: 用 Agent-Native Clips 还能做的其他事
+  cards:
+    - title: 无需机器人入会，也能拿到会议笔记
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: 每场会议都有摘要、笔记和行动项，通话里没有机器人。
+    - title: 口述提示词，不用再打字
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "用说代替打字，整理好的文字会直接出现在你正在用的应用里。"
+faqs:
+  heading: 有疑问？这里有答案
+  items:
+    - q: Agent-Native Clips 免费吗？
+      a: 是的。Agent-Native Clips 免费且开源，包括 Chrome 扩展。标题、摘要和转录整理默认使用 Builder.io AI 额度运行，所以 AI 的使用并非无限，录屏也需要一个存放视频的地方。Clips 目前处于 alpha 阶段，随着它成长还会有变化。
+    - q: Clips 会从我的浏览器采集什么？
+      a: Clips Chrome 扩展会采集最多五个标签页的[控制台消息、JavaScript 报错和网络请求](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs)，并回溯到你按下录制之前最多 30 秒。每个请求都会保留其地址、状态、耗时以及是否失败。编辑者可以在录屏的调试标签页里看到全部内容，agent 则通过链接获取。
+    - q: Clips 会录下密码或私人数据吗？
+      a: Clips 从不保存请求或响应体、请求头、Cookie 或你键入的文字，并会隐藏看起来像令牌、密码或密钥的值。你可以在扩展的设置中关闭开发者日志。新的录屏默认通过链接公开，如果 bug 报告里出现内部数据，请把它设为私有或仅限你的组织。
+    - q: 怎么把 bug 录屏交给 Claude Code、Cursor 或 Codex？
+      a: 把录屏链接粘贴到 Claude Code、Cursor 或 Codex，agent 就会[读取转录、画面帧和浏览器日志](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips)，无需下载视频。对于私有录屏，请在分享菜单的智能体标签页点击“复制代理提示”，它会给 agent 一个两小时内有效的链接。这个标签页也能在 Claude Code 或 Codex 中打开该录屏。
+    - q: Clips 能采集其他浏览器或桌面应用中的日志吗？
+      a: 不能。控制台和网络日志只来自 Clips Chrome 扩展。Clips Desktop 和网页应用仍然会录下你的屏幕、摄像头和声音，并生成转录和摘要，但录屏中不会包含浏览器日志。
+    - q: Clips 是像 Jira 这样的 bug 跟踪工具吗？
+      a: "不是。Clips 做出[工程师能直接处理的 bug 报告](https://www.agent-native.com/articles/how-to-write-a-bug-report/)，由你的跟踪工具来存放它：把链接粘贴到 Jira、GitHub、Linear 或 Slack 即可。你的编码 agent 或 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) 会直接读取录屏本身和它的日志。这就是 Clips 成为[智能体应用](https://www.agent-native.com/articles/what-is-an-agent-native-app/)的原因：既有 agent 的智能，又有应用的直观易用。"

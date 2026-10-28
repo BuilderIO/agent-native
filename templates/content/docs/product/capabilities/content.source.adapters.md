@@ -147,15 +147,43 @@ conditional write.
 Existing-entry Builder writes are guarded on the Content side. Review records
 the entry's Builder `lastUpdated` from the last refresh, and a later refresh
 that moves it makes the review stale. Immediately before each existing-entry
-write, Content reads the live `lastUpdated` through the bound OAuth content API
-and blocks without writing when it differs from the reviewed value or when
-either value is missing. This narrows the overwrite window but does not close
-it: a Builder save that lands after that read and before Content's write
-reaches Builder is still overwritten. Closing that window would need a
-conditional write in Builder's API, which is out of scope. Unsaved Builder
-editor state is not visible to the check. Focused execution tests cover it; it
-has not been exercised against a live Builder space. New-entry creation keeps
-its existing intent-reconciliation path.
+write, Content reads the live entry through the bound OAuth content API and
+blocks without writing when either `lastUpdated` is missing. When the live
+`lastUpdated` differs from the reviewed value, publish and unpublish block; a
+save blocks only when a field it writes no longer holds the value it was
+reviewed against, or when the body changed. This narrows the overwrite window
+but does not close it: a Builder save that lands after that read and before
+Content's write reaches Builder is still overwritten. Closing that window would
+need a conditional write in Builder's API, which is out of scope. Unsaved
+Builder editor state is not visible to the check. Focused execution tests cover
+it; it has not been exercised against a live Builder space. New-entry creation
+keeps its existing intent-reconciliation path.
+
+A save that should not change what is live is chosen from the publication
+state that live read reports. A draft entry gets a plain save, which Builder's
+reads return. A published entry gets an autosave, which Builder keeps out of
+its reads until someone publishes it there, so Content records the live value
+each saved field replaced and keeps its saved value through refreshes while
+Builder still reports that live value. Once Builder publishes, discards, or
+changes that field, unpublishes the entry, or reports no unpublished changes,
+Builder's value wins. A draft published between the live read and the write
+takes the change live, and the execution summary says so. Unpublished changes
+someone else made in Builder are not visible to the reads, so a conflict with
+them is not detected.
+
+Each Builder row shows its Builder status in a read-only system property. When
+the source publishes updates and allows publication changes, picking Published
+or Draft there stages a publish or unpublish for that entry; nothing reaches
+Builder until the source review pushes it with that transition selected, and an
+unpublish still needs its confirmation. The staged change survives refreshes
+until Builder reports the target status, and clears when someone picks the
+entry's current status, turns publication changes off, or executes any publish
+or unpublish for the entry. A staged publish sends Content's saved but
+unpublished values with it, reviewed against Builder's live values. Published
+can't be picked while Builder reports unpublished changes Content didn't make:
+those live in Builder's editor, so only Builder can publish them. Disconnecting
+the last Builder source removes the status property and its shared view
+references; a personal view filter on it is not cleaned up.
 
 Prepared requests and receipts use identity-bound private blobs with verified
 readback; SQL stores compact opaque references. Exact replacement and deletion

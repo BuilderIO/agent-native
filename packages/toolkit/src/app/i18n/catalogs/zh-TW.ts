@@ -183,6 +183,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "返回",
   "onboarding.creditsSkipAnyway": "仍然跳過",
   "onboarding.creditsUseCustomKeys": "使用自訂金鑰",
+  "onboarding.creditsUseOwnApiKeys": "使用我自己的 API 金鑰",
   "onboarding.creditsAboutLabel": "關於免費額度",
   "onboarding.creditsActivating": "正在啟用免費額度",
   "onboarding.creditsActivatingTooltip":
@@ -523,6 +524,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" 為 {{size}} MB，超過 {{limit}} MB 的圖片無法附加。請使用較小的圖片。',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" 為 {{megapixels}} 百萬像素，超過 {{limit}} 百萬像素的圖片無法附加。請使用較小的圖片。',
   "composer.fileTooLarge": "此檔案超過 {{size}} MB 的上傳大小限制。",
   "composer.sessionExpired": "工作階段已逾期。請重新登入，然後再傳送訊息。",
   "composer.unsupportedFileType": "不支援此檔案類型。",

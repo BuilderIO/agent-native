@@ -61,7 +61,7 @@ export default {
     recordingStarted: "录制开始时间",
     appBandHeading: "{app} · {count} 个会话",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 个会话{partial}",
-    journeyTitleAppBandsSummary: "{from} 至 {to} · 各应用独立队列{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 独立群组{partial}",
     sessionCount: "{count} 个会话",
     otherPaths: "其他路径",
     otherBranchesShown: "已显示 {shown}/{total} 个分支",
@@ -302,6 +302,9 @@ export default {
       chooseFrame: "选择画框",
       inspect: "检查",
       exportSvg: "导出 SVG",
+      moreActions: "更多操作",
+      askAboutFile: "询问此文件",
+      askAboutFilePrompt: "询问有关此关联设计文件的问题。{{url}}",
       actionsPrefill: "检查后发送",
       retry: "重试",
       currentDesign: "当前 Design",
@@ -2140,6 +2143,18 @@ export default {
       viewportMobile: "移动版",
       added: "已添加屏幕",
       addFailed: "无法添加屏幕",
+    },
+    localhostConsent: {
+      approvedTitle: "已批准 — 请重新运行编辑",
+      approvedDescription:
+        "文件写入权限有效期为 8 小时。请求访问权限的那次编辑未保存。",
+      retryInChat: "在聊天中重新运行",
+      retryPrompt:
+        "已批准对 {{rootPath}} 的文件写入。请重新运行需要此权限的编辑。",
+      unavailableTitle: "此写入请求已不再待处理",
+      unavailableDescription: "重新运行编辑以请求访问权限。",
+      close: "关闭",
+      prepareSignInError: "无法在登录前保存此请求。请重试。",
     },
     nodeRewrite: {
       composerTitle: "询问或更改所选内容",

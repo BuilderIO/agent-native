@@ -187,6 +187,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "वापस जाएँ",
   "onboarding.creditsSkipAnyway": "फिर भी छोड़ें",
   "onboarding.creditsUseCustomKeys": "कस्टम कीज़ का उपयोग करें",
+  "onboarding.creditsUseOwnApiKeys": "मेरी API कुंजियों का उपयोग करें",
   "onboarding.creditsAboutLabel": "मुफ़्त क्रेडिट के बारे में",
   "onboarding.creditsActivating": "मुफ़्त क्रेडिट सक्रिय हो रहे हैं",
   "onboarding.creditsActivatingTooltip":
@@ -541,6 +542,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" {{size}} MB का है - {{limit}} MB से बड़ी छवियाँ संलग्न नहीं की जा सकतीं। कृपया छोटी छवि उपयोग करें।',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" {{megapixels}} मेगापिक्सल का है - {{limit}} मेगापिक्सल से बड़ी छवियाँ संलग्न नहीं की जा सकतीं। कृपया छोटी छवि उपयोग करें।',
   "composer.fileTooLarge": "यह फ़ाइल {{size}} MB की अपलोड सीमा से बड़ी है।",
   "composer.sessionExpired":
     "आपका सत्र समाप्त हो गया है। फिर से साइन इन करें, फिर अपना संदेश भेजें।",

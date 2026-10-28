@@ -7,15 +7,21 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bqRequest,
   appendBigQueryRows,
+  buildBigQueryQueryPayload,
   bindRadarPostgresParams,
   collectPostgresRows,
   ensurePrivateRadarCacheDirectory,
   getRadarBigQueryScanBudget,
   isReadOnlySql,
   parseBigQueryTimestamp,
+  parseActualBigQueryBytes,
   parseRadarBigQueryTableParts,
   radarCliExitCode,
+  radarDatabaseCacheNamespace,
+  radarEnvironmentFiles,
+  radarProcessEnvironment,
   radarRunCliExitCode,
+  recordRadarBigQueryJobUsage,
   radarJsonbParam,
   recordRadarBigQueryDryRunBytes,
   RadarQueryError,
@@ -23,6 +29,81 @@ import {
 } from "./query.ts";
 
 describe("radar query safety", () => {
+  it("isolates selected live settings and keeps campaign HMAC values paired", () => {
+    expect(radarEnvironmentFiles("/analytics", "/live/.env")).toEqual([
+      "/live/.env",
+    ]);
+    expect(
+      radarProcessEnvironment(
+        {
+          DATABASE_URL: "postgres://other/db",
+          BIGQUERY_PROJECT_ID: "other-project",
+          ANALYTICS_RADAR_ORG_ID: "other-org",
+          ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "fake-hmac-key",
+          ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "p.d.f",
+        },
+        true,
+      ),
+    ).toEqual({
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "fake-hmac-key",
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "p.d.f",
+    });
+    const selectedFileValues = {
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "file-hmac-key",
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "file.project.function",
+    };
+    expect({
+      ...selectedFileValues,
+      ...radarProcessEnvironment(
+        { ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "ambient-hmac-key" },
+        true,
+      ),
+    }).toEqual(selectedFileValues);
+    expect(
+      radarProcessEnvironment(
+        { ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "p.d.f" },
+        true,
+      ),
+    ).toEqual({});
+    expect(radarEnvironmentFiles("/analytics")).toEqual([
+      "/analytics/.env",
+      "/analytics/.env.local",
+    ]);
+  });
+
+  it("scopes PostgreSQL cache keys to a hashed database identity", () => {
+    const first = radarDatabaseCacheNamespace(
+      "postgres://user:fake-password@first.example.test/analytics",
+    );
+    const second = radarDatabaseCacheNamespace(
+      "postgres://user:fake-password@second.example.test/analytics",
+    );
+    expect(first).not.toBe(second);
+    expect(first).not.toContain("fake-password");
+  });
+
+  it("bypasses the BigQuery server result cache for fresh queries", () => {
+    expect(
+      buildBigQueryQueryPayload("SELECT 1", [], { fresh: true }),
+    ).toMatchObject({
+      query: "SELECT 1",
+      useQueryCache: false,
+    });
+    expect(buildBigQueryQueryPayload("SELECT 1", [])).toMatchObject({
+      useQueryCache: true,
+    });
+  });
+
+  it("accepts only non-negative safe integer execution byte counts", () => {
+    expect(parseActualBigQueryBytes("1234")).toBe(1234);
+    expect(parseActualBigQueryBytes(0)).toBe(0);
+    expect(parseActualBigQueryBytes(null)).toBeNull();
+    expect(parseActualBigQueryBytes("")).toBeNull();
+    expect(parseActualBigQueryBytes(" 1234 ")).toBeNull();
+    expect(parseActualBigQueryBytes("not-bytes")).toBeNull();
+    expect(parseActualBigQueryBytes(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+  });
+
   it("enforces the weekly cumulative BigQuery scan budget", () => {
     setRadarBigQueryScanBudget(0.00000001);
     try {
@@ -38,6 +119,22 @@ describe("radar query safety", () => {
       expect(getRadarBigQueryScanBudget()).toMatchObject({
         reservedBytes: 8,
         exceeded: true,
+      });
+    } finally {
+      setRadarBigQueryScanBudget(undefined);
+    }
+  });
+
+  it("tracks reported bytes and jobs that could not be fully accounted", () => {
+    setRadarBigQueryScanBudget(1);
+    try {
+      recordRadarBigQueryJobUsage(2_000_000, true);
+      recordRadarBigQueryJobUsage(3_000_000, false);
+      recordRadarBigQueryJobUsage(null, false);
+      expect(getRadarBigQueryScanBudget()).toMatchObject({
+        actualBytesProcessed: 5_000_000,
+        actualQueryCount: 2,
+        unaccountedQueryCount: 2,
       });
     } finally {
       setRadarBigQueryScanBudget(undefined);
@@ -322,6 +419,61 @@ describe("radar query safety", () => {
       await expect(
         bqRequest("https://example.test", "test-token"),
       ).rejects.toThrow("BigQuery query job completed with an error.");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("can return a failed job response with byte metadata for accounting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          status: { errorResult: { reason: "badQuery" } },
+          jobReference: { jobId: "job-1" },
+          totalBytesProcessed: "42",
+          jobComplete: true,
+        }),
+      ),
+    );
+    try {
+      await expect(
+        bqRequest(
+          "https://example.test",
+          "test-token",
+          undefined,
+          undefined,
+          true,
+        ),
+      ).resolves.toMatchObject({
+        status: { errorResult: { reason: "badQuery" } },
+        jobReference: { jobId: "job-1" },
+        totalBytesProcessed: "42",
+        jobComplete: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retains the HTTP status when BigQuery rejects a request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("rejected", { status: 400 })),
+    );
+    try {
+      await expect(
+        bqRequest(
+          "https://example.test",
+          "test-token",
+          undefined,
+          undefined,
+          true,
+        ),
+      ).rejects.toMatchObject({
+        message: "BigQuery request failed (HTTP 400).",
+        httpStatus: 400,
+      });
     } finally {
       vi.unstubAllGlobals();
     }

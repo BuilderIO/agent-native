@@ -32,6 +32,7 @@ import {
 
 import { isRetryableUploadInterruption } from "../../../../../shared/upload-interruption.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { withoutFinalChunkOutcome } from "../../../../lib/final-chunk-claim.js";
 import { getUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import {
   listRecordingChunkKeys,
@@ -332,7 +333,7 @@ export default defineEventHandler(async (event: H3Event) => {
       uploadGenerationId: generationId,
     };
     const claimedUploadState: Record<string, unknown> = {
-      ...uploadState,
+      ...withoutFinalChunkOutcome(uploadState),
       recordingId,
       status: "uploading",
       failureReason: null,

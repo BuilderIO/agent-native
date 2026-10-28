@@ -35,6 +35,10 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
+}));
+
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   createSsrfSafeDispatcher: (...args: unknown[]) =>
     mockCreateSsrfSafeDispatcher(...args),
@@ -77,6 +81,7 @@ vi.mock("../../../db/index.js", () => ({
       sharePasswordVersion: "recordings.sharePasswordVersion",
       storageMode: "recordings.storageMode",
       trashedAt: "recordings.trashedAt",
+      failureCode: "recordings.failureCode",
       visibility: "recordings.visibility",
     },
     recordingContextItems: {
@@ -124,12 +129,21 @@ function createDbWithRow(row: Record<string, unknown> | null) {
 function createDbWithSelectSequence(...results: Array<unknown[]>) {
   let call = 0;
   return {
-    select: vi.fn(() => {
+    select: vi.fn((columns?: Record<string, unknown>) => {
       const rows = results[call++] ?? [];
+      const selected = columns
+        ? rows.map((row) =>
+            Object.fromEntries(
+              Object.keys(columns)
+                .filter((key) => columns[key] !== undefined)
+                .map((key) => [key, (row as Record<string, unknown>)[key]]),
+            ),
+          )
+        : rows;
       const builder = {
         from: vi.fn(() => builder),
         where: vi.fn(() => builder),
-        limit: vi.fn(async () => rows),
+        limit: vi.fn(async () => selected),
       };
       return builder;
     }),
@@ -802,6 +816,53 @@ describe("/api/thumbnail/:recordingId route", () => {
         "https://cdn.example.com/footage-thumb.jpg",
         expect.objectContaining({ redirect: "manual" }),
       );
+    });
+
+    it.each(["viewer", "owner"])(
+      "refuses taken-down footage beneath a healthy Clip for a %s",
+      async (role) => {
+        mockGetDb.mockReturnValue(
+          createDbWithSelectSequence(
+            [{ recordingId: "clip-1" }],
+            [{ ...footageRow, failureCode: "taken_down" }],
+          ),
+        );
+        mockResolveAccess.mockResolvedValue({
+          role,
+          resource: makeRow({ id: "clip-1" }),
+        });
+        vi.mocked(fetch).mockResolvedValue(imageResponse());
+
+        const event = makeEvent();
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
+
+        expect(event.status).toBe(404);
+        expect(result).toEqual({ error: "Not found" });
+        expect(fetch).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+      },
+    );
+
+    it("still refuses a taken-down Clip with healthy footage", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "owner",
+        resource: makeRow({ id: "clip-1", failureCode: "taken_down" }),
+      });
+      vi.mocked(fetch).mockResolvedValue(imageResponse());
+
+      const event = makeEvent();
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({
+        error: "Not found",
+      });
+      expect(event.status).toBe(404);
+      expect(fetch).not.toHaveBeenCalled();
     });
 
     it("is refused when the footage itself is in Trash", async () => {

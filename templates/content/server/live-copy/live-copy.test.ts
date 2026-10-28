@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3259,41 +3260,144 @@ describe("a version restore on a switched page", () => {
   });
 
   it("restores a version's private callout icon in the page's canonical form", async () => {
-    const icon = serializeIconValue({
-      version: 1,
-      kind: "image",
-      authority: "private-icon",
-      assetId: "restore-icon-asset",
-    })!;
-    const saved = `Intro\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
-    await switchedPage("restore-icon", "Current");
-    await getDb().insert(schema.documentVersions).values({
-      id: "restore-icon-version",
-      documentId: "restore-icon",
-      ownerEmail: OWNER,
-      title: "restore-icon",
-      content: saved,
-    });
+    const assetId = "44444444-4444-4444-8444-444444444444";
+    const authority = await import("../lib/private-icon-authority.js");
+    const ownership = vi
+      .spyOn(authority, "ownsPrivateIcon")
+      .mockResolvedValue(true);
+    try {
+      const icon = serializeIconValue({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId,
+      });
+      if (!icon) throw new Error("Private icon fixture must serialize.");
+      const saved = `Intro\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+      await switchedPage("restore-icon", "Current");
+      await getDb().insert(schema.documentVersions).values({
+        id: "restore-icon-version",
+        documentId: "restore-icon",
+        ownerEmail: OWNER,
+        title: "restore-icon",
+        content: saved,
+      });
 
-    const restored = await restore(
-      "restore-icon",
-      "restore-icon-version",
-      (await metadata("restore-icon")).updatedAt,
-    );
-
-    expect(restored.content).not.toBe(saved);
-    expect(restored.content).toContain("Saved");
-    const references = await getDb()
-      .select({ assetId: schema.privateIconReferences.assetId })
-      .from(schema.privateIconReferences)
-      .where(
-        eq(
-          schema.privateIconReferences.elementId,
-          "restore-icon:restore-icon-asset",
-        ),
+      const before = await metadata("restore-icon");
+      assert(before);
+      const restored = await restore(
+        "restore-icon",
+        "restore-icon-version",
+        before.updatedAt,
       );
-    expect(references).toEqual([{ assetId: "restore-icon-asset" }]);
+
+      expect(restored.content).not.toBe(saved);
+      expect(restored.content).toContain("Saved");
+      const references = await getDb()
+        .select({ assetId: schema.privateIconReferences.assetId })
+        .from(schema.privateIconReferences)
+        .where(
+          eq(schema.privateIconReferences.elementId, `restore-icon:${assetId}`),
+        );
+      expect(references).toEqual([{ assetId }]);
+      expect(ownership).toHaveBeenCalledWith({
+        assetId,
+        ownerEmail: OWNER,
+        orgId: null,
+      });
+    } finally {
+      ownership.mockRestore();
+    }
   });
+
+  it.each(["recovery", "after", "malformed"] as const)(
+    "restores a %s body through the live copy without borrowing the page or checkpoint author's icon authority",
+    async (scenario) => {
+      const checkpointKind = scenario === "malformed" ? "after" : scenario;
+      const assetId =
+        scenario === "malformed"
+          ? "legacy-invalid-icon"
+          : "55555555-5555-4555-8555-555555555555";
+      const icon = serializeIconValue({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId,
+      });
+      if (!icon) throw new Error("Private icon fixture must serialize.");
+      const saved = `Intro $60\n\n<callout icon="${icon.replace(/"/g, "&quot;")}">\n\tKeep these words\n</callout>\n\n`;
+      const id = `restore-unproved-${scenario}`;
+      await switchedPage(id, "Current");
+      await getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `${id}-share`,
+          resourceId: id,
+          principalType: "user",
+          principalId: OTHER,
+          role: "editor",
+          createdBy: OWNER,
+        });
+      await getDb()
+        .insert(schema.documentVersions)
+        .values({
+          id: `${id}-version`,
+          documentId: id,
+          ownerEmail: OWNER,
+          actorEmail: OWNER,
+          title: id,
+          content: saved,
+          checkpointKind,
+        });
+      const authority = await import("../lib/private-icon-authority.js");
+      const ownership = vi
+        .spyOn(authority, "ownsPrivateIcon")
+        .mockImplementation(async ({ assetId, ownerEmail }) => {
+          authority.assertPrivateIconId(assetId);
+          return ownerEmail === OWNER;
+        });
+      try {
+        const before = await metadata(id);
+        assert(before);
+        const restored = await restore(
+          id,
+          `${id}-version`,
+          before.updatedAt,
+          OTHER,
+        );
+        expect(restored.content).toBe(nfm.canonicalizeNfm(saved));
+        expect(restored.content).not.toBe(saved);
+        const current = await page(id);
+        assert(current);
+        expect(current.content).toBe(restored.content);
+        expect(current.liveBodySwitchedAt).not.toBeNull();
+        expect(current.bodyRevision).toBe(before.bodyRevision + 1);
+        expect(current.collabBodyRevision).toBe(current.bodyRevision);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.privateIconReferences)
+            .where(eq(schema.privateIconReferences.documentId, id)),
+        ).toEqual([]);
+        if (scenario === "malformed") {
+          expect(ownership).not.toHaveBeenCalled();
+        } else {
+          expect(ownership).toHaveBeenCalledExactlyOnceWith({
+            assetId,
+            ownerEmail: OTHER,
+            orgId: null,
+          });
+        }
+        const { resolveReadablePrivateIcon } =
+          await import("../lib/private-icon-references.js");
+        expect(
+          await resolveReadablePrivateIcon(assetId, { userEmail: OTHER }),
+        ).toBeNull();
+      } finally {
+        ownership.mockRestore();
+      }
+    },
+  );
 
   it("refuses a legacy restore whose page switched to its live copy before it committed", async () => {
     await switchedPage("restore-switching", "First draft");

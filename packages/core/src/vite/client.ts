@@ -47,8 +47,9 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
-import { resolveEmbedSessionTokenForHost } from "../server/embed-session.js";
-import { getForwardedRequestHostnameFromHeaders } from "../server/request-origin.js";
+import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
+import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
+import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -2172,12 +2173,15 @@ async function hasValidEmbedRuntimeToken(
   );
   if (tokens.length === 0) return false;
 
-  const hostname = getForwardedRequestHostnameFromHeaders(
-    req.headers,
-    req.socket?.remoteAddress,
+  const origin = validateEmbedRequestOrigin(
+    getForwardedRequestOriginFromHeaders(
+      req.headers,
+      req.socket.remoteAddress,
+      "encrypted" in req.socket && req.socket.encrypted ? "https:" : "http:",
+    ),
   );
   for (const token of tokens) {
-    if (await resolveEmbedSessionTokenForHost(token, hostname)) {
+    if (await resolveEmbedSessionTokenForOrigin(token, origin)) {
       return true;
     }
   }

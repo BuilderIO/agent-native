@@ -9,7 +9,7 @@ name: Deploy paths reaper
 # by every run and never created per run, so there is nothing to sweep there.
 #
 # A failed listing or drop fails this workflow, and its last step posts that to
-# #qa-agent-native.
+# #dev-agent-native-alerts.
 
 on:
   schedule:
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SLACK_CHANNEL: C0C4U4XRT6X
+      SLACK_CHANNEL: C0C7A1Y2EF6
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

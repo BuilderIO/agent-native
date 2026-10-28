@@ -66,7 +66,7 @@ export default {
     journeyTitleSummary:
       "{app} · du {from} au {to} · {count} sessions{partial}",
     journeyTitleAppBandsSummary:
-      "{from} au {to} · cohortes distinctes par application{partial}",
+      "{from} au {to} · cohortes distinctes{partial}",
     sessionCount: "{count} sessions",
     otherPaths: "Autres parcours",
     otherBranchesShown: "Affichage de {shown} branches sur {total}",
@@ -321,6 +321,10 @@ export default {
       chooseFrame: "Choisir une frame",
       inspect: "Inspecter",
       exportSvg: "Exporter SVG",
+      moreActions: "Plus d’actions",
+      askAboutFile: "Poser une question sur ce fichier",
+      askAboutFilePrompt:
+        "Posez une question sur ce fichier de design lié. {{url}}",
       actionsPrefill: "Vérifiez puis envoyez",
       retry: "Réessayer",
       currentDesign: "le Design actuel",
@@ -2225,6 +2229,19 @@ export default {
       viewportMobile: "Mobile",
       added: "Écran ajouté",
       addFailed: "Impossible d’ajouter l’écran",
+    },
+    localhostConsent: {
+      approvedTitle: "Approuvé — relancez la modification",
+      approvedDescription:
+        "L'écriture de fichiers est autorisée pendant 8 heures. La modification qui a demandé l'accès n'a pas été enregistrée.",
+      retryInChat: "Relancer dans le chat",
+      retryPrompt:
+        "L'écriture de fichiers est approuvée pour {{rootPath}}. Relance la modification qui en avait besoin.",
+      unavailableTitle: "Cette demande d'écriture n'est plus en attente",
+      unavailableDescription: "Relancez la modification pour demander l'accès.",
+      close: "Fermer",
+      prepareSignInError:
+        "Impossible d'enregistrer cette demande avant la connexion. Réessayez.",
     },
     nodeRewrite: {
       composerTitle: "Questionner ou modifier la sélection",

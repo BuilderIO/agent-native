@@ -393,6 +393,22 @@ describe("comment review interactions", () => {
     );
     expect(onDecideSuggestionProposal.mock.calls[0]?.[2]).toHaveLength(2);
   });
+  it("keeps a proposal's Accept all off while one of its edits can't be placed", () => {
+    const failed = proposalSuggestion("one");
+    render(null, [], "inline", {
+      suggestions: [failed, proposalSuggestion("two")],
+      activeSuggestionId: "one",
+      alignToAnchors: false,
+      unplaceableSuggestionRevisions: new Map([["one", failed.revision]]),
+      onDecideSuggestionProposal: vi.fn(),
+    });
+    const decision = (value: "accepted" | "rejected") =>
+      container.querySelector<HTMLButtonElement>(
+        `[data-suggestion-proposal-decision='${value}']`,
+      );
+    expect(decision("accepted")?.disabled).toBe(true);
+    expect(decision("rejected")?.disabled).toBe(false);
+  });
   it("clamps a grouped suggestion's reason only while the group is closed", () => {
     const reason =
       "React is a UI library, so on its own it has nowhere to centralize business logic; Rails gives you models and controllers for that.";
@@ -579,14 +595,17 @@ describe("comment review interactions", () => {
       freshResolutions: new Map(),
       dismissResolution: vi.fn(),
     }) satisfies CommentAiController;
-  const clickAiSend = () =>
-    act(async () =>
-      (
-        container.querySelector(
-          '[aria-label="comments.aiSend"]',
-        ) as HTMLButtonElement
-      ).click(),
+  const clickAiSend = () => {
+    const send = container.querySelector<HTMLButtonElement>(
+      "[data-comment-ai-send-mode]",
     );
+    if (!send) throw new Error("The composer has no AI send button");
+    // Send names the response it asks for, not a bare "Send".
+    expect(send.getAttribute("data-comment-ai-send-mode")).toBe("suggest");
+    expect(send.textContent).toBe("comments.aiSendSuggest");
+    expect(send.getAttribute("aria-label")).toBe("comments.aiSendMode");
+    return act(async () => send.click());
+  };
 
   const sendAiReply = async (
     start: CommentAiController["start"],

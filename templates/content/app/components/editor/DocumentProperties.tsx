@@ -152,6 +152,7 @@ import {
   useDeleteDocumentProperty,
   useDocumentProperties,
   useDuplicateDocumentProperty,
+  useSetBuilderEntryStatus,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
@@ -1232,7 +1233,19 @@ function PropertyRow({
           )}
         </div>
       )}
-      {editable ? (
+      {canEditValues &&
+      property.builderStatusChoices &&
+      property.definition.databaseId ? (
+        <BuilderStatusPicker
+          property={property}
+          databaseId={property.definition.databaseId}
+          documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
+          container={popoverContainer}
+        >
+          {value}
+        </BuilderStatusPicker>
+      ) : editable ? (
         <PropertyValuePopover
           property={property}
           documentId={documentId}
@@ -1249,6 +1262,102 @@ function PropertyRow({
         <PropertyCommentControl property={property} />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Builder status stays a read-only system property; picking Published or
+ * Draft stages a publish or unpublish that the source review sends. Picking
+ * the entry's Builder status, Unpublished changes included, clears it.
+ */
+function BuilderStatusPicker({
+  property,
+  databaseId,
+  documentId,
+  databaseDocumentId,
+  container,
+  children,
+}: {
+  property: DocumentProperty;
+  databaseId: string;
+  documentId: string;
+  databaseDocumentId: string;
+  container?: HTMLElement | null | undefined;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const setStatus = useSetBuilderEntryStatus(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
+  const available = new Map(
+    (property.builderStatusChoices ?? []).map((choice) => [
+      choice.status,
+      choice.available,
+    ]),
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("editor.properties.editProperty", {
+            name: property.definition.name,
+          })}
+          className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {children}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56" container={container}>
+        {(property.definition.options.options ?? []).map((option) => {
+          const status =
+            option.id === "published" ||
+            option.id === "draft" ||
+            option.id === "unpublished_changes"
+              ? option.id
+              : null;
+          const item = (
+            <DropdownMenuItem
+              key={option.id}
+              disabled={!status || available.get(status) !== true}
+              onSelect={() => {
+                if (status && status !== property.value) {
+                  setStatus.mutate({ databaseId, documentId, status });
+                }
+              }}
+            >
+              <OptionPill option={option} />
+              {property.value === option.id ? (
+                <IconCheck className="ml-auto size-4 text-muted-foreground" />
+              ) : null}
+            </DropdownMenuItem>
+          );
+          const unavailableKey =
+            status && available.get(status) === false
+              ? status === "published"
+                ? "editor.properties.builderStatusPublishInBuilder"
+                : status === "unpublished_changes"
+                  ? "editor.properties.builderStatusUnpublishedChangesInBuilder"
+                  : null
+              : null;
+          return unavailableKey ? (
+            <Tooltip key={option.id}>
+              <TooltipTrigger asChild>
+                <div>{item}</div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64">
+                {t(unavailableKey)}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            item
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -2374,7 +2483,7 @@ export function PropertyValuePopover({
   databaseDocumentId?: string;
   children: React.ReactNode;
   portalled?: boolean;
-  container?: HTMLElement | null;
+  container?: HTMLElement | null | undefined;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);

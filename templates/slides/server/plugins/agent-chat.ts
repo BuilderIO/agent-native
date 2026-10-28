@@ -18,6 +18,7 @@ import {
   readGeneratedDeckSlideCount,
   trackGenerationCompletedForRun,
 } from "../lib/generation-completion.js";
+import { SLIDES_REALTIME_VOICE } from "../lib/realtime-voice.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -55,6 +56,7 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  "clone-context-slide",
   "view-screen",
   "navigate",
   "list-decks",
@@ -213,6 +215,7 @@ export default createAgentChatPlugin({
   onAgentRunComplete: reportGenerationCompletion,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  realtimeVoice: SLIDES_REALTIME_VOICE,
   mcp: {
     appApprovalPage: true,
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,

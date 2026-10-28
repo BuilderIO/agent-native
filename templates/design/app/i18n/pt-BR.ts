@@ -65,8 +65,7 @@ export default {
     recordingStarted: "Gravação iniciada",
     appBandHeading: "{app} · {count} sessões",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sessões{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} a {to} · coortes separadas por aplicativo{partial}",
+    journeyTitleAppBandsSummary: "{from} a {to} · coortes separadas{partial}",
     sessionCount: "{count} sessões",
     otherPaths: "Outros caminhos",
     otherBranchesShown: "Exibindo {shown} de {total} ramificações",
@@ -321,6 +320,10 @@ export default {
       chooseFrame: "Escolher frame",
       inspect: "Inspecionar",
       exportSvg: "Exportar SVG",
+      moreActions: "Mais ações",
+      askAboutFile: "Perguntar sobre este arquivo",
+      askAboutFilePrompt:
+        "Pergunte sobre este arquivo de design vinculado. {{url}}",
       actionsPrefill: "Revise e envie",
       retry: "Tentar novamente",
       currentDesign: "o Design atual",
@@ -2209,6 +2212,19 @@ export default {
       viewportMobile: "Celular",
       added: "Tela adicionada",
       addFailed: "Não foi possível adicionar a tela",
+    },
+    localhostConsent: {
+      approvedTitle: "Aprovado — execute a edição novamente",
+      approvedDescription:
+        "A gravação de arquivos está permitida por 8 horas. A edição que pediu acesso não foi salva.",
+      retryInChat: "Executar novamente no chat",
+      retryPrompt:
+        "A gravação de arquivos foi aprovada para {{rootPath}}. Execute novamente a edição que precisava dela.",
+      unavailableTitle: "Esta solicitação de gravação não está mais pendente",
+      unavailableDescription: "Execute a edição novamente para pedir acesso.",
+      close: "Fechar",
+      prepareSignInError:
+        "Não foi possível salvar esta solicitação antes de entrar. Tente novamente.",
     },
     nodeRewrite: {
       composerTitle: "Pergunte ou altere a seleção",

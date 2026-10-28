@@ -1213,6 +1213,19 @@
     margin-block-start: 0.25rem;
   }
 
+  /* The hover-revealed row drops by padding, not margin: a margin gap belongs
+     to no element, so crossing it ends the message's hover and the row hides
+     before the pointer reaches it. */
+  .agentkit-message-actions[data-role="user"]:not(
+      [data-latest="true"],
+      [data-has-error="true"]
+    ) {
+    box-sizing: border-box;
+    min-block-size: 1.75rem;
+    margin-block-start: 0;
+    padding-block-start: 0.25rem;
+  }
+
   /* One line under the reply: the finished work row, then the controls. The
    work row's own box dissolves so its steps open full width beneath. */
   .agentkit-message-actions[data-role="assistant"] {

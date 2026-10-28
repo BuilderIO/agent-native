@@ -13,14 +13,20 @@ export default defineAction({
   schema: z.object({
     designId: z.string(),
     requestedAt: z.string(),
+    // Two requests can share a millisecond; the ID tells them apart.
+    requestId: z.string().optional(),
   }),
   agentTool: false,
   capabilityScopes: ["visual-edit"],
-  run: async ({ designId, requestedAt }) => {
+  run: async ({ designId, requestedAt, requestId }) => {
     await assertAccess("design", designId, "editor");
     const { key, sessionId } = localhostConsentRequestStateAddress(designId);
     const current = await appStateGet(sessionId, key);
-    if (!current || current.requestedAt !== requestedAt) {
+    if (
+      !current ||
+      current.requestedAt !== requestedAt ||
+      (requestId !== undefined && current.requestId !== requestId)
+    ) {
       return { cleared: false };
     }
     return {

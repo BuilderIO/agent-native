@@ -161,6 +161,7 @@ describe("createSecurityHeadersMiddleware", () => {
       const token = signEmbedSessionToken({
         ownerEmail: "owner@example.com",
         targetPath: "/apps/design",
+        audienceHost: "http://localhost",
         ttlSeconds: 60,
       });
 

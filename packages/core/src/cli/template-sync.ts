@@ -289,12 +289,13 @@ export function mergeTemplateTrees(
 
   for (const rel of paths) {
     const oursPath = path.join(appDir, rel);
+    const base = readFileOrNull(path.join(baseDir, rel));
+    const theirs = readFileOrNull(path.join(theirsDir, rel));
+    if (equalBuffers(base, theirs)) continue;
     if (isLocalSymlink(oursPath)) {
       result.manual.push(`${rel} (local symlink)`);
       continue;
     }
-    const base = readFileOrNull(path.join(baseDir, rel));
-    const theirs = readFileOrNull(path.join(theirsDir, rel));
     const app = readAppFile(
       oursPath,
       normalized.has(rel) ? (base ?? theirs) : null,
@@ -302,8 +303,6 @@ export function mergeTemplateTrees(
     const ours = app.content;
     const writeOurs = (content: Buffer) =>
       writeFile(oursPath, app.crlf ? withCrlf(content) : content);
-
-    if (equalBuffers(base, theirs)) continue;
 
     if (theirs === null) {
       if (ours === null) continue;

@@ -111,6 +111,7 @@ export interface McpSettingsMessages {
   mcpIdentityError: string;
   mcpRetry: string;
   mcpOAuthBackToApp: string;
+  mcpOAuthConnectionDone: string;
   mcpConnect: McpConnectMessages;
 }
 
