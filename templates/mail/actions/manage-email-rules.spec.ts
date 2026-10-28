@@ -666,6 +666,14 @@ describe("manage-email-rules chat action", () => {
         }),
       ).toEqual([]);
     }
+    for (const action of ["list", "delete", "enable", "disable"]) {
+      expect(await validate({ action, id: "r1", actions: "[{bad" })).toEqual(
+        [],
+      );
+    }
+    expect(
+      await validate({ action: "update", id: "r1", actions: [] }),
+    ).toMatchObject([{ path: ["actions"] }]);
     expect(
       await validate({
         action: "create",

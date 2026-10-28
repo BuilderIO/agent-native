@@ -148,8 +148,9 @@ async function startRecentBackfill(ownerEmail: string, rule: AutomationRule) {
   };
 }
 
-// Read only when `mode` is absent: a mode call builds its own actions and
-// ignores this field, so a placeholder there must not reject the call.
+// Read only by create and update without a `mode`: a mode call builds its own
+// actions and every other operation ignores this field, so a placeholder there
+// must not reject the call.
 const actionsInput = z.preprocess(
   jsonArgument("actions"),
   z.array(automationActionSchema).min(1),
@@ -225,6 +226,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
     schema: z
       .object({ ...ruleFields, actions: z.unknown().optional() })
       .superRefine((args, ctx) => {
+        if (args.action !== "create" && args.action !== "update") return;
         if (args.mode !== undefined || args.actions === undefined) return;
         const parsed = actionsInput.safeParse(args.actions);
         if (parsed.success) return;
