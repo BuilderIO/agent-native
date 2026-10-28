@@ -427,6 +427,7 @@ describe("Page draft recovery", () => {
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: page.contentHash,
       loadedContentWasEmpty: 0,
       editorSessionId: "tab:page",
       editGeneration: 4,
