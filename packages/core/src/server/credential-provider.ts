@@ -296,9 +296,7 @@ export function canUseDeployCredentialFallbackForRequest(
   }
   if (key && isNetlifyAiGatewayInjected(key)) return false;
   if (key && BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) {
-    // Fusion mints the preview pod's pair for the project's own space, so the
-    // hosted-workspace block on deploy keys must not reach it.
-    return isTrustedSelfHostedRuntime() || isFusionPreviewRuntime();
+    return isBuilderCreditsPairAllowedInRuntime();
   }
   if (key && DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
     const hostedWorkspace = isHostedWorkspaceRuntime();
@@ -347,6 +345,23 @@ export function isTrustedSelfHostedRuntime(): boolean {
   if (!isProductionLikeRuntime()) return true;
   return isLocalDatabase();
 }
+
+// Fusion mints the preview pod's pair for the project's own space, so the
+// hosted-workspace block on deploy keys must not reach it.
+function isBuilderCreditsPairAllowedInRuntime(): boolean {
+  return isTrustedSelfHostedRuntime() || isFusionPreviewRuntime();
+}
+
+/** Deployed but refused by runtime policy, which is not the same as absent. */
+export function isBuilderCreditsPairRefusedByRuntime(): boolean {
+  return (
+    Boolean(process.env[BUILDER_GATEWAY_TOKEN_ENV_VAR]?.trim()) &&
+    Boolean(process.env[BUILDER_GATEWAY_SPACE_ID_ENV_VAR]?.trim()) &&
+    !isBuilderCreditsPairAllowedInRuntime()
+  );
+}
+
+let warnedBuilderCreditsRefused = false;
 
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
@@ -1339,7 +1354,18 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
   )
     ? readDeployCredentialEnv(BUILDER_GATEWAY_SPACE_ID_ENV_VAR)
     : undefined;
-  if (!token || !spaceId) return null;
+  if (!token || !spaceId) {
+    if (
+      !warnedBuilderCreditsRefused &&
+      isBuilderCreditsPairRefusedByRuntime()
+    ) {
+      warnedBuilderCreditsRefused = true;
+      console.warn(
+        "[agent-native] BUILDER_GATEWAY_TOKEN and BUILDER_GATEWAY_SPACE_ID are set, but this runtime does not allow Builder.io credits, so chat will ask for an AI connection.",
+      );
+    }
+    return null;
+  }
   const failure = await getProviderCredentialAuthFailure({
     key: BUILDER_GATEWAY_TOKEN_ENV_VAR,
     value: token,

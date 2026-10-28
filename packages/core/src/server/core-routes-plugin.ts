@@ -281,6 +281,7 @@ import {
   assertCredentialStoreReadable,
   CredentialStoreUnavailableError,
   getBuilderKeyConnections,
+  isBuilderCreditsPairRefusedByRuntime,
   prefetchSecrets,
   resolveSecret,
   resolveSecretDetailed,
@@ -6219,7 +6220,14 @@ export function createCoreRoutesPlugin(
                       status: engineStatus,
                       detectFromUserSecrets: deps.detectFromUserSecrets,
                     });
-                    return { ...engineStatus, chatEligible };
+                    return {
+                      ...engineStatus,
+                      chatEligible,
+                      ...(!chatEligible &&
+                      isBuilderCreditsPairRefusedByRuntime()
+                        ? { builderCreditsRefused: true as const }
+                        : {}),
+                    };
                   },
                 ),
             );
