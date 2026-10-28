@@ -1,4 +1,5 @@
 import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -220,8 +221,9 @@ export default defineAction({
       throw new Error(`Calendar event draft "${id}" not found`);
     }
     if (action === "create" && existing) {
-      throw new Error(
+      fail(
         `Calendar event draft "${id}" already exists; use action "update" to change it, or omit id to create a new draft.`,
+        { errorCode: "calendar_draft_id_taken", statusCode: 409 },
       );
     }
 
