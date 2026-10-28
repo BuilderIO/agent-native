@@ -756,6 +756,15 @@ export async function resolveOAuthCredentialAccess<
                     : {}),
                 },
               );
+              if (
+                reconnect.kind === "connected" &&
+                reconnect.revision !== latest.revision
+              ) {
+                return {
+                  state: reconnect,
+                  accessToken: reconnect.credential.tokens.access_token,
+                };
+              }
               return { state: reconnect, accessToken: null };
             }
             if (
@@ -797,6 +806,15 @@ export async function resolveOAuthCredentialAccess<
             now: dependencies.now(),
             validateCredential: options.validateCredential,
           });
+          if (
+            reconnect.kind === "connected" &&
+            reconnect.revision !== latest.revision
+          ) {
+            return {
+              state: reconnect,
+              accessToken: reconnect.credential.tokens.access_token,
+            };
+          }
           return { state: reconnect, accessToken: null };
         }
         return { state: latest, accessToken: null };
@@ -819,9 +837,10 @@ export async function resolveOAuthCredentialAccess<
       (!options.forceRefresh || state.revision !== initialRevision)
         ? state.credential.tokens.access_token
         : null,
-    ...(options.forceRefresh &&
-    state.kind === "connected" &&
-    state.revision === initialRevision
+    ...(state.kind === "expired" ||
+    (options.forceRefresh &&
+      state.kind === "connected" &&
+      state.revision === initialRevision)
       ? { refreshFailure: "transient" as const }
       : {}),
   };
