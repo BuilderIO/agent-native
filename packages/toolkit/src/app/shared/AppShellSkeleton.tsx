@@ -1528,7 +1528,9 @@ export function AppShellSkeleton({
     const loadMessages = firstPaintHome?.loadSuggestionMessages;
     if (!loadMessages) return;
     let active = true;
+    let localeRequestGeneration = 0;
     const applyLocale = () => {
+      const requestGeneration = ++localeRequestGeneration;
       const locale = document.documentElement.dataset.locale ?? "en-US";
       if (locale === "en-US") {
         setLocaleMessages(null);
@@ -1536,12 +1538,17 @@ export function AppShellSkeleton({
       }
       void loadMessages(locale)
         .then((messages) => {
-          if (active && messages && typeof messages === "object") {
+          if (
+            active &&
+            requestGeneration === localeRequestGeneration &&
+            messages &&
+            typeof messages === "object"
+          ) {
             setLocaleMessages(messages);
           }
         })
         .catch((error: unknown) => {
-          if (active) {
+          if (active && requestGeneration === localeRequestGeneration) {
             console.error(
               `[agent-native] Could not localize ${firstPaintHome.appId} home shell`,
               error,
@@ -1558,6 +1565,7 @@ export function AppShellSkeleton({
     });
     return () => {
       active = false;
+      localeRequestGeneration += 1;
       observer.disconnect();
     };
   }, [

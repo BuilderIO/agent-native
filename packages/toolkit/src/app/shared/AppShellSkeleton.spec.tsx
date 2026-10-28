@@ -290,4 +290,69 @@ describe("AppShellSkeleton home layout", () => {
       }
     }
   });
+
+  it("ignores stale locale catalog responses after a language switch", async () => {
+    const originalLocale = document.documentElement.dataset.locale;
+    document.documentElement.dataset.locale = "fr-FR";
+    const requests = new Map<string, (messages: unknown) => void>();
+    const firstPaintHome: AppShellFirstPaintHome = {
+      appId: "design",
+      appName: "Design",
+      pageTitle: "Home",
+      promptTitle: "What would you like to design?",
+      promptPlaceholder: "Describe your design",
+      suggestedPromptsLabel: "Suggested prompts",
+      sidebarItems: [{ label: "Home", to: "/home", icon: IconHome }],
+      suggestions: [],
+      loadSuggestionMessages: (locale) =>
+        new Promise((resolve) => requests.set(locale, resolve)),
+      localizeMessages: (messages) => ({
+        pageTitle: (messages as { pageTitle: string }).pageTitle,
+      }),
+      renderComposer: () => <textarea />,
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <AppShellSkeleton
+              layout="prompt-library"
+              firstPaintHome={firstPaintHome}
+            />
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(requests.has("fr-FR")).toBe(true);
+      await act(async () => {
+        document.documentElement.dataset.locale = "de-DE";
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      });
+      expect(requests.has("de-DE")).toBe(true);
+
+      await act(async () => {
+        requests.get("de-DE")?.({ pageTitle: "Startseite" });
+      });
+      expect(container.textContent).toContain("Startseite");
+
+      await act(async () => {
+        requests.get("fr-FR")?.({ pageTitle: "Accueil" });
+      });
+      expect(container.textContent).toContain("Startseite");
+      expect(container.textContent).not.toContain("Accueil");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      if (originalLocale === undefined) {
+        delete document.documentElement.dataset.locale;
+      } else {
+        document.documentElement.dataset.locale = originalLocale;
+      }
+    }
+  });
 });

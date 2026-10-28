@@ -3006,7 +3006,7 @@ export default {
         webinarRegistration: "登壇者カード、アジェンダ",
         seoBrief: "キーワード群、構成案",
         launchMetrics: "チャネルカード、コンバージョングラフ",
-        newsletterSignup: "編集プレビュー、トピック選択",
+        newsletterSignup: "ニュースレター登録",
       },
       sales: {
         leadWorkspace: "連絡先、活動履歴",

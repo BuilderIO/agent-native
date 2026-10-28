@@ -2888,7 +2888,7 @@ export default {
         webinarRegistration: "网络研讨会报名页",
         seoBrief: "SEO内容简报",
         launchMetrics: "发布指标仪表板",
-        newsletterSignup: " newsletter ",
+        newsletterSignup: "电子报订阅",
       },
       sales: {
         leadWorkspace: "销售线索工作区",

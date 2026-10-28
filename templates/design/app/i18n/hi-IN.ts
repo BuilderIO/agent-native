@@ -2956,7 +2956,7 @@ export default {
         webinarRegistration: "स्पीकर कार्ड एजेंडा",
         seoBrief: "कीवर्ड समूह कंटेंट रूपरेखा",
         launchMetrics: "चैनल कार्ड कन्वर्ज़न चार्ट",
-        newsletterSignup: "संपादकीय प्रीव्यू विषय विकल्प",
+        newsletterSignup: "न्यूज़लेटर सदस्यता",
       },
       sales: {
         leadWorkspace: "संपर्क विवरण गतिविधि समयरेखा",

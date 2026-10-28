@@ -2977,7 +2977,7 @@ export default {
         webinarRegistration: "발표자 카드 일정 가입",
         seoBrief: "키워드 그룹 개요 경쟁사",
         launchMetrics: "채널 카드 전환 차트",
-        newsletterSignup: "편집 미리보기 주제 선택",
+        newsletterSignup: "뉴스레터 가입",
       },
       sales: {
         leadWorkspace: "연락처 활동 타임라인 자격",

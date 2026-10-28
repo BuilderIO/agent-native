@@ -3002,7 +3002,7 @@ export default {
         webinarRegistration: "inscrição para webinar",
         seoBrief: "briefing de SEO",
         launchMetrics: "métricas de lançamento",
-        newsletterSignup: "página de newsletter",
+        newsletterSignup: "inscrição na newsletter",
       },
       sales: {
         leadWorkspace: "espaço de vendas",

@@ -2949,7 +2949,7 @@ export default {
         webinarRegistration: "صفحة تسجيل لندوة",
         seoBrief: "موجز SEO",
         launchMetrics: "لوحة مؤشرات إطلاق",
-        newsletterSignup: "صفحة اشتراك",
+        newsletterSignup: "اشتراك النشرة البريدية",
       },
       sales: {
         leadWorkspace: "مساحة عمل لعميل محتمل",
