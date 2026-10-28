@@ -25,9 +25,13 @@ const WORKSPACE_CONNECTION_MCP_SERVERS: ReadonlyArray<
   readonly [ProviderApiId, string]
 > = [["hubspot", "https://mcp.hubspot.com"]];
 
+// Same order as the agent-chat runtime app id, so MCP sees the grants the
+// app's own actions see.
 function currentAppId(): string | null {
   const app = getAppConfig().app;
-  const value = (app.workspaceId ?? app.id)?.trim().toLowerCase();
+  const value = (app.id ?? app.template ?? app.workspaceId ?? app.packageName)
+    ?.trim()
+    .toLowerCase();
   return value || null;
 }
 
