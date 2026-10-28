@@ -55,10 +55,10 @@ describe("recording chapter scrolling", () => {
           .getByRole("button", { name: "Last chapter" })
           .evaluate((button) => {
             const chapter = button.getBoundingClientRect();
-            const column = button
-              .closest(".clips-recording-player-column")!
-              .getBoundingClientRect();
-            return chapter.top >= column.top && chapter.bottom <= column.bottom;
+            const column = button.closest(".clips-recording-player-column");
+            if (!column) return false;
+            const bounds = column.getBoundingClientRect();
+            return chapter.top >= bounds.top && chapter.bottom <= bounds.bottom;
           });
         expect(lastVisible).toBe(true);
       } finally {
