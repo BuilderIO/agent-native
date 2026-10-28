@@ -333,6 +333,42 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     );
   });
 
+  it("keeps a use whose symbol has its own clip, mask, or filter", () => {
+    const html = screen(
+      `<svg viewBox="0 0 100 100" width="100" height="100"><defs><filter id="soft"><feGaussianBlur stdDeviation="1"/></filter><symbol id="dot" viewBox="0 0 10 10" overflow="visible" filter="url(#soft)"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot" width="40" height="40"/></svg>`,
+    );
+
+    expect(promoteAuthoredSvgArtworkInHtml(html).content).toContain(
+      `<use href="#dot" width="40" height="40"/>`,
+    );
+  });
+
+  it("keeps a use when a rule reaches shapes through the symbol's or use's ancestors", () => {
+    const art = (css: string) =>
+      `<!doctype html><html><head><style>${css}</style></head><body><svg class="kit" width="0" height="0"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs></svg><svg class="il" viewBox="0 0 100 100" width="100" height="100"><use href="#dot" width="10" height="10"/></svg></body></html>`;
+
+    for (const css of [
+      `.kit circle{fill:red}`,
+      `.il > g circle{fill:red}`,
+      `defs circle{fill:red}`,
+    ]) {
+      expect(promoteAuthoredSvgArtworkInHtml(art(css)).content).toContain(
+        `<use href="#dot" width="10" height="10"/>`,
+      );
+    }
+    expect(
+      promoteAuthoredSvgArtworkInHtml(art(`svg circle{fill:red}`)).content,
+    ).not.toMatch(/<use\b/);
+  });
+
+  it("treats an imported stylesheet like a linked one", () => {
+    const html = `<!doctype html><html><head><style>@import url("/site.css");@import "https://fonts.googleapis.com/css2?family=Inter";</style></head><body><svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot"/></svg></body></html>`;
+
+    expect(promoteAuthoredSvgArtworkInHtml(html).content).toContain(
+      `<use href="#dot"/>`,
+    );
+  });
+
   it("is stable when a promoted screen is saved again", () => {
     const once = annotateAgentScreenHtmlForPersist(
       screen(`${kit}${artwork}`),

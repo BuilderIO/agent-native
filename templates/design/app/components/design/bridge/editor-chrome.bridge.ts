@@ -24353,7 +24353,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         if (state.originalStyleAttribute === null) {
           state.el.removeAttribute("style");
         } else {
-          state.el.style.translate = state.originalTranslate;
+          state.el.setAttribute("style", state.originalStyleAttribute);
         }
       });
     }

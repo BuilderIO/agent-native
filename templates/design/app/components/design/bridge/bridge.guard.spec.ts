@@ -2989,6 +2989,76 @@ it.each([
 );
 
 it(
+  "editor chrome bridge restores an SVG shape's exact inline style when its drag is cancelled",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #art { position: absolute; left: 100px; top: 100px; }
+    </style>
+  </head>
+  <body>
+    <svg id="art" data-an-primitive="pasted-svg" data-agent-native-node-id="art" viewBox="0 0 200 100" width="400" height="200">
+      <rect id="a" data-agent-native-node-id="a" x="10" y="10" width="40" height="20" fill="#333" style="translate: 4px 0px !important; opacity: 0.9"/>
+    </svg>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#a",
+            selectorCandidates: ["#a"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      await page.mouse.move(168, 140);
+      await page.mouse.down();
+      await page.mouse.move(188, 150);
+      await page.mouse.move(208, 160);
+      const during = await page.evaluate(
+        () => document.querySelector<SVGElement>("#a")!.style.translate,
+      );
+      await page.keyboard.press("Escape");
+      await page.mouse.up();
+
+      expect(during).not.toBe("4px 0px");
+      expect(
+        await page.evaluate(() =>
+          document.querySelector("#a")!.getAttribute("style"),
+        ),
+      ).toBe("translate: 4px 0px !important; opacity: 0.9");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge omits a move position badge and locks to the dominant axis while Shift is held during a move drag",
   { timeout: 30_000 },
   async () => {

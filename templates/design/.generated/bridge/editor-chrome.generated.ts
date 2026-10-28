@@ -18887,7 +18887,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (state2.originalStyleAttribute === null) {
             state2.el.removeAttribute("style");
           } else {
-            state2.el.style.translate = state2.originalTranslate;
+            state2.el.setAttribute("style", state2.originalStyleAttribute);
           }
         });
       }

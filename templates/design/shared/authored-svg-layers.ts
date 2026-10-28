@@ -207,6 +207,18 @@ function insideResource(node: HtmlNode, root: HtmlNode): boolean {
 
 // A `<use>` never renders its children, and expanding the outer one already
 // rewrites them, so editing one inside it too would overlap.
+// Tags a copy keeps as ancestors wherever it lands.
+const PAGE_TAGS = new Set(["html", "body", "svg"]);
+
+function ancestorsOf(node: HtmlNode): HtmlNode[] {
+  const found: HtmlNode[] = [];
+  for (let parent = node.parentNode; parent && isElement(parent); ) {
+    found.push(parent);
+    parent = parent.parentNode;
+  }
+  return found;
+}
+
 function hasUseAncestor(node: HtmlNode, root: HtmlNode): boolean {
   for (let parent = node.parentNode; parent && parent !== root; ) {
     if (parent.tagName === "use") return true;
@@ -344,7 +356,11 @@ function selectsTag(selector: string, tag: string): boolean {
 // Conservative: ignores combinators, so a rule that names the node's id or
 // one of its classes anywhere counts as selecting it.
 function mayMatchNode(selector: string, node: HtmlNode): boolean {
-  if (/(^|[\s>+~,(])\*/.test(selector)) return true;
+  return /(^|[\s>+~,(])\*/.test(selector) || namesNode(selector, node);
+}
+
+// Whether the selector names the node's id or one of its classes.
+function namesNode(selector: string, node: HtmlNode): boolean {
   const id = attribute(node, "id");
   if (id && new RegExp(`#${escapeRegExp(id)}(?![\\w-])`).test(selector)) {
     return true;
@@ -527,7 +543,6 @@ class UseExpander {
     const overflow = viewportOverflow(target);
     if (overflow === null) return null;
     const clips = overflow !== "visible" && overflow !== "auto";
-    if (clips && attribute(target, "clip-path") !== null) return null;
     const transforms: string[] = [];
     if (offsetX || offsetY) {
       transforms.push(`translate(${offsetX ?? 0} ${offsetY ?? 0})`);
@@ -567,6 +582,21 @@ class UseExpander {
   private stylesheetDependsOnUse(use: HtmlNode, target: HtmlNode): boolean {
     // A linked stylesheet may select the use by tag or id; this can't read it.
     if (this.hasLinkedStylesheet) return true;
+    // A symbol's own clip, mask, or filter works outside its viewBox scale,
+    // which the copy's attribute group sits inside.
+    if (
+      (target.tagName === "symbol" || target.tagName === "svg") &&
+      ((target.attrs ?? []).some((attr) => isUseSpaceProperty(attr.name)) ||
+        inlineProperties(target).some(isUseSpaceProperty) ||
+        this.rules.some(
+          (rule) =>
+            mayMatchNode(rule.selector, target) &&
+            rule.properties.some(isUseSpaceProperty),
+        ))
+    ) {
+      return true;
+    }
+    if (this.ruleDependsOnAncestors(use, target)) return true;
     if (inlineProperties(use).some((name) => USE_LAYOUT_PROPERTIES.has(name))) {
       return true;
     }
@@ -587,6 +617,25 @@ class UseExpander {
         ((selectsTag(rule.selector, target.tagName ?? "") ||
           mayMatchNode(rule.selector, target)) &&
           rule.properties.includes("overflow")),
+    );
+  }
+
+  // The copies leave the target's ancestors and gain the use's, so a rule
+  // that reaches a shape through either would start or stop matching.
+  private ruleDependsOnAncestors(use: HtmlNode, target: HtmlNode): boolean {
+    const ancestors = [...ancestorsOf(target), ...ancestorsOf(use)];
+    return this.rules.some((rule) =>
+      rule.selector
+        .split(",")
+        .filter((part) => /\S[\s>+~]+\S/.test(part.trim()))
+        .some((part) =>
+          ancestors.some(
+            (ancestor) =>
+              namesNode(part, ancestor) ||
+              (!PAGE_TAGS.has(ancestor.tagName ?? "") &&
+                selectsTag(part, ancestor.tagName ?? "")),
+          ),
+        ),
     );
   }
 
@@ -769,12 +818,19 @@ export function promoteAuthoredSvgArtworkInHtml(
         .join(""),
     )
     .join("\n");
-  const hasLinkedStylesheet = elements.some(
-    (element) =>
-      element.tagName === "link" &&
-      /(^|\s)stylesheet(\s|$)/i.test(attribute(element, "rel") ?? "") &&
-      !FONT_STYLESHEET.test(attribute(element, "href") ?? ""),
-  );
+  const hasLinkedStylesheet =
+    elements.some(
+      (element) =>
+        element.tagName === "link" &&
+        /(^|\s)stylesheet(\s|$)/i.test(attribute(element, "rel") ?? "") &&
+        !FONT_STYLESHEET.test(attribute(element, "href") ?? ""),
+    ) ||
+    (styleText.match(/@import[^;]*/gi) ?? []).some(
+      (statement) =>
+        !FONT_STYLESHEET.test(
+          statement.replace(/^@import\s+(?:url\(\s*)?["']?/i, ""),
+        ),
+    );
   const expander = new UseExpander(byId, styleText, hasLinkedStylesheet);
   const edits: SourceEdit[] = [];
   const seenMarkup = new Map<string, number>();

@@ -2545,11 +2545,18 @@ export function collectRawFigmaSvgScene(
       const dx = resolveOffset(x, () => referenceBox(shape).width);
       const dy = resolveOffset(y, () => referenceBox(shape).height);
       if (dx === null || dy === null) return;
-      const authored = copy.getAttribute("transform");
-      copy.setAttribute(
-        "transform",
-        `translate(${dx} ${dy})${authored ? ` ${authored}` : ""}`,
-      );
+      // An inline CSS transform overrides the attribute, so it carries the
+      // offset instead.
+      const inlineTransform = copy.style.transform;
+      if (inlineTransform && inlineTransform !== "none") {
+        copy.style.transform = `translate(${dx}px, ${dy}px) ${inlineTransform}`;
+      } else {
+        const authored = copy.getAttribute("transform");
+        copy.setAttribute(
+          "transform",
+          `translate(${dx} ${dy})${authored ? ` ${authored}` : ""}`,
+        );
+      }
       copy.style.removeProperty("translate");
       if (copy.getAttribute("style") === "") copy.removeAttribute("style");
     });
