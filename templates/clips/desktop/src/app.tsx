@@ -4635,6 +4635,7 @@ export function App({
       micOn,
       micLabel: selectedMicLabel || micLabel,
       systemAudioOn,
+      nativeCapture: shouldUseNativeFullscreenRecording(source),
     };
   }
 
@@ -4814,6 +4815,7 @@ export function App({
       micOn,
       micLabel: selectedMicLabel || micLabel,
       systemAudioOn,
+      nativeCapture: shouldUseNativeFullscreenRecording(source),
     } satisfies ReadyToRecordState).catch(() => {});
   }, [
     mode,

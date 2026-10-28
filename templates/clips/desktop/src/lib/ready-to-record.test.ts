@@ -18,6 +18,7 @@ const state: ReadyToRecordState = {
   micOn: false,
   micLabel: "MacBook Pro Microphone",
   systemAudioOn: true,
+  nativeCapture: true,
 };
 
 describe("ready to record panel", () => {
@@ -51,6 +52,12 @@ describe("ready to record panel", () => {
     expect(cursorEffectsAvailability({ ...state, mode: "camera" })).toEqual({
       available: false,
       reason: "Cursor effects need a screen recording.",
+    });
+    expect(
+      cursorEffectsAvailability({ ...state, nativeCapture: false }),
+    ).toEqual({
+      available: false,
+      reason: "Cursor effects need native screen capture.",
     });
   });
 

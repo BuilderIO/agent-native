@@ -21,6 +21,8 @@ export interface ReadyToRecordState {
   micOn: boolean;
   micLabel: string;
   systemAudioOn: boolean;
+  // Cursor effects are drawn by the native macOS capture path only.
+  nativeCapture: boolean;
 }
 
 export interface CursorEffectsConfig {
@@ -48,7 +50,7 @@ export type CursorEffectsAvailability =
   | { available: false; reason: string };
 
 export function cursorEffectsAvailability(
-  state: Pick<ReadyToRecordState, "mode" | "source">,
+  state: Pick<ReadyToRecordState, "mode" | "source" | "nativeCapture">,
 ): CursorEffectsAvailability {
   if (state.mode === "camera") {
     return {
@@ -60,6 +62,12 @@ export function cursorEffectsAvailability(
     return {
       available: false,
       reason: "Cursor effects are disabled for Window captures.",
+    };
+  }
+  if (!state.nativeCapture) {
+    return {
+      available: false,
+      reason: "Cursor effects need native screen capture.",
     };
   }
   return { available: true };
