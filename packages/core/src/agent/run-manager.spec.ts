@@ -3565,8 +3565,12 @@ describe("run manager soft timeout", () => {
       const runFn = vi.fn(async () => undefined);
 
       const run = startRun(
-        `run-startup-sql-abort-${executionLease}`,
-        `thread-startup-sql-abort-${executionLease}`,
+        executionLease
+          ? "run-startup-sql-abort-with-lease"
+          : "run-startup-sql-abort-without-lease",
+        executionLease
+          ? "thread-startup-sql-abort-with-lease"
+          : "thread-startup-sql-abort-without-lease",
         runFn,
         undefined,
         { softTimeoutMs: 0, executionLease },

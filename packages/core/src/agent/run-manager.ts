@@ -1711,6 +1711,7 @@ export function startRun(
       if (now - lastAbortCheck < 3000) return Promise.resolve();
       lastAbortCheck = now;
     }
+    // raw-sql-ok: getRunAbortState binds runId through its query args.
     return getRunAbortState(runId)
       .then(async (state) => {
         if (state.aborted && !abort.signal.aborted) {
