@@ -38,6 +38,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { splitSqlStatements } from "../db/migrations.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -246,6 +247,51 @@ export const chatThreadsStore = defineStore({
       CHAT_THREAD_SCHEMA_MIGRATIONS,
       { data: [3] },
     ),
+    {
+      name: "submission-inbox-runtime-schema",
+      run: async () => {
+        const sql = (version: number) => {
+          const entry = CHAT_THREAD_SCHEMA_MIGRATIONS.find(
+            (migration) => migration.version === version,
+          );
+          if (!entry)
+            throw new Error(`Missing chat schema migration ${version}`);
+          return splitSqlStatements(entry.sql);
+        };
+        const [table, pendingIndex] = sql(5);
+        const [interruptRunId] = sql(6);
+        const [threadIndex] = sql(7);
+        const [retryCount] = sql(8);
+        if (
+          !table ||
+          !pendingIndex ||
+          !interruptRunId ||
+          !threadIndex ||
+          !retryCount
+        ) {
+          throw new Error("Incomplete chat inbox schema migrations");
+        }
+        await ensureTableExists("agent_chat_submission_inbox", table);
+        await ensureIndexExists(
+          "agent_chat_submission_inbox_pending_idx",
+          pendingIndex,
+        );
+        await ensureColumnExists(
+          "agent_chat_submission_inbox",
+          "interrupt_run_id",
+          interruptRunId,
+        );
+        await ensureIndexExists(
+          "agent_chat_submission_inbox_thread_pending_idx",
+          threadIndex,
+        );
+        await ensureColumnExists(
+          "agent_chat_submission_inbox",
+          "retry_count",
+          retryCount,
+        );
+      },
+    },
     {
       name: "viewer-state",
       sql: `CREATE TABLE IF NOT EXISTS chat_thread_viewer_state (

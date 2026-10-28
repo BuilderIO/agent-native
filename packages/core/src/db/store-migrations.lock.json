@@ -423,6 +423,10 @@
       "checksum": "b25ff25b6a61ccc9"
     },
     {
+      "name": "submission-inbox-runtime-schema",
+      "checksum": null
+    },
+    {
       "name": "viewer-state",
       "checksum": "12d60e0fc4587fc5"
     }

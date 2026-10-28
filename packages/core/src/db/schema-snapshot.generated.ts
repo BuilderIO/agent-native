@@ -1050,6 +1050,7 @@ export const SCHEMA_SNAPSHOT: SchemaSnapshot = {
       "76d071b18224f89b",
     ],
     ["chat_threads", "indexes", null],
+    ["chat_threads", "submission-inbox-runtime-schema", null],
     ["chat_threads", "viewer-state", "12d60e0fc4587fc5"],
     ["chat_threads", "widen-bigint", null],
     ["checkpoints", "baseline", null],
