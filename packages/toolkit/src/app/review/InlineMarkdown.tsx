@@ -138,7 +138,7 @@ export function InlineMarkdown({
     ),
     // Wraps rather than scrolls sideways, which a keyboard can't reach.
     pre: ({ children }) => (
-      <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 [&>code]:bg-transparent [&>code]:p-0">
+      <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 [&>code]:whitespace-pre-wrap [&>code]:bg-transparent [&>code]:p-0">
         {children}
       </pre>
     ),
