@@ -9,11 +9,12 @@
  *      to `/api/builder-identity/exchange`.
  *   2. We verify it against Google's securetoken keys (no Builder API call).
  *   3. We set a short-lived, HMAC-signed, HttpOnly cookie with the Builder
- *      uid/email/space. `getSession` (core's custom-provider hook) reads it on
- *      every later request, including SSE streams that cannot carry headers.
+ *      uid/email/space. Core's additional-session hook reads it on every
+ *      later request, including SSE streams that cannot carry headers.
  *
- * With a custom provider installed, core skips better-auth entirely: no
- * Design-side users, passwords or invites exist for Builder users.
+ * It is additive: a request without the cookie resolves through Design's own
+ * sessions and sign-in as usual. Builder users have no Design-side password or
+ * invite; they exist only through this cookie.
  *
  * Off unless `BUILDER_IDENTITY=1`, so standalone Design is unchanged.
  *
@@ -205,7 +206,8 @@ function decodeIdentityCookie(value: string): BuilderIdentity | null {
  *
  * It lives in the app secrets store (encrypted, shared by every instance),
  * because serverless requests land on instances that never saw the exchange.
- * A short per-instance cache keeps polling from reading the store each time.
+ * Each lookup reads it (the secrets layer dedupes within a request); there is
+ * no per-process copy, so sign-out is seen by every instance at once.
  */
 interface DelegatedCredential {
   token: string;
