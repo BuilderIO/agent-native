@@ -453,7 +453,8 @@ function PrivateDocumentNotice({
     ? `${basePath ?? ""}/page/${encodeURIComponent(id)}`
     : null;
   const signInHref = pageHref
-    ? (signInJourney({ at: pageHref, basePath }).signInHref ?? pageHref)
+    ? (signInJourney({ at: pageHref, ...(basePath ? { basePath } : {}) })
+        .signInHref ?? pageHref)
     : null;
   useEffect(() => {
     if (!pageHref || !signInHref || privateLinkRedirectStarted()) return;

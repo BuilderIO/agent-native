@@ -16,6 +16,7 @@ import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { RouteTransitionIndicator } from "@agent-native/toolkit/app/shared";
+import { buildContentPublicDocumentPath } from "@shared/agent-readable";
 import {
   IconDeviceDesktop,
   IconHierarchy2,
@@ -49,8 +50,6 @@ import type {
   LoaderFunctionArgs,
   ShouldRevalidateFunctionArgs,
 } from "react-router";
-
-import { buildContentPublicDocumentPath } from "@shared/agent-readable";
 
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";

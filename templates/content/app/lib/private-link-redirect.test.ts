@@ -95,7 +95,7 @@ describe("privateDocumentRedirectHref", () => {
         runScript(
           privateDocumentRedirectScript(PAGE_HREF, SIGN_IN_HREF),
           cookie,
-        ).replace.mock.calls[0][0],
+        ).replace.mock.calls[0]?.[0],
       );
     }
   });

@@ -34,7 +34,7 @@ export interface RequireSessionProps {
    * the visitor to sign-in. The public view decides what that visitor may
    * see, so it must send anyone it can't show to sign-in itself.
    */
-  signedOutHref?: () => string | null;
+  signedOutHref?: (() => string | null) | undefined;
 }
 
 export function RequireSession({
