@@ -528,7 +528,8 @@ both an empty value and `all` as every app. In BigQuery:
 In first-party SQL, which can also run on BigQuery:
 `('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
 An agent dashboard write that adds or changes a template with a `:list`
-variable or a `{{?…}}` block is refused with these patterns. The other rules
+variable is refused with these patterns, and one with a `{{?…}}` block is
+refused with the `CASE` advice above. The other rules
 above are checked only when someone clicks, and a failed click shows just
 "Couldn't load records".
 
