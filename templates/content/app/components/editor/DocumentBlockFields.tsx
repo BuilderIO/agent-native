@@ -116,6 +116,7 @@ import {
   type BlockFieldSeen,
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
+import { useBlocksFieldSuggestionEditor } from "./blocks-field-suggestion-sessions";
 import { dbText } from "./database/text";
 import {
   VisualEditor,
@@ -1799,6 +1800,11 @@ export function useBlockFieldEditor({
   onPersistenceControllerChange: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /**
+   * The tab's saved text and its revision, which a suggestion draft starts
+   * from, or null while an edit of the tab's own is unsaved or on the way.
+   */
+  suggestionBase: () => { content: string; revision: number } | null;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -2087,6 +2093,21 @@ export function useBlockFieldEditor({
     );
   }
 
+  // A new identity whenever the answer can change, so a caller's effect
+  // asks again.
+  const suggestionBase = useCallback(() => {
+    const controller = controllerRef.current;
+    if (!controller || controller.isSaving || !controller.isClean) return null;
+    const revision = blockFieldRevision(key, initialRevision);
+    if (revision.stale) return null;
+    // Newer text from the server is the saved text, since nothing here
+    // waits to be merged with it.
+    return initialRevision >= revision.base
+      ? { content: initialContent, revision: initialRevision }
+      : { content: controller.lastSaved, revision: revision.base };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialContent, initialRevision, key, mergeRequest, settledSaves]);
+
   return {
     content,
     externalContent,
@@ -2095,6 +2116,7 @@ export function useBlockFieldEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
   };
 }
 
@@ -2137,6 +2159,7 @@ function AdditionalBlockEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
   } = useBlockFieldEditor({
     documentId,
     propertyId,
@@ -2188,21 +2211,51 @@ function AdditionalBlockEditor({
   }, [content, documentId, onContentChange, propertyId]);
   const comments = useBlockFieldEditorComments(propertyId);
 
+  // While the page suggests, the tab shows its own suggestion draft, made
+  // against its saved text, in place of that text.
+  const suggestionEditor = useBlocksFieldSuggestionEditor(propertyId);
+  const session = suggestionEditor?.session ?? null;
+  const needsSession = !!suggestionEditor?.suggesting && !session;
+  const startSession = suggestionEditor?.start;
+  useEffect(() => {
+    if (!needsSession) return;
+    const base = suggestionBase();
+    if (base) startSession?.(base);
+  }, [needsSession, startSession, suggestionBase]);
+  const shownContent = session ? session.draft : content;
+  const visualsFor = suggestionEditor?.visuals;
+  const visuals = useMemo(
+    () => visualsFor?.(shownContent),
+    [shownContent, visualsFor],
+  );
+
   return (
     <VisualEditor
       documentId={documentId}
-      content={content}
-      externalContent={externalContent}
+      content={shownContent}
+      contentResetKey={session ? `suggesting:${session.key}` : null}
+      externalContent={session ? null : externalContent}
       onChange={(markdown) => {
-        if (canEdit) onChange(markdown);
+        if (session) suggestionEditor?.change(markdown);
+        else if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
-        if (isAcknowledgedContent(markdown)) return "unchanged";
+        // A suggestion draft is saved as suggestions, never as the tab's text.
+        if (session || isAcknowledgedContent(markdown)) return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
-      editable={canEdit}
+      editable={session ? true : canEdit}
+      suggesting={!!session}
+      suggestions={visuals}
+      activeSuggestionId={suggestionEditor?.activeSuggestionId}
+      onActivateSuggestion={suggestionEditor?.activate}
+      onHoverSuggestion={suggestionEditor?.hover}
+      onSuggestionReplacementIntent={
+        session ? suggestionEditor?.replacementIntent : undefined
+      }
+      onSuggestionAnchorsChange={suggestionEditor?.anchorsChange}
       onPersistenceControllerChange={onPersistenceControllerChange}
       localFileMode
       onComment={comments?.onComment}

@@ -28,13 +28,21 @@ export function parseBlocksFieldSuggestionRevision(
   return { propertyId: rest.slice(0, separator), revision };
 }
 
-/** The Blocks field a suggestion edits, or null when it edits the page body. */
+/**
+ * The Blocks field a suggestion edits, or null when it edits the page body.
+ * A draft not saved yet has no adapter; its edit names the field.
+ */
 export function suggestionBlocksFieldId(suggestion: {
-  adapterKind: string;
-  operations: ReadonlyArray<{ targetId?: string | null }>;
+  adapterKind?: string;
+  operations: ReadonlyArray<{ targetId?: unknown }>;
 }): string | null {
-  if (suggestion.adapterKind !== CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER)
+  if (
+    suggestion.adapterKind !== undefined &&
+    suggestion.adapterKind !== CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER
+  )
     return null;
   const targetId = suggestion.operations[0]?.targetId;
-  return typeof targetId === "string" && targetId ? targetId : null;
+  return typeof targetId === "string" && targetId && targetId !== "body"
+    ? targetId
+    : null;
 }

@@ -2,6 +2,7 @@
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { DocumentProperty } from "@shared/api";
+import { CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER } from "@shared/blocks-field-suggestions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -167,6 +168,26 @@ function suggestion(id: string): ResourceSuggestion {
     updatedAt: "2026-10-18T11:00:00Z",
     metadata: null,
     operations: [],
+  } as ResourceSuggestion;
+}
+
+/** A suggested edit to another Blocks field tab than the body. */
+function tabSuggestion(id: string, fieldId: string): ResourceSuggestion {
+  return {
+    ...suggestion(id),
+    adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+    baseRevision: `blocks-field:${fieldId}:1`,
+    operations: [
+      {
+        id: `${id}-op`,
+        suggestionId: id,
+        ordinal: 0,
+        kind: "replace_text",
+        targetId: fieldId,
+        before: { markdown: "Filler notes." },
+        after: { markdown: "Filler notes, edited." },
+      },
+    ],
   } as ResourceSuggestion;
 }
 
@@ -364,6 +385,29 @@ describe("comments across Blocks field tabs", () => {
 
     act(() => replies.setHistoryFilters({ tab: null }));
     expect(feed()).toHaveLength(7);
+  });
+
+  it("lists a tab's suggested edit under its tab, and filters it with that tab (CMT-2)", () => {
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions: [suggestion("edit-1"), tabSuggestion("notes-edit", "notes")],
+    });
+    expect(feed()).toEqual([
+      "# Content",
+      "body-1",
+      "edit-1",
+      "# Notes",
+      "notes-1",
+      "notes-edit",
+      "# comments.fieldRemoved:Old notes",
+      "gone-1",
+    ]);
+
+    act(() => replies.setHistoryFilters({ tab: "notes" }));
+    expect(feed()).toEqual(["# Notes", "notes-1", "notes-edit"]);
+
+    act(() => replies.setHistoryFilters({ tab: "" }));
+    expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
   });
 
   it("shows every tab again when the chosen one is gone", () => {

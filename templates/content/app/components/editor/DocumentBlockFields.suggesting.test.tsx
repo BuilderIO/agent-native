@@ -68,6 +68,7 @@ import {
   __resetBlockFieldSaveRegistry,
   flushAllBlockFieldSaveControllersForDocument,
 } from "./blockFieldSaveRegistry";
+import { BlocksFieldSuggestionsProvider } from "./blocks-field-suggestion-sessions";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 
 function field(id: string, primary: boolean) {
@@ -292,5 +293,105 @@ describe("DocumentBlockFields suggestion boundary", () => {
         "Pre-entry draft",
       ),
     ).resolves.toBe("unchanged");
+  });
+
+  it("drafts suggestions in a tab from its saved text and never saves the draft as the tab's text (CMT-2)", async () => {
+    mocks.query = {
+      data: {
+        documentId: "doc-1",
+        databaseId: "db-1",
+        canEditValues: true,
+        properties: [
+          { ...field("outline", false), blocksField: { revision: 3 } },
+        ],
+      },
+      isError: false,
+    };
+    const highlight = { id: "suggestion-1" };
+    const provider = {
+      suggesting: true,
+      sessions: new Map<string, { key: string; draft: string }>(),
+      start: vi.fn(),
+      change: vi.fn(),
+      replacementIntent: vi.fn(),
+      visuals: vi.fn(() => [highlight]),
+      activeSuggestionId: null,
+      onActivateSuggestion: vi.fn(),
+      onHoverSuggestion: vi.fn(),
+      onAnchorsChange: vi.fn(),
+    };
+    const renderWith = async (suggesting: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(
+            BlocksFieldSuggestionsProvider,
+            { value: { ...provider, suggesting } as never },
+            createElement(DocumentBlockFields, {
+              documentId: "doc-1",
+              databaseId: "db-1",
+              databaseDocumentId: "row-1",
+              canEdit: true,
+              suggesting,
+              primaryEditor: createElement("div"),
+            }),
+          ),
+        );
+      });
+    };
+
+    await renderWith(true);
+    expect(provider.start).toHaveBeenCalledWith("outline", {
+      content: "Original",
+      revision: 3,
+    });
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original",
+      editable: false,
+      suggesting: false,
+    });
+
+    provider.sessions = new Map([
+      ["outline", { key: "session-1", draft: "Original, suggested" }],
+    ]);
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original, suggested",
+      contentResetKey: "suggesting:session-1",
+      externalContent: null,
+      editable: true,
+      suggesting: true,
+      suggestions: [highlight],
+    });
+    expect(provider.visuals).toHaveBeenLastCalledWith(
+      "outline",
+      "Original, suggested",
+    );
+    await act(async () => {
+      (mocks.editorProps?.onChange as (value: string) => void)(
+        "Original, suggested again",
+      );
+    });
+    expect(provider.change).toHaveBeenCalledWith(
+      "outline",
+      "Original, suggested again",
+    );
+    await expect(
+      (mocks.editorProps?.onSaveContent as (value: string) => Promise<string>)(
+        "Original, suggested again",
+      ),
+    ).resolves.toBe("unchanged");
+    await flushAllBlockFieldSaveControllersForDocument("doc-1");
+    expect(mocks.save).not.toHaveBeenCalled();
+
+    // The session ends with Suggesting mode; the tab shows its text again.
+    provider.sessions = new Map();
+    await renderWith(false);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original",
+      contentResetKey: null,
+      editable: true,
+      suggesting: false,
+    });
+    expect(provider.start).toHaveBeenCalledTimes(1);
   });
 });
