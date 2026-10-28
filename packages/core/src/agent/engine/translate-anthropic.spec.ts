@@ -41,6 +41,26 @@ describe("engineToolsToAnthropic", () => {
     expect(result[0].input_schema.properties).toHaveProperty("msg");
   });
 
+  it("sends eager_input_streaming only for actions that opt in", () => {
+    const tools = actionsToEngineTools({
+      eager: defineAction({
+        description: "Write a large payload",
+        schema: z.object({ html: z.string() }),
+        eagerInputStreaming: true,
+        run: async () => "ok",
+      }),
+      plain: defineAction({
+        description: "Write a small payload",
+        schema: z.object({ id: z.string() }),
+        run: async () => "ok",
+      }),
+    });
+
+    const [eager, plain] = engineToolsToAnthropic(tools);
+    expect(eager).toMatchObject({ name: "eager", eager_input_streaming: true });
+    expect(plain).not.toHaveProperty("eager_input_streaming");
+  });
+
   it("removes top-level combinators Anthropic rejects from tool schemas", () => {
     const inputSchema: EngineTool["inputSchema"] = {
       type: "object",

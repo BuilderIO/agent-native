@@ -69,7 +69,6 @@ import {
   IconEdit,
   IconHelpCircle,
   IconBolt,
-  IconMessage,
   IconExternalLink,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
@@ -3271,7 +3270,6 @@ export default function RecordingPage() {
           >
             {canUseNativeEditor ? (
               <DropdownMenuItem onSelect={() => setEditing(true)}>
-                <IconEdit className="size-4" />
                 {t("recordingPage.edit")}
               </DropdownMenuItem>
             ) : null}
@@ -3300,7 +3298,6 @@ export default function RecordingPage() {
             {isImage ? null : (
               <>
                 <DropdownMenuItem onSelect={openAgentPanel}>
-                  <IconMessage className="h-4 w-4" />
                   {t("recordingPage.askAboutClip")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />

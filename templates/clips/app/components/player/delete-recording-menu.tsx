@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconDotsVertical, IconDownload, IconTrash } from "@tabler/icons-react";
+import { IconDotsVertical } from "@tabler/icons-react";
 import { useCallback, useRef, useState, type ReactNode, type Ref } from "react";
 import { toast } from "sonner";
 
@@ -131,7 +131,6 @@ export function RecordingOptionsMenu({
               onSelect={handleDownload}
               disabled={downloadPending}
             >
-              <IconDownload className="me-2 h-4 w-4" />
               {downloadPending
                 ? (downloadingLabel ?? t("sharePage.downloading"))
                 : (downloadLabel ?? t("recordRoute.downloadRecording"))}
@@ -147,7 +146,6 @@ export function RecordingOptionsMenu({
               }}
               className="text-destructive focus:text-destructive"
             >
-              <IconTrash className="me-2 h-4 w-4" />
               {t("deleteRecordingMenu.delete")}
             </DropdownMenuItem>
           ) : null}
