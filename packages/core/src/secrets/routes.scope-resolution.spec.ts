@@ -11,6 +11,9 @@ import {
 
 const fixture = vi.hoisted(() => ({
   failure: undefined as Error | undefined,
+  sessionFailure: undefined as Error | undefined,
+  federationFailure: undefined as Error | undefined,
+  reads: 0,
   personal: false,
   creating: false,
   creationAttempted: false,
@@ -20,24 +23,40 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("../server/auth.js", async (original) => ({
   ...(await original<typeof import("../server/auth.js")>()),
-  getSession: async () => ({
-    email: fixture.email,
-    ...(fixture.personal || fixture.creating
-      ? {}
-      : { orgId: "fake-org", orgRole: "owner" }),
-  }),
+  getSession: async () => {
+    if (fixture.sessionFailure) throw fixture.sessionFailure;
+    return {
+      email: fixture.email,
+      ...(fixture.personal || fixture.creating
+        ? {}
+        : { orgId: "fake-org", orgRole: "owner" }),
+    };
+  },
 }));
 vi.mock("../db/client.js", async (original) => ({
   ...(await original<typeof import("../db/client.js")>()),
   getDbExec: () => ({
     execute: async ({ sql }: { sql: string }) => {
+      fixture.reads++;
       if (sql.includes("FROM org_members")) {
         if (fixture.failure && !fixture.creating) throw fixture.failure;
         return {
           rows:
             fixture.personal || fixture.creating
               ? []
-              : [{ orgId: "fake-org", role: "owner", orgName: "Fake org" }],
+              : [
+                  {
+                    orgId: "fake-org",
+                    role: "owner",
+                    orgName: "Fake org",
+                    ...(fixture.federationFailure
+                      ? {
+                          identityAuthority: "https://identity.example.test",
+                          identityId: "fake-identity",
+                        }
+                      : {}),
+                  },
+                ],
         };
       }
       if (fixture.creating) {
@@ -50,6 +69,12 @@ vi.mock("../db/client.js", async (original) => ({
       throw new Error(`Unexpected query: ${sql}`);
     },
   }),
+}));
+vi.mock("../org/federation.js", () => ({
+  validateFederatedOrganizationMembership: async () => {
+    if (fixture.federationFailure) throw fixture.federationFailure;
+    return { active: true, role: "owner" };
+  },
 }));
 vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: async () => (fixture.personal ? { orgId: null } : null),
@@ -66,6 +91,9 @@ let sequence = 0;
 beforeEach(() => {
   fixture.email = `scope-${++sequence}@example.test`;
   fixture.failure = undefined;
+  fixture.sessionFailure = undefined;
+  fixture.federationFailure = undefined;
+  fixture.reads = 0;
   fixture.creating = false;
   fixture.creationAttempted = false;
   fixture.observed = undefined;
@@ -106,6 +134,10 @@ describe.each(["org", "workspace"] as const)(
     }
     it.each([
       { code: "57014", status: 503, retry: "5" },
+      { code: "ECONNREFUSED", status: 503, retry: "5" },
+      { code: "EAI_AGAIN", status: 503, retry: "5" },
+      { code: "CONNECT_TIMEOUT", status: 503, retry: "5" },
+      { code: "ETIMEDOUT", status: 503, retry: "5" },
       { code: "42501", status: 500, retry: null },
     ])("does not change scope after $code", async ({ code, status, retry }) => {
       fixture.failure = Object.assign(
@@ -138,6 +170,32 @@ describe.each(["org", "workspace"] as const)(
         assert.instanceOf(fixture.observed, Error);
         expect(fixture.observed.cause).toBe(fixture.failure);
         expect(fixture.write).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      { origin: "session", code: "ECONNREFUSED" },
+      { origin: "session", code: "EAI_AGAIN" },
+      { origin: "federation", code: "ECONNREFUSED" },
+      { origin: "federation", code: "EAI_AGAIN" },
+    ])(
+      "does not label $origin provider transport $code as database-origin",
+      async ({ origin, code }) => {
+        const cause = Object.assign(
+          new Error("Fake private provider diagnostics"),
+          { code },
+        );
+        if (origin === "session") fixture.sessionFailure = cause;
+        else fixture.federationFailure = cause;
+        const response = await write();
+        expect(response.status).toBe(500);
+        expect(response.headers.get("retry-after")).toBeNull();
+        expect(fixture.write).not.toHaveBeenCalled();
+        assert.instanceOf(fixture.observed, Error);
+        expect(fixture.observed.cause).toBe(cause);
+        expect(await response.text()).not.toContain(cause.message);
+        if (origin === "session") expect(fixture.reads).toBe(0);
+        else expect(fixture.reads).toBeGreaterThan(0);
       },
     );
 

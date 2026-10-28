@@ -487,7 +487,7 @@ async function storedActiveOrgId(email: string): Promise<string | undefined> {
     return normalizeOrgId(await resolveOrgIdForEmail(email));
   } catch (error) {
     if (
-      isTransientDatabaseError(error) ||
+      isTransientDatabaseError(error, { source: "database" }) ||
       !isFirstBootMissingOrgTableError(error)
     ) {
       throw error;

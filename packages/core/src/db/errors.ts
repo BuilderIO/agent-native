@@ -46,6 +46,32 @@ export function isConnectionError(value: unknown): boolean {
   );
 }
 
+const databaseErrors = new WeakSet<object>();
+
+function hasDatabaseOrigin(value: unknown): boolean {
+  return (
+    ((typeof value === "object" && value !== null) ||
+      typeof value === "function") &&
+    databaseErrors.has(value)
+  );
+}
+
+// Preserve frozen errors and their identity while carrying query origin through mixed callers.
+export async function withDatabaseErrorProvenance<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (cause) {
+    if (
+      (typeof cause === "object" && cause !== null) ||
+      typeof cause === "function"
+    )
+      databaseErrors.add(cause);
+    throw cause;
+  }
+}
+
 const DATABASE_NETWORK_ERROR_CODES = new Set([
   "ECONNREFUSED",
   "EAI_AGAIN",
@@ -108,6 +134,8 @@ export function isTransientDatabaseError(
   return (
     (isConnectionError(error) || DATABASE_NETWORK_ERROR_CODES.has(code)) &&
     (context?.source === "database" ||
+      hasDatabaseOrigin(error) ||
+      hasDatabaseOrigin(error?.cause) ||
       /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
         databaseSurface,
       ))

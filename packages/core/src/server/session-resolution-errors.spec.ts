@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { withDatabaseErrorProvenance } from "../db/errors.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import {
   SessionResolutionLookupError,
@@ -28,6 +29,35 @@ describe("session resolution failure contract", () => {
       });
       expect(error.cause).toBe(cause);
       expect(error.message).not.toContain(cause.message);
+    },
+  );
+
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "keeps known database transport %s retryable",
+    async (code) => {
+      const cause = Object.assign(
+        new Error("Fake private network diagnostics"),
+        { code },
+      );
+      await expect(
+        withDatabaseErrorProvenance(async () => {
+          throw cause;
+        }),
+      ).rejects.toBe(cause);
+      const error = sessionResolutionFailure(cause);
+      expect(error).toMatchObject({
+        statusCode: 503,
+        headers: { "Retry-After": "5" },
+      });
+      expect(error.cause).toBe(cause);
+      expect(error.message).not.toContain(cause.message);
+      const providerFailure = Object.assign(
+        new Error("Fake provider transport"),
+        { code },
+      );
+      expect(sessionResolutionFailure(providerFailure)).toMatchObject({
+        statusCode: 500,
+      });
     },
   );
 

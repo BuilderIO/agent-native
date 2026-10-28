@@ -37,3 +37,5 @@ Preserve embedded-host organization authority from the server callback that auth
 Keep deliberately untracked creator accounts distinct from failed account or membership reads when choosing automation alert recipients. Use a verified organization admin fallback only after membership lookup succeeds. Preserve original lookup causes, retry transient identity failures, and stop scheduled retries for permanent identity lookup failures through the existing configuration-error policy; unverified creators remain unable to execute organization automations.
 
 Recognize network outages at known automation database lookup boundaries without requiring driver stack frames, while leaving unrelated provider failures and permanent lookup errors nonretryable.
+
+Preserve database transport retryability through known session, organization, MCP identity and credential lookup boundaries without treating mixed host or provider callbacks as database failures.

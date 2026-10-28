@@ -57,11 +57,14 @@ function getBuilderCredentialScope(): {
     : { orgId: storageOrgId, storageOnly: true };
 }
 
-async function readCredentialStore<T>(read: () => Promise<T>): Promise<T> {
+async function readCredentialStore<T>(
+  read: () => Promise<T>,
+  context?: { source: "database" },
+): Promise<T> {
   try {
     return await read();
   } catch (err) {
-    if (isTransientDatabaseError(err)) {
+    if (isTransientDatabaseError(err, context)) {
       throw new CredentialStoreUnavailableError(err);
     }
     throw err;
@@ -73,10 +76,12 @@ async function readOAuthCustody(
   orgId?: string | null,
   orgOnly = false,
 ): Promise<boolean> {
-  return readCredentialStore(() =>
-    orgOnly
-      ? hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
-      : hasBuilderOAuthSession(ownerEmail, orgId),
+  return readCredentialStore(
+    () =>
+      orgOnly
+        ? hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
+        : hasBuilderOAuthSession(ownerEmail, orgId),
+    { source: "database" },
   );
 }
 

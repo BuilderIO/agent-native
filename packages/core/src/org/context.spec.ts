@@ -1576,6 +1576,20 @@ describe("resolveOrgIdForEmail", () => {
     });
   });
 
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "propagates raw membership transport %s without unknown scope",
+    async (code) => {
+      const cause = Object.assign(
+        new Error("Fake private network diagnostics"),
+        { code },
+      );
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(resolveOrgScopeForEmail("member@example.test")).rejects.toBe(
+        cause,
+      );
+    },
+  );
+
   it("throws when org_members is unreadable, so callers cannot mistake it for 'no org'", async () => {
     mockExecute.mockRejectedValueOnce(
       Object.assign(new Error("db query timed out"), { code: "57014" }),

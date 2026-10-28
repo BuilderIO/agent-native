@@ -177,7 +177,7 @@ export function assertCredentialStoreReadable(result: {
     ) {
       throw result.cause;
     }
-    throw isTransientDatabaseError(result.cause)
+    throw isTransientDatabaseError(result.cause, { source: "database" })
       ? new CredentialStoreUnavailableError(result.cause)
       : new CredentialStoreLookupError(result.cause);
   }

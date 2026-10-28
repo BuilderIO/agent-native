@@ -9918,7 +9918,17 @@ describe("server/auth", () => {
       expect(sessionLookups).toHaveBeenCalledTimes(2);
     });
 
-    it.each(["42501", "42P01", "unexpected", "08006", "forbidden"])(
+    it.each([
+      "42501",
+      "42P01",
+      "unexpected",
+      "08006",
+      "ECONNREFUSED",
+      "EAI_AGAIN",
+      "CONNECT_TIMEOUT",
+      "ETIMEDOUT",
+      "forbidden",
+    ])(
       "preserves an org backfill failure instead of returning an org-less session (%s)",
       async (code) => {
         vi.stubEnv("NODE_ENV", "production");
@@ -9964,10 +9974,26 @@ describe("server/auth", () => {
           await expect(session).rejects.toBe(cause);
         } else {
           await expect(session).rejects.toMatchObject({
-            statusCode: code === "08006" ? 503 : 500,
+            statusCode: [
+              "08006",
+              "ECONNREFUSED",
+              "EAI_AGAIN",
+              "CONNECT_TIMEOUT",
+              "ETIMEDOUT",
+            ].includes(code)
+              ? 503
+              : 500,
             cause,
           });
-          if (code === "08006")
+          if (
+            [
+              "08006",
+              "ECONNREFUSED",
+              "EAI_AGAIN",
+              "CONNECT_TIMEOUT",
+              "ETIMEDOUT",
+            ].includes(code)
+          )
             await expect(session).rejects.toBeInstanceOf(
               SessionResolutionUnavailableError,
             );

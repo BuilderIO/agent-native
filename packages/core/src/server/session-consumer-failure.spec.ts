@@ -143,7 +143,15 @@ describe.each(["createServer", "core plugin"] as const)(
       );
     }
 
-    it.each(["57014", "42501", "42P01"])(
+    it.each([
+      "57014",
+      "ECONNREFUSED",
+      "EAI_AGAIN",
+      "CONNECT_TIMEOUT",
+      "ETIMEDOUT",
+      "42501",
+      "42P01",
+    ])(
       "classifies membership failure %s without losing scope",
       async (code) => {
         fixture.membershipFailure = Object.assign(
@@ -151,9 +159,11 @@ describe.each(["createServer", "core plugin"] as const)(
           { code },
         );
         const response = await request();
-        expect(response.status).toBe(code === "57014" ? 503 : 500);
+        expect(response.status).toBe(
+          code === "42501" || code === "42P01" ? 500 : 503,
+        );
         expect(response.headers.get("Retry-After")).toBe(
-          code === "57014" ? "5" : null,
+          code === "42501" || code === "42P01" ? null : "5",
         );
         expect(fixture.writeSecret).not.toHaveBeenCalled();
       },
@@ -238,21 +248,27 @@ describe.each([
     return app.fetch(new Request("https://app.example.test/"));
   }
 
-  it.each(["57014", "42501"])(
-    "preserves membership failure classification %s",
-    async (code) => {
-      fixture.membershipFailure = Object.assign(
-        new Error("private membership failure"),
-        { code },
-      );
-      const response = await request();
-      expect(response.status).toBe(code === "57014" ? 503 : 500);
-      expect(response.headers.get("Retry-After")).toBe(
-        code === "57014" ? "5" : null,
-      );
-      expect(read).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    "57014",
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "CONNECT_TIMEOUT",
+    "ETIMEDOUT",
+    "42501",
+  ])("preserves membership failure classification %s", async (code) => {
+    fixture.membershipFailure = Object.assign(
+      new Error("private membership failure"),
+      { code },
+    );
+    const response = await request();
+    expect(response.status).toBe(
+      code === "42501" || code === "42P01" ? 500 : 503,
+    );
+    expect(response.headers.get("Retry-After")).toBe(
+      code === "42501" || code === "42P01" ? null : "5",
+    );
+    expect(read).not.toHaveBeenCalled();
+  });
 
   it("keeps a denied delegated identity a definitive 403", async () => {
     const response = await request("delegated");

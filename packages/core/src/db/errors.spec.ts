@@ -90,6 +90,37 @@ describe("isTransientDatabaseError", () => {
     },
   );
 
+  it.each([
+    { code: "ECONNREFUSED", retryable: true },
+    { code: "EAI_AGAIN", retryable: true },
+    { code: "42501", retryable: false },
+    { code: "42P01", retryable: false },
+  ])(
+    "preserves frozen query errors and provenance for $code",
+    async ({ code, retryable }) => {
+      const { isTransientDatabaseError, withDatabaseErrorProvenance } =
+        await import("./errors.js");
+      const cause = Object.freeze(
+        Object.assign(new Error("Fake query diagnostics"), { code }),
+      );
+      expect(isTransientDatabaseError(cause)).toBe(false);
+      await expect(
+        withDatabaseErrorProvenance(async () => {
+          throw cause;
+        }),
+      ).rejects.toBe(cause);
+      expect(isTransientDatabaseError(cause)).toBe(retryable);
+      expect(
+        isTransientDatabaseError(new Error("Fake wrapper", { cause })),
+      ).toBe(retryable);
+      expect(
+        isTransientDatabaseError(
+          Object.assign(new Error("Fake provider transport"), { code }),
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("does not classify ordinary database errors as transient", async () => {
     const { isTransientDatabaseError } = await import("./errors.js");
 

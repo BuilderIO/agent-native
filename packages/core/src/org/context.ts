@@ -10,6 +10,7 @@ import {
   isTransientDatabaseError,
   isUniqueViolation,
 } from "../db/client.js";
+import { withDatabaseErrorProvenance } from "../db/errors.js";
 import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js";
 import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { getEmbeddedHostOrgScope } from "../server/embedded-org-scope.js";
@@ -90,7 +91,9 @@ export async function queryOrgMembers(query: {
   sql: string;
   args: unknown[];
 }): Promise<Record<string, unknown>[]> {
-  const { rows } = await getDbExec().execute(query);
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    getDbExec().execute(query),
+  );
   return rows as Record<string, unknown>[];
 }
 
@@ -136,11 +139,13 @@ async function isSoloOwnedWorkspace(
   const membership = memberships.find((m) => m.orgId === orgId);
   if (!membership || membership.role !== "owner") return false;
   try {
-    const { rows } = await exec.execute({
-      sql: `SELECT COUNT(*) AS "memberCount" FROM org_members
+    const { rows } = await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `SELECT COUNT(*) AS "memberCount" FROM org_members
             WHERE org_id = ? AND federation_removal_pending_at IS NULL`,
-      args: [orgId],
-    });
+        args: [orgId],
+      }),
+    );
     const row = rows[0] as any;
     return Number(row?.memberCount ?? row?.membercount ?? 0) <= 1;
   } catch {
@@ -272,7 +277,9 @@ function loadActiveOrgSettingForEvent(
       orgSelectionFromCookieHeader(event.req?.headers?.get("cookie")),
       async () =>
         parseActiveOrgSetting(
-          await getUserSetting(email, ACTIVE_ORG_SETTING_KEY),
+          await withDatabaseErrorProvenance(async () =>
+            getUserSetting(email, ACTIVE_ORG_SETTING_KEY),
+          ),
         ),
     );
     cache.set(normalizedEmail, promise);
@@ -373,11 +380,13 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
       email.trim().toLowerCase() &&
     verifiedServiceIdentity.orgId === sessionOrgId
   ) {
-    const organization = await getDbExec().execute({
-      sql: `SELECT identity_authority, identity_id
+    const organization = await withDatabaseErrorProvenance(async () =>
+      getDbExec().execute({
+        sql: `SELECT identity_authority, identity_id
             FROM organizations WHERE id = ? LIMIT 1`,
-      args: [sessionOrgId],
-    });
+        args: [sessionOrgId],
+      }),
+    );
     const metadata = organization.rows[0] as
       | { identity_authority?: unknown; identity_id?: unknown }
       | undefined;
@@ -560,13 +569,15 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
         role: active.role,
       };
     }
-    const pending = await exec.execute({
-      sql: `SELECT 1 FROM org_members
+    const pending = await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `SELECT 1 FROM org_members
             WHERE org_id = ? AND LOWER(email) = ?
               AND federation_removal_pending_at IS NOT NULL
             LIMIT 1`,
-      args: [sessionOrgId, email.toLowerCase()],
-    });
+        args: [sessionOrgId, email.toLowerCase()],
+      }),
+    );
     if (pending.rows.length > 0) {
       return { email, orgId: null, orgName: null, role: null };
     }
@@ -685,17 +696,19 @@ export async function resolveOrgScopeForEmail(
   let ids: string[];
   try {
     ids = await requestMemberOrgIds(email, async () => {
-      const { rows } = await getDbExec().execute({
-        sql: `SELECT org_id FROM org_members
+      const { rows } = await withDatabaseErrorProvenance(async () =>
+        getDbExec().execute({
+          sql: `SELECT org_id FROM org_members
             WHERE LOWER(email) = ?
               AND federation_removal_pending_at IS NULL
             ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
-        args: [email.toLowerCase()],
-      });
+          args: [email.toLowerCase()],
+        }),
+      );
       return rows.map((r: Record<string, unknown>) => String(r.org_id));
     });
   } catch (cause) {
-    if (isTransientDatabaseError(cause)) throw cause;
+    if (isTransientDatabaseError(cause, { source: "database" })) throw cause;
     return { status: "unknown", cause };
   }
   if (ids.length === 0) return { status: "personal" };
@@ -737,14 +750,16 @@ export async function resolveActiveOrgIdForStorageCredential(
     return delegatedOrgId;
   }
 
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT m.org_id AS "orgId"
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    getDbExec().execute({
+      sql: `SELECT m.org_id AS "orgId"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
           WHERE LOWER(m.email) = ?
             AND m.federation_removal_pending_at IS NULL`,
-    args: [normalizedEmail],
-  });
+      args: [normalizedEmail],
+    }),
+  );
   if (rows.length === 0) return null;
 
   const activeOrgSetting = (await getUserSetting(
@@ -838,15 +853,19 @@ export async function createOrganization(
     ? [options.identityAuthority, options.identityId]
     : [];
 
-  await exec.execute({
-    sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret${identityColumns}) VALUES (?, ?, ?, ?, ?${identityPlaceholders})`,
-    args: [id, trimmedName, email, createdAt, a2aSecret, ...identityArgs],
-  });
+  await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret${identityColumns}) VALUES (?, ?, ?, ?, ?${identityPlaceholders})`,
+      args: [id, trimmedName, email, createdAt, a2aSecret, ...identityArgs],
+    }),
+  );
 
-  await exec.execute({
-    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
-    args: [nanoid(), id, email, role, createdAt],
-  });
+  await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [nanoid(), id, email, role, createdAt],
+    }),
+  );
   invalidateMemberOrgCaches();
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
@@ -869,12 +888,14 @@ export async function bootstrapAdminOrganization(
   if (!email || !isBootstrapAdmin(email)) return false;
 
   const exec = getDbExec();
-  const orgs = await exec.execute({
-    sql: `SELECT id FROM organizations
+  const orgs = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT id FROM organizations
           ORDER BY created_at ASC, id ASC
           LIMIT 2`,
-    args: [],
-  });
+      args: [],
+    }),
+  );
   if (orgs.rows.length > 1) {
     console.warn(
       "[org] bootstrap admin could not choose among multiple organizations",
@@ -891,10 +912,12 @@ export async function bootstrapAdminOrganization(
       await createOrganization(name, email, "owner", { id, event });
       return true;
     } catch (error) {
-      const existing = await exec.execute({
-        sql: `SELECT id FROM organizations WHERE id = ? LIMIT 1`,
-        args: [id],
-      });
+      const existing = await withDatabaseErrorProvenance(async () =>
+        exec.execute({
+          sql: `SELECT id FROM organizations WHERE id = ? LIMIT 1`,
+          args: [id],
+        }),
+      );
       if (existing.rows.length === 0) throw error;
       orgs.rows.push(existing.rows[0]);
     }
@@ -902,12 +925,14 @@ export async function bootstrapAdminOrganization(
 
   const orgId = String((orgs.rows[0] as any).id);
   const now = Date.now();
-  await exec.execute({
-    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
+  await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
           VALUES (?, ?, ?, 'owner', ?)
           ON CONFLICT (org_id, LOWER(email)) DO UPDATE SET role = 'owner'`,
-    args: [nanoid(), orgId, email, now],
-  });
+      args: [nanoid(), orgId, email, now],
+    }),
+  );
   invalidateMemberOrgCaches();
   await setActiveOrgId(
     email,
@@ -925,13 +950,15 @@ async function warnOnAdditionalOrganization(
   newOrgName: string,
 ): Promise<void> {
   try {
-    const { rows } = await exec.execute({
-      sql: `SELECT 1 FROM org_members
+    const { rows } = await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `SELECT 1 FROM org_members
             WHERE LOWER(email) = ? AND org_id <> ?
               AND federation_removal_pending_at IS NULL
             LIMIT 1`,
-      args: [email.toLowerCase(), newOrgId],
-    });
+        args: [email.toLowerCase(), newOrgId],
+      }),
+    );
     if (rows.length === 0) return;
   } catch {
     warnAgent({
@@ -983,10 +1010,12 @@ async function hasPendingInvitation(
   exec: ReturnType<typeof getDbExec>,
   email: string,
 ): Promise<boolean> {
-  const { rows } = await exec.execute({
-    sql: `SELECT 1 FROM org_invitations WHERE LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-    args: [email.toLowerCase()],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT 1 FROM org_invitations WHERE LOWER(email) = ? AND status = 'pending' LIMIT 1`,
+      args: [email.toLowerCase()],
+    }),
+  );
   return rows.length > 0;
 }
 
@@ -996,10 +1025,12 @@ async function hasDomainMatch(
 ): Promise<boolean> {
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return false;
-  const { rows } = await exec.execute({
-    sql: `SELECT 1 FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
-    args: [domain],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT 1 FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+      args: [domain],
+    }),
+  );
   return rows.length > 0;
 }
 
@@ -1038,14 +1069,18 @@ async function tryCreateDefaultOrg(
     const orgName = defaultOrgName(email, session);
     const now = Date.now();
 
-    await exec.execute({
-      sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
-      args: [orgId, orgName, email, now],
-    });
-    await exec.execute({
-      sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
-      args: [nanoid(), orgId, email, "owner", now],
-    });
+    await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
+        args: [orgId, orgName, email, now],
+      }),
+    );
+    await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+        args: [nanoid(), orgId, email, "owner", now],
+      }),
+    );
     invalidateMemberOrgCaches();
     updateMembershipsForEvent(event, email, [
       {
@@ -1097,18 +1132,22 @@ async function acquireClaim(
 ): Promise<boolean> {
   const now = Date.now();
   try {
-    await exec.execute({
-      sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
-      args: [claimKey, JSON.stringify({ at: now }), now],
-    });
+    await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`,
+        args: [claimKey, JSON.stringify({ at: now }), now],
+      }),
+    );
     return true;
   } catch (cause) {
     if (!isUniqueViolation(cause)) throw cause;
     const staleThreshold = now - CLAIM_TTL_MS;
-    const result = (await exec.execute({
-      sql: `UPDATE settings SET value = ?, updated_at = ? WHERE key = ? AND updated_at <= ?`,
-      args: [JSON.stringify({ at: now }), now, claimKey, staleThreshold],
-    })) as { rowsAffected?: number };
+    const result = (await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `UPDATE settings SET value = ?, updated_at = ? WHERE key = ? AND updated_at <= ?`,
+        args: [JSON.stringify({ at: now }), now, claimKey, staleThreshold],
+      }),
+    )) as { rowsAffected?: number };
     return (result.rowsAffected ?? 0) > 0;
   }
 }
@@ -1117,17 +1156,22 @@ async function releaseClaim(
   exec: ReturnType<typeof getDbExec>,
   claimKey: string,
 ): Promise<void> {
-  await exec
-    .execute({ sql: `DELETE FROM settings WHERE key = ?`, args: [claimKey] })
-    .catch(() => {});
+  await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `DELETE FROM settings WHERE key = ?`,
+      args: [claimKey],
+    }),
+  ).catch(() => {});
 }
 
 export async function getOrgDomain(orgId: string): Promise<string | null> {
   const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
-    args: [orgId],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    }),
+  );
   if (!rows[0]) return null;
   const domain = String((rows[0] as any).allowed_domain || "");
   return domain || null;
@@ -1137,10 +1181,12 @@ export async function getOrgWorkspaceUrl(
   orgId: string,
 ): Promise<string | null> {
   const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT workspace_url FROM organizations WHERE id = ? LIMIT 1`,
-    args: [orgId],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT workspace_url FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    }),
+  );
   if (!rows[0]) return null;
   const workspaceUrl = String((rows[0] as any).workspace_url ?? "").trim();
   return workspaceUrl || null;
@@ -1148,10 +1194,12 @@ export async function getOrgWorkspaceUrl(
 
 export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
   const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
-    args: [orgId],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [orgId],
+    }),
+  );
   if (!rows[0]) return null;
   const secret = String((rows[0] as any).a2a_secret || "");
   return secret || null;
@@ -1161,10 +1209,12 @@ export async function getA2ASecretByDomain(
   domain: string,
 ): Promise<string | null> {
   const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
-    args: [domain.toLowerCase()],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
+      args: [domain.toLowerCase()],
+    }),
+  );
   if (rows.length !== 1) return null;
   const secret = String((rows[0] as any).a2a_secret || "");
   return secret || null;
@@ -1179,10 +1229,12 @@ export async function lookupOrgByDomain(
   domain: string,
 ): Promise<OrgDomainLookup> {
   const exec = getDbExec();
-  const { rows } = await exec.execute({
-    sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
-    args: [domain.toLowerCase()],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `SELECT id, name FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
+      args: [domain.toLowerCase()],
+    }),
+  );
   if (rows.length === 0) return { status: "not-found" };
   if (rows.length > 1) return { status: "ambiguous" };
   return {
@@ -1206,11 +1258,13 @@ export async function resolveA2AOrganizationMetadataByDomain(
 ): Promise<{ orgId: string; orgDomain: string | null } | null> {
   const normalizedDomain = domain.trim().toLowerCase();
   if (!normalizedDomain) return null;
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT id, allowed_domain
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    getDbExec().execute({
+      sql: `SELECT id, allowed_domain
           FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
-    args: [normalizedDomain],
-  });
+      args: [normalizedDomain],
+    }),
+  );
   if (rows.length !== 1) return null;
   const row = rows[0] as any;
   if (!row) return null;
@@ -1227,10 +1281,12 @@ export async function resolveA2AOrganizationMetadataById(
 ): Promise<{ orgId: string; orgDomain: string | null } | null> {
   const normalizedOrgId = orgId.trim();
   if (!normalizedOrgId) return null;
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT id, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
-    args: [normalizedOrgId],
-  });
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    getDbExec().execute({
+      sql: `SELECT id, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+      args: [normalizedOrgId],
+    }),
+  );
   const row = rows[0] as any;
   if (!row) return null;
   const resolvedOrgId = String(row.id ?? "").trim();
@@ -1251,12 +1307,14 @@ export async function resolveA2AOrganizationCredentialsByDomain(
 } | null> {
   const normalizedDomain = domain.trim().toLowerCase();
   if (!normalizedDomain) return null;
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT id, allowed_domain, a2a_secret,
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    getDbExec().execute({
+      sql: `SELECT id, allowed_domain, a2a_secret,
                  a2a_member_delegation_enabled
           FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
-    args: [normalizedDomain],
-  });
+      args: [normalizedDomain],
+    }),
+  );
   if (rows.length !== 1) return null;
   const row = rows[0] as any;
   if (!row) return null;
@@ -1277,10 +1335,12 @@ export async function resolveA2AOrganizationCredentialsByDomain(
 export async function isSoleOrgDomain(domain: string): Promise<boolean> {
   try {
     const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT allowed_domain FROM organizations LIMIT 2`,
-      args: [],
-    });
+    const { rows } = await withDatabaseErrorProvenance(async () =>
+      exec.execute({
+        sql: `SELECT allowed_domain FROM organizations LIMIT 2`,
+        args: [],
+      }),
+    );
     if (rows.length !== 1) return false;
     return (
       String((rows[0] as any).allowed_domain || "").toLowerCase() ===

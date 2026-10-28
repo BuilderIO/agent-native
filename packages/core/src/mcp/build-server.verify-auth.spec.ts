@@ -360,7 +360,14 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it.each(["57014", "42501"])(
+  it.each([
+    "57014",
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "CONNECT_TIMEOUT",
+    "ETIMEDOUT",
+    "42501",
+  ])(
     "preserves unavailable organization credential lookup instead of returning invalid auth: %s",
     async (code) => {
       process.env.A2A_SECRET = "different-global-secret";
@@ -373,7 +380,7 @@ describe("verifyAuth — connect-token revoke check", () => {
       );
 
       const result = verifyAuth(`Bearer ${token}`, "alice@acme");
-      if (code === "57014")
+      if (code !== "42501")
         await expect(result).resolves.toEqual({
           authed: false,
           unavailable: true,
@@ -1455,7 +1462,14 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it.each(["57014", "42501"])(
+  it.each([
+    "57014",
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "CONNECT_TIMEOUT",
+    "ETIMEDOUT",
+    "42501",
+  ])(
     "keeps global org identity unavailable when local metadata cannot be read: %s",
     async (code) => {
       resolveA2AOrganizationMetadataByDomainMock.mockRejectedValueOnce(
@@ -1468,7 +1482,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
       });
 
       const result = verifyAuth(`Bearer ${token}`);
-      if (code === "57014")
+      if (code !== "42501")
         await expect(result).resolves.toEqual({
           authed: false,
           unavailable: true,
@@ -1992,22 +2006,45 @@ describe("resolveMcpIdentityOrgId", () => {
     },
   );
 
-  it("keeps domain lookup failures on the retryable identity path", async () => {
-    const databaseError = Object.assign(
-      new Error("database connection failed"),
-      { code: "57014" },
-    );
-    lookupOrgByDomainMock.mockRejectedValue(databaseError);
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "keeps domain transport %s retryable",
+    async (code) => {
+      const databaseError = Object.assign(
+        new Error("database connection failed"),
+        { code },
+      );
+      lookupOrgByDomainMock.mockRejectedValue(databaseError);
 
-    const error = await resolveMcpIdentityOrgId({
-      userEmail: "alice@example.com",
-      orgDomain: "example.com",
-    }).catch((cause: unknown) => cause);
+      const error = await resolveMcpIdentityOrgId({
+        userEmail: "alice@example.com",
+        orgDomain: "example.com",
+      }).catch((cause: unknown) => cause);
 
-    expect(error).toBeInstanceOf(McpIdentityVerificationUnavailableError);
-    expect(error).toMatchObject({ cause: databaseError });
-    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
-  });
+      expect(error).toBeInstanceOf(McpIdentityVerificationUnavailableError);
+      expect(error).toMatchObject({
+        cause: databaseError,
+        statusCode: 503,
+        retryable: true,
+      });
+      expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "keeps email membership transport %s retryable",
+    async (code) => {
+      const cause = Object.assign(
+        new Error("Fake private network diagnostics"),
+        { code },
+      );
+      resolveOrgIdForEmailMock.mockRejectedValue(cause);
+      const error = await resolveMcpIdentityOrgId({
+        userEmail: "member@example.test",
+      }).catch((error: unknown) => error);
+      expect(error).toMatchObject({ statusCode: 503, retryable: true, cause });
+      expect(lookupOrgByDomainMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("falls back to the verified user email when a token has no org claim", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-email");

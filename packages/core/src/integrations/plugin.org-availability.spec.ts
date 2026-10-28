@@ -68,6 +68,8 @@ describe("integration membership HTTP boundary", () => {
     "delegated-transient",
     "ordinary-owner-transient",
     "ordinary-admin-transient",
+    "ordinary-owner-refused",
+    "ordinary-admin-dns",
     "delegated-revoked",
     "personal",
     "owner",
@@ -81,26 +83,34 @@ describe("integration membership HTTP boundary", () => {
       ...(scenario === "personal" || scenario === "permanent-creation"
         ? {}
         : { orgId: "fake-org" }),
-      ...(scenario === "ordinary-owner-transient"
+      ...(scenario.startsWith("ordinary-owner-")
         ? { orgRole: "owner" }
-        : scenario === "ordinary-admin-transient"
+        : scenario.startsWith("ordinary-admin-")
           ? { orgRole: "admin" }
           : {}),
     };
     fixture.role = scenario;
-    fixture.failure = scenario.endsWith("-transient")
-      ? Object.assign(new Error("db query timed out"), { code: "57014" })
-      : scenario === "denied-read" || scenario === "permanent-creation"
-        ? Object.assign(new Error("permission denied for table org_members"), {
-            code: "42501",
+    fixture.failure =
+      scenario.endsWith("-refused") || scenario.endsWith("-dns")
+        ? Object.assign(new Error("Fake private network diagnostics"), {
+            code: scenario.endsWith("-refused") ? "ECONNREFUSED" : "EAI_AGAIN",
           })
-        : scenario === "schema-read"
-          ? Object.assign(new Error("private schema failure"), {
-              code: "42P01",
-            })
-          : scenario === "unexpected-read"
-            ? new TypeError("private unexpected failure")
-            : undefined;
+        : scenario.endsWith("-transient")
+          ? Object.assign(new Error("db query timed out"), { code: "57014" })
+          : scenario === "denied-read" || scenario === "permanent-creation"
+            ? Object.assign(
+                new Error("permission denied for table org_members"),
+                {
+                  code: "42501",
+                },
+              )
+            : scenario === "schema-read"
+              ? Object.assign(new Error("private schema failure"), {
+                  code: "42P01",
+                })
+              : scenario === "unexpected-read"
+                ? new TypeError("private unexpected failure")
+                : undefined;
     fixture.execute.mockImplementation(async ({ sql }: { sql: string }) => {
       if (sql.includes("FROM org_members")) {
         if (fixture.failure && scenario !== "permanent-creation")
@@ -152,7 +162,10 @@ describe("integration membership HTTP boundary", () => {
           ),
         ),
     );
-    const unavailable = scenario.endsWith("-transient");
+    const unavailable =
+      scenario.endsWith("-transient") ||
+      scenario.endsWith("-refused") ||
+      scenario.endsWith("-dns");
     const permanent =
       scenario.endsWith("-read") || scenario === "permanent-creation";
     const forbidden = scenario === "member" || scenario === "delegated-revoked";

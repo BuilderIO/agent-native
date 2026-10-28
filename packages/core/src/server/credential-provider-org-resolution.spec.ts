@@ -219,6 +219,17 @@ describe.each([
     code: "credential_store_unavailable",
     retryable: true,
   },
+  ...["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"].map(
+    (code) => ({
+      name: `network ${code}`,
+      cause: Object.assign(new Error("Fake private network diagnostics"), {
+        code,
+      }),
+      status: 503,
+      code: "credential_store_unavailable",
+      retryable: true,
+    }),
+  ),
   {
     name: "schema",
     cause: Object.assign(new Error("private relation missing"), {

@@ -4107,7 +4107,7 @@ async function verifyA2AJwtForMcp(
         } catch (error) {
           throw new McpIdentityVerificationUnavailableError(
             error,
-            isTransientDatabaseError(error),
+            isTransientDatabaseError(error, { source: "database" }),
           );
         }
         if (organization?.secret.trim() === globalSecret) {
@@ -4142,7 +4142,7 @@ async function verifyA2AJwtForMcp(
       } catch (error) {
         throw new McpIdentityVerificationUnavailableError(
           error,
-          isTransientDatabaseError(error),
+          isTransientDatabaseError(error, { source: "database" }),
         );
       }
       if (verifiedOrganization === null) return null;
@@ -4171,7 +4171,7 @@ async function verifyA2AJwtForMcp(
   } catch (error) {
     throw new McpIdentityVerificationUnavailableError(
       error,
-      isTransientDatabaseError(error),
+      isTransientDatabaseError(error, { source: "database" }),
     );
   }
   if (!organization) return null;
@@ -4721,7 +4721,7 @@ export async function resolveOrgIdFromDomain(
   } catch (cause) {
     throw new McpIdentityVerificationUnavailableError(
       cause,
-      isTransientDatabaseError(cause),
+      isTransientDatabaseError(cause, { source: "database" }),
     );
   }
   if (result.status === "ambiguous") {
@@ -4754,7 +4754,7 @@ export async function resolveMcpIdentityOrgId(
     }
     throw new McpIdentityVerificationUnavailableError(
       cause,
-      isTransientDatabaseError(cause),
+      isTransientDatabaseError(cause, { source: "database" }),
     );
   }
 }
