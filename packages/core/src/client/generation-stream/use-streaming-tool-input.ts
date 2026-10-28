@@ -164,14 +164,23 @@ export function useStreamingToolInputs<T>(
     const onToolDone = (event: Event) => {
       const detail = (event as CustomEvent<ToolDoneEventDetail | null>).detail;
       if (!detail) return;
-      // Calls run in the order the agent wrote them.
-      const call = detail.eventId
+      // Calls run in the order the agent wrote them. A finished call whose id
+      // never streamed is one whose input arrived without an id, so it is the
+      // oldest call of that tool still streaming. An id that streamed into
+      // another scope or was rejected is not this scope's call.
+      const byId = detail.eventId
         ? calls.find((candidate) => candidate.id === detail.eventId)
-        : calls.find(
-            (candidate) =>
-              candidate.tool === detail.tool &&
-              candidate.status === "streaming",
-          );
+        : undefined;
+      const unseen = !detail.eventId || !callScopes.has(detail.eventId);
+      const call =
+        byId ??
+        (unseen
+          ? calls.find(
+              (candidate) =>
+                candidate.tool === detail.tool &&
+                candidate.status === "streaming",
+            )
+          : undefined);
       if (!call || call.tool !== detail.tool) return;
       call.status = detail.isError ? "failed" : "done";
       schedule();

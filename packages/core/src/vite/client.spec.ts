@@ -121,18 +121,22 @@ describe("Nitro dev startup recovery", () => {
   });
 
   it("finds the fetchable Nitro SSR wrapper before React Router's virtual build", () => {
-    const repositoryRoot = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../../..",
-    );
-    const rootDir = path.join(repositoryRoot, "templates/chat");
+    // A fixture app, not a real template: mutation testing runs this spec
+    // from a copy of packages/core alone, where templates/ does not exist.
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "nitro-ssr-entry-"));
+    fs.mkdirSync(path.join(rootDir, "app"));
+    fs.writeFileSync(path.join(rootDir, "ssr-entry.ts"), "export {};\n");
 
-    expect(_resolveNitroSsrServiceEntry(rootDir)).toBe(
-      path.join(rootDir, "ssr-entry.ts"),
-    );
-    expect(
-      _resolveNitroSsrServiceEntry(path.join(rootDir, "app")),
-    ).toBeUndefined();
+    try {
+      expect(_resolveNitroSsrServiceEntry(rootDir)).toBe(
+        path.join(rootDir, "ssr-entry.ts"),
+      );
+      expect(
+        _resolveNitroSsrServiceEntry(path.join(rootDir, "app")),
+      ).toBeUndefined();
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 
   it("waits for Nitro's module graph to become stable", () => {

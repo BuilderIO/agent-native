@@ -145,6 +145,25 @@ describe("useStreamingToolInput", () => {
     expect(result.current?.value).toBe("New");
   });
 
+  it("finishes a call whose input streamed under a different id", () => {
+    const { result } = renderHook(() =>
+      useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),
+    );
+    input("synthetic-1", '{"deckId":"deck-a","content":"One"}');
+    input("other-deck", '{"deckId":"deck-b","content":"Two"}');
+    flushFrames();
+
+    // A call id that streamed into this hook only finishes its own call.
+    done("other-deck");
+    flushFrames();
+    expect(result.current?.map((call) => call.status)).toEqual(["streaming"]);
+
+    // The tool ran under an id its input never carried.
+    done("call-from-tool-start");
+    flushFrames();
+    expect(result.current?.map((call) => call.status)).toEqual(["done"]);
+  });
+
   it("reports a failed call as failed, not done", () => {
     const { result } = renderHook(() => useSlidePreview("deck-a", 1));
     input("call-1", '{"deckId":"deck-a","content":"<h1>Hi"}');

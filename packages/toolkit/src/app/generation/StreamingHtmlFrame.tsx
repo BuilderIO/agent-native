@@ -4,7 +4,13 @@ import {
   postStreamingFrameHtml,
   renderableHtmlPrefix,
 } from "@agent-native/core/client/generation-stream";
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
 
 export interface StreamingHtmlFrameProps {
   /** The HTML document so far; cut-off tags and scripts are held back. */
@@ -57,14 +63,20 @@ export function StreamingHtmlFrame({
     postStreamingFrameHtml(frame, value, { accent: accentRef.current });
   };
 
-  useEffect(() => {
+  const markReady = () => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    readyRef.current = true;
+    if (sentRef.current !== latestRef.current) send(frame, latestRef.current);
+  };
+
+  // A layout effect, so the listener is in place before the new document can
+  // post that it is ready; a passive effect could miss that one message.
+  useLayoutEffect(() => {
     readyRef.current = false;
     sentRef.current = null;
     const onMessage = (event: MessageEvent) => {
-      const frame = frameRef.current;
-      if (!isStreamingFrameReadyMessage(event, frame) || !frame) return;
-      readyRef.current = true;
-      send(frame, latestRef.current);
+      if (isStreamingFrameReadyMessage(event, frameRef.current)) markReady();
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -80,6 +92,9 @@ export function StreamingHtmlFrame({
     <iframe
       ref={frameRef}
       srcDoc={shell}
+      // The frame's script is listening by the time it loads, so load is a
+      // second chance at the handshake.
+      onLoad={markReady}
       sandbox="allow-scripts"
       title={title}
       tabIndex={-1}

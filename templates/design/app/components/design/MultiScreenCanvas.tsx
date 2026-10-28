@@ -505,7 +505,10 @@ export function isApplePlatform(): boolean {
 const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
 const VECTOR_EDIT_HIT_RADIUS_SCREEN_PX = 8;
 
-import { GeneratingScreenGhost } from "./GeneratingScreenGhost";
+import {
+  GeneratingScreenGhost,
+  useSettlingGenerationId,
+} from "./GeneratingScreenGhost";
 import {
   alignmentGuidesEqual,
   altHoverMeasurementEqual,
@@ -11294,8 +11297,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const chromeScale = scale > 0 ? 1 / scale : 1;
   // Where a newly generated screen lands: right of the existing screens, the
   // same gap `nextCanvasFramePosition` places it at.
+  const ghostDesignId = useSettlingGenerationId(generatingDesignId);
   const generatingScreenOrigin = useMemo(() => {
-    if (!generatingDesignId) return null;
+    if (!ghostDesignId) return null;
     const bounds = getFrameGroupBounds(
       screens.map((screen, index) => ({
         id: screen.id,
@@ -11307,7 +11311,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     return bounds
       ? { x: bounds.right + NEW_SCREEN_GAP, y: bounds.top }
       : { x: 0, y: 0 };
-  }, [frameGeometry, generatingDesignId, getResolvedMetadata, screens]);
+  }, [frameGeometry, ghostDesignId, getResolvedMetadata, screens]);
   const showPixelGrid = pixelGridEnabled && canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
   const lastTracedToolRef = useRef<string | null>(null);
@@ -13460,9 +13464,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         )
       ) : null}
 
-      {generatingDesignId && generatingScreenOrigin ? (
+      {ghostDesignId && generatingScreenOrigin ? (
         <GeneratingScreenGhost
-          designId={generatingDesignId}
+          designId={ghostDesignId}
           origin={generatingScreenOrigin}
           pan={pan}
           scale={scale}

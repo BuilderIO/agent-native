@@ -1276,16 +1276,19 @@ export default function DeckEditor() {
   // The canvas shows the newest slide the agent is writing.
   const streamedSlide = streamedSlides.at(-1);
   // Saved slides wait behind their previews until those finish drawing, so
-  // the list never shows a slide twice. The held count is taken when the
-  // call first parses, which is before any of its slides lands.
+  // the list never shows a slide twice. The slides already saved are noted
+  // when the call first parses, before any of its slides lands; a write can
+  // insert anywhere, so they are held by id, not by position.
   const [heldSlides, setHeldSlides] = useState<{
     key: string | null;
-    count: number;
-  }>({ key: null, count: 0 });
+    ids: ReadonlySet<string>;
+  }>({ key: null, ids: new Set() });
   if (heldSlides.key !== streamCallKey) {
     setHeldSlides({
       key: streamCallKey,
-      count: streamReplacesDeck ? 0 : slideCount,
+      ids: new Set(
+        streamReplacesDeck ? [] : (deck?.slides ?? []).map((slide) => slide.id),
+      ),
     });
   }
   const slideCountRef = useRef(slideCount);
@@ -5649,7 +5652,9 @@ export default function DeckEditor() {
                   <EditorSidebar
                     slides={
                       generatingSlideVisible && streamCallKey !== null
-                        ? deck.slides.slice(0, heldSlides.count)
+                        ? deck.slides.filter((slide) =>
+                            heldSlides.ids.has(slide.id),
+                          )
                         : deck.slides
                     }
                     activeSlideId={currentSlide?.id || ""}

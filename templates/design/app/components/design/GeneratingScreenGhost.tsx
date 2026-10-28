@@ -7,6 +7,29 @@ import {
   useGeneratingDesignPreview,
 } from "@/hooks/use-generating-design-preview";
 
+/**
+ * The design being generated, held for one settle period after generation
+ * ends. A run often ends right after the screen saves, and unmounting the
+ * ghost then would cut its draft off before the saved screen takes over.
+ */
+export function useSettlingGenerationId(
+  generatingDesignId: string | null,
+): string | null {
+  const [heldId, setHeldId] = useState(generatingDesignId);
+  if (generatingDesignId && generatingDesignId !== heldId) {
+    setHeldId(generatingDesignId);
+  }
+  useEffect(() => {
+    if (generatingDesignId || !heldId) return;
+    const timer = window.setTimeout(
+      () => setHeldId(null),
+      GENERATION_DRAFT_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [generatingDesignId, heldId]);
+  return generatingDesignId ?? heldId;
+}
+
 /** The status line above the frame: 16px of text and an 8px gap. */
 const LABEL_SPACE = 24;
 
