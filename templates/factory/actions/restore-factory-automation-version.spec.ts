@@ -168,14 +168,14 @@ describe("restore-factory-automation-version", () => {
           historical:
             "---\npromptVersion: 1\nfactoryId: myfact\n---\nHistorical prompt.\n",
           expected:
-            "---\npromptVersion: 3\nfactoryId: myfact\nalignmentRevision: 3\nconfigSavedAt: 2026-10-23T12:00:00.000Z\n---\nHistorical prompt.\n",
+            "---\npromptVersion: 3\nfactoryId: myfact\nalignmentRevision: 4\nconfigSavedAt: 2026-10-23T12:00:00.000Z\n---\nHistorical prompt.\n",
           meta: {
             schedule: "",
             enabled: true,
             _extraFrontmatterLines: [
               "promptVersion: 3",
               "factoryId: myfact",
-              "alignmentRevision: 3",
+              "alignmentRevision: 4",
               "configSavedAt: 2026-10-23T12:00:00.000Z",
             ],
           },
