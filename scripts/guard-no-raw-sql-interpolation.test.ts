@@ -466,6 +466,35 @@ describe("raw SQL interpolation guard", () => {
     );
   });
 
+  it("skips tracing calls that cannot reach an execute sink", () => {
+    // Each step reads the two before it inside a loop, so tracing every path
+    // through the reassignments doubles per step. A helper that never executes
+    // SQL must not trigger that trace, or a large file never finishes.
+    const steps = 32;
+    const text = source([
+      "declare const seed: string;",
+      "function note(value: string) { return value.length; }",
+      ...Array.from(
+        { length: steps },
+        (_, index) => `let step${index}: string = seed;`,
+      ),
+      "while (true) {",
+      ...Array.from(
+        { length: steps - 1 },
+        (_, index) =>
+          `  if (seed.length > ${index + 1}) step${index + 1} = step${index} + step${Math.max(0, index - 1)} + seed;`,
+      ),
+      `  note(step${steps - 1});`,
+      "  if (seed) break;",
+      "}",
+      'database.execute("SELECT 1");',
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([1]))).toEqual(
+      [],
+    );
+  });
+
   it("finds an unsafe template source flowing into an unchanged execute sink", () => {
     const text = source([
       "declare const name: string;",
