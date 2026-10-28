@@ -187,6 +187,7 @@ describe("direct recording route shell cue", () => {
     const toolbar = route.slice(toolbarStart, toolbarEnd);
 
     expect(toolbarStart).toBeGreaterThan(-1);
+    // oracle-change: Recording menu actions no longer have decorative icons.
     expect(toolbar).toContain("<IconMoodSmile");
     expect(toolbar).toContain('t("recordingPage.react")');
     expect(toolbar).toContain("<PopoverContent");
