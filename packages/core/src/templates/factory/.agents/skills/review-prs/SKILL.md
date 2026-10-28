@@ -17,10 +17,11 @@ metadata:
 
 Review the newest relevant human pull requests in `BuilderIO/agent-native`.
 Under the default internal-author policy below, approve eligible fixes from
-verified BuilderIO organization members. Never approve an external or
-unverified author. When Steve explicitly gives the manual blanket instruction
-for a non-Factory review sweep defined below, follow it over ordinary approval
-gates; the non-waivable safeguards still apply.
+verified BuilderIO organization members. Never submit an approval review for an
+external or unverified author; `community-prs` assigns that code-review
+decision to a human Builder dev. When Steve explicitly gives the manual blanket
+instruction for a non-Factory review sweep defined below, follow it over
+ordinary approval gates; the non-waivable safeguards still apply.
 
 Approval and merge readiness are separate. **Ready for your final approval**
 means implementation is complete, required checks have passed, and any required
@@ -500,12 +501,12 @@ true for 10 consecutive minutes on that same head:
 Reset the 10-minute gate after a push, failed check, new actionable feedback,
 new commit, or merge conflict. Do not treat this skill or a ready disposition
 as standing merge authorization. For an external or membership-unknown author,
-this skill never submits an approval review. `community-prs` describes the
-human maintainer path for outside contributions; its “Merge as is” instruction
-does not authorize this skill or agent to approve that PR. Follow its ordinary
-merge requirements and leave the PR unmerged while any required human approval
-is missing. Never use `--admin` for those PRs. For verified internal-member
-PRs only, GitHub's `--admin` merge is a
+never submit an approval review through this skill. The “Merge as is” direction
+in `community-prs` describes a human Builder dev's approval; it does not
+authorize the agent to submit that approval. Follow its ordinary merge
+requirements and leave the PR unmerged until a human has approved the reviewed
+head and all required checks pass. Never use `--admin` for those PRs. For
+verified internal-member PRs only, GitHub's `--admin` merge is a
 broad protection bypass, not one scoped to human approval. Use it only after
 verifying that any required independent review above is already satisfied and
 that missing human approval or

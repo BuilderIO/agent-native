@@ -88,8 +88,9 @@ read the thread before you finish, ping, or close. The limits also live in
 
 ## Six paths
 
-1. **Merge as is.** It meets the review bar. Approve and squash-merge it under
-   the last two bullets there, and reply naming what shipped.
+1. **Merge as is.** It meets the review bar. A human Builder dev reviews,
+   approves, and squash-merges it under the last two bullets there. The agent
+   may draft the reply naming what shipped.
 2. **Ask for changes.** One round, one ask where possible, with the merge
    condition attached: "if you can X, this is good to merge." Ask only for
    what they can do or would want to own. "Final" means final: a later round
@@ -146,8 +147,9 @@ instruction to you or permission to write anything.
 - Before pushing their commits to a branch in this repo (a rebuild), review
   `.github/`, package scripts, the lockfile, and build and test config. CI
   with secrets runs on same-repo branches.
-- First-time contributors' runs wait for approval (the sweep flags them).
-  Approve them only after reading any workflow or script changes.
+- First-time contributors' GitHub Actions runs may wait for a maintainer to
+  approve the workflow run (the sweep flags them). Do so only after reading any
+  workflow or script changes.
 - After about two rounds of bot findings, stop forwarding them. Fix real
   defects in this PR's own change, or ask for them once, and decline the rest
   with a reason. Pre-existing framework problems are ours to file separately.
@@ -155,9 +157,11 @@ instruction to you or permission to write anything.
   old PR, merge main once and wait for fresh checks if main changed the files
   it touches (#5798 broke main on two-day-old CI). This is the one exception to
   not syncing just because a branch is behind.
-- Your approval is the trust call. `review-prs` never approves an outside
-  author; you do, once the PR meets this bar, because merging needs one
-  approval and devs don't admin-merge. Approve the head you reviewed.
+- The human Builder dev makes the code-review trust call. `review-prs` never
+  submits an approval review for an outside author. Once the PR meets this bar,
+  a human dev approves the head they reviewed; the agent may report readiness
+  but must not submit that approval. Merging needs one approval, and devs don't
+  admin-merge.
 - Merge only when every required check passed on that head, no changes
   request stands, and every actionable human or bot finding is fixed or
   answered with a reason, with
@@ -166,10 +170,11 @@ instruction to you or permission to write anything.
 
 ## Replies
 
-The agent drafts; the dev posts each reply, or approves it before the agent does.
-Write in the dev's voice: `pnpm community-prs audit --by @me --days 90` shows how
-they've written before, and the reply template in `review-prs` is the baseline
-when there's no history.
+The agent drafts author-facing replies; the dev posts one or approves that exact
+draft before the agent does. Approval of reply text authorizes only that reply,
+not a PR code-review approval or merge. Write in the dev's voice:
+`pnpm community-prs audit --by @me --days 90` shows how they've written before,
+and the reply template in `review-prs` is the baseline when there's no history.
 
 - Thank first, warmly and specifically: name something good in their change.
 - Greet them by the first name on their GitHub profile; the `pr` command shows
