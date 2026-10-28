@@ -12,6 +12,7 @@ import {
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
+  snapshotCanvasTitle,
   snapshotPopulationUnit,
   snapshotTreeCacheKey,
   snapshotPresetHash,
@@ -264,6 +265,28 @@ describe("weekly snapshot summaries", () => {
       tree: zeroSessionTree,
       previousTree: { rootN: 2 },
     });
+  });
+
+  it("identifies a single cohort in its canvas title", () => {
+    expect(
+      snapshotCanvasTitle({
+        app: "design",
+        week: "2026-10-19",
+        singleBand: { key: "design-web", label: "First touch · web" },
+        hasFirstTouchBands: true,
+      }),
+    ).toBe("Onboarding snapshot · design · 2026-10-19 · First touch · web");
+    expect(
+      snapshotCanvasTitle({
+        app: "clips",
+        week: "2026-10-19",
+        experimentId: "first_run_builder_credits",
+        singleBand: { key: "clips-control", label: "Experiment · control" },
+        hasFirstTouchBands: false,
+      }),
+    ).toBe(
+      "Onboarding snapshot · clips · 2026-10-19 · Experiment first_run_builder_credits · Experiment · control",
+    );
   });
 });
 

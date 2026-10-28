@@ -95,6 +95,24 @@ export function snapshotSummaryBands(
   });
 }
 
+export function snapshotCanvasTitle(input: {
+  app: string;
+  week: string;
+  experimentId?: string;
+  singleBand?: Pick<SnapshotSummaryBand, "key" | "label">;
+  hasFirstTouchBands: boolean;
+}): string {
+  const suffixes = [
+    ...(input.experimentId ? [`Experiment ${input.experimentId}`] : []),
+    ...(input.singleBand && input.singleBand.key !== input.app
+      ? [input.singleBand.label]
+      : input.hasFirstTouchBands
+        ? ["first-touch cohorts"]
+        : []),
+  ];
+  return `Onboarding snapshot · ${input.app} · ${input.week}${suffixes.length ? ` · ${suffixes.join(" · ")}` : ""}`;
+}
+
 export function arrayItemAt<T>(
   items: readonly T[],
   index: number,

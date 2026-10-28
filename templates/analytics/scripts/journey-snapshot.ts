@@ -22,6 +22,7 @@ import {
   isReusableCaptureSelection,
   isBuilderCdnUrl,
   selectCaptureTree,
+  snapshotCanvasTitle,
   snapshotSummaryBands,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
@@ -751,13 +752,58 @@ function captureTargets(
   return targets;
 }
 
-function summaryTargets(
+export function summaryTargets(
   app: AppName,
   result: SnapshotTree | CohortResponse,
   useExperiment: boolean,
 ): CaptureTarget[] {
-  const targets = captureTargets(app, result, useExperiment);
-  if (app === "design" && isCohortResponse(result) && result.designFirstTouch) {
+  if (!isCohortResponse(result)) {
+    return [{ key: app, label: app, sourceApp: app, tree: result }];
+  }
+
+  const targets: CaptureTarget[] = [];
+  if (useExperiment && result.experiment) {
+    if (app === "design" && result.experiment.designFirstTouch) {
+      for (const arm of ["control", "credits"] as const) {
+        for (const cohort of ["web", "mcp-oauth", "unknown"] as const) {
+          const tree = result.experiment.designFirstTouch[arm].cohorts[cohort];
+          targets.push({
+            key: `${app}-${arm}-${cohort}`,
+            label: `Experiment · ${arm} · first touch ${cohort}`,
+            sourceApp: app,
+            tree,
+          });
+        }
+      }
+    } else {
+      for (const arm of ["control", "credits"] as const) {
+        targets.push({
+          key: `${app}-${arm}`,
+          label: `Experiment · ${arm}`,
+          sourceApp: app,
+          tree: result.experiment.arms[arm],
+        });
+      }
+    }
+  } else if (app === "design" && result.designFirstTouch) {
+    for (const cohort of ["web", "mcp-oauth", "unknown"] as const) {
+      targets.push({
+        key: `design-${cohort}`,
+        label: `First touch · ${cohort}`,
+        sourceApp: app,
+        tree: result.designFirstTouch.cohorts[cohort],
+      });
+    }
+  } else {
+    targets.push({
+      key: app,
+      label: app,
+      sourceApp: app,
+      tree: result.tree,
+    });
+  }
+
+  if (app === "design" && result.designFirstTouch) {
     targets.push({
       key: "design-sessionless-mcp-oauth-signups",
       label: "MCP OAuth signups without a web session",
@@ -866,11 +912,22 @@ async function publishCanvas(args: {
       capture.target.key.includes("-mcp-oauth") ||
       capture.target.key.includes("-unknown"),
   );
-  const titleSuffix = [
-    ...(args.experimentId ? [`Experiment ${args.experimentId}`] : []),
-    ...(hasFirstTouchBands ? ["first-touch cohorts"] : []),
-  ];
-  const title = `Onboarding snapshot · ${args.app} · ${args.week}${titleSuffix.length ? ` · ${titleSuffix.join(" · ")}` : ""}`;
+  const onlyCapture =
+    args.captures.length === 1 ? arrayItemAt(args.captures, 0) : undefined;
+  const title = snapshotCanvasTitle({
+    app: args.app,
+    week: args.week,
+    ...(args.experimentId ? { experimentId: args.experimentId } : {}),
+    ...(onlyCapture
+      ? {
+          singleBand: {
+            key: onlyCapture.target.key,
+            label: onlyCapture.target.label,
+          },
+        }
+      : {}),
+    hasFirstTouchBands,
+  });
   const keyedBands = args.captures.map((capture) => ({
     capture,
     key: canvasBandKey(args.app, capture.target.key),
