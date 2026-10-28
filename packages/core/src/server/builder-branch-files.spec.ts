@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   readBuilderGitBundle: vi.fn(),
 }));
 
-vi.mock("./builder-api-auth.js", () => ({
+vi.mock("./builder-api-auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./builder-api-auth.js")>()),
   resolveBuilderRequestAuthorization: mocks.resolveAuthorization,
 }));
 vi.mock("./builder-browser.js", () => ({
@@ -22,6 +23,7 @@ vi.mock("./builder-branch-git.js", async (importOriginal) => ({
   readBuilderGitBundle: mocks.readBuilderGitBundle,
 }));
 
+import { ActionContractError } from "../action.js";
 import {
   BuilderBranchFilesError,
   readBuilderBranchFiles,
@@ -270,6 +272,21 @@ describe("readBuilderBranchFiles", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("maps a missing Builder read scope to a connection action", async () => {
+    mocks.resolveAuthorization.mockRejectedValueOnce(
+      new ActionContractError("Builder authorization must be renewed.", {
+        errorCode: "builder_oauth_reauthorization_required",
+      }),
+    );
+
+    const error = await expectCode(
+      readBuilderBranchFiles(input),
+      "not_connected",
+    );
+    expect(error.message).not.toContain("authorization must be renewed");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("distinguishes an unreadable authorization store from a missing connection", async () => {
     mocks.resolveAuthorization.mockRejectedValueOnce(
       new Error("store unavailable"),
@@ -433,6 +450,34 @@ describe("readBuilderBranchFiles", () => {
       after: status({ branch: { lastCommitHash: `code:${"b".repeat(40)}` } }),
     });
     await expectCode(readBuilderBranchFiles(input), "unverified");
+  });
+
+  it("rejects a changed owner when both status snapshots are internally valid", async () => {
+    const changedOwner = "another-space";
+    queueSuccessfulApiReadbacks({
+      after: status({
+        branch: { ownerId: changedOwner },
+        check: { backup: { ownerId: changedOwner } },
+      }),
+    });
+    await expectCode(readBuilderBranchFiles(input), "unverified");
+  });
+
+  it("accepts a workspace app ID ending in a hyphen", async () => {
+    const appPath = "apps/example-app-";
+    queueSuccessfulApiReadbacks();
+
+    await expect(
+      readBuilderBranchFiles({ ...input, appPath }),
+    ).resolves.toMatchObject({
+      projectId: PROJECT_ID,
+      branchName: BRANCH_NAME,
+    });
+    expect(mocks.readBuilderGitBundle).toHaveBeenCalledWith({
+      bundle: BUNDLE,
+      commitSha: COMMIT,
+      appPath,
+    });
   });
 
   it.each([

@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
-import { resolveBuilderRequestAuthorization } from "./builder-api-auth.js";
+import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import {
+  isBuilderReauthorizationRequired,
+  resolveBuilderRequestAuthorization,
+} from "./builder-api-auth.js";
 import {
   BuilderGitBundleError,
   readBuilderGitBundle,
@@ -75,6 +79,20 @@ const downloadSchema = z.object({
 
 type BranchRef = { projectId: string; branchName: string };
 
+function backupIdentityFingerprint(
+  backup: z.infer<typeof backupSchema>,
+): string {
+  return JSON.stringify([
+    backup.projectId,
+    backup.ownerId,
+    backup.branchName,
+    backup.lastCommitHash,
+    backup.contentMd5,
+    backup.at,
+    backup.size,
+  ]);
+}
+
 function unverified(): never {
   throw new BuilderBranchFilesError(
     "unverified",
@@ -144,6 +162,9 @@ async function readBytes(
 export async function readBuilderBranchFiles(
   input: BranchRef & { appPath: string },
 ) {
+  const appId = input.appPath.startsWith("apps/")
+    ? input.appPath.slice("apps/".length)
+    : "";
   if (
     !/^[A-Za-z0-9_-]{1,200}$/.test(input.projectId) ||
     input.branchName.length > 256 ||
@@ -153,7 +174,8 @@ export async function readBuilderBranchFiles(
         (part) =>
           !/^[A-Za-z0-9_.-]+$/.test(part) || part === "." || part === "..",
       ) ||
-    !/^apps\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.appPath)
+    !isValidWorkspaceAppIdFormat(appId) ||
+    appId.length > 64
   ) {
     throw new BuilderBranchFilesError(
       "invalid_request",
@@ -167,10 +189,13 @@ export async function readBuilderBranchFiles(
     authorization = await resolveBuilderRequestAuthorization({
       requiredScope: "builder:projects:read",
     });
-  } catch {
+  } catch (error) {
+    const requiresReauthorization = isBuilderReauthorizationRequired(error);
     throw new BuilderBranchFilesError(
-      "unavailable",
-      "Builder read access could not be checked.",
+      requiresReauthorization ? "not_connected" : "unavailable",
+      requiresReauthorization
+        ? "Connect Builder with project read access."
+        : "Builder read access could not be checked.",
     );
   }
   if (
@@ -261,6 +286,7 @@ export async function readBuilderBranchFiles(
   );
   if (!download.success) return unverified();
   const before = await readStatus();
+  const beforeFingerprint = backupIdentityFingerprint(before);
   const filePath =
     before.ownerId +
     "/" +
@@ -342,11 +368,7 @@ export async function readBuilderBranchFiles(
     );
   }
   const after = await readStatus();
-  if (
-    after.lastCommitHash !== before.lastCommitHash ||
-    after.contentMd5 !== before.contentMd5 ||
-    after.at !== before.at
-  )
+  if (backupIdentityFingerprint(after) !== beforeFingerprint)
     return unverified();
   return {
     projectId: input.projectId,
