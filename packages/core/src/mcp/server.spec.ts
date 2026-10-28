@@ -10531,6 +10531,58 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("does not infer email membership for an unclaimed first-party token over HTTP", async () => {
+    process.env.A2A_SECRET = "fake-first-party-org-scope-secret";
+    resolveOrgIdForEmailMock.mockResolvedValue("org-must-not-be-granted");
+    const token = await new jose.SignJWT({
+      sub: "member@example.test",
+      agent_native_first_party_mcp: true,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setAudience("https://mail.agent-native.com/_agent-native/mcp")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(process.env.A2A_SECRET));
+    const actions = {
+      "scope-probe": {
+        tool: {
+          description: "Return the fake caller scope",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: true,
+        run: async () => {
+          const { getRequestContext } =
+            await import("../server/request-context.js");
+          const context = getRequestContext();
+          return {
+            orgId: context?.orgId ?? null,
+            orgScope: context?.orgScope ?? null,
+          };
+        },
+      },
+    };
+    const result = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 19,
+        method: "tools/call",
+        params: { name: "scope-probe", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: { ...config, actions, productionActions: actions },
+      },
+    );
+    expect(result.result.structuredContent).toEqual({
+      orgId: null,
+      orgScope: "personal",
+    });
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
   it("preserves verified organization-member assurance for action calls", async () => {
     const actions = {
       "whoami-scope": {

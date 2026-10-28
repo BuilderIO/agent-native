@@ -1574,6 +1574,26 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
   });
 
+  it("keeps an unclaimed first-party token Personal without requiring connect scope", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-email-must-not-be-granted");
+    const token = await sign(
+      { sub: "member@example.test", agent_native_first_party_mcp: true },
+      SECRET,
+      { audience: "https://assets.example.com/_agent-native/mcp" },
+    );
+    const result = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(result).toMatchObject({
+      authed: true,
+      identity: { orgId: null, firstPartyMcp: true },
+    });
+    await expect(
+      resolveMcpIdentityOrgId(result.identity),
+    ).resolves.toBeUndefined();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
   it("preserves Personal scope for an unclaimed first-party token without org claims", async () => {
     const token = await sign(
       {

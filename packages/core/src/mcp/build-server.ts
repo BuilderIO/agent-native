@@ -4636,7 +4636,7 @@ export async function verifyAuth(
     const orgId =
       orgIdClaim.orgId !== undefined
         ? orgIdClaim.orgId
-        : tokenScope === MCP_CONNECT_SCOPE
+        : firstPartyMcp || tokenScope === MCP_CONNECT_SCOPE
           ? null
           : undefined;
     return admitServicePrincipal({

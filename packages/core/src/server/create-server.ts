@@ -194,7 +194,7 @@ export function createServer(
         let orgId: string | undefined;
         if (userEmail) {
           const { getOrgContext } = await import("../org/context.js");
-          const orgCtx = await getOrgContext(event).catch(() => null);
+          const orgCtx = await getOrgContext(event);
           orgId = orgCtx?.orgId ?? undefined;
         }
         return Promise.all(

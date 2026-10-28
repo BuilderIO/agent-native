@@ -66,9 +66,7 @@ export function createVoiceProvidersStatusHandler() {
     }
 
     const session = await getSession(event);
-    const orgCtx = session?.email
-      ? await getOrgContext(event).catch(() => null)
-      : null;
+    const orgCtx = session?.email ? await getOrgContext(event) : null;
     const requestContext = {
       userEmail: session?.email,
       orgId: orgCtx?.orgId ?? undefined,

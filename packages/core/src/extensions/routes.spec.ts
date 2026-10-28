@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sessionResolutionFailure } from "../server/session-resolution-errors.js";
+
 const mocks = vi.hoisted(() => ({
   createExtension: vi.fn(),
   ensureExtensionsTables: vi.fn(),
@@ -96,6 +98,28 @@ describe("createExtensionsHandler extension creation capability", () => {
     expect(mocks.readBody).not.toHaveBeenCalled();
     expect(mocks.createExtension).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "preserves org lookup failure $code before scoped work",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership lookup failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      mocks.getOrgContext.mockRejectedValue(error);
+      const request = createEvent();
+      await expect(
+        createExtensionsHandler({ extensionTools: true })(request as never),
+      ).rejects.toBe(error);
+      expect(error).toMatchObject({ statusCode: status, cause });
+      expect(mocks.readBody).not.toHaveBeenCalled();
+      expect(mocks.createExtension).not.toHaveBeenCalled();
+      expect(mocks.ensureExtensionsTables).not.toHaveBeenCalled();
+    },
+  );
 
   it("allows an opted-in app to create an extension", async () => {
     const event = createEvent();

@@ -153,9 +153,7 @@ export function createTranscribeVoiceHandler() {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };
     }
-    const orgCtx = session?.email
-      ? await getOrgContext(event).catch(() => null)
-      : null;
+    const orgCtx = session?.email ? await getOrgContext(event) : null;
     const requestContext = {
       userEmail: session?.email,
       orgId: orgCtx?.orgId ?? undefined,

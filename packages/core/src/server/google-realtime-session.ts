@@ -106,7 +106,7 @@ export function createGoogleRealtimeSessionHandler() {
       return { error: "Authentication required" };
     }
 
-    const orgCtx = await getOrgContext(event).catch(() => null);
+    const orgCtx = await getOrgContext(event);
     const requestContext = {
       userEmail: session.email,
       orgId: orgCtx?.orgId ?? undefined,

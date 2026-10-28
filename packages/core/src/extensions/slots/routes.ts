@@ -34,9 +34,9 @@ export function createSlotsHandler() {
       return { error: "Authentication required" };
     }
 
-    const orgCtx = await getOrgContext(event).catch(() => null);
+    const orgCtx = await getOrgContext(event);
     const userEmail = session.email;
-    const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
+    const orgId = orgCtx.orgId ?? undefined;
 
     return runWithRequestContext({ userEmail, orgId }, () =>
       dispatch(event, method, parts),

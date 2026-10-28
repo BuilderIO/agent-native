@@ -513,7 +513,7 @@ export function createCollabPlugin(
           return { error: "Authentication required" };
         }
 
-        const orgCtx = await getOrgContext(event).catch(() => null);
+        const orgCtx = await getOrgContext(event);
         const userEmail = session.email;
         const orgId = orgCtx?.orgId ?? undefined;
 

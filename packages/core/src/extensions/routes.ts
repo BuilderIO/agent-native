@@ -96,13 +96,13 @@ export function createExtensionsHandler(
       return { error: "Authentication required" };
     }
 
-    const orgCtx = await getOrgContext(event).catch(() => null);
+    const orgCtx = await getOrgContext(event);
     const userEmail = normalizeExtensionUserEmail(session.email);
     if (!userEmail) {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };
     }
-    const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
+    const orgId = orgCtx.orgId ?? undefined;
 
     try {
       return await runWithRequestContext({ userEmail, orgId }, async () => {
