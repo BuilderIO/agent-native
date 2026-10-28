@@ -464,7 +464,7 @@ function EditableChapterList({
 
   const lastEditRequest = useRef(editRequest);
   useEffect(() => {
-    if (editRequest !== lastEditRequest.current) {
+    if (editRequest !== lastEditRequest.current && !mutation.isPending) {
       lastEditRequest.current = editRequest;
       startEditing();
     }

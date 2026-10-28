@@ -6,11 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChapterList } from "./chapter-list";
 
+const mutationState = vi.hoisted(() => ({ pending: false }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useActionMutation: () => ({
+    mutate: vi.fn(),
+    isPending: mutationState.pending,
+  }),
 }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
@@ -40,6 +44,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  mutationState.pending = false;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -63,6 +68,22 @@ function rows() {
 }
 
 describe("ChapterList", () => {
+  it("opens a requested edit after an in-flight save finishes", () => {
+    const props = {
+      ...baseProps,
+      canEdit: true,
+      chapters: [],
+      editsJson: null,
+      hideAddButton: true,
+    };
+    mutationState.pending = true;
+    render(<ChapterList {...props} editRequest={0} />);
+    render(<ChapterList {...props} editRequest={1} />);
+    expect(container.querySelector("textarea")).toBeNull();
+    mutationState.pending = false;
+    render(<ChapterList {...props} editRequest={1} />);
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
   it("shows times as the trimmed player does and leaves out chapters in a cut", () => {
     render(
       <ChapterList

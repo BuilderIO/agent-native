@@ -20,6 +20,7 @@ interface RecordingTagsBarProps {
   tags: string[];
   canEdit: boolean;
   editRequest?: number;
+  onReturnFocus?: () => void;
 }
 
 export function RecordingTagsBar({
@@ -27,6 +28,7 @@ export function RecordingTagsBar({
   tags,
   canEdit,
   editRequest = 0,
+  onReturnFocus,
 }: RecordingTagsBarProps) {
   const t = useT();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -152,7 +154,10 @@ export function RecordingTagsBar({
           autoFocus
           initialDraft={savedDraft.id === recordingId ? savedDraft.value : ""}
           onDraftChange={(value) => setSavedDraft({ id: recordingId, value })}
-          onDismiss={() => setEditingId(null)}
+          onDismiss={(reason) => {
+            setEditingId(null);
+            if (reason === "escape") onReturnFocus?.();
+          }}
           value={displayed}
           suggestions={suggestionsQ.data?.tags ?? []}
           onChange={commit}

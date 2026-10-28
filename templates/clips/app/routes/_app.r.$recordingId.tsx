@@ -3832,6 +3832,7 @@ export default function RecordingPage() {
                       tags={playerDataQ.data?.tags ?? []}
                       canEdit={canEdit}
                       editRequest={tagEditRequest}
+                      onReturnFocus={() => recordingOptionsRef.current?.focus()}
                     />
                   </div>
                 </div>

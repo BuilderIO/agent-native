@@ -13,7 +13,7 @@ interface TagInputProps {
   autoFocus?: boolean;
   initialDraft?: string;
   onDraftChange?: (draft: string) => void;
-  onDismiss?: () => void;
+  onDismiss?: (reason: "escape" | "blur") => void;
   suggestions?: string[];
   placeholder?: string;
   onChange: (next: string[]) => void;
@@ -75,7 +75,7 @@ export function TagInput({
     } else if (e.key === "Escape" && onDismiss) {
       e.preventDefault();
       e.stopPropagation();
-      onDismiss();
+      onDismiss("escape");
     } else if (e.key === "Backspace" && !draft && value.length > 0) {
       onChange(value.slice(0, -1));
     }
@@ -98,7 +98,7 @@ export function TagInput({
                   event.relatedTarget as Node | null,
                 )
               ) {
-                onDismiss?.();
+                onDismiss?.("blur");
               }
             }}
           >

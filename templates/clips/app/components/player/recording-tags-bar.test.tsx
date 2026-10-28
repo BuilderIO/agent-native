@@ -60,7 +60,7 @@ vi.mock("@/components/library/tag-input", () => ({
     onChange: (next: string[]) => void;
     initialDraft?: string;
     onDraftChange?: (draft: string) => void;
-    onDismiss?: () => void;
+    onDismiss?: (reason: "escape" | "blur") => void;
   }) => (
     <>
       <button
@@ -78,7 +78,11 @@ vi.mock("@/components/library/tag-input", () => ({
         defaultValue={initialDraft}
         onInput={(event) => onDraftChange?.(event.currentTarget.value)}
       />
-      <button type="button" data-testid="dismiss" onClick={onDismiss} />
+      <button
+        type="button"
+        data-testid="dismiss"
+        onClick={() => onDismiss?.("escape")}
+      />
     </>
   ),
 }));
@@ -141,6 +145,16 @@ async function settle(count = mocks.inflight.length) {
 }
 
 describe("RecordingTagsBar", () => {
+  it("returns focus to the menu on Escape", () => {
+    const onReturnFocus = vi.fn();
+    render({ canEdit: true, editRequest: 1, onReturnFocus });
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      '[data-testid="dismiss"]',
+    );
+    if (!dismiss) throw new Error("Tag editor unavailable");
+    act(() => dismiss.click());
+    expect(onReturnFocus).toHaveBeenCalledOnce();
+  });
   it("restores an unfinished draft after dismissing and reopening", () => {
     render({ canEdit: true, editRequest: 1 });
     const input = container.querySelector<HTMLInputElement>(
