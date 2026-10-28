@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -232,12 +232,8 @@ export default defineAction({
         .where(
           and(
             eq(schema.recordings.id, args.recordingId),
-            fresh.title == null
-              ? isNull(schema.recordings.title)
-              : eq(schema.recordings.title, fresh.title),
-            fresh.titleSource == null
-              ? isNull(schema.recordings.titleSource)
-              : eq(schema.recordings.titleSource, fresh.titleSource),
+            eq(schema.recordings.title, fresh.title),
+            eq(schema.recordings.titleSource, fresh.titleSource),
           ),
         )
         .returning({ id: schema.recordings.id });
@@ -251,7 +247,7 @@ export default defineAction({
     ) {
       provisionalTitle = fallbackTitleFromTranscript(transcriptText);
       if (provisionalTitle) {
-        const [fresh] = await db
+        const freshRows = await db
           .select({
             title: schema.recordings.title,
             titleSource: schema.recordings.titleSource,
@@ -259,6 +255,7 @@ export default defineAction({
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
           .limit(1);
+        const fresh = freshRows[0] as (typeof freshRows)[number] | undefined;
         if (fresh && isAutoTitleReplaceable(fresh.title, fresh.titleSource)) {
           assertRecordingNotExpired(
             await assertAccess("recording", args.recordingId, "editor"),

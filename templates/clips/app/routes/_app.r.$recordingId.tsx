@@ -3312,7 +3312,7 @@ export default function RecordingPage() {
                             beginAiRequest("remove-filler-words");
                             removeFillerWords.mutate({
                               recordingId: recording.id,
-                            } as any);
+                            });
                           }}
                         >
                           {t("recordingPage.removeFillerWords")}
@@ -3327,7 +3327,7 @@ export default function RecordingPage() {
                             removeSilences.mutate({
                               recordingId: recording.id,
                               thresholdMs: 1200,
-                            } as any);
+                            });
                           }}
                         >
                           {t("recordingPage.removeSilences")}
