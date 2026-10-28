@@ -180,9 +180,21 @@ export function snapshotCanvasCacheKey(input: {
   designUrl: string;
   designScopeHash: string;
   analyticsScopeHash: string;
+  layout: {
+    experimentId: string | null;
+    cohortKeys: readonly string[];
+  };
 }): string {
   return createHash("sha256")
-    .update(JSON.stringify(input))
+    .update(
+      JSON.stringify({
+        ...input,
+        layout: {
+          ...input.layout,
+          cohortKeys: [...input.layout.cohortKeys].sort(),
+        },
+      }),
+    )
     .digest("hex")
     .slice(0, 20);
 }

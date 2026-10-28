@@ -114,6 +114,7 @@ interface CaptureTarget extends SnapshotBand {
 
 interface CapturedBand {
   target: CaptureTarget;
+  analyticsTree: SnapshotTree;
   tree: SnapshotTree;
   frames: CaptureFrame[];
   failures: number;
@@ -906,6 +907,10 @@ async function publishCanvas(args: {
     designUrl,
     designScopeHash: args.designScopeHash,
     analyticsScopeHash: args.analyticsScopeHash,
+    layout: {
+      experimentId: args.experimentId ?? null,
+      cohortKeys: keyedBands.map(({ key }) => key),
+    },
   });
   const canvasCachePath = path.join(args.bandDir, `canvas-${scopeKey}.json`);
   const savedCanvas = await readJson<{
@@ -1002,7 +1007,7 @@ async function publishCanvas(args: {
       return {
         key,
         label: capture.target.label,
-        tree: capture.tree,
+        tree: capture.analyticsTree,
         ...(previousTree ? { previousTree } : {}),
       };
     }),
@@ -1342,6 +1347,7 @@ function renderSummary(input: {
     `Pinned preset: exclude test identities, Builder identities, beta hosts, and localhost hosts; max depth ${SNAPSHOT_PRESET.maxDepth}; merge branches below ${SNAPSHOT_PRESET.minNodeSessions} sessions; newest examples; desktop viewport ${SNAPSHOT_PRESET.minWidth}–${SNAPSHOT_PRESET.maxWidth}px and aspect ${SNAPSHOT_PRESET.minAspect}–${SNAPSHOT_PRESET.maxAspect}; ${SNAPSHOT_MAX_FRAMES} frame ceiling per board. Tree percentages use the session denominator for each band. Capture failures are listed above and never create screenshotless cards.`,
     "",
     "Clips first output is `recording_ready` (saved clip); `recording_started` is shown only as an attempt. Design MCP OAuth signups without a first-party web session are reported as signup-event counts and have no screenshot journey. Experiment arm results are session-grain; external user-grain checks are not forced onto them.",
+    "Summary metrics use the full Analytics trees; each Design canvas includes only nodes with successfully captured screenshots.",
     "",
   );
   return lines.join("\n");
@@ -1548,7 +1554,7 @@ async function main(argv: string[]): Promise<number> {
           `${app}/${target.key}: ${capture.failures} frame capture or upload failures; ${capture.frames.length} screenshot-backed frames remain.`,
         );
       }
-      captures.push({ target, ...capture });
+      captures.push({ target, analyticsTree: target.tree, ...capture });
     }
     const nonempty = captures.filter(
       (capture) => capture.tree.nodes.length > 0 && capture.frames.length > 0,

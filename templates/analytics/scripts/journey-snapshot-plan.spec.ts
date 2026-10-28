@@ -161,11 +161,40 @@ describe("weekly snapshot preset", () => {
       snapshotCanvasCacheKey({
         ...designScope,
         analyticsScopeHash: "analytics-principal-a",
+        layout: { experimentId: null, cohortKeys: ["web", "mcp-oauth"] },
       }),
     ).not.toBe(
       snapshotCanvasCacheKey({
         ...designScope,
         analyticsScopeHash: "analytics-principal-b",
+        layout: { experimentId: null, cohortKeys: ["web", "mcp-oauth"] },
+      }),
+    );
+  });
+
+  it("isolates Design canvas reuse by experiment and cohort layout", () => {
+    const scope = {
+      designUrl: "https://design.example/team",
+      designScopeHash: "design-principal",
+      analyticsScopeHash: "analytics-principal",
+    };
+    const baseLayout = {
+      experimentId: null,
+      cohortKeys: ["mcp-oauth", "web"],
+    };
+    expect(snapshotCanvasCacheKey({ ...scope, layout: baseLayout })).toBe(
+      snapshotCanvasCacheKey({
+        ...scope,
+        layout: { ...baseLayout, cohortKeys: ["web", "mcp-oauth"] },
+      }),
+    );
+    expect(snapshotCanvasCacheKey({ ...scope, layout: baseLayout })).not.toBe(
+      snapshotCanvasCacheKey({
+        ...scope,
+        layout: {
+          experimentId: "first_run_builder_credits_v2",
+          cohortKeys: ["control", "credits"],
+        },
       }),
     );
   });
