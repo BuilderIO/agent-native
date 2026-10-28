@@ -105,26 +105,25 @@ function publicDocumentLoaderData(
   });
 }
 
-function publicDocumentNotFound() {
-  return new Response("Not found", {
-    status: 404,
-    headers: PUBLIC_DOCUMENT_HEADERS,
-  });
-}
-
+// Every answer keeps the short window, including a thrown not-found, which
+// arrives here as errorHeaders; an answer that asked for less keeps its own.
 export function headers({ loaderHeaders, errorHeaders }: HeadersArgs) {
-  return errorHeaders ?? loaderHeaders;
+  const answer = new Headers(errorHeaders ?? loaderHeaders);
+  if (!answer.has(SSR_MAX_AGE_HEADER)) {
+    answer.set(SSR_MAX_AGE_HEADER, String(PUBLIC_DOCUMENT_CACHE_SECONDS));
+  }
+  return answer;
 }
 
-// React Router hands a thrown answer's headers only to the route that catches
-// it, so this route catches its own not-found to keep the short cache window.
+// React Router calls only the catching route's headers for a thrown answer,
+// so this route catches its own not-found to keep the short cache window.
 export function ErrorBoundary() {
   return <ContentErrorBoundaryBody />;
 }
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const id = params.id;
-  if (!id) throw publicDocumentNotFound();
+  if (!id) throw new Response("Not found", { status: 404 });
   const agentAccessToken = new URL(request.url).searchParams.get(
     AGENT_ACCESS_PARAM,
   );
@@ -151,7 +150,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
     .where(and(eq(schema.documents.id, id), isNull(schema.documents.trashedAt)))
     .limit(1);
 
-  if (!doc) throw publicDocumentNotFound();
+  if (!doc) throw new Response("Not found", { status: 404 });
   const tokenAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
         resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,

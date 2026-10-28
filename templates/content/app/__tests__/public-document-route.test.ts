@@ -155,7 +155,7 @@ describe("public document route", () => {
   it("does not disclose private document fields to an anonymous share-page request", async () => {
     resultQueue.current = [documentRows("private")];
 
-    const result = ((await loader(requestFor())) as any).data;
+    const result = (await loader(requestFor())).data;
 
     expect(result).toMatchObject({
       document: null,
@@ -308,7 +308,7 @@ Second part
   it("serves a public document cached for seconds, without private loader headers", async () => {
     resultQueue.current = [documentRows("public")];
 
-    const result = (await loader(requestFor())) as any;
+    const result = await loader(requestFor());
 
     expect(result.data).toMatchObject({
       document: {
@@ -319,7 +319,7 @@ Second part
       basePath: "",
       origin: "https://content.example.test",
     });
-    expect(result.init.headers).toEqual({
+    expect(result.init?.headers).toEqual({
       [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
     });
     expect(where).toHaveBeenCalledWith([
@@ -356,12 +356,7 @@ Second part
   it("does not load trashed documents for public previews", async () => {
     resultQueue.current = [[]];
 
-    const error = (await loader(requestFor()).catch((e) => e)) as Response;
-    expect(error.status).toBe(404);
-    // Restoring a page from Trash brings its public link back within seconds.
-    expect(error.headers.get(SSR_MAX_AGE_HEADER)).toBe(
-      String(PUBLIC_DOCUMENT_CACHE_SECONDS),
-    );
+    await expect(loader(requestFor())).rejects.toMatchObject({ status: 404 });
     expect(where).toHaveBeenCalledWith([
       { column: "id_col", value: "doc-1" },
       { column: "trashed_at_col", value: null },
@@ -371,19 +366,40 @@ Second part
   it("keeps the short window on private notices", async () => {
     resultQueue.current = [documentRows("private")];
 
-    const result = (await loader(requestFor())) as any;
+    const result = await loader(requestFor());
 
     expect(result.data).toMatchObject({ document: null });
-    expect(result.init.headers).toEqual({
+    expect(result.init?.headers).toEqual({
       [SSR_MAX_AGE_HEADER]: String(PUBLIC_DOCUMENT_CACHE_SECONDS),
     });
   });
 
-  it("sends a not-found answer's own headers", () => {
-    const errorHeaders = new Headers({ [SSR_MAX_AGE_HEADER]: "20" });
-    const loaderHeaders = new Headers();
+  it("keeps the short window on a thrown not-found", () => {
+    const answer = headers({
+      loaderHeaders: new Headers(),
+      parentHeaders: new Headers(),
+      actionHeaders: new Headers(),
+      errorHeaders: new Headers(),
+    });
 
-    expect(headers({ errorHeaders, loaderHeaders } as any)).toBe(errorHeaders);
-    expect(headers({ loaderHeaders } as any)).toBe(loaderHeaders);
+    // Restoring a page from Trash brings its public link back within seconds.
+    expect(answer.get(SSR_MAX_AGE_HEADER)).toBe(
+      String(PUBLIC_DOCUMENT_CACHE_SECONDS),
+    );
+  });
+
+  it("keeps a loader answer's own headers and window", () => {
+    const answer = headers({
+      loaderHeaders: new Headers({
+        "Referrer-Policy": "no-referrer",
+        [SSR_MAX_AGE_HEADER]: "0",
+      }),
+      parentHeaders: new Headers(),
+      actionHeaders: new Headers(),
+      errorHeaders: undefined,
+    });
+
+    expect(answer.get("Referrer-Policy")).toBe("no-referrer");
+    expect(answer.get(SSR_MAX_AGE_HEADER)).toBe("0");
   });
 });
