@@ -8322,7 +8322,7 @@ function PageEditorSessionBody({
         (thread) => thread.threadId === threadId && isPageCommentThread(thread),
       );
       setSelectedSuggestionId(null);
-      setPendingComment(null);
+      setPendingComment(null, { keepWritten: true });
       setHoveredThreadId(null);
       setSelectedThreadId(threadId);
       setCommentsBrowseOpen(preserveBrowseContext || !!pageThread);
@@ -10928,7 +10928,10 @@ function PageEditorSessionBody({
                 >
                   <div className="pointer-events-auto">
                     {renderCommentsSidebar(
-                      pendingComment && blockFieldComments.pendingVisible
+                      // A thread opened while a new comment waits shows first.
+                      !selectedThreadId &&
+                        pendingComment &&
+                        blockFieldComments.pendingVisible
                         ? "__pending-only__"
                         : selectedThreadId,
                       false,
