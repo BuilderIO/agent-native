@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CARD_LAYOUT_MAX_WIDTH,
@@ -9,6 +9,7 @@ import {
   columnFloors,
   fairShares,
   labelTableCells,
+  measureTable,
   planColumns,
   TEXT_COLUMN_FLOOR,
   type MeasuredCell,
@@ -19,6 +20,13 @@ import {
 const CHAR = 8;
 const SPACE = 4;
 const INSET = 24;
+
+/** `items[index]`, which the test expects to be there. */
+function nth<T>(items: readonly T[], index: number): T {
+  if (index >= items.length) throw new Error(`Nothing at ${index}`);
+  const [item] = items.slice(index) as [T, ...T[]];
+  return item;
+}
 
 function cell(text: string): MeasuredCell {
   const words = text.split(" ").filter(Boolean);
@@ -36,39 +44,37 @@ function cell(text: string): MeasuredCell {
   };
 }
 
+const pieces = (c: MeasuredCell) => c.blocks.flatMap((block) => block.pieces);
+const unwrapped = (c: MeasuredCell) =>
+  pieces(c).reduce((sum, p) => sum + p.width + p.space, 0);
+
 /** A measure of `rows` of text, as measureTable would take it. */
 function measureOf(rows: string[][]): TableMeasure {
   const cells = rows.map((row) => row.map(cell));
-  const columns = rows[0].length;
-  const unwrapped = (c: MeasuredCell) =>
-    c.blocks[0].pieces.reduce((sum, p) => sum + p.width + p.space, 0);
-  const natural = Array.from({ length: columns }, (_, column) =>
-    Math.max(
-      ...cells.map((row) => Math.ceil(INSET + unwrapped(row[column])) + 1),
-    ),
+  const columns = nth(cells, 0).map((_, column) =>
+    cells.map((row) => nth(row, column)),
+  );
+  const natural = columns.map((column) =>
+    Math.max(...column.map((c) => Math.ceil(INSET + unwrapped(c)) + 1)),
   );
   const floor = columnFloors(
-    natural.map((_, column) =>
+    columns.map((column) =>
       Math.max(
-        ...cells.map(
-          (row) =>
-            INSET +
-            Math.max(
-              0,
-              ...row[column].blocks[0].pieces.map((p) => p.width + p.space),
-            ),
+        ...column.map(
+          (c) =>
+            INSET + Math.max(0, ...pieces(c).map((p) => p.width + p.space)),
         ),
       ),
     ),
     // The first row is the header.
-    natural.map((_, column) =>
-      Math.max(...cells.slice(1).map((row) => INSET + unwrapped(row[column]))),
+    columns.map((column) =>
+      Math.max(...column.slice(1).map((c) => INSET + unwrapped(c))),
     ),
   );
   const prose = cells
     .slice(1)
     .some((row) => row.some((c) => unwrapped(c) > 2 * TEXT_COLUMN_FLOOR));
-  return { natural, floor, rows: cells, prose };
+  return { natural, floor, rows: cells, spans: [], prose };
 }
 
 const sentence =
@@ -95,9 +101,9 @@ describe("planColumns", () => {
 
     expect(plan.layout).toBe("columns");
     expect(total(plan.widths)).toBeCloseTo(640, 1);
-    expect(plan.widths[0]).toBeGreaterThanOrEqual(review.natural[0]);
+    expect(nth(plan.widths, 0)).toBeGreaterThanOrEqual(nth(review.natural, 0));
     plan.widths.forEach((width, column) =>
-      expect(width).toBeGreaterThanOrEqual(review.floor[column] - 0.01),
+      expect(width).toBeGreaterThanOrEqual(nth(review.floor, column) - 0.01),
     );
   });
 
@@ -106,7 +112,28 @@ describe("planColumns", () => {
 
     expect(plan.layout).toBe("columns");
     plan.widths.forEach((width, column) =>
-      expect(width).toBeGreaterThanOrEqual(numbers.natural[column]),
+      expect(width).toBeGreaterThanOrEqual(nth(numbers.natural, column)),
+    );
+  });
+
+  it("stops trading widths in a wide table before it holds up the page", () => {
+    const words = sentence.split(" ");
+    const rows = Array.from({ length: 49 }, (_, row) =>
+      Array.from({ length: 40 }, (_, column) =>
+        words.slice(0, 1 + ((row * 7 + column * 3) % words.length)).join(" "),
+      ),
+    );
+    const wide = measureOf(rows);
+
+    const start = performance.now();
+    const plan = planColumns(wide, total(wide.floor) + 2000);
+    // Trading widths across every pair of 40 columns used to take over half
+    // a second here.
+    expect(performance.now() - start).toBeLessThan(250);
+    expect(plan.layout).toBe("columns");
+    expect(total(plan.widths)).toBeCloseTo(total(wide.floor) + 2000, 1);
+    plan.widths.forEach((width, column) =>
+      expect(width).toBeGreaterThanOrEqual(nth(wide.floor, column) - 0.01),
     );
   });
 
@@ -201,13 +228,35 @@ describe("labelTableCells", () => {
 
     labelTableCells(table);
 
-    const [header, row] = Array.from(table.rows);
-    expect(header.cells[0].hasAttribute("data-label")).toBe(false);
-    expect(
-      Array.from(row.cells, (cell) => cell.getAttribute("data-label")),
-    ).toEqual(["Name", "Role and team", null, "Notes"]);
-    expect(row.cells[3].hasAttribute("data-empty")).toBe(true);
-    expect(row.cells[0].hasAttribute("data-empty")).toBe(false);
+    const rows = Array.from(table.rows, (r) => Array.from(r.cells));
+    const header = nth(rows, 0);
+    const row = nth(rows, 1);
+    expect(nth(header, 0).hasAttribute("data-label")).toBe(false);
+    expect(row.map((cell) => cell.getAttribute("data-label"))).toEqual([
+      "Name",
+      "Role and team",
+      null,
+      "Notes",
+    ]);
+    expect(nth(row, 3).hasAttribute("data-empty")).toBe(true);
+    expect(nth(row, 0).hasAttribute("data-empty")).toBe(false);
+  });
+
+  it("labels the cells after one that spans rows by the columns they sit in", () => {
+    const table = document.createElement("table");
+    table.innerHTML =
+      "<tbody>" +
+      "<tr><th>Name</th><th>Role</th><th>Notes</th></tr>" +
+      "<tr><td rowspan='2'>Priya</td><td>Design</td><td>Menus</td></tr>" +
+      "<tr><td>Docs</td><td>Guide</td></tr>" +
+      "</tbody>";
+
+    labelTableCells(table);
+
+    const last = nth(Array.from(table.rows), 2);
+    expect(Array.from(last.cells, (c) => c.getAttribute("data-label"))).toEqual(
+      ["Role", "Notes"],
+    );
   });
 
   it("leaves a table without a header row unlabelled", () => {
@@ -216,7 +265,42 @@ describe("labelTableCells", () => {
 
     labelTableCells(table);
 
-    expect(table.rows[0].cells[1].hasAttribute("data-label")).toBe(false);
+    expect(table.querySelector("[data-label]")).toBeNull();
+  });
+});
+
+describe("measureTable", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.replaceChildren();
+  });
+
+  it("gives the columns under a spanning cell its floor together", () => {
+    // Text 8 px a character; each cell as wide as its text.
+    vi.spyOn(Range.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Range) {
+        return { width: this.toString().length * CHAR, left: 0 } as DOMRect;
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return { width: this.textContent.length * CHAR, left: 0 } as DOMRect;
+      },
+    );
+    const table = document.body.appendChild(document.createElement("table"));
+    table.innerHTML =
+      "<tbody>" +
+      "<tr><th colspan='2'><p>Internationalisation</p></th></tr>" +
+      "<tr><td><p>a</p></td><td><p>b</p></td></tr>" +
+      "</tbody>";
+
+    const measure = measureTable(table, 2);
+
+    // Alone, each column's floor would be its one letter and a pixel.
+    expect(measure?.floor).toEqual([80.5, 80.5]);
+    expect(measure?.natural).toEqual([81, 81]);
+    expect(measure?.spans).toMatchObject([{ row: 0, column: 0, span: 2 }]);
+    expect(measure?.rows[0]).toEqual([null, null]);
   });
 });
 

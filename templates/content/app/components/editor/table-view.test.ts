@@ -216,12 +216,18 @@ function holdDecorations(state: EditorState): Decoration[] {
 function renderFirstRow(view: ContentTableView, widths: number[]) {
   view.contentDOM.replaceChildren();
   const row = view.contentDOM.appendChild(document.createElement("tr"));
-  const cells = widths.map((width) => {
-    const cell = row.appendChild(document.createElement("td"));
-    cell.getBoundingClientRect = () => ({ width, left: 0 }) as DOMRect;
-    return cell;
+  widths.forEach(() => row.appendChild(document.createElement("td")));
+  layOut(row, widths);
+  return row;
+}
+
+/** Gives the row's cells the widths the browser would lay them out at. */
+function layOut(row: HTMLTableRowElement, widths: number[]) {
+  widths.forEach((width, index) => {
+    const cell = row.cells.item(index);
+    if (cell)
+      cell.getBoundingClientRect = () => ({ width, left: 0 }) as DOMRect;
   });
-  return cells;
 }
 
 const pageWidth = 600;
@@ -256,6 +262,15 @@ function colWidths(view: ContentTableView) {
 const pixels = (view: ContentTableView) =>
   colWidths(view).map((width) => Number.parseFloat(width));
 
+/** The first two columns' widths, in px. */
+function firstTwo(view: ContentTableView) {
+  const widths = pixels(view);
+  if (widths.length < 2)
+    throw new Error("The table has fewer than two columns");
+  const [first, second] = widths as [number, number, ...number[]];
+  return { first, second };
+}
+
 describe("content-sized columns", () => {
   it("sizes a table nobody has resized to its content", () => {
     const view = new ContentTableView(table([{}, {}]), 25);
@@ -283,7 +298,7 @@ describe("content-sized columns", () => {
     await cellsDrawn();
 
     expect(view.table.getAttribute(COLUMN_SIZING_ATTRIBUTE)).toBe("measured");
-    const [first, second] = pixels(view);
+    const { first, second } = firstTwo(view);
     expect(first + second).toBeCloseTo(pageWidth, 1);
     expect(second).toBeGreaterThan(first);
     expect(floorOf(view)).toBe("0px");
@@ -292,22 +307,23 @@ describe("content-sized columns", () => {
   it("holds the widths while the selection is in the table, then measures again", async () => {
     const node = table([{}, {}]);
     const view = laidOut(node);
-    const cells = renderFirstRow(view, [100, 300]);
+    const row = renderFirstRow(view, [100, 300]);
     view.update(node, []);
     await cellsDrawn();
     const before = colWidths(view);
     const inside = holdDecorations(stateWith(node, 4));
 
+    // oracle-change: the hold keeps measured pixel widths instead of #8152's
+    // percentages, so its "held" state, percentage and floor checks went.
     // Typing reflows nothing, though the text, and so its widths, changed.
-    cells[0].getBoundingClientRect = () => ({ width: 300, left: 0 }) as DOMRect;
-    cells[1].getBoundingClientRect = () => ({ width: 100, left: 0 }) as DOMRect;
+    layOut(row, [300, 100]);
     view.update(table([{}, {}]), inside);
     await cellsDrawn();
     expect(colWidths(view)).toEqual(before);
 
     view.update(node, []);
     await cellsDrawn();
-    const [first, second] = pixels(view);
+    const { first, second } = firstTwo(view);
     expect(first).toBeGreaterThan(second);
   });
 

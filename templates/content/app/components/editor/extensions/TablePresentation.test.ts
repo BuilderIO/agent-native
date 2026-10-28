@@ -128,9 +128,9 @@ describe("TablePresentation", () => {
         ],
       },
     });
-    const [full, empty] = Array.from(
-      editor.view.dom.querySelectorAll<HTMLTableCellElement>("td"),
-    );
+    const cells = editor.view.dom.querySelectorAll<HTMLTableCellElement>("td");
+    const full = cells.item(0);
+    const empty = cells.item(1);
 
     expect(full.hasAttribute("data-empty")).toBe(false);
     expect(empty.hasAttribute("data-empty")).toBe(true);

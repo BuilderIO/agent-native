@@ -53,9 +53,10 @@ export const READABLE_TABLE_COLUMN_MIN_WIDTH = 96;
 export const READABLE_TABLE_MIN_WIDTH_PROPERTY = "--content-table-min-width";
 const MIN_WIDTH_PROPERTY = READABLE_TABLE_MIN_WIDTH_PROPERTY;
 
-// A cell this big or bigger only gets fair shares: trading widths would
-// cost more than it gains.
-const MAX_CELLS_TO_BALANCE = 2000;
+// Trading widths reads every cell's line count for each width it tries. Past
+// this many reads it keeps the shortest widths found so far, so a wide table
+// never holds up the page.
+const BALANCE_BUDGET = 400_000;
 
 interface Piece {
   width: number;
@@ -76,12 +77,22 @@ export interface MeasuredCell {
   blocks: TextBlock[];
 }
 
+/** A cell across several columns, which wraps in their combined width. */
+export interface SpanningCell {
+  row: number;
+  /** The first column it covers. */
+  column: number;
+  span: number;
+  cell: MeasuredCell;
+}
+
 export interface TableMeasure {
   /** Each column's width with nothing wrapped. */
   natural: number[];
   floor: number[];
   /** Each row's cells by column; null where no cell starts alone there. */
   rows: Array<Array<MeasuredCell | null>>;
+  spans: SpanningCell[];
   /** Whether a body cell holds a sentence or more. */
   prose: boolean;
 }
@@ -92,6 +103,11 @@ export interface ColumnPlan {
 }
 
 const sum = (values: number[]) => values.reduce((total, x) => total + x, 0);
+
+/** `values[index]`, which may be past the end. (Content's lib predates `.at()`.) */
+function at<T>(values: readonly T[], index: number): T | undefined {
+  return values[index];
+}
 
 const CJK = /[぀-ヿ㐀-鿿가-힯豈-﫿]/;
 // A word breaks after a hyphen or a dash.
@@ -115,7 +131,7 @@ function blockPieces(block: HTMLElement, range: Range): Piece[] {
       const [token] = match;
       const start = match.index;
       if (/^\s/.test(token)) {
-        const last = pieces[pieces.length - 1];
+        const last = at(pieces, pieces.length - 1);
         if (last) last.space += widthOf(node, start, start + token.length);
         open = false;
         continue;
@@ -133,7 +149,8 @@ function blockPieces(block: HTMLElement, range: Range): Piece[] {
       for (const part of token.match(WORD_PARTS) ?? []) {
         const width = widthOf(node, offset, offset + part.length);
         offset += part.length;
-        if (open && pieces.length) pieces[pieces.length - 1].width += width;
+        const last = at(pieces, pieces.length - 1);
+        if (open && last) last.width += width;
         else pieces.push({ width, space: 0 });
         open = !/[-‐-—]$/.test(part);
       }
@@ -208,6 +225,39 @@ const unwrappedWidth = (cell: MeasuredCell) =>
     ),
   );
 
+interface PlacedCell {
+  cell: HTMLTableCellElement;
+  /** The first column it covers. */
+  column: number;
+  /** How many columns it covers, within the table's `columns`. */
+  span: number;
+}
+
+/**
+ * Each row's cells with the columns they cover, past the columns that cells
+ * from rows above still span into.
+ */
+function tableGrid(table: HTMLTableElement, columns: number): PlacedCell[][] {
+  let covered: number[] = new Array(columns).fill(0);
+  return Array.from(table.rows, (row) => {
+    const placed: PlacedCell[] = [];
+    let column = 0;
+    for (const cell of Array.from(row.cells)) {
+      while ((at(covered, column) ?? 0) > 0) column += 1;
+      if (column >= columns) break;
+      const span = Math.min(cell.colSpan, columns - column);
+      placed.push({ cell, column, span });
+      covered.fill(Math.max(1, cell.rowSpan), column, column + span);
+      column += span;
+    }
+    covered = covered.map((rows) => Math.max(0, rows - 1));
+    return placed;
+  });
+}
+
+const isHeaderRow = (row: HTMLTableRowElement | null) =>
+  row !== null && Array.from(row.cells).every((cell) => cell.nodeName === "TH");
+
 /**
  * Measures `table`, which must be laid out at its natural width (see
  * "measuring" in global.css). Null when it isn't laid out at all, e.g. while
@@ -221,57 +271,66 @@ export function measureTable(
   const natural: number[] = new Array(columns).fill(0);
   const narrowest: number[] = new Array(columns).fill(0);
   const body: number[] = new Array(columns).fill(0);
-  const rows: TableMeasure["rows"] = [];
+  // Spanning cells, with their widths with nothing wrapped.
+  const spanning: Array<[SpanningCell, number]> = [];
   const range = table.ownerDocument.createRange();
-  const firstRow = table.rows[0];
-  const headerRow =
-    !!firstRow &&
-    Array.from(firstRow.cells).every((cell) => cell.nodeName === "TH");
-  // Columns still covered by a cell from a row above.
-  const covered: number[] = new Array(columns).fill(0);
+  const headerRow = isHeaderRow(table.rows.item(0));
   let prose = false;
-  Array.from(table.rows).forEach((row, rowIndex) => {
+  const rows = tableGrid(table, columns).map((placed, rowIndex) => {
     const cells: Array<MeasuredCell | null> = new Array(columns).fill(null);
-    let column = 0;
-    for (const cell of Array.from(row.cells)) {
-      while (column < columns && covered[column] > 0) column += 1;
-      if (column >= columns) break;
-      if (cell.colSpan === 1) {
-        const measured = measureCell(cell, range);
-        cells[column] = measured;
-        natural[column] = Math.max(
-          natural[column],
-          cell.getBoundingClientRect().width,
-        );
-        narrowest[column] = Math.max(
-          narrowest[column],
-          measured.inset + widestPiece(measured),
-        );
-        if (!(headerRow && rowIndex === 0)) {
-          const unwrapped = unwrappedWidth(measured);
-          body[column] = Math.max(body[column], measured.inset + unwrapped);
-          if (unwrapped > 2 * TEXT_COLUMN_FLOOR) prose = true;
-        }
+    const inBody = !(headerRow && rowIndex === 0);
+    for (const { cell, column, span } of placed) {
+      const measured = measureCell(cell, range);
+      const unwrapped = unwrappedWidth(measured);
+      if (inBody && unwrapped > 2 * TEXT_COLUMN_FLOOR) prose = true;
+      const width = cell.getBoundingClientRect().width;
+      if (span > 1) {
+        spanning.push([{ row: rowIndex, column, span, cell: measured }, width]);
+        continue;
       }
-      for (let span = 0; span < cell.colSpan && column < columns; span += 1) {
-        covered[column] = Math.max(covered[column], cell.rowSpan);
-        column += 1;
+      cells[column] = measured;
+      natural[column] = Math.max(at(natural, column) ?? 0, width);
+      narrowest[column] = Math.max(
+        at(narrowest, column) ?? 0,
+        measured.inset + widestPiece(measured),
+      );
+      if (inBody) {
+        body[column] = Math.max(
+          at(body, column) ?? 0,
+          measured.inset + unwrapped,
+        );
       }
     }
-    for (let index = 0; index < columns; index += 1) {
-      covered[index] = Math.max(0, covered[index] - 1);
-    }
-    rows.push(cells);
+    return cells;
   });
+  const floor = columnFloors(narrowest, body);
+  // A spanning cell needs the same of its columns together. The browser has
+  // made room for it unwrapped, so this only widens a column no cell has to
+  // itself.
+  for (const [{ row, column, span, cell }, width] of spanning) {
+    widen(natural, column, span, width);
+    const text = headerRow && row === 0 ? 0 : cell.inset + unwrappedWidth(cell);
+    widen(floor, column, span, floorOf(cell.inset + widestPiece(cell), text));
+  }
   if (natural.every((width) => width === 0)) return null;
   // A pixel to spare, so text that exactly fits never wraps on rounding.
-  const fitted = natural.map((width) => Math.ceil(width) + 1);
-  return {
-    natural: fitted,
-    floor: columnFloors(narrowest, body),
-    rows,
-    prose,
-  };
+  const fitted = natural.map((width, column) =>
+    Math.max(Math.ceil(width) + 1, at(floor, column) ?? 0),
+  );
+  const spans = spanning.map(([placed]) => placed);
+  return { natural: fitted, floor, rows, spans, prose };
+}
+
+/**
+ * Widens the `span` columns from `column` evenly until together they are
+ * `need` wide.
+ */
+function widen(widths: number[], column: number, span: number, need: number) {
+  const short = need - sum(widths.slice(column, column + span));
+  if (short <= 0) return;
+  for (let index = column; index < column + span; index += 1) {
+    widths[index] = (at(widths, index) ?? 0) + short / span;
+  }
 }
 
 /**
@@ -282,10 +341,14 @@ export function measureTable(
  */
 export function columnFloors(narrowest: number[], body: number[]) {
   return narrowest.map((piece, column) =>
-    Math.max(
-      Math.ceil(piece) + 1,
-      Math.min(Math.ceil(body[column]) + 1, TEXT_COLUMN_FLOOR),
-    ),
+    floorOf(piece, at(body, column) ?? 0),
+  );
+}
+
+function floorOf(piece: number, text: number) {
+  return Math.max(
+    Math.ceil(piece) + 1,
+    Math.min(Math.ceil(text) + 1, TEXT_COLUMN_FLOOR),
   );
 }
 
@@ -341,16 +404,17 @@ export function fairShares(
   }
   let low = 0;
   let high = Math.max(...natural);
-  const at = (level: number) =>
+  // Every column capped at `level`, above its floor.
+  const levelled = (level: number) =>
     natural.map((width, column) =>
-      Math.max(floor[column], Math.min(level, width)),
+      Math.max(at(floor, column) ?? 0, Math.min(level, width)),
     );
   for (let step = 0; step < 40; step += 1) {
     const level = (low + high) / 2;
-    if (sum(at(level)) > available) high = level;
+    if (sum(levelled(level)) > available) high = level;
     else low = level;
   }
-  return at(low);
+  return levelled(low);
 }
 
 /**
@@ -360,65 +424,80 @@ export function fairShares(
  * wrapped lines.
  */
 function shortestWidths(measure: TableMeasure, start: number[]) {
-  const { natural, floor, rows } = measure;
-  const columns = start.length;
+  const { natural, floor, rows, spans } = measure;
   const widths = start.slice();
-  const cache = natural.map(() => new Map<number, number[]>());
+  let budget = BALANCE_BUDGET;
+  const cache = new Map<string, number[]>();
   const linesAt = (column: number, width: number) => {
-    const key = Math.round(width * 2);
-    let lines = cache[column].get(key);
+    const key = `${column} ${Math.round(width * 2)}`;
+    let lines = cache.get(key);
     if (!lines) {
       lines = rows.map((row) => {
-        const cell = row[column];
+        const cell = at(row, column);
         return cell ? cellLines(cell, width) : 0;
       });
-      cache[column].set(key, lines);
+      cache.set(key, lines);
     }
     return lines;
   };
   const height = () => {
-    const lines = widths.map((width, column) => linesAt(column, width));
-    let tallest = 0;
+    budget -= rows.length * widths.length + spans.length;
+    const tallest = rows.map(() => 1);
     let total = 0;
-    rows.forEach((_row, rowIndex) => {
-      let row = 1;
-      for (let column = 0; column < columns; column += 1) {
-        const cell = lines[column][rowIndex];
-        total += cell;
-        if (cell > row) row = cell;
-      }
-      tallest += row;
+    const add = (row: number, lines: number) => {
+      total += lines;
+      if (lines > (at(tallest, row) ?? 1)) tallest[row] = lines;
+    };
+    widths.forEach((width, column) => {
+      linesAt(column, width).forEach((lines, row) => add(row, lines));
     });
-    return tallest + 0.02 * total;
+    for (const { row, column, span, cell } of spans) {
+      add(row, cellLines(cell, sum(widths.slice(column, column + span))));
+    }
+    return sum(tallest) + 0.02 * total;
   };
   let best = height();
   for (const step of [96, 48, 24, 12, 6, 3]) {
-    for (let guard = 0; guard < 200; guard += 1) {
-      let move: [number, number, number] | null = null;
+    while (budget > 0) {
+      let move: {
+        to: number;
+        toWidth: number;
+        from: number;
+        fromWidth: number;
+      } | null = null;
       let moveHeight = best;
-      for (let to = 0; to < columns; to += 1) {
-        if (widths[to] >= natural[to] - 0.5) continue;
-        for (let from = 0; from < columns; from += 1) {
+      const current = widths.slice();
+      for (const [to, toWidth] of current.entries()) {
+        const room = (at(natural, to) ?? 0) - toWidth;
+        if (room < 0.5) continue;
+        for (const [from, fromWidth] of current.entries()) {
           const amount = Math.min(
             step,
-            natural[to] - widths[to],
-            widths[from] - floor[from],
+            room,
+            fromWidth - (at(floor, from) ?? 0),
           );
           if (from === to || amount < 0.5) continue;
-          widths[to] += amount;
-          widths[from] -= amount;
+          // Out of budget, the widths so far are as short as it found.
+          if (budget <= 0) return widths;
+          widths[to] = toWidth + amount;
+          widths[from] = fromWidth - amount;
           const tried = height();
-          widths[to] -= amount;
-          widths[from] += amount;
+          widths[to] = toWidth;
+          widths[from] = fromWidth;
           if (tried < moveHeight - 1e-9) {
             moveHeight = tried;
-            move = [to, from, amount];
+            move = {
+              to,
+              toWidth: toWidth + amount,
+              from,
+              fromWidth: fromWidth - amount,
+            };
           }
         }
       }
       if (!move) break;
-      widths[move[0]] += move[2];
-      widths[move[1]] -= move[2];
+      widths[move.to] = move.toWidth;
+      widths[move.from] = move.fromWidth;
       best = moveHeight;
     }
   }
@@ -431,7 +510,7 @@ export function planColumns(
   available: number,
   { fitPageWidth = false }: { fitPageWidth?: boolean } = {},
 ): ColumnPlan {
-  const { natural, floor, rows } = measure;
+  const { natural, floor } = measure;
   const floors = sum(floor);
   if (floors > available + 0.5) {
     if (fitPageWidth) {
@@ -444,14 +523,11 @@ export function planColumns(
     const cards = available <= CARD_LAYOUT_MAX_WIDTH && measure.prose;
     // Scrolling anyway, a column needn't wrap its header to make room.
     const widths = floor.map((width, column) =>
-      Math.max(width, Math.min(natural[column], TEXT_COLUMN_FLOOR)),
+      Math.max(width, Math.min(at(natural, column) ?? 0, TEXT_COLUMN_FLOOR)),
     );
     return { widths, layout: cards ? "cards" : "scroll" };
   }
   const shares = fairShares(natural, floor, available);
-  if (rows.length * natural.length >= MAX_CELLS_TO_BALANCE) {
-    return { widths: shares, layout: "columns" };
-  }
   return { widths: shortestWidths(measure, shares), layout: "columns" };
 }
 
@@ -461,25 +537,24 @@ export function planColumns(
  * drawn without an editor.
  */
 export function labelTableCells(table: HTMLTableElement) {
-  const [header, ...body] = Array.from(table.rows);
-  if (!header) return;
-  const labels: string[] = [];
-  if (Array.from(header.cells).every((cell) => cell.nodeName === "TH")) {
-    for (const cell of Array.from(header.cells)) {
-      labels.push(cellLabel(cell.textContent ?? ""));
-      for (let span = 1; span < cell.colSpan; span += 1) labels.push("");
-    }
-  }
-  for (const row of [header, ...body]) {
-    let column = 0;
+  for (const row of Array.from(table.rows)) {
     for (const cell of Array.from(row.cells)) {
-      if (row !== header && labels[column]) {
-        cell.setAttribute("data-label", labels[column]);
-      }
-      if (!cell.textContent?.trim() && !cell.querySelector("img, video")) {
+      if (!cell.textContent.trim() && !cell.querySelector("img, video")) {
         cell.setAttribute("data-empty", "");
       }
-      column += cell.colSpan;
+    }
+  }
+  const header = table.rows.item(0);
+  if (!header || !isHeaderRow(header)) return;
+  const labels: string[] = [];
+  for (const cell of Array.from(header.cells)) {
+    labels.push(cellLabel(cell.textContent));
+    for (let span = 1; span < cell.colSpan; span += 1) labels.push("");
+  }
+  for (const placed of tableGrid(table, labels.length).slice(1)) {
+    for (const { cell, column } of placed) {
+      const label = at(labels, column);
+      if (label) cell.setAttribute("data-label", label);
     }
   }
 }
@@ -526,8 +601,10 @@ export class ContentTableSizer {
           });
     this.resizeObserver?.observe(wrapper);
     // Text measured in a fallback font is measured again in the real one.
-    this.fonts = table.ownerDocument.fonts ?? null;
-    this.fonts?.addEventListener?.("loadingdone", this.remeasure);
+    // Not every DOM has a font set, e.g. happy-dom.
+    const document = table.ownerDocument;
+    this.fonts = "fonts" in document ? document.fonts : null;
+    this.fonts?.addEventListener("loadingdone", this.remeasure);
   }
 
   /**
@@ -562,7 +639,7 @@ export class ContentTableSizer {
   destroy() {
     this.destroyed = true;
     this.resizeObserver?.disconnect();
-    this.fonts?.removeEventListener?.("loadingdone", this.remeasure);
+    this.fonts?.removeEventListener("loadingdone", this.remeasure);
   }
 
   private cols() {
