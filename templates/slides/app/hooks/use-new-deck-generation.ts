@@ -1,4 +1,7 @@
-import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
+import {
+  getAgentChatSubmitTarget,
+  sendToAgentChatAndConfirm,
+} from "@agent-native/core/client/agent-chat";
 import { nanoid } from "nanoid";
 import {
   useCallback,
@@ -621,8 +624,14 @@ function getRunTabId(deckId: string, submitMessageId: string): string | null {
   const inMemory = runTabIds.get(key);
   if (inMemory) return inMemory;
   const stored = window.sessionStorage.getItem(key);
-  if (stored) runTabIds.set(key, stored);
-  return stored;
+  if (stored) {
+    runTabIds.set(key, stored);
+    return stored;
+  }
+  const reported = getAgentChatSubmitTarget(submitMessageId);
+  if (reported)
+    rememberNewDeckGenerationRunTab(deckId, submitMessageId, reported);
+  return reported;
 }
 
 function getRunConversationThreadId(

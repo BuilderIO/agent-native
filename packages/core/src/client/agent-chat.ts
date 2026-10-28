@@ -196,16 +196,36 @@ export interface AgentChatSubmitTarget {
   tabId: string;
 }
 
+const SUBMIT_TARGET_HISTORY_LIMIT = 100;
+const reportedSubmitTargets = new Map<string, string>();
+
 export function reportAgentChatSubmitTarget(
   submitMessageId: string | undefined,
   tabId: string,
 ): void {
   if (!submitMessageId || !tabId || typeof window === "undefined") return;
+  reportedSubmitTargets.delete(submitMessageId);
+  reportedSubmitTargets.set(submitMessageId, tabId);
+  if (reportedSubmitTargets.size > SUBMIT_TARGET_HISTORY_LIMIT) {
+    const oldest = reportedSubmitTargets.keys().next().value;
+    if (oldest !== undefined) reportedSubmitTargets.delete(oldest);
+  }
   window.dispatchEvent(
     new CustomEvent<AgentChatSubmitTarget>(AGENT_CHAT_SUBMIT_TARGET_EVENT, {
       detail: { submitMessageId, tabId },
     }),
   );
+}
+
+/**
+ * The chat tab a submission was routed to. The target event fires once, often
+ * before a lazily loaded route that tracks the submission has mounted, so late
+ * listeners read it here instead of waiting for an event that already passed.
+ */
+export function getAgentChatSubmitTarget(
+  submitMessageId: string,
+): string | null {
+  return reportedSubmitTargets.get(submitMessageId) ?? null;
 }
 
 export function reportAgentChatSubmitResult(

@@ -78,6 +78,7 @@ const {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  getAgentChatSubmitTarget,
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
@@ -87,6 +88,7 @@ const {
   removeAgentChatContextItem,
   removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
+  reportAgentChatSubmitTarget,
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   setAgentChatContextItem,
@@ -2081,6 +2083,27 @@ describe("sendToAgentChat", () => {
       data: parentPostMessageSpy.mock.calls[0][0],
     } as MessageEvent);
     expect(parsed?.surface).toBe("deck-outline");
+  });
+});
+
+describe("getAgentChatSubmitTarget", () => {
+  it("keeps a reported target for listeners that subscribe after the event", () => {
+    reportAgentChatSubmitTarget("submit-late-listener", "tab-late-listener");
+
+    expect(getAgentChatSubmitTarget("submit-late-listener")).toBe(
+      "tab-late-listener",
+    );
+    expect(getAgentChatSubmitTarget("submit-never-routed")).toBeNull();
+  });
+
+  it("forgets the oldest targets once the history is full", () => {
+    reportAgentChatSubmitTarget("submit-oldest", "tab-oldest");
+    for (let index = 0; index < 100; index += 1) {
+      reportAgentChatSubmitTarget(`submit-filler-${index}`, "tab-filler");
+    }
+
+    expect(getAgentChatSubmitTarget("submit-oldest")).toBeNull();
+    expect(getAgentChatSubmitTarget("submit-filler-99")).toBe("tab-filler");
   });
 });
 

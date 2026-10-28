@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { AGENT_CHAT_SUBMIT_RESULT_EVENT } from "@agent-native/core/client/agent-chat";
+import {
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
+  reportAgentChatSubmitTarget,
+} from "@agent-native/core/client/agent-chat";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
@@ -32,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   guidedQuestionFlowOptions: [] as unknown[],
   guidedQuestionQuestions: [] as Array<{ id: string; question: string }>,
   guidedQuestionPayload: null as { threadId?: string } | null,
+  guidedQuestionAskerThreadId: null as string | null,
   guidedQuestionRefetchPending: vi.fn(),
   pendingUnloadGuard: vi.fn(),
   attemptGenerating: false,
@@ -208,6 +212,22 @@ vi.mock(
     useGuidedQuestionFlow: (options: { threadId?: string }) => {
       mocks.guidedQuestionFlowOptions.push(options);
       mocks.guidedFlowOptions = options;
+      if (mocks.guidedQuestionAskerThreadId) {
+        // Like the real hook, a question asked by a thread is shown only to
+        // the flow that knows that thread.
+        const visible = options.threadId === mocks.guidedQuestionAskerThreadId;
+        return {
+          payload: null,
+          questions: visible ? mocks.guidedQuestionQuestions : null,
+          handleSubmit: vi.fn(),
+          handleSkip: vi.fn(),
+          refetchPendingQuestionStatus: async () =>
+            mocks.guidedQuestionQuestions.length > 0 &&
+            options.threadId === mocks.guidedQuestionAskerThreadId
+              ? { status: "pending" as const }
+              : { status: "none" as const },
+        };
+      }
       return {
         payload: mocks.guidedQuestionPayload,
         questions: mocks.guidedQuestionQuestions.length
@@ -482,6 +502,7 @@ describe("DeckEditor generation signal wiring", () => {
       guidedQuestionFlowOptions: [],
       guidedQuestionQuestions: [],
       guidedQuestionPayload: null,
+      guidedQuestionAskerThreadId: null,
       attemptGenerating: false,
       attemptObservedRun: false,
       attemptRunError: false,
@@ -817,6 +838,63 @@ describe("DeckEditor generation signal wiring", () => {
         "slides:empty-generation-retry-recovery:deck-1",
       ),
     ).toBeNull();
+  });
+
+  it("waits on a question asked by a run the chat routed before the editor mounted", async () => {
+    // The deck route loads lazily, so Home's submission can reach its chat
+    // tab before this editor is listening for the target event.
+    reportAgentChatSubmitTarget("submit-before-mount", "generation-tab");
+    mocks.targetTabId = "generation-tab";
+    mocks.startedTabId = "generation-tab";
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1&generationSubmitId=submit-before-mount",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "generation-tab",
+            tabId: "generation-tab",
+          },
+        }),
+      );
+    });
+    mocks.guidedQuestionAskerThreadId = "generation-tab";
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "Which story should the deck tell?" },
+    ];
+    mocks.attemptGenerating = false;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            threadId: "generation-tab",
+            tabId: "generation-tab",
+            reason: "run.completed",
+          },
+        }),
+      );
+      publishAgentGeneratingChange();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("question-flow")).toBeTruthy(),
+    );
+    expect(screen.queryByText("deckEditor.tryAgain")).toBeNull();
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
   });
 
   it("persists the prompt when the guided-question check fails", async () => {

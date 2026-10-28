@@ -26,6 +26,7 @@ import {
 } from "./use-new-deck-generation";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  getAgentChatSubmitTarget: () => null,
   sendToAgentChatAndConfirm: vi.fn(),
 }));
 

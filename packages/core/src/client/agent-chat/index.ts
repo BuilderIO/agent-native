@@ -48,6 +48,7 @@ export {
   formatAgentChatContextItemsForPrompt,
   generateTabId,
   getAgentChatContextState,
+  getAgentChatSubmitTarget,
   imageContentFromDataUrl,
   insertAgentComposerReference,
   isAgentChatSubmitCancelled,
