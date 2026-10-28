@@ -4918,21 +4918,27 @@ export function getBrowserSessionConfigurationError(): string | undefined {
   return undefined;
 }
 
+/** The additional provider could not answer; the request must not resolve at all. */
+const ADDITIONAL_SESSION_FAILED = Symbol("additional-session-failed");
+
 /**
- * The additional provider's verdict, or null to fall through to the built-in
- * sessions. A provider failure must never lock out everyone else.
+ * The additional provider's verdict: a session, null to fall through to the
+ * built-in sessions, or a failure. A provider that cannot answer (a store
+ * outage, unreadable state) is not "no session": falling through would let a
+ * browser holding two identities silently become the other one, so the
+ * request is marked unavailable (503) instead.
  */
 async function resolveAdditionalSession(
   event: H3Event,
   resolve: ((event: H3Event) => Promise<AuthSession | null>) | null | undefined,
-): Promise<AuthSession | null> {
+): Promise<AuthSession | null | typeof ADDITIONAL_SESSION_FAILED> {
   if (!resolve || customGetSession) return null;
   try {
     const session = await resolve(event);
     return session ? normalizeCustomSession(session) : null;
   } catch (error) {
-    console.error("[auth] additional session provider error:", error);
-    return null;
+    markSessionResolutionUnavailable(event, "additional-session", error);
+    return ADDITIONAL_SESSION_FAILED;
   }
 }
 
@@ -4948,6 +4954,7 @@ async function resolveBrowserCookieSession(
       event,
       additionalGetBrowserSession,
     );
+    if (additional === ADDITIONAL_SESSION_FAILED) return null;
     if (additional) return additional;
   }
   if (customGetSession) {
@@ -5020,6 +5027,7 @@ async function resolveSessionUncached(
   const additionalSession = hasBearerAuthorization(event)
     ? null
     : await resolveAdditionalSession(event, additionalGetSession);
+  if (additionalSession === ADDITIONAL_SESSION_FAILED) return null;
   if (additionalSession) return additionalSession;
 
   const accessTokens = getAccessTokens();

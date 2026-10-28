@@ -9724,6 +9724,7 @@ describe("server/auth", () => {
           return value === undefined ? null : { value };
         }),
         deleteAppSecret: vi.fn(async () => true),
+        listAppSecretsForScope: vi.fn(async () => []),
       }));
       vi.doMock("./framework-request-handler.js", () => ({
         getH3App: (app: any) => app,

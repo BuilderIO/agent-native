@@ -25,6 +25,7 @@ import {
   createHash,
   createHmac,
   randomBytes,
+  randomUUID,
   timingSafeEqual,
 } from "node:crypto";
 
@@ -32,6 +33,7 @@ import { ActionContractError } from "@agent-native/core/action";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
 import {
   deleteAppSecret,
+  listAppSecretsForScope,
   readAppSecret,
   writeAppSecret,
 } from "@agent-native/core/secrets";
@@ -200,17 +202,32 @@ interface DelegatedCredential {
   uid: string;
   spaceId?: string | undefined;
   expiresAtMs: number;
-  /** Live sign-ins (cookie session ids), newest first. Logout deletes the row. */
-  sids: string[];
 }
 
 const CREDENTIAL_SECRET_KEY = "BUILDER_DELEGATED_CREDENTIAL";
-/** Sign-ins kept per user, so a few devices stay signed in at once. */
-const MAX_LIVE_SIGN_INS = 10;
+/**
+ * One row per sign-in (per cookie session id), so signing in, renewing and
+ * signing out never read-modify-write a shared list: each touches only its
+ * own row. A row is a live sign-in; deleting it revokes every copy of that
+ * sign-in's cookie.
+ */
+const SIGN_IN_KEY_PREFIX = "BUILDER_SIGN_IN:";
+/** A sign-in's absolute lifetime. The host renews the cookie within it. */
+const SIGN_IN_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+/** Newest sign-ins kept per user; older rows are pruned when a new one is made. */
+const MAX_SIGN_IN_ROWS = 20;
 
 function credentialRef(owner: string) {
   return {
     key: CREDENTIAL_SECRET_KEY,
+    scope: "user" as const,
+    scopeId: owner,
+  };
+}
+
+function signInRef(owner: string, sid: string) {
+  return {
+    key: `${SIGN_IN_KEY_PREFIX}${sid}`,
     scope: "user" as const,
     scopeId: owner,
   };
@@ -224,24 +241,28 @@ class UnreadableCredentialError extends Error {
 }
 
 /** A stored row that does not parse is corrupt state, never "no credential". */
-function parseCredential(value: string): DelegatedCredential {
-  let parsed: Partial<DelegatedCredential>;
+function parseStored<T>(
+  value: string,
+  valid: (parsed: Partial<T>) => boolean,
+): T {
+  let parsed: Partial<T>;
   try {
-    parsed = JSON.parse(value) as Partial<DelegatedCredential>;
+    parsed = JSON.parse(value) as Partial<T>;
   } catch {
     throw new UnreadableCredentialError();
   }
-  if (
-    typeof parsed.token !== "string" ||
-    typeof parsed.uid !== "string" ||
-    typeof parsed.expiresAtMs !== "number" ||
-    !Array.isArray(parsed.sids) ||
-    !parsed.sids.every((sid) => typeof sid === "string")
-  ) {
-    throw new UnreadableCredentialError();
-  }
-  return parsed as DelegatedCredential;
+  if (!valid(parsed)) throw new UnreadableCredentialError();
+  return parsed as T;
 }
+
+const parseCredential = (value: string) =>
+  parseStored<DelegatedCredential>(
+    value,
+    (parsed) =>
+      typeof parsed.token === "string" &&
+      typeof parsed.uid === "string" &&
+      typeof parsed.expiresAtMs === "number",
+  );
 
 /** The stored row, expired or not; null only when there is no row. */
 async function readStoredCredential(
@@ -251,34 +272,92 @@ async function readStoredCredential(
   return secret ? parseCredential(secret.value) : null;
 }
 
+/** Whether this sign-in is live: its row exists and is within its lifetime. */
+async function isSignInLive(owner: string, sid: string): Promise<boolean> {
+  const secret = await readAppSecret(signInRef(owner, sid));
+  if (!secret) return false;
+  const { expiresAtMs } = parseStored<{ expiresAtMs: number }>(
+    secret.value,
+    (parsed) => typeof parsed.expiresAtMs === "number",
+  );
+  return expiresAtMs >= Date.now();
+}
+
+/** The user's sign-in rows, newest first. */
+async function listSignIns(owner: string) {
+  const rows = await listAppSecretsForScope("user", owner);
+  return rows.filter((row) => row.key.startsWith(SIGN_IN_KEY_PREFIX));
+}
+
+/**
+ * The sign-in id for an exchange. A host refreshing a live session (Firebase
+ * tokens last an hour) keeps its sign-in rather than minting another, so
+ * routine refreshes neither use up slots nor evict another device. Anything
+ * else, including a cookie whose sign-in was revoked, is a new sign-in.
+ */
+export async function resolveSignInId(
+  event: H3Event,
+  identity: BuilderIdentity,
+): Promise<{ sid: string; isNew: boolean }> {
+  const cookie = getCookie(event, BUILDER_IDENTITY_COOKIE);
+  const presented = cookie ? decodeIdentityCookie(cookie) : null;
+  if (
+    presented &&
+    presented.uid === identity.uid &&
+    presented.projectId === identity.projectId &&
+    (await isSignInLive(
+      builderOwnerEmail(identity.projectId, identity.uid),
+      presented.sid,
+    ))
+  ) {
+    return { sid: presented.sid, isNew: false };
+  }
+  return { sid: randomUUID(), isNew: true };
+}
+
 export async function rememberDelegatedCredential(
   identity: BuilderIdentity,
   token: string,
   sid: string,
+  options: { isNew?: boolean } = {},
 ): Promise<void> {
   const exp = decodeJwt(token).exp;
   const owner = builderOwnerEmail(identity.projectId, identity.uid);
-  // Other sign-ins (another device) stay valid; an unreadable row is replaced,
-  // since this sign-in is proving the user right now.
-  const earlier = await readStoredCredential(owner).catch((error) => {
-    if (error instanceof UnreadableCredentialError) return null;
-    throw error;
-  });
   const entry: DelegatedCredential = {
     token,
     uid: identity.uid,
     spaceId: identity.spaceId,
     expiresAtMs: typeof exp === "number" ? exp * 1000 : Date.now() + 5 * 60_000,
-    sids: [sid, ...(earlier?.sids ?? []).filter((id) => id !== sid)].slice(
-      0,
-      MAX_LIVE_SIGN_INS,
-    ),
   };
+  // The token is the user's newest; last writer wins, which is what we want.
   await writeAppSecret({
     ...credentialRef(owner),
     value: JSON.stringify(entry),
     description: "Builder sign-in for Design (renewed hourly)",
   });
+  // A renewal never rewrites its sign-in row, so a renewal racing a sign-out
+  // cannot bring a revoked sign-in back.
+  if (options.isNew === false) return;
+  await writeAppSecret({
+    ...signInRef(owner, sid),
+    value: JSON.stringify({ expiresAtMs: Date.now() + SIGN_IN_LIFETIME_MS }),
+    description: "A Builder sign-in to Design",
+  });
+  // Housekeeping only: failing to prune must not fail a sign-in.
+  await pruneSignIns(owner).catch((error) =>
+    console.warn("[builder-identity] could not prune old sign-ins:", error),
+  );
+}
+
+async function pruneSignIns(owner: string): Promise<void> {
+  const rows = await listSignIns(owner);
+  const cutoff = Date.now() - SIGN_IN_LIFETIME_MS;
+  const stale = rows.filter(
+    (row, index) => row.createdAt < cutoff || index >= MAX_SIGN_IN_ROWS,
+  );
+  for (const row of stale) {
+    await deleteAppSecret({ key: row.key, scope: "user", scopeId: owner });
+  }
 }
 
 /**
@@ -493,8 +572,7 @@ export async function getBuilderIdentitySession(event: H3Event) {
   const owner = builderOwnerEmail(identity.projectId, identity.uid);
   // A correctly signed cookie is not enough: its sign-in must still be live,
   // or a copy taken before logout would keep working until it expired.
-  const stored = await readStoredCredential(owner);
-  if (!stored?.sids.includes(identity.sid)) return null;
+  if (!(await isSignInLive(owner, identity.sid))) return null;
   return {
     email: owner,
     // The Firebase project is part of the id: uids repeat across projects, and
@@ -507,18 +585,21 @@ export async function getBuilderIdentitySession(event: H3Event) {
 }
 
 /**
- * Sign-out for a Builder session: expire its cookie and forget the stored
- * Builder credential, so the user is signed out of Design and Design can no
- * longer act as them.
+ * Sign-out for a Builder session: revoke this sign-in (every copy of its
+ * cookie, on every instance), then expire the browser's cookie. The user's
+ * other devices stay signed in; the stored Builder credential goes only when
+ * no sign-in is left to use it. Revocation comes first, so if the store fails
+ * the cookie is kept and the user can retry.
  */
 export async function clearBuilderIdentitySession(event: H3Event) {
   const cookie = getCookie(event, BUILDER_IDENTITY_COOKIE);
   const identity = cookie ? decodeIdentityCookie(cookie) : null;
+  if (identity) {
+    const owner = builderOwnerEmail(identity.projectId, identity.uid);
+    await deleteAppSecret(signInRef(owner, identity.sid));
+    if ((await listSignIns(owner)).length === 0) {
+      await deleteAppSecret(credentialRef(owner));
+    }
+  }
   deleteCookie(event, BUILDER_IDENTITY_COOKIE, { path: "/" });
-  if (!identity) return;
-  // Every sign-in of this user, on every device and instance: the row is the
-  // list of live ones.
-  await deleteAppSecret(
-    credentialRef(builderOwnerEmail(identity.projectId, identity.uid)),
-  );
 }

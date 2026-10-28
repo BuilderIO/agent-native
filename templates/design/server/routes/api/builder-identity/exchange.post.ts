@@ -2,8 +2,6 @@
  * Builder → Design identity exchange (spike). See server/lib/builder-identity.ts.
  * Public route: it authenticates the Builder ID token itself.
  */
-import { randomUUID } from "node:crypto";
-
 import {
   createError,
   defineEventHandler,
@@ -19,6 +17,7 @@ import {
   identityCookieMaxAge,
   isBuilderIdentityEnabled,
   rememberDelegatedCredential,
+  resolveSignInId,
   verifyBuilderIdToken,
 } from "../../../lib/builder-identity.js";
 
@@ -52,8 +51,10 @@ export default defineEventHandler(async (event) => {
     });
   }
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : undefined;
-  const sid = randomUUID();
-  await rememberDelegatedCredential({ ...identity, spaceId }, token, sid);
+  const { sid, isNew } = await resolveSignInId(event, identity);
+  await rememberDelegatedCredential({ ...identity, spaceId }, token, sid, {
+    isNew,
+  });
   setCookie(
     event,
     BUILDER_IDENTITY_COOKIE,

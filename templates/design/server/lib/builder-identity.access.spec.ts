@@ -5,7 +5,10 @@ process.env.BUILDER_IDENTITY = "1";
 // The app secrets store, shared by every "instance" in these tests.
 const store = vi.hoisted(() => ({
   rows: new Map<string, string>(),
+  created: new Map<string, number>(),
+  clock: 0,
   failReads: false,
+  failDeletes: false,
 }));
 const registered = vi.hoisted(() => ({
   provider: null as null | ((email: string) => unknown),
@@ -25,15 +28,32 @@ vi.mock("@agent-native/core/secrets", () => ({
       key: string;
       value: string;
     }) => {
-      store.rows.set(`${ref.scope}:${ref.scopeId}:${ref.key}`, ref.value);
+      const id = `${ref.scope}:${ref.scopeId}:${ref.key}`;
+      if (!store.rows.has(id)) store.created.set(id, ++store.clock);
+      store.rows.set(id, ref.value);
       return "id";
     },
   ),
   deleteAppSecret: vi.fn(
     async (ref: { scope: string; scopeId: string; key: string }) => {
-      return store.rows.delete(`${ref.scope}:${ref.scopeId}:${ref.key}`);
+      if (store.failDeletes) throw new Error("secrets store down");
+      const id = `${ref.scope}:${ref.scopeId}:${ref.key}`;
+      store.created.delete(id);
+      return store.rows.delete(id);
     },
   ),
+  listAppSecretsForScope: vi.fn(async (scope: string, scopeId: string) => {
+    const prefix = `${scope}:${scopeId}:`;
+    return [...store.rows.keys()]
+      .filter((id) => id.startsWith(prefix))
+      .map((id) => ({
+        key: id.slice(prefix.length),
+        // Newest first, like the real store (insertion order stands in for time).
+        createdAt: Date.now(),
+        order: store.created.get(id) ?? 0,
+      }))
+      .sort((a, b) => b.order - a.order);
+  }),
   readAppSecret: vi.fn(
     async (ref: { scope: string; scopeId: string; key: string }) => {
       if (store.failReads) throw new Error("secrets store down");
@@ -52,6 +72,7 @@ const {
   getBuilderIdentitySession,
   isBuilderOwnerEmail,
   rememberDelegatedCredential,
+  resolveSignInId,
   BUILDER_IDENTITY_COOKIE,
 } = await import("./builder-identity.js");
 
@@ -414,14 +435,86 @@ describe("Builder sessions are revocable", () => {
     }
   });
 
-  it("keeps only the newest ten sign-ins", async () => {
-    for (let i = 0; i < 11; i++) await remember("many", `sid-${i}`);
+  it("prunes the oldest sign-ins past twenty", async () => {
+    for (let i = 0; i < 21; i++) await remember("many", `sid-${i}`);
     await expect(
       getBuilderIdentitySession(eventWith(cookieFor("many", "sid-0"))),
     ).resolves.toBeNull();
     await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("many", "sid-10"))),
+      getBuilderIdentitySession(eventWith(cookieFor("many", "sid-20"))),
     ).resolves.not.toBeNull();
+  });
+
+  it("lets a sign-in made while another is being created keep both", async () => {
+    // No shared list to read-modify-write: each sign-in is its own row.
+    await Promise.all([
+      remember("racing", "sid-a"),
+      remember("racing", "sid-b"),
+      remember("racing", "sid-c"),
+    ]);
+    for (const sid of ["sid-a", "sid-b", "sid-c"]) {
+      await expect(
+        getBuilderIdentitySession(eventWith(cookieFor("racing", sid))),
+      ).resolves.not.toBeNull();
+    }
+  });
+
+  it("signs out only the device that signed out", async () => {
+    await remember("two-places", "sid-laptop");
+    await remember("two-places", "sid-phone");
+    await clearBuilderIdentitySession(
+      eventWith(cookieFor("two-places", "sid-laptop")),
+    );
+
+    await expect(
+      getBuilderIdentitySession(
+        eventWith(cookieFor("two-places", "sid-laptop")),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      getBuilderIdentitySession(
+        eventWith(cookieFor("two-places", "sid-phone")),
+      ),
+    ).resolves.not.toBeNull();
+    // The phone still needs the Builder credential.
+    await expect(
+      registered.provider!(builderOwnerEmail(PROJECT, "two-places")),
+    ).resolves.toMatchObject({ spaceId: "space-1" });
+  });
+
+  it("forgets the Builder credential once the last sign-in is gone", async () => {
+    await remember("last-one", "sid-only");
+    await clearBuilderIdentitySession(
+      eventWith(cookieFor("last-one", "sid-only")),
+    );
+    await expect(
+      registered.provider!(builderOwnerEmail(PROJECT, "last-one")),
+    ).resolves.toBe("none");
+  });
+
+  it("revokes before it expires the cookie, so a failed sign-out can be retried", async () => {
+    await remember("retry", "sid-retry");
+    const event = eventWith(cookieFor("retry", "sid-retry")) as unknown as {
+      res: { headers: Headers };
+    };
+    store.failDeletes = true;
+    try {
+      await expect(clearBuilderIdentitySession(event as never)).rejects.toThrow(
+        "secrets store down",
+      );
+    } finally {
+      store.failDeletes = false;
+    }
+    // Still signed in, with the cookie intact: nothing was half done.
+    expect(event.res.headers.get("set-cookie")).toBeNull();
+    await expect(
+      getBuilderIdentitySession(eventWith(cookieFor("retry", "sid-retry"))),
+    ).resolves.not.toBeNull();
+
+    await clearBuilderIdentitySession(event as never);
+    expect(event.res.headers.get("set-cookie")).toContain(
+      `${BUILDER_IDENTITY_COOKIE}=;`,
+    );
   });
 
   it("does not hold a credential in process memory past sign-out", async () => {
@@ -445,11 +538,18 @@ describe("Builder sessions are revocable", () => {
       "could not be read",
     );
     await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("corrupt", "sid-corrupt"))),
-    ).rejects.toThrow("could not be read");
-    await expect(
       canAccessBuilderProject(owner, "proj-corrupt"),
     ).rejects.toMatchObject({ errorCode: "builder_unavailable" });
+  });
+
+  it("reports an unreadable sign-in row instead of reading it as signed out", async () => {
+    const owner = builderOwnerEmail(PROJECT, "corrupt-sign-in");
+    store.rows.set(`user:${owner}:BUILDER_SIGN_IN:sid-corrupt`, "{not json");
+    await expect(
+      getBuilderIdentitySession(
+        eventWith(cookieFor("corrupt-sign-in", "sid-corrupt")),
+      ),
+    ).rejects.toThrow("could not be read");
   });
 
   it("replaces an unreadable row when the user signs in again", async () => {
@@ -461,5 +561,88 @@ describe("Builder sessions are revocable", () => {
         eventWith(cookieFor("corrupt-again", "sid-fresh")),
       ),
     ).resolves.not.toBeNull();
+  });
+});
+
+describe("Renewing a Builder sign-in", () => {
+  const eventWith = (cookie: string) =>
+    ({
+      req: { headers: new Headers({ cookie }) },
+      res: { headers: new Headers() },
+      context: {},
+    }) as never;
+  const identity = (uid: string, projectId = PROJECT) => ({
+    uid,
+    projectId,
+    email: `${uid}@example.com`,
+  });
+  const cookieFor = (uid: string, sid: string, projectId = PROJECT) =>
+    `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ ...identity(uid, projectId), sid })}`;
+
+  it("keeps the sign-in a live session already has, so refreshes use no slots", async () => {
+    await rememberDelegatedCredential(
+      { ...identity("renewing"), spaceId: "space-1" },
+      tokenFor("renewing"),
+      "sid-renewing",
+    );
+    const before = store.rows.size;
+
+    const renewal = await resolveSignInId(
+      eventWith(cookieFor("renewing", "sid-renewing")),
+      identity("renewing"),
+    );
+    expect(renewal).toEqual({ sid: "sid-renewing", isNew: false });
+
+    await rememberDelegatedCredential(
+      { ...identity("renewing"), spaceId: "space-1" },
+      tokenFor("renewing"),
+      renewal.sid,
+      { isNew: renewal.isNew },
+    );
+    expect(store.rows.size).toBe(before);
+  });
+
+  it("starts a new sign-in when the cookie's sign-in was revoked, even if a renewal races it", async () => {
+    await rememberDelegatedCredential(
+      { ...identity("revoked"), spaceId: "space-1" },
+      tokenFor("revoked"),
+      "sid-revoked",
+    );
+    const cookie = cookieFor("revoked", "sid-revoked");
+    await clearBuilderIdentitySession(eventWith(cookie));
+
+    // A renewal that began before sign-out finishes after it: it must not
+    // bring the revoked sign-in back.
+    await rememberDelegatedCredential(
+      { ...identity("revoked"), spaceId: "space-1" },
+      tokenFor("revoked"),
+      "sid-revoked",
+      { isNew: false },
+    );
+    await expect(
+      getBuilderIdentitySession(eventWith(cookie)),
+    ).resolves.toBeNull();
+
+    const next = await resolveSignInId(eventWith(cookie), identity("revoked"));
+    expect(next.isNew).toBe(true);
+    expect(next.sid).not.toBe("sid-revoked");
+  });
+
+  it("does not reuse another user's or another project's sign-in", async () => {
+    await rememberDelegatedCredential(
+      { ...identity("owner-a"), spaceId: "space-1" },
+      tokenFor("owner-a"),
+      "sid-a",
+    );
+    const cookie = cookieFor("owner-a", "sid-a");
+    await expect(
+      resolveSignInId(eventWith(cookie), identity("someone-else")),
+    ).resolves.toMatchObject({ isNew: true });
+    await expect(
+      resolveSignInId(eventWith(cookie), identity("owner-a", "builder-io-qa")),
+    ).resolves.toMatchObject({ isNew: true });
+    await expect(
+      resolveSignInId(eventWith(""), identity("owner-a")),
+    ).resolves.toMatchObject({ isNew: true });
   });
 });

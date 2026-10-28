@@ -160,20 +160,24 @@ describe("additional session provider", () => {
     expect(getAdditionalSession).toHaveBeenCalled();
   });
 
-  it("never locks out built-in users when the provider throws", async () => {
+  it("refuses the request, rather than becoming another identity, when the provider cannot answer", async () => {
     mockBuiltInAuth();
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const { autoMountAuth, getSession } = await import("./auth.js");
+      const { autoMountAuth, getSession, isSessionResolutionUnavailable } =
+        await import("./auth.js");
       await autoMountAuth(createMockApp(), {
         getAdditionalSession: async () => {
           throw new Error("provider down");
         },
       });
+      const event = cookieEvent();
 
-      await expect(getSession(cookieEvent())).resolves.toMatchObject({
-        email: memberEmail,
-      });
+      // A built-in session exists for this browser, but it is not who the
+      // request claimed to be: no session, and a 503 rather than a 401.
+      await expect(getSession(event)).resolves.toBeNull();
+      expect(isSessionResolutionUnavailable(event)).toBe(true);
+      expect(builtInSession).not.toHaveBeenCalled();
     } finally {
       error.mockRestore();
     }
@@ -247,12 +251,15 @@ describe("additional session provider", () => {
       expect(getAdditionalBrowserSession).not.toHaveBeenCalled();
     });
 
-    it("resolves the built-in cookie session when the provider returns null or throws", async () => {
+    it("resolves the built-in cookie session when the provider returns null, and refuses when it cannot answer", async () => {
       mockBuiltInAuth();
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
-        const { autoMountAuth, getBrowserCookieSession } =
-          await import("./auth.js");
+        const {
+          autoMountAuth,
+          getBrowserCookieSession,
+          isSessionResolutionUnavailable,
+        } = await import("./auth.js");
         let behavior: "null" | "throw" = "null";
         await autoMountAuth(createMockApp(), {
           getAdditionalSession: async () => null,
@@ -266,9 +273,9 @@ describe("additional session provider", () => {
           getBrowserCookieSession(cookieEvent()),
         ).resolves.toMatchObject({ email: memberEmail });
         behavior = "throw";
-        await expect(
-          getBrowserCookieSession(cookieEvent()),
-        ).resolves.toMatchObject({ email: memberEmail });
+        const failing = cookieEvent();
+        await expect(getBrowserCookieSession(failing)).resolves.toBeNull();
+        expect(isSessionResolutionUnavailable(failing)).toBe(true);
       } finally {
         error.mockRestore();
       }
