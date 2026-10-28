@@ -290,7 +290,8 @@ pnpm's own command), then stop the dev server, remove `AUTH_DISABLED` from
 "production configuration errors" block printed with exit 0 is the deploy
 checklist, not a defect (run and deploy guide). Deploy only when asked or
 when the provider is already configured. Then hand the app over as that guide
-says: an interactive run restarts it with `--open`, a headless run stops it.
+says: an interactive run on the person's machine restarts it with `--open`, a
+headless run stops it.
 
 ## Final report
 
@@ -304,10 +305,9 @@ Lead with the app, in plain words:
 4. One line on what is built in: integrations (Slack, Notion, GitHub, and
    more), automations, and an MCP server other AI tools can use, in Settings.
 
-Under a short **Details** heading: directory, PID, and stop command; archetype
-and direction; absolute screenshot paths, rubric scores, and open criteria;
-verification with evidence labels, and what the review click left behind; a
-deployment URL only if real.
+Under a short **Details** heading: directory, PID, and stop command; absolute
+screenshot paths, rubric scores, and open criteria; verification with evidence
+labels, and what the review click left behind; a deployment URL only if real.
 
 Report what exists, not what was intended. Never claim the app exists without
 a path and a verification result. If the scaffold never completed, a step was

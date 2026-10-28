@@ -161,18 +161,30 @@ deployment.
 
 - **Hand-off.** After an interactive invocation (see "When to ask" in
   SKILL.md for what counts), start the server once more after `pnpm build`,
-  with `--open`, and poll it as in Run:
+  from the app directory with `--open`, and poll it as in Run:
 
   ```bash
   (nohup pnpm exec agent-native dev --port <port> --open > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
   ```
 
-  Vite opens `http://localhost:<port>/` once, in the person's default browser.
-  That is the first visit: the page waits for the server, then signs them in
-  as the local dev account. From then on, check the app with `curl` only, never
-  a browser or screenshot of your own. If the person is not at this machine
-  (Claude Cowork, an SSH session, a container), leave `--open` off and give
-  the URL. Report the URL, PID, and stop command.
+  Inside a workspace, too, start it from the app's own directory: at the
+  workspace root, `agent-native dev` runs the gateway, which opens its
+  default app (Dispatch) instead. Vite opens `http://localhost:<port>/` once,
+  in the person's default browser. That is the first visit: when the
+  database has no accounts yet, the page waits for the server, then signs
+  them in as the local dev account. When it already has one (a resumed app, a
+  shared workspace database), they get the sign-in page instead: "Continue as
+  local dev" for the dev account, otherwise their own sign-in. From then on,
+  check the app with `curl` only, never a browser or screenshot of your own.
+
+  If the person is not at this machine (Claude Cowork, an SSH session, a
+  container), leave `--open` off. Local dev sign-in answers only requests
+  from this machine, so a LAN address or a container's published port shows a
+  sign-in page the dev account cannot pass. Give a URL through a forwarded
+  port (an SSH `-L` tunnel, the editor's port forwarding) or the command
+  that forwards it; if none can reach them, say so, and give the folder and
+  `pnpm dev` to run it on their own machine. Report the URL, PID, and stop
+  command.
 
 - In a headless or harness run, stop every process you started, by its PID,
   before exiting, and open nothing. The report gives the app's folder and

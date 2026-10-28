@@ -290,7 +290,8 @@ pnpm's own command), then stop the dev server, remove \`AUTH_DISABLED\` from
 "production configuration errors" block printed with exit 0 is the deploy
 checklist, not a defect (run and deploy guide). Deploy only when asked or
 when the provider is already configured. Then hand the app over as that guide
-says: an interactive run restarts it with \`--open\`, a headless run stops it.
+says: an interactive run on the person's machine restarts it with \`--open\`, a
+headless run stops it.
 
 ## Final report
 
@@ -304,10 +305,9 @@ Lead with the app, in plain words:
 4. One line on what is built in: integrations (Slack, Notion, GitHub, and
    more), automations, and an MCP server other AI tools can use, in Settings.
 
-Under a short **Details** heading: directory, PID, and stop command; archetype
-and direction; absolute screenshot paths, rubric scores, and open criteria;
-verification with evidence labels, and what the review click left behind; a
-deployment URL only if real.
+Under a short **Details** heading: directory, PID, and stop command; absolute
+screenshot paths, rubric scores, and open criteria; verification with evidence
+labels, and what the review click left behind; a deployment URL only if real.
 
 Report what exists, not what was intended. Never claim the app exists without
 a path and a verification result. If the scaffold never completed, a step was
@@ -360,12 +360,12 @@ On a browser host the host is an orchestrator, not the build environment:
    files, keys, tokens, or other credentials; if a knowledge file holds one,
    leave it out of the attachment and say so in the report.
 3. Lead the report with what Dispatch actually returned: its Builder link
-   (\`url\`), where the person can watch the app being built, or its status when
-   there is no link. Then give the branch and the path, and the rest of the
-   final report in SKILL.md. The browser host cannot run or inspect the app,
-   and a returned path can 404 until the branch merges and deploys, so the
-   report ends at pending or unverified unless a status or verification action
-   is available to call.
+   (\`url\`), where the person can watch the app being built, or, when there is
+   no link, its \`status\` or \`message\`. Then give the branch and the path,
+   and the rest of the final report in SKILL.md. The browser host cannot run
+   or inspect the app, and a returned path can 404 until the branch merges and
+   deploys, so the report ends at pending or unverified unless a status or
+   verification action is available to call.
 
 Rules on this path:
 
@@ -804,18 +804,30 @@ deployment.
 
 - **Hand-off.** After an interactive invocation (see "When to ask" in
   SKILL.md for what counts), start the server once more after \`pnpm build\`,
-  with \`--open\`, and poll it as in Run:
+  from the app directory with \`--open\`, and poll it as in Run:
 
   \`\`\`bash
   (nohup pnpm exec agent-native dev --port <port> --open > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
   \`\`\`
 
-  Vite opens \`http://localhost:<port>/\` once, in the person's default browser.
-  That is the first visit: the page waits for the server, then signs them in
-  as the local dev account. From then on, check the app with \`curl\` only, never
-  a browser or screenshot of your own. If the person is not at this machine
-  (Claude Cowork, an SSH session, a container), leave \`--open\` off and give
-  the URL. Report the URL, PID, and stop command.
+  Inside a workspace, too, start it from the app's own directory: at the
+  workspace root, \`agent-native dev\` runs the gateway, which opens its
+  default app (Dispatch) instead. Vite opens \`http://localhost:<port>/\` once,
+  in the person's default browser. That is the first visit: when the
+  database has no accounts yet, the page waits for the server, then signs
+  them in as the local dev account. When it already has one (a resumed app, a
+  shared workspace database), they get the sign-in page instead: "Continue as
+  local dev" for the dev account, otherwise their own sign-in. From then on,
+  check the app with \`curl\` only, never a browser or screenshot of your own.
+
+  If the person is not at this machine (Claude Cowork, an SSH session, a
+  container), leave \`--open\` off. Local dev sign-in answers only requests
+  from this machine, so a LAN address or a container's published port shows a
+  sign-in page the dev account cannot pass. Give a URL through a forwarded
+  port (an SSH \`-L\` tunnel, the editor's port forwarding) or the command
+  that forwards it; if none can reach them, say so, and give the folder and
+  \`pnpm dev\` to run it on their own machine. Report the URL, PID, and stop
+  command.
 
 - In a headless or harness run, stop every process you started, by its PID,
   before exiting, and open nothing. The report gives the app's folder and
