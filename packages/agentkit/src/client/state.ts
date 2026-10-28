@@ -1082,11 +1082,18 @@ export function reduceAgentEvent(
       };
     }
     case "message.replaced": {
-      next = assignActiveMessage(next, event.runId, event.message.id);
       const current = next.messages.find(
         (message) => message.id === event.message.id,
       );
-      if (current?.status === "complete") return next;
+      // Only a streaming reply's draft is ever discarded and rewritten.
+      if (
+        event.message.role !== "assistant" ||
+        (current !== undefined && current.role !== "assistant") ||
+        current?.status === "complete"
+      ) {
+        return next;
+      }
+      next = assignActiveMessage(next, event.runId, event.message.id);
       return {
         ...next,
         messages: upsertMessage(

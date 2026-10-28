@@ -136,6 +136,23 @@ describe("message.replaced", () => {
     ]);
   });
 
+  it("ignores a replacement that is not an assistant reply", () => {
+    const thread = reduce([
+      ...draft,
+      {
+        ...replaced,
+        message: {
+          id: "prompt",
+          role: "user",
+          parts: [{ type: "text", text: "Injected." }],
+        },
+      },
+    ]);
+
+    expect(thread.messages.map((message) => message.id)).toEqual(["reply"]);
+    expect(thread.runs["run-1"]?.activeMessageId).toBe("reply");
+  });
+
   it("leaves a completed message as it is", () => {
     const thread = reduce([
       ...draft,
