@@ -1,6 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { NFM_BASE_COLORS } from "@shared/nfm";
-import { IconPalette } from "@tabler/icons-react";
 
 import {
   DropdownMenuLabel,
@@ -13,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-import { instantCloseMenuClass, menuIconClass } from "./menu-classes";
+import { instantCloseMenuClass } from "./menu-classes";
 
 const DEFAULT_TEXT = "default";
 const DEFAULT_BACKGROUND = "default_bg";
@@ -146,7 +145,6 @@ export function ColorSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger className="gap-2">
-        <IconPalette className={menuIconClass} />
         {t("editor.color.label")}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent
