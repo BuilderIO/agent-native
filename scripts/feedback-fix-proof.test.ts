@@ -109,6 +109,27 @@ describe("parseReports", () => {
     );
   });
 
+  it("counts every URL on a line, and ignores headings inside code fences", () => {
+    const reports = parseReports(
+      [
+        "## Reports",
+        "- https://app.slack.com/a and https://app.slack.com/b",
+        "```sh",
+        "# not a heading",
+        "```",
+        "- https://app.slack.com/c",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      reports?.map((r) => r.link),
+      [
+        "https://app.slack.com/a",
+        "https://app.slack.com/b",
+        "https://app.slack.com/c",
+      ],
+    );
+  });
+
   it("reads a proof written on the report's own line", () => {
     const [report] = parseReports(
       `## Reports\n- https://app.slack.com/a ${proven("grep -q fixed app.txt").trim()}`,

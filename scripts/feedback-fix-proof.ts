@@ -39,8 +39,10 @@ export function parseReports(body: string): Report[] | null {
   // or higher ends the section.
   const level = /#+/.exec(lines[start])![0].length;
   const reports: Report[] = [];
+  let fenced = false;
   for (const line of lines.slice(start + 1)) {
-    const heading = /^ {0,3}(#{1,6})\s/.exec(line);
+    if (/^ {0,3}(```|~~~)/.test(line)) fenced = !fenced;
+    const heading = fenced ? null : /^ {0,3}(#{1,6})\s/.exec(line);
     if (heading && heading[1].length <= level) break;
     // A line that is only a proof or a visual pair, even as a list item,
     // belongs to the report above it.
@@ -48,21 +50,27 @@ export function parseReports(body: string): Report[] | null {
       .trim()
       .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
       .replace(/^`/, "");
-    // Any other line with a URL starts a report, whatever its format, and
-    // may carry its proof on the same line. A detail link read as a report
-    // fails as NO PROOF, which is the safe direction.
-    const link = /^(fix-proof|visual):/.test(evidence)
-      ? undefined
-      : /(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
-    if (link) reports.push({ link, proven: [], visual: false });
-    const report = reports.at(-1);
-    if (!report) continue;
+    // Every URL on any other line starts a report, whatever its format; a
+    // proof later on that line covers each of them. A detail link read as a
+    // report fails as NO PROOF, which is the safe direction. URLs inside the
+    // proof's own command are not reports.
     const at = line.indexOf("fix-proof: proven");
+    const onLine = /^(fix-proof|visual):/.test(evidence)
+      ? []
+      : [
+          ...(at === -1 ? line : line.slice(0, at)).matchAll(
+            /https?:\/\/[^\s)>]+/g,
+          ),
+        ].map(([link]): Report => ({ link, proven: [], visual: false }));
+    reports.push(...onLine);
+    const targets = onLine.length ? onLine : reports.slice(-1);
     const proof =
       at === -1 ? null : PROVEN.exec(line.slice(at).replace(/`\s*$/, ""));
-    if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
-    if (/^visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(evidence))
-      report.visual = true;
+    for (const report of targets) {
+      if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
+      if (/^visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(evidence))
+        report.visual = true;
+    }
   }
   return reports;
 }
