@@ -1649,14 +1649,12 @@ function ChartClickLocator({
       scale(byIndex ? index : row[xKey], { position: "middle" }),
     );
     locatorRef.current = ({ relativeX, relativeY }) => {
-      if (
-        relativeX < plot.x ||
-        relativeX > plot.x + plot.width ||
-        relativeY < plot.y ||
-        relativeY > plot.y + plot.height
-      ) {
-        return null;
-      }
+      const insidePlot =
+        plot.x <= relativeX &&
+        relativeX <= plot.x + plot.width &&
+        plot.y <= relativeY &&
+        relativeY <= plot.y + plot.height;
+      if (!insidePlot) return null;
       let nearest: number | null = null;
       let nearestDistance = Infinity;
       for (const [index, position] of positions.entries()) {
