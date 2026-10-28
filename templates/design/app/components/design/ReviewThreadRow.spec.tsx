@@ -109,22 +109,51 @@ describe("ReviewThreadRow", () => {
     );
     expect(row?.getAttribute("data-review-thread-unread")).toBe("true");
     expect(row?.querySelector(".bg-primary")).not.toBeNull();
-    expect(row?.querySelector(".sr-only")?.textContent).toBe("review.unread");
+    expect(row?.querySelector(".sr-only")?.textContent).toBe(
+      "Maya review.unread",
+    );
     expect(row?.querySelector("span.font-medium")?.textContent).toBe(
       "Hero headline wraps on mobile",
     );
   });
 
-  it("dims a resolved thread", () => {
+  it("keeps a resolved thread at full opacity and says it is resolved", () => {
     const container = renderRow({
       thread: makeThread({ status: "resolved" }),
     });
 
+    const row = container.querySelector<HTMLElement>(
+      "[data-review-thread-row]",
+    );
+    expect(row?.classList.contains("opacity-60")).toBe(false);
+    expect(row?.querySelector(".sr-only")?.textContent).toBe(
+      "Maya review.resolved",
+    );
+    const check = row?.querySelector('svg[aria-hidden="true"]');
+    expect(check).not.toBeNull();
+    expect(check?.nextElementSibling?.tagName).toBe("TIME");
+  });
+
+  it("names the author from the email when there is no name, never the agent owner's email", () => {
+    const human = renderRow({
+      thread: makeThread({ authorName: null, authorEmail: "maya@example.com" }),
+    });
     expect(
-      container
-        .querySelector("[data-review-thread-row]")
-        ?.classList.contains("opacity-60"),
-    ).toBe(true);
+      human.querySelector("[data-review-thread-row] .sr-only")?.textContent,
+    ).toBe("maya@example.com");
+    mounted?.unmount();
+    mounted = null;
+
+    const agent = renderRow({
+      thread: makeThread({
+        createdBy: "agent",
+        authorName: null,
+        authorEmail: "owner@example.com",
+      }),
+    });
+    expect(
+      agent.querySelector("[data-review-thread-row] .sr-only")?.textContent,
+    ).toBe("review.agentBadge");
   });
 
   it("highlights the active row and sets aria-current on it", () => {
@@ -135,6 +164,19 @@ describe("ReviewThreadRow", () => {
     );
     expect(row?.classList.contains("bg-secondary")).toBe(true);
     expect(row?.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("uses a darker time colour on the active row, where the muted token is too faint", () => {
+    const container = renderRow({ thread: makeThread(), active: true });
+    const time = container.querySelector("[data-review-thread-row] time");
+    expect(time?.classList.contains("text-foreground/70")).toBe(true);
+    expect(time?.classList.contains("text-muted-foreground")).toBe(false);
+
+    mounted?.unmount();
+    mounted = null;
+    const idle = renderRow({ thread: makeThread() });
+    const idleTime = idle.querySelector("[data-review-thread-row] time");
+    expect(idleTime?.classList.contains("text-muted-foreground")).toBe(true);
   });
 
   it("passes the whole thread to onSelect when clicked", () => {
@@ -161,7 +203,7 @@ describe("ReviewThreadRow", () => {
     });
 
     const avatar = container.querySelector<HTMLElement>(
-      "[data-review-thread-row] > span",
+      '[data-review-thread-row] > span[aria-hidden="true"]',
     );
     expect(avatar?.textContent).toBe("");
     expect(avatar?.querySelector("svg")).not.toBeNull();

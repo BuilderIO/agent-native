@@ -1,5 +1,6 @@
 import type { ReviewAgentKind } from "@agent-native/toolkit/app/review";
-import type { ButtonHTMLAttributes } from "react";
+import { IconCircleCheck } from "@tabler/icons-react";
+import type { ComponentPropsWithRef } from "react";
 
 import { ReviewInitialAvatar } from "@/components/design/ReviewInitialAvatar";
 import { Spinner } from "@/components/ui/spinner";
@@ -18,6 +19,7 @@ export function ReviewPinBadge({
   count,
   selected = false,
   resolved = false,
+  unread = false,
   pending = false,
   ariaLabel,
   className,
@@ -28,20 +30,24 @@ export function ReviewPinBadge({
   count?: number;
   selected?: boolean;
   resolved?: boolean;
+  unread?: boolean | undefined;
   pending?: boolean;
   ariaLabel: string;
   className?: string;
-} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
-  const shownAuthors = uniqueAuthors(authors).slice(0, MAX_AUTHOR_AVATARS);
+} & Omit<ComponentPropsWithRef<"button">, "children">) {
+  const shownAuthors = uniqueReviewPinAuthors(authors).slice(
+    0,
+    MAX_AUTHOR_AVATARS,
+  );
   const showCount = count !== undefined && count > 1;
   return (
     <button
       type="button"
       aria-label={ariaLabel}
       className={cn(
-        "flex h-7 items-center rounded-[14px_14px_14px_4px] bg-popover p-0.5 shadow-md transition-transform",
-        selected && "ring-2 ring-[var(--design-editor-accent-color)]",
-        resolved && "opacity-60",
+        "relative flex h-7 items-center rounded-[14px_14px_14px_4px] bg-popover p-0.5 shadow-md transition-transform",
+        selected &&
+          "ring-2 ring-[hsl(var(--review-pin-ring))] ring-offset-2 ring-offset-popover",
         className,
       )}
       {...buttonProps}
@@ -65,11 +71,30 @@ export function ReviewPinBadge({
           {count}
         </span>
       ) : null}
+      {resolved && !pending ? (
+        <IconCircleCheck
+          aria-hidden="true"
+          data-review-pin-resolved-check
+          className={cn(
+            "mr-1.5 size-3 shrink-0 text-muted-foreground",
+            !showCount && "ml-1.5",
+          )}
+        />
+      ) : null}
+      {unread && !pending ? (
+        <span
+          aria-hidden="true"
+          data-review-pin-unread-dot
+          className="absolute -right-1 -top-1 size-2.5 rounded-full bg-[hsl(var(--review-pin-ring))] ring-2 ring-popover"
+        />
+      ) : null}
     </button>
   );
 }
 
-function uniqueAuthors(authors: ReviewPinAuthor[]): ReviewPinAuthor[] {
+export function uniqueReviewPinAuthors(
+  authors: ReviewPinAuthor[],
+): ReviewPinAuthor[] {
   const seen = new Set<string>();
   return authors.filter((author, index) => {
     const key = authorKey(author) ?? `index:${index}`;

@@ -3241,6 +3241,18 @@ export default {
     deleteThread: "スレッドを削除",
     deleteThreadTitle: "スレッドを削除しますか？",
     deleteThreadDescription: "このスレッドをレビューから削除します。",
+    pin: {
+      thread_other: "{{authors}} のスレッド、{{count}} 件のコメント",
+      authorsOther_other: "ほか {{count}} 名",
+      unread: "未読",
+      resolved: "解決済み",
+      draft: "下書きのコメント",
+    },
+    reaction: {
+      label_other: "{{emoji}}、{{count}} 件のリアクション",
+      labelMine_other: "{{emoji}}、{{count}} 件のリアクション（自分を含む）",
+    },
+    filtersActive: "絞り込みを適用中",
     suggestChanges: "変更を提案",
     replyInThread: "スレッドで返信",
     applyChangesAndResolve: "変更を適用して解決",

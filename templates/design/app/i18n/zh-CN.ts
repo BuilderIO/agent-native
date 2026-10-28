@@ -3096,6 +3096,18 @@ export default {
     deleteThread: "删除讨论",
     deleteThreadTitle: "删除讨论？",
     deleteThreadDescription: "这会从审阅中移除该讨论。",
+    pin: {
+      thread_other: "{{authors}} 的讨论，{{count}} 条评论",
+      authorsOther_other: "另外 {{count}} 人",
+      unread: "未读",
+      resolved: "已解决",
+      draft: "草稿评论",
+    },
+    reaction: {
+      label_other: "{{emoji}}，{{count}} 个回应",
+      labelMine_other: "{{emoji}}，{{count}} 个回应，包括你的",
+    },
+    filtersActive: "已应用筛选",
     suggestChanges: "建议修改",
     replyInThread: "在讨论中回复",
     applyChangesAndResolve: "应用修改并解决",

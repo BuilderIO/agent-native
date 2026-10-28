@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
+import { Popover, PopoverAnchor } from "@agent-native/toolkit/ui/popover";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { cn } from "@agent-native/toolkit/utils";
 import {
@@ -20,6 +21,7 @@ import {
 } from "@tabler/icons-react";
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -30,7 +32,10 @@ import {
   ReviewComposerEditor,
   type ReviewComposerEditorHandle,
 } from "./ReviewComposerEditor.js";
-import { ReviewMentionPicker } from "./ReviewMentionPicker.js";
+import {
+  ReviewMentionPicker,
+  reviewMentionOptionId,
+} from "./ReviewMentionPicker.js";
 
 const DEFAULT_COMPOSER_EMOJIS = ["👍", "❤️", "🎉", "👀"] as const;
 const EMAIL_LOCAL_PART_BOUNDARY = /(?:^|\s)[^\s@]*[\p{L}\p{N}][^\s@]*[+-]$/u;
@@ -129,7 +134,7 @@ export function ReviewCommentComposer({
   // caret into an older "@name" never reopens it.
   const mentionArmedRef = useRef(false);
   const mentionQueryRef = useRef("");
-  const mentionEscapedRef = useRef(false);
+  const mentionListboxId = useId();
 
   useEffect(() => {
     if (!autoFocus || !editorReady) return;
@@ -145,14 +150,7 @@ export function ReviewCommentComposer({
     return () => cancelAnimationFrame(frame);
   }, [autoFocus, editorReady]);
 
-  const mentionPickerOpen = mentionOpen && mentionOptions.length > 0;
-  useEffect(() => {
-    if (!mentionPickerOpen) return;
-    // Radix always moves focus into an opened menu, but the person is still
-    // typing the name in the editor.
-    const frame = requestAnimationFrame(() => editorRef.current?.focus("keep"));
-    return () => cancelAnimationFrame(frame);
-  }, [mentionPickerOpen]);
+  const mentionMenuOpen = mentionOpen && mentionOptions.length > 0;
 
   const filteredMentionOptions = mentionOptions.filter((mention) => {
     const query = mentionQuery.trim().toLowerCase();
@@ -162,11 +160,11 @@ export function ReviewCommentComposer({
       mention.email?.toLowerCase().includes(query)
     );
   });
-  const mentionMenuOpen = mentionPickerOpen;
   const activeMentionIndex = Math.min(
     mentionActiveIndex,
     Math.max(filteredMentionOptions.length - 1, 0),
   );
+  const mentionListOpen = mentionMenuOpen && filteredMentionOptions.length > 0;
 
   const closeMention = () => {
     mentionArmedRef.current = false;
@@ -248,8 +246,7 @@ export function ReviewCommentComposer({
 
   const handleKeyDown = (event: KeyboardEvent): boolean => {
     if (event.key === "Escape") {
-      if (mentionEscapedRef.current || mentionMenuOpen) {
-        mentionEscapedRef.current = false;
+      if (mentionMenuOpen) {
         closeMention();
         event.stopPropagation();
         return true;
@@ -263,7 +260,7 @@ export function ReviewCommentComposer({
       return false;
     }
     const isComposing = event.isComposing || event.keyCode === 229;
-    if (mentionMenuOpen && filteredMentionOptions.length > 0 && !isComposing) {
+    if (mentionListOpen && !isComposing) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const step = event.key === "ArrowDown" ? 1 : -1;
@@ -366,8 +363,7 @@ export function ReviewCommentComposer({
           <span className="truncate">{contextLabel}</span>
         </div>
       ) : null}
-      <DropdownMenu
-        modal={false}
+      <Popover
         open={mentionMenuOpen}
         onOpenChange={(open) => {
           if (!open) closeMention();
@@ -396,13 +392,12 @@ export function ReviewCommentComposer({
               editorRef.current?.focus("end");
           }}
         >
-          <DropdownMenuTrigger asChild>
+          <PopoverAnchor asChild>
             <span
               aria-hidden="true"
-              tabIndex={-1}
               className="pointer-events-none absolute inset-0"
             />
-          </DropdownMenuTrigger>
+          </PopoverAnchor>
           <div className={cn(!expanded && "flex h-10 items-center gap-2 px-3")}>
             <div className={cn(expanded ? "px-2 pb-4 pt-2" : "min-w-0 flex-1")}>
               <ReviewComposerEditor
@@ -412,6 +407,21 @@ export function ReviewCommentComposer({
                 placeholder={resolvedPlaceholder}
                 disabled={disabled}
                 attributes={editorAttributes}
+                combobox={
+                  mentionOptions.length > 0
+                    ? {
+                        controls: mentionListOpen
+                          ? mentionListboxId
+                          : undefined,
+                        activeDescendant: mentionListOpen
+                          ? reviewMentionOptionId(
+                              mentionListboxId,
+                              activeMentionIndex,
+                            )
+                          : undefined,
+                      }
+                    : undefined
+                }
                 className={cn(EDITOR_CLASS, expanded && "min-h-10")}
                 onTextChange={updateValue}
                 onCaretChange={syncMention}
@@ -533,18 +543,28 @@ export function ReviewCommentComposer({
           onSelect={insertMention}
           label={mentionLabel}
           emptyLabel={noMentionsLabel}
-          onEscapeKeyDown={() => {
-            mentionEscapedRef.current = true;
-            window.setTimeout(() => {
-              mentionEscapedRef.current = false;
-            }, 0);
-          }}
+          listboxId={mentionListboxId}
+          // The popover hears Escape on the document before the editor does and
+          // closes itself. Swallow the key so nothing outside takes the same
+          // press as "leave the composer"; the next Escape reaches `onEscape`.
+          onEscapeKeyDown={(event) => event.stopPropagation()}
           onInteractOutside={(event) => {
-            if (fieldRef.current?.contains(event.target as Node))
+            // A press in the field moves the caret, and `syncMention` decides
+            // whether the list stays. Focus moving elsewhere in the field
+            // (Tab) still closes it.
+            if (
+              event.detail.originalEvent.type === "pointerdown" &&
+              fieldRef.current?.contains(event.target as Node)
+            )
               event.preventDefault();
           }}
         />
-      </DropdownMenu>
+      </Popover>
+      <div role="status" aria-live="polite" className="sr-only">
+        {mentionMenuOpen && filteredMentionOptions.length === 0
+          ? noMentionsLabel
+          : ""}
+      </div>
     </form>
   );
 }

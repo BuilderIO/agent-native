@@ -292,16 +292,45 @@ function MockReviewCommentComposer(props: {
   );
 }
 
+// Most keys echo back so the tests can name them. The pin and reaction labels
+// read the real English catalog, so a key the component misspells fails here.
 vi.mock("@agent-native/core/client/i18n", async () => {
   const actual = await vi.importActual<
     typeof import("@agent-native/core/client/i18n")
   >("@agent-native/core/client/i18n");
+  const { default: english } =
+    await vi.importActual<typeof import("@/i18n/en-US")>("@/i18n/en-US");
+  const catalogEntry = (key: string): unknown =>
+    key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          typeof node === "object" && node !== null
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        english,
+      );
+  const englishCopy = (
+    key: string,
+    values: Record<string, unknown>,
+  ): string | null => {
+    if (!/^review\.(pin|reaction)\./.test(key)) return null;
+    const plural =
+      typeof values.count === "number"
+        ? `_${new Intl.PluralRules("en").select(values.count)}`
+        : "";
+    const message = catalogEntry(`${key}${plural}`);
+    if (typeof message !== "string") return null;
+    return message.replace(/\{\{(\w+)\}\}/g, (_, name: string) =>
+      String(values[name]),
+    );
+  };
   return {
     ...actual,
-    useT: () => (key: string, values?: { count?: number }) =>
-      key === "review.pinLabel"
-        ? `Comment thread with ${values?.count} ${values?.count === 1 ? "comment" : "comments"}`
-        : key,
+    useT:
+      () =>
+      (key: string, values: Record<string, unknown> = {}) =>
+        englishCopy(key, values) ?? key,
   };
 });
 
@@ -313,6 +342,7 @@ vi.mock("@/lib/agent-chat", () => ({
   sendToDesignAgentChatAndConfirm: mocks.sendToAgent,
 }));
 
+import { createReviewActiveThreadReporter } from "./review-active-thread-reporter";
 import {
   materializeBoardReviewAnchor,
   ReviewCanvasPins,
@@ -715,7 +745,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       await openThreadMenu();
       await act(async () => {
         Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-          .find((item) => item.textContent?.trim() === "review.deleteThread")
+          .find((item) => item.textContent?.trim() === "review.deleteComment")
           ?.click();
       });
       expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
@@ -768,7 +798,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
   });
 
-  it("confirms deleting a thread in thread wording", async () => {
+  it("confirms deleting in comment wording, since only the root comment is removed", async () => {
     mocks.useRealComposer = true;
     await act(async () => {
       root.render(
@@ -799,17 +829,17 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
     const deleteItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.trim() === "review.deleteThread");
+    ).find((item) => item.textContent?.trim() === "review.deleteComment");
     await act(async () => deleteItem?.click());
 
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog).not.toBeNull();
-    expect(dialog?.textContent).toContain("review.deleteThreadTitle");
-    expect(dialog?.textContent).toContain("review.deleteThreadDescription");
-    expect(dialog?.textContent).not.toContain("review.deleteCommentTitle");
+    expect(dialog?.textContent).toContain("review.deleteCommentTitle");
+    expect(dialog?.textContent).toContain("review.deleteCommentDescription");
+    expect(dialog?.textContent).not.toContain("review.deleteThread");
     const confirm = Array.from(
       dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
-    ).find((button) => button.textContent?.trim() === "review.deleteThread");
+    ).find((button) => button.textContent?.trim() === "review.deleteComment");
     expect(confirm).toBeDefined();
     await act(async () => confirm?.click());
     expect(mocks.deleteMutate).toHaveBeenCalledWith(
@@ -1763,7 +1793,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       document
         .querySelector<HTMLButtonElement>("[data-review-pin]")
         ?.getAttribute("aria-label"),
-    ).toBe("Comment thread with 1 comment");
+    ).toBe("Thread by reviewer@example.com, 1 comment");
   });
 
   describe("pin badge", () => {
@@ -1807,7 +1837,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
       expect(pin()?.textContent).toBe("R");
       expect(pin()?.getAttribute("aria-label")).toBe(
-        "Comment thread with 1 comment",
+        "Thread by reviewer@example.com, 1 comment",
       );
     });
 
@@ -1822,7 +1852,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       // The root author replied too, so two avatars and a total of three.
       expect(pin()?.textContent).toBe("RS3");
       expect(pin()?.getAttribute("aria-label")).toBe(
-        "Comment thread with 3 comments",
+        "Thread by reviewer@example.com and second@example.com, 3 comments",
       );
     });
 
@@ -1853,17 +1883,155 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       expect(pin()?.textContent).toBe("");
     });
 
-    it("rings the pin of the open thread in the editor accent color", async () => {
+    it("rings the pin of the open thread in the pin ring token, offset from the pin", async () => {
       await renderPinsOnly();
       expect(pin()?.className).not.toContain(
-        "ring-[var(--design-editor-accent-color)]",
+        "ring-[hsl(var(--review-pin-ring))]",
       );
 
       await act(async () => pin()?.click());
 
-      expect(pin()?.className).toContain(
-        "ring-[var(--design-editor-accent-color)]",
+      expect(pin()?.className).toContain("ring-[hsl(var(--review-pin-ring))]");
+      expect(pin()?.className).toContain("ring-offset-2");
+    });
+
+    it("names the pin by its authors, comment count and state", async () => {
+      mocks.discussion.threadPreferences = {
+        "thread-1": { muted: false, unread: true },
+      };
+      reviewComments = [
+        { ...comment, authorName: "Sam", authorEmail: "sam@example.com" },
+        { ...reply("reply-1", "alex@example.com"), authorName: "Alex" },
+        { ...reply("reply-2", "kim@example.com"), authorName: "Kim" },
+        { ...reply("reply-3", "lee@example.com"), authorName: "Lee" },
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by Sam, Alex, and 2 others, 4 comments, unread",
       );
+      expect(
+        pin()?.querySelector("[data-review-pin-unread-dot]"),
+      ).not.toBeNull();
+    });
+
+    it("names one other author in the singular", async () => {
+      reviewComments = [
+        { ...comment, authorName: "Sam", authorEmail: "sam@example.com" },
+        { ...reply("reply-1", "alex@example.com"), authorName: "Alex" },
+        { ...reply("reply-2", "kim@example.com"), authorName: "Kim" },
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by Sam, Alex, and 1 other, 3 comments",
+      );
+    });
+
+    it("says resolved, and unread and resolved together, in the pin name", async () => {
+      reviewComments = [{ ...comment, status: "resolved" }];
+      await renderPinsOnly();
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by reviewer@example.com, 1 comment, resolved",
+      );
+
+      mocks.discussion.threadPreferences = {
+        "thread-1": { muted: false, unread: true },
+      };
+      await renderPinsOnly();
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by reviewer@example.com, 1 comment, unread and resolved",
+      );
+    });
+
+    it("marks a resolved pin with a check instead of dimming it", async () => {
+      reviewComments = [{ ...comment, status: "resolved" }];
+      await renderPinsOnly();
+
+      expect(
+        pin()?.querySelector("[data-review-pin-resolved-check]"),
+      ).not.toBeNull();
+      expect(pin()?.className).not.toContain("opacity");
+      expect(pin()?.closest("[data-review-popover]")?.className).not.toContain(
+        "opacity",
+      );
+
+      reviewComments = [comment];
+      await renderPinsOnly();
+
+      expect(
+        pin()?.querySelector("[data-review-pin-resolved-check]"),
+      ).toBeNull();
+    });
+
+    it("names an agent author by its name, or by Agent when it has none", async () => {
+      reviewComments = [
+        {
+          ...comment,
+          authorEmail: null,
+          authorName: "Claude",
+          createdBy: "agent",
+        },
+        {
+          ...reply("reply-1", "owner@example.com"),
+          authorEmail: null,
+          authorName: null,
+          createdBy: "agent",
+        },
+      ];
+      await renderPinsOnly();
+
+      expect(pin()?.getAttribute("aria-label")).toBe(
+        "Thread by Claude and review.agentBadge, 2 comments",
+      );
+    });
+
+    it("sets aria-expanded on the pin only while its card is open", async () => {
+      await renderPinsOnly();
+      expect(pin()?.getAttribute("aria-expanded")).toBe("false");
+      expect(pin()?.getAttribute("aria-haspopup")).toBe("dialog");
+
+      await act(async () => pin()?.click());
+      expect(pin()?.getAttribute("aria-expanded")).toBe("true");
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      });
+      expect(pin()?.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("reads a draft pin as a draft comment, not a one-comment thread", async () => {
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 600,
+              clientY: 400,
+            }),
+          );
+      });
+
+      const draftPin = [
+        ...document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+      ].find((candidate) => candidate !== pin());
+      expect(draftPin?.getAttribute("aria-label")).toBe("Draft comment");
+      expect(draftPin?.getAttribute("aria-expanded")).toBe("true");
     });
 
     it("counts the threads in a cluster by thread, not by comment", async () => {
@@ -2063,7 +2231,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
     const deleteAction = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("review.deleteThread"));
+    ).find((item) => item.textContent?.includes("review.deleteComment"));
     expect(deleteAction).not.toBeUndefined();
     await act(async () => deleteAction?.click());
 
@@ -2645,6 +2813,94 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     ).toBe(true);
   });
 
+  describe("hidden image input", () => {
+    const renderPins = async (active: boolean) => {
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={active}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+    };
+    const input = () =>
+      document.querySelector<HTMLInputElement>(
+        "[data-review-attachment-input]",
+      );
+    // What a Tab key walks through: every control not taken out of the order.
+    const tabStops = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "button, input, textarea, [tabindex]",
+        ),
+      ).filter((element) => element.tabIndex >= 0);
+    const expectOutOfTreeAndTabOrder = async () => {
+      const attachInput = input();
+      if (!attachInput) throw new Error("the image input did not render");
+      expect(attachInput.type).toBe("file");
+      // `hidden` (display: none) leaves the accessibility tree: an unnamed file
+      // input there fails axe's `label` rule, and a named one would repeat the
+      // image button's name.
+      expect(attachInput.classList.contains("hidden")).toBe(true);
+      expect(attachInput.classList.contains("sr-only")).toBe(false);
+      expect(attachInput.getAttribute("tabindex")).toBe("-1");
+      expect(tabStops()).not.toContain(attachInput);
+
+      // The visible image button is the one named control and the keyboard
+      // route to the input.
+      const named = document.querySelectorAll(
+        '[aria-label="review.attachImage"]',
+      );
+      expect(named).toHaveLength(1);
+      const button = document.querySelector<HTMLButtonElement>(
+        "[data-review-attachment-button]",
+      );
+      expect(named[0]).toBe(button);
+      expect(tabStops()).toContain(button);
+      const pickFiles = vi.spyOn(attachInput, "click");
+      await act(async () => button?.click());
+      expect(pickFiles).toHaveBeenCalledTimes(1);
+    };
+
+    it("is out of the accessibility tree and tab order in an open thread's reply composer", async () => {
+      await renderPins(false);
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
+      });
+
+      await expectOutOfTreeAndTabOrder();
+    });
+
+    it("is out of the accessibility tree and tab order in the new-comment composer", async () => {
+      await renderPins(true);
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 200,
+              clientY: 180,
+            }),
+          );
+      });
+      await act(async () => {
+        document
+          .querySelector<HTMLButtonElement>("[data-review-test-type]")
+          ?.click();
+      });
+
+      await expectOutOfTreeAndTabOrder();
+    });
+  });
+
   it("keeps comment actions disabled until an image upload settles", async () => {
     let resolveUpload: ((value: { src: string }) => void) | undefined;
     mocks.uploadImage.mockImplementation(
@@ -2744,13 +3000,13 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       });
       await typeInto(editor, "Ali");
       const alice = Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
       ).find((item) => item.textContent?.includes("Alice"));
       expect(alice).toBeTruthy();
       await act(async () => alice?.click());
       expect(
         editor.querySelector("[data-review-mention-chip]")?.textContent,
-      ).toBe("Alice");
+      ).toBe("@Alice");
     };
 
     await act(async () => {
@@ -2850,7 +3106,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     await act(async () => {
       document
-        .querySelector<HTMLButtonElement>('button[aria-label="👍 2"]')
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="👍, 2 reactions, including you"]',
+        )
         ?.click();
     });
     expect(mocks.reactMutate.mock.calls[0]?.[0]).toMatchObject({
@@ -4328,7 +4586,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).find((item) => item.textContent?.trim() === label);
 
-    it("titles the thread card and lists the agent menu in the Figma order for an editor on an open thread", async () => {
+    it("titles the thread card and lists the menu in the Figma order for an editor on an open thread", async () => {
       mocks.discussion.canSetThreadPreferences = true;
       await renderPins({
         currentUserEmail: "reviewer@example.com",
@@ -4356,14 +4614,16 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         "---",
         "review.applyChangesAndResolve",
         "---",
+        "review.editComment",
+        "---",
         "review.copyLink",
-        "review.deleteThread",
+        "review.deleteComment",
       ]);
-      // The author could edit and the viewer may set preferences, yet neither
-      // item belongs in the card menu.
-      expect(document.body.textContent).not.toContain("review.editComment");
+      // Marking as unread stays off the card menu even though the viewer may
+      // set preferences.
       expect(document.body.textContent).not.toContain("review.markUnread");
       expect(document.body.textContent).not.toContain("review.markRead");
+      expect(document.body.textContent).not.toContain("review.deleteThread");
     });
 
     it("keeps the agent items away from viewers who cannot edit the design", async () => {
@@ -4374,14 +4634,24 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       });
       await openFirstThread();
       await openCardMenu();
-      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteThread"]);
+      expect(menuLayout()).toEqual([
+        "review.editComment",
+        "---",
+        "review.copyLink",
+        "review.deleteComment",
+      ]);
     });
 
     it("keeps the agent items away when the host offers no agent hand-off", async () => {
       await renderPins({ currentUserEmail: "reviewer@example.com" });
       await openFirstThread();
       await openCardMenu();
-      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteThread"]);
+      expect(menuLayout()).toEqual([
+        "review.editComment",
+        "---",
+        "review.copyLink",
+        "review.deleteComment",
+      ]);
     });
 
     it("hides the agent items once the thread is resolved", async () => {
@@ -4392,7 +4662,125 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       });
       await openFirstThread();
       await openCardMenu();
-      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteThread"]);
+      expect(menuLayout()).toEqual([
+        "review.editComment",
+        "---",
+        "review.copyLink",
+        "review.deleteComment",
+      ]);
+    });
+
+    it("offers Edit to the comment's author and not to anyone else", async () => {
+      await renderPins({ currentUserEmail: "someone-else@example.com" });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuLayout()).toEqual(["review.copyLink", "review.deleteComment"]);
+    });
+
+    it("matches the author's email without regard to case or spaces", async () => {
+      await renderPins({ currentUserEmail: " Reviewer@Example.com " });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuItem("review.editComment")).toBeDefined();
+    });
+
+    it("withholds Edit from a viewer who cannot post", async () => {
+      await renderPins({
+        canPost: false,
+        currentUserEmail: "reviewer@example.com",
+      });
+      await openFirstThread();
+      await openCardMenu();
+      expect(menuItem("review.editComment")).toBeUndefined();
+    });
+
+    describe("editing a comment", () => {
+      beforeEach(() => {
+        mocks.useRealComposer = true;
+      });
+
+      const editor = () =>
+        document.querySelector<HTMLElement & { editor: Editor }>(
+          '[data-review-comment-editing] [role="textbox"]',
+        );
+      const typeIntoEditor = async (text: string) => {
+        await act(async () => {
+          const { state, view } = editor()!.editor;
+          view.dispatch(state.tr.insertText(text));
+        });
+      };
+      const startEditing = async () => {
+        await renderPins({ currentUserEmail: "reviewer@example.com" });
+        await openFirstThread();
+        await openCardMenu();
+        await act(async () => menuItem("review.editComment")?.click());
+      };
+      const pressEscapeIn = async (target: Element | null) => {
+        await act(async () => {
+          target?.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+      };
+
+      it("opens the comment in place for editing, with its text and focus", async () => {
+        await startEditing();
+
+        expect(editor()).not.toBeNull();
+        expect(editor()?.textContent).toBe("Keep this popover open");
+        expect(
+          document.querySelector(
+            '[data-review-comment="comment-1"][data-review-comment-variant="root"]',
+          ),
+        ).toBeNull();
+        await vi.waitFor(() =>
+          expect(editor()?.contains(document.activeElement)).toBe(true),
+        );
+      });
+
+      it("saves the edited body and closes the editor", async () => {
+        await startEditing();
+        await typeIntoEditor(" please");
+        await act(async () =>
+          editor()
+            ?.closest("form")
+            ?.querySelector<HTMLButtonElement>('button[type="submit"]')
+            ?.click(),
+        );
+
+        expect(mocks.updateMutate).toHaveBeenCalledTimes(1);
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          commentId: "comment-1",
+          body: "Keep this popover open please",
+        });
+        await act(async () =>
+          mocks.updateMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+        expect(editor()).toBeNull();
+        expect(document.body.textContent).toContain("Keep this popover open");
+        expect(document.activeElement).toBe(
+          document.querySelector("[data-review-thread-card]"),
+        );
+      });
+
+      it("cancels on Escape without saving, keeps the card open and returns focus to it", async () => {
+        await startEditing();
+        await typeIntoEditor(" and more");
+
+        await pressEscapeIn(editor());
+
+        expect(editor()).toBeNull();
+        expect(mocks.updateMutate).not.toHaveBeenCalled();
+        expect(document.body.textContent).toContain("Keep this popover open");
+        expect(document.body.textContent).not.toContain("and more");
+        expect(document.activeElement).toBe(
+          document.querySelector("[data-review-thread-card]"),
+        );
+      });
     });
 
     it("hands the thread and the chosen action to the host", async () => {
@@ -4501,19 +4889,684 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       expect(onActiveThreadChange).not.toHaveBeenCalled();
 
       await openFirstThread();
-      expect(onActiveThreadChange).toHaveBeenLastCalledWith("thread-1");
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(
+        "thread-1",
+        expect.any(String),
+      );
+      const reporterId = onActiveThreadChange.mock.calls[0]?.[1];
 
       await act(async () => {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       });
-      expect(onActiveThreadChange).toHaveBeenLastCalledWith(null);
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(null, reporterId);
       expect(onActiveThreadChange).toHaveBeenCalledTimes(2);
 
       await openFirstThread();
-      expect(onActiveThreadChange).toHaveBeenLastCalledWith("thread-1");
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(
+        "thread-1",
+        reporterId,
+      );
       await act(async () => root.unmount());
-      expect(onActiveThreadChange).toHaveBeenLastCalledWith(null);
+      expect(onActiveThreadChange).toHaveBeenLastCalledWith(null, reporterId);
       root = createRoot(container);
+    });
+
+    describe("two overlays sharing one open-thread report", () => {
+      const published = vi.fn();
+      const report = createReviewActiveThreadReporter(published);
+      const threadsAtTwoPoints = () => {
+        reviewComments = [
+          { ...comment, body: "First thread" },
+          {
+            ...comment,
+            id: "comment-2",
+            threadId: "thread-2",
+            body: "Second thread",
+            anchor: { point: { xPct: 75, yPct: 70 } },
+          },
+        ];
+      };
+      const overlay = (key: string) => (
+        <ReviewCanvasPins
+          key={key}
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          onActiveThreadChange={report}
+        />
+      );
+      const renderOverlays = async (withFirst = true) => {
+        await act(async () => {
+          root.render(
+            <>
+              {withFirst ? overlay("first") : null}
+              {overlay("second")}
+            </>,
+          );
+        });
+      };
+      // The overlays portal into the body in render order.
+      const overlayRoot = (index: number) =>
+        document.querySelectorAll<HTMLElement>("[data-review-overlay-root]")[
+          index
+        ]!;
+      const openThread = async (overlayIndex: number, pinIndex: number) => {
+        await act(async () => {
+          overlayRoot(overlayIndex)
+            .querySelectorAll<HTMLButtonElement>("[data-review-pin]")
+            [pinIndex]?.click();
+        });
+      };
+      const closeCardOf = async (overlayIndex: number) => {
+        await act(async () => {
+          overlayRoot(overlayIndex)
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="review.closeThread"]',
+            )
+            ?.click();
+        });
+      };
+      const everyReport = () => published.mock.calls.map(([id]) => id);
+
+      beforeEach(() => {
+        published.mockClear();
+        threadsAtTwoPoints();
+      });
+
+      it("keeps the thread another overlay opened when this one closes its card", async () => {
+        await renderOverlays();
+        await openThread(0, 0);
+        await openThread(1, 1);
+        expect(published).toHaveBeenLastCalledWith("thread-2");
+
+        await closeCardOf(0);
+
+        expect(published).toHaveBeenLastCalledWith("thread-2");
+        expect(everyReport()).not.toContain(null);
+
+        await closeCardOf(1);
+        expect(published).toHaveBeenLastCalledWith(null);
+      });
+
+      it("keeps the thread another overlay opened when this one unmounts", async () => {
+        await renderOverlays();
+        await openThread(0, 0);
+        await openThread(1, 1);
+
+        await renderOverlays(false);
+
+        expect(published).toHaveBeenLastCalledWith("thread-2");
+        expect(everyReport()).not.toContain(null);
+
+        await closeCardOf(0);
+        expect(published).toHaveBeenLastCalledWith(null);
+      });
+
+      it("falls back to the thread still open elsewhere when the latest one closes", async () => {
+        await renderOverlays();
+        await openThread(0, 0);
+        await openThread(1, 1);
+
+        await closeCardOf(1);
+
+        expect(published).toHaveBeenLastCalledWith("thread-1");
+        expect(everyReport()).not.toContain(null);
+      });
+
+      it("leaves an idle overlay's mount and unmount out of the report", async () => {
+        await renderOverlays();
+        await openThread(1, 1);
+        await renderOverlays(false);
+
+        expect(everyReport()).toEqual(["thread-2"]);
+      });
+    });
+
+    describe("keyboard focus", () => {
+      const pin = () =>
+        document.querySelector<HTMLButtonElement>("[data-review-pin]");
+      const card = () =>
+        document.querySelector<HTMLElement>("[data-review-thread-card]");
+      const pressEscape = async (target: Element | null) => {
+        await act(async () => {
+          target?.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+      };
+      // A keyboard user opens the card from the pin, which holds focus.
+      const openFromPin = async () => {
+        pin()?.focus();
+        await openFirstThread();
+      };
+
+      it("moves focus to the card on open, named by its title, with the reply field collapsed", async () => {
+        mocks.useRealComposer = true;
+        await renderPins();
+        await openFromPin();
+
+        expect(card()).not.toBeNull();
+        expect(document.activeElement).toBe(card());
+        expect(card()?.getAttribute("role")).toBe("dialog");
+        const titleId = card()?.getAttribute("aria-labelledby");
+        expect(titleId).toBeTruthy();
+        expect(document.getElementById(titleId ?? "")?.textContent).toBe(
+          "review.threadTitle",
+        );
+        expect(
+          document
+            .querySelector("[data-review-reply-input]")
+            ?.closest("[data-review-composer-field]")
+            ?.hasAttribute("data-expanded"),
+        ).toBe(false);
+      });
+
+      it("moves focus to the card of the thread a pin opens next", async () => {
+        reviewComments = [
+          { ...comment, body: "First thread" },
+          {
+            ...comment,
+            id: "comment-2",
+            threadId: "thread-2",
+            body: "Second thread",
+            anchor: { point: { xPct: 75, yPct: 70 } },
+          },
+        ];
+        await renderPins();
+        await openFromPin();
+        const pins =
+          document.querySelectorAll<HTMLButtonElement>("[data-review-pin]");
+        await act(async () => pins[1]?.click());
+
+        expect(card()?.textContent).toContain("Second thread");
+        expect(document.activeElement).toBe(card());
+      });
+
+      it("returns focus to the pin on Escape", async () => {
+        await renderPins();
+        await openFromPin();
+        expect(document.activeElement).toBe(card());
+
+        await pressEscape(document.activeElement);
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+        expect(document.activeElement).not.toBe(document.body);
+      });
+
+      it("returns focus to the pin on Escape from the reply editor", async () => {
+        mocks.useRealComposer = true;
+        await renderPins();
+        await openFromPin();
+        const editor = document.querySelector<HTMLElement>(
+          '[data-review-thread-card] [role="textbox"]',
+        );
+        await act(async () => editor?.focus());
+        expect(document.activeElement).not.toBe(card());
+
+        await pressEscape(editor);
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("returns focus to the pin from the close button", async () => {
+        await renderPins();
+        await openFromPin();
+
+        await act(async () =>
+          card()
+            ?.querySelector<HTMLButtonElement>(
+              'button[aria-label="review.closeThread"]',
+            )
+            ?.click(),
+        );
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("returns focus to the pin once a thread is resolved", async () => {
+        await renderPins();
+        await openFromPin();
+        await act(async () =>
+          card()
+            ?.querySelector<HTMLButtonElement>(
+              'button[aria-label="review.resolve"]',
+            )
+            ?.click(),
+        );
+        expect(card()).not.toBeNull();
+
+        await act(async () =>
+          mocks.resolveMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+
+        expect(card()).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("returns focus to the pin once a comment is deleted", async () => {
+        await renderPins();
+        await openFromPin();
+        await openCardMenu();
+        await act(async () => menuItem("review.deleteComment")?.click());
+        await act(async () =>
+          Array.from(
+            document.querySelectorAll<HTMLButtonElement>(
+              '[role="alertdialog"] button',
+            ),
+          )
+            .find(
+              (button) => button.textContent?.trim() === "review.deleteComment",
+            )
+            ?.click(),
+        );
+
+        await act(async () =>
+          mocks.deleteMutate.mock.calls[0]?.[1]?.onSuccess(),
+        );
+        // Radix hands focus back to the dialog's trigger from a timer.
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+
+        expect(card()).toBeNull();
+        expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+        expect(document.activeElement).toBe(pin());
+      });
+
+      it("leaves focus where the user clicked when an outside click closes the card", async () => {
+        await renderPins();
+        await openFromPin();
+        const elsewhere = document.createElement("button");
+        document.body.appendChild(elsewhere);
+        try {
+          await act(async () => {
+            elsewhere.dispatchEvent(
+              new MouseEvent("pointerdown", { bubbles: true }),
+            );
+            elsewhere.focus();
+          });
+
+          expect(card()).toBeNull();
+          expect(document.activeElement).toBe(elsewhere);
+        } finally {
+          elsewhere.remove();
+        }
+      });
+
+      it("has nowhere to put focus once the overlay has unmounted with its last pin and the editor has no Pin comment tool", async () => {
+        await renderPins();
+        await openFromPin();
+        reviewComments = [];
+        await renderPins();
+
+        await pressEscape(document.body);
+
+        expect(card()).toBeNull();
+        expect(pin()).toBeNull();
+        expect(document.querySelector("[data-review-overlay-root]")).toBeNull();
+        expect(document.activeElement).toBe(document.body);
+      });
+
+      it("keeps one nameless fallback target inside the overlay, and the overlay root itself out of the focus order", async () => {
+        await renderPins({ active: true });
+
+        const roots = document.querySelectorAll("[data-review-overlay-root]");
+        expect(roots).toHaveLength(1);
+        const fallbacks = roots[0]?.querySelectorAll(
+          "[data-review-focus-fallback]",
+        );
+        expect(fallbacks).toHaveLength(1);
+        const target = fallbacks?.[0];
+        // `display: contents` has no box, so Chromium cannot focus the root;
+        // the span needs the box `sr-only` gives it.
+        expect(roots[0]?.hasAttribute("tabindex")).toBe(false);
+        expect(target?.getAttribute("tabindex")).toBe("-1");
+        expect(target?.classList.contains("sr-only")).toBe(true);
+        expect(target?.closest('[aria-hidden="true"]')).toBeNull();
+        expect(target?.hasAttribute("aria-label")).toBe(false);
+        expect(target?.textContent).toBe("");
+      });
+
+      describe("when there is no pin to return to", () => {
+        const threadBy = (
+          author: string,
+          xPct: number,
+          yPct: number,
+        ): ReviewComment => ({
+          ...comment,
+          id: `comment-${author}`,
+          threadId: `thread-${author}`,
+          authorEmail: `${author}@example.com`,
+          body: `Thread by ${author}`,
+          anchor: { point: { xPct, yPct } },
+        });
+        const first = threadBy("first", 20, 20);
+        const second = threadBy("second", 50, 50);
+        const third = threadBy("third", 80, 80);
+        const pins = () =>
+          Array.from(
+            document.querySelectorAll<HTMLButtonElement>("[data-review-pin]"),
+          );
+        const overlayRoot = () =>
+          document.querySelector<HTMLElement>("[data-review-overlay-root]");
+        const focusFallback = () =>
+          document.querySelector<HTMLElement>("[data-review-focus-fallback]");
+        // The editor's bottom toolbar, which this component only reads.
+        const addCommentTool = () => {
+          const toolbar = document.createElement("div");
+          toolbar.setAttribute("data-design-bottom-toolbar", "");
+          const group = document.createElement("div");
+          group.setAttribute("data-design-toolbar-group", "comment");
+          const button = document.createElement("button");
+          button.setAttribute("aria-label", "designEditor.pinComment");
+          group.appendChild(button);
+          toolbar.appendChild(group);
+          document.body.appendChild(toolbar);
+          return toolbar;
+        };
+        const confirmButton = () =>
+          Array.from(
+            document.querySelectorAll<HTMLButtonElement>(
+              '[role="alertdialog"] button',
+            ),
+          ).find(
+            (button) => button.textContent?.trim() === "review.deleteComment",
+          );
+        // Opens a pin's card from the keyboard, then deletes its thread. The
+        // optimistic delete takes the pin off the canvas before the request
+        // settles, and the dialog's confirm button holds focus until then.
+        const deleteThread = async (
+          index: number,
+          remaining: ReviewComment[],
+          props: Partial<React.ComponentProps<typeof ReviewCanvasPins>> = {},
+        ) => {
+          const target = pins()[index];
+          target?.focus();
+          await act(async () => target?.click());
+          await openCardMenu();
+          await act(async () => menuItem("review.deleteComment")?.click());
+          await act(async () => confirmButton()?.click());
+          await act(async () => confirmButton()?.focus());
+          reviewComments = remaining;
+          await renderPins(props);
+          await act(async () =>
+            mocks.deleteMutate.mock.calls[0]?.[1]?.onSuccess(),
+          );
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+        };
+        const openDraft = async () => {
+          await act(async () => {
+            document
+              .querySelector<HTMLElement>("[data-review-click-plane]")
+              ?.dispatchEvent(
+                new MouseEvent("click", {
+                  bubbles: true,
+                  clientX: 600,
+                  clientY: 100,
+                }),
+              );
+          });
+          await vi.waitFor(() =>
+            expect(
+              document
+                .querySelector('[data-review-popover] [role="textbox"]')
+                ?.contains(document.activeElement),
+            ).toBe(true),
+          );
+        };
+
+        beforeEach(() => {
+          reviewComments = [first, second, third];
+        });
+
+        it("moves focus to the next pin when the deleted thread's pin was in the middle", async () => {
+          await renderPins();
+          await deleteThread(1, [first, third]);
+
+          expect(card()).toBeNull();
+          expect(pins()).toHaveLength(2);
+          expect(document.activeElement).toBe(pins()[1]);
+          expect(document.activeElement?.getAttribute("aria-label")).toContain(
+            "third@example.com",
+          );
+        });
+
+        it("moves focus to the previous pin when the deleted thread's pin was the last", async () => {
+          await renderPins();
+          await deleteThread(2, [first, second]);
+
+          expect(pins()).toHaveLength(2);
+          expect(document.activeElement).toBe(pins()[1]);
+          expect(document.activeElement?.getAttribute("aria-label")).toContain(
+            "second@example.com",
+          );
+        });
+
+        it("moves focus to the overlay's fallback target when the deleted thread had the only pin", async () => {
+          reviewComments = [first];
+          await renderPins({ active: true });
+          await deleteThread(0, [], { active: true });
+
+          expect(card()).toBeNull();
+          expect(pins()).toHaveLength(0);
+          expect(overlayRoot()).not.toBeNull();
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(focusFallback());
+        });
+
+        it("moves focus to the Pin comment tool when the overlay unmounts with the only pin", async () => {
+          const tool = addCommentTool();
+          try {
+            reviewComments = [first];
+            await renderPins();
+            await deleteThread(0, []);
+
+            expect(card()).toBeNull();
+            expect(pins()).toHaveLength(0);
+            expect(overlayRoot()).toBeNull();
+            expect(document.activeElement).toBe(tool.querySelector("button"));
+          } finally {
+            tool.remove();
+          }
+        });
+
+        it("leaves focus on the next pin, not the Pin comment tool, while pins remain", async () => {
+          const tool = addCommentTool();
+          try {
+            await renderPins();
+            await deleteThread(1, [first, third]);
+
+            expect(document.activeElement).toBe(pins()[1]);
+            expect(document.activeElement).not.toBe(
+              tool.querySelector("button"),
+            );
+          } finally {
+            tool.remove();
+          }
+        });
+
+        it("moves focus off the confirm button while the dialog is still animating out", async () => {
+          // Radix keeps a closed dialog mounted until its exit animation ends.
+          const realGetComputedStyle = window.getComputedStyle.bind(window);
+          const getComputedStyleSpy = vi
+            .spyOn(window, "getComputedStyle")
+            .mockImplementation((element, pseudo) => {
+              const style = realGetComputedStyle(element, pseudo);
+              if (element.getAttribute("role") !== "alertdialog") return style;
+              return new Proxy(style, {
+                get: (target, property) =>
+                  property === "animationName"
+                    ? element.getAttribute("data-state") === "closed"
+                      ? "dialog-out"
+                      : "dialog-in"
+                    : Reflect.get(target, property, target),
+              });
+            });
+          try {
+            await renderPins();
+            await deleteThread(1, [first, third]);
+
+            const dialog = document.querySelector('[role="alertdialog"]');
+            expect(dialog?.getAttribute("data-state")).toBe("closed");
+            expect(document.activeElement).toBe(pins()[1]);
+
+            await act(async () => {
+              dialog?.dispatchEvent(
+                new AnimationEvent("animationend", {
+                  animationName: "dialog-out",
+                  bubbles: true,
+                }),
+              );
+            });
+
+            expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+            expect(document.activeElement).toBe(pins()[1]);
+          } finally {
+            getComputedStyleSpy.mockRestore();
+          }
+        });
+
+        it("moves focus off <body> when Escape cancels the new-comment draft", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+
+          await pressEscape(document.activeElement);
+
+          expect(
+            document.querySelector('[data-review-popover] [role="textbox"]'),
+          ).toBeNull();
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(pins()[2]);
+        });
+
+        it("moves focus off <body> when Escape reaches the window with nothing focused", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+          await act(async () =>
+            (document.activeElement as HTMLElement | null)?.blur(),
+          );
+          expect(document.activeElement).toBe(document.body);
+
+          await pressEscape(document.body);
+
+          expect(
+            document.querySelector('[data-review-popover] [role="textbox"]'),
+          ).toBeNull();
+          expect(document.activeElement).toBe(pins()[2]);
+        });
+
+        it("moves focus off <body> when the draft's close button cancels it", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+
+          await act(async () =>
+            document
+              .querySelector<HTMLButtonElement>(
+                'button[aria-label="designEditor.close"]',
+              )
+              ?.click(),
+          );
+
+          expect(
+            document.querySelector('[data-review-popover] [role="textbox"]'),
+          ).toBeNull();
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(pins()[2]);
+        });
+
+        it("moves focus to the overlay's fallback target when the cancelled draft was the only pin", async () => {
+          mocks.useRealComposer = true;
+          reviewComments = [];
+          await renderPins({ active: true });
+          await openDraft();
+
+          await pressEscape(document.activeElement);
+
+          expect(pins()).toHaveLength(0);
+          expect(document.activeElement).not.toBe(document.body);
+          expect(document.activeElement).toBe(focusFallback());
+        });
+
+        it("moves focus to the overlay's fallback target when the draft's close button cancels it and no pin remains", async () => {
+          mocks.useRealComposer = true;
+          reviewComments = [];
+          await renderPins({ active: true });
+          await openDraft();
+
+          await act(async () =>
+            document
+              .querySelector<HTMLButtonElement>(
+                'button[aria-label="designEditor.close"]',
+              )
+              ?.click(),
+          );
+
+          expect(pins()).toHaveLength(0);
+          expect(document.activeElement).toBe(focusFallback());
+        });
+
+        it("leaves focus alone when the draft is cancelled by another control taking focus", async () => {
+          mocks.useRealComposer = true;
+          await renderPins({ active: true });
+          await openDraft();
+          const elsewhere = document.createElement("button");
+          document.body.appendChild(elsewhere);
+          try {
+            await act(async () => elsewhere.focus());
+
+            await pressEscape(elsewhere);
+
+            expect(
+              document.querySelector('[data-review-popover] [role="textbox"]'),
+            ).toBeNull();
+            expect(document.activeElement).toBe(elsewhere);
+          } finally {
+            elsewhere.remove();
+          }
+        });
+      });
+
+      it("keeps a new comment's editor focused when its draft card opens", async () => {
+        mocks.useRealComposer = true;
+        await renderPins({ active: true });
+        await act(async () => {
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 600,
+                clientY: 400,
+              }),
+            );
+        });
+
+        await vi.waitFor(() =>
+          expect(
+            document
+              .querySelector('[data-review-popover] [role="textbox"]')
+              ?.contains(document.activeElement),
+          ).toBe(true),
+        );
+        expect(document.activeElement).not.toBe(card());
+      });
     });
 
     it("shows the Agent badge on an agent's reply", async () => {
@@ -4649,7 +5702,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         ];
         await renderPins({});
 
-        expect(pinLabels()).toEqual(["Comment thread with 1 comment"]);
+        expect(pinLabels()).toEqual([
+          "Thread by reviewer@example.com, 1 comment",
+        ]);
       },
     );
 
@@ -4664,8 +5719,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       await renderPins({});
 
       expect(pinLabels()).toEqual([
-        "Comment thread with 1 comment",
-        "Comment thread with 1 comment",
+        "Thread by reviewer@example.com, 1 comment",
+        "Thread by reviewer@example.com, 1 comment",
       ]);
     });
 
@@ -4679,7 +5734,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       reviewComments = [commentAt(1, 25, 30), commentAt(2, 60, 30)];
       await renderPins({});
 
-      expect(pinLabels()).toEqual(["Comment thread with 1 comment"]);
+      expect(pinLabels()).toEqual([
+        "Thread by reviewer@example.com, 1 comment",
+      ]);
       const wrapper =
         document.querySelector<HTMLElement>("[data-review-pin]")?.parentElement;
       expect(Number.parseFloat(wrapper?.style.left ?? "")).toBeGreaterThan(300);

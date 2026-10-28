@@ -10,7 +10,10 @@ import type { ReactNode } from "react";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { resolveReviewAgent } from "./review-agent.js";
 import { ReviewAuthorAvatar } from "./ReviewAuthorAvatar.js";
-import { ReviewReactionBar } from "./ReviewReactionBar.js";
+import {
+  ReviewReactionBar,
+  type ReviewReactionBarProps,
+} from "./ReviewReactionBar.js";
 
 const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 
@@ -35,6 +38,7 @@ export interface ReviewCommentItemProps {
   canReact?: boolean | undefined;
   reactionChoices?: readonly string[] | undefined;
   addReactionLabel?: string | undefined;
+  reactionLabel?: ReviewReactionBarProps["reactionLabel"];
   onReact?:
     | ((comment: ReviewComment, reaction: string, active: boolean) => void)
     | undefined;
@@ -57,6 +61,7 @@ export function ReviewCommentItem({
   canReact = false,
   reactionChoices,
   addReactionLabel,
+  reactionLabel,
   onReact,
   editor,
   className,
@@ -185,6 +190,7 @@ export function ReviewCommentItem({
           canReact={canReact}
           choices={reactionChoices}
           addReactionLabel={addReactionLabel}
+          reactionLabel={reactionLabel}
           onReact={handleReact}
         />
       ) : null}

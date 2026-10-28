@@ -1308,11 +1308,13 @@ describe("ReviewThreadPanel sidebar layout", () => {
         items[1]?.querySelector("[data-review-comment-clock]"),
       ).not.toBeNull();
       expect(
-        items[1]?.querySelector('[aria-label="🔥 1"]')?.textContent?.trim(),
+        items[1]
+          ?.querySelector('[aria-label="🔥, 1 reaction"]')
+          ?.textContent?.trim(),
       ).toBe("🔥");
       expect(
         items[1]
-          ?.querySelector('[aria-label="👍 2"]')
+          ?.querySelector('[aria-label="👍, 2 reactions"]')
           ?.textContent?.replace(/\s/g, ""),
       ).toBe("👍2");
 

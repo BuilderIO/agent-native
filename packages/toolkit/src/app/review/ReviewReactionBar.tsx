@@ -11,6 +11,22 @@ import { IconMoodSmile } from "@tabler/icons-react";
 
 export const DEFAULT_REACTION_CHOICES = ["👍", "❤️", "🎉", "👀", "🔥"] as const;
 
+export interface ReviewReactionLabelInput {
+  emoji: string;
+  count: number;
+  /** The current user has reacted with this emoji. */
+  includesYou: boolean;
+}
+
+function defaultReactionLabel({
+  emoji,
+  count,
+  includesYou,
+}: ReviewReactionLabelInput): string {
+  const noun = count === 1 ? "reaction" : "reactions";
+  return `${emoji}, ${count} ${noun}${includesYou ? ", including you" : ""}`;
+}
+
 export interface ReviewReactionBarProps {
   reactions?: readonly ReviewCommentReaction[] | undefined;
   /** Enables the chips and the picker; without it chips render disabled. */
@@ -19,6 +35,8 @@ export interface ReviewReactionBarProps {
   showAddButton?: boolean | undefined;
   choices?: readonly string[] | undefined;
   addReactionLabel?: string | undefined;
+  /** Accessible name of a reaction chip, which shows only the emoji and count. */
+  reactionLabel?: ((input: ReviewReactionLabelInput) => string) | undefined;
   onReact: (reaction: string, active: boolean) => void;
   className?: string | undefined;
 }
@@ -29,6 +47,7 @@ export function ReviewReactionBar({
   showAddButton = true,
   choices = DEFAULT_REACTION_CHOICES,
   addReactionLabel = "Add reaction",
+  reactionLabel = defaultReactionLabel,
   onReact,
   className,
 }: ReviewReactionBarProps) {
@@ -76,13 +95,17 @@ export function ReviewReactionBar({
           type="button"
           disabled={!canReact}
           className={cn(
-            "inline-flex h-[22px] items-center gap-1 rounded-md bg-secondary px-2 text-xs font-medium text-foreground transition-colors",
+            "inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-md border bg-secondary px-2 text-xs font-medium text-foreground transition-colors",
             item.reactedByMe
-              ? "ring-1 ring-inset ring-primary/40"
-              : "hover:bg-secondary/70 disabled:hover:bg-secondary",
+              ? "border-primary"
+              : "border-transparent hover:bg-secondary/70 disabled:hover:bg-secondary",
           )}
           onClick={() => onReact(item.reaction, !item.reactedByMe)}
-          aria-label={`${item.reaction} ${item.count}`}
+          aria-label={reactionLabel({
+            emoji: item.reaction,
+            count: item.count,
+            includesYou: item.reactedByMe,
+          })}
           aria-pressed={item.reactedByMe}
         >
           <span aria-hidden="true">{item.reaction}</span>

@@ -5,12 +5,9 @@ import {
   AvatarFallback,
   AvatarImage,
 } from "@agent-native/toolkit/ui/avatar";
-import {
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@agent-native/toolkit/ui/dropdown-menu";
+import { PopoverContent } from "@agent-native/toolkit/ui/popover";
 import { cn } from "@agent-native/toolkit/utils";
-import type { ComponentPropsWithoutRef } from "react";
+import { useEffect, type ComponentPropsWithoutRef } from "react";
 
 import { resolveReviewAgent } from "./review-agent.js";
 import { ReviewAgentMark } from "./ReviewAgentMark.js";
@@ -39,11 +36,11 @@ export function ReviewMentionAvatar({
     ? resolveReviewAgent({ createdBy: "agent", authorName: mention.label })
     : null;
   return (
-    <Avatar className={cn("size-8", className)}>
+    <Avatar aria-hidden="true" className={cn("size-8", className)}>
       {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
       <AvatarFallback
         className={cn(
-          "text-xs font-semibold text-muted-foreground",
+          "text-xs font-semibold text-foreground",
           agent && "bg-popover",
         )}
       >
@@ -61,22 +58,34 @@ export function reviewMentionKey(mention: ReviewMention): string {
   return `${mention.email ?? mention.id ?? mention.label}`;
 }
 
+/** The DOM id of option `index`, which the editor's `aria-activedescendant` names. */
+export function reviewMentionOptionId(
+  listboxId: string,
+  index: number,
+): string {
+  return `${listboxId}-option-${index}`;
+}
+
 type ReviewMentionPickerProps = {
   options: readonly ReviewMention[];
   activeIndex: number;
   onActiveIndexChange: (index: number) => void;
   onSelect: (mention: ReviewMention) => void;
+  /** The listbox's accessible name. */
   label: string;
   emptyLabel: string;
+  /** The editor's `aria-controls` points at this id while options are listed. */
+  listboxId: string;
 } & Omit<
-  ComponentPropsWithoutRef<typeof DropdownMenuContent>,
-  "children" | "onSelect"
+  ComponentPropsWithoutRef<typeof PopoverContent>,
+  "children" | "onSelect" | "id" | "role"
 >;
 
 /**
- * The people list under an `@`. Focus stays in the editor, so the highlight is
- * driven by `activeIndex` (the editor handles the arrow keys) rather than by
- * the menu's own roving focus.
+ * The people list under an `@`, a listbox the editor drives through
+ * `aria-activedescendant`. DOM focus never leaves the editor: the editor
+ * handles the arrow keys and sets `activeIndex`, and nothing in here is
+ * focusable.
  */
 export function ReviewMentionPicker({
   options,
@@ -85,61 +94,88 @@ export function ReviewMentionPicker({
   onSelect,
   label,
   emptyLabel,
+  listboxId,
   className,
   ...props
 }: ReviewMentionPickerProps) {
+  const hasOptions = options.length > 0;
+
+  useEffect(() => {
+    if (!hasOptions) return;
+    document
+      .getElementById(reviewMentionOptionId(listboxId, activeIndex))
+      ?.scrollIntoView({ block: "nearest" });
+  }, [hasOptions, listboxId, activeIndex]);
+
   return (
-    <DropdownMenuContent
+    <PopoverContent
       data-review-popover=""
       side="top"
       align="start"
       alignOffset={4}
       sideOffset={8}
-      aria-label={label}
+      {...(hasOptions
+        ? { role: "listbox", id: listboxId, "aria-label": label }
+        : { role: "presentation" })}
       className={cn(
-        "w-[296px] max-w-[calc(100vw-2rem)] min-w-0 p-2",
+        "max-h-[min(18rem,var(--radix-popover-content-available-height))] w-[296px] max-w-[calc(100vw-2rem)] min-w-0 overflow-y-auto rounded-[10px] border-border p-2",
         className,
       )}
+      onOpenAutoFocus={(event) => event.preventDefault()}
       onCloseAutoFocus={(event) => event.preventDefault()}
-      onFocusOutside={(event) => event.preventDefault()}
+      // A press on an option must not move focus out of the editor.
       onMouseDown={(event) => event.preventDefault()}
       {...props}
     >
-      {options.length > 0 ? (
-        options.map((mention, index) => (
-          <DropdownMenuItem
-            key={reviewMentionKey(mention)}
-            data-review-mention-option=""
-            data-active={index === activeIndex ? "" : undefined}
-            className={cn(
-              "h-auto gap-2 rounded-[8px] px-2 py-1",
-              index === activeIndex && "bg-accent text-accent-foreground",
-            )}
-            // Radix focuses an item on hover, which would pull focus out of
-            // the editor mid-sentence.
-            onPointerMove={(event) => {
-              event.preventDefault();
-              onActiveIndexChange(index);
-            }}
-            onPointerLeave={(event) => event.preventDefault()}
-            onSelect={() => onSelect(mention)}
-          >
-            <ReviewMentionAvatar mention={mention} />
-            <span className="flex min-w-0 flex-1 flex-col text-sm leading-5">
-              <span className="truncate text-foreground">{mention.label}</span>
-              {mention.email ? (
-                <span className="truncate text-muted-foreground">
-                  {mention.email}
+      {hasOptions ? (
+        options.map((mention, index) => {
+          const active = index === activeIndex;
+          return (
+            <div
+              key={reviewMentionKey(mention)}
+              id={reviewMentionOptionId(listboxId, index)}
+              role="option"
+              aria-selected={active}
+              data-review-mention-option=""
+              data-active={active ? "" : undefined}
+              className={cn(
+                "flex cursor-pointer select-none items-center gap-2 rounded-[8px] px-2 py-1 text-sm",
+                active && "bg-accent text-accent-foreground",
+              )}
+              onPointerMove={() => onActiveIndexChange(index)}
+              onClick={() => onSelect(mention)}
+            >
+              <ReviewMentionAvatar mention={mention} />
+              <span className="flex min-w-0 flex-1 flex-col text-sm leading-5">
+                <span className="truncate text-foreground">
+                  {mention.label}
                 </span>
-              ) : null}
-            </span>
-          </DropdownMenuItem>
-        ))
+                {mention.email ? (
+                  <span
+                    className={cn(
+                      "truncate",
+                      active
+                        ? "text-accent-foreground/80"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {mention.email}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          );
+        })
       ) : (
-        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+        // The composer's live region announces this text, so a screen reader
+        // does not hear it twice.
+        <div
+          aria-hidden="true"
+          className="px-2 py-1.5 text-sm text-muted-foreground"
+        >
           {emptyLabel}
         </div>
       )}
-    </DropdownMenuContent>
+    </PopoverContent>
   );
 }

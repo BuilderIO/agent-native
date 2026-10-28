@@ -356,6 +356,18 @@ export default {
     deleteThread: "刪除討論串",
     deleteThreadTitle: "刪除討論串？",
     deleteThreadDescription: "這會從審閱中移除該討論串。",
+    pin: {
+      thread_other: "{{authors}} 的討論串，{{count}} 則評論",
+      authorsOther_other: "另外 {{count}} 人",
+      unread: "未讀",
+      resolved: "已解決",
+      draft: "草稿評論",
+    },
+    reaction: {
+      label_other: "{{emoji}}，{{count}} 則回應",
+      labelMine_other: "{{emoji}}，{{count}} 則回應，包括你的",
+    },
+    filtersActive: "已套用篩選",
     suggestChanges: "建議修改",
     replyInThread: "在討論串中回覆",
     applyChangesAndResolve: "套用修改並解決",

@@ -236,6 +236,30 @@ function rowIds(container: HTMLElement): string[] {
   );
 }
 
+// Each group is named by the heading it points at, not by an aria-label.
+// A group with no label yields `undefined`, which fails the equality check.
+function groupNames(container: HTMLElement): Array<string | null | undefined> {
+  return [...container.querySelectorAll("[role=group]")].map((group) => {
+    const headingId = group.getAttribute("aria-labelledby");
+    return headingId
+      ? document.getElementById(headingId)?.textContent
+      : undefined;
+  });
+}
+
+function typeInSearch(input: HTMLInputElement, value: string) {
+  act(() => {
+    // React tracks the value through its own setter, so write through the
+    // prototype's setter for the change to reach onChange.
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    setValue?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 function clickButton(container: HTMLElement, selector: string) {
   const element = container.querySelector<HTMLElement>(selector);
   if (!element) throw new Error(`Missing ${selector}`);
@@ -291,12 +315,12 @@ describe("ReviewCommentsPanel", () => {
       ],
     });
 
-    const groups = [...container.querySelectorAll("[role=group]")];
-    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+    expect(groupNames(container)).toEqual([
       "Screen 2",
       "Screen 1",
       "review.boardGroup",
     ]);
+    const groups = [...container.querySelectorAll("[role=group]")];
     const screen1 = groups[1];
     expect(
       screen1?.querySelector("span.text-muted-foreground")?.textContent,
@@ -312,11 +336,42 @@ describe("ReviewCommentsPanel", () => {
     ]);
     const container = renderPanel();
 
-    const groups = [...container.querySelectorAll("[role=group]")];
-    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
-      "review.boardGroup",
-    ]);
+    expect(groupNames(container)).toEqual(["review.boardGroup"]);
     expect(rowIds(container)).toEqual(["t-gone"]);
+  });
+
+  it("names each group with an h3 heading and lists its rows as list items", () => {
+    const container = renderPanel();
+
+    const groups = [...container.querySelectorAll<HTMLElement>("[role=group]")];
+    expect(groups).toHaveLength(3);
+    for (const group of groups) {
+      const headingId = group.getAttribute("aria-labelledby");
+      expect(headingId).toBeTruthy();
+      expect(document.getElementById(headingId ?? "")?.tagName).toBe("H3");
+      expect(
+        group.querySelector("ul > li > [data-review-thread-row]"),
+      ).not.toBeNull();
+    }
+    expect(
+      container.querySelectorAll("ul > li > [data-review-thread-row]"),
+    ).toHaveLength(4);
+  });
+
+  it("announces the visible thread count as a live status", () => {
+    const container = renderPanel();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "review.threadsCount:4",
+    );
+
+    clickButton(container, '[aria-label="review.search"]');
+    const input = container.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("Missing search input");
+    typeInSearch(input, "hero");
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "review.threadsCount:1",
+    );
   });
 
   it("shows the count of visible threads and leaves resolved ones out until asked", () => {
@@ -331,7 +386,7 @@ describe("ReviewCommentsPanel", () => {
     expect(rowIds(container)).toContain("t-old");
   });
 
-  it("dims resolved rows", () => {
+  it("keeps resolved rows at full opacity and labels them resolved", () => {
     const container = renderPanel();
     clickButton(container, '[aria-label="review.filter"]');
     clickMenuItem(container, "review.showResolved");
@@ -339,7 +394,10 @@ describe("ReviewCommentsPanel", () => {
     const resolvedRow = container.querySelector<HTMLElement>(
       '[data-review-thread-id="t-old"]',
     );
-    expect(resolvedRow?.classList.contains("opacity-60")).toBe(true);
+    expect(resolvedRow?.classList.contains("opacity-60")).toBe(false);
+    expect(resolvedRow?.querySelector(".sr-only")?.textContent).toContain(
+      "review.resolved",
+    );
     const openRow = container.querySelector<HTMLElement>(
       '[data-review-thread-id="t-hero"]',
     );
@@ -351,29 +409,76 @@ describe("ReviewCommentsPanel", () => {
 
     clickButton(container, '[aria-label="review.search"]');
     const input = container.querySelector<HTMLInputElement>("input");
-    expect(input).not.toBeNull();
-
-    act(() => {
-      if (!input) return;
-      // React tracks the value through its own setter, so write through the
-      // prototype's setter for the change to reach onChange.
-      const setValue = Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )?.set;
-      setValue?.call(input, "hero");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    if (!input) throw new Error("Missing search input");
+    typeInSearch(input, "hero");
     expect(rowIds(container)).toEqual(["t-hero"]);
     expect(container.textContent).toContain("review.threadsCount:1");
+
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(container.querySelector("input")).toBeNull();
+    expect(rowIds(container)).toHaveLength(4);
+  });
+
+  it("returns focus to the search toggle when Escape closes search", () => {
+    const container = renderPanel();
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[aria-label="review.search"]',
+    );
+
+    clickButton(container, '[aria-label="review.search"]');
+    const input = container.querySelector<HTMLInputElement>("input");
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
 
     act(() => {
       input?.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
     });
+
     expect(container.querySelector("input")).toBeNull();
-    expect(rowIds(container)).toHaveLength(4);
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("marks the Filter button and names it as applied only while a filter is on", () => {
+    const container = renderPanel();
+    const idle = container.querySelector<HTMLElement>(
+      '[aria-label="review.filter"]',
+    );
+    expect(idle?.querySelector('span[aria-hidden="true"]')).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="review.filter, review.filtersActive"]',
+      ),
+    ).toBeNull();
+
+    clickButton(container, '[aria-label="review.filter"]');
+    clickMenuItem(container, "review.showResolved");
+
+    const active = container.querySelector<HTMLElement>(
+      '[aria-label="review.filter, review.filtersActive"]',
+    );
+    expect(
+      active?.querySelector('span[aria-hidden="true"].bg-primary'),
+    ).not.toBeNull();
+
+    clickMenuItem(container, "review.showResolved");
+
+    expect(
+      container.querySelector(
+        '[aria-label="review.filter, review.filtersActive"]',
+      ),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="review.filter"] span[aria-hidden="true"]',
+      ),
+    ).toBeNull();
   });
 
   it("calls the focus handler with the thread when a row is clicked", () => {

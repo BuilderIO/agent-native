@@ -71,10 +71,39 @@ describe("ReviewCommentComposer", () => {
     return event;
   }
 
-  function mentionOptionLabels() {
+  function mentionOptionElements() {
     return Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).map((item) => item.textContent ?? "");
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+  }
+
+  function mentionOptionLabels() {
+    return mentionOptionElements().map((item) => item.textContent ?? "");
+  }
+
+  function mentionOption(name: string) {
+    const option = mentionOptionElements().find((item) =>
+      item.textContent?.includes(name),
+    );
+    if (!option) throw new Error(`no mention option for ${name}`);
+    return option;
+  }
+
+  function mentionListbox() {
+    return document.querySelector<HTMLElement>('[role="listbox"]');
+  }
+
+  function liveRegion() {
+    const region = container.querySelector<HTMLElement>('[role="status"]');
+    if (!region) throw new Error("live region not mounted");
+    return region;
+  }
+
+  function focusEditor() {
+    act(() => {
+      editorDom().editor.view.focus();
+    });
+    expect(document.activeElement).toBe(editorDom());
   }
 
   function Harness(
@@ -362,9 +391,9 @@ describe("ReviewCommentComposer", () => {
     await render(<Harness />);
     keydown("@");
     await act(async () => {});
-    const menu = document.querySelector<HTMLElement>('[role="menu"]');
-    expect(menu?.hasAttribute("data-review-popover")).toBe(true);
-    expect(container.contains(menu)).toBe(false);
+    const listbox = mentionListbox();
+    expect(listbox?.hasAttribute("data-review-popover")).toBe(true);
+    expect(container.contains(listbox)).toBe(false);
   });
 
   it("submits the same plain string a textarea would, without a mention", async () => {
@@ -408,9 +437,7 @@ describe("ReviewCommentComposer", () => {
     expect(options).toHaveLength(2);
     expect(options[0]).toContain("alice@example.com");
     expect(options[1]).toContain("bob@example.com");
-    expect(
-      document.querySelector('[role="menu"]')?.getAttribute("data-side"),
-    ).toBe("top");
+    expect(mentionListbox()?.getAttribute("data-side")).toBe("top");
 
     keydown("ArrowDown");
     expect(
@@ -425,8 +452,8 @@ describe("ReviewCommentComposer", () => {
     expect(state.mentions).toEqual([bob]);
     expect(
       container.querySelector("[data-review-mention-chip]")?.textContent,
-    ).toBe("Bob");
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    ).toBe("@Bob");
+    expect(mentionListbox()).toBeNull();
 
     typeText(" thanks");
     keydown("Enter");
@@ -449,18 +476,29 @@ describe("ReviewCommentComposer", () => {
 
   it("closes the picker on Escape before it cancels the composer", async () => {
     const onEscape = vi.fn();
+    const outsideEscape = vi.fn();
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") outsideEscape();
+    };
     await render(<Harness onEscape={onEscape} />);
-    keydown("@");
-    await act(async () => {});
-    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    window.addEventListener("keydown", onWindowKeyDown);
+    try {
+      keydown("@");
+      await act(async () => {});
+      expect(mentionListbox()).not.toBeNull();
 
-    keydown("Escape");
-    await act(async () => {});
-    expect(document.querySelector('[role="menu"]')).toBeNull();
-    expect(onEscape).not.toHaveBeenCalled();
+      keydown("Escape");
+      await act(async () => {});
+      expect(mentionListbox()).toBeNull();
+      expect(onEscape).not.toHaveBeenCalled();
+      // Nothing outside the composer may read this Escape as "leave".
+      expect(outsideEscape).not.toHaveBeenCalled();
 
-    keydown("Escape");
-    expect(onEscape).toHaveBeenCalledTimes(1);
+      keydown("Escape");
+      expect(onEscape).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("keydown", onWindowKeyDown);
+    }
   });
 
   it("opens the picker from the toolbar button", async () => {
@@ -483,10 +521,7 @@ describe("ReviewCommentComposer", () => {
     await render(<Harness onState={(next) => (state = next)} />);
     keydown("@");
     await act(async () => {});
-    const aliceOption = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Alice"));
-    await act(async () => aliceOption?.click());
+    await act(async () => mentionOption("Alice").click());
     expect(state.value).toBe("@Alice");
     expect(state.mentions).toEqual([alice]);
   });
@@ -506,11 +541,7 @@ describe("ReviewCommentComposer", () => {
     expect(mentionOptionLabels().some((label) => label.includes("Bob"))).toBe(
       false,
     );
-    await act(async () =>
-      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find((item) => item.textContent?.includes("Alice"))
-        ?.click(),
-    );
+    await act(async () => mentionOption("Alice").click());
     expect(state.value).toBe("@Alice");
     expect(state.mentions).toEqual([alice]);
   });
@@ -527,18 +558,14 @@ describe("ReviewCommentComposer", () => {
     );
     expect(
       container.querySelector("[data-review-mention-chip]")?.textContent,
-    ).toBe("Alice");
+    ).toBe("@Alice");
     act(() => {
       editorDom().editor.commands.selectAll();
     });
     keydown("@");
     typeText("bo");
     await act(async () => {});
-    await act(async () =>
-      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find((item) => item.textContent?.includes("Bob"))
-        ?.click(),
-    );
+    await act(async () => mentionOption("Bob").click());
     expect(state.value).toBe("@Bob");
     expect(state.mentions).toEqual([bob]);
   });
@@ -612,5 +639,273 @@ describe("ReviewCommentComposer", () => {
       container.querySelectorAll("[data-review-mention-chip]"),
     ).toHaveLength(0);
     expect(editorDom().textContent).toBe("");
+  });
+
+  describe("mention combobox", () => {
+    // A `role="textbox"` does not allow these, and axe reports them as critical.
+    function expectTextboxOmitsPopupState(dom: HTMLElement) {
+      expect(dom.hasAttribute("aria-expanded")).toBe(false);
+      expect(dom.hasAttribute("aria-haspopup")).toBe(false);
+    }
+
+    it("tells assistive technology about the list on the editor itself", async () => {
+      await render(<Harness />);
+      const dom = editorDom();
+      expect(dom.getAttribute("role")).toBe("textbox");
+      expect(dom.getAttribute("aria-autocomplete")).toBe("list");
+      expectTextboxOmitsPopupState(dom);
+      expect(dom.hasAttribute("aria-controls")).toBe(false);
+      expect(dom.hasAttribute("aria-activedescendant")).toBe(false);
+
+      focusEditor();
+      keydown("@");
+      await act(async () => {});
+      const listbox = mentionListbox();
+      expect(listbox).not.toBeNull();
+      expect(listbox?.getAttribute("aria-label")).toBe("Mention someone");
+      expect(dom.getAttribute("aria-autocomplete")).toBe("list");
+      expectTextboxOmitsPopupState(dom);
+      expect(dom.getAttribute("aria-controls")).toBe(listbox?.id);
+      expect(document.getElementById(listbox?.id ?? "")).toBe(listbox);
+
+      const options = mentionOptionElements();
+      const ids = options.map((option) => option.id);
+      expect(ids.every(Boolean)).toBe(true);
+      expect(new Set(ids).size).toBe(options.length);
+      for (const option of options) {
+        expect(listbox?.contains(option)).toBe(true);
+      }
+      expect(dom.getAttribute("aria-activedescendant")).toBe(ids[0]);
+      expect(options.map((o) => o.getAttribute("aria-selected"))).toEqual([
+        "true",
+        "false",
+      ]);
+
+      keydown("ArrowDown");
+      expect(dom.getAttribute("aria-activedescendant")).toBe(ids[1]);
+      expect(options.map((o) => o.getAttribute("aria-selected"))).toEqual([
+        "false",
+        "true",
+      ]);
+      keydown("ArrowDown");
+      expect(dom.getAttribute("aria-activedescendant")).toBe(ids[0]);
+      keydown("ArrowUp");
+      expect(dom.getAttribute("aria-activedescendant")).toBe(ids[1]);
+
+      keydown("Escape");
+      await act(async () => {});
+      expectTextboxOmitsPopupState(dom);
+      expect(dom.hasAttribute("aria-controls")).toBe(false);
+      expect(dom.hasAttribute("aria-activedescendant")).toBe(false);
+    });
+
+    it("leaves the editor a plain textbox when there is nobody to mention", async () => {
+      await render(<Harness mentionOptions={[]} />);
+      const dom = editorDom();
+      expect(dom.getAttribute("role")).toBe("textbox");
+      for (const name of [
+        "aria-autocomplete",
+        "aria-haspopup",
+        "aria-expanded",
+        "aria-controls",
+        "aria-activedescendant",
+      ]) {
+        expect(dom.hasAttribute(name)).toBe(false);
+      }
+    });
+
+    it("names the highlighted person without moving focus out of the editor", async () => {
+      const focusTargets: EventTarget[] = [];
+      const recordFocus = (event: Event) => {
+        if (event.target) focusTargets.push(event.target);
+      };
+      await render(<Harness showCommentTools />);
+      const dom = editorDom();
+      focusEditor();
+      document.addEventListener("focusin", recordFocus);
+      try {
+        keydown("@");
+        await act(async () => {});
+        // Anything deferred (a focus bounce through requestAnimationFrame, say)
+        // has run by now.
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(mentionListbox()).not.toBeNull();
+        expect(document.activeElement).toBe(dom);
+
+        keydown("ArrowDown");
+        typeText("b");
+        await act(async () => {});
+        expect(document.activeElement).toBe(dom);
+        expect(mentionOptionLabels()).toHaveLength(1);
+
+        const bobOption = mentionOption("Bob");
+        const press = new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+        });
+        bobOption.dispatchEvent(press);
+        expect(press.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(dom);
+
+        await act(async () => bobOption.click());
+        expect(mentionListbox()).toBeNull();
+        expect(document.activeElement).toBe(dom);
+
+        const mentionButton = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Mention someone"]',
+        );
+        await act(async () => mentionButton?.click());
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(mentionListbox()).not.toBeNull();
+        expect(document.activeElement).toBe(dom);
+      } finally {
+        document.removeEventListener("focusin", recordFocus);
+      }
+      expect(focusTargets.every((target) => target === dom)).toBe(true);
+    });
+
+    it("selects the highlighted option with Enter or Tab and by click", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(<Harness onState={(next) => (state = next)} />);
+      focusEditor();
+
+      keydown("@");
+      await act(async () => {});
+      keydown("ArrowDown");
+      const tab = keydown("Tab");
+      await act(async () => {});
+      expect(tab.defaultPrevented).toBe(true);
+      expect(state).toEqual({ value: "@Bob", mentions: [bob] });
+      expectTextboxOmitsPopupState(editorDom());
+      expect(document.activeElement).toBe(editorDom());
+
+      typeText(" ");
+      keydown("@");
+      await act(async () => {});
+      expect(mentionOption("Alice").getAttribute("aria-selected")).toBe("true");
+      const bobOption = mentionOption("Bob");
+      act(() => {
+        bobOption.dispatchEvent(
+          new PointerEvent("pointermove", { bubbles: true }),
+        );
+      });
+      expect(editorDom().getAttribute("aria-activedescendant")).toBe(
+        bobOption.id,
+      );
+      expect(bobOption.getAttribute("aria-selected")).toBe("true");
+      await act(async () => bobOption.click());
+      expect(state.value).toBe("@Bob @Bob");
+      expect(document.activeElement).toBe(editorDom());
+    });
+
+    it("closes on a press outside the field but not inside it", async () => {
+      await render(<Harness />);
+      focusEditor();
+      keydown("@");
+      await act(async () => {});
+      // Radix arms its outside-press listener on the next tick.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+
+      // Radix settles a press outside on the click that completes it.
+      const press = async (target: HTMLElement) => {
+        await act(async () => {
+          target.dispatchEvent(
+            new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+          );
+          target.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, button: 0 }),
+          );
+        });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+      };
+
+      await press(editorDom());
+      expect(mentionListbox()).not.toBeNull();
+
+      await press(document.body);
+      expect(mentionListbox()).toBeNull();
+      expectTextboxOmitsPopupState(editorDom());
+      expect(editorDom().hasAttribute("aria-controls")).toBe(false);
+    });
+
+    it("closes when focus moves out of the editor", async () => {
+      await render(<Harness />);
+      const elsewhere = document.createElement("button");
+      document.body.appendChild(elsewhere);
+      try {
+        focusEditor();
+        keydown("@");
+        await act(async () => {});
+        expect(mentionListbox()).not.toBeNull();
+
+        await act(async () => elsewhere.focus());
+        expect(mentionListbox()).toBeNull();
+        expectTextboxOmitsPopupState(editorDom());
+        expect(editorDom().hasAttribute("aria-controls")).toBe(false);
+      } finally {
+        elsewhere.remove();
+      }
+    });
+
+    it("announces an empty result in a polite live region that is always mounted", async () => {
+      await render(<Harness noMentionsLabel="Nobody matches" />);
+      const region = liveRegion();
+      expect(region.getAttribute("aria-live")).toBe("polite");
+      expect(region.className).toContain("sr-only");
+      expect(region.textContent).toBe("");
+
+      focusEditor();
+      keydown("@");
+      await act(async () => {});
+      expect(liveRegion()).toBe(region);
+      expect(region.textContent).toBe("");
+
+      typeText("zzz");
+      await act(async () => {});
+      expect(liveRegion()).toBe(region);
+      expect(region.textContent).toBe("Nobody matches");
+      // Nothing to choose from, so there is no listbox to point at.
+      expect(mentionListbox()).toBeNull();
+      expectTextboxOmitsPopupState(editorDom());
+      expect(editorDom().hasAttribute("aria-controls")).toBe(false);
+
+      keydown("Escape");
+      await act(async () => {});
+      expect(region.textContent).toBe("");
+      expect(document.activeElement).toBe(editorDom());
+    });
+
+    it("keeps the @ in the chip for people and agents without changing the submitted text", async () => {
+      const sam = { label: "Sam", email: "sam@example.com" };
+      const claude = { label: "Claude", id: "agent:claude" };
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness
+          initialValue="Hi @Sam and @Claude"
+          initialMentions={[sam, claude]}
+          onState={(next) => (state = next)}
+        />,
+      );
+      const chips = Array.from(
+        container.querySelectorAll("[data-review-mention-chip]"),
+      );
+      expect(chips.map((chip) => chip.textContent)).toEqual([
+        "@Sam",
+        "@Claude",
+      ]);
+      expect(editorDom().textContent).toBe("Hi @Sam and @Claude");
+
+      placeCaret(editorDom().editor.state.doc.content.size - 1);
+      typeText("!");
+      expect(state.value).toBe("Hi @Sam and @Claude!");
+    });
   });
 });
