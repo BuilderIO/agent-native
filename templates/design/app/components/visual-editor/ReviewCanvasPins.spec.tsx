@@ -1718,6 +1718,101 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     }
   });
 
+  // `targetId: null` cannot travel in a GET query string, so the board
+  // overlay's list arrives with every screen's threads too. The mocked list is
+  // unscoped for the same reason: each overlay must keep to its own target.
+  describe("overlay scope", () => {
+    const boardGeometry = { x: 0, y: 0, width: 800, height: 600 };
+    // A screen thread's worldPoint is the click mapped through the board's
+    // geometry, so the board would draw it away from the frame it lives on.
+    const resolvedOnScreen: ReviewComment = {
+      ...comment,
+      id: "comment-d",
+      threadId: "thread-d",
+      status: "resolved",
+      anchor: {
+        screenId: "screen-1",
+        screenPoint: { xPct: 60, yPct: 40 },
+        point: { xPct: 60, yPct: 40 },
+        worldPoint: { x: 640, y: 480 },
+      },
+    };
+    const openOnBoard: ReviewComment = {
+      ...comment,
+      id: "comment-board",
+      threadId: "thread-board",
+      targetId: null,
+      anchor: { point: { xPct: 10, yPct: 10 }, worldPoint: { x: 80, y: 60 } },
+    };
+    const pinPositions = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-review-pin]")].map(
+        (pin) =>
+          `${pin.parentElement?.style.left},${pin.parentElement?.style.top}`,
+      );
+
+    it("draws a screen thread once, not again on the board, through a draft", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId={null}
+            boardGeometry={boardGeometry}
+            canPost
+            canResolve
+          />,
+        );
+      });
+      expect(pinPositions()).toEqual(["80px,60px"]);
+
+      await act(async () => {
+        document
+          .querySelector<HTMLElement>("[data-review-click-plane]")
+          ?.dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              clientX: 300,
+              clientY: 240,
+            }),
+          );
+      });
+      expect(pinPositions()).toEqual(["80px,60px", "300px,240px"]);
+
+      await act(async () => {
+        document
+          .querySelector("[data-review-test-textarea]")
+          ?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          );
+      });
+      expect(pinPositions()).toEqual(["80px,60px"]);
+    });
+
+    it("draws only its own screen's threads on a screen overlay", async () => {
+      reviewComments = [resolvedOnScreen, openOnBoard];
+      await act(async () => {
+        root.render(
+          <ReviewCanvasPins
+            active={false}
+            onClose={vi.fn()}
+            canvasSelector=".review-test-canvas"
+            resourceType="design"
+            resourceId="design-1"
+            targetId="screen-1"
+            screenId="screen-1"
+            canPost
+            canResolve
+          />,
+        );
+      });
+      expect(pinPositions()).toEqual(["480px,240px"]);
+    });
+  });
+
   describe("wheel over the comment overlay", () => {
     beforeEach(stubFaithfulWheelEvent);
 
@@ -3297,10 +3392,12 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
   it("projects stored canvas pins through camera changes without scaling the marker", async () => {
     const previousAnchor = comment.anchor;
+    const previousTargetId = comment.targetId;
     comment.anchor = {
       point: { xPct: 41.25, yPct: (205 / 600) * 100 },
       canvasPoint: { x: -100, y: -150 },
     } as ReviewComment["anchor"];
+    comment.targetId = null;
     const world = document.createElement("div");
     world.setAttribute("data-multi-screen-canvas-world", "");
     world.style.transform = "translate(50px, 25px) scale(2)";
@@ -3339,6 +3436,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       expect(pin?.className).toContain("h-7");
     } finally {
       comment.anchor = previousAnchor;
+      comment.targetId = previousTargetId;
     }
   });
 
@@ -4555,7 +4653,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         sourceType="inline"
         sourceVersionHash="hash-1"
         onDispatchCommentToAgent={vi.fn()}
-        repromptDraftRequest={repromptDraftRequest}
+        {...(repromptDraftRequest ? { repromptDraftRequest } : {})}
       />
     );
 

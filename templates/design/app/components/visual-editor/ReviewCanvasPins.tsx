@@ -1239,9 +1239,16 @@ export function ReviewCanvasPins({
     };
   }, [cancelDraft, onClose, pendingRepromptId, t, targetId]);
 
+  // A null `targetId` is dropped from the GET query, so the board's list arrives
+  // with every screen's threads; drawing those would pin each one a second time.
   const threads = useMemo(
-    () => buildReviewThreads(comments.data?.comments ?? []),
-    [comments.data?.comments],
+    () =>
+      buildReviewThreads(
+        (comments.data?.comments ?? []).filter(
+          (comment) => comment.targetId === targetId,
+        ),
+      ),
+    [comments.data?.comments, targetId],
   );
   const discussion = comments.data?.discussion;
   const normalizedCurrentUserEmail =
