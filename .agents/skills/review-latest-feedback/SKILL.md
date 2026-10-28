@@ -265,9 +265,12 @@ apart from Steve's own 👀.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
   `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the
-  repo root. For any fix that isn't purely visual, only its
-  `fix-proof: proven` line counts, and the second opinion below reads its red
-  output to confirm the check failed on the bug, not on setup.
+  repo root and paste its `fix-proof: proven ...` line, unchanged, under
+  each report it fixes (`visual: <before> <after>` for a purely visual
+  fix). CI's `Feedback fix proof` check re-runs every line and fails the PR
+  on a report without one, so write the check before you push. The second
+  opinion below reads the red output to confirm the check failed on the
+  bug, not on setup.
 <!-- framework-repo-only:end -->
 - **Two misses, then stop guessing.** If two attempts don't turn the check
   green, stop editing and capture the real failure first (stack, logs, the

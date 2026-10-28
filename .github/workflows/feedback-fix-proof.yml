@@ -1,0 +1,39 @@
+name: Feedback fix proof
+
+# Feedback-sweep PRs list their reports under `## Reports`, each with a
+# `fix-proof: proven` (or `visual:`) line. This re-runs every proof so a
+# skipped or invented one fails here instead of merging.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: feedback-fix-proof-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    name: Feedback fix proof
+    if: contains(github.event.pull_request.body, '## Reports')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # fix-proof checks out each fix commit and its parent, so it needs the
+      # PR's real history, not the default merge commit.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          filter: blob:none
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Re-run each report's proof
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node --experimental-strip-types --no-warnings scripts/feedback-fix-proof.ts
