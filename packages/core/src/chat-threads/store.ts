@@ -248,6 +248,17 @@ export const chatThreadsStore = defineStore({
       { data: [3] },
     ),
     {
+      name: "viewer-state",
+      sql: `CREATE TABLE IF NOT EXISTS chat_thread_viewer_state (
+        thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+        user_email TEXT NOT NULL,
+        pinned_at BIGINT,
+        hidden_at BIGINT,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (thread_id, user_email)
+      )`,
+    },
+    {
       name: "submission-inbox-runtime-schema",
       run: async () => {
         const sql = (version: number) => {
@@ -297,17 +308,6 @@ export const chatThreadsStore = defineStore({
           retryCount,
         );
       },
-    },
-    {
-      name: "viewer-state",
-      sql: `CREATE TABLE IF NOT EXISTS chat_thread_viewer_state (
-        thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
-        user_email TEXT NOT NULL,
-        pinned_at BIGINT,
-        hidden_at BIGINT,
-        updated_at BIGINT NOT NULL,
-        PRIMARY KEY (thread_id, user_email)
-      )`,
     },
   ],
 });
