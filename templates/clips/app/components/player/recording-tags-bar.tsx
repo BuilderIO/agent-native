@@ -30,6 +30,7 @@ export function RecordingTagsBar({
 }: RecordingTagsBarProps) {
   const t = useT();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [savedDraft, setSavedDraft] = useState({ id: recordingId, value: "" });
   const previousRequest = useRef(0);
   const previousRecordingId = useRef(recordingId);
   useEffect(() => {
@@ -149,6 +150,8 @@ export function RecordingTagsBar({
         <TagInput
           key={editRequest}
           autoFocus
+          initialDraft={savedDraft.id === recordingId ? savedDraft.value : ""}
+          onDraftChange={(value) => setSavedDraft({ id: recordingId, value })}
           onDismiss={() => setEditingId(null)}
           value={displayed}
           suggestions={suggestionsQ.data?.tags ?? []}

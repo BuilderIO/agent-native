@@ -320,10 +320,10 @@ export function useAutoTitleBridge(): void {
           }
           const key = fallbackKey(candidate.id);
           dispatched.current.add(key);
-          callAction(
-            "regenerate-title" as any,
-            { recordingId: candidate.id } as any,
-          )
+          callAction("regenerate-title", {
+            recordingId: candidate.id,
+            automatic: true,
+          })
             .then((result) => {
               const outcome = result as {
                 queued?: boolean;

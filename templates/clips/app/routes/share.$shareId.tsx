@@ -21,7 +21,7 @@ import {
   isImageRecording,
   screenshotFileExtension,
 } from "@shared/recording-kind";
-import { isDefaultTitle } from "@shared/title-source";
+import { isDefaultTitle, shouldPollGeneratedTitle } from "@shared/title-source";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -238,19 +238,6 @@ function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
   if (!trimmed) return null;
   return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
-}
-
-function shouldPollGeneratedTitle(
-  recording: { title: string | null | undefined; createdAt?: string | null },
-  transcriptStatus?: string,
-): boolean {
-  if (!isDefaultTitle(recording.title)) return false;
-  if (transcriptStatus === "failed") return false;
-
-  const createdAtMs = Date.parse(recording.createdAt ?? "");
-  return (
-    Number.isFinite(createdAtMs) && Date.now() - createdAtMs <= 2 * 60 * 1000
-  );
 }
 
 export async function loader({ params, url }: LoaderFunctionArgs) {
@@ -982,9 +969,10 @@ export default function ShareRoute() {
   );
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
   const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
-  const visibleTitle = recording
-    ? displayRecordingTitle(recording.title)
-    : t("sharePage.untitledClip");
+  const visibleTitle =
+    recording && !isDefaultTitle(recording.title)
+      ? displayRecordingTitle(recording.title)
+      : t("sharePage.untitledClip");
   const shareBreadcrumbItems = [
     { label: t("navigation.library"), to: "/library" },
     { label: visibleTitle },
@@ -1861,6 +1849,12 @@ export default function ShareRoute() {
                   <h1 className="truncate text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl">
                     {visibleTitle}
                   </h1>
+                  {recording &&
+                  shouldPollGeneratedTitle(recording, transcriptStatus) ? (
+                    <span role="status" className="sr-only">
+                      {t("sharePage.generatingTitle")}
+                    </span>
+                  ) : null}
                   <div className="mt-2 flex min-w-0 items-center gap-2">
                     <ClipsAvatar
                       email={ownerEmail}

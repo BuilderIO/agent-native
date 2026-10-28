@@ -147,6 +147,13 @@ export default defineAction({
       .describe(
         "Also queue an automatic recording description after the transcript-backed title. Used by the post-transcription pipeline.",
       ),
+    automatic: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Whether this request is automatic; manual titles are preserved.",
+      ),
   }),
   run: async (args) => {
     assertRecordingNotExpired(
@@ -159,12 +166,22 @@ export default defineAction({
         id: schema.recordings.id,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
+        updatedAt: schema.recordings.updatedAt,
         description: schema.recordings.description,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
+
+    if (args.automatic && rec.titleSource === "manual") {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "Recording title is manual",
+        recordingId: args.recordingId,
+      };
+    }
 
     const [transcript] = await db
       .select()
@@ -221,7 +238,7 @@ export default defineAction({
     const writeTitleIfUnchanged = async (
       fresh: Pick<
         typeof schema.recordings.$inferSelect,
-        "title" | "titleSource"
+        "title" | "titleSource" | "updatedAt"
       >,
       title: string,
       titleSource: "context" | "ai",
@@ -234,11 +251,23 @@ export default defineAction({
             eq(schema.recordings.id, args.recordingId),
             eq(schema.recordings.title, fresh.title),
             eq(schema.recordings.titleSource, fresh.titleSource),
+            eq(schema.recordings.updatedAt, fresh.updatedAt),
           ),
         )
         .returning({ id: schema.recordings.id });
       return rows.length > 0;
     };
+    const canWriteTitle = (
+      fresh: Pick<
+        typeof schema.recordings.$inferSelect,
+        "title" | "titleSource" | "updatedAt"
+      >,
+    ) =>
+      (!args.automatic || fresh.titleSource !== "manual") &&
+      (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+        (fresh.title === rec.title &&
+          fresh.titleSource === rec.titleSource &&
+          fresh.updatedAt === rec.updatedAt));
 
     let provisionalTitle: string | null = null;
     if (
@@ -251,6 +280,7 @@ export default defineAction({
           .select({
             title: schema.recordings.title,
             titleSource: schema.recordings.titleSource,
+            updatedAt: schema.recordings.updatedAt,
           })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
@@ -292,6 +322,7 @@ export default defineAction({
           .select({
             title: schema.recordings.title,
             titleSource: schema.recordings.titleSource,
+            updatedAt: schema.recordings.updatedAt,
           })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
@@ -303,11 +334,7 @@ export default defineAction({
           fresh.title?.trim().toLocaleLowerCase() ===
           generatedTitle.trim().toLocaleLowerCase();
 
-        if (
-          !titleMatchesCurrent &&
-          (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-            fresh.title === rec.title)
-        ) {
+        if (!titleMatchesCurrent && canWriteTitle(fresh)) {
           assertRecordingNotExpired(
             await assertAccess("recording", args.recordingId, "editor"),
           );
@@ -372,6 +399,7 @@ export default defineAction({
         .select({
           title: schema.recordings.title,
           titleSource: schema.recordings.titleSource,
+          updatedAt: schema.recordings.updatedAt,
         })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId))
@@ -379,15 +407,20 @@ export default defineAction({
 
       if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
+      if (!canWriteTitle(fresh)) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "Recording title changed before generation completed",
+          recordingId: args.recordingId,
+        };
+      }
+
       const titleMatchesCurrent =
         fresh.title?.trim().toLocaleLowerCase() ===
         fallbackTitle.trim().toLocaleLowerCase();
 
-      if (
-        (!titleMatchesCurrent || provisionalTitle === fallbackTitle) &&
-        (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-          fresh.title === rec.title)
-      ) {
+      if (!titleMatchesCurrent || provisionalTitle === fallbackTitle) {
         assertRecordingNotExpired(
           await assertAccess("recording", args.recordingId, "editor"),
         );

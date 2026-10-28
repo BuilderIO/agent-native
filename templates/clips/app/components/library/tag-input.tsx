@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 interface TagInputProps {
   value: string[];
   autoFocus?: boolean;
+  initialDraft?: string;
+  onDraftChange?: (draft: string) => void;
   onDismiss?: () => void;
   suggestions?: string[];
   placeholder?: string;
@@ -22,6 +24,8 @@ interface TagInputProps {
 export function TagInput({
   value,
   autoFocus,
+  initialDraft = "",
+  onDraftChange,
   onDismiss,
   suggestions = [],
   placeholder = "Add tag…",
@@ -29,11 +33,16 @@ export function TagInput({
   className,
   "aria-label": ariaLabel,
 }: TagInputProps) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [showDrop, setShowDrop] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const normalized = draft.trim();
+
+  function updateDraft(next: string) {
+    setDraft(next);
+    onDraftChange?.(next);
+  }
 
   const filtered = useMemo(() => {
     const lower = normalized.toLowerCase();
@@ -48,11 +57,11 @@ export function TagInput({
     const t = tag.trim();
     if (!t) return;
     if (value.includes(t)) {
-      setDraft("");
+      updateDraft("");
       return;
     }
     onChange([...value, t]);
-    setDraft("");
+    updateDraft("");
   }
 
   function removeTag(tag: string) {
@@ -114,7 +123,7 @@ export function TagInput({
               autoFocus={autoFocus}
               value={draft}
               onChange={(e) => {
-                setDraft(e.target.value);
+                updateDraft(e.target.value);
                 setShowDrop(true);
               }}
               onFocus={() => setShowDrop(true)}

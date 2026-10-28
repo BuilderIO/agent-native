@@ -509,6 +509,7 @@ export default defineEventHandler(async (event) => {
     recording: {
       id: rec.id,
       title: rec.title,
+      titleSource: rec.titleSource,
       description: rec.description,
       kind: resolveRecordingKind(rec.kind),
       // A screenshot's picture is served by the thumbnail route, which is the

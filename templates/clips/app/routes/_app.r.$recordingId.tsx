@@ -48,7 +48,7 @@ import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
-import { isDefaultTitle } from "@shared/title-source";
+import { isDefaultTitle, shouldPollGeneratedTitle } from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isWorkflowRequester,
@@ -1338,9 +1338,15 @@ export default function RecordingPage() {
     recording &&
     isDefaultTitle(recording.title),
   );
-  const visibleTitle = recording
-    ? displayRecordingTitle(recording.title)
-    : "Untitled Clip";
+  const visibleTitle =
+    recording && !isDefaultTitle(recording.title)
+      ? (recording.title ?? "").trim()
+      : t("editableTitle.untitled");
+  const generatingTitle = Boolean(
+    recording &&
+    !titleGenerationPaused &&
+    shouldPollGeneratedTitle(recording, transcriptStatus),
+  );
   // A loose screenshot belongs under Screenshots, not Library. Both are views
   // of the same list, but the sidebar gives stills their own entry and that is
   // where someone who just took one goes looking. Anything filed in a space or
@@ -3729,6 +3735,11 @@ export default function RecordingPage() {
                           className="text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl"
                           inputClassName="h-9 text-xl font-semibold sm:text-2xl"
                         />
+                        {generatingTitle ? (
+                          <span role="status" className="sr-only">
+                            {t("editableTitle.generatingTitle")}
+                          </span>
+                        ) : null}
                         <div className="mt-2 flex min-w-0 items-center gap-2">
                           <ClipsAvatar
                             email={recording.ownerEmail}
@@ -3907,10 +3918,6 @@ function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function displayRecordingTitle(title: string | null | undefined): string {
-  return isDefaultTitle(title) ? "Untitled Clip" : (title ?? "").trim();
-}
-
 function sanitizeFilename(name: string): string {
   return (
     name
@@ -3918,19 +3925,6 @@ function sanitizeFilename(name: string): string {
       .replace(/[^\w.-]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 80) || "clip"
-  );
-}
-
-function shouldPollGeneratedTitle(
-  recording: { title: string | null | undefined; createdAt?: string | null },
-  transcriptStatus?: string,
-): boolean {
-  if (!isDefaultTitle(recording.title)) return false;
-  if (transcriptStatus === "failed") return false;
-
-  const createdAtMs = Date.parse(recording.createdAt ?? "");
-  return (
-    Number.isFinite(createdAtMs) && Date.now() - createdAtMs <= 2 * 60 * 1000
   );
 }
 
