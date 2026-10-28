@@ -450,6 +450,7 @@ describe("AgentMessageActions papercuts", () => {
       role: "user",
       status: "complete",
       parts: [
+        { type: "text", text: "Review these files" },
         {
           type: "file",
           name: "brief.pdf",
@@ -498,7 +499,7 @@ describe("AgentMessageActions papercuts", () => {
       });
 
       const expectedCopyText =
-        "brief.pdf\nhttps://files.example/brief.pdf\n\nnotes.txt\nhttps://files.example/notes.txt";
+        "Review these files\n\nbrief.pdf\nhttps://files.example/brief.pdf\n\nnotes.txt\nhttps://files.example/notes.txt";
       expect(onCopyMessage).toHaveBeenCalledWith({
         message,
         text: expectedCopyText,
