@@ -2734,12 +2734,15 @@ export async function renewQueuedSubmissionClaim(input: {
   messageId: string;
   claimId: string;
   runId?: string;
+  renewUntil?: number;
 }): Promise<boolean> {
+  // raw-sql-ok: the queue store binds the mutation fields as SQL parameters.
   const result = await mutateThreadQueuedMessages(input.threadId, {
     type: "renewClaim",
     messageId: input.messageId,
     claimId: input.claimId,
     ...(input.runId === undefined ? {} : { runId: input.runId }),
+    ...(input.renewUntil === undefined ? {} : { renewUntil: input.renewUntil }),
   });
   return (
     result?.claimLost !== true &&
@@ -2804,6 +2807,7 @@ export type ThreadQueuedMessageMutation =
       type: "renewClaim";
       messageId: string;
       runId?: string;
+      renewUntil?: number;
       claimId: string;
     }
   | { type: "release"; messageId: string; claimId: string };
@@ -3395,6 +3399,8 @@ export async function mutateThreadQueuedMessages(
               if (
                 !message ||
                 queuedSubmissionExpired(message, now) ||
+                (mutation.renewUntil !== undefined &&
+                  now >= mutation.renewUntil) ||
                 !receiptMutationOwnsPromotionClaim(
                   message,
                   mutation.claimId,
@@ -3520,6 +3526,8 @@ export async function mutateThreadQueuedMessages(
                         if (
                           result?.claimLost === true ||
                           receipt?.state !== "queued" ||
+                          (mutation.renewUntil !== undefined &&
+                            Date.now() >= mutation.renewUntil) ||
                           (mutation.runId !== undefined &&
                             receipt.interruptRunId !== mutation.runId)
                         ) {

@@ -364,6 +364,7 @@ export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
 const QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS = 20_000;
+const QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS = 60_000;
 // Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
 const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
 
@@ -9222,12 +9223,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         claimId: string,
       ) => {
         let renewal: Promise<void> | undefined;
+        const renewUntil =
+          Date.now() + QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS;
         const timer = setInterval(() => {
+          if (Date.now() >= renewUntil) {
+            clearInterval(timer);
+            return;
+          }
           if (renewal) return;
           renewal = renewQueuedSubmissionClaim({
             threadId,
             messageId,
             claimId,
+            renewUntil,
           })
             .then((renewed) => {
               if (!renewed) clearInterval(timer);

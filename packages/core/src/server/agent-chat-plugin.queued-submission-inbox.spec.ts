@@ -2389,9 +2389,32 @@ describe("queued submission inbox recurring sweep", () => {
       now += 20_000;
       renewClaim();
       await waitForClaimExpiry(claimStartedAt + 100_000);
-      now += 25_000;
+      now = claimStartedAt + 60_000;
+      renewClaim();
+      expect(renewalTimerCleared).toBe(true);
+      expect(await readClaimExpiry()).toBe(claimStartedAt + 100_000);
 
-      expect(await readClaimExpiry()).toBeGreaterThan(Date.now());
+      now = claimStartedAt + 100_001;
+      const expiredReceipt = await getQueuedSubmissionReceipt(
+        threadId,
+        messageId,
+      );
+      if (!expiredReceipt)
+        throw new Error("Queued receipt disappeared before claim recovery");
+      const replacementClaim = await mutateThreadQueuedMessages(threadId, {
+        type: "claimFromInbox",
+        receipt: expiredReceipt,
+        claimId: "recovery-sweeper",
+      });
+      expect(replacementClaim?.claimedMessage?.promotionClaim).toMatchObject({
+        id: "recovery-sweeper",
+        expiresAt: claimStartedAt + 160_001,
+      });
+      await mutateThreadQueuedMessages(threadId, {
+        type: "release",
+        messageId,
+        claimId: "recovery-sweeper",
+      });
 
       finishAdmission();
       expect((await sweepPromise).status).toBe(200);
