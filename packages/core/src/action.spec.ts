@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect, vi } from "vitest";
@@ -1835,6 +1836,55 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     expect((missing as Error).message).toContain(
       "Missing required parameter: name",
     );
+  });
+
+  it("masks record keys in the failing paths", async () => {
+    const schema = z.object({
+      filters: z.record(z.string(), z.string()),
+      byYear: z.record(z.string(), z.object({ total: z.number() })),
+    });
+    const error = await validateActionArgs(schema, {
+      filters: { "acme-corp-q3": 42 },
+      byYear: { "1987": { total: "many" } },
+    }).catch((err: unknown) => err);
+
+    const paths = (error as ActionInputValidationError).paths;
+    expect(paths).toContain("filters.*");
+    expect(paths).toContain("byYear.*.total");
+    expect(paths.join(" ")).not.toMatch(/acme|1987/);
+  });
+
+  it("keeps declared fields behind a preprocess that parses a JSON string", async () => {
+    const schema = z.object({
+      tweaks: z.preprocess(
+        (v) => (typeof v === "string" ? JSON.parse(v) : v),
+        z.array(z.object({ type: z.enum(["slider", "toggle"]) })),
+      ),
+    });
+    const error = await validateActionArgs(schema, {
+      tweaks: JSON.stringify([{ type: "slider" }, { type: "dropdown" }]),
+    }).catch((err: unknown) => err);
+
+    expect((error as ActionInputValidationError).paths).toEqual([
+      "tweaks.1.type",
+    ]);
+  });
+
+  it("masks every segment of a schema with no JSON Schema converter", async () => {
+    const schema: StandardSchemaV1<unknown, unknown> = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({
+          issues: [{ message: "bad", path: ["secret-key", 0, "inner"] }],
+        }),
+      },
+    };
+    const error = await validateActionArgs(schema, {}).catch(
+      (err: unknown) => err,
+    );
+
+    expect((error as ActionInputValidationError).paths).toEqual(["*.*.*"]);
   });
 
   it("keeps the input rejection constructor compatible with a bare message", () => {
