@@ -856,6 +856,9 @@ async function publishCanvas(args: {
     key: canvasBandKey(args.app, capture.target.key),
   }));
   const [firstBand] = keyedBands;
+  if (!firstBand) {
+    throw checkFailure(`${args.app} has no screenshot-backed canvas bands.`);
+  }
   const tree =
     keyedBands.length > 1
       ? combineSnapshotBands(

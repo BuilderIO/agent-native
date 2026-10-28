@@ -405,12 +405,12 @@ export function selectCaptureTree<T extends SnapshotTree>(
 export function combineSnapshotBands(
   bands: readonly SnapshotBand[],
 ): SnapshotTree {
-  if (bands.length < 2) {
+  const first = bands[0];
+  if (bands.length < 2 || !first) {
     throw new Error(
       "At least two cohorts are required for a side-by-side tree.",
     );
   }
-  const [first] = bands;
   const appRootN: Record<string, number> = {};
   const nodes: SnapshotNode[] = [];
   const nodeKeys = new Set<string>();
