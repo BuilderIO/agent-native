@@ -226,10 +226,14 @@ Put each report in one bucket:
 - **Needs a person (🎫):** subjective product or UX changes Steve hasn't
   endorsed (add, move, hide, or restyle controls; "hard to find"), work that needs access or settings only
   a person has, a provider outage, or a report you can't act on without one
-  missing fact.
+  missing fact. A bug you couldn't reproduce by reading code is still a Fix.
 - **Not actionable:** praise, chatter, announcements, things a human already
   answered, duplicates of something already in this run. These get no
   reaction and no reply.
+
+Sentry, Analytics, and chat-health issues go in the same buckets, ranked
+with the Slack reports by people affected. They have no thread to react on,
+so they appear only in the recap.
 
 Take the Fix reports in order of how many people they hurt, and claim as
 many as the run can finish. Any Fix, Build, or Needs-a-person root you leave
@@ -249,9 +253,11 @@ apart from Steve's own 👀.
   plans, reviews diffs, and integrates.
 - **Reproduce before you edit.** Get the failure on screen first: a test
   that fails, the action returning the wrong thing, a stack trace, or the
-  flow broken in a signed-in local app. No reproduction means no code
-  change; it stays a 🎫. Guessing at a fix and hoping is how one Clips
-  popover got "fixed" four times.
+  flow broken in a signed-in local app. Reading code is not an attempt:
+  write the report's steps as a failing test, or walk them in the signed-in
+  app. Only after a real attempt fails does a report become 🎫, and its
+  recap line says what you ran. No reproduction means no code change;
+  guessing at a fix is how one Clips popover got "fixed" four times.
 - **Check the history.** `git log --since=30.days --oneline -- <files>`: if
   this surface was fixed before for the same symptom, that fix treated a
   symptom. Find the shared cause (`fix-at-the-boundary`) instead of adding
@@ -288,7 +294,9 @@ apart from Steve's own 👀.
 
 ## 4. Ship
 
-Put every fix in one PR. Don't open one PR per item. In the PR body, add a
+Put every fix in one PR, and open it once every claimed Fix report has a
+fix or a failed attempt, so CI waits come after the fixing. Don't open one
+PR per item. In the PR body, add a
 `Reports` section listing the Slack link of every report the PR fixes. That
 list is the only set of threads a later `/ship` may close out as fixed.
 
@@ -364,7 +372,7 @@ Keep the recap short and written for Steve:
 ## Feedback sweep - <date, Pacific>
 Fixed and merged (N): <one line each, with Slack thread link> · PR <link>
 Closed out from earlier runs (N): <Slack thread link> · PR <link>
-Needs a person (N): <what's needed, who>
+Needs a person (N): <what's needed, who, what you tried>
 Still open from earlier runs (N): <why>
 Seen, not picked (N): <Slack thread link> - <one-line reason>
 Sources unavailable: <list or "none">
