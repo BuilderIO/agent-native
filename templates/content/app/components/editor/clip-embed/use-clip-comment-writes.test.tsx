@@ -336,6 +336,39 @@ describe("useClipCommentWrites", () => {
     expect(ids()).toEqual(["c1", "c3"]);
   });
 
+  it("keeps what Clips took while the read after it fails, then follows Clips", async () => {
+    defined(clips.byName["add-clip-comment"]).mockResolvedValue({
+      id: "c3",
+      threadId: "c3",
+    });
+    defined(clips.byName["resolve-clip-comment"]).mockResolvedValue({
+      id: "c1",
+      resolved: true,
+    });
+    clips.read = () => Promise.reject(new Error("clips_unreachable"));
+    await act(async () => {
+      await defined(writes).startThread({
+        recordingId: "rec_1",
+        content: "Here",
+        videoTimestampMs: 5_000,
+        operationId: "op1",
+      });
+      await defined(writes).resolveThread({
+        recordingId: "rec_1",
+        threadId: "c1",
+      });
+    });
+    await act(() => new Promise((settle) => setTimeout(settle, 0)));
+    expect(defined(shown)).toMatchObject({
+      status: "failed",
+      threads: [{ id: "c3" }, { id: "c2" }],
+    });
+
+    // Someone resolved the new thread in Clips before the next read.
+    await readLands(thread("c2", 9_000));
+    expect(ids()).toEqual(["c2"]);
+  });
+
   it("drops a resolved thread at once, and puts it back where it was on a refusal", async () => {
     const done = deferred<{ id: string; resolved: boolean }>();
     defined(clips.byName["resolve-clip-comment"]).mockReturnValue(done.promise);

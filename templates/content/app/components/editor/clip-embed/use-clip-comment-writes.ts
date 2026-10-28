@@ -132,8 +132,8 @@ function withWrites(
 
 /**
  * A Clip's listed threads with the reader's writes to them: each shows from
- * the moment it's made until Clips refuses it, or until the list read after
- * Clips took it has landed.
+ * the moment it's made until Clips refuses it, or until a read of the list
+ * made after Clips took it has landed.
  */
 export function useClipThreadsWithWrites(
   documentId: string,
@@ -224,10 +224,21 @@ export function useClipCommentWrites(
           ),
         );
       }
-      void reread(recordingId).finally(drop);
+      // Shown until a read of the list made after Clips took it lands. The
+      // reread cancels any read already on its way; a failed or skipped one
+      // leaves the write showing.
+      const savedAt = Date.now();
+      const queryKey = clipCommentListKey(documentId, recordingId);
+      const stop = queryClient.getQueryCache().subscribe(() => {
+        const read = queryClient.getQueryState(queryKey);
+        if ((read?.dataUpdatedAt ?? 0) < savedAt) return;
+        stop();
+        drop();
+      });
+      void reread(recordingId);
       return saved;
     },
-    [documentId, reread],
+    [documentId, queryClient, reread],
   );
 
   const startThread = useCallback(
