@@ -97,7 +97,7 @@ describe("startUnavailableAuthRecovery", () => {
 
     environment.setVisible(true);
     environment.resume();
-    await vi.runAllTicks();
+    vi.runAllTicks();
     expect(checkAuth).toHaveBeenCalledOnce();
 
     stop();
