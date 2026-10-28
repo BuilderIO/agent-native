@@ -5383,8 +5383,8 @@ describe("run manager soft timeout", () => {
 
       try {
         const run = startRun(
-          `run-incomplete-${code}-no-capture`,
-          `thread-incomplete-${code}-no-capture`,
+          "run-incomplete-" + code + "-no-capture",
+          "thread-incomplete-" + code + "-no-capture",
           async () => {
             throw new IncompleteAgentRunError(
               { code, message },

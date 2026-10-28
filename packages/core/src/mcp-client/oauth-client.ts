@@ -1201,8 +1201,12 @@ export async function resolveMcpOAuthCredentialAccess(options: {
         validateCredential: (credential) =>
           serverUrlsMatch(credential.serverUrl, serverUrl),
         expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
-        shouldMarkReconnectRequiredOnRefreshFailure:
-          options.shouldMarkReconnectRequiredOnRefreshFailure,
+        ...(options.shouldMarkReconnectRequiredOnRefreshFailure
+          ? {
+              shouldMarkReconnectRequiredOnRefreshFailure:
+                options.shouldMarkReconnectRequiredOnRefreshFailure,
+            }
+          : {}),
         ...(options.forceRefresh !== undefined
           ? { forceRefresh: options.forceRefresh }
           : {}),

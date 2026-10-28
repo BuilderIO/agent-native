@@ -1182,6 +1182,7 @@ async function processIncomingMessage(
   };
 
   return new Promise<ProcessIntegrationTaskResult>((resolve) => {
+    // raw-sql-ok: This run callback contains log and response strings, not SQL.
     startRun(
       runId,
       threadId,
