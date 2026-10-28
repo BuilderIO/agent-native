@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { and, desc, eq, ne, notInArray } from "drizzle-orm";
+import { and, desc, eq, ne, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -50,6 +50,9 @@ import {
   hasCurrentBlockingPullRequestReview,
   isUltraScaryChange,
 } from "../server/triage/pr-policy.js";
+
+const AMBIGUOUS_APPROVAL_RESULT_REASON =
+  "GitHub approval request outcome is ambiguous; reconciliation is required before retrying.";
 
 function hasUsableChangedFiles(
   changedFiles: readonly string[] | undefined,
@@ -540,6 +543,7 @@ export default defineAction({
             and(
               orgFactoryScopedItemWhere(itemId, orgId, factoryId),
               notInArray(triageItems.status, [
+                "needs_manual",
                 "merged",
                 "resolved",
                 "dismissed",
@@ -619,7 +623,9 @@ export default defineAction({
       validation: Awaited<ReturnType<typeof revalidateManualDisposition>>,
     ) => {
       if (validation.kind === "current") return null;
-      await reconcileClaim(pullRequest.headSha, validation.reason);
+      if (validation.kind === "stale") {
+        await reconcileClaim(pullRequest.headSha, validation.reason);
+      }
       return {
         ok: true as const,
         action:
@@ -766,11 +772,11 @@ export default defineAction({
     ) {
       const manualReason =
         "Factory governance does not approve external authors; the existing current-head approval does not change that, so this pull request needs a manual disposition.";
-      await reconcileClaim(pullRequest.headSha, manualReason);
       const stopped = await stopForManualDispositionRecheck(
         await revalidateManualDisposition(),
       );
       if (stopped) return stopped;
+      await reconcileClaim(pullRequest.headSha, manualReason);
       const disposition = await recordManualPullRequestDisposition({
         factoryId,
         headSha: pullRequest.headSha,
@@ -981,6 +987,9 @@ export default defineAction({
             if (isTerminalFactoryItemStatus(latestItem.status)) {
               return { kind: "terminal", status: latestItem.status } as const;
             }
+            if (latestItem.status === "needs_manual") {
+              return { kind: "not_recovered" } as const;
+            }
             const recovered = await tx
               .update(triageDecisions)
               .set({ outcome: "auto_approve" })
@@ -990,7 +999,16 @@ export default defineAction({
                   eq(triageDecisions.itemId, itemId),
                   eq(triageDecisions.orgId, orgId),
                   eq(triageDecisions.factoryId, factoryId),
-                  eq(triageDecisions.outcome, "auto_approval_claimed"),
+                  or(
+                    eq(triageDecisions.outcome, "auto_approval_claimed"),
+                    and(
+                      eq(triageDecisions.outcome, "needs_manual"),
+                      eq(
+                        triageDecisions.reason,
+                        AMBIGUOUS_APPROVAL_RESULT_REASON,
+                      ),
+                    ),
+                  ),
                 ),
               )
               .returning({ id: triageDecisions.id });
@@ -1632,6 +1650,7 @@ export default defineAction({
           pullRequest.headSha,
         );
         let approval: Awaited<ReturnType<typeof github.approvePullRequest>>;
+        let itemStatusAtApproval: string;
         try {
           const approvalAttempt = await getDb().transaction(async (tx) => {
             const latestItems = await tx
@@ -1672,7 +1691,11 @@ export default defineAction({
                   : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
               pullRequest.headSha,
             );
-            return { kind: "approved", result } as const;
+            return {
+              kind: "approved",
+              result,
+              itemStatus: latestItem.status,
+            } as const;
           });
           if (approvalAttempt.kind === "blocked") {
             const needsReconciliation =
@@ -1688,6 +1711,7 @@ export default defineAction({
             };
           }
           approval = approvalAttempt.result;
+          itemStatusAtApproval = approvalAttempt.itemStatus;
         } catch (error) {
           if (error instanceof GitHubRequestError) {
             const definitiveRejection =
@@ -1764,6 +1788,11 @@ export default defineAction({
                   factoryId,
                 );
               }
+            } else {
+              await reconcileClaim(
+                pullRequest.headSha,
+                AMBIGUOUS_APPROVAL_RESULT_REASON,
+              );
             }
           }
           throw error;
@@ -1857,6 +1886,7 @@ export default defineAction({
             .where(
               and(
                 orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                eq(triageItems.status, itemStatusAtApproval),
                 notInArray(triageItems.status, [
                   "reconciliation_required",
                   "merged",
