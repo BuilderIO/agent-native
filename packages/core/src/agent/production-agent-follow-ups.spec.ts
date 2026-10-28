@@ -825,6 +825,33 @@ describe("native agent follow-up publication", () => {
     expect(published(events)).toHaveLength(1);
   });
 
+  it("clears streamed whitespace before asking again after metadata alone", async () => {
+    const { opts, events, requests } = setup([
+      [
+        { type: "text-delta", text: "\n\n" },
+        {
+          type: "tool-call",
+          id: "follow-up-1",
+          name: FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+          input: { suggestions: [followUp] },
+        },
+        { type: "stop", reason: "tool_use" },
+      ],
+      step([reply("Here is the final response.")]),
+    ]);
+
+    await runAgentLoop(opts);
+
+    expect(requests).toHaveLength(2);
+    expect(
+      events.filter((event) => event.type === "text" || event.type === "clear"),
+    ).toEqual([
+      { type: "text", text: "\n\n" },
+      { type: "clear" },
+      { type: "text", text: "Here is the final response." },
+    ]);
+  });
+
   it("keeps a streamed reply sent beside metadata on screen", async () => {
     const { opts, events, requests } = setup([
       [

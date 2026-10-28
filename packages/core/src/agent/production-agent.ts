@@ -9095,6 +9095,9 @@ export async function runAgentLoop(opts: {
         hasEmptyFinalResponse &&
         terminalStopReason !== "max_tokens"
       ) {
+        // Whitespace the model streamed before its follow-ups is not a reply,
+        // and the next turn's answer would land after it.
+        if (streamedAssistantText) await send({ type: "clear" });
         flushUnstreamedAssistantText();
         continue;
       }

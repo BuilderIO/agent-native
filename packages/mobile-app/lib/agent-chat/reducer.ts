@@ -118,7 +118,8 @@ function updateToolPart(
 function clearDraft(parts: ChatContentPart[]): ChatContentPart[] {
   const next = [...parts];
   for (let index = next.length - 1; index >= 0; index--) {
-    const part = next[index];
+    const part = next.at(index);
+    if (!part) continue;
     if (part.type === "tool-call" && part.status !== "running") break;
     if (part.type === "text" || part.type === "reasoning") {
       next.splice(index, 1);
