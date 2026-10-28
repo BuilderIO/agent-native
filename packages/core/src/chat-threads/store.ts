@@ -2733,11 +2733,13 @@ export async function renewQueuedSubmissionClaim(input: {
   threadId: string;
   messageId: string;
   claimId: string;
+  runId?: string;
 }): Promise<boolean> {
   const result = await mutateThreadQueuedMessages(input.threadId, {
     type: "renewClaim",
     messageId: input.messageId,
     claimId: input.claimId,
+    ...(input.runId === undefined ? {} : { runId: input.runId }),
   });
   return (
     result?.claimLost !== true &&
