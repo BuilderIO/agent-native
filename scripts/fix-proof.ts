@@ -39,14 +39,18 @@ function git(...args: string[]): string {
   return r.stdout;
 }
 
-function run(): { status: number; tail: string } {
+function run(): { status: number; signal: string | null; tail: string } {
   const r = spawnSync(command[0], command.slice(1), {
     encoding: "utf8",
     maxBuffer: 256 << 20,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trimEnd().split("\n");
-  return { status: r.status ?? 127, tail: out.slice(-12).join("\n") };
+  return {
+    status: r.status ?? 127,
+    signal: r.signal,
+    tail: out.slice(-12).join("\n"),
+  };
 }
 
 if (command.length === 0) couldNotRun("pass the check after `--`");
@@ -91,61 +95,72 @@ const source = changes.filter(
 );
 if (source.length === 0)
   couldNotRun(`no non-test changes between ${base.slice(0, 9)} and HEAD`);
-const pathsWhere = (keep: (status: string) => boolean) =>
-  source.filter(({ status }) => keep(status)).map(({ path }) => path);
-
-const green = run();
-if (green.status !== 0) {
-  console.log(
-    `fix-proof: NOT PROVEN, the check fails on HEAD ${head.slice(0, 9)}\n${green.tail}`,
-  );
-  process.exit(1);
-}
+const all = source.map(({ path }) => path);
 
 // git checkout and git rm replace symlinks instead of writing through them.
-// Every step uses tryGit so a failure still reaches the restore below.
+// Every step uses tryGit so a failure still reaches the restore at the end.
 const gitErrors: string[] = [];
-const step = (...args: string[]) => {
-  const r = tryGit(...args);
-  if (r.status !== 0)
-    gitErrors.push(`git ${args.join(" ")}: ${r.stderr.trim()}`);
-  return r.status === 0;
-};
-const atBase = pathsWhere((s) => s !== "A");
-const addedOnBranch = pathsWhere((s) => s === "A");
-// A signal during the red run reaches the check, not this process, so the
-// restore below still runs. Only SIGKILL can skip it.
+function putAt(ref: string): boolean {
+  const listed = tryGit("ls-tree", "-r", "--name-only", ref, "--", ...all);
+  if (listed.status !== 0) {
+    gitErrors.push(`git ls-tree ${ref}: ${listed.stderr.trim()}`);
+    return false;
+  }
+  const present = new Set(listed.stdout.split("\n"));
+  for (const args of [
+    ["checkout", ref, "--", ...all.filter((path) => present.has(path))],
+    [
+      "rm",
+      "-q",
+      "-f",
+      "--ignore-unmatch",
+      "--",
+      ...all.filter((path) => !present.has(path)),
+    ],
+  ]) {
+    if (args.at(-1) === "--") continue;
+    const r = tryGit(...args);
+    if (r.status !== 0) {
+      gitErrors.push(`git ${args[0]}: ${r.stderr.trim()}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+// A signal during a run reaches the check, not this process, so the restore
+// below still runs. Only SIGKILL can skip it.
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
   process.on(signal, () => {});
-const reverted =
-  (!atBase.length || step("checkout", base, "--", ...atBase)) &&
-  (!addedOnBranch.length ||
-    step("rm", "-q", "-f", "--ignore-unmatch", "--", ...addedOnBranch));
-const red = reverted ? run() : undefined;
-const all = source.map(({ path }) => path);
-const listed = tryGit("ls-tree", "-r", "--name-only", head, "--", ...all);
-if (listed.status !== 0) gitErrors.push(`git ls-tree: ${listed.stderr.trim()}`);
-const atHead = new Set(listed.status === 0 ? listed.stdout.split("\n") : all);
-const restore = all.filter((path) => atHead.has(path));
-const absentAtHead = all.filter((path) => !atHead.has(path));
-if (restore.length) step("checkout", head, "--", ...restore);
-if (absentAtHead.length)
-  step("rm", "-q", "-f", "--ignore-unmatch", "--", ...absentAtHead);
+// With --fix, both runs differ only by that commit: green at the fix, red at
+// its parent, so later edits to the same files can't decide the result.
+const greenAt = fix ?? head;
+const green = fix && fix !== head && !putAt(fix) ? undefined : run();
+const red = green?.status === 0 && putAt(base) ? run() : undefined;
+putAt(head);
 const left = trackedChanges();
 if (gitErrors.length || left)
   couldNotRun(
     `${left ? `the tree did not return to HEAD ${head.slice(0, 9)}; restore it with \`git checkout ${head.slice(0, 9)} -- .\`\n` : ""}${[...gitErrors, left].filter(Boolean).join("\n")}`,
   );
+if (!green) couldNotRun("the green run did not happen");
+for (const r of [green, red])
+  if (r?.signal) couldNotRun(`the check was stopped by ${r.signal}`);
+if (green.status !== 0) {
+  console.log(
+    `fix-proof: NOT PROVEN, the check fails with the fix at ${greenAt.slice(0, 9)}\n${green.tail}`,
+  );
+  process.exit(1);
+}
 if (!red) couldNotRun("the red run did not happen");
-
 if (red.status === 127)
   couldNotRun(`\`${command[0]}\` is missing without the fix\n${red.tail}`);
 if (red.status === 0) {
   console.log(
-    `fix-proof: NOT PROVEN, the check also passes without the fix (${source.length} source files reverted to ${base.slice(0, 9)})`,
+    `fix-proof: NOT PROVEN, the check also passes without the fix (${source.length} source files at ${base.slice(0, 9)})`,
   );
   process.exit(1);
 }
 console.log(
-  `fix-proof: proven, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${head.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
+  `fix-proof: proven, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${greenAt.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
 );

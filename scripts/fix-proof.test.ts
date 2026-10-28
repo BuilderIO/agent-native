@@ -52,6 +52,13 @@ sh("git", "commit", "-qm", "fix");
 write("other.txt", "second fix\n");
 sh("git", "add", "-A");
 sh("git", "commit", "-qm", "second fix");
+sh("git", "tag", "second");
+write("shared.txt", "fixed-a\n");
+sh("git", "add", "-A");
+sh("git", "commit", "-qm", "shared fix");
+sh("git", "tag", "shared");
+write("shared.txt", "fixed-a\nlater\n");
+sh("git", "commit", "-qam", "later edit to the same file");
 
 function assertBackAtHead() {
   assert.equal(sh("git", "status", "--porcelain").stdout, "");
@@ -103,7 +110,7 @@ describe("fix-proof", () => {
       "node",
       SCRIPT,
       "--fix",
-      "HEAD",
+      "second",
       "--",
       "test",
       "-f",
@@ -114,7 +121,7 @@ describe("fix-proof", () => {
       "node",
       SCRIPT,
       "--fix",
-      "HEAD",
+      "second",
       "--",
       "grep",
       "-q",
@@ -122,6 +129,14 @@ describe("fix-proof", () => {
       "app.txt",
     );
     assert.equal(other.status, 1, other.stdout + other.stderr);
+    assertBackAtHead();
+  });
+
+  it("with --fix, a later edit to the same file can't prove it", () => {
+    const fix = (...check: string[]) =>
+      sh("node", SCRIPT, "--fix", "shared", "--", ...check);
+    assert.equal(fix("grep", "-q", "fixed-a", "shared.txt").status, 0);
+    assert.equal(fix("grep", "-q", "later", "shared.txt").status, 1);
     assertBackAtHead();
   });
 
