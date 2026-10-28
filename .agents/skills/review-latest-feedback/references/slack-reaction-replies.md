@@ -63,14 +63,10 @@ reply timestamp, author ID, disposition, evidence, and read-back text for every
 root this actor marks with `👀`, `✅`, or `🎫`. Record an explicit decision for
 both `✅` and `🎫` on every such root: `present` with its scope, or `none` with
 the reason no mark applies. Record verified fixed scopes with their proof and
-each distinct human handoff with its scope, owner, and action. In the framework
-repository, run
-`pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json]`
-before the recap. The first three inputs are required; the fourth is required
-for explicitly narrowed scope and must be a separate record of the active user
-request. The checker validates that record against the inventory but cannot
-authenticate the original request. A failed check means source coverage or
-owned-root reconciliation is incomplete. The checker does not authorize
+each distinct human handoff with its scope, owner, and action. Before the recap, reconcile every owned root in the inventory by hand. Incomplete
+source coverage or owned-root reconciliation means the sweep is not done. For
+explicitly narrowed scope, keep the active user request as a separate record in
+the inventory. This step does not authorize
 changing another actor's reactions or replies.
 
 ## Prior questions and reporter replies
@@ -175,7 +171,7 @@ human's explicit first-person commitment to the recorded action also counts,
 even without a preceding request (for example, “I'll test this today” or “I'll
 expand it to all apps”). Record that exact acceptance reply. Tentative language
 such as “I might test this” is not acceptance. Keep acceptance and refusal verbs
-covered by the inventory checker's self-tests.
+consistent with the examples in this file.
 The `🎫` reaction covers only that recorded action: do not infer a broader fix,
 PR, or delivery promise. A role assignment, generic team ping, or ask without a reply
 is not acceptance, but it still gets `🎫` when a distinct team action remains
