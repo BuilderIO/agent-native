@@ -42,24 +42,27 @@ export function parseReports(body: string): Report[] | null {
   for (const line of lines.slice(start + 1)) {
     const heading = /^ {0,3}(#{1,6})\s/.exec(line);
     if (heading && heading[1].length <= level) break;
-    // Evidence lines may be list items too, so read them before links.
+    // A line that is only a proof or a visual pair, even as a list item,
+    // belongs to the report above it.
     const evidence = line
       .trim()
       .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
-      .replace(/^`|`$/g, "");
-    const proof = PROVEN.exec(evidence);
-    const visual = /^visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(evidence);
-    const report = reports.at(-1);
-    if (proof || visual) {
-      if (proof) report?.proven.push(`${proof[1]}\t${proof[2].trim()}`);
-      if (visual && report) report.visual = true;
-      continue;
-    }
-    // A list item (bulleted or numbered) or a bare URL starts a report.
-    const link =
-      /^ {0,3}(?:[-*+]|\d+[.)])\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1] ??
-      /^ {0,3}(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
+      .replace(/^`/, "");
+    // Otherwise a list item (bulleted or numbered) or a bare URL starts a
+    // report, and may carry its proof on the same line.
+    const link = /^(fix-proof|visual):/.test(evidence)
+      ? undefined
+      : (/^ {0,3}(?:[-*+]|\d+[.)])\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1] ??
+        /^ {0,3}(https?:\/\/[^\s)>]+)/.exec(line)?.[1]);
     if (link) reports.push({ link, proven: [], visual: false });
+    const report = reports.at(-1);
+    if (!report) continue;
+    const at = line.indexOf("fix-proof: proven");
+    const proof =
+      at === -1 ? null : PROVEN.exec(line.slice(at).replace(/`\s*$/, ""));
+    if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
+    if (/^visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(evidence))
+      report.visual = true;
   }
   return reports;
 }

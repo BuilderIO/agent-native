@@ -49,8 +49,11 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/gate" && mkdir "$RUNNER_TEMP/gate"
           for f in feedback-fix-proof.ts fix-proof.ts; do
-            git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/gate/$f" 2>/dev/null ||
+            if git cat-file -e "$BASE_SHA:scripts/$f" 2>/dev/null; then
+              git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/gate/$f"
+            else
               cp "scripts/$f" "$RUNNER_TEMP/gate/$f"
+            fi
           done
           node --experimental-strip-types --no-warnings "$RUNNER_TEMP/gate/feedback-fix-proof.ts" --has-reports >> "$GITHUB_OUTPUT"
 
@@ -67,7 +70,10 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/gate" && mkdir "$RUNNER_TEMP/gate"
           for f in feedback-fix-proof.ts fix-proof.ts; do
-            git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/gate/$f" 2>/dev/null ||
+            if git cat-file -e "$BASE_SHA:scripts/$f" 2>/dev/null; then
+              git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/gate/$f"
+            else
               cp "scripts/$f" "$RUNNER_TEMP/gate/$f"
+            fi
           done
           node --experimental-strip-types --no-warnings "$RUNNER_TEMP/gate/feedback-fix-proof.ts"

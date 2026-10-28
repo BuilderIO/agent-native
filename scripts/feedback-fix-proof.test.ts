@@ -99,6 +99,14 @@ describe("parseReports", () => {
     );
   });
 
+  it("reads a proof written on the report's own line", () => {
+    const [report] = parseReports(
+      `## Reports\n- https://app.slack.com/a ${proven("grep -q fixed app.txt").trim()}`,
+    )!;
+    assert.equal(report.link, "https://app.slack.com/a");
+    assert.deepEqual(report.proven, [`${fix}\tgrep -q fixed app.txt`]);
+  });
+
   it("returns null without a Reports section", () => {
     assert.equal(parseReports("## Summary\n- https://example.com"), null);
   });
