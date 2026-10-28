@@ -18,18 +18,18 @@ metadata:
 Review the newest relevant human pull requests in `BuilderIO/agent-native`.
 Under the default internal-author policy below, approve eligible fixes from
 verified BuilderIO organization members. Never approve an external or
-unverified author. When Steve explicitly gives the blanket instruction defined
-below, follow that instruction over ordinary approval gates; the non-waivable
-safeguards in this skill still apply.
+unverified author. When Steve explicitly gives the manual blanket instruction
+for a non-Factory review sweep defined below, follow it over ordinary approval
+gates; the non-waivable safeguards still apply.
 
-Approval and merge readiness are separate. **Ready for Steve's final maintainer
-approval/merge** means implementation is complete, required checks have passed,
-and any required product, UX, or owner input is complete. It identifies a
-candidate for Steve's final decision; readiness alone does not authorize a
-merge. Factory governance never performs or invokes a merge: only the
+Approval and merge readiness are separate. **Ready for your final approval**
+means implementation is complete, required checks have passed, and any required
+product or UX decision is complete. It identifies a candidate for Steve's
+final decision; readiness alone does not authorize a merge. Factory governance
+never performs or invokes a merge: only the
 designated Factory workflow may merge a Builder PR after its merge gate. Outside
 Factory governance, merge only when Steve explicitly requests the merge for that
-PR, using the guarded merge procedure below. Factory governance skips confirmed
+PR, using the applicable merge path below. Factory governance skips confirmed
 external authors. Other invocations apply the external-contribution gate below;
 external authors are never eligible for an approval review. Surface external
 work that needs a major product call or a new framework API for Steve's
@@ -120,6 +120,10 @@ verified, do not approve. External authors are never auto-approved, even when
 the patch looks safe or the issue is obviously valid.
 
 ## Explicit blanket approval instruction
+
+This override applies only to manual, non-Factory review invocations. Factory
+governance follows its code-defined action gates; this skill's blanket
+instruction cannot waive them.
 
 Only an explicit instruction from Steve, given directly in the current request
 or in the user-authorized prompt for this invocation, triggers this override.
@@ -346,7 +350,7 @@ product/UX decision** and do not enter the manual merge path until he decides.
 A routine bug fix or bounded improvement within an established workflow is not
 a major decision.
 
-Keep the PR thread silent while a product, UX, or app-owner decision is
+Keep the PR thread silent while a required product or UX decision is
 unresolved. Do not comment or reply to request, announce, or explain that the
 decision is needed; record the gate only in the recap. This remains true after
 an author update, so do not send a thanks-only or status-only reply while the
@@ -420,10 +424,11 @@ unknown, do not treat the author as external or draft a reply.
 Classify the PR as **Ready for your final approval**,
 **Needs updates**, **Needs Steve's product/UX decision**, or **Cannot assess**.
 Ready means the current head is sound, implementation is complete, every
-required check and status context has passed, any required product, UX, or owner
-input is complete, and actionable human or automated findings have a verified
-fix or evidence-backed terminal disposition. Steve retains the final decision.
-PRs still waiting on a required check or owner/product/UX input are not ready.
+required check and status context has passed, any required product or UX
+decision is complete, and actionable human or automated findings have a
+verified fix or evidence-backed terminal disposition. Steve retains the final
+decision. PRs still waiting on a required check or product/UX decision are not
+ready.
 An active human `CHANGES_REQUESTED` review or unresolved actionable request
 blocks readiness; resolved, superseded, or non-actionable threads do not.
 Missing approval or `reviewDecision: REVIEW_REQUIRED` alone does not make the
@@ -462,9 +467,12 @@ true for 10 consecutive minutes on that same head:
 
 Reset the 10-minute gate after a push, failed check, new actionable feedback,
 new commit, or merge conflict. Do not treat this skill or a ready disposition
-as standing merge authorization. GitHub's
-`--admin` merge is a broad protection bypass, not one scoped to human approval.
-Use it only after verifying that missing human approval or
+as standing merge authorization. For an external or membership-unknown author,
+never use `--admin`; follow `community-prs` for human approval and ordinary
+merge requirements, and leave the PR unmerged while any required approval is
+missing. For verified internal-member PRs only, GitHub's `--admin` merge is a
+broad protection bypass, not one scoped to human approval. Use it only after
+verifying that missing human approval or
 `REVIEW_REQUIRED` is the sole unsatisfied requirement, all other applicable
 protections are satisfied, and no merge queue is required. Revalidate the
 exact live head and all requirements immediately before invoking it. If any
@@ -521,7 +529,8 @@ queue cannot proceed solely because a human approval is required, report that
 queue/approval policy conflict to Steve; do not send the PR to another reviewer
 or bypass the queue.
 
-Outside Factory governance, when Steve explicitly asks to merge,
+For a verified BuilderIO-member PR outside Factory governance, when Steve
+explicitly asks to merge,
 `REVIEW_REQUIRED` alone is not a reason to wait for another reviewer; use the
 guarded admin merge only if all conditions above hold. After the command,
 re-query the PR for its merged state and merge commit, fetch
@@ -553,8 +562,8 @@ a substantive update since Steve's last message. Begin a first reply by
 thanking the author for the PR; if replying after an author update, begin by
 thanking them for that update. Never write “I have no further feedback” or
 another vague closing. State the disposition, the exact next action, and who
-owns it. If a product, UX, or app-owner decision is still needed, do not post
-an author-facing status comment or ask the author to get that review; keep the
+owns it. If a product or UX decision is still needed, do not post an
+author-facing status comment or ask the author to get that review; keep the
 thread silent and report the decision gate in the recap. Never comment that a
 product owner needs to review the PR. For a contributor thread paused by an
 unresolved gate, an internal decision does not count as an author update, and
@@ -568,7 +577,7 @@ own PR; follow the own-PR review-update rule in `ship`.
 Readiness is an internal disposition for Steve's final decision. Never post a
 public PR comment saying a change is “ready for maintainer approval and merge,”
 “ready for maintainer review,” or equivalent; Steve is the maintainer. Keep
-the thread silent while required product, UX, or owner input is pending, and
+the thread silent while a required product or UX decision is pending, and
 report that gate only in the private recap.
 
 If no prior Steve request is awaiting an update and this would be Steve's first
@@ -652,7 +661,7 @@ those are ignored completely.
 
 If Steve asks only which PRs are ready to merge, return only the candidate list
 with short reasons. Do not include PRs waiting on required checks or product,
-UX, or owner input, or a full status report for other PRs. If Steve asks for a
+UX decision, or a full status report for other PRs. If Steve asks for a
 blanket internal-member approval, give a concise list of approvals and any
 verification exceptions; do not add a risk inventory unless he asks for one.
 
