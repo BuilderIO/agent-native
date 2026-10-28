@@ -214,6 +214,9 @@ export function createDraftOutlines(
     now: number,
   ) => {
     if (SKIPPED.test(element.tagName)) return;
+    // Past the cap an element and its subtree get no frame and no animation
+    // of their own; they fade in with the nearest ancestor that was drafted.
+    if (live.size >= MAX_LIVE) return;
     const at = Math.min(startAt, origin + MAX_SEQUENCE_MS);
     watch(element, at);
     reveal(element, at, now);

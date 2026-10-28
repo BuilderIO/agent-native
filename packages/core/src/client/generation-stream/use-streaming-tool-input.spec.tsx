@@ -209,6 +209,29 @@ describe("useStreamingToolInput", () => {
     expect(result.current?.map((call) => call.status)).toEqual(["done"]);
   });
 
+  it("keeps only the newest finished calls", () => {
+    const { result } = renderHook(() =>
+      useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),
+    );
+    for (let index = 0; index < 12; index++) {
+      input(`call-${index}`, `{"deckId":"deck-a","content":"${index}"}`);
+      done(`call-${index}`);
+    }
+    input("call-live", '{"deckId":"deck-a","content":"live"}');
+    flushFrames();
+    expect(result.current?.map((call) => call.value)).toEqual([
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "live",
+    ]);
+  });
+
   it("reports a failed call as failed, not done", () => {
     const { result } = renderHook(() => useSlidePreview("deck-a", 1));
     input("call-1", '{"deckId":"deck-a","content":"<h1>Hi"}');

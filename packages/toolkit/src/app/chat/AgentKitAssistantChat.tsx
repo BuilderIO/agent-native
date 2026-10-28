@@ -2536,7 +2536,7 @@ const AgentKitAssistantChatBody = forwardRef<
     ids: new Set<string>(),
   });
   const observedMessagesRef = useRef(new Set<string>());
-  const toolInputArgsRef = useRef(new Map<string, string>());
+  const toolInputArgsRef = useRef(new Map<string, ToolInputArgs>());
   const observedThreadIdRef = useRef(threadId);
   const observedTerminalEventsRef = useRef({
     threadId,
@@ -7317,11 +7317,17 @@ function formatAgentKitErrorText(
   return localizeKnownChatErrorText(formatted, t);
 }
 
+/** A call's arguments so far, and whether they came whole from its start. */
+interface ToolInputArgs {
+  text: string;
+  fromStart: boolean;
+}
+
 function dispatchAgentKitCompatibilityEvent(
   event: AgentEvent,
   tabId: string,
   thread: ReturnType<typeof useAgentThread>,
-  toolInputArgs: Map<string, string>,
+  toolInputArgs: Map<string, ToolInputArgs>,
 ) {
   if (typeof window === "undefined") return;
   if (event.type === "activity.started" || event.type === "activity.updated") {
@@ -7350,7 +7356,7 @@ function dispatchAgentKitCompatibilityEvent(
     const tool = event.toolCall;
     const input = asRecord(tool.input) ?? {};
     const argsText = JSON.stringify(input);
-    toolInputArgs.set(tool.id, argsText);
+    toolInputArgs.set(tool.id, { text: argsText, fromStart: true });
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-start", {
         detail: { tool: tool.name, input },
@@ -7387,8 +7393,12 @@ function dispatchAgentKitCompatibilityEvent(
       knownTool?.name ??
       (typeof metadataToolName === "string" ? metadataToolName : undefined);
     if (!toolName) return;
-    const argsText = `${toolInputArgs.get(event.toolCallId) ?? ""}${event.inputTextDelta}`;
-    toolInputArgs.set(event.toolCallId, argsText);
+    const known = toolInputArgs.get(event.toolCallId);
+    // A start event carries the whole input; a delta after it repeats part of
+    // it, and appending that would leave the arguments unparseable.
+    if (known?.fromStart) return;
+    const argsText = `${known?.text ?? ""}${event.inputTextDelta}`;
+    toolInputArgs.set(event.toolCallId, { text: argsText, fromStart: false });
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-input", {
         detail: {

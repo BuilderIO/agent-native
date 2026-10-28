@@ -472,3 +472,41 @@ export function explicitCanvasDimensionsFromPrompt(
     ? { width: selected.width, height: selected.height }
     : undefined;
 }
+
+export type GenerationViewport = "mobile" | "tablet" | "desktop";
+
+export const DEFAULT_GENERATION_VIEWPORT: GenerationViewport = "desktop";
+
+/** The frame a generated screen gets for each device it is built for. */
+export const GENERATION_VIEWPORT_SIZES: Record<
+  GenerationViewport,
+  { width: number; height: number }
+> = {
+  mobile: { width: 390, height: 844 },
+  tablet: { width: 768, height: 1024 },
+  desktop: { width: 1440, height: 900 },
+};
+
+const DEVICE_WIDTH_ORDER: readonly GenerationViewport[] = [
+  "desktop",
+  "tablet",
+  "mobile",
+];
+
+/** The device whose frame a generated screen is saved at. */
+export function widestGenerationDevice(
+  devices: readonly GenerationViewport[],
+): GenerationViewport {
+  return (
+    DEVICE_WIDTH_ORDER.find((device) => devices.includes(device)) ??
+    DEFAULT_GENERATION_VIEWPORT
+  );
+}
+
+export function devicesForPrimaryViewport(
+  primaryViewport: GenerationViewport,
+): GenerationViewport[] {
+  return primaryViewport === "mobile"
+    ? ["mobile"]
+    : [primaryViewport, "mobile"];
+}

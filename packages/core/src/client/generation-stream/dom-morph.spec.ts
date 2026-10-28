@@ -52,6 +52,26 @@ describe("morphChildren", () => {
     );
   });
 
+  it("leaves the children of an element another renderer owns", () => {
+    const root = document.createElement("div");
+    morph(root, '<div data-slot="1"></div><p>Hi</p>');
+    const slot = root.querySelector("[data-slot]") as HTMLElement;
+    slot.innerHTML = "<svg><g></g></svg>";
+
+    morphChildren(
+      root,
+      fragment('<div data-slot="1" class="ready"></div><p>Hi there</p>')
+        .content,
+      STREAMED_IN_ATTRIBUTE,
+      undefined,
+      (element) => element.hasAttribute("data-slot"),
+    );
+    expect(root.querySelector("[data-slot]")).toBe(slot);
+    expect(slot.innerHTML).toBe("<svg><g></g></svg>");
+    expect(slot.className).toBe("ready");
+    expect(root.querySelector("p")?.textContent).toBe("Hi there");
+  });
+
   it("reports each inserted element once, after the patch", () => {
     const root = document.createElement("div");
     const inserted: string[] = [];

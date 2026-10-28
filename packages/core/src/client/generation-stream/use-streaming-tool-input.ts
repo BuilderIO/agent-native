@@ -67,6 +67,13 @@ export function useStreamingToolInput<T>(
 const NO_INPUTS: never[] = [];
 
 /**
+ * Finished calls kept for consumers still showing them (a settle or failure
+ * hold). Older ones are dropped with their arguments, so a long session does
+ * not hold every payload it ever previewed.
+ */
+const MAX_FINISHED_CALLS = 8;
+
+/**
  * Every call in the scope, in the order the agent started them, so a model
  * that writes several items in one response previews each one.
  */
@@ -189,6 +196,12 @@ export function useStreamingToolInputs<T>(
           : undefined);
       if (!call || call.tool !== detail.tool) return;
       call.status = detail.isError ? "failed" : "done";
+      const finished = calls.filter(
+        (candidate) => candidate.status !== "streaming",
+      );
+      for (const stale of finished.slice(0, -MAX_FINISHED_CALLS)) {
+        calls.splice(calls.indexOf(stale), 1);
+      }
       schedule();
     };
 

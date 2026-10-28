@@ -42,7 +42,12 @@ import {
 import {
   assertSingleCanvasOutput,
   requestedCanvasDeviceVariants,
+  DEFAULT_GENERATION_VIEWPORT,
+  devicesForPrimaryViewport,
+  GENERATION_VIEWPORT_SIZES,
+  type GenerationViewport,
   resolveCanvasIntent,
+  widestGenerationDevice,
 } from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
@@ -139,45 +144,12 @@ function noWriteValidationError(error: unknown): NoWriteError {
   );
 }
 
-type GenerationViewport = "mobile" | "tablet" | "desktop";
-
-const DEFAULT_GENERATION_VIEWPORT: GenerationViewport = "desktop";
-const GENERATION_VIEWPORT_SIZES: Record<
-  GenerationViewport,
-  { width: number; height: number }
-> = {
-  mobile: { width: 390, height: 844 },
-  tablet: { width: 768, height: 1024 },
-  desktop: { width: 1440, height: 900 },
-};
 const GENERATION_VIEWPORT_LABELS: Record<GenerationViewport, string> = {
   mobile: "Mobile",
   tablet: "Tablet",
   desktop: "Desktop",
 };
-const DEVICE_WIDTH_ORDER: readonly GenerationViewport[] = [
-  "desktop",
-  "tablet",
-  "mobile",
-];
 const GENERATED_FRAME_GAP = 96;
-
-function widestGenerationDevice(
-  devices: readonly GenerationViewport[],
-): GenerationViewport {
-  return (
-    DEVICE_WIDTH_ORDER.find((device) => devices.includes(device)) ??
-    DEFAULT_GENERATION_VIEWPORT
-  );
-}
-
-function devicesForPrimaryViewport(
-  primaryViewport: GenerationViewport,
-): GenerationViewport[] {
-  return primaryViewport === "mobile"
-    ? ["mobile"]
-    : [primaryViewport, "mobile"];
-}
 
 function breakpointSetForDevices(devices: readonly GenerationViewport[]) {
   const primaryWidth =

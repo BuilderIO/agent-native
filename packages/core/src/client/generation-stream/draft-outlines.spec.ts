@@ -200,6 +200,22 @@ describe("createDraftOutlines", () => {
     expect(reveals(late)[0]?.options.delay).toBe(208);
   });
 
+  it("stops animating once the frame cap is reached", () => {
+    const items = Array.from({ length: 400 }, (_, i) => `<li>${i}</li>`).join(
+      "",
+    );
+    const container = build(`<ul>${items}</ul>`);
+    createDraftOutlines(container, "blue").track(
+      container.firstElementChild as Element,
+    );
+
+    const revealed = animations.filter(
+      (animation) => animation.options.fill === "backwards",
+    );
+    expect(revealed).toHaveLength(160);
+    expect(revealed[0]?.target).toBe(container.firstElementChild);
+  });
+
   it("compresses long sibling lists so the last one starts promptly", () => {
     const items = Array.from({ length: 41 }, (_, i) => `<li>${i}</li>`).join(
       "",

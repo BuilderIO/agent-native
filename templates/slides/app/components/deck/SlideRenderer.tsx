@@ -1010,6 +1010,8 @@ function RawSlideHtmlContent({
         next.content,
         STREAMED_IN_ATTRIBUTE,
         draftOutlinesRef.current?.track,
+        // A Mermaid slot's diagram is a React portal; the stream has it empty.
+        (element) => element.hasAttribute("data-mermaid-index"),
       );
       renderedHtmlRef.current = html;
     } else if (renderedHtmlRef.current !== html) {

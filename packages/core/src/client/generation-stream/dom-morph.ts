@@ -26,7 +26,9 @@ export const STREAMED_IN_CSS = `
  * Patches `target`'s children to match `source` in place. Nodes that match
  * by position and tag are kept, so text grows inside elements already on
  * screen and nothing replays its entrance; new elements get `markAttribute`
- * and are passed to `onInsert`.
+ * and are passed to `onInsert`. A kept element that `keepChildren` claims
+ * has its attributes synced but its children left alone, for content another
+ * renderer owns, such as a React portal's slot.
  *
  * This function is serialized into sandboxed preview frames with
  * `Function.prototype.toString`, so it must not reference anything outside
@@ -37,6 +39,7 @@ export function morphChildren(
   source: Node,
   markAttribute: string,
   onInsert?: (element: Element) => void,
+  keepChildren?: (element: Element) => boolean,
 ): void {
   const doc = target.ownerDocument ?? (target as Document);
 
@@ -84,7 +87,9 @@ export function morphChildren(
         syncAttributes(element, wanted as Element);
         // A script's text never changes once present; rewriting it is a no-op
         // for the browser and would only churn the DOM.
-        if (element.tagName !== "SCRIPT") patch(element, wanted);
+        if (element.tagName !== "SCRIPT" && !keepChildren?.(element)) {
+          patch(element, wanted);
+        }
       } else if (existing.nodeValue !== wanted.nodeValue) {
         existing.nodeValue = wanted.nodeValue;
       }
