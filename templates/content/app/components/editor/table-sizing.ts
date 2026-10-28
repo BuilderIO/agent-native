@@ -70,7 +70,7 @@ interface TextBlock {
   pieces: Piece[];
 }
 
-interface MeasuredCell {
+export interface MeasuredCell {
   /** Padding and borders. */
   inset: number;
   blocks: TextBlock[];
@@ -186,12 +186,17 @@ function measureCell(cell: HTMLTableCellElement, range: Range): MeasuredCell {
   return { inset, blocks };
 }
 
+// The editor keeps spaces as typed (`white-space: break-spaces`), so a space
+// takes room on its line like a letter instead of hanging past the end; one
+// that doesn't fit starts the next line. A word therefore needs room for the
+// spaces after it.
+const footprint = (piece: Piece) => piece.width + piece.space;
+
 const widestPiece = (cell: MeasuredCell) =>
   Math.max(
     0,
     ...cell.blocks.map(
-      (block) =>
-        block.indent + Math.max(0, ...block.pieces.map((p) => p.width)),
+      (block) => block.indent + Math.max(0, ...block.pieces.map(footprint)),
     ),
   );
 
@@ -199,7 +204,7 @@ const unwrappedWidth = (cell: MeasuredCell) =>
   Math.max(
     0,
     ...cell.blocks.map(
-      (block) => block.indent + sum(block.pieces.map((p) => p.width + p.space)),
+      (block) => block.indent + sum(block.pieces.map(footprint)),
     ),
   );
 
@@ -284,32 +289,33 @@ export function columnFloors(narrowest: number[], body: number[]) {
   );
 }
 
-/** Lines a block takes in `room` px, filled the way the browser fills them. */
+/**
+ * Lines a block takes in `room` px, filled the way the browser fills them:
+ * each word with the spaces after it, on the line it fits on.
+ */
 function blockLines(block: TextBlock, room: number) {
   const space = room - block.indent;
   let lines = 1;
   let used = 0;
-  let pendingSpace = 0;
   for (const piece of block.pieces) {
     if (piece.newline) {
       lines += 1;
       used = 0;
-      pendingSpace = 0;
       continue;
     }
-    const need = used === 0 ? piece.width : pendingSpace + piece.width;
-    if (used > 0 && used + need > space + 0.5) {
+    const need = footprint(piece);
+    if (used > 0 && used + need > space + 0.01) {
       lines += 1;
-      used = piece.width;
+      used = need;
     } else {
       used += need;
     }
-    pendingSpace = piece.space;
   }
   return lines;
 }
 
-function cellLines(cell: MeasuredCell, width: number) {
+/** Lines a cell takes in a column `width` px wide. */
+export function cellLines(cell: MeasuredCell, width: number) {
   const room = width - cell.inset;
   return Math.max(
     1,

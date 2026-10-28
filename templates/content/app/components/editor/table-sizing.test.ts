@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 import {
   CARD_LAYOUT_MAX_WIDTH,
   cellLabel,
+  cellLines,
   columnFloors,
   fairShares,
   labelTableCells,
   planColumns,
   TEXT_COLUMN_FLOOR,
+  type MeasuredCell,
   type TableMeasure,
 } from "./table-sizing";
 
@@ -18,16 +20,16 @@ const CHAR = 8;
 const SPACE = 4;
 const INSET = 24;
 
-function cell(text: string) {
+function cell(text: string): MeasuredCell {
   const words = text.split(" ").filter(Boolean);
   return {
     inset: INSET,
     blocks: [
       {
         indent: 0,
-        pieces: words.map((word) => ({
+        pieces: words.map((word, index) => ({
           width: word.length * CHAR,
-          space: SPACE,
+          space: index < words.length - 1 ? SPACE : 0,
         })),
       },
     ],
@@ -38,27 +40,23 @@ function cell(text: string) {
 function measureOf(rows: string[][]): TableMeasure {
   const cells = rows.map((row) => row.map(cell));
   const columns = rows[0].length;
+  const unwrapped = (c: MeasuredCell) =>
+    c.blocks[0].pieces.reduce((sum, p) => sum + p.width + p.space, 0);
   const natural = Array.from({ length: columns }, (_, column) =>
     Math.max(
-      ...cells.map((row) => {
-        const { pieces } = row[column].blocks[0];
-        const text = pieces.reduce((sum, p) => sum + p.width + p.space, 0);
-        return Math.ceil(INSET + Math.max(0, text - SPACE)) + 1;
-      }),
+      ...cells.map((row) => Math.ceil(INSET + unwrapped(row[column])) + 1),
     ),
   );
-  const unwrapped = (c: ReturnType<typeof cell>) =>
-    Math.max(
-      0,
-      c.blocks[0].pieces.reduce((sum, p) => sum + p.width + p.space, 0) - SPACE,
-    );
   const floor = columnFloors(
     natural.map((_, column) =>
       Math.max(
         ...cells.map(
           (row) =>
             INSET +
-            Math.max(0, ...row[column].blocks[0].pieces.map((p) => p.width)),
+            Math.max(
+              0,
+              ...row[column].blocks[0].pieces.map((p) => p.width + p.space),
+            ),
         ),
       ),
     ),
@@ -69,13 +67,7 @@ function measureOf(rows: string[][]): TableMeasure {
   );
   const prose = cells
     .slice(1)
-    .some((row) =>
-      row.some(
-        ({ blocks: [block] }) =>
-          block.pieces.reduce((sum, p) => sum + p.width + p.space, 0) >
-          2 * TEXT_COLUMN_FLOOR,
-      ),
-    );
+    .some((row) => row.some((c) => unwrapped(c) > 2 * TEXT_COLUMN_FLOOR));
   return { natural, floor, rows: cells, prose };
 }
 
@@ -183,6 +175,18 @@ describe("fairShares", () => {
     expect(widths[0]).toBe(100);
     expect(widths[1]).toBeCloseTo(300, 0);
     expect(widths[2]).toBeCloseTo(300, 0);
+  });
+});
+
+describe("cellLines", () => {
+  it("keeps each word's space on its line, as break-spaces does", () => {
+    // Needs␠ = 44, a␠ = 12, paid␠ = 36, seat = 32.
+    const header = cell("Needs a paid seat");
+
+    // "a paid" is 44 px, but the space after "paid" wouldn't fit.
+    expect(cellLines(header, INSET + 44)).toBe(4);
+    expect(cellLines(header, INSET + 48)).toBe(3);
+    expect(cellLines(header, INSET + 136)).toBe(1);
   });
 });
 
