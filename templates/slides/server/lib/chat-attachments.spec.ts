@@ -377,7 +377,11 @@ describe("prepareSlidesChatAttachments", () => {
     expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
       "slides-upload:v1:source",
     );
-    expect(result?.attachments?.[0]?.url).toBeUndefined();
+    // oracle-change: a URL-only document keeps its URL as a reference so the chat builder does not report it as unreadable.
+    expect(result?.attachments?.[0]).toMatchObject({
+      url,
+      referenceOnly: true,
+    });
   });
 
   it("bounds url-only attachment count and aggregate download bytes", async () => {

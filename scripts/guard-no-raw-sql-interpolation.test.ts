@@ -779,6 +779,7 @@ describe("raw SQL interpolation guard", () => {
     const helperFile = resolve(fixtureDir, "sql-helpers.ts");
     const callerFile = resolve(fixtureDir, "store.ts");
     const wrapperFile = resolve(fixtureDir, "query-wrapper.ts");
+    const unrelatedFile = resolve(fixtureDir, "unrelated.ts");
     const helper = [
       "export function ownerFilter(ownerId: string) {",
       "  return `owner_id = ${ownerId}`;",
@@ -799,14 +800,16 @@ describe("raw SQL interpolation guard", () => {
     try {
       writeFileSync(callerFile, caller);
       writeFileSync(wrapperFile, wrapper);
+      writeFileSync(unrelatedFile, "const ownerFilter = 1;\n");
       const sources = new Map<string, RawSqlGuardSource>([
         [helperFile, { source: helper, addedLines: new Set([2]) }],
       ]);
 
-      addChangedSqlCallSiteModules(sources, () => [callerFile]);
+      addChangedSqlCallSiteModules(sources, () => [callerFile, unrelatedFile]);
 
       expect(sources.has(callerFile)).toBe(true);
       expect(sources.has(wrapperFile)).toBe(true);
+      expect(sources.has(unrelatedFile)).toBe(false);
       expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
         {
           file: relative(process.cwd(), helperFile),

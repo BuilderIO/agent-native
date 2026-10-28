@@ -3811,15 +3811,15 @@ function addChangedSqlHelperCallers(
         `could not read ${path.relative(rootDir, file)}: ${message}`,
       );
     }
-    sources.set(file, {
+    const traceSqlCallLines = changedSqlHelperCallsiteLines(
       source,
-      addedLines: new Set(),
-      traceSqlCallLines: changedSqlHelperCallsiteLines(
-        source,
-        file,
-        new Set(helperNames),
-      ),
-    });
+      file,
+      helperNames,
+    );
+    // The grep is by bare word, so a common helper name like `run` matches
+    // thousands of files; loading them all into one program runs out of memory.
+    if (traceSqlCallLines.size === 0) continue;
+    sources.set(file, { source, addedLines: new Set(), traceSqlCallLines });
   }
 }
 
