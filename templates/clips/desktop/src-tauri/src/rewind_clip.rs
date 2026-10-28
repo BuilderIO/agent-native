@@ -383,6 +383,8 @@ pub(crate) fn rewind_clip_start(
     active.lease_id = Some(lease.id);
     active.started_elapsed_ms = lease.interval.started_elapsed_ms;
     active.activated = true;
+    // Rewind-derived clips are always full-screen, so cursor effects apply.
+    crate::cursor_effects::start(&app);
     crate::logfile::diagnostic(&format!(
         "[rewind-latency] start boundary accepted in {}ms",
         started.elapsed().as_millis()
@@ -516,6 +518,7 @@ pub(crate) fn rewind_clip_pause(
     active.intervals.push(interval);
     active.lease_id = None;
     active.paused = true;
+    crate::cursor_effects::set_paused(&app, true);
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: true,
@@ -568,6 +571,7 @@ pub(crate) fn rewind_clip_resume(
     active.started_elapsed_ms = lease.interval.started_elapsed_ms;
     active.sources = sources;
     active.paused = false;
+    crate::cursor_effects::set_paused(&app, false);
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: true,
@@ -1461,6 +1465,7 @@ pub(crate) async fn rewind_clip_stop_and_upload(
     include_system_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    crate::cursor_effects::stop(&app);
     #[cfg(target_os = "macos")]
     {
         let stop_started = std::time::Instant::now();
@@ -1686,6 +1691,7 @@ pub(crate) async fn rewind_clip_stop_and_save(
     include_mic: bool,
     include_system_audio: bool,
 ) -> Result<NativeFullscreenSaveResult, String> {
+    crate::cursor_effects::stop(&app);
     #[cfg(target_os = "macos")]
     {
         let stop_started = std::time::Instant::now();
@@ -1754,6 +1760,7 @@ pub(crate) fn rewind_clip_cancel(
     state: State<'_, RewindClipState>,
     startup_id: Option<String>,
 ) -> Result<(), String> {
+    crate::cursor_effects::stop(&app);
     let mut active_state = state.0.lock().map_err(|error| error.to_string())?;
     if startup_id.as_deref().is_some_and(|startup_id| {
         active_state

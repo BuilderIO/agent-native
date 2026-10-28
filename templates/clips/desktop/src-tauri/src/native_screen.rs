@@ -2780,6 +2780,16 @@ pub async fn native_fullscreen_recording_warm(
     }
 }
 
+/// Starts cursor effects for a recording that just began capturing. Callers
+/// hold the session lock, so a concurrent cancel or stop, which removes the
+/// session under that lock, always dispatches its teardown after this start.
+/// Effects draw into the screen, so a window capture cannot show them.
+fn start_cursor_effects(app: &AppHandle, captures_screen: bool) {
+    if captures_screen {
+        crate::cursor_effects::start(app);
+    }
+}
+
 #[tauri::command]
 pub async fn native_fullscreen_recording_begin(
     app: AppHandle,
@@ -2935,11 +2945,9 @@ pub async fn native_fullscreen_recording_begin(
                     server_url.as_deref(),
                     has_camera.unwrap_or(false),
                 );
+                start_cursor_effects(&app, selected_window.is_none());
             }
             drop(guard);
-            if selected_window.is_none() {
-                crate::cursor_effects::start(&app);
-            }
             return Ok(info);
         }
 
@@ -2975,10 +2983,6 @@ pub async fn native_fullscreen_recording_begin(
             mic_warm_wait_ms = Some(wait_started.elapsed().as_millis());
         }
 
-        // Cursor effects draw into the screen, so a window capture cannot show them.
-        if selected_window.is_none() {
-            crate::cursor_effects::start(&app);
-        }
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
         let session = guard
             .as_mut()
@@ -3037,6 +3041,7 @@ pub async fn native_fullscreen_recording_begin(
             server_url.as_deref(),
             has_camera.unwrap_or(false),
         );
+        start_cursor_effects(&app, selected_window.is_none());
 
         Ok(NativeFullscreenStartInfo {
             recording_id,
@@ -3780,7 +3785,18 @@ pub async fn native_fullscreen_recording_resume(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
-    crate::cursor_effects::set_paused(&app, false);
+    let result = resume_native_recording(&app, &state);
+    // Show cursor effects again only once capture has resumed.
+    if result.is_ok() {
+        crate::cursor_effects::set_paused(&app, false);
+    }
+    result
+}
+
+fn resume_native_recording(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+) -> Result<(), String> {
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
     let session = guard
         .as_mut()
