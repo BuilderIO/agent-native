@@ -104,6 +104,33 @@ describe("morphChildren", () => {
     expect(root.querySelector("p")?.textContent).toBe("Hi there");
   });
 
+  it("patches a template's content and keeps text a runtime replaced", () => {
+    const owned = new WeakSet<Node>();
+    const root = document.createElement("div");
+    const patchTo = (html: string) =>
+      morphChildren(
+        root,
+        fragment(html).content,
+        STREAMED_IN_ATTRIBUTE,
+        undefined,
+        undefined,
+        owned,
+      );
+    patchTo("<template><li>Old</li></template><span>Loading</span>");
+    const span = root.querySelector("span") as HTMLElement;
+    // A runtime sets the text (Alpine's x-text), replacing the streamed node.
+    span.textContent = "Ada";
+
+    patchTo(
+      '<template><li class="new">New</li></template><span>Loading</span>',
+    );
+    const template = root.querySelector("template") as HTMLTemplateElement;
+    expect(template.content.querySelector("li")?.outerHTML).toBe(
+      '<li class="new">New</li>',
+    );
+    expect(span.textContent).toBe("Ada");
+  });
+
   it("reports each inserted element once, after the patch", () => {
     const root = document.createElement("div");
     const inserted: string[] = [];

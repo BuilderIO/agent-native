@@ -494,6 +494,7 @@ export function renderOverviewCanvas({
         }}
         canvasBackground={canvasBackground}
         generatingDesignId={generating || pendingGenerationActive ? id : null}
+        activeDesignId={id}
         onDeleteSelection={handleDeleteOverviewSelection}
         screenRootComputedStylesById={screenRootComputedStylesById}
         onPick={handleOverviewScreenPick}

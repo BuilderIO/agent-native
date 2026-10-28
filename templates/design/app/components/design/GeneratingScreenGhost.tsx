@@ -14,6 +14,8 @@ import {
  */
 export function useSettlingGenerationId(
   generatingDesignId: string | null,
+  /** The design on the canvas: a hold never carries over to another one. */
+  activeDesignId: string,
 ): string | null {
   const [heldId, setHeldId] = useState(generatingDesignId);
   if (generatingDesignId && generatingDesignId !== heldId) {
@@ -27,7 +29,7 @@ export function useSettlingGenerationId(
     );
     return () => window.clearTimeout(timer);
   }, [generatingDesignId, heldId]);
-  return generatingDesignId ?? heldId;
+  return generatingDesignId ?? (heldId === activeDesignId ? heldId : null);
 }
 
 /** The status line above the frame: 16px of text and an 8px gap. */

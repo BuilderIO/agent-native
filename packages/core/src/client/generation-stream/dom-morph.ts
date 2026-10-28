@@ -49,10 +49,16 @@ export function morphChildren(
 ): void {
   const doc = target.ownerDocument ?? (target as Document);
 
+  // A template's markup lives in its content fragment, not its children.
+  const templateContent = (node: Node): DocumentFragment | null =>
+    (node as Element).tagName === "TEMPLATE"
+      ? (node as HTMLTemplateElement).content
+      : null;
   const own = (node: Node): void => {
     if (!owned) return;
     owned.add(node);
     node.childNodes.forEach(own);
+    templateContent(node)?.childNodes.forEach(own);
   };
   const childrenToMatch = (node: Node) =>
     Array.from(node.childNodes).filter((child) => !owned || owned.has(child));
@@ -87,6 +93,10 @@ export function morphChildren(
   const patch = (to: Node, from: Node) => {
     const next = Array.from(from.childNodes);
     const current = childrenToMatch(to);
+    // A runtime replaced everything the stream put here (Alpine's x-text or
+    // x-html): the content is the runtime's now, and the source's fallback
+    // must not be appended beside it.
+    if (owned && current.length === 0 && to.childNodes.length > 0) return;
     next.forEach((wanted, i) => {
       const existing = current.at(i);
       if (!existing) {
@@ -102,7 +112,10 @@ export function morphChildren(
         syncAttributes(element, wanted as Element);
         // A script's text never changes once present; rewriting it is a no-op
         // for the browser and would only churn the DOM.
-        if (element.tagName !== "SCRIPT" && !keepChildren?.(element)) {
+        const content = templateContent(element);
+        const wantedContent = templateContent(wanted);
+        if (content && wantedContent) patch(content, wantedContent);
+        else if (element.tagName !== "SCRIPT" && !keepChildren?.(element)) {
           patch(element, wanted);
         }
       } else if (existing.nodeValue !== wanted.nodeValue) {

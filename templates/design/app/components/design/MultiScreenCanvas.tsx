@@ -894,6 +894,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   } = {},
   canvasBackground,
   generatingDesignId = null,
+  activeDesignId = "",
   onDropFiles,
 }: MultiScreenCanvasGroupedProps) {
   const { resolvedTheme } = useTheme();
@@ -11297,7 +11298,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const chromeScale = scale > 0 ? 1 / scale : 1;
   // Where a newly generated screen lands: right of the existing screens, the
   // same gap `nextCanvasFramePosition` places it at.
-  const ghostDesignId = useSettlingGenerationId(generatingDesignId);
+  const ghostDesignId = useSettlingGenerationId(
+    generatingDesignId,
+    activeDesignId,
+  );
   const generatingScreenOrigin = useMemo(() => {
     if (!ghostDesignId) return null;
     const bounds = getFrameGroupBounds(
