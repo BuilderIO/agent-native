@@ -3,6 +3,7 @@ import {
   finalizeClaimedBackgroundRunFailure,
   readBackgroundRunClaim,
   recordRunDiagnostic,
+  type RouteFailureDiagnosticEvidence,
   RUN_DIAG_STAGE,
 } from "../../agent/run-store.js";
 
@@ -36,7 +37,7 @@ function routeFailureEvidence(
   err: unknown,
   message: string,
   messageReadable: boolean,
-): string {
+): { detail: string; evidence: RouteFailureDiagnosticEvidence } {
   try {
     const error = err as Record<string, unknown> | null | undefined;
     const cause = error?.cause as Record<string, unknown> | null | undefined;
@@ -50,19 +51,33 @@ function routeFailureEvidence(
       /^Background worker returned HTTP ([45]\d\d)(?: code=([A-Za-z0-9_]{1,64}))?$/.exec(
         message,
       );
-    const evidence = [
-      ...(!messageReadable ? ["errorMetadata=unreadable"] : []),
-      `errorName=${errorName}`,
-      ...(errorCode ? [`errorCode=${errorCode}`] : []),
-      ...(errorMessage?.[1] ? [`httpStatus=${errorMessage[1]}`] : []),
-      ...(!errorCode && errorMessage?.[2]
-        ? [`errorCode=${errorMessage[2]}`]
+    const evidence: RouteFailureDiagnosticEvidence = {
+      format: "route_failure_v1",
+      ...(!messageReadable ? { errorMetadata: "unreadable" as const } : {}),
+      errorName,
+      ...(errorCode
+        ? { errorCode }
+        : errorMessage?.[2]
+          ? { errorCode: errorMessage[2] }
+          : {}),
+      ...(errorMessage?.[1] ? { httpStatus: errorMessage[1] } : {}),
+      ...(causeName ? { causeName } : {}),
+    };
+    const tokens = [
+      ...(evidence.errorMetadata
+        ? [`errorMetadata=${evidence.errorMetadata}`]
         : []),
-      ...(causeName ? [`causeName=${causeName}`] : []),
+      ...(evidence.errorName ? [`errorName=${evidence.errorName}`] : []),
+      ...(evidence.httpStatus ? [`httpStatus=${evidence.httpStatus}`] : []),
+      ...(evidence.errorCode ? [`errorCode=${evidence.errorCode}`] : []),
+      ...(evidence.causeName ? [`causeName=${evidence.causeName}`] : []),
     ];
-    return `${evidence.join(" ")} failure=${message}`;
+    return { detail: `${tokens.join(" ")} failure=${message}`, evidence };
   } catch {
-    return `errorMetadata=unreadable failure=${message}`;
+    return {
+      detail: `errorMetadata=unreadable failure=${message}`,
+      evidence: { format: "route_failure_v1", errorMetadata: "unreadable" },
+    };
   }
 }
 
@@ -78,10 +93,12 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
     finalizeClaimedBackgroundRunFailure;
   const { message, readable } = readFailureMessage(err);
 
+  const diagnostic = routeFailureEvidence(err, message, readable);
   await record(
     runId,
     RUN_DIAG_STAGE.routeThrew,
-    routeFailureEvidence(err, message, readable),
+    diagnostic.detail,
+    diagnostic.evidence,
   ).catch(() => {});
 
   const claim = await readClaim(runId);

@@ -28,6 +28,11 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-1",
       "route_threw",
       "errorName=Error errorCode=missing_execution_fence failure=setup exploded",
+      {
+        format: "route_failure_v1",
+        errorName: "Error",
+        errorCode: "missing_execution_fence",
+      },
     );
   });
 
@@ -49,6 +54,12 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-2",
       "route_threw",
       "errorName=Error errorCode=pool_timeout causeName=Error failure=setup exploded",
+      {
+        format: "route_failure_v1",
+        errorName: "Error",
+        errorCode: "pool_timeout",
+        causeName: "Error",
+      },
     );
   });
 
@@ -67,6 +78,12 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-3",
       "route_threw",
       "errorName=Error httpStatus=503 errorCode=dispatch_timeout failure=Background worker returned HTTP 503 code=dispatch_timeout",
+      {
+        format: "route_failure_v1",
+        errorName: "Error",
+        errorCode: "dispatch_timeout",
+        httpStatus: "503",
+      },
     );
   });
 
@@ -84,6 +101,7 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-4",
       "route_threw",
       "errorName=Error failure=setup exploded",
+      { format: "route_failure_v1", errorName: "Error" },
     );
   });
 
@@ -98,6 +116,7 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-5",
       "route_threw",
       "errorName=NonError failure=null",
+      { format: "route_failure_v1", errorName: "NonError" },
     );
   });
 
@@ -115,6 +134,7 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-12",
       "route_threw",
       "errorName=unknown failure=setup exploded",
+      { format: "route_failure_v1", errorName: "unknown" },
     );
   });
 
@@ -130,6 +150,7 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-6",
       "route_threw",
       "errorName=Error failure=setup exploded",
+      { format: "route_failure_v1", errorName: "Error" },
     );
   });
 
@@ -161,18 +182,25 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-7",
       "route_threw",
       "errorName=Error httpStatus=503 failure=Background worker returned HTTP 503",
+      {
+        format: "route_failure_v1",
+        errorName: "Error",
+        httpStatus: "503",
+      },
     );
     expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
       2,
       "run-8",
       "route_threw",
       "errorName=Error failure=prefix Background worker returned HTTP 503 code=dispatch_timeout",
+      { format: "route_failure_v1", errorName: "Error" },
     );
     expect(d.recordRunDiagnostic).toHaveBeenNthCalledWith(
       3,
       "run-9",
       "route_threw",
       "errorName=Error failure=Background worker returned HTTP 503 code=dispatch_timeout extra",
+      { format: "route_failure_v1", errorName: "Error" },
     );
   });
 
@@ -193,6 +221,7 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-10",
       "route_threw",
       "errorMetadata=unreadable failure=setup exploded",
+      { format: "route_failure_v1", errorMetadata: "unreadable" },
     );
     expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalled();
   });
@@ -214,6 +243,11 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "run-11",
       "route_threw",
       "errorMetadata=unreadable errorName=Error failure=unreadable thrown value",
+      {
+        format: "route_failure_v1",
+        errorMetadata: "unreadable",
+        errorName: "Error",
+      },
     );
     expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalled();
   });

@@ -414,6 +414,32 @@ describe("run-store durable background", () => {
       expect(typeof parsed.at).toBe("number");
     });
 
+    it("stores route failure evidence separately from raw diagnostic detail", async () => {
+      await insertRun("r-route-diag", "t1", "turn", {
+        dispatchMode: "background",
+      });
+      await recordRunDiagnostic(
+        "r-route-diag",
+        RUN_DIAG_STAGE.routeThrew,
+        "errorCode=customer_secret failure=raw detail",
+        {
+          format: "route_failure_v1",
+          errorName: "Error",
+          errorCode: "dispatch_timeout",
+        },
+      );
+      const stored = rows.find((r) => r.id === "r-route-diag")!.diag_stage!;
+      const parsed = JSON.parse(stored);
+      expect(parsed.detail).toBe(
+        "errorCode=customer_secret failure=raw detail",
+      );
+      expect(parsed.evidence).toEqual({
+        format: "route_failure_v1",
+        errorName: "Error",
+        errorCode: "dispatch_timeout",
+      });
+    });
+
     it("is a no-op for an empty runId and never throws", async () => {
       await expect(
         recordRunDiagnostic("", RUN_DIAG_STAGE.routeEntered),

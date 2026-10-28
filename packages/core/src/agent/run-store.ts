@@ -2742,17 +2742,29 @@ export const RUN_DIAG_STAGE = {
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
 
+export interface RouteFailureDiagnosticEvidence {
+  format: "route_failure_v1";
+  errorMetadata?: "unreadable";
+  errorName?: string;
+  errorCode?: string;
+  httpStatus?: string;
+  causeName?: string;
+}
+
 export async function recordRunDiagnostic(
   runId: string,
   stage: RunDiagStage,
   detail?: string,
+  evidence?: RouteFailureDiagnosticEvidence,
 ): Promise<void> {
   if (!runId) return;
   try {
     await ensureRunTables();
+    // raw-sql-ok: diagnostic JSON is passed only as a bound SQL value.
     const payload = JSON.stringify({
       stage,
       ...(detail ? { detail: detail.slice(0, 1500) } : {}),
+      ...(stage === RUN_DIAG_STAGE.routeThrew && evidence ? { evidence } : {}),
       at: Date.now(),
     }).slice(0, 2000);
     const isWorkerStage =
