@@ -990,7 +990,7 @@ function inspectRunDiagnostic(value: unknown): {
     typeof detail === "string"
       ? [
           ...detail.matchAll(
-            /(?:^|\s)(window=\d+|dispatch=(?:none|background(?:-processing)?|inline)|redispatchable=[01]|sinceHeartbeat=\d+|sinceProgress=\d+|hbAheadOfProgress=-?\d+|runAge=\d+|inFlight=[01]|inFlightFor=\d+|priorDiag=[a-z_]+|priorWorker=[a-z_]+|declined reason=[a-z_]+)/g,
+            /(?:^|\s)(errorName=[A-Za-z0-9_]{1,64}|errorCode=[A-Za-z0-9_]{1,64}|httpStatus=[45]\d\d|causeName=[A-Za-z0-9_]{1,64}|window=\d+|dispatch=(?:none|background(?:-processing)?|inline)|redispatchable=[01]|sinceHeartbeat=\d+|sinceProgress=\d+|hbAheadOfProgress=-?\d+|runAge=\d+|inFlight=[01]|inFlightFor=\d+|priorDiag=[a-z_]+|priorWorker=[a-z_]+|declined reason=[a-z_]+)/g,
           ),
         ]
           .map((match) => match[1])

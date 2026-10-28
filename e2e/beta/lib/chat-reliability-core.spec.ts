@@ -1074,7 +1074,7 @@ test("active-run diagnostics keep stage labels and omit stage details", () => {
     runId: "r",
     dispatchMode: "background-processing",
     diagStage:
-      '{"stage":"stale_run_recovery_attempted","detail":"declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000 token=PRIVATE_DETAIL"}',
+      '{"stage":"stale_run_recovery_attempted","detail":"errorName=Error errorCode=missing_execution_fence causeName=DatabaseError failure=PRIVATE_DETAIL declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000 token=PRIVATE_DETAIL"}',
     workerStage: '{"stage":"worker_started","detail":"PRIVATE_DETAIL"}',
     heartbeatAt: 123,
     lastProgressAt: 456,
@@ -1089,7 +1089,7 @@ test("active-run diagnostics keep stage labels and omit stage details", () => {
       dispatchMode: "background-processing",
       diagStage: "stale_run_recovery_attempted",
       diagEvidence:
-        "declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000",
+        "errorName=Error errorCode=missing_execution_fence causeName=DatabaseError declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000",
       workerStage: "worker_started",
       heartbeatAt: 123,
       lastProgressAt: 456,
