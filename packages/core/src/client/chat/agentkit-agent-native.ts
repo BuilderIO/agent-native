@@ -5343,6 +5343,7 @@ export function createAgentNativeAgentKitTransport(
           switch (sourceEvent.type) {
             case "message.created":
             case "message.completed":
+            case "message.replaced":
               if (sourceEvent.message.role === "assistant") {
                 const messageId = foldedMessageIdFor(sourceEvent.message.id);
                 if (messageId && messageId !== sourceEvent.message.id) {

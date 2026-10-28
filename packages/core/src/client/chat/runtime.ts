@@ -430,6 +430,11 @@ export interface AgentChatRuntimeMessageDoneEvent extends AgentChatRuntimeEventB
   readonly message: AgentChatRuntimeMessage;
 }
 
+/** Replaces a streaming message's content without finishing it. */
+export interface AgentChatRuntimeMessageReplaceEvent extends AgentChatRuntimeEventBase<"message-replace"> {
+  readonly message: AgentChatRuntimeMessage;
+}
+
 export interface AgentChatRuntimeToolStartEvent extends AgentChatRuntimeEventBase<"tool-start"> {
   readonly toolCall: AgentChatRuntimeToolCall;
 }
@@ -740,6 +745,7 @@ export type AgentChatRuntimeKnownEvent =
   | AgentChatRuntimeMessageStartEvent
   | AgentChatRuntimeMessageDeltaEvent
   | AgentChatRuntimeMessageDoneEvent
+  | AgentChatRuntimeMessageReplaceEvent
   | AgentChatRuntimeToolStartEvent
   | AgentChatRuntimeToolDeltaEvent
   | AgentChatRuntimeToolDoneEvent
@@ -4122,12 +4128,31 @@ function mapAgentNativeEvent(
   if (ev.type === "auto_continue") {
     return [{ type: "continuation", ...base }];
   }
-  // No protocol event removes streamed text, so the cleared draft reaches the
-  // screen through message-done; skipping this leaves the saved reply as a
-  // suffix of the live one, and reload renders it as a second reply.
+  // Skipping this leaves the saved reply as a suffix of the live one, and
+  // reload renders it as a second reply.
   if (ev.type === "clear") {
     clearAssistantDraftContent(input.message.content);
-    return [];
+    if (!input.message.started) return [];
+    return [
+      {
+        type: "message-replace",
+        ...base,
+        message: {
+          id: input.messageId,
+          role: "assistant",
+          content: input.message.content
+            .filter(
+              (
+                part,
+              ): part is Exclude<
+                AgentNativeMessageContentState,
+                { type: "tool-call" }
+              > => part.type === "text" || part.type === "reasoning",
+            )
+            .map((part) => ({ ...part })),
+        },
+      },
+    ];
   }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";

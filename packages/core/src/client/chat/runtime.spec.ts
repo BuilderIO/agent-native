@@ -4307,6 +4307,11 @@ describe("createAgentNativeChatRuntime", () => {
     ).startTurn({ prompt: "How many forms?" });
     const events = await drain(turn.events);
 
+    expect(
+      events.find((event) => event.type === "message-replace"),
+    ).toMatchObject({
+      message: { content: [{ type: "text", text: "Checking the forms." }] },
+    });
     expect(events.find((event) => event.type === "message-done")).toMatchObject(
       {
         message: {

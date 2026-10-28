@@ -1011,7 +1011,8 @@ function agentThreadEventIndex(
     else byRun.set(event.runId, [event]);
     if (
       event.type === "message.created" ||
-      event.type === "message.completed"
+      event.type === "message.completed" ||
+      event.type === "message.replaced"
     ) {
       messageRunIds.set(event.message.id, event.runId);
     } else if (

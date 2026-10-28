@@ -629,6 +629,7 @@ function settleRunItems(
     switch (event.type) {
       case "message.created":
       case "message.completed":
+      case "message.replaced":
         messageIds.add(event.message.id);
         break;
       case "message.delta":
@@ -1053,6 +1054,22 @@ export function reduceAgentEvent(
       return {
         ...next,
         messages: upsertMessage(next.messages, { ...event.message, status }),
+      };
+    }
+    case "message.replaced": {
+      next = assignActiveMessage(next, event.runId, event.message.id);
+      const current = next.messages.find(
+        (message) => message.id === event.message.id,
+      );
+      if (current?.status === "complete") return next;
+      return {
+        ...next,
+        messages: upsertMessage(
+          next.messages,
+          current
+            ? { ...current, parts: event.message.parts }
+            : { ...event.message, status: "streaming" },
+        ),
       };
     }
     case "message.delta":
