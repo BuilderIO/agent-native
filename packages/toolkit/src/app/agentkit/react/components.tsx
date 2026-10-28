@@ -8355,6 +8355,19 @@ export function AgentKitChat({
     ]),
   );
   const pendingRuns = new Set(pendingRunIds);
+  // A running turn's work after its reply's latest text joins the row above
+  // that reply. As its own row below, the work before reads as finished while
+  // the run is still working, and the turn shows two rows until it ends.
+  const liveReplyRunIds = new Set(
+    pendingRunIds.filter((runId) => {
+      const reply = lastAssistantMessagesByRun.get(runId);
+      return (
+        thread.runs[runId]?.status === "running" &&
+        reply !== undefined &&
+        runSegmentEnds.get(runId)?.id === reply.id
+      );
+    }),
+  );
   const runRevision = (runId: RunId) =>
     `${runId}:${eventIndex.byRun.get(runId)?.length ?? 0}`;
   const renderRunFailure = (runId: RunId) => {
@@ -8530,7 +8543,7 @@ export function AgentKitChat({
   }
   const tailRunIds = Array.from(
     new Set([
-      ...pendingRunIds,
+      ...pendingRunIds.filter((runId) => !liveReplyRunIds.has(runId)),
       ...Array.from(failedRuns.keys()).filter(
         (runId) => !lastAssistantMessagesByRun.has(runId),
       ),
@@ -8664,11 +8677,19 @@ export function AgentKitChat({
       !hasRunWork(runId, sequence) &&
       !hasVisibleReasoning(message),
     );
+    const extendsLiveWork =
+      isAssistantBoundary &&
+      liveReplyRunIds.has(runId) &&
+      lastAssistantMessagesByRun.get(runId)?.id === message.id;
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
       (summarizesTurn ||
-        hasRunWork(runId, previousAssistant?.sequence, sequence)),
+        hasRunWork(
+          runId,
+          previousAssistant?.sequence,
+          extendsLiveWork ? undefined : sequence,
+        )),
     );
     // A saved reply's reasoning before its answer joins the work group above
     // it, so the turn shows one disclosure; the stream did not place it there.
@@ -8683,7 +8704,7 @@ export function AgentKitChat({
           runId,
           anchor: previousAssistant?.id ?? "start",
           afterSequence: previousAssistant?.sequence,
-          throughSequence: sequence,
+          throughSequence: extendsLiveWork ? undefined : sequence,
           messageId: message.id,
           foldedReasoningMessageId: foldsReasoning ? message.id : undefined,
           summarizesTurn,

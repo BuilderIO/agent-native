@@ -281,6 +281,31 @@ function appendMessageText(
   });
 }
 
+/**
+ * Ends a streaming message's open text before a tool call, so the text the
+ * reply writes after the call starts its own part, as the saved reply has it.
+ * Without the break, narration around calls reads as one run-on line.
+ */
+function closeOpenText(
+  messages: AgentMessage[],
+  messageId: string,
+): AgentMessage[] {
+  const message = messages.find((candidate) => candidate.id === messageId);
+  const last = message?.parts.at(-1);
+  if (
+    !message ||
+    message.status !== "streaming" ||
+    last?.type !== "text" ||
+    !last.text
+  ) {
+    return messages;
+  }
+  return upsertMessage(messages, {
+    ...message,
+    parts: [...message.parts, { type: "text", text: "" }],
+  });
+}
+
 function updateRun(
   thread: AgentThreadState,
   runId: RunId,
@@ -1126,6 +1151,9 @@ export function reduceAgentEvent(
           : event.toolCall;
       return {
         ...next,
+        ...(event.type === "tool.started" && toolCall.messageId
+          ? { messages: closeOpenText(next.messages, toolCall.messageId) }
+          : {}),
         tools: { ...next.tools, [event.toolCall.id]: toolCall },
       };
     }

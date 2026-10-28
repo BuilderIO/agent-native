@@ -157,6 +157,38 @@ describe("message.replaced", () => {
   });
 });
 
+describe("text around a tool call", () => {
+  it("starts the text after the call as its own part", () => {
+    const thread = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "message.created",
+        message: { id: "reply", role: "assistant", parts: [] },
+      }),
+      event(3, { type: "message.delta", messageId: "reply", text: "Looking." }),
+      event(4, {
+        type: "tool.started",
+        toolCall: {
+          id: "call-1",
+          name: "search",
+          status: "running",
+          messageId: "reply",
+        },
+      }),
+      event(5, {
+        type: "message.delta",
+        messageId: "reply",
+        text: "Found it.",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(thread.messages[0]?.parts).toEqual([
+      { type: "text", text: "Looking." },
+      { type: "text", text: "Found it." },
+    ]);
+  });
+});
+
 describe("classifyAgentEvent", () => {
   const started = reduceAgentEvent(
     createAgentThreadState("thread-1"),
