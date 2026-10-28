@@ -269,11 +269,18 @@ export async function handleWorkspaceProviderOAuthStart(
   const appId =
     providerId === "sigma"
       ? currentWorkspaceProviderOAuthAppId()
-      : normalizeAppId(
-          requestedAppId ??
-            getAppConfig().app.workspaceId ??
-            "creative-context",
-        );
+      : requestedAppId
+        ? normalizedAppIdOrNull(requestedAppId)
+        : currentWorkspaceProviderOAuthAppId();
+  if (!appId && providerId !== "sigma") {
+    return oauthFlowFailure(
+      event,
+      400,
+      requestedAppId
+        ? "OAuth appId is invalid."
+        : "OAuth start requires an app id.",
+    );
+  }
   if (
     !appId ||
     (providerId === "sigma" &&
@@ -1852,12 +1859,6 @@ async function resolveProviderClientCredentials(
 
 function flowCookieName(provider: GenericWorkspaceOAuthProvider): string {
   return `an_workspace_oauth_${provider}`;
-}
-
-function normalizeAppId(value: string): string {
-  const normalized = normalizedAppIdOrNull(value);
-  if (!normalized) throw new Error("OAuth appId is invalid.");
-  return normalized;
 }
 
 function normalizedAppIdOrNull(value: string | undefined): string | null {
