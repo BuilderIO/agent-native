@@ -27,6 +27,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           filter: blob:none
+          # Proof commands come from the PR body; keep the token out of
+          # .git/config, since only local history is needed.
+          persist-credentials: false
 
       # The script's own parser decides which PRs need checking, so the
       # trigger can't disagree with it; most PRs stop here in seconds.

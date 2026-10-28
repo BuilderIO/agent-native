@@ -142,6 +142,10 @@ describe("feedback-fix-proof", () => {
       has("##\treports\n- https://app.slack.com/a"),
       "has_reports=true",
     );
+    assert.equal(
+      has("   ## Reports\n- https://app.slack.com/a"),
+      "has_reports=true",
+    );
     assert.equal(has("see # Reports below"), "has_reports=false");
   });
 

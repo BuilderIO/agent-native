@@ -31,11 +31,13 @@ const PROVEN =
 
 export function parseReports(body: string): Report[] | null {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => /^#{1,6}\s+Reports\b/i.test(line));
+  const start = lines.findIndex((line) =>
+    /^ {0,3}#{1,6}\s+Reports\b/i.test(line),
+  );
   if (start === -1) return null;
   const reports: Report[] = [];
   for (const line of lines.slice(start + 1)) {
-    if (/^#{1,6}\s/.test(line)) break;
+    if (/^ {0,3}#{1,6}\s/.test(line)) break;
     // Evidence lines may be list items too, so read them before links.
     const evidence = line
       .trim()
