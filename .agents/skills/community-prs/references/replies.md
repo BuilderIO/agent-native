@@ -113,14 +113,14 @@ a look.
 
 ## What to avoid
 
-| Instead of                                             | Do                                                            |
-| ------------------------------------------------------ | ------------------------------------------------------------- |
+| Instead of                                             | Do                                                                                                  |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | "ready for internal approval" or "needs owner review"  | Say a human Builder dev will approve and squash-merge once checks pass, or name the remaining check |
-| "please rerun CI" or "resolve the conflicts with main" | Rerun it, or merge main yourself                              |
-| "take a look at the automated review comments"         | Decide which findings are real and ask for those, or fix them |
-| Five asks in one comment                               | One ask, or finish the rest yourself                          |
-| New asks after "final"                                 | Raise only what the new head introduced                       |
-| "Thanks for the update" when nothing changed           | Thank them for the contribution                               |
-| Asking for screenshots on a design doc                 | Ask only for evidence the change needs                        |
-| Merging silently                                       | One line naming what shipped                                  |
-| Greeting by @handle, or @-mentioning Builder people    | Their first name; ask teammates directly                      |
+| "please rerun CI" or "resolve the conflicts with main" | Rerun it, or merge main yourself                                                                    |
+| "take a look at the automated review comments"         | Decide which findings are real and ask for those, or fix them                                       |
+| Five asks in one comment                               | One ask, or finish the rest yourself                                                                |
+| New asks after "final"                                 | Raise only what the new head introduced                                                             |
+| "Thanks for the update" when nothing changed           | Thank them for the contribution                                                                     |
+| Asking for screenshots on a design doc                 | Ask only for evidence the change needs                                                              |
+| Merging silently                                       | One line naming what shipped                                                                        |
+| Greeting by @handle, or @-mentioning Builder people    | Their first name; ask teammates directly                                                            |
