@@ -270,6 +270,14 @@ describe("readBuilderBranchFiles", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("distinguishes an unreadable authorization store from a missing connection", async () => {
+    mocks.resolveAuthorization.mockRejectedValueOnce(
+      new Error("store unavailable"),
+    );
+    await expectCode(readBuilderBranchFiles(input), "unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["invalid project ID", { ...input, projectId: "../project" }],
     ["invalid branch path", { ...input, branchName: "feature/../main" }],

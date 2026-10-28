@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { inflateSync } from "node:zlib";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -52,6 +53,161 @@ async function fixture(files: Record<string, string>) {
     sha: sha.trim(),
     bundle: new Uint8Array(await readFile(bundlePath)),
   };
+}
+
+async function emptyTreeDagBundle(fanout: number) {
+  const root = await mkdtemp(
+    path.join(tmpdir(), "builder-git-empty-tree-test-"),
+  );
+  roots.push(root);
+  const repo = path.join(root, "repo");
+  await execFile("git", ["init", "--quiet", repo]);
+  const git = (...args: string[]) => execFile("git", ["-C", repo, ...args]);
+  const hashTree = async (name: string, content: Uint8Array) => {
+    const filename = path.join(root, name);
+    await writeFile(filename, content);
+    const { stdout } = await git("hash-object", "-w", "-t", "tree", filename);
+    return stdout.trim();
+  };
+
+  const emptyTreeOid = await hashTree("empty-tree", new Uint8Array());
+  const repeatedTreeEntries = Array.from({ length: fanout }, (_, index) =>
+    Buffer.concat([
+      Buffer.from(`40000 child-${index.toString().padStart(4, "0")}\0`),
+      Buffer.from(emptyTreeOid, "hex"),
+    ]),
+  );
+  const appTreeOid = await hashTree(
+    "app-tree",
+    Buffer.concat(repeatedTreeEntries),
+  );
+  const appsTreeOid = await hashTree(
+    "apps-tree",
+    Buffer.concat([
+      Buffer.from("40000 example\0"),
+      Buffer.from(appTreeOid, "hex"),
+    ]),
+  );
+  const rootTreeOid = await hashTree(
+    "root-tree",
+    Buffer.concat([
+      Buffer.from("40000 apps\0"),
+      Buffer.from(appsTreeOid, "hex"),
+    ]),
+  );
+  const commitPath = path.join(root, "commit");
+  await writeFile(
+    commitPath,
+    `tree ${rootTreeOid}\nauthor Test <test@example.invalid> 1 +0000\ncommitter Test <test@example.invalid> 1 +0000\n\nempty tree DAG fixture\n`,
+  );
+  const { stdout: commitSha } = await git(
+    "hash-object",
+    "-w",
+    "-t",
+    "commit",
+    commitPath,
+  );
+  await git("update-ref", "refs/heads/main", commitSha.trim());
+  const bundlePath = path.join(root, "empty-tree.bundle");
+  await git("bundle", "create", bundlePath, "--all");
+  return {
+    commitSha: commitSha.trim(),
+    bundle: new Uint8Array(await readFile(bundlePath)),
+  };
+}
+
+async function deltaBundle() {
+  const root = await mkdtemp(path.join(tmpdir(), "builder-git-delta-test-"));
+  roots.push(root);
+  const repo = path.join(root, "repo");
+  await execFile("git", ["init", "--quiet", repo]);
+  const git = (...args: string[]) =>
+    execFile("git", ["-C", repo, ...args], {
+      env: {
+        ...process.env,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+    });
+  await git("config", "user.name", "Bundle Test");
+  await git("config", "user.email", "bundle-test@example.invalid");
+  const lines = Array.from(
+    { length: 1800 },
+    (_, index) =>
+      `row-${index.toString().padStart(4, "0")}:${"x".repeat(20)}\n`,
+  );
+  const contentPath = path.join(repo, "apps/example/data.txt");
+  await import("node:fs/promises").then(({ mkdir }) =>
+    mkdir(path.dirname(contentPath), { recursive: true }),
+  );
+  for (let revision = 0; revision < 24; revision++) {
+    lines[revision] =
+      `row-${revision.toString().padStart(4, "0")}:revision-${revision}\n`;
+    await writeFile(contentPath, lines.join(""));
+    await git("add", "apps/example/data.txt");
+    await git(
+      "-c",
+      "user.name=Bundle Test",
+      "-c",
+      "user.email=bundle-test@example.invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      `revision ${revision}`,
+    );
+  }
+  await git("gc", "--aggressive", "--prune=now");
+  const { stdout: sha } = await git("rev-parse", "HEAD");
+  const bundlePath = path.join(root, "delta.bundle");
+  await git("bundle", "create", bundlePath, "--all");
+  return {
+    commitSha: sha.trim(),
+    bundle: new Uint8Array(await readFile(bundlePath)),
+    expectedContent: new TextEncoder().encode(lines.join("")),
+  };
+}
+
+function bundleContainsDelta(bundle: Uint8Array): boolean {
+  const bytes = Buffer.from(
+    bundle.buffer,
+    bundle.byteOffset,
+    bundle.byteLength,
+  );
+  const headerEnd = bytes.indexOf("\n\n");
+  if (headerEnd < 0) return false;
+  const packOffset = headerEnd + 2;
+  const packEnd = bytes.byteLength - 20;
+  const objectCount = bytes.readUInt32BE(packOffset + 8);
+  let cursor = packOffset + 12;
+  let containsDelta = false;
+  const readByte = () => {
+    const value = bytes[cursor];
+    if (value === undefined) throw new Error("Malformed test pack fixture");
+    cursor++;
+    return value;
+  };
+  for (let index = 0; index < objectCount; index++) {
+    const first = readByte();
+    const type = (first >>> 4) & 7;
+    let continuation = (first & 0x80) !== 0;
+    while (continuation) {
+      const next = readByte();
+      continuation = (next & 0x80) !== 0;
+    }
+    if (type === 6) {
+      containsDelta = true;
+      let next = readByte();
+      while (next & 0x80) next = readByte();
+    } else if (type === 7) {
+      containsDelta = true;
+      cursor += 20;
+    }
+    const inflated = inflateSync(bytes.subarray(cursor, packEnd), {
+      info: true,
+    }) as unknown as { engine: { bytesWritten: number } };
+    cursor += inflated.engine.bytesWritten;
+  }
+  return containsDelta;
 }
 
 describe("readBuilderGitBundle", () => {
@@ -191,5 +347,32 @@ describe("readBuilderGitBundle", () => {
         appPath: "apps/example",
       }),
     ).rejects.toMatchObject({ code: "integrity_failed" });
+  });
+
+  it("rejects broad repeated empty-tree DAGs", async () => {
+    const { commitSha, bundle } = await emptyTreeDagBundle(1025);
+
+    await expect(
+      readBuilderGitBundle({ bundle, commitSha, appPath: "apps/example" }),
+    ).rejects.toMatchObject({ code: "integrity_failed" });
+  });
+
+  it("reads files from a real delta-compressed Git bundle", async () => {
+    const { bundle, commitSha, expectedContent } = await deltaBundle();
+    expect(bundleContainsDelta(bundle)).toBe(true);
+
+    const result = await readBuilderGitBundle({
+      bundle,
+      commitSha,
+      appPath: "apps/example",
+    });
+
+    expect(result.files).toEqual([
+      {
+        path: "apps/example/data.txt",
+        mode: "100644",
+        content: expectedContent,
+      },
+    ]);
   });
 });

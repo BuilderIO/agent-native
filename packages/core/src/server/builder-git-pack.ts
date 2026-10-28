@@ -113,7 +113,10 @@ function skipOffsetDeltaBase(
   return offset;
 }
 
-function findPackOffset(bundle: Uint8Array): number {
+function readBundleHeader(bundle: Uint8Array): {
+  packOffset: number;
+  advertisedCommits: string[];
+} {
   const limit = Math.min(bundle.byteLength, MAX_BUNDLE_HEADER_BYTES);
   let delimiter = -1;
   for (let i = 0; i + 1 < limit; i++) {
@@ -136,14 +139,27 @@ function findPackOffset(bundle: Uint8Array): number {
   } catch {
     fail("invalid_bundle");
   }
-  const firstLine = text.split("\n", 1)[0];
+  const [firstLine, ...lines] = text.split("\n");
   if (firstLine !== "# v2 git bundle" && firstLine !== "# v3 git bundle") {
     fail("invalid_bundle");
   }
   if (text.includes("\r") || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(text)) {
     fail("invalid_bundle");
   }
-  return delimiter + 2;
+  const advertisedCommits: string[] = [];
+  let objectFormat = false;
+  for (const line of lines) {
+    if (line === "@object-format=sha1" && firstLine === "# v3 git bundle") {
+      if (objectFormat) fail("invalid_bundle");
+      objectFormat = true;
+    } else if (/^[a-f0-9]{40} [^\s]+$/.test(line)) {
+      advertisedCommits.push(line.slice(0, 40));
+    } else {
+      fail("invalid_bundle");
+    }
+  }
+  if (advertisedCommits.length === 0) fail("invalid_bundle");
+  return { packOffset: delimiter + 2, advertisedCommits };
 }
 
 function verifyPack(bundle: Uint8Array, packOffset: number): void {
@@ -231,11 +247,15 @@ function verifyPack(bundle: Uint8Array, packOffset: number): void {
   if (!actualDigest.equals(Buffer.from(expectedDigest))) fail("invalid_bundle");
 }
 
-export function assertBoundedBuilderGitBundle(bundle: Uint8Array): void {
+export function assertBoundedBuilderGitBundle(bundle: Uint8Array): {
+  packOffset: number;
+  advertisedCommits: string[];
+} {
   if (!(bundle instanceof Uint8Array) || bundle.byteLength === 0) {
     fail("invalid_bundle");
   }
   if (bundle.byteLength > MAX_BUNDLE_BYTES) fail("resource_limit");
-  const packOffset = findPackOffset(bundle);
-  verifyPack(bundle, packOffset);
+  const header = readBundleHeader(bundle);
+  verifyPack(bundle, header.packOffset);
+  return header;
 }

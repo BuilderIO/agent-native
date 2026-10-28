@@ -169,8 +169,8 @@ export async function readBuilderBranchFiles(
     });
   } catch {
     throw new BuilderBranchFilesError(
-      "not_connected",
-      "Builder read access could not be established.",
+      "unavailable",
+      "Builder read access could not be checked.",
     );
   }
   if (

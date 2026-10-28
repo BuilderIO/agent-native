@@ -15,7 +15,9 @@ import {
 
 const execFile = promisify(execFileCallback);
 const roots: string[] = [];
-const HEADER = Buffer.from("# v2 git bundle\n\n");
+const HEADER = Buffer.from(
+  `# v2 git bundle\n${"a".repeat(40)} refs/heads/main\n\n`,
+);
 const MAX_OBJECT_BYTES = 8 * 1024 * 1024;
 
 afterEach(async () => {
@@ -98,6 +100,23 @@ async function realGitBundle(): Promise<Buffer> {
 }
 
 describe("assertBoundedBuilderGitBundle", () => {
+  it("rejects prerequisites and unsupported bundle capabilities", async () => {
+    const bundle = await realGitBundle();
+    const { packOffset } = assertBoundedBuilderGitBundle(bundle);
+    const pack = bundle.subarray(packOffset);
+    for (const header of [
+      `# v2 git bundle\n-${"a".repeat(40)} prerequisite\n${"b".repeat(40)} HEAD\n\n`,
+      `# v3 git bundle\n@object-format=sha256\n${"a".repeat(40)} HEAD\n\n`,
+      "# v2 git bundle\n\n",
+    ]) {
+      expect(() =>
+        assertBoundedBuilderGitBundle(
+          Buffer.concat([Buffer.from(header), pack]),
+        ),
+      ).toThrow(BuilderGitPackError);
+    }
+  });
+
   it("accepts a real self-contained Git bundle", async () => {
     const bundle = await realGitBundle();
     expect(() => assertBoundedBuilderGitBundle(bundle)).not.toThrow();

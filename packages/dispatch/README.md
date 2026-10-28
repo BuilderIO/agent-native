@@ -131,10 +131,10 @@ clean branch before and after reading its Git bundle. Every regular file under
 missing, extra, changed, or linked files fail verification. The result contains
 commit and file hashes, without file contents or signed download URLs.
 
-The server needs Git on its executable path and a writable temporary directory.
-Verification bounds pack decompression before Git reads an isolated bare
-repository, never checks out or executes app code, and removes its temporary
-files. Unavailable Git, stale or partial backups,
+The server needs a writable temporary directory. Verification bounds pack
+decompression before a JavaScript Git reader opens an isolated object store,
+never checks out or executes app code, and removes its temporary files.
+Stale or partial backups,
 unverifiable identities, access errors, and size limits fail closed.
 
 Verification does not install an app, grant access, change Community Lab, or
