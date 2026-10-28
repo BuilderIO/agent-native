@@ -2251,71 +2251,68 @@ function callableDeclarations(
   return [...new Set(declarations)];
 }
 
-function executeWrapperArgumentIndexes(
-  call: ts.CallExpression,
-  analysis: SqlAnalysis,
-): number[] {
-  interface WrapperSummary {
-    declaration: ts.FunctionLikeDeclaration;
-    analysis: SqlAnalysis;
-    indexes: Set<number>;
-    dependencies: WrapperDependency[];
-  }
+interface ExecuteWrapperDependencyTemplate {
+  declaration: ts.FunctionLikeDeclaration;
+  analysis: SqlAnalysis;
+  argumentIndexes: Map<number, Set<number>>;
+}
 
-  interface WrapperDependency {
-    target: WrapperSummary;
+interface ExecuteWrapperSummaryTemplate {
+  indexes: Set<number>;
+  dependencies: ExecuteWrapperDependencyTemplate[];
+}
+
+interface ExecuteWrapperSummary {
+  declaration: ts.FunctionLikeDeclaration;
+  analysis: SqlAnalysis;
+  indexes: Set<number>;
+  dependencies: Array<{
+    target: ExecuteWrapperSummary;
     argumentIndexes: Map<number, Set<number>>;
-  }
+  }>;
+}
 
-  interface WrapperFlow {
-    summary: WrapperSummary;
-    index: number;
-  }
+interface ExecuteWrapperFlow {
+  summary: ExecuteWrapperSummary;
+  index: number;
+}
 
-  const summaries = new Map<ts.Node, WrapperSummary>();
-  const pending: WrapperSummary[] = [];
-  const ensureSummary = (
-    declaration: ts.FunctionLikeDeclaration,
-    wrapperAnalysis: SqlAnalysis,
-  ): WrapperSummary => {
-    const existing = summaries.get(declaration);
-    if (existing) return existing;
-    const summary: WrapperSummary = {
-      declaration,
-      analysis: wrapperAnalysis,
-      indexes: new Set(),
-      dependencies: [],
-    };
-    summaries.set(declaration, summary);
-    pending.push(summary);
-    return summary;
+const executeWrapperSummaryTemplateCache = new WeakMap<
+  SqlAnalysis,
+  WeakMap<ts.FunctionLikeDeclaration, ExecuteWrapperSummaryTemplate>
+>();
+const executeWrapperSummaryResultCache = new WeakMap<
+  SqlAnalysis,
+  WeakMap<ts.FunctionLikeDeclaration, number[]>
+>();
+
+function executeWrapperSummaryTemplate(
+  declaration: ts.FunctionLikeDeclaration,
+  wrapperAnalysis: SqlAnalysis,
+): ExecuteWrapperSummaryTemplate {
+  const cached = executeWrapperSummaryTemplateCache
+    .get(wrapperAnalysis)
+    ?.get(declaration);
+  if (cached) return cached;
+
+  const template: ExecuteWrapperSummaryTemplate = {
+    indexes: new Set(),
+    dependencies: [],
   };
+  if (!declaration.body) return template;
 
-  const rootSummaries = callableDeclarations(call, analysis)
-    .filter((declaration) => declaration.body !== undefined)
-    .map((declaration) =>
-      ensureSummary(
-        declaration,
-        analysis.relatedAnalyses?.get(declaration.getSourceFile()) ?? analysis,
-      ),
+  const parameterIndexes = new Map<ts.Node, number>();
+  declaration.parameters.forEach((parameter, index) => {
+    if (!ts.isIdentifier(parameter.name)) return;
+    const parameterSymbol = wrapperAnalysis.checker.getSymbolAtLocation(
+      parameter.name,
     );
+    if (parameterSymbol?.valueDeclaration) {
+      parameterIndexes.set(parameterSymbol.valueDeclaration, index);
+    }
+  });
 
-  while (pending.length > 0) {
-    const summary = pending.pop();
-    if (!summary?.declaration.body) continue;
-    const { declaration, analysis: wrapperAnalysis } = summary;
-    const parameterIndexes = new Map<ts.Node, number>();
-    declaration.parameters.forEach((parameter, index) => {
-      if (!ts.isIdentifier(parameter.name)) return;
-      const parameterSymbol = wrapperAnalysis.checker.getSymbolAtLocation(
-        parameter.name,
-      );
-      if (parameterSymbol?.valueDeclaration) {
-        parameterIndexes.set(parameterSymbol.valueDeclaration, index);
-      }
-    });
-    if (parameterIndexes.size === 0) continue;
-
+  if (parameterIndexes.size > 0) {
     const indexesForExpression = (expression: ts.Expression): Set<number> => {
       const indexes = new Set<number>();
       const current = ts.isSpreadElement(expression)
@@ -2358,7 +2355,7 @@ function executeWrapperArgumentIndexes(
           );
           if (argument) {
             for (const index of indexesForExpression(argument)) {
-              summary.indexes.add(index);
+              template.indexes.add(index);
             }
           }
         } else {
@@ -2388,9 +2385,13 @@ function executeWrapperArgumentIndexes(
               }
               if (indexes.size > 0) argumentIndexes.set(nestedIndex, indexes);
             });
-            if (argumentIndexes.size === 0) continue;
-            const target = ensureSummary(nestedDeclaration, nestedAnalysis);
-            summary.dependencies.push({ target, argumentIndexes });
+            if (argumentIndexes.size > 0) {
+              template.dependencies.push({
+                declaration: nestedDeclaration,
+                analysis: nestedAnalysis,
+                argumentIndexes,
+              });
+            }
           }
         }
       }
@@ -2399,42 +2400,116 @@ function executeWrapperArgumentIndexes(
     visit(declaration.body);
   }
 
-  const dependents = new Map<WrapperSummary, Map<number, WrapperFlow[]>>();
-  for (const summary of summaries.values()) {
-    for (const dependency of summary.dependencies) {
-      for (const [targetIndex, parentIndexes] of dependency.argumentIndexes) {
-        const byIndex = dependents.get(dependency.target) ?? new Map();
-        const flows = byIndex.get(targetIndex) ?? [];
-        parentIndexes.forEach((index) => {
-          flows.push({ summary, index });
-        });
-        byIndex.set(targetIndex, flows);
-        dependents.set(dependency.target, byIndex);
-      }
-    }
-  }
+  const analysisCache =
+    executeWrapperSummaryTemplateCache.get(wrapperAnalysis) ??
+    new WeakMap<ts.FunctionLikeDeclaration, ExecuteWrapperSummaryTemplate>();
+  analysisCache.set(declaration, template);
+  executeWrapperSummaryTemplateCache.set(wrapperAnalysis, analysisCache);
+  return template;
+}
 
-  const flows: WrapperFlow[] = [];
-  for (const summary of summaries.values()) {
-    summary.indexes.forEach((index) => flows.push({ summary, index }));
-  }
-  while (flows.length > 0) {
-    const flow = flows.pop();
-    if (!flow) continue;
-    const dependentsByIndex = dependents.get(flow.summary)?.get(flow.index);
-    if (!dependentsByIndex) continue;
-    for (const dependent of dependentsByIndex) {
-      if (!dependent.summary.indexes.has(dependent.index)) {
-        dependent.summary.indexes.add(dependent.index);
-        flows.push(dependent);
-      }
-    }
-  }
-
+function executeWrapperArgumentIndexes(
+  call: ts.CallExpression,
+  analysis: SqlAnalysis,
+): number[] {
   const indexes = new Set<number>();
-  for (const summary of rootSummaries) {
-    for (const index of summary.indexes) {
-      const parameter = summary.declaration.parameters[index];
+  for (const declaration of callableDeclarations(call, analysis)) {
+    if (!declaration.body) continue;
+    const wrapperAnalysis =
+      analysis.relatedAnalyses?.get(declaration.getSourceFile()) ?? analysis;
+    const cachedResult = executeWrapperSummaryResultCache
+      .get(wrapperAnalysis)
+      ?.get(declaration);
+    let wrapperIndexes = cachedResult;
+
+    if (!wrapperIndexes) {
+      const summaries = new Map<ts.Node, ExecuteWrapperSummary>();
+      const pending: ExecuteWrapperSummary[] = [];
+      const ensureSummary = (
+        nestedDeclaration: ts.FunctionLikeDeclaration,
+        nestedAnalysis: SqlAnalysis,
+      ): ExecuteWrapperSummary => {
+        const existing = summaries.get(nestedDeclaration);
+        if (existing) return existing;
+        const template = executeWrapperSummaryTemplate(
+          nestedDeclaration,
+          nestedAnalysis,
+        );
+        const summary: ExecuteWrapperSummary = {
+          declaration: nestedDeclaration,
+          analysis: nestedAnalysis,
+          indexes: new Set(template.indexes),
+          dependencies: [],
+        };
+        summaries.set(nestedDeclaration, summary);
+        pending.push(summary);
+        return summary;
+      };
+
+      const rootSummary = ensureSummary(declaration, wrapperAnalysis);
+      while (pending.length > 0) {
+        const summary = pending.pop();
+        if (!summary) continue;
+        const template = executeWrapperSummaryTemplate(
+          summary.declaration,
+          summary.analysis,
+        );
+        for (const dependency of template.dependencies) {
+          summary.dependencies.push({
+            target: ensureSummary(dependency.declaration, dependency.analysis),
+            argumentIndexes: dependency.argumentIndexes,
+          });
+        }
+      }
+
+      const dependents = new Map<
+        ExecuteWrapperSummary,
+        Map<number, ExecuteWrapperFlow[]>
+      >();
+      for (const summary of summaries.values()) {
+        for (const dependency of summary.dependencies) {
+          for (const [
+            targetIndex,
+            parentIndexes,
+          ] of dependency.argumentIndexes) {
+            const byIndex = dependents.get(dependency.target) ?? new Map();
+            const flows = byIndex.get(targetIndex) ?? [];
+            parentIndexes.forEach((index) => {
+              flows.push({ summary, index });
+            });
+            byIndex.set(targetIndex, flows);
+            dependents.set(dependency.target, byIndex);
+          }
+        }
+      }
+
+      const flows: ExecuteWrapperFlow[] = [];
+      for (const summary of summaries.values()) {
+        summary.indexes.forEach((index) => flows.push({ summary, index }));
+      }
+      while (flows.length > 0) {
+        const flow = flows.pop();
+        if (!flow) continue;
+        const dependentsByIndex = dependents.get(flow.summary)?.get(flow.index);
+        if (!dependentsByIndex) continue;
+        for (const dependent of dependentsByIndex) {
+          if (!dependent.summary.indexes.has(dependent.index)) {
+            dependent.summary.indexes.add(dependent.index);
+            flows.push(dependent);
+          }
+        }
+      }
+
+      wrapperIndexes = [...rootSummary.indexes];
+      const analysisCache =
+        executeWrapperSummaryResultCache.get(wrapperAnalysis) ??
+        new WeakMap<ts.FunctionLikeDeclaration, number[]>();
+      analysisCache.set(declaration, wrapperIndexes);
+      executeWrapperSummaryResultCache.set(wrapperAnalysis, analysisCache);
+    }
+
+    for (const index of wrapperIndexes) {
+      const parameter = declaration.parameters[index];
       const callArgumentIndexes = parameter?.dotDotDotToken
         ? call.arguments.flatMap((_, argumentIndex) =>
             argumentIndex >= index ? [argumentIndex] : [],
@@ -2487,6 +2562,7 @@ function hasPragma(node: ts.Node): boolean {
 export interface RawSqlGuardSource {
   source: string;
   addedLines: ReadonlySet<number>;
+  traceSqlCallLines?: ReadonlySet<number>;
   removedPragmaLines?: ReadonlySet<number>;
 }
 
@@ -2755,6 +2831,29 @@ export function findRawSqlInterpolationViolationsInSources(
   for (const analysis of analyses.values()) {
     analysis.relatedAnalyses = analyses;
   }
+  const hasExecuteSink = [...sourceFiles.values()].some((sourceFile) => {
+    const analysis = analyses.get(sourceFile);
+    if (!analysis) return false;
+    let found = false;
+    const visit = (node: ts.Node) => {
+      if (found) return;
+      if (
+        ts.isCallExpression(node) &&
+        isExecuteCall(
+          node.expression,
+          analysis.checker,
+          sourceFile,
+          analysis.executeAliases,
+        )
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return found;
+  });
 
   const findings: RawSqlInterpolationFinding[] = [];
   const reportedLines = new Set<string>();
@@ -2869,6 +2968,7 @@ export function findRawSqlInterpolationViolationsInSources(
         if (argument) reportUnsafeSqlValue(analysis, node, argument);
       }
       if (
+        hasExecuteSink &&
         ts.isCallExpression(node) &&
         !isExecuteCall(
           node.expression,
@@ -2877,19 +2977,21 @@ export function findRawSqlInterpolationViolationsInSources(
           analysis.executeAliases,
         )
       ) {
-        const hasChangedSqlSource =
-          touchesChangedLines(node) ||
-          node.arguments.some((argument) =>
-            [
-              ...findUnsafeSqlSources(
-                argument,
-                analysis,
-                new Set(),
-                new Set(),
-                true,
-              ),
-            ].some(touchesChangedLines),
+        const callChanged = touchesChangedLines(node);
+        const hasChangedSqlSource = node.arguments.some((argument) => {
+          if (isStaticSqlValue(argument)) return false;
+          const unsafeSqlSources = findUnsafeSqlSources(
+            argument,
+            analysis,
+            new Set(),
+            new Set(),
+            true,
           );
+          return (
+            unsafeSqlSources.size > 0 &&
+            (callChanged || [...unsafeSqlSources].some(touchesChangedLines))
+          );
+        });
         if (hasChangedSqlSource) {
           for (const index of executeWrapperArgumentIndexes(node, analysis)) {
             const argument = node.arguments[index];
@@ -3402,7 +3504,8 @@ export function addChangedSqlExecuteWrapperModules(
   };
 
   const changedSources = [...sources].filter(
-    ([, input]) => input.addedLines.size > 0,
+    ([, input]) =>
+      input.addedLines.size > 0 || (input.traceSqlCallLines?.size ?? 0) > 0,
   );
   for (const [file, input] of changedSources) {
     const sourceFile = ts.createSourceFile(
@@ -3414,10 +3517,10 @@ export function addChangedSqlExecuteWrapperModules(
     );
     const checker = createChecker(sourceFile);
     const analysis = buildSqlAnalysis(sourceFile, checker);
-    const addedLines = [...input.addedLines].sort(
-      (left, right) => left - right,
-    );
-    const changedSymbols = changedSqlSourceSymbols(analysis, addedLines);
+    const changedLines = [
+      ...new Set([...input.addedLines, ...(input.traceSqlCallLines ?? [])]),
+    ].sort((left, right) => left - right);
+    const changedSymbols = changedSqlSourceSymbols(analysis, changedLines);
     const visitChangedCalls = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
@@ -3435,7 +3538,7 @@ export function addChangedSqlExecuteWrapperModules(
             hasInterpolatedTemplate(
               argument,
               analysis,
-              addedLines,
+              changedLines,
               changedSymbols,
             )
           ) {
@@ -3573,6 +3676,7 @@ export function addChangedSqlExecuteWrapperModules(
 
 function addChangedSqlHelperCallers(
   sources: Map<string, RawSqlGuardSource>,
+  findCallerFiles = gitGrepMatches,
 ): void {
   const helperNames = new Set<string>();
   for (const [file, input] of sources) {
@@ -3591,7 +3695,7 @@ function addChangedSqlHelperCallers(
   const candidateFiles = new Set<string>();
   for (let offset = 0; offset < names.length; offset += 80) {
     const batch = names.slice(offset, offset + 80);
-    for (const file of gitGrepMatches(batch)) {
+    for (const file of findCallerFiles(batch)) {
       candidateFiles.add(path.resolve(rootDir, file));
     }
   }
@@ -3612,8 +3716,87 @@ function addChangedSqlHelperCallers(
         `could not read ${path.relative(rootDir, file)}: ${message}`,
       );
     }
-    sources.set(file, { source, addedLines: new Set() });
+    sources.set(file, {
+      source,
+      addedLines: new Set(),
+      traceSqlCallLines: changedSqlHelperCallsiteLines(
+        source,
+        file,
+        new Set(helperNames),
+      ),
+    });
   }
+}
+
+function changedSqlHelperCallsiteLines(
+  source: string,
+  file: string,
+  helperNames: ReadonlySet<string>,
+): Set<number> {
+  const sourceFile = ts.createSourceFile(
+    path.resolve(file),
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const importedNames = new Set<string>();
+  const namespaceImports = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !statement.importClause?.namedBindings
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause.namedBindings;
+    if (ts.isNamespaceImport(bindings)) {
+      namespaceImports.add(bindings.name.text);
+      continue;
+    }
+    for (const element of bindings.elements) {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      if (helperNames.has(importedName)) importedNames.add(element.name.text);
+    }
+  }
+
+  const changedLines = new Set<number>();
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const callee = unwrapExecuteExpression(node.expression);
+      const isChangedHelperCall =
+        (ts.isIdentifier(callee) && importedNames.has(callee.text)) ||
+        (ts.isPropertyAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          namespaceImports.has(callee.expression.text) &&
+          helperNames.has(callee.name.text)) ||
+        (ts.isElementAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          namespaceImports.has(callee.expression.text) &&
+          helperNames.has(
+            staticStringPropertyName(callee.argumentExpression) ?? "",
+          ));
+      if (isChangedHelperCall) {
+        const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
+        const endLine = lineNumberAt(sourceFile, node.end);
+        for (let line = startLine; line <= endLine; line += 1) {
+          changedLines.add(line);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return changedLines;
+}
+
+export function addChangedSqlCallSiteModules(
+  sources: Map<string, RawSqlGuardSource>,
+  findCallerFiles = gitGrepMatches,
+  resolveSourceFile = resolveImportedSourceFile,
+): void {
+  addChangedSqlHelperCallers(sources, findCallerFiles);
+  addChangedSqlExecuteWrapperModules(sources, resolveSourceFile);
 }
 
 function main() {
@@ -3691,8 +3874,7 @@ function main() {
 
   let findings: RawSqlInterpolationFinding[];
   try {
-    addChangedSqlHelperCallers(sources);
-    addChangedSqlExecuteWrapperModules(sources);
+    addChangedSqlCallSiteModules(sources);
     findings = findRawSqlInterpolationViolationsInSources(sources);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
