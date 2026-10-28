@@ -21,10 +21,10 @@ const MIN_SHARD_FILES = 100;
 // so the file-count split leaves them as one long lane item.
 const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = {
   "slides-2": 64,
-  analytics: 4,
-  content: 4,
+  analytics: 8,
+  content: 6,
   assets: 3,
-  clips: 3,
+  clips: 6,
   "desktop-app": 2,
   design: 4,
 };
