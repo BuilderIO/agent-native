@@ -88,7 +88,9 @@ about who does what next, or that handed them work. Each reply must be:
 Don't reply at all to jokes, venting, banter, a message meant for Steve
 himself, or a thread a person is already handling. Once a person says they
 have it, or asks the bot to stop, post nothing more in that thread. Before posting, reread the reply as the reporter: would they get it
-in five seconds, know who does what next, and feel we did the legwork?
+in five seconds, know who does what next, and feel we did the legwork? Check
+the draft before sending, not after: the first version is the one that
+notifies them, so editing it afterwards doesn't undo it.
 
 Good (each is the first line; the footer goes on the line below it):
 
@@ -184,7 +186,9 @@ the invocation gives), plus 14 days for open items.
   its run has stopped: its reports are yours again. Of the remaining
   workflow roots, any
   without ✅ or 🎫, or with a human reply newer than our last reply, comes
-  first in this run. A
+  first in this run. A root with 🎫 and our reply after its latest human
+  message is already answered: you may still fix it, but post nothing there
+  until the fix merges. A
   reply like "still broken" after a ✅ means the earlier fix failed. Find what
   that fix changed and why it didn't hold before trying again.
 - **New reports:** roots from the last 5 days. React and reply on the root
@@ -281,8 +285,11 @@ Run it once per thread: if a reply in the thread already links this PR, just mak
 there and move on.
 
 Write only as the connected Slack profile (Steve), only in the feedback
-channels, and in the reply format from the contract above. Re-read each thread
-before writing. If Steve has since added `:mag:` or a person has taken it over,
+channels, and in the reply format from the contract above. First re-read
+the contract and this step from fresh `origin/main` (`git fetch origin main
+&& git show origin/main:.agents/skills/review-latest-feedback/SKILL.md`): a
+run that started hours ago may be holding older rules. Re-read each thread before
+writing. If Steve has since added `:mag:` or a person has taken it over,
 leave it. If a newer human reply says it's still broken, leave the 👀 for the
 next sweep. Otherwise:
 
@@ -299,11 +306,15 @@ next sweep. Otherwise:
   for anything already in the thread.
 
 GitHub issues fixed by the merged PR get a one-line thank-you comment linking
-the PR, and then get closed.
+the PR, and then get closed. Post it even when someone else opened the issue,
+or the PR already closed it: Steve wants reporters told, and this comment is
+allowed under his "only message Steve" account rule.
 <!-- framework-repo-only:start -->
 CI, deploy, and chat-health failures you couldn't fix get one grouped message
-per run in `#qa-agent-native`. Never post one message per failure, and never
-open GitHub issues for them.
+per run in `#qa-agent-native`: one short line per workflow that is still
+failing, linking only its latest failed run. Leave out runs that later passed
+or were superseded. Never post one message per failure, and never open GitHub
+issues for them.
 <!-- framework-repo-only:end -->
 
 Before ending, re-read each thread you touched and check:
@@ -320,11 +331,15 @@ Keep the recap short and written for Steve:
 ```md
 ## Feedback sweep - <date, Pacific>
 Fixed and merged (N): <one line each, with Slack thread link> · PR <link>
+Closed out from earlier runs (N): <Slack thread link> · PR <link>
 Needs a person (N): <what's needed, who>
 Still open from earlier runs (N): <why>
 Sources unavailable: <list or "none">
 Lesson (optional): <one line>
 ```
+
+"Fixed and merged" is this run's PR only; reports you closed out for an
+earlier run's merged PR go under "Closed out from earlier runs".
 
 If the run came from an automation, append the same recap to that
 automation's `memory.md`.

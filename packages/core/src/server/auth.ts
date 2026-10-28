@@ -304,6 +304,11 @@ import {
 } from "./request-context.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
 import { captureAuthError } from "./sentry.js";
+import {
+  isSessionResolutionUnavailable,
+  markSessionResolutionUnavailable,
+  reportSessionResolutionUnavailable,
+} from "./session-resolution-unavailable.js";
 import { isTestIdentity } from "./test-identity.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
@@ -2364,15 +2369,7 @@ let _authGuardConfig: AuthGuardConfig | null = null;
 const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
-const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
-
-export function isSessionResolutionUnavailable(event: H3Event): boolean {
-  return (
-    (event.context as Record<string, unknown> | undefined)?.[
-      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-    ] === true
-  );
-}
+export { isSessionResolutionUnavailable };
 
 async function getLegacyCookieSessionSafely(
   event: H3Event,
@@ -2381,9 +2378,7 @@ async function getLegacyCookieSessionSafely(
     return await getLegacyCookieSession(event);
   } catch (error) {
     console.error("[auth] legacy cookie session resolution error:", error);
-    (event.context as Record<string, unknown>)[
-      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-    ] = true;
+    markSessionResolutionUnavailable(event, "legacy-cookie", error);
     return null;
   }
 }
@@ -4821,6 +4816,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
     ctx.__anSessionCache = (async () => {
       const identityResolutionStartedAtMs = Date.now();
       const session = await resolveSessionUncached(event);
+      if (!session?.email) reportSessionResolutionUnavailable(event);
       if (session?.email) {
         // A logout racing any credential lookup must win over work using its result.
         const embedCredential = verifyEmbedSessionToken(session.token);
@@ -4866,7 +4862,10 @@ export async function getBrowserCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   const session = await resolveBrowserCookieSession(event);
-  if (!session?.email) return null;
+  if (!session?.email) {
+    reportSessionResolutionUnavailable(event);
+    return null;
+  }
   const resolved = await backfillSessionOrg(session, event);
   await resumeIdentityRekeyForSession(resolved.email);
   return resolved;
@@ -4904,9 +4903,7 @@ async function resolveBrowserCookieSession(
       if (baSession?.user.email) return mapBetterAuthSession(baSession);
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
-      (event.context as Record<string, unknown>)[
-        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-      ] = true;
+      markSessionResolutionUnavailable(event, "better-auth", e);
     }
     const cookieSession = await getLegacyCookieSessionSafely(event);
     if (cookieSession) return cookieSession;
@@ -4983,9 +4980,7 @@ async function resolveSessionUncached(
       }
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
-      (event.context as Record<string, unknown>)[
-        SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-      ] = true;
+      markSessionResolutionUnavailable(event, "better-auth", e);
     }
 
     const cookieSession = await getLegacyCookieSessionSafely(event);

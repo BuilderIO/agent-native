@@ -284,7 +284,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 ### コンポーザーに準備するコンテキスト {#composer-context}
 
-`PromptComposer` と `TiptapComposer` の `submissionDisabled` は送信だけを無効にし、下書き・ファイル・コンテキストの準備は許可します。プロバイダーが未設定でも準備は可能です。`disabled` は引き続きコンポーザー全体を無効にします。
+`PromptComposer` と `TiptapComposer` の `submissionDisabled` は送信だけを無効にし、下書き・ファイル・コンテキストの準備は許可します。`requireAgentEngine` を指定すると、プロバイダーが未設定のあいだは、セットアップ カードが表示されている限り `PromptComposer` に入力できず、クリックするとカードを示します。カードが表示されていない場合は、送信だけを無効にします。`disabled` は引き続きコンポーザー全体を無効にします。
 
 `PromptComposer`、`TiptapComposer`、`AgentKitComposer` は `contextItems` と `contextMenuItems` を受け取ります。ソースの読み取りとメニューの翻訳はアプリが管理します。
 

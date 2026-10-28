@@ -183,6 +183,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "返回",
   "onboarding.creditsSkipAnyway": "仍然跳過",
   "onboarding.creditsUseCustomKeys": "使用自訂金鑰",
+  "onboarding.creditsUseOwnApiKeys": "使用我自己的 API 金鑰",
   "onboarding.creditsAboutLabel": "關於免費額度",
   "onboarding.creditsActivating": "正在啟用免費額度",
   "onboarding.creditsActivatingTooltip":

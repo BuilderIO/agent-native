@@ -303,7 +303,7 @@ yourself. It is the field, not the whole chat runtime.
 
 ### Staged composer context {#composer-context}
 
-`PromptComposer` and `TiptapComposer` accept `submissionDisabled` to block sending while leaving draft, file, and context staging enabled. Missing provider setup blocks submission, not staging. `disabled` still disables the full composer.
+`PromptComposer` and `TiptapComposer` accept `submissionDisabled` to block sending while leaving draft, file, and context staging enabled. With `requireAgentEngine`, missing provider setup closes `PromptComposer` to typing while a setup card is on screen, and a click on it points at the card. With no card on screen, it blocks submission only. `disabled` still disables the full composer.
 
 `PromptComposer`, `TiptapComposer`, and `AgentKitComposer` accept `contextItems` and `contextMenuItems`. Apps own source reads and localized menu labels.
 

@@ -47,16 +47,12 @@ const messages = {
     untitledChat: "未命名聊天",
   },
   home: {
-    composerPlaceholder: "为 Alex 调用 hello 操作",
     communityTitle: "联系我们",
     docsAddAction: "添加操作",
     docsAddPage: "添加页面",
     docsGettingStarted: "快速开始",
     docsKeyConcepts: "核心概念",
     docsTitle: "文档",
-    editHint: "编辑 {{file}} 并保存，再问一次就能看到新的问候语。",
-    lead: "应用的界面和代理共用同一组操作。",
-    leadTry: "让代理调用 hello 操作试试。",
     title: "开始使用",
   },
   navigation: {

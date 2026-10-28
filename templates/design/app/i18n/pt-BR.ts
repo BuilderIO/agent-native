@@ -321,6 +321,10 @@ export default {
       chooseFrame: "Escolher frame",
       inspect: "Inspecionar",
       exportSvg: "Exportar SVG",
+      moreActions: "Mais ações",
+      askAboutFile: "Perguntar sobre este arquivo",
+      askAboutFilePrompt:
+        "Pergunte sobre este arquivo de design vinculado. {{url}}",
       actionsPrefill: "Revise e envie",
       retry: "Tentar novamente",
       currentDesign: "o Design atual",

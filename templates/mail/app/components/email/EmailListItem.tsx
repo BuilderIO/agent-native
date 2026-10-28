@@ -392,6 +392,7 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleToggleMultiSelectClick = useCallback(
     (e: React.SyntheticEvent) => {
+      e.stopPropagation();
       if (thread) onToggleMultiSelect(e, thread);
     },
     [onToggleMultiSelect, thread],

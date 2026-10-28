@@ -158,6 +158,7 @@ describe("create-recording-upload", () => {
     expect(mocks.releaseRecordingUploadTicket).toHaveBeenCalledWith(
       "owner@example.com",
       "rec-1",
+      "hash",
     );
   });
 

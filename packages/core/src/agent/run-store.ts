@@ -8,7 +8,11 @@ import {
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, getScopedTransactionDbExec } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -486,6 +490,60 @@ export const agentRunsStore = defineStore({
         `ALTER TABLE agent_runs ALTER COLUMN admission_order
            SET DEFAULT nextval('agent_run_admission_order_seq')`,
       ],
+    },
+    {
+      name: "execution-leases-and-steps",
+      run: async (exec) => {
+        await ensureTableExists(
+          "agent_execution_leases",
+          `CREATE TABLE IF NOT EXISTS agent_execution_leases (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          owner_run_id TEXT NOT NULL,
+          lease_expires_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "worker_generation",
+          `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS worker_generation BIGINT`,
+          { injectedClient: exec },
+        );
+        await ensureTableExists(
+          "agent_execution_steps",
+          `CREATE TABLE IF NOT EXISTS agent_execution_steps (
+          thread_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          step_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          tool_name TEXT NOT NULL,
+          input_json TEXT NOT NULL,
+          replay_policy TEXT NOT NULL,
+          status TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          generation BIGINT NOT NULL,
+          result_json TEXT,
+          receipt_json TEXT,
+          error_json TEXT,
+          dispatched_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+          PRIMARY KEY (thread_id, turn_id, step_id)
+        )`,
+          { injectedClient: exec },
+        );
+        await ensureIndexExists(
+          "agent_execution_steps_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_execution_steps_pending_idx
+          ON agent_execution_steps (thread_id, turn_id, status, created_at)`,
+          { injectedClient: exec },
+        );
+      },
     },
   ],
 });

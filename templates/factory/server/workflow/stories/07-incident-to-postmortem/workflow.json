@@ -25,7 +25,10 @@
       "settings": {
         "source": "inbox-poll",
         "poller": "sentry",
-        "takeLimit": 5
+        "takeLimit": 5,
+        "filter": {
+          "scopes": ["acme/web"]
+        }
       }
     },
     {

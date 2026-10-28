@@ -27,6 +27,7 @@ import {
 
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { refuseContentUploadChunk } from "../../../../lib/content-uploads.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { reconcileMeetingOnRecordingFailedBestEffort } from "../../../../lib/reconcile-meeting-on-finalize.js";
@@ -511,6 +512,8 @@ export async function handleRecordingChunk(
     ownerEmail?: string;
     orgId?: string;
     authUserId?: string;
+    /** Content's own chunk route, which checked the upload's page binding. */
+    fromContentPage?: boolean;
   },
 ) {
   const recordingId =
@@ -627,6 +630,9 @@ export async function handleRecordingChunk(
         ownerEmail,
       });
       throw createError({ statusCode: 404, message: "Recording not found" });
+    }
+    if (!override?.fromContentPage) {
+      await refuseContentUploadChunk(recordingId);
     }
 
     const maxUploadBytes =
