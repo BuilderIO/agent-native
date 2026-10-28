@@ -111,7 +111,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 8
+          LANES: 12
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then

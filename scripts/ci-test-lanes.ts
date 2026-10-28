@@ -22,6 +22,7 @@ const MIN_SHARD_FILES = 100;
 const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = {
   "slides-2": 64,
   analytics: 4,
+  content: 4,
   assets: 3,
   clips: 3,
   "desktop-app": 2,
