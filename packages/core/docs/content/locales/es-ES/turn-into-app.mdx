@@ -105,7 +105,7 @@ Las capturas se guardan en `.tmp/ui-review/out/` de la app, y el informe final e
 
 ## Ejecutar y desplegar {#run-deploy}
 
-Para la revisión local, la skill establece `AUTH_DISABLED=1` en el `.env` ignorado de la app, porque un navegador de capturas nuevo no tiene la sesión iniciada. Esto es solo para desarrollo en loopback. Se elimina antes del `pnpm build` final y nunca debe confirmarse ni desplegarse. Después, el primer navegador que abre la app inicia sesión automáticamente como la cuenta de desarrollo local. Los navegadores nuevos que se abran más tarde muestran una tarjeta "Continue as local dev".
+Para la revisión local, la skill establece `AUTH_DISABLED=1` en el `.env` ignorado de la app, porque un navegador de capturas nuevo no tiene la sesión iniciada. Esto es solo para desarrollo en loopback. Se elimina antes del `pnpm build` final y nunca debe confirmarse ni desplegarse. Después del build, la skill vuelve a iniciar la app y la abre en tu navegador predeterminado, que inicia sesión automáticamente como la cuenta de desarrollo local. Los navegadores nuevos que se abran más tarde muestran una tarjeta "Continue as local dev".
 
 Para ejecutar la app tú mismo:
 
@@ -119,7 +119,7 @@ Para usar tu propio proveedor de modelos en local, pon una clave como `ANTHROPIC
 
 La skill solo despliega cuando lo pides o el proveedor ya está configurado. Una compilación local sana sigue imprimiendo un bloque "production configuration errors" con código de salida 0. Esa es la lista de comprobación del despliegue: un `BETTER_AUTH_SECRET` estable y un `DATABASE_URL` persistente, además de `A2A_SECRET` para una app dentro de un workspace. La skill los informa como el paso pendiente y no crea valores de marcador. Consulta [Implementar una aplicación](/docs/deploy-an-app) e [Implementar un workspace](/docs/workspace-deployment).
 
-El informe final etiqueta las evidencias por separado: en ejecución local, verificado localmente, listo para compilar, desplegado y verificado en vivo son estados distintos, y el informe nunca deja que uno sustituya a otro.
+El informe final empieza por tu app: "Your app is open at …" en una compilación local, o el enlace de Builder que devolvió Dispatch en una app alojada. Después dice cómo cambiar la app, qué hace cada control y qué incluye ya la app, como integraciones, automatizaciones y un servidor MCP. Los detalles van después bajo su propio encabezado, con las evidencias etiquetadas por separado: en ejecución local, verificado localmente, listo para compilar, desplegado y verificado en vivo son estados distintos, y el informe nunca deja que uno sustituya a otro.
 
 ## Límites conocidos {#limits}
 
