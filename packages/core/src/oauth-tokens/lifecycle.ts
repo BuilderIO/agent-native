@@ -93,6 +93,7 @@ export interface OAuthCredentialAccessResult<
 > {
   state: OAuthCredentialState<T>;
   accessToken: string | null;
+  refreshFailure?: "transient";
 }
 
 export interface OAuthRefreshContext<T extends OAuthCredential> {
@@ -544,7 +545,7 @@ export async function resolveOAuthCredentialAccess<
     return { state, accessToken: null };
   }
   if (!state.credential.tokens.refresh_token) {
-    if (state.kind === "expired") {
+    if (state.kind === "expired" || options.forceRefresh) {
       await markReconnectRequired(
         identity,
         state,
@@ -567,7 +568,7 @@ export async function resolveOAuthCredentialAccess<
     return {
       state,
       accessToken:
-        state.kind === "connected"
+        state.kind === "connected" && !options.forceRefresh
           ? state.credential.tokens.access_token
           : null,
     };
@@ -727,6 +728,39 @@ export async function resolveOAuthCredentialAccess<
           validateCredential: options.validateCredential,
         });
         if (latest.kind === "connected") {
+          if (options.forceRefresh && latest.revision === baselineRevision) {
+            if (
+              options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+              true
+            ) {
+              await markReconnectRequired(
+                identity,
+                latest,
+                options.legacyAccountKey === true,
+              );
+              const reconnect = await readStoredOAuthCredentialState<T>(
+                identity,
+                {
+                  allowLegacy: options.allowLegacy,
+                  legacyAccountKey: options.legacyAccountKey,
+                  now: dependencies.now(),
+                  validateCredential: options.validateCredential,
+                },
+              );
+              return { state: reconnect, accessToken: null };
+            }
+            if (
+              options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+              false
+            ) {
+              return {
+                state: latest,
+                accessToken: null,
+                refreshFailure: "transient",
+              };
+            }
+            return { state: latest, accessToken: null };
+          }
           return {
             state: latest,
             accessToken: latest.credential.tokens.access_token,
@@ -737,7 +771,11 @@ export async function resolveOAuthCredentialAccess<
             options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
             false
           ) {
-            return { state: latest, accessToken: null };
+            return {
+              state: latest,
+              accessToken: null,
+              refreshFailure: "transient",
+            };
           }
           await markReconnectRequired(
             identity,
@@ -768,7 +806,15 @@ export async function resolveOAuthCredentialAccess<
   return {
     state,
     accessToken:
-      state.kind === "connected" ? state.credential.tokens.access_token : null,
+      state.kind === "connected" &&
+      (!options.forceRefresh || state.revision !== initialRevision)
+        ? state.credential.tokens.access_token
+        : null,
+    ...(options.forceRefresh &&
+    state.kind === "connected" &&
+    state.revision === initialRevision
+      ? { refreshFailure: "transient" as const }
+      : {}),
   };
 }
 

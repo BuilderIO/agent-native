@@ -1234,8 +1234,7 @@ export async function getMcpOAuthAccessToken(options: {
   );
   if (
     options.throwOnTransientRefreshFailure &&
-    !result.accessToken &&
-    result.state.kind === "expired"
+    result.refreshFailure === "transient"
   ) {
     throw new McpOAuthRefreshUnavailableError();
   }

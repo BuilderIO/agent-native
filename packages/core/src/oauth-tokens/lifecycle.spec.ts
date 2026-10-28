@@ -1014,13 +1014,32 @@ describe("OAuth credential lifecycle", () => {
     expect(refresh).toHaveBeenCalledOnce();
   });
 
-  it("hands back the same token when a forced refresh has no refresh token", async () => {
+  it("does not reuse a refused token when its forced refresh fails", async () => {
+    await saveOAuthCredential(identity, credential());
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        forceRefresh: true,
+        refresh: async () => {
+          throw new Error("temporary provider failure");
+        },
+      }),
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "connected" },
+    });
+  });
+
+  it("does not hand back a refused token when a forced refresh has no refresh token", async () => {
     await saveOAuthCredential(identity, credential({ refresh: "" }));
     const refresh = vi.fn();
 
     await expect(
       resolveOAuthCredentialAccess(identity, { refresh, forceRefresh: true }),
-    ).resolves.toMatchObject({ accessToken: "<ACCESS_TOKEN>" });
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
     expect(refresh).not.toHaveBeenCalled();
   });
 

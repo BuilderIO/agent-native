@@ -837,6 +837,30 @@ describe("MCP OAuth client", () => {
     expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
   });
 
+  it("reports a forced transient refresh failure as unavailable while the saved token remains connected", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() + 3_600_000,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+        forceRefresh: true,
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure: () => false,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+
+    expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
+  });
+
   it("keeps a still-valid token when an early refresh fails", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,
