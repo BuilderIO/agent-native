@@ -1074,7 +1074,7 @@ test("active-run diagnostics keep stage labels and omit stage details", () => {
     runId: "r",
     dispatchMode: "background-processing",
     diagStage:
-      '{"stage":"stale_run_recovery_attempted","detail":"errorName=Error errorCode=missing_execution_fence httpStatus=503 causeName=DatabaseError failure=PRIVATE_DETAIL declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000 token=PRIVATE_DETAIL"}',
+      '{"stage":"stale_run_recovery_attempted","detail":"declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000 token=PRIVATE_DETAIL"}',
     workerStage: '{"stage":"worker_started","detail":"PRIVATE_DETAIL"}',
     heartbeatAt: 123,
     lastProgressAt: 456,
@@ -1089,13 +1089,35 @@ test("active-run diagnostics keep stage labels and omit stage details", () => {
       dispatchMode: "background-processing",
       diagStage: "stale_run_recovery_attempted",
       diagEvidence:
-        "errorName=Error errorCode=missing_execution_fence httpStatus=503 causeName=DatabaseError declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000",
+        "declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000",
       workerStage: "worker_started",
       heartbeatAt: 123,
       lastProgressAt: 456,
     }),
   );
   assert.doesNotMatch(view.detail, /PRIVATE_DETAIL/);
+});
+
+test("active-run diagnostics omit token-shaped raw failure detail", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "route_threw",
+      detail:
+        "errorName=Error errorCode=dispatch_timeout httpStatus=503 failure=PRIVATE_DETAIL errorCode=customer_secret httpStatus=500 causeName=PrivateError",
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(
+    detail.diagEvidence,
+    "errorName=Error errorCode=dispatch_timeout httpStatus=503",
+  );
+  assert.doesNotMatch(
+    view.detail,
+    /PRIVATE_DETAIL|customer_secret|PrivateError/,
+  );
 });
 
 test("text helpers", () => {

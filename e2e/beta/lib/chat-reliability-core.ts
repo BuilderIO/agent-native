@@ -986,10 +986,16 @@ function inspectRunDiagnostic(value: unknown): {
   const safeStage =
     typeof stage === "string" && /^[a-z][a-z_]*$/.test(stage) ? stage : null;
   const detail = diagnostic?.detail;
+  const failureDetailStart =
+    typeof detail === "string" ? detail.indexOf(" failure=") : -1;
+  const evidenceDetail =
+    typeof detail === "string" && failureDetailStart >= 0
+      ? detail.slice(0, failureDetailStart)
+      : detail;
   const safeEvidence =
-    typeof detail === "string"
+    typeof evidenceDetail === "string"
       ? [
-          ...detail.matchAll(
+          ...evidenceDetail.matchAll(
             /(?:^|\s)(errorName=[A-Za-z0-9_]{1,64}|errorCode=[A-Za-z0-9_]{1,64}|httpStatus=[45]\d\d|causeName=[A-Za-z0-9_]{1,64}|window=\d+|dispatch=(?:none|background(?:-processing)?|inline)|redispatchable=[01]|sinceHeartbeat=\d+|sinceProgress=\d+|hbAheadOfProgress=-?\d+|runAge=\d+|inFlight=[01]|inFlightFor=\d+|priorDiag=[a-z_]+|priorWorker=[a-z_]+|declined reason=[a-z_]+)/g,
           ),
         ]
