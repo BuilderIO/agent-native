@@ -136,10 +136,16 @@ export function ssrCacheHeadersForPolicy(
   };
 }
 
-/** The route's `SSR_MAX_AGE_HEADER` value in seconds, or null when unset. */
+/**
+ * The route's `SSR_MAX_AGE_HEADER` value in seconds, or null when unset. A
+ * value that isn't whole seconds reads as 0: the route asked for a shorter
+ * window, and falling back to the deployment's would keep a page it takes
+ * down for as long as that window.
+ */
 export function parseSsrMaxAge(raw: string | null | undefined): number | null {
-  const value = raw?.trim();
-  if (!value || !/^\d+$/.test(value)) return null;
+  if (raw == null) return null;
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) return 0;
   return Math.min(Number(value), MAX_SSR_CACHE_SECONDS);
 }
 

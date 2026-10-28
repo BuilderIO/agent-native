@@ -163,9 +163,14 @@ describe("parseSsrMaxAge", () => {
     expect(parseSsrMaxAge(" 0 ")).toBe(0);
   });
 
-  it("ignores an unset or malformed value", () => {
-    for (const raw of [undefined, null, "", "  ", "-5", "1.5", "20s", "soon"]) {
-      expect(parseSsrMaxAge(raw)).toBeNull();
+  it("ignores an unset value", () => {
+    expect(parseSsrMaxAge(undefined)).toBeNull();
+    expect(parseSsrMaxAge(null)).toBeNull();
+  });
+
+  it("stores nothing for a value that isn't whole seconds", () => {
+    for (const raw of ["", "  ", "-5", "1.5", "20s", "soon"]) {
+      expect(parseSsrMaxAge(raw)).toBe(0);
     }
   });
 

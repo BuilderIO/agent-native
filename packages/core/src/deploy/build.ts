@@ -2314,8 +2314,9 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
 // Mirror parseSsrMaxAge and ssrCacheHeadersWithin in shared/cache-control.ts;
 // build.spec.ts checks this worker against them.
 function parseSsrMaxAge(raw) {
-  const value = (raw || "").trim();
-  return /^\\d+$/.test(value) ? Number(value) : null;
+  if (raw == null) return null;
+  const value = raw.trim();
+  return /^\\d+$/.test(value) ? Number(value) : 0;
 }
 
 function sharedWithin(window, seconds) {

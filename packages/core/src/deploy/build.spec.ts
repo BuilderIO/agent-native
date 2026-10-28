@@ -3349,7 +3349,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
   });
 
-  it("keeps the deployment window when a route's max age is malformed", async () => {
+  it("stores nothing when a route's max age is malformed", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
       responseHeaders: { [SSR_MAX_AGE_HEADER]: "soon" },
     });
@@ -3360,9 +3360,9 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
-    );
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
     expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
   });
 

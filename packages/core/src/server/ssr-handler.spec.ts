@@ -1383,13 +1383,13 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(response, DISABLED_SSR_CACHE_HEADERS["cache-control"]);
     });
 
-    it("keeps the deployment policy when a route's window doesn't parse", async () => {
+    it("stores nothing when a route's window doesn't parse", async () => {
       mockHtmlResponse({ [SSR_MAX_AGE_HEADER]: "soon" });
       const handler = createH3SSRHandler(() => ({})) as any;
 
       const response = await handler(createEvent("/p/doc-1"));
 
-      expectDefaultSsrCacheHeaders(response);
+      expectCacheHeaders(response, DISABLED_SSR_CACHE_HEADERS["cache-control"]);
       expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
     });
 

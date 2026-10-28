@@ -404,7 +404,8 @@ header (`x-agent-native-ssr-max-age`, whole seconds, from
 `@agent-native/core/shared`). The SSR handler removes the header and only ever
 shortens the deployment policy: browsers revalidate on each visit, shared
 caches keep the copy for at most that many seconds and serve it once more
-while refreshing, and `0` stores nothing. It names one duration for every
+while refreshing, and `0` (or a value that isn't whole seconds) stores
+nothing. It names one duration for every
 visitor of the route, so it is not per-user variation. A thrown `Response`'s
 headers reach only the route that catches it, so a route that sets the header
 on its not-found answer needs its own `ErrorBoundary`.
