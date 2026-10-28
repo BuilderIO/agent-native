@@ -1722,10 +1722,10 @@ const messages = {
     openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (Lokalisiert)",
+    untitled: "Unbenannter Clip",
     renameFailed: "Failed to rename clip (Lokalisiert)",
     emptyTitle: "Title cannot be empty (Lokalisiert)",
-    generatingTitle: "Generating title (Lokalisiert)",
+    generatingTitle: "Titel wird generiert",
     placeholder: "Clip title (Lokalisiert)",
     editLabel: "Edit clip title (Lokalisiert)",
   },

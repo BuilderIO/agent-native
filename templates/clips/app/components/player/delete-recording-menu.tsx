@@ -1,7 +1,7 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconDotsVertical } from "@tabler/icons-react";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode, type Ref } from "react";
 import { toast } from "sonner";
 
 import {
@@ -36,6 +36,8 @@ interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
   downloadLabel?: string;
   downloadingLabel?: string;
   onDownload?: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
+  triggerRef?: Ref<HTMLButtonElement>;
 }
 
 export function RecordingOptionsMenu({
@@ -48,6 +50,8 @@ export function RecordingOptionsMenu({
   downloadLabel,
   downloadingLabel,
   onDownload,
+  onCloseAutoFocus,
+  triggerRef,
 }: RecordingOptionsMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -92,6 +96,7 @@ export function RecordingOptionsMenu({
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
+            ref={triggerRef}
             variant="ghost"
             size="icon-sm"
             className="order-last shrink-0"
@@ -112,6 +117,8 @@ export function RecordingOptionsMenu({
               event.preventDefault();
               pendingDeleteConfirmRef.current = false;
               setOpen(true);
+            } else {
+              onCloseAutoFocus?.(event);
             }
           }}
         >
