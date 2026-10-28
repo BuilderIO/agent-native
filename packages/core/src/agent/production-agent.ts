@@ -9086,10 +9086,9 @@ export async function runAgentLoop(opts: {
       } else {
         consecutiveMaxTokensContinuations = 0;
       }
-      if (followUpResults.length > 0 && terminalStopReason === "tool_use") {
-        if (streamedAssistantText) send({ type: "clear" });
-        continue;
-      }
+      // Only a follow-up call with no reply asks again. A reply sent beside
+      // its follow-ups is the final answer: clearing it to ask again leaves
+      // the model recapping a reply the user no longer sees.
       if (
         followUpResults.length > 0 &&
         hasEmptyFinalResponse &&
@@ -9208,7 +9207,7 @@ export async function runAgentLoop(opts: {
         if (
           followUpRunId &&
           completedFollowUpSuggestions === undefined &&
-          terminalStopReason === "end_turn"
+          (terminalStopReason === "end_turn" || followUpResults.length > 0)
         ) {
           completingFollowUpSuggestions = true;
           followUpStartedAt = Date.now();
