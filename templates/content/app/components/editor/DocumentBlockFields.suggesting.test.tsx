@@ -393,4 +393,69 @@ describe("DocumentBlockFields suggestion boundary", () => {
     });
     expect(provider.start).toHaveBeenCalledTimes(1);
   });
+
+  it("takes newer saved text into a tab while it shows a draft (CMT-2)", async () => {
+    const outline = (value: string, revision: number) => ({
+      data: {
+        documentId: "doc-1",
+        databaseId: "db-1",
+        canEditValues: true,
+        properties: [
+          { ...field("outline", false), value, blocksField: { revision } },
+        ],
+      },
+      isError: false,
+    });
+    const provider = {
+      suggesting: true,
+      sessions: new Map([
+        ["outline", { key: "session-1", draft: "Original, suggested" }],
+      ]),
+      start: vi.fn(),
+      change: vi.fn(),
+      replacementIntent: vi.fn(),
+      visuals: vi.fn(() => []),
+      activeSuggestionId: null,
+      onActivateSuggestion: vi.fn(),
+      onHoverSuggestion: vi.fn(),
+      onAnchorsChange: vi.fn(),
+    };
+    const renderWith = async (suggesting: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(BlocksFieldSuggestionsProvider, {
+            value: { ...provider, suggesting } as never,
+            children: createElement(DocumentBlockFields, {
+              documentId: "doc-1",
+              databaseId: "db-1",
+              databaseDocumentId: "row-1",
+              canEdit: true,
+              suggesting,
+              primaryEditor: createElement("div"),
+            }),
+          }),
+        );
+      });
+    };
+
+    mocks.query = outline("Original", 3);
+    await renderWith(true);
+    // Someone accepts a suggestion on the tab while this page suggests.
+    mocks.query = outline("Original, accepted", 4);
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original, suggested",
+      externalContent: null,
+    });
+
+    provider.sessions = new Map();
+    await renderWith(false);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original, accepted",
+      externalContent: null,
+      contentResetKey: null,
+    });
+    await flushAllBlockFieldSaveControllersForDocument("doc-1");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
 });

@@ -2226,6 +2226,14 @@ function AdditionalBlockEditor({
     const base = suggestionBase();
     if (base) startSession?.(base);
   }, [needsSession, startSession, suggestionBase, suggestionBaseVersion]);
+  // The editor takes no newer text while it shows a draft, and the tab has
+  // no typing of its own to merge then, so newer saved text (an accepted
+  // suggestion) goes straight into the tab's own copy. Its word count stays
+  // current, and the editor shows that text once the draft ends.
+  const showsDraft = session !== null;
+  useEffect(() => {
+    if (showsDraft && externalContent) externalContent.merge(null, () => true);
+  }, [externalContent, showsDraft]);
   const shownContent = session ? session.draft : content;
   const visualsFor = suggestionEditor?.visuals;
   const visuals = useMemo(
