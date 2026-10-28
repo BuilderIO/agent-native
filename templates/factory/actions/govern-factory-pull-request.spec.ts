@@ -732,6 +732,49 @@ describe("govern-factory-pull-request final check evidence", () => {
     },
   );
 
+  it("releases an approval claim when its transaction fails before the GitHub request", async () => {
+    await seedInternalApprovalPath();
+    const failure = new Error("approval transaction could not start");
+    const github = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      beforeSummaryReturn: async (callNumber) => {
+        if (callNumber === 4) {
+          vi.spyOn(db, "transaction").mockRejectedValueOnce(failure);
+        }
+      },
+    });
+
+    await expect(
+      runGovernance(github, DEFAULT_FACTORY_ID, true),
+    ).rejects.toThrow(failure.message);
+
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decision = (
+      await db
+        .select({
+          outcome: triageDecisions.outcome,
+          reason: triageDecisions.reason,
+        })
+        .from(triageDecisions)
+        .where(eq(triageDecisions.id, governanceDecisionId()))
+    )[0];
+
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+    expect(item.status).toBe("pr_observed");
+    expect(decision).toEqual({
+      outcome: "needs_manual",
+      reason:
+        "The approval attempt failed before the GitHub request was attempted: approval transaction could not start",
+    });
+  });
+
   it("recovers a late attributed approval after an ambiguous provider result", async () => {
     await seedInternalApprovalPath();
     const firstAttempt = governanceGitHub({

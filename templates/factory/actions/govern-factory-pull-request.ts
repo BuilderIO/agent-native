@@ -1652,6 +1652,7 @@ export default defineAction({
         );
         let approval: Awaited<ReturnType<typeof github.approvePullRequest>>;
         let itemStatusAtApproval: string;
+        let approvalCallStarted = false;
         try {
           const approvalAttempt = await getDb().transaction(async (tx) => {
             const latestItems = await tx
@@ -1682,6 +1683,7 @@ export default defineAction({
               return { kind: "blocked", status: latestItem.status } as const;
             }
             // Keep item status changes from committing between this check and GitHub's approval write.
+            approvalCallStarted = true;
             const result = await github.approvePullRequest(
               repository,
               pullRequestNumber,
@@ -1714,85 +1716,84 @@ export default defineAction({
           approval = approvalAttempt.result;
           itemStatusAtApproval = approvalAttempt.itemStatus;
         } catch (error) {
-          if (error instanceof GitHubRequestError) {
-            const definitiveRejection =
-              error.status !== null &&
-              error.status >= 400 &&
-              error.status < 500 &&
-              !error.rateLimited;
-            const claimCanBeReleased =
-              definitiveRejection || !error.requestAttempted;
-            if (claimCanBeReleased) {
-              const rejectionReason = definitiveRejection
-                ? `GitHub rejected the approval request definitively: ${error.message}`
-                : `GitHub approval request was unavailable before the provider call: ${error.message}`;
-              await getDb().transaction(async (tx) => {
-                const released = await tx
-                  .update(triageDecisions)
-                  .set({ outcome: "needs_manual", reason: rejectionReason })
+          const message =
+            error instanceof Error ? error.message : "unknown approval error";
+          const definitiveRejection =
+            error instanceof GitHubRequestError &&
+            error.status !== null &&
+            error.status >= 400 &&
+            error.status < 500 &&
+            !error.rateLimited;
+          const requestAttempted =
+            error instanceof GitHubRequestError
+              ? error.requestAttempted
+              : approvalCallStarted;
+          if (definitiveRejection || !requestAttempted) {
+            const rejectionReason = definitiveRejection
+              ? `GitHub rejected the approval request definitively: ${message}`
+              : `The approval attempt failed before the GitHub request was attempted: ${message}`;
+            await getDb().transaction(async (tx) => {
+              const released = await tx
+                .update(triageDecisions)
+                .set({ outcome: "needs_manual", reason: rejectionReason })
+                .where(
+                  and(
+                    eq(
+                      triageDecisions.id,
+                      stableId(
+                        "pr-governance",
+                        orgId,
+                        itemId,
+                        pullRequest.headSha,
+                      ),
+                    ),
+                    eq(triageDecisions.itemId, itemId),
+                    eq(triageDecisions.orgId, orgId),
+                    eq(triageDecisions.factoryId, factoryId),
+                    eq(triageDecisions.outcome, "auto_approval_claimed"),
+                  ),
+                )
+                .returning({ id: triageDecisions.id });
+              if (released[0] && definitiveRejection) {
+                await tx
+                  .update(triageItems)
+                  .set({
+                    status: "needs_manual",
+                    updatedAt: new Date().toISOString(),
+                  })
                   .where(
                     and(
-                      eq(
-                        triageDecisions.id,
-                        stableId(
-                          "pr-governance",
-                          orgId,
-                          itemId,
-                          pullRequest.headSha,
-                        ),
-                      ),
-                      eq(triageDecisions.itemId, itemId),
-                      eq(triageDecisions.orgId, orgId),
-                      eq(triageDecisions.factoryId, factoryId),
-                      eq(triageDecisions.outcome, "auto_approval_claimed"),
+                      orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                      notInArray(triageItems.status, [
+                        "reconciliation_required",
+                        "merged",
+                        "resolved",
+                        "dismissed",
+                      ]),
                     ),
-                  )
-                  .returning({ id: triageDecisions.id });
-                if (released[0] && definitiveRejection) {
-                  await tx
-                    .update(triageItems)
-                    .set({
-                      status: "needs_manual",
-                      updatedAt: new Date().toISOString(),
-                    })
-                    .where(
-                      and(
-                        orgFactoryScopedItemWhere(itemId, orgId, factoryId),
-                        notInArray(triageItems.status, [
-                          "reconciliation_required",
-                          "merged",
-                          "resolved",
-                          "dismissed",
-                        ]),
-                      ),
-                    );
-                }
-              });
-              if (definitiveRejection) {
-                await recordFactoryAudit(
-                  context,
-                  { userEmail, orgId },
-                  {
-                    action: "govern-factory-pull-request",
-                    kind: "external_action",
-                    status: "error",
-                    itemId,
-                    source: "github",
-                    sourceUrl: pullRequest.htmlUrl,
-                    summary: rejectionReason,
-                    details: {
-                      repo,
-                      pullRequestNumber,
-                      status: error.status,
-                    },
-                  },
-                  factoryId,
-                );
+                  );
               }
-            } else {
-              await reconcileClaim(
-                pullRequest.headSha,
-                AMBIGUOUS_APPROVAL_RESULT_REASON,
+            });
+            if (definitiveRejection) {
+              await recordFactoryAudit(
+                context,
+                { userEmail, orgId },
+                {
+                  action: "govern-factory-pull-request",
+                  kind: "external_action",
+                  status: "error",
+                  itemId,
+                  source: "github",
+                  sourceUrl: pullRequest.htmlUrl,
+                  summary: rejectionReason,
+                  details: {
+                    repo,
+                    pullRequestNumber,
+                    status:
+                      error instanceof GitHubRequestError ? error.status : null,
+                  },
+                },
+                factoryId,
               );
             }
           } else {
