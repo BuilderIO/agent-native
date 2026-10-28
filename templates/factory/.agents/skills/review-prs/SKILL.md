@@ -416,7 +416,7 @@ external. Never draft a reply for a verified BuilderIO member, including a
 thank-you; report requested updates in the recap instead. If membership is
 unknown, do not treat the author as external or draft a reply.
 
-Classify the PR as **Ready for Steve's final maintainer approval/merge**,
+Classify the PR as **Ready for your final approval**,
 **Needs updates**, **Needs Steve's product/UX decision**, or **Cannot assess**.
 Ready means the current head is sound, implementation is complete, every
 required check and status context has passed, any required product, UX, or owner
@@ -662,7 +662,7 @@ Use this shape:
 
 | PR | Author / org status | Review disposition | Merge readiness | Merge result | UX / screenshot | Author-facing reply | Why and evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready for Steve's final approval/merge / Needs updates / Needs Steve's decision / Cannot assess | Merged (SHA) / Waiting on 10-minute gate / Held (reason) / Not merged | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready for your final approval / Needs updates / Needs Steve's decision / Cannot assess | Merged (SHA) / Waiting on 10-minute gate / Held (reason) / Not merged | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
 
 Unavailable or unverified: ...
 ```
