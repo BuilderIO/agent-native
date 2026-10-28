@@ -153,12 +153,14 @@ type NewDeckGenerationRunReference = {
 
 const runTabIds = new Map<string, string>();
 const runConversationThreadIds = new Map<string, string>();
+const clearedRunKeys = new Set<string>();
 
 export function clearNewDeckGenerationRun(
   deckId: string,
   submitMessageId: string,
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
+  clearedRunKeys.add(key);
   runTabIds.delete(key);
   runConversationThreadIds.delete(key);
   window.sessionStorage.removeItem(key);
@@ -628,11 +630,22 @@ function getRunTabId(deckId: string, submitMessageId: string): string | null {
     runTabIds.set(key, stored);
     return stored;
   }
-  const reported = getAgentChatSubmitTarget(submitMessageId)?.tabId ?? null;
+  const reported = reportedRunRoute(deckId, submitMessageId)?.tabId ?? null;
   if (reported) {
     rememberNewDeckGenerationRunTab(deckId, submitMessageId, reported);
   }
   return reported;
+}
+
+// The chat's route history outlives this tracker's storage, so a run that was
+// cleared, or that another run has since replaced, must not come back from it.
+function reportedRunRoute(deckId: string, submitMessageId: string) {
+  if (clearedRunKeys.has(getRunTabStorageKey(deckId, submitMessageId))) {
+    return null;
+  }
+  const activeRun = getActiveRun(deckId);
+  if (activeRun && activeRun.submitMessageId !== submitMessageId) return null;
+  return getAgentChatSubmitTarget(submitMessageId);
 }
 
 function getRunConversationThreadId(
@@ -648,7 +661,7 @@ function getRunConversationThreadId(
   );
   if (stored === null) {
     const reported =
-      getAgentChatSubmitTarget(submitMessageId)?.threadId ?? null;
+      reportedRunRoute(deckId, submitMessageId)?.threadId ?? null;
     if (reported) {
       rememberNewDeckGenerationRunConversationThread(
         deckId,
@@ -673,6 +686,7 @@ export function rememberNewDeckGenerationRunTab(
   tabId: string,
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
+  clearedRunKeys.delete(key);
   runTabIds.set(key, tabId);
   window.sessionStorage.setItem(key, tabId);
   const conversationThreadId = getRunConversationThreadId(
