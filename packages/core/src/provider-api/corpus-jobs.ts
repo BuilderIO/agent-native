@@ -15,7 +15,11 @@ import {
   type ProviderCorpusJobRecord,
   type ProviderCorpusJobStatus,
 } from "./corpus-jobs-store.js";
-import type { ProviderApiMethod, ProviderApiRequestArgs } from "./index.js";
+import {
+  assertAgentProviderRequestAllowed,
+  type ProviderApiMethod,
+  type ProviderApiRequestArgs,
+} from "./index.js";
 import { setBodyValueAtPath } from "./request-body.js";
 import {
   getStagedDatasetMeta,
@@ -439,6 +443,7 @@ async function startJob(
 ): Promise<ProviderCorpusJobRecord> {
   if (!args.mode) throw new Error("start requires mode.");
   if (!args.request) throw new Error("start requires request.");
+  assertAgentProviderRequestAllowed(args.request);
   const search = args.search ?? {};
   if (!hasSearchNeedle(search)) {
     throw new Error(

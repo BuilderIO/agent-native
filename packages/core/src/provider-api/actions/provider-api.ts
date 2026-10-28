@@ -2,13 +2,12 @@ import { z, type ZodTypeAny } from "zod";
 
 import {
   defineAction,
-  fail,
   type ActionHttpConfig,
   type ActionRunContext,
 } from "../../action.js";
 import { getCredentialContext } from "../../server/request-context.js";
 import {
-  providerApiAgentRequestsReadOnly,
+  assertAgentProviderRequestAllowed,
   type ProviderApiDocsOptions,
   type ProviderApiRequestArgs,
   type ProviderApiRuntime,
@@ -411,15 +410,7 @@ export function createProviderApiRequestAction<
     grounding: true,
     run: async (rawArgs) => {
       const args = rawArgs as ProviderRequestActionArgs;
-      if (
-        providerApiAgentRequestsReadOnly(String(args.provider)) &&
-        !readsProviderOnly(args)
-      ) {
-        fail(
-          `${String(args.provider)} requests through this tool are read-only. Make the change with the provider's MCP tools or an app action built for it.`,
-          { errorCode: "provider_writes_not_allowed", statusCode: 403 },
-        );
-      }
+      assertAgentProviderRequestAllowed(args);
       if (args.stageAs) {
         if (!options.appId) {
           throw new Error(
