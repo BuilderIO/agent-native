@@ -31,11 +31,12 @@ designated Factory workflow may merge a Builder PR after its merge gate. Outside
 Factory governance, merge only when Steve explicitly requests the merge for that
 PR, using the applicable merge path below. Factory governance records a manual
 disposition for confirmed external authors through its action and never
-approves them. Other invocations apply the external-contribution gate below;
-external authors are never eligible for an approval review. Surface external
-work that needs a major product call or a new framework API for Steve's
-explicit approval before a full review or merge; a scheduled or manual sweep is
-not that approval.
+approves them. Every invocation stands down on an outside fork PR assigned to
+a verified BuilderIO member, as required by `community-prs`. Other invocations
+apply the external-contribution gate below; external authors are never eligible
+for an approval review. Surface external work that needs a major product call
+or a new framework API for Steve's explicit approval before a full review or
+merge; a scheduled or manual sweep is not that approval.
 
 ## Selection and evidence
 
@@ -59,20 +60,21 @@ author and draft state:
    them to the end-of-run recap.
 
  - Verify each remaining human author's current BuilderIO membership using the
-   organization membership API below. In Factory governance, still call
-   `govern-factory-pull-request` for a confirmed nonmember so it records a
-   manual disposition. Do not use the manual external-scope or reply path for
-   that PR, and never approve it. In other invocations, apply the
-   external-contribution scope gate before reading review summaries or entering
-   the evidence sweep. For all PRs that pass that gate, read the current review
-   summary to determine whether the PR already has a current, non-dismissed
-   `APPROVED` review.
+   organization membership API below before applying any existing-approval
+   filter. For a confirmed nonmember's PR from a fork, check assignees before
+   any other gate: if any assignee is a verified current BuilderIO member,
+   ignore the PR completely, like a draft. That member owns it under
+   `community-prs`. Take no review, reply, action, or merge action, and leave it
+   out of the recap. This exclusion applies in Factory governance too.
 
- - In non-Factory invocations, before the external-scope gate, check a confirmed
-   nonmember's PR from a fork for assignees. If any assignee is a verified
-   current BuilderIO member, ignore the PR completely, like a draft: that
-   person owns it under `community-prs`. Take no review, reply, or merge action,
-   and leave it out of the recap.
+ - For every other confirmed external PR in Factory governance, call
+   `govern-factory-pull-request` so the action records a manual disposition,
+   even when the PR already has a current-head approval. Do not use the manual
+   external-scope or reply path for that PR, and never approve it. In other
+   invocations, apply the external-contribution scope gate before reading
+   review summaries or entering the evidence sweep. For PRs that continue,
+   determine whether any existing current-head approval is eligible to suppress
+   duplicate code review under the reviewer and newer-event rules below.
 
  - Reuse that review as the code assessment only after verifying the reviewer
    is a different, current BuilderIO member and is eligible under the PR's
@@ -176,9 +178,10 @@ the exact reviewed head cannot be verified, do not approve that PR and report
 the specific verification failure. This instruction authorizes approvals only.
 Do not merge from this path. Do not comment or reply unless Steve separately
 asks; Factory governance still never merges or invokes a merge workflow. Keep
-the recap concise with approval outcomes and any verification or non-waivable
-safety exceptions; do not add an ordinary-gate or risk inventory unless Steve
-asks for more detail.
+the recap concise, but report the exact check and actionable-feedback states
+for each approval even when ordinary gates are overridden. Distinguish approval
+from readiness and include any verification or non-waivable safety exceptions;
+omit unrelated risk inventory unless Steve asks for it.
 
 ## External-contribution scope gate
 

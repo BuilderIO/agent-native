@@ -1,5 +1,5 @@
-import { defineAction } from "@agent-native/core/action";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { defineAction, fail } from "@agent-native/core/action";
+import { and, desc, eq, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -78,6 +78,83 @@ export function hasSafeFinalApprovalGateEvidence(
   );
 }
 
+async function recordManualPullRequestDisposition(input: {
+  factoryId: string;
+  headSha: string;
+  itemId: string;
+  orgId: string;
+  ownerEmail: string;
+  reason: string;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  const decisionId = stableId(
+    "pr-governance",
+    input.orgId,
+    input.itemId,
+    input.headSha,
+  );
+  await getDb().transaction(async (tx) => {
+    const updatedItems = await tx
+      .update(triageItems)
+      .set({ status: "needs_manual", updatedAt: now })
+      .where(
+        and(
+          orgFactoryScopedItemWhere(input.itemId, input.orgId, input.factoryId),
+          notInArray(triageItems.status, [
+            "reconciliation_required",
+            "merged",
+            "resolved",
+            "dismissed",
+          ]),
+        ),
+      )
+      .returning({ id: triageItems.id });
+    if (updatedItems.length === 0) {
+      const existingItems = await tx
+        .select({ id: triageItems.id })
+        .from(triageItems)
+        .where(
+          orgFactoryScopedItemWhere(input.itemId, input.orgId, input.factoryId),
+        )
+        .limit(1);
+      if (existingItems.length === 0) {
+        fail("Factory item disappeared during PR governance.", {
+          errorCode: "factory_item_not_found",
+          statusCode: 404,
+        });
+      }
+      return;
+    }
+    await tx
+      .insert(triageDecisions)
+      .values({
+        id: decisionId,
+        itemId: input.itemId,
+        ruleId: null,
+        mode: "automation",
+        outcome: "needs_manual",
+        reason: input.reason,
+        guardResultsJson: "[]",
+        model: "factory-pr-governance",
+        promptVersion: 1,
+        createdAt: now,
+        ownerEmail: input.ownerEmail,
+        orgId: input.orgId,
+        factoryId: input.factoryId,
+      })
+      .onConflictDoUpdate({
+        target: triageDecisions.id,
+        set: {
+          outcome: "needs_manual",
+          reason: input.reason,
+          guardResultsJson: "[]",
+          createdAt: now,
+          ownerEmail: input.ownerEmail,
+        },
+      });
+  });
+}
+
 async function hasVerifiedFactoryRun(input: {
   itemId: string | undefined;
   orgId: string;
@@ -138,7 +215,7 @@ async function hasVerifiedFactoryRun(input: {
 
 export default defineAction({
   description:
-    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Shomix (shomix, GitHub user ID 100691266, BuilderIO/agent-native), Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
+    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Shomix (shomix, GitHub user ID 100691266, BuilderIO/agent-native), Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. External authors are left for manual disposition even when an approval already exists. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
@@ -257,7 +334,16 @@ export default defineAction({
             status: "reconciliation_required",
             updatedAt: new Date().toISOString(),
           })
-          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+          .where(
+            and(
+              orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+              notInArray(triageItems.status, [
+                "merged",
+                "resolved",
+                "dismissed",
+              ]),
+            ),
+          );
       });
     };
     const [snapshot, changedFiles] = await Promise.all([
@@ -293,19 +379,59 @@ export default defineAction({
       );
       throw error;
     }
-    const currentApproval = currentApprovals[0] ?? null;
+    const currentApproval = currentApprovals.at(0) ?? null;
     if (!hasUsableChangedFiles(changedFiles)) {
       const missingFilesReason =
         "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
       await reconcileClaim(pullRequest.headSha, missingFilesReason);
-      await getDb()
-        .update(triageItems)
-        .set({
-          status: "needs_manual",
-          updatedAt: new Date().toISOString(),
-        })
-        .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+      await recordManualPullRequestDisposition({
+        factoryId,
+        headSha: pullRequest.headSha,
+        itemId,
+        orgId,
+        ownerEmail: userEmail,
+        reason: missingFilesReason,
+      });
       return { ok: true, action: "needs_manual", reason: missingFilesReason };
+    }
+    const internalMember = await github.checkOrganizationMemberById(
+      "BuilderIO",
+      pullRequest.userId,
+      pullRequest.userLogin,
+    );
+    if (currentApproval && !internalMember.isMember) {
+      const manualReason =
+        "Factory governance does not approve external authors; the existing current-head approval does not change that, so this pull request needs a manual disposition.";
+      await reconcileClaim(pullRequest.headSha, manualReason);
+      await recordManualPullRequestDisposition({
+        factoryId,
+        headSha: pullRequest.headSha,
+        itemId,
+        orgId,
+        ownerEmail: userEmail,
+        reason: manualReason,
+      });
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "govern-factory-pull-request",
+          kind: "governance",
+          status: "skipped",
+          itemId,
+          source: "github",
+          sourceUrl: pullRequest.htmlUrl,
+          summary: manualReason,
+          details: {
+            repo,
+            pullRequestNumber,
+            internalBuilderMember: false,
+            currentHeadApproval: true,
+          },
+        },
+        factoryId,
+      );
+      return { ok: true, action: "needs_manual", reason: manualReason };
     }
     if (currentApproval) {
       await recordFactoryAudit(
@@ -397,12 +523,6 @@ export default defineAction({
             );
         }
         const authenticatedUser = await github.getAuthenticatedUser();
-        const currentAuthorMembership =
-          await github.checkOrganizationMemberById(
-            "BuilderIO",
-            pullRequest.userId,
-            pullRequest.userLogin,
-          );
         const attributedApproval = currentApprovals.find(
           (approval) =>
             approval.reviewerLogin ===
@@ -415,7 +535,7 @@ export default defineAction({
           attributedApproval?.htmlUrl ?? pullRequest.htmlUrl;
         if (
           attributedApproval &&
-          currentAuthorMembership.isMember &&
+          internalMember.isMember &&
           blockingReviewStatesClean &&
           safetyFindingsClean &&
           hasUsableChangedFiles(changedFiles) &&
@@ -548,10 +668,6 @@ export default defineAction({
     });
     const reviewFeedbackHandled =
       blockingReviewStatesClean && reviewFeedback.isClean;
-    const internalMember = await github.checkOrganizationMember(
-      "BuilderIO",
-      pullRequest.userLogin,
-    );
     const factoryTriggered = await hasVerifiedFactoryRun({
       itemId,
       orgId,
@@ -718,7 +834,10 @@ export default defineAction({
         await getDb()
           .update(triageItems)
           .set({
-            status: governance.ownerOwnedArea ? "needs_manual" : "pr_observed",
+            status:
+              governance.ownerOwnedArea || !internalMember.isMember
+                ? "needs_manual"
+                : "pr_observed",
             updatedAt: new Date().toISOString(),
           })
           .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
