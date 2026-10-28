@@ -61,7 +61,7 @@ export default {
     recordingStarted: "录制开始时间",
     appBandHeading: "{app} · {count} 个会话",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 个会话{partial}",
-    journeyTitleAppBandsSummary: "{from} 至 {to} · 各应用独立队列{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 独立群组{partial}",
     sessionCount: "{count} 个会话",
     otherPaths: "其他路径",
     otherBranchesShown: "已显示 {shown}/{total} 个分支",

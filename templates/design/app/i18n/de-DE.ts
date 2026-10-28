@@ -65,7 +65,7 @@ export default {
     appBandHeading: "{app} · {count} Sitzungen",
     journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
     journeyTitleAppBandsSummary:
-      "{from} bis {to} · getrennte Kohorten je App{partial}",
+      "{from} bis {to} · getrennte Kohorten{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
     otherBranchesShown: "{shown} von {total} Zweigen angezeigt",

@@ -63,8 +63,7 @@ export default {
     recordingStarted: "रिकॉर्डिंग शुरू हुई",
     appBandHeading: "{app} · {count} सत्र",
     journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
+    journeyTitleAppBandsSummary: "{from} से {to} · अलग-अलग समूह{partial}",
     sessionCount: "{count} सत्र",
     otherPaths: "अन्य रास्ते",
     otherBranchesShown: "{total} में से {shown} शाखाएँ दिखाई गईं",
