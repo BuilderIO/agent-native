@@ -115,10 +115,13 @@ the patch looks safe or the issue is obviously valid.
 
 ## Explicit blanket approval instruction
 
-When Steve explicitly says “approve all BuilderIO member PRs” or gives an
-equivalent blanket instruction, approve each currently open, non-draft PR in
-`BuilderIO/agent-native` authored by a human whose current BuilderIO membership
-has been verified. Exclude all bot-authored PRs and the exact login
+Only a direct user instruction explicitly requesting approval of every
+currently open, non-draft PR by verified current BuilderIO human members in
+`BuilderIO/agent-native` triggers this override. “Approve all BuilderIO member
+PRs” is one such instruction. Requests to review, inspect, list, or identify
+ready PRs do not trigger it. If the requested repository, approval action, or
+author/status scope differs or is ambiguous, apply the normal gates rather than
+expanding the instruction. Exclude all bot-authored PRs and the exact login
 `steve8708`. This direct instruction overrides ordinary approval gates,
 including check, review-feedback, UX-owner, and narrower author-specific gates.
 It does not waive membership verification, the external-author prohibition,
@@ -135,15 +138,17 @@ readiness pass only because this path requires that full diff review; it remains
 reusable only under the reviewer eligibility, current-head, and no-newer-event
 rules above. Do not infer a code assessment from the blanket instruction alone.
 
-For each eligible PR, target its exact live head. Re-read the head immediately
-before acting; submit at most one approval for that head, and do not duplicate
-an existing current-head approval. If the head changes, target the new live
-head. If membership or the exact current head cannot be verified, do not
-approve that PR and report the specific verification failure. This instruction
-authorizes approvals only: do not merge, comment, or reply unless Steve
-separately asks. Keep the recap concise with approval outcomes and any
-verification or non-waivable safety exceptions; do not add an ordinary-gate or
-risk inventory unless Steve asks for more detail.
+For each eligible PR, record the head whose complete diff was reviewed. Re-read
+the live head immediately before acting. If it changed during or after review,
+restart the complete diff and safety review against the new head; do not approve
+until that review is complete. Submit at most one approval for the reviewed
+head, and do not duplicate an existing current-head approval. If membership or
+the exact reviewed head cannot be verified, do not approve that PR and report
+the specific verification failure. This instruction authorizes approvals
+only: do not merge, comment, or reply unless Steve separately asks. Keep the
+recap concise with approval outcomes and any verification or non-waivable
+safety exceptions; do not add an ordinary-gate or risk inventory unless Steve
+asks for more detail.
 
 ## External-contribution scope gate
 
