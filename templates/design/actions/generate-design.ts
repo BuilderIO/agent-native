@@ -62,6 +62,7 @@ import {
 } from "../shared/generation-session.js";
 import {
   assertDesignHtmlCreateIntegrity,
+  DESIGN_HTML_INTEGRITY_ERROR_CODE,
   describeDesignHtmlIntegrityIssue,
   inspectDesignHtmlDocumentIntegrity,
   isDesignHtmlIntegrityError,
@@ -131,7 +132,9 @@ function noWriteValidationError(error: unknown): NoWriteError {
     {
       ...(typeof contractError?.errorCode === "string"
         ? { errorCode: contractError.errorCode }
-        : {}),
+        : isDesignHtmlIntegrityError(error)
+          ? { errorCode: DESIGN_HTML_INTEGRITY_ERROR_CODE }
+          : {}),
       ...(typeof contractError?.statusCode === "number"
         ? { statusCode: contractError.statusCode }
         : {}),
@@ -902,11 +905,15 @@ const generateDesignAction = defineAction({
         existing !== undefined && (existing.fileType ?? "html") !== "html";
       let advisory: ReturnType<typeof assertDesignHtmlCreateIntegrity>;
       if (!existing || becomesHtml) {
-        advisory = assertDesignHtmlCreateIntegrity({
-          content: file.content,
-          fileType: "html",
-          filename: file.filename,
-        });
+        try {
+          advisory = assertDesignHtmlCreateIntegrity({
+            content: file.content,
+            fileType: "html",
+            filename: file.filename,
+          });
+        } catch (error) {
+          throw noWriteValidationError(error);
+        }
       } else {
         const inspected = inspectDesignHtmlDocumentIntegrity(file.content);
         advisory = inspected.valid

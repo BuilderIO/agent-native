@@ -3152,6 +3152,51 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.resolveGenerationCreativeContext).toHaveBeenCalledOnce();
   });
 
+  it("lets a corrected call run after an HTML integrity rejection", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    const send = (html: string) => ({
+      designId: "design-1",
+      prompt: "Make a design",
+      files: JSON.stringify([
+        { filename: "index.html", fileType: "html", content: html },
+      ]),
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    await runAgentLoop({
+      engine: scriptedEngine([
+        send("<!doctype html><html><body><div><div>x</div></body></html>"),
+        send("<!doctype html><html><body><div>x</div></body></html>"),
+      ]) as never,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Make a design" }] },
+      ],
+      actions: { "generate-design": action as never },
+      send: (event) => events.push(event as unknown as Record<string, unknown>),
+      signal: new AbortController().signal,
+    });
+
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "rejected",
+      result: expect.stringContaining("DESIGN_HTML_INTEGRITY"),
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "error" &&
+          event.errorCode === "write_tool_outcome_unknown",
+      ),
+    ).toBe(false);
+  });
+
   it("rejects generation without a renderable file before checkpointing", async () => {
     await expect(
       action.run({
