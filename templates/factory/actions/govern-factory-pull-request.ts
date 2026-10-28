@@ -379,7 +379,8 @@ export default defineAction({
       );
       throw error;
     }
-    const currentApproval = currentApprovals.at(0) ?? null;
+    const currentApproval =
+      currentApprovals.length > 0 ? currentApprovals[0] : null;
     if (!hasUsableChangedFiles(changedFiles)) {
       const missingFilesReason =
         "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
