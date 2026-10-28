@@ -17,6 +17,8 @@ export type StreamingToolInputStatus = "streaming" | "done" | "failed";
 
 export interface StreamingToolInput<T> {
   callId: string | null;
+  /** Stable for the call's lifetime, including calls that stream without an id. */
+  key: string;
   tool: string;
   status: StreamingToolInputStatus;
   value: T;
@@ -45,6 +47,7 @@ const REJECTED = "\u0000rejected";
 
 interface ActiveCall {
   id: string | null;
+  key: string;
   tool: string;
   argsText: string;
   status: StreamingToolInputStatus;
@@ -72,6 +75,12 @@ const NO_INPUTS: never[] = [];
  * not hold every payload it ever previewed.
  */
 const MAX_FINISHED_CALLS = 8;
+
+/**
+ * Call ids remembered for their scope, so a late event for a call from an
+ * earlier scope or another target is still ignored. Bounded, oldest first.
+ */
+const MAX_REMEMBERED_CALL_IDS = 256;
 
 /**
  * Every call in the scope, in the order the agent started them, so a model
@@ -112,7 +121,7 @@ export function useStreamingToolInputs<T>(
           const input = parsePartialJson(call.argsText);
           const match = matches ? matches(input, call.tool) : true;
           if (match === false) {
-            if (call.id) callScopes.set(call.id, REJECTED);
+            if (call.id) rememberScope(call.id, REJECTED);
             calls.splice(calls.indexOf(call), 1);
             continue;
           }
@@ -121,6 +130,7 @@ export function useStreamingToolInputs<T>(
         if (call.value === null) continue;
         inputs.push({
           callId: call.id,
+          key: call.key,
           tool: call.tool,
           status: call.status,
           value: call.value as T,
@@ -133,6 +143,14 @@ export function useStreamingToolInputs<T>(
       if (frame === null) frame = requestAnimationFrame(flush);
     };
 
+    const rememberScope = (id: string, value: string) => {
+      callScopes.set(id, value);
+      if (callScopes.size <= MAX_REMEMBERED_CALL_IDS) return;
+      const oldest = callScopes.keys().next();
+      if (!oldest.done) callScopes.delete(oldest.value);
+    };
+    let anonymousCalls = 0;
+
     const onToolInput = (event: Event) => {
       const detail = (event as CustomEvent<ToolInputEventDetail | null>).detail;
       if (!detail?.tool || !tools.has(detail.tool)) return;
@@ -141,18 +159,24 @@ export function useStreamingToolInputs<T>(
       if (id) {
         const callScope = callScopes.get(id);
         if (callScope !== undefined && callScope !== scope) return;
-        callScopes.set(id, scope);
+        rememberScope(id, scope);
       }
+      // An id-less delta continues the last call only while that call is
+      // still streaming the same tool; after it finishes, a new one starts.
       const last = calls.at(-1);
       let call =
         id === null
-          ? detail.phase === "start" || last?.id !== null
-            ? undefined
-            : last
+          ? detail.phase !== "start" &&
+            last?.id === null &&
+            last.status === "streaming" &&
+            last.tool === tool
+            ? last
+            : undefined
           : calls.find((candidate) => candidate.id === id);
       if (!call) {
         call = {
           id,
+          key: id ?? `\u0000call-${++anonymousCalls}`,
           tool,
           argsText: "",
           status: "streaming",

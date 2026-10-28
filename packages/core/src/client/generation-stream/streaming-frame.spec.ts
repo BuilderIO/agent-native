@@ -86,24 +86,41 @@ describe("streaming frame script", () => {
     expect(hrefs()).toEqual(["b.css"]);
   });
 
-  it("runs a body script again when a later document changes it", () => {
+  /** Scripts run through an ordered queue; let it drain. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("runs a body script again when a later document changes it", async () => {
     const post = startFrame();
     post(
       "<html><head></head><body><p>One</p><script>window.__step = 1;</script></body></html>",
     );
+    await settle();
     const first = document.body.querySelector("script");
     expect(first?.text).toBe("window.__step = 1;");
 
     post(
       "<html><head></head><body><p>One</p><script>window.__step = 1;</script></body></html>",
     );
+    await settle();
     expect(document.body.querySelector("script")).toBe(first);
 
     post(
       "<html><head></head><body><p>One</p><script>window.__step = 2;</script></body></html>",
     );
+    await settle();
     const second = document.body.querySelector("script");
     expect(second).not.toBe(first);
     expect(second?.text).toBe("window.__step = 2;");
+  });
+
+  it("inserts external scripts in order instead of async", async () => {
+    const post = startFrame();
+    post(
+      '<html><head><script src="data:text/javascript,window.__lib=1"></script></head><body></body></html>',
+    );
+    await settle();
+    const script =
+      document.head.querySelector<HTMLScriptElement>("script[src]");
+    expect(script?.async).toBe(false);
   });
 });

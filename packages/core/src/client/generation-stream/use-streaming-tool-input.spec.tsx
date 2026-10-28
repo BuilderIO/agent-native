@@ -164,6 +164,35 @@ describe("useStreamingToolInput", () => {
     expect(result.current?.value).toBe("<h1>Hi</h1>");
   });
 
+  it("starts a new call for an id-less delta after the last one finished", () => {
+    const { result } = renderHook(() =>
+      useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),
+    );
+    const delta = (text: string) =>
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(TOOL_INPUT_EVENT, {
+            detail: { tool: "add-slide", phase: "delta", text },
+          }),
+        );
+      });
+    delta('{"deckId":"deck-a","content":"One"}');
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(TOOL_DONE_EVENT, { detail: { tool: "add-slide" } }),
+      );
+    });
+    delta('{"deckId":"deck-a","content":"Two"}');
+    flushFrames();
+
+    expect(result.current?.map((call) => [call.value, call.status])).toEqual([
+      ["One", "done"],
+      ["Two", "streaming"],
+    ]);
+    const [first, second] = result.current ?? [];
+    expect(first?.key).not.toBe(second?.key);
+  });
+
   it("matches a finished tool by its call id, not the run frame's event id", () => {
     const { result } = renderHook(() =>
       useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),

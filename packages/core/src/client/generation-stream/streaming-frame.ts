@@ -53,7 +53,23 @@ function frameScript(): string {
       script.setAttribute(attr.name, attr.value);
     });
     script.text = node.text;
+    // A created external script is async by default; parsed ones are not.
+    if (script.src) script.async = false;
     return script;
+  };
+  // Scripts the frame inserts run in document order, as the parser runs
+  // them: each waits for the external script before it to load, so an
+  // initializer never runs ahead of the library it calls.
+  var scriptQueue = Promise.resolve();
+  var retiredScripts = new WeakSet();
+  var enqueueScript = function (insert) {
+    scriptQueue = scriptQueue.then(function () {
+      return new Promise(function (resolve) {
+        var script = insert();
+        if (!script || !script.src) { resolve(); return; }
+        script.onload = script.onerror = function () { resolve(); };
+      });
+    });
   };
   // Scripts follow parse order: a plain head script runs when it arrives (a
   // CSS runtime styles the stream as it lands), while body scripts and
@@ -67,8 +83,14 @@ function frameScript(): string {
   var ranScripts = new WeakMap();
   var runBodyScript = function (node, source) {
     var live = liveScript(source);
-    node.parentNode.replaceChild(live, node);
-    ranScripts.set(live, source.text);
+    // Recorded now, so a patch before the swap does not queue it twice.
+    ranScripts.set(node, source.text);
+    enqueueScript(function () {
+      if (!node.parentNode) return null;
+      node.parentNode.replaceChild(live, node);
+      ranScripts.set(live, source.text);
+      return live;
+    });
   };
   var syncBodyScripts = function (parsedBody) {
     var wanted = parsedBody.querySelectorAll("script");
@@ -82,7 +104,14 @@ function frameScript(): string {
     Array.prototype.slice.call(document.body.querySelectorAll("script")).forEach(function (inert) {
       runBodyScript(inert, inert);
     });
-    deferredHead.forEach(function (node) { document.head.appendChild(liveScript(node)); });
+    deferredHead.forEach(function (node) {
+      var live = liveScript(node);
+      enqueueScript(function () {
+        if (retiredScripts.has(node)) return null;
+        document.head.appendChild(live);
+        return live;
+      });
+    });
     deferredHead = [];
   };
   var startDrafting = function (accent) {
@@ -124,7 +153,17 @@ function frameScript(): string {
         appliedHead.set(key, node);
         return;
       }
-      var copy = node.tagName === "SCRIPT" ? liveScript(node) : document.importNode(node, true);
+      if (node.tagName === "SCRIPT") {
+        var script = liveScript(node);
+        appliedHead.set(key, script);
+        enqueueScript(function () {
+          if (retiredScripts.has(script)) return null;
+          document.head.appendChild(script);
+          return script;
+        });
+        return;
+      }
+      var copy = document.importNode(node, true);
       document.head.appendChild(copy);
       appliedHead.set(key, copy);
     });
@@ -135,6 +174,7 @@ function frameScript(): string {
     if (lower.indexOf("</head") !== -1 || lower.indexOf("<body") !== -1) {
       appliedHead.forEach(function (node, key) {
         if (seenHead.has(key)) return;
+        retiredScripts.add(node);
         if (node.parentNode) node.parentNode.removeChild(node);
         deferredHead = deferredHead.filter(function (pending) { return pending !== node; });
         appliedHead.delete(key);

@@ -93,8 +93,8 @@ export function useGeneratingSlidePreviews({
         : undefined,
     select: slideContents,
   });
-  const keyed = calls.map((call, callIndex) => {
-    const callKey = call.callId ?? `call-${callIndex}`;
+  const keyed = calls.map((call) => {
+    const callKey = call.key;
     return {
       ...call,
       callKey,
@@ -132,7 +132,10 @@ export function useGeneratingSlidePreviews({
     )
     .join("\n");
   useEffect(() => {
-    if (!timingKey) return;
+    if (!timingKey) {
+      setTimings((current) => (current.size > 0 ? new Map() : current));
+      return;
+    }
     const at = performance.now();
     setNow(at);
     setTimings((current) => {
@@ -151,6 +154,17 @@ export function useGeneratingSlidePreviews({
           next.set(key, { revealAt, doneAt });
         }
         previousReveal = revealAt;
+      }
+      // Calls the stream hook retired take their timings with them.
+      const live = new Set(
+        timingKey
+          .split("\n")
+          .map((line) => (line.startsWith("!") ? line.slice(1) : line)),
+      );
+      for (const key of (next ?? current).keys()) {
+        if (live.has(key)) continue;
+        next ??= new Map(current);
+        next.delete(key);
       }
       return next ?? current;
     });
