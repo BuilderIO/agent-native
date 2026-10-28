@@ -1328,6 +1328,14 @@ class CollabDocConnection {
       // halves, and a refused single update stops this tab's updates.
       if (this.keepsUnsentUpdates && response.status === 413) {
         if (userGeneration !== this.userGeneration) return;
+        if (
+          !toSend.some(
+            (item) =>
+              this.pendingUpdates.includes(item) &&
+              !this.deliveredUpdates.has(item),
+          )
+        )
+          return;
         if (toSend.length > 1) {
           this.updateBatchLimit = Math.ceil(toSend.length / 2);
         } else {
