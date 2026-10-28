@@ -589,6 +589,64 @@ describe("manage-email-rules chat action", () => {
     ).rejects.toThrow("write failed");
   });
 
+  it("shows the model the real shape of actions", () => {
+    const action = createManageEmailRulesAction(true);
+    const actions = (
+      action.tool.parameters as {
+        properties: Record<
+          string,
+          {
+            type?: string;
+            items?: {
+              anyOf?: Array<{ properties: { type: { const: string } } }>;
+            };
+          }
+        >;
+      }
+    ).properties.actions;
+
+    expect(actions?.type).toBe("array");
+    expect(actions?.items?.anyOf?.map((v) => v.properties.type.const)).toEqual([
+      "label",
+      "notify",
+      "archive",
+      "mark_read",
+      "star",
+      "trash",
+    ]);
+  });
+
+  it("names the field and the path when actions is rejected", async () => {
+    const validate = async (actions: unknown) => {
+      const result = await (createManageEmailRulesAction(true) as any).schema[
+        "~standard"
+      ].validate({ action: "create", name: "n", condition: "c", actions });
+      return (
+        (result.issues ?? []) as Array<{
+          path: unknown[];
+          message: string;
+        }>
+      ).map((issue) => ({
+        path: issue.path.join("."),
+        message: issue.message,
+      }));
+    };
+
+    const badJson = await validate("[{bad");
+    expect(badJson).toHaveLength(1);
+    expect(badJson[0]).toMatchObject({ path: "actions" });
+    expect(badJson[0]?.message).toContain("actions is not valid JSON");
+
+    expect(await validate([{ type: "snooze" }])).toMatchObject([
+      { path: "actions.0.type" },
+    ]);
+    expect(await validate([{ type: "label" }])).toMatchObject([
+      { path: "actions.0.labelName" },
+    ]);
+    expect(await validate([])).toMatchObject([{ path: "actions" }]);
+    expect(await validate('[{"type":"star"}]')).toEqual([]);
+  });
+
   it("keeps the legacy recurring-automation action on plain results", async () => {
     const action = createManageEmailRulesAction(false);
     const result = await action.run({

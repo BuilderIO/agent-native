@@ -15,17 +15,21 @@ import {
 import { automationActionSchema } from "../shared/automation-schema.js";
 import type { AutomationAction, AutomationRule } from "../shared/types.js";
 
-const actionSchema = z.array(automationActionSchema).min(1);
-
-function parseActions(value: string): AutomationAction[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw new Error("--actions must be valid JSON array");
-  }
-  return actionSchema.parse(parsed);
-}
+// A JSON string is still accepted for the CLI. A parse failure names the
+// field: the SyntaxError alone reports only a position.
+const jsonArgument =
+  (name: string) => (value: unknown, ctx: z.RefinementCtx) => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${name} is not valid JSON (${error instanceof Error ? error.message : "parse failed"}). Send it as an array.`,
+      });
+      return z.NEVER;
+    }
+  };
 
 function isAiFilterRule(actions: AutomationAction[]): boolean {
   return aiFilterRuleMode({ actions }) !== null;
@@ -203,10 +207,13 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
         .optional()
         .describe("Label name for a tag-mode rule"),
       actions: z
-        .string()
+        .preprocess(
+          jsonArgument("actions"),
+          z.array(automationActionSchema).min(1),
+        )
         .optional()
         .describe(
-          'JSON array of actions, e.g. [{"type":"label","labelName":"newsletters"}]. Label/archive/notify use Mail AI filtering; use labelName "agent-native-important" plus notify to highlight and notify about matching mail, and "agent-native-filtered" plus archive for unwanted mail. mark_read, star, and trash use legacy automations.',
+          'Actions to run when the rule matches. Label/archive/notify use Mail AI filtering; use labelName "agent-native-important" plus notify to highlight and notify about matching mail, and "agent-native-filtered" plus archive for unwanted mail. mark_read, star, and trash use legacy automations.',
         ),
       enabled: z.coerce
         .boolean()
@@ -247,7 +254,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
                 "--name, --condition, and --actions are required for create",
               );
             }
-            actions = parseActions(args.actions);
+            actions = args.actions;
           }
           const kind: "ai-filter" | "automation" = isAiFilterRule(actions)
             ? "ai-filter"
@@ -304,7 +311,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
             patch.condition = args.condition;
           }
           if (args.actions !== undefined && args.mode === undefined) {
-            patch.actions = parseActions(args.actions);
+            patch.actions = args.actions;
             if (existing?.domain === "mail") {
               patch.kind = isAiFilterRule(patch.actions)
                 ? "ai-filter"
