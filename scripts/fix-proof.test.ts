@@ -146,6 +146,10 @@ describe("fix-proof", () => {
     assert.match(r.stdout, /also passes without the fix/);
   });
 
+  it("cannot run when the check was interrupted", () => {
+    assert.equal(proof("sh", "-c", "exit 130").status, 2);
+  });
+
   it("rejects a check that fails on HEAD", () => {
     assert.equal(proof("false").status, 1);
   });

@@ -128,8 +128,9 @@ function putAt(ref: string): boolean {
   return true;
 }
 
-// A signal during a run reaches the check, not this process, so the restore
-// below still runs. Only SIGKILL can skip it.
+// The handlers keep a signal from killing this process before the restore
+// runs (spawnSync defers them until the check exits). A check that a Ctrl-C
+// stopped exits 130 or 143, or by signal, and counts as could not run below.
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
   process.on(signal, () => {});
 // With --fix, both runs differ only by that commit: green at the fix, red at
@@ -145,7 +146,10 @@ if (gitErrors.length || left)
   );
 if (!green) couldNotRun("the green run did not happen");
 for (const r of [green, red])
-  if (r?.signal) couldNotRun(`the check was stopped by ${r.signal}`);
+  if (r?.signal || r?.status === 130 || r?.status === 143)
+    couldNotRun(
+      `the check was interrupted (${r.signal ?? `exit ${r.status}`})`,
+    );
 if (green.status !== 0) {
   console.log(
     `fix-proof: NOT PROVEN, the check fails with the fix at ${greenAt.slice(0, 9)}\n${green.tail}`,
