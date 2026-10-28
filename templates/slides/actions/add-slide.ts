@@ -1,9 +1,4 @@
-import {
-  ActionContractError,
-  defineAction,
-  embedApp,
-  fail,
-} from "@agent-native/core";
+import { ActionContractError, defineAction, fail } from "@agent-native/core";
 import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
@@ -199,13 +194,6 @@ export default defineAction({
   }),
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Deck editor",
-      description: "Open the updated deck in the real Slides editor.",
-      iframeTitle: "Agent-Native Slides",
-      openLabel: "Open deck",
-      height: 680,
-    }),
   },
   // Not retrySafe, even with a caller slideId: run inserts without checking for
   // an existing id, so a replay appends a second copy of the slide.
@@ -215,6 +203,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  eagerInputStreaming: true,
   run: async (
     {
       deckId,

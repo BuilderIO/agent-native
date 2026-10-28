@@ -1,0 +1,79 @@
+name: Feedback fix proof
+
+# Feedback-sweep PRs list their reports under a `Reports` heading, each with a
+# `fix-proof: proven` (or `visual:`) line. This re-runs every proof so a
+# skipped or invented one fails here instead of merging.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: feedback-fix-proof-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    name: Feedback fix proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # fix-proof checks out each fix commit and its parent, so it needs the
+      # PR's real history, not the default merge commit.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          filter: blob:none
+          # Proof commands come from the PR body; keep the token out of
+          # .git/config, since only local history is needed.
+          persist-credentials: false
+
+      # Pin the runtime the parser needs instead of trusting the runner's.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      # Each run step copies the gate from the base commit just before using
+      # it, after any PR code (the install) has run, so a PR can't loosen the
+      # check it is held to. Only a PR that adds the gate runs its own copy.
+      # The proof commands themselves are PR code: this catches skipped or
+      # invented proofs, it is not a sandbox for a hostile PR.
+      - name: Look for a Reports section
+        id: find
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          rm -rf "$RUNNER_TEMP/gate" && mkdir "$RUNNER_TEMP/gate"
+          for f in feedback-fix-proof.ts fix-proof.ts; do
+            if git cat-file -e "$BASE_SHA:scripts/$f" 2>/dev/null; then
+              git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/gate/$f"
+            else
+              cp "scripts/$f" "$RUNNER_TEMP/gate/$f"
+            fi
+          done
+          node --experimental-strip-types --no-warnings "$RUNNER_TEMP/gate/feedback-fix-proof.ts" --has-reports >> "$GITHUB_OUTPUT"
+
+      - if: steps.find.outputs.has_reports == 'true'
+        uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Re-run each report's proof
+        if: steps.find.outputs.has_reports == 'true'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          rm -rf "$RUNNER_TEMP/gate" && mkdir "$RUNNER_TEMP/gate"
+          for f in feedback-fix-proof.ts fix-proof.ts; do
+            if git cat-file -e "$BASE_SHA:scripts/$f" 2>/dev/null; then
+              git show "$BASE_SHA:scripts/$f" > "$RUNNER_TEMP/gate/$f"
+            else
+              cp "scripts/$f" "$RUNNER_TEMP/gate/$f"
+            fi
+          done
+          node --experimental-strip-types --no-warnings "$RUNNER_TEMP/gate/feedback-fix-proof.ts"

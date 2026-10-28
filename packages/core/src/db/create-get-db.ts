@@ -31,11 +31,12 @@ import {
   postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
-import type { DbExec, DbExecStatement } from "./client.js";
+import type { DbExec, DbExecInput } from "./client.js";
 import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
 } from "./pool-self-deadlock.js";
+import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
 function getPgDrizzle() {
@@ -529,14 +530,17 @@ function drizzleTransactionExec(
   transaction: any,
   queryQueue = createDrizzleTransactionQueryQueue(),
 ): DbExec {
+  // raw-sql-ok: bind fragment values before adapter execution.
   const executeStatement = async (
-    statement: DbExecStatement,
+    statement: DbExecInput,
     remainingMs: () => number,
     timedOut: () => boolean,
   ) => {
     const query =
       typeof statement === "string" ? { sql: statement, args: [] } : statement;
-    const postgresSql = toPostgresParams(query.sql);
+    const postgresSql = isSqlFragment(statement)
+      ? toPostgresParams(query.sql, getSqlFragmentParameterOffsets(statement))
+      : toPostgresParams(query.sql);
     const args = (query.args ?? []).map((arg) => arg ?? null);
     const prepared = drizzleRawQuery(postgresSql, args);
 
@@ -593,7 +597,8 @@ function drizzleTransactionExec(
     return queryResult;
   };
 
-  const execute = async (statement: DbExecStatement) => {
+  // raw-sql-ok: this is the typed-fragment execution boundary.
+  const execute = async (statement: DbExecInput) => {
     const query = typeof statement === "string" ? statement : statement.sql;
     const { timeoutMs } = dbExecQueryBudget(statement);
     const startedAt = Date.now();

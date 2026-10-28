@@ -1,0 +1,99 @@
+slug: ai-meeting-notes
+app: clips
+roles:
+  - everyone
+title: "احصل على ملاحظات الاجتماعات دون بوت في المكالمة"
+seo_title: "ملاحظات الاجتماعات بالذكاء الاصطناعي دون بوت"
+meta_description: "احصل على نص وملخص وعناصر عمل من كل مكالمة. يسجّل Agent-Native Clips على جهازك، فتبحث في أي اجتماع أو تسأل عنه لاحقًا."
+updated: 2026-10-26
+hero:
+  body: "يحوّل Agent-Native Clips مكالماتك إلى ملاحظات: نص وملخص وعناصر عمل حسب المشاركين. يسجّل الميكروفون وصوت المكالمة على جهازك، ويمكنك البحث في أي مكالمة أو السؤال عنها."
+  button:
+    label: "دوّن ملاحظات اجتماعك"
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: "اجتماع أسبوعي منتهٍ لمزامنة المنتج في Clips. تعرض لوحة الملاحظات على اليسار ملخصًا قصيرًا ونقاطًا رئيسية وعناصر عمل مجمّعة تحت اسم كل مشارك. ويمتد النص على اليمين مع كلام كل متحدث."
+how_to:
+  heading: "كيف تدوّن ملاحظات الاجتماعات بالذكاء الاصطناعي"
+  steps:
+    - title: "اربط تقويمك"
+      body: "ثبّت Clips Desktop، وفعّل الاجتماعات في الإعدادات داخل Clips، واربط Google Calendar من صفحة الاجتماعات. تظهر اجتماعاتك القادمة في تبويب Agenda."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: "لقطة مقرّبة لتبويب Agenda في صفحة الاجتماعات، يعرض اجتماعات اليوم من Google Calendar، مع زرَّي انضمام وفتح الملاحظات على الاجتماع الذي يبدأ بعد دقيقتين."
+    - title: "ابدأ الملاحظات من التذكير"
+      body: "يعرض Clips Desktop تذكيرًا قبل كل اجتماع في التقويم بدقيقة. زر Join فيه ينضم إلى المكالمة ويبدأ الملاحظات فورًا، وقائمة الزر تبدأ الملاحظات دون الانضمام. بعدها يلتقط Clips ميكروفونك وصوت المكالمة."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: "لقطة مقرّبة لتذكير Clips Desktop بمزامنة المنتج الأسبوعية. قائمة زر Join Meet & open Clips مفتوحة وفيها: Join only وStart notes only وSnooze 5 min."
+    - title: "اقرأ ملاحظاتك وعناصر العمل"
+      body: "عند انتهاء المكالمة، تعرض صفحة الاجتماع ملاحظاتك وملاحظات الذكاء الاصطناعي بجانب النص: ملخص ونقاط رئيسية وعناصر عمل حسب المشاركين. [راجع ملاحظات الاجتماع المكتوبة بالذكاء الاصطناعي](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/) على النص قبل أن تشاركها."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: "لقطة مقرّبة للوحة ملاحظات الذكاء الاصطناعي لاجتماع منتهٍ: الملخص وأربع نقاط رئيسية وعناصر عمل مجمّعة تحت مشاركَين."
+features:
+  heading: "كل ما تحتاجه من كل اجتماع"
+  items:
+    - title: "لا بوت في مكالماتك"
+      body: "يسجّل Clips Desktop ميكروفونك وصوت المكالمة على جهازك، فيبدو الاجتماع كما هو لجميع الحاضرين."
+    - title: "عناصر عمل لكل شخص"
+      body: "يحدد كل عنصر عمل المسؤول عنه بحسب من قال ماذا في المكالمة. أضف العناصر أو عدّلها أو احذفها قبل أن تشاركها."
+    - title: "اسأل أثناء المكالمة"
+      body: "اسأل عن الاجتماع وهو جارٍ: ما فاتك، أو ملخصًا لآخر خمس دقائق، أو سؤالًا جيدًا تطرحه تاليًا."
+    - title: "ابحث بما قيل"
+      body: "اعثر على اجتماع بكلمة من النص أو الملاحظات أو باسم أحد الحاضرين، أو اطلب من الوكيل المكالمة التي ذُكر فيها أمر ما."
+    - title: "ملاحظات تعيدك إلى مصدرها"
+      body: "انقر على أي نقطة رئيسية في ملاحظات الذكاء الاصطناعي لتنتقل إلى اللحظة التي قيلت فيها في النص."
+    - title: "ملاحظات اجتماعات قابلة للمشاركة"
+      body: "رابط واحد يشارك الملخص والنقاط الرئيسية وعناصر العمل والنص الكامل، دون فيديو التسجيل أو تعليقاته."
+integrations:
+  heading: "اربط Clips بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "تقويمك ومكالماتك"
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: "يعرض Clips اجتماعاتك من Google Calendar ويدوّن الملاحظات في Google Meet وMicrosoft Teams ومكالمات الفيديو الأخرى."
+    - title: "اسأل الوكيل من Slack"
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: "بعد أن تربط Slack أو Microsoft Teams، راسل وكيل Clips من هناك لتجد اجتماعًا أو ملاحظاته أو عناصر العمل المطلوبة منك."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Clips"
+  cards:
+    - title: "سجّل الأخطاء مع سجلات وحدة التحكم والشبكة"
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: "كل تسجيل جاهز لتسلّمه إلى وكيل البرمجة لديك، ليرى أين حدث الخلل."
+    - title: "أملِ مطالباتك بدلًا من كتابتها"
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "اضغط مفتاحًا وتحدّث، ويكتب Clips نصًا منقّحًا في التطبيق الذي تستخدمه."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Clips مجاني؟"
+      a: "نعم، Agent-Native Clips مجاني ومفتوح المصدر. تعمل الملخصات والعناوين وتنظيف النص على [أرصدة Builder.io للذكاء الاصطناعي](https://www.agent-native.com/docs/template-clips-features/) افتراضيًا. وعندما تنفد الأرصدة تتوقف هذه الميزات حتى تضيف أرصدة أو تربط مفتاح Gemini الخاص بك. لا يزال Clips في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "هل ينضم بوت إلى اجتماعاتي؟"
+      a: "لا. يدوّن Clips الملاحظات من جهازك: يسجّل Clips Desktop ميكروفونك وصوت المكالمة، فلا ينضم شيء إلى مكالمتك في Zoom أو Google Meet أو Microsoft Teams. وبما أنه لا ينضم بوت، أخبر الحاضرين بأنك تدوّن ملاحظات."
+    - q: "مع أي تقويم وتطبيقات مكالمات فيديو يعمل Clips؟"
+      a: "يرتبط Clips بـ Google Calendar فقط. وتعمل الملاحظات في Zoom وGoogle Meet وMicrosoft Teams وWebex وأي مكالمة أخرى يشغّل جهازك صوتها. وعلى جهاز Mac يلاحظ Clips Desktop هذه المكالمات حتى لو لم تكن في تقويمك، ويعرض بدء الملاحظات. أما التقاط أصوات الحاضرين الآخرين فيعمل على Mac فقط."
+    - q: "هل يدوّن Clips ملاحظات الاجتماعات على Windows؟"
+      a: "يعمل Clips Desktop على Mac وWindows وLinux، لكن التقاط أصوات الحاضرين الآخرين يعمل على Mac فقط. وعلى Windows وLinux يسجّل Clips ميكروفونك فقط، فيغيب الحاضرون عن بُعد من النص ومن عناصر العمل."
+    - q: "كيف يختلف Clips عن مدوّن الملاحظات بالذكاء الاصطناعي في Zoom أو Google Meet؟"
+      a: "مدوّن الملاحظات في تطبيق المكالمات مرتبط بمكالمات ذلك التطبيق وحده. أما Clips فيحفظ كل اجتماع، من أي تطبيق مكالمات، في مكتبة واحدة. اسأل [وكيل Clips](https://www.agent-native.com/docs/template-clips-agent/) «ماذا التزم به دانيال الثلاثاء الماضي؟» فيبحث في اجتماعاتك بحسب ما قيل فيها. وهذا [تطبيق وكيلي](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

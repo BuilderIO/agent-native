@@ -50,6 +50,7 @@ import {
   isAgentConnectionRequiredError,
   actionCallIntent,
   ActionInputValidationError,
+  telemetryInvalidPaths,
   type ActionExecutionOutcome,
   invocationEffect,
   runPreparedActionCall,
@@ -107,6 +108,7 @@ import {
   type TextAttachmentStorage,
   unwrapOwnAttachmentEnvelope,
 } from "../file-upload/attachment-text.js";
+import { downscaleInlineImageBase64 } from "../file-upload/downscale-inline-image.js";
 import {
   formatBase64CharBudget,
   MAX_INLINE_FILE_BASE64_CHARS,
@@ -1353,6 +1355,7 @@ export interface ActionEntry {
    *  decision, so they never count as the action declaring its hints. */
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  eagerInputStreaming?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
@@ -3017,7 +3020,7 @@ function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
   return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
 }
 
-function describeAttachmentPreUploadWarning(): string {
+export function describeAttachmentPreUploadWarning(): string {
   return '<chat-attachment-preparation-warning code="pre-upload-failed">The attachment pre-upload step failed. This may affect its durable URL, but it does not prove the contents are unreadable in this request. Inspect any inline payload or reference normally, and only report an attachment as unreadable if the actual payload is missing or invalid.</chat-attachment-preparation-warning>';
 }
 
@@ -3087,6 +3090,34 @@ export function isAgentModelVisionCapable(
     engineVision ||
     MODEL_VISION_CAPABILITY_PATTERNS.some((pattern) => pattern.test(normalized))
   );
+}
+
+/**
+ * Clones rather than mutates: the attachment's `url` still points at the
+ * full-size original, which stays usable as an asset.
+ */
+export async function downscaleOversizedInlineImages(
+  attachments: AgentChatAttachment[],
+): Promise<AgentChatAttachment[]> {
+  // Sequential: each resize decodes a full-size image, so concurrency multiplies native memory.
+  const out: AgentChatAttachment[] = [];
+  for (const att of attachments) {
+    const parsed =
+      att.type === "image" && att.data ? parseBase64DataUrl(att.data) : null;
+    const resized = parsed
+      ? await downscaleInlineImageBase64(parsed.data, parsed.mediaType)
+      : null;
+    out.push(
+      resized
+        ? {
+            ...att,
+            data: `data:${resized.mediaType};base64,${resized.base64}`,
+            contentType: resized.mediaType,
+          }
+        : att,
+    );
+  }
+  return out;
 }
 
 export function buildUserContentWithAttachments(opts: {
@@ -3768,25 +3799,32 @@ export async function hydrateStructuredHistoryImageReferences(
       if (result.kind === "hydrated") {
         const parsed = parseBase64DataUrl(result.dataUrl);
         const mediaType = normalizeImageMediaType(result.mediaType);
-        if (parsed && mediaType) {
+        const resized =
+          parsed && mediaType
+            ? await downscaleInlineImageBase64(parsed.data, mediaType)
+            : null;
+        const data = resized?.base64 ?? parsed?.data;
+        if (data && mediaType && data.length <= MAX_INLINE_IMAGE_BASE64_CHARS) {
           const resolution = {
             type: "image" as const,
-            data: parsed.data,
-            mediaType,
+            data,
+            mediaType: normalizeImageMediaType(resized?.mediaType) ?? mediaType,
           };
           urlResolutions.set(hydrationKey, { kind: "image", resolution });
           resolutions.set(key, resolution);
           continue;
         }
+        const hydratedFailureCode: OwnedImageReadFailureCode =
+          data && mediaType ? "image-too-large" : "invalid-image";
         urlResolutions.set(hydrationKey, {
           kind: "failed",
-          code: "invalid-image",
+          code: hydratedFailureCode,
         });
         resolutions.set(key, {
           type: "text",
           text: unavailableHistoryImageText(
             part,
-            describeOwnedImageReadFailure("invalid-image"),
+            describeOwnedImageReadFailure(hydratedFailureCode),
           ),
         });
         continue;
@@ -5791,6 +5829,7 @@ export function actionsToEngineTools(
       name,
       description: entry.tool.description,
       inputSchema,
+      ...(entry.eagerInputStreaming ? { eagerInputStreaming: true } : {}),
     });
   }
   return tools;
@@ -9616,6 +9655,7 @@ export async function runAgentLoop(opts: {
         guidance: string,
         isError = false,
         errorClass?: ToolErrorClass,
+        invalidPaths?: string[],
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -9634,6 +9674,7 @@ export async function runAgentLoop(opts: {
             isError: true,
             completedSideEffect: false,
             ...(errorClass ? { errorClass } : {}),
+            ...(invalidPaths ? { invalidPaths } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9790,6 +9831,9 @@ export async function runAgentLoop(opts: {
           thrownToolResult(intent?.error),
           true,
           "input_invalid",
+          intent?.error instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(intent.error.paths)
+            : undefined,
         );
       }
 
@@ -11083,6 +11127,10 @@ export async function runAgentLoop(opts: {
             : callEffect === "none" && !actionIsReadOnly
               ? "rejected"
               : undefined;
+        const toolInvalidPaths =
+          thrown instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(thrown.paths)
+            : undefined;
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -11213,6 +11261,7 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(toolErrorClass ? { errorClass: toolErrorClass } : {}),
+          ...(toolInvalidPaths ? { invalidPaths: toolInvalidPaths } : {}),
           ...(callEffect === "unknown"
             ? { outcomeUnknown: true as const }
             : isError || receipt || callEffect === "committed"
@@ -14880,6 +14929,11 @@ export function createProductionAgentHandler(
         );
       }
     }
+    requestAttachments =
+      await downscaleOversizedInlineImages(requestAttachments);
+    requestContextAttachments = await downscaleOversizedInlineImages(
+      requestContextAttachments,
+    );
     workerStep("attach_done");
 
     workerStep("apikey_start");
@@ -15099,7 +15153,9 @@ export function createProductionAgentHandler(
       if (Array.isArray(modelPreparedContext.contextAttachments)) {
         requestContextAttachments = [
           ...requestContextAttachments,
-          ...modelPreparedContext.contextAttachments,
+          ...(await downscaleOversizedInlineImages(
+            modelPreparedContext.contextAttachments,
+          )),
         ];
       }
       if (typeof modelPreparedContext.contextNote === "string") {

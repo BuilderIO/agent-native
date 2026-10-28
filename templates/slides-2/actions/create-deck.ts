@@ -1,4 +1,4 @@
-import { defineAction, embedApp, fail } from "@agent-native/core";
+import { defineAction, fail } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
@@ -474,13 +474,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Deck preview",
-      description: "Open the generated deck in the Slides 2 editor.",
-      iframeTitle: "Agent-Native Slides 2",
-      openLabel: "Open deck",
-      height: 680,
-    }),
   },
   retrySafe: (input) => input.promptDraft !== undefined,
   http: { method: "POST" },

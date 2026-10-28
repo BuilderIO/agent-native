@@ -280,8 +280,8 @@ const messages = {
       openWorkflow: "{{name}} を開く",
       turnOn: "{{name}} をオンにする",
       turnOff: "{{name}} をオフにする",
-      dryRunRequired: "オンにする前にテストを実行してください。",
-      runTest: "テストを実行",
+      dryRunRequired: "オンにする前にドライランを実行してください。",
+      runTest: "ドライラン",
       neverRun: "実行はまだありません",
       olderRun: "最近の実行はありません",
       runsFailed: "実行を読み込めませんでした",
@@ -372,9 +372,9 @@ const messages = {
       connectionsNeeded: "接続が必要 {{count}} 件",
       connectionsListName: "接続が必要",
       jumpToProblem: "キャンバスで表示",
-      testRun: "テスト実行",
+      testRun: "ドライラン",
       testing: "開始中",
-      saveAndTest: "保存してテスト",
+      saveAndTest: "保存してドライラン",
       moreActions: "その他のアクション",
       runNow: "今すぐ実行",
       runNowSaveFirst: "本番で実行する前に変更を保存してください。",
@@ -415,7 +415,8 @@ const messages = {
       confirmBody:
         "新しいバージョンとして保存されるため、どのバージョンも失われません。",
       confirmDiscards: "未保存の変更は破棄されます。",
-      confirmSwitchesOff: "再度テストするまで、ワークフローはオフになります。",
+      confirmSwitchesOff:
+        "再びドライランが問題なく完了するまで、ワークフローはオフのままになります。",
       restored: "バージョン {{version}} として復元しました。",
       restoreFailed: "そのバージョンを復元できませんでした。",
       restoreInvalid_other:
@@ -425,7 +426,7 @@ const messages = {
       invalid_other:
         "保存できませんでした：修正が必要な問題が {{count}} 件あります。",
       switchedOff:
-        "保存しました。ワークフローはオフになりました。テストしてから、もう一度オンにしてください。",
+        "保存しました。ワークフローはオフになりました。ドライランを実行してから、もう一度オンにしてください。",
       jobSyncFailed:
         "保存しましたが、スケジュールを更新できませんでした。もう一度保存して再試行してください。",
       notFound: "このワークフローはもう存在しません。",
@@ -453,9 +454,9 @@ const messages = {
       cancel: "キャンセル",
     },
     run: {
-      started: "テスト実行を開始しました。",
-      unavailable: "テスト実行はまだ利用できません。",
-      failed: "テスト実行を開始できませんでした。{{reason}}",
+      started: "ドライランを開始しました。",
+      unavailable: "ドライランはまだ利用できません。",
+      failed: "ドライランを開始できませんでした。{{reason}}",
       liveStarted: "実行を開始しました。",
       liveFailed: "実行を開始できませんでした。{{reason}}",
       enableFailed: "ワークフローを変更できませんでした。{{reason}}",
@@ -494,8 +495,9 @@ const messages = {
       ofTotal: "全 {{total}} 件中 {{shown}} 件",
       noInputConnected: "入力が接続されていません",
       noInputData: "入力データがありません",
-      testWorkflowHint: "ワークフローをテストすると、ここに項目が表示されます",
-      testWorkflow: "ワークフローをテスト",
+      testWorkflowHint:
+        "ワークフローをドライランすると、ここに項目が表示されます",
+      testWorkflow: "ドライラン",
       noOutputData: "出力データがありません",
       previewHint: "ワークフローを実行すると、実際の値が表示されます",
       noMatchingItems: "一致する項目がありません",
@@ -509,7 +511,7 @@ const messages = {
       copyPath: "パスをコピー",
       pathCopied: "パスをコピーしました",
       pathCopyFailed: "パスをコピーできませんでした",
-      dragHint: "フィールドにドラッグしてマッピング",
+      dragHint: "このハンドルをフィールドにドラッグしてマッピング",
       mappedFirstField: "フィールドをマッピングしました。",
     },
     diagnostics: {
@@ -900,8 +902,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "最初のステップを追加",
-      testWorkflow: "ワークフローをテスト",
-      saveAndTestWorkflow: "保存してワークフローをテスト",
+      testWorkflow: "ドライラン",
+      saveAndTestWorkflow: "保存してドライラン",
       describeFirstPrefill: "次の動作をするワークフローを作成 ",
       describeTile: "エージェントに説明する",
       or: "または",
@@ -1320,6 +1322,37 @@ const messages = {
       deleteMany: "{{count}} 件のステップを削除",
       selectAll: "すべて選択",
       clearSelection: "選択を解除",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "チャンネルを選択",
+      repositories: "リポジトリを選択",
+      organizations: "組織を選択",
+      projects: "プロジェクトを選択",
+    },
+    search: "検索、または値を入力",
+    useTyped: "「{{value}}」を使用",
+    noMatches: "一致する項目がありません",
+    loadMore: "さらに読み込む",
+    retry: "再試行",
+    changeOrganization: "組織を変更",
+    tag: {
+      private: "非公開",
+      botNotMember: "Bot がチャンネルに未参加",
+      archived: "アーカイブ済み",
+    },
+    error: {
+      notConnected:
+        "{{provider}} が接続されていないため、一覧を読み込めません。値を直接入力することもできます。",
+      refused:
+        "{{provider}} が接続済みの認証情報を拒否しました。値を直接入力することもできます。",
+      missingScope:
+        "{{provider}} の接続に {{scope}} の権限がありません。値を直接入力することもできます。",
+      rateLimited:
+        "{{provider}} がリクエストを制限しています。しばらくしてから再試行するか、値を入力してください。",
+      unreadable:
+        "{{provider}} の一覧を読み取れませんでした。再試行するか、値を入力してください。",
     },
   },
 };

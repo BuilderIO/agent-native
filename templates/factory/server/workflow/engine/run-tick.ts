@@ -92,7 +92,9 @@ function describeIssues(
   graph: WorkflowGraph,
   host: WorkflowHost,
 ): string | null {
-  const validation = validateWorkflowGraph(graph, host.catalog);
+  const validation = validateWorkflowGraph(graph, host.catalog, {
+    checkOutputFields: false,
+  });
   if (validation.ok) return null;
   const shown = validation.issues
     .slice(0, 5)

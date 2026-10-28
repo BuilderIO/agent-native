@@ -1,0 +1,108 @@
+slug: ai-bug-reporting-tool
+app: clips
+roles:
+  - product
+  - engineering
+  - design
+title: 錄下錯誤，附上主控台與網路記錄
+seo_title: 附帶主控台記錄的 AI 錯誤回報工具
+meta_description: 在 Chrome 中示範錯誤，Agent-Native Clips 就會把你的錄影變成一個連結，附上頁面的錯誤訊息和失敗的請求，交給你的工程師或程式開發 agent。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Clips 把錯誤的錄影變成一個連結，讓你的工程師或程式開發 agent 直接處理。你在 Chrome 中示範錯誤，頁面的錯誤訊息和失敗的請求就會一起附上。
+  button:
+    label: 錄製錯誤
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: Clips 中開啟的一段錯誤錄影，停在顯示錯誤訊息的結帳頁面。影片旁的「偵錯」分頁列出一則紅色的主控台錯誤，和一筆狀態為 500 的失敗請求。
+how_to:
+  heading: 如何用 AI 回報錯誤
+  steps:
+    - title: 從 Chrome 開始錄製
+      body: 點選工具列中的 Clips Chrome 擴充功能，選擇來源：瀏覽器分頁、視窗或整個螢幕。開啟或關閉你的相機和麥克風，然後點選「開始錄製」。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: 網頁應用程式上方 Clips 擴充功能彈出視窗的特寫，來源選了「瀏覽器分頁」，相機和麥克風已開啟，並有「開始錄製」按鈕。
+    - title: 示範錯誤並說明
+      body: 依序點選會出錯的步驟，並說出你預期會發生什麼。錄製期間，擴充功能會儲存頁面的錯誤和它送出的請求，這些是工程師原本得從 Chrome 開發人員工具裡挖出來的細節。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: 網頁應用程式結帳頁面上方的 Clips 錄製控制項和相機泡泡，頁面出現「出了點問題」的訊息。
+    - title: 分享一個連結
+      body: 停止後，Clips 會幫你複製錄影的連結。把它貼到工單、聊天或你的程式開發 agent 中。分享選單的「Agent」分頁也能直接在 Claude、Claude Code 或 Codex 中開啟。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: Clips 分享選單「Agent」分頁的特寫，有「複製 Agent 提示」，以及「在 Claude 中開啟」、「在 Claude Code 中開啟」和「在 Codex 中開啟」按鈕。
+features:
+  heading: 回報錯誤所需的一切
+  items:
+    - title: 為你的程式開發 agent 而設計
+      body: 把連結貼到 Claude Code、Cursor 或 Codex。agent 會讀取逐字稿、畫面和記錄，不需要下載影片。
+    - title: 主控台與網路記錄
+      body: Clips 會儲存最多五個分頁的主控台訊息、錯誤和請求，包含每個請求的狀態、耗時和是否失敗。
+    - title: 按下錄製前的 30 秒
+      body: Clips 會回溯你按下錄製前最多 30 秒，所以頁面載入期間發生的錯誤，也能進入回報。
+    - title: 機密資料不外洩
+      body: Clips 不會儲存請求內容、標頭、cookie 或你輸入的文字，並會遮蔽看起來像權杖或密碼的值。
+    - title: 直接跳到錯誤
+      body: 在剪輯的「偵錯」分頁中，點選錯誤或失敗請求旁的時間，影片就會跳到那一刻。
+    - title: 搜尋每一份錯誤回報
+      body: 依錄影中說過的內容找出任何一份錯誤回報，或請 Clips agent 在你資料庫的所有錄製內容中查找。
+integrations:
+  heading: 將 Clips 連接到你已在用的工具
+  cards:
+    - title: 把它交給你的 AI agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: 在 Claude Code 或 Codex 中開啟剪輯，或把連結貼到 Cursor 或 ChatGPT，agent 一開始就不必再問發生了什麼事。
+    - title: 放進回報錯誤的地方
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: 有了 Clips Slack 應用程式，公開錄影可以直接在 Slack 中播放。安裝擴充功能後，它們的連結也能在 GitHub issue 和 Jira 工單中預覽。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Clips 做的其他事
+  cards:
+    - title: 不讓機器人加入通話，也能做會議筆記
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: 從每場會議取得摘要、筆記和行動項目，通話中不需要機器人。
+    - title: 用說的輸入提示，不必再打字
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "用說的取代打字，整理好的文字會直接出現在你正在使用的應用程式中。"
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Clips 是免費的嗎？
+      a: 是的。Agent-Native Clips 免費且開源，包括 Chrome 擴充功能。標題、摘要和逐字稿清理預設使用 Builder.io AI 點數，所以 AI 用量並非無限，錄影也需要有地方儲存影片。Clips 目前是 alpha 版，功能會隨著發展持續調整。
+    - q: Clips 會從我的瀏覽器擷取什麼？
+      a: Clips Chrome 擴充功能會擷取最多五個分頁的[主控台訊息、JavaScript 錯誤和網路請求](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs)，並回溯到你按下錄製前最多 30 秒。每個請求都會保留它的網址、狀態、耗時和是否失敗。編輯者可以在剪輯的「偵錯」分頁看到全部內容，agent 則透過連結取得。
+    - q: Clips 會錄下密碼或私人資料嗎？
+      a: Clips 絕不儲存請求或回應內容、標頭、cookie 或你輸入的文字，並會遮蔽看起來像權杖、密碼或金鑰的值。你可以在擴充功能的設定中關閉開發者記錄。新的錄影預設以連結公開，所以當錯誤回報顯示內部資料時，請把它設為「私人」或「組織」。
+    - q: 我要怎麼把錯誤錄影交給 Claude Code、Cursor 或 Codex？
+      a: 把剪輯的連結貼到 Claude Code、Cursor 或 Codex，agent 就會[讀取逐字稿、畫面和瀏覽器記錄](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips)，不需要下載影片。若是私人剪輯，請在分享選單的「Agent」分頁點選「複製 Agent 提示」，它會給 agent 一個有效兩小時的連結。該分頁也能在 Claude Code 或 Codex 中開啟剪輯。
+    - q: Clips 會擷取其他瀏覽器或桌面應用程式的記錄嗎？
+      a: 不會。主控台和網路記錄只來自 Clips Chrome 擴充功能。Clips Desktop 和網頁版應用程式仍會錄下你的螢幕、相機和聲音，並附上逐字稿和摘要，但錄影內容不會包含瀏覽器記錄。
+    - q: Clips 是像 Jira 那樣的錯誤追蹤工具嗎？
+      a: 不是。Clips 製作的是[工程師能直接處理的錯誤回報](https://www.agent-native.com/articles/how-to-write-a-bug-report/)，由你的追蹤工具負責存放：把連結貼到 Jira、GitHub、Linear 或 Slack 即可。你的程式開發 agent 或 [Clips agent](https://www.agent-native.com/docs/template-clips-agent/) 會直接讀取錄影本身和它的記錄。這就是 Clips 之所以是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/) 的原因：擁有 agent 的智慧，也有應用程式的直覺易用。

@@ -83,6 +83,7 @@ import {
 
 type FirstRunScreen = "choice" | "role" | "connecting" | "extension";
 type FirstRunExtensionPlacement = "before-setup" | "after-setup";
+const FIRST_RUN_CREDITS_V2_APP_IDS = new Set(["clips", "design", "slides"]);
 type FirstRunSetupMethodId =
   | "builder_create_account"
   | "builder_sign_in"
@@ -236,8 +237,13 @@ export function FirstRunOnboarding({
     experiment_id: typeof FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID;
     experiment_variant: "control" | "credits";
   } | null>(null);
+  const [creditsV2ExposureTracked, setCreditsV2ExposureTracked] =
+    useState(false);
   const creditsV2Flag = useFeatureFlagState(
     FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
+  );
+  const creditsV2FlagAppliesToApp = FIRST_RUN_CREDITS_V2_APP_IDS.has(
+    profile?.appId ?? "",
   );
   const creditsV2Exposure = useActionMutation<
     {
@@ -246,7 +252,7 @@ export function FirstRunOnboarding({
         experiment_variant: string;
       } | null;
     },
-    Record<string, never>
+    { confirmedVariant?: "control" | "credits" }
   >("record-first-run-builder-credits-v2-exposure" as never, {
     uiOnly: true,
     skipActionQueryInvalidation: true,
@@ -256,38 +262,39 @@ export function FirstRunOnboarding({
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("experiment") === "v2";
   const creditsV2Enabled =
-    profile?.appId === "clips" &&
+    creditsV2FlagAppliesToApp &&
     creditsV2Flag.status === "ready" &&
     creditsV2Flag.enabled;
-  const clipsCreditsV2 = creditsV2Enabled || previewCreditsV2;
+  const creditsV2FlowEnabled = creditsV2Enabled || previewCreditsV2;
   const creditsV2FlagPending =
     !previewMode &&
-    profile?.appId === "clips" &&
+    creditsV2FlagAppliesToApp &&
     creditsV2Flag.status === "loading";
   const setupVariant = useMemo(() => {
     const previewVariant =
       previewMode && getPreviewFirstRunSetupVariant(window.location.search);
     if (previewCreditsV2) return previewVariant;
     if (previewVariant) return previewVariant;
-    if (clipsCreditsV2) {
+    if (creditsV2FlowEnabled) {
       return creditsV2Assignment?.experiment_variant ?? null;
     }
     return assignFirstRunSetupVariant();
   }, [
-    clipsCreditsV2,
+    creditsV2FlowEnabled,
     creditsV2Assignment,
     previewCreditsV2,
     previewMode,
     profile?.appId,
   ]);
-  const setupExperimentId = clipsCreditsV2
+  const setupExperimentId = creditsV2FlowEnabled
     ? FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID
     : FIRST_RUN_SETUP_EXPERIMENT_ID;
   // The credits arm offers Skip in every app, so analytics must mark the choice step optional there too.
   const choiceSkippable =
     setupSkippable ||
     (setupVariant === "credits" &&
-      (previewMode || setupExperimentDecision === true));
+      (previewMode || setupExperimentDecision === true) &&
+      (!creditsV2Enabled || creditsV2ExposureTracked));
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -428,6 +435,7 @@ export function FirstRunOnboarding({
   const creditsV2ExposureFailedRef = useRef(false);
   const creditsV2ExposureSettledRef = useRef(false);
   const creditsV2ExposureTrackedRef = useRef(false);
+  const creditsV2ExposureConfirmationStartedRef = useRef(false);
   const setupExperimentTimedOutRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
@@ -501,15 +509,15 @@ export function FirstRunOnboarding({
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
   }, [canTrackOnboardingScreen, firstRun, previewMode]);
-  // Both arms render a skeleton until the experiment decision is known, and the
-  // credits arm's skip depends on it, so the choice view waits for the decision
-  // and is sent once with its resolved optional flag. Without an assigned arm
-  // no decision is ever made, and the choice UI renders as is.
+  // The v2 choice event waits until the rendered arm has been attributed.
   const choiceStepKnown =
     screen !== "choice" ||
     (!creditsV2FlagPending &&
-      (!clipsCreditsV2 || setupExperimentDecision !== null) &&
-      (setupVariant === null || setupExperimentDecision !== null));
+      (!creditsV2FlowEnabled || setupExperimentDecision !== null) &&
+      (setupVariant === null || setupExperimentDecision !== null) &&
+      (!creditsV2Enabled ||
+        setupExperimentDecision !== true ||
+        creditsV2ExposureTracked));
   const beginBeforeSetup = useCallback(() => {
     if (beforeSetupExtensions.length === 0) {
       setScreen("choice");
@@ -575,6 +583,76 @@ export function FirstRunOnboarding({
     !connectFlow.connecting &&
     Boolean(connectFlow.terminalError);
   const connectionFailed = provisioningFailed;
+  useEffect(() => {
+    if (
+      previewMode ||
+      !firstRun ||
+      !canTrackOnboardingScreen ||
+      screen !== "choice" ||
+      !creditsV2Enabled ||
+      setupExperimentDecision !== true ||
+      creditsV2ExposureTrackedRef.current ||
+      !creditsV2Assignment
+    ) {
+      return;
+    }
+    creditsV2ExposureTrackedRef.current = true;
+    setOnboardingExperiment({
+      id: creditsV2Assignment.experiment_id,
+      variant: creditsV2Assignment.experiment_variant,
+    });
+    setCreditsV2ExposureTracked(true);
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: creditsV2Assignment.experiment_id,
+      experiment_variant: creditsV2Assignment.experiment_variant,
+    });
+    if (creditsV2ExposureConfirmationStartedRef.current) return;
+    creditsV2ExposureConfirmationStartedRef.current = true;
+    const persistExposure = async () => {
+      let lastError: unknown;
+      // A write can commit even when its response is lost, so retry the idempotent assignment to reconcile it.
+      for (const delayMs of [0, 0, 1_000, 5_000, 30_000]) {
+        if (delayMs > 0) {
+          await new Promise<void>((resolve) =>
+            window.setTimeout(resolve, delayMs),
+          );
+        }
+        try {
+          const { assignment } = await creditsV2Exposure.mutateAsync({
+            confirmedVariant: creditsV2Assignment.experiment_variant,
+          });
+          if (
+            assignment?.experiment_id !== creditsV2Assignment.experiment_id ||
+            assignment.experiment_variant !==
+              creditsV2Assignment.experiment_variant
+          ) {
+            throw new Error(
+              "The server did not persist the displayed first-run Builder credits v2 assignment.",
+            );
+          }
+          return;
+        } catch (error: unknown) {
+          lastError = error;
+        }
+      }
+      console.error(
+        "Failed to persist first-run Builder credits v2 exposure:",
+        lastError,
+      );
+    };
+    void persistExposure();
+  }, [
+    canTrackOnboardingScreen,
+    creditsV2Assignment,
+    creditsV2Enabled,
+    creditsV2Exposure.mutateAsync,
+    firstRun,
+    previewMode,
+    setupExperimentDecision,
+    screen,
+  ]);
   useEffect(() => {
     if (
       previewMode ||
@@ -717,7 +795,7 @@ export function FirstRunOnboarding({
       !firstRun ||
       screen !== "choice" ||
       creditsV2FlagPending ||
-      clipsCreditsV2 ||
+      creditsV2FlowEnabled ||
       !setupVariant ||
       !setupStatusSettled ||
       setupExperimentDecision !== null
@@ -742,7 +820,7 @@ export function FirstRunOnboarding({
     previewMode,
     screen,
     creditsV2FlagPending,
-    clipsCreditsV2,
+    creditsV2FlowEnabled,
     setupExperimentEligible,
     setupExperimentDecision,
     setupStatusSettled,
@@ -789,10 +867,6 @@ export function FirstRunOnboarding({
           experiment_id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
           experiment_variant: assignment.experiment_variant,
         });
-        setOnboardingExperiment({
-          id: FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
-          variant: assignment.experiment_variant,
-        });
         setSetupExperimentDecision(true);
       })
       .catch(() => {
@@ -812,36 +886,6 @@ export function FirstRunOnboarding({
     setupExperimentEligible,
     setupStatusSettled,
   ]);
-  useEffect(() => {
-    if (
-      previewMode ||
-      !firstRun ||
-      screen !== "choice" ||
-      !creditsV2Enabled ||
-      !setupExperimentEligible ||
-      setupExperimentTimedOutRef.current ||
-      setupExperimentDecision !== true ||
-      !creditsV2Assignment ||
-      creditsV2ExposureTrackedRef.current
-    ) {
-      return;
-    }
-    creditsV2ExposureTrackedRef.current = true;
-    trackOnboardingEvent("onboarding_experiment_exposed", {
-      flow: "first_run",
-      step_id: "choice",
-      experiment_id: creditsV2Assignment.experiment_id,
-      experiment_variant: creditsV2Assignment.experiment_variant,
-    });
-  }, [
-    creditsV2Assignment,
-    creditsV2Enabled,
-    firstRun,
-    previewMode,
-    screen,
-    setupExperimentDecision,
-    setupExperimentEligible,
-  ]);
   // A stalled Builder status read must not leave the setup screen blank. Past
   // the limit the person gets the existing page and stays out of the
   // experiment, identically in both arms, so exposure counts stay honest.
@@ -851,7 +895,7 @@ export function FirstRunOnboarding({
       !firstRun ||
       screen !== "choice" ||
       creditsV2FlagPending ||
-      (!setupVariant && !clipsCreditsV2) ||
+      (!setupVariant && !creditsV2FlowEnabled) ||
       setupExperimentDecision !== null
     ) {
       return;
@@ -863,7 +907,7 @@ export function FirstRunOnboarding({
     }, SETUP_EXPERIMENT_DECISION_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [
-    clipsCreditsV2,
+    creditsV2FlowEnabled,
     creditsV2FlagPending,
     firstRun,
     previewMode,
@@ -1100,11 +1144,10 @@ export function FirstRunOnboarding({
     );
 
     const inCreditsArm = setupVariant === "credits";
-    // Both arms wait for exposure so the recorded arm matches what is shown.
     if (
       !previewMode &&
       (creditsV2FlagPending ||
-        (clipsCreditsV2 && setupExperimentDecision === null) ||
+        (creditsV2FlowEnabled && setupExperimentDecision === null) ||
         (setupVariant && setupExperimentDecision === null))
     ) {
       return <OnboardingSkeleton />;
@@ -1310,6 +1353,17 @@ export function FirstRunOnboarding({
               >
                 {t("agentChat.onboarding.builderExistingAccount")}
               </button>
+              {creditsV2FlowEnabled && (
+                <button
+                  type="button"
+                  data-testid="first-run-credits-own-api-keys"
+                  className="min-h-7 text-xs font-medium text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => void handleOpenSettings()}
+                  disabled={connectFlow.connecting}
+                >
+                  {t("agentChat.onboarding.creditsUseOwnApiKeys")}
+                </button>
+              )}
               <p className="text-xs leading-5 text-muted-foreground">
                 {t("agentChat.onboarding.creditsFinePrint")}{" "}
                 <a
@@ -1358,7 +1412,7 @@ export function FirstRunOnboarding({
               </div>
             )}
             <div className="fixed bottom-6 right-6 z-10">
-              {clipsCreditsV2 ? (
+              {creditsV2FlowEnabled ? (
                 <button
                   type="button"
                   data-testid="first-run-credits-skip"

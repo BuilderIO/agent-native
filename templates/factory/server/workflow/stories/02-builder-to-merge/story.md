@@ -18,11 +18,11 @@
 
 1. **`inFlight` (Source, status):** reports in `automation_started`.
 2. **`byTask` (Combine, group by `builderTaskId`):** one item per Builder task, so a task with several reports is checked once.
-3. **`check` (Agent, `builder.check`):** one read of the branch: its state (`working`, `stuck`, `completed`, `failed`), whether a pull request exists, its number and its repository. A pull request in a repository other than the workflow's `repository` setting fails the check (`builder_pr_repository_mismatch`), so its number is never read as a pull request of this repository.
+3. **`check` (Agent, `builder.check`):** one read of the branch: its state (`working`, `stuck`, `completed`, `failed`, or `not_found` when Builder has no active branch under that name), whether a pull request exists, its number and its repository. A pull request in a repository other than the workflow's `repository` setting fails the check (`builder_pr_repository_mismatch`), so its number is never read as a pull request of this repository.
 4. **`state` (Switch):**
    - **Pull request exists:** continue to step 5, whatever Builder is doing.
    - **Stuck:** `nudgedTwice` looks at how often this task was nudged. Under two: `nudge` sends "status? continue" through `builder.followUp` and releases the task. Twice already: `alert` tells the triage owner and End `manual`.
-   - **Ended with no pull request** (the branch is gone or Builder finished with nothing to review): `lost` tells the triage owner and End `manual`.
+   - **Ended with no pull request** (the branch is gone, Builder has no active record of it, or Builder finished with nothing to review): `lost` tells the triage owner and End `manual`.
    - **Otherwise** (working, no pull request yet): End `keep` (released): look again in 5 minutes.
 5. **`readPr` (Lookup, `github.readPullRequest`):** its state, the checks on its head commit as counts, review threads, size.
 6. **`ci` (Switch):**

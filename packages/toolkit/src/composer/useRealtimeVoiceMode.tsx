@@ -1,3 +1,4 @@
+import { TranscriptGrouper, type TranscriptSegment } from "openai/helpers/live";
 import {
   createContext,
   useCallback,
@@ -15,7 +16,11 @@ import {
   smoothRealtimeVoiceLevel,
   type RealtimeVoiceAudioLevelStore,
 } from "./realtime-voice-audio-level.js";
-import { realtimeVoiceTranscriptRegistry } from "./realtime-voice-transcript.js";
+import {
+  realtimeVoiceTranscriptRegistry,
+  type RealtimeVoiceWorkCall,
+} from "./realtime-voice-transcript.js";
+import { createRealtimeVoiceTurnMetrics } from "./realtime-voice-turn-metrics.js";
 import type {
   RealtimeVoiceModeCopy,
   RealtimeVoiceModeInlineSettings,
@@ -38,19 +43,25 @@ const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 const REALTIME_VOICE_CAPABILITY_HEADER = "X-Agent-Native-Realtime-Capability";
 const REALTIME_VOICE_PROTOCOL_HEADER = "X-Agent-Native-Realtime-Protocol";
 const REALTIME_VOICE_MODEL_HEADER = "X-Agent-Native-Realtime-Model";
+const REALTIME_VOICE_INTELLIGENCE_HEADER =
+  "X-Agent-Native-Realtime-Intelligence";
+const REALTIME_VOICE_PRIORITY_TOOLS_HEADER =
+  "X-Agent-Native-Realtime-Priority-Tools";
 const REALTIME_VOICE_CONNECTION_TIMEOUT_MS = 15_000;
 const REALTIME_VOICE_MAX_TOOLS = 32;
 const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
 const REALTIME_VOICE_TOOL_UPDATE_TIMEOUT_MS = 5_000;
 const REALTIME_VOICE_LIVE_CLOSE_DRAIN_TIMEOUT_MS = 2_000;
-const REALTIME_VOICE_LIVE_TRANSCRIPT_GAP_MS = 750;
 const REALTIME_VOICE_PRIORITY_TOOL_NAMES = [
   "navigate",
   "set-url-path",
   "set-search-params",
   "view-screen",
+  "chat-history",
   "tool-search",
+  "web-search",
+  "web-request",
 ] as const;
 const REALTIME_VOICE_TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const REALTIME_VOICE_MICROPHONE_STORAGE_KEY =
@@ -96,12 +107,18 @@ export interface RealtimeVoicePreferences {
   language: RealtimeVoiceLanguage;
   intelligence: RealtimeVoiceIntelligence;
   voice: RealtimeVoice;
+  /**
+   * False until the user picks a level; until then the app's default applies.
+   * Omitted means `intelligence` was chosen.
+   */
+  intelligenceChosen?: boolean;
 }
 
 export const DEFAULT_REALTIME_VOICE_PREFERENCES: RealtimeVoicePreferences = {
   language: "auto",
   intelligence: "instant",
   voice: "marin",
+  intelligenceChosen: false,
 };
 
 export const REALTIME_VOICE_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
@@ -130,8 +147,10 @@ export interface RealtimeVoiceToolResult {
   status: "completed" | "failed" | "approval_required";
   output: string;
   approvalKey?: string;
+  approvalId?: string;
   expandedTools?: RealtimeVoiceFunctionTool[];
   capability?: string;
+  readOnly?: boolean;
 }
 
 export interface RealtimeVoiceSessionAnswer {
@@ -139,6 +158,10 @@ export interface RealtimeVoiceSessionAnswer {
   capability?: string;
   protocol?: RealtimeVoiceProtocol;
   model?: string;
+  /** The level the session runs at, after the app's default. */
+  intelligence?: RealtimeVoiceIntelligence;
+  /** App edit tools the session loaded, kept through tool expansions. */
+  priorityToolNames?: string[];
 }
 
 export interface RealtimeVoiceFunctionTool {
@@ -173,6 +196,18 @@ export interface RealtimeVoiceModeApi {
   end: () => void;
   /** Clears a failed session so voice chat can start again. */
   dismissError: () => void;
+  /** The tool running now, latest first started; null while none runs. */
+  currentToolName: string | null;
+  /** Tool calls waiting for the user to approve them, oldest first. */
+  approvals: readonly RealtimeVoiceApproval[];
+  /** Runs an approved call and tells the assistant how it went. */
+  resolveApproval: (callId: string, approved: boolean) => Promise<void>;
+}
+
+export interface RealtimeVoiceApproval {
+  /** The provider's id for the call that asked. */
+  callId: string;
+  toolName: string;
 }
 
 export interface RealtimeVoiceStartOptions {
@@ -303,19 +338,37 @@ export function normalizeRealtimeVoicePreferences(
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+  const storedIntelligence = isOneOf(
+    REALTIME_VOICE_INTELLIGENCE_LEVELS,
+    record.intelligence,
+  )
+    ? record.intelligence
+    : undefined;
+  // Saves from before `intelligenceChosen` stored "instant" for everyone, so
+  // only a non-default level among them shows a pick.
+  const chosenIntelligence =
+    typeof record.intelligenceChosen === "boolean"
+      ? record.intelligenceChosen
+        ? storedIntelligence
+        : undefined
+      : storedIntelligence !== DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence
+        ? storedIntelligence
+        : undefined;
+  // A level saved as not chosen is the app default a session last reported.
+  const appDefaultIntelligence =
+    record.intelligenceChosen === false ? storedIntelligence : undefined;
   return {
     language: isOneOf(REALTIME_VOICE_LANGUAGES, record.language)
       ? record.language
       : DEFAULT_REALTIME_VOICE_PREFERENCES.language,
-    intelligence: isOneOf(
-      REALTIME_VOICE_INTELLIGENCE_LEVELS,
-      record.intelligence,
-    )
-      ? record.intelligence
-      : DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence,
+    intelligence:
+      chosenIntelligence ??
+      appDefaultIntelligence ??
+      DEFAULT_REALTIME_VOICE_PREFERENCES.intelligence,
     voice: isOneOf(REALTIME_VOICES, record.voice)
       ? record.voice
       : DEFAULT_REALTIME_VOICE_PREFERENCES.voice,
+    intelligenceChosen: chosenIntelligence !== undefined,
   };
 }
 
@@ -336,10 +389,16 @@ export function resolveRealtimeVoiceLanguage(
 export function realtimeVoiceReasoningEffort(
   intelligence: RealtimeVoiceIntelligence,
   protocol?: RealtimeVoiceProtocol,
-): "minimal" | "low" | "medium" {
+): "minimal" | "low" | "medium" | "high" {
+  // The delegated Live model rejects "minimal", so its levels start at "low".
+  if (protocol === "live") {
+    if (intelligence === "balanced") return "medium";
+    if (intelligence === "deep") return "high";
+    return "low";
+  }
   if (intelligence === "balanced") return "low";
   if (intelligence === "deep") return "medium";
-  return protocol === "live" ? "low" : "minimal";
+  return "minimal";
 }
 
 export function createRealtimeVoicePreferenceUpdate(
@@ -355,6 +414,7 @@ export function createRealtimeVoicePreferenceUpdate(
       type: "session.update",
       session: {
         delegation: {
+          type: "responses",
           responses: {
             reasoning: {
               effort: realtimeVoiceReasoningEffort(
@@ -407,6 +467,111 @@ export function createRealtimeVoiceLanguageUpdate(
   };
 }
 
+interface RealtimeVoiceWorkSegment {
+  id: string;
+  threadId: string;
+  /** The GPT-Live delegation the calls ran under; one delegation is one request. */
+  delegationId: string | undefined;
+  calls: RealtimeVoiceWorkCall[];
+  /** The reply is over; the segment ends once its last call does. */
+  closing: boolean;
+}
+
+function publishRealtimeVoiceWorkSegment(
+  segment: RealtimeVoiceWorkSegment,
+  completedAt?: string,
+): void {
+  if (segment.calls.length === 0) return;
+  realtimeVoiceTranscriptRegistry.publishWork({
+    id: segment.id,
+    threadId: segment.threadId,
+    calls: segment.calls.map((call) => ({ ...call })),
+    ...(completedAt ? { completedAt } : {}),
+  });
+}
+
+/**
+ * The reply's open work a new call joins, or new work; none without a thread.
+ * A call from a different delegation is a new request.
+ */
+function openRealtimeVoiceWorkSegment(
+  ref: { current: RealtimeVoiceWorkSegment | null },
+  threadId: string | undefined,
+  callId: string,
+  delegationId: string | undefined,
+): RealtimeVoiceWorkSegment | null {
+  if (!threadId) return null;
+  const current = ref.current;
+  if (
+    current?.threadId === threadId &&
+    (!current.delegationId ||
+      !delegationId ||
+      current.delegationId === delegationId)
+  ) {
+    current.delegationId ??= delegationId;
+    return current;
+  }
+  if (current) closeRealtimeVoiceWorkSegment(ref, current);
+  const segment = {
+    id: callId,
+    threadId,
+    delegationId,
+    calls: [],
+    closing: false,
+  };
+  ref.current = segment;
+  return segment;
+}
+
+/**
+ * Ends a reply's work. It ends at its last call's completion, so the reply
+ * that follows the work reads below it.
+ */
+interface PendingApproval {
+  callId: string;
+  name: string;
+  args: Record<string, unknown>;
+  /** The server's approval record; a decision names exactly this one. */
+  approvalId: string;
+  workCall: RealtimeVoiceWorkCall;
+  workSegment: RealtimeVoiceWorkSegment | null;
+}
+
+/** Ends a call that waited for approval: `result` is null when it never ran. */
+function finishPendingApproval(
+  pending: PendingApproval,
+  result: RealtimeVoiceToolResult | null,
+): void {
+  const { workCall, workSegment } = pending;
+  workCall.status =
+    !result || result.status === "approval_required"
+      ? "cancelled"
+      : result.status;
+  if (result) workCall.output = result.output;
+  workCall.completedAt = new Date().toISOString();
+  if (!workSegment) return;
+  if (workSegment.closing) {
+    closeRealtimeVoiceWorkSegment({ current: null }, workSegment);
+  } else {
+    publishRealtimeVoiceWorkSegment(workSegment);
+  }
+}
+
+function closeRealtimeVoiceWorkSegment(
+  ref: { current: RealtimeVoiceWorkSegment | null },
+  segment: RealtimeVoiceWorkSegment | null = ref.current,
+): void {
+  if (!segment) return;
+  if (ref.current === segment) ref.current = null;
+  segment.closing = true;
+  if (segment.calls.some((call) => call.status === "running")) return;
+  const completedAt = segment.calls
+    .map((call) => call.completedAt ?? call.startedAt)
+    .sort()
+    .at(-1);
+  publishRealtimeVoiceWorkSegment(segment, completedAt);
+}
+
 export interface CompletedRealtimeVoiceTranscript {
   role: "user" | "assistant";
   text: string;
@@ -419,56 +584,78 @@ export interface RealtimeVoiceTranscriptSequencer {
   reset: (options?: { preserveQueuedTranscripts?: boolean }) => void;
 }
 
+/**
+ * A GPT-Live turn as the transcript grouper sees it. Declared here so the
+ * toolkit's public types never pull in the OpenAI SDK's Node globals.
+ */
+export interface RealtimeVoiceLiveTurn {
+  id: string;
+  speaker: CompletedRealtimeVoiceTranscript["role"];
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
 interface SequencedRealtimeVoiceTranscript {
   status: "pending" | "completed" | "skipped";
   role?: CompletedRealtimeVoiceTranscript["role"];
   transcript?: CompletedRealtimeVoiceTranscript;
 }
 
-interface LiveRealtimeVoiceTranscriptBuffer {
-  role: CompletedRealtimeVoiceTranscript["role"];
-  text: string;
-  lastEndMs?: number;
-  sequence: number;
-}
-
 /**
  * Orders provider transcripts into conversation order. `publish` receives each
  * final transcript; `stream`, when given, receives the growing text of a turn
- * under the same `providerId` its final transcript will carry.
+ * under the same `providerId` its final transcript will carry. GPT-Live turns
+ * come from the SDK's transcript grouper, which splits on speaker changes and
+ * two-second silences and drops short backchannels heard over the reply.
  */
 export function createRealtimeVoiceTranscriptSequencer(
   publish: (transcript: CompletedRealtimeVoiceTranscript) => void,
   stream?: (transcript: CompletedRealtimeVoiceTranscript) => void,
+  /** Each GPT-Live turn as it grows, with its place on the session clock. */
+  onLiveTurn?: (turn: RealtimeVoiceLiveTurn) => void,
 ): RealtimeVoiceTranscriptSequencer {
   const order: string[] = [];
   const items = new Map<string, SequencedRealtimeVoiceTranscript>();
   const settledItemIds = new Set<string>();
   const receivedTranscriptIds = new Set<string>();
-  const liveBuffers = new Map<
-    CompletedRealtimeVoiceTranscript["role"],
-    LiveRealtimeVoiceTranscriptBuffer
-  >();
   const streamingText = new Map<string, string>();
   const streamedText = new Map<string, string>();
-  let liveSequence = 0;
+  let liveGrouper: TranscriptGrouper | undefined;
 
-  const liveProviderId = (buffer: LiveRealtimeVoiceTranscriptBuffer) =>
-    `live-${buffer.sequence}`;
+  const liveTranscript = (segment: TranscriptSegment) => {
+    const text = segment.text.trim();
+    if (!text) return undefined;
+    return stream
+      ? { role: segment.speaker, text, providerId: segment.id }
+      : { role: segment.speaker, text };
+  };
 
-  const flushLiveTranscript = (
-    role: CompletedRealtimeVoiceTranscript["role"],
-  ) => {
-    const buffer = liveBuffers.get(role);
-    if (!buffer) return;
-    liveBuffers.delete(role);
-    const text = buffer.text.trim();
-    if (!text) return;
-    publish(
-      stream
-        ? { role, text, providerId: liveProviderId(buffer) }
-        : { role, text },
-    );
+  // Listeners check that their grouper is still current, so a discarded one
+  // never publishes what it closes on the way out.
+  const openLiveGrouper = () => {
+    if (liveGrouper) return liveGrouper;
+    const grouper = new TranscriptGrouper();
+    grouper.on("segment.updated", (segment) => {
+      if (grouper !== liveGrouper) return;
+      onLiveTurn?.(segment);
+      const transcript = liveTranscript(segment);
+      if (stream && transcript) stream(transcript);
+    });
+    grouper.on("segment.closed", ({ segment }) => {
+      const transcript = liveTranscript(segment);
+      if (grouper === liveGrouper && transcript) publish(transcript);
+    });
+    liveGrouper = grouper;
+    return grouper;
+  };
+
+  const closeLiveGrouper = (keepText: boolean) => {
+    const grouper = liveGrouper;
+    if (!grouper) return;
+    if (!keepText) liveGrouper = undefined;
+    grouper.close();
+    liveGrouper = undefined;
   };
 
   // A turn appears once every earlier turn has appeared, so a fast reply
@@ -491,14 +678,6 @@ export function createRealtimeVoiceTranscriptSequencer(
         text,
         providerId: entry.transcript?.providerId ?? id,
       });
-    }
-  };
-
-  const flushLiveTranscripts = () => {
-    for (const buffer of [...liveBuffers.values()].sort(
-      (left, right) => left.sequence - right.sequence,
-    )) {
-      flushLiveTranscript(buffer.role);
     }
   };
 
@@ -545,37 +724,22 @@ export function createRealtimeVoiceTranscriptSequencer(
         event.type === "session.input_transcript.delta" ||
         event.type === "session.output_transcript.delta"
       ) {
-        const role =
+        const type =
           event.type === "session.input_transcript.delta"
-            ? "user"
-            : "assistant";
-        const startMs =
-          typeof event.start_ms === "number" ? event.start_ms : undefined;
-        const endMs = typeof event.end_ms === "number" ? event.end_ms : startMs;
-        let buffer = liveBuffers.get(role);
+            ? "session.input_transcript.delta"
+            : "session.output_transcript.delta";
+        const { event_id, delta, start_ms, end_ms } = event;
         if (
-          buffer &&
-          startMs !== undefined &&
-          buffer.lastEndMs !== undefined &&
-          startMs - buffer.lastEndMs > REALTIME_VOICE_LIVE_TRANSCRIPT_GAP_MS
+          typeof event_id !== "string" ||
+          typeof delta !== "string" ||
+          typeof start_ms !== "number" ||
+          typeof end_ms !== "number"
         ) {
-          flushLiveTranscript(role);
-          buffer = undefined;
+          throw new Error(
+            "GPT-Live sent a transcript delta without an id, text, or timing.",
+          );
         }
-        if (!buffer) {
-          buffer = {
-            role,
-            text: "",
-            sequence: ++liveSequence,
-          };
-          liveBuffers.set(role, buffer);
-        }
-        if (typeof event.delta === "string") buffer.text += event.delta;
-        if (endMs !== undefined) buffer.lastEndMs = endMs;
-        const text = buffer.text.trim();
-        if (stream && text) {
-          stream({ role, text, providerId: liveProviderId(buffer) });
-        }
+        openLiveGrouper().push({ type, event_id, delta, start_ms, end_ms });
         return;
       }
       if (
@@ -600,7 +764,7 @@ export function createRealtimeVoiceTranscriptSequencer(
         emitStreams();
         return;
       }
-      if (event.type === "session.closed") flushLiveTranscripts();
+      if (event.type === "session.closed") closeLiveGrouper(true);
       if (
         event.type === "conversation.item.added" ||
         event.type === "conversation.item.created"
@@ -678,7 +842,7 @@ export function createRealtimeVoiceTranscriptSequencer(
       emitStreams();
     },
     flush() {
-      flushLiveTranscripts();
+      closeLiveGrouper(true);
       if (!stream) return;
       // The session is over: a turn that streamed but never got its final
       // transcript keeps the text that was heard.
@@ -705,9 +869,10 @@ export function createRealtimeVoiceTranscriptSequencer(
       }
     },
     reset(options) {
-      liveBuffers.clear();
-      liveSequence = 0;
+      // A failed response leaves what was already heard; a new session
+      // starts clean.
       if (options?.preserveQueuedTranscripts) return;
+      closeLiveGrouper(false);
       order.length = 0;
       items.clear();
       settledItemIds.clear();
@@ -994,7 +1159,12 @@ export async function createRealtimeVoiceSessionWithCapability(
               preferences.language,
               options.browserLanguages,
             ),
-            "X-Agent-Native-Realtime-Intelligence": preferences.intelligence,
+            ...(preferences.intelligenceChosen !== false
+              ? {
+                  [REALTIME_VOICE_INTELLIGENCE_HEADER]:
+                    preferences.intelligence,
+                }
+              : {}),
             "X-Agent-Native-Realtime-Voice": preferences.voice,
           }
         : {}),
@@ -1017,11 +1187,29 @@ export async function createRealtimeVoiceSessionWithCapability(
       : undefined;
   const modelHeader = response.headers.get(REALTIME_VOICE_MODEL_HEADER);
   const model = modelHeader?.trim() || undefined;
+  const intelligenceHeader = response.headers
+    .get(REALTIME_VOICE_INTELLIGENCE_HEADER)
+    ?.trim();
+  const intelligence = isOneOf(
+    REALTIME_VOICE_INTELLIGENCE_LEVELS,
+    intelligenceHeader,
+  )
+    ? intelligenceHeader
+    : undefined;
+  const priorityToolNames = (
+    response.headers.get(REALTIME_VOICE_PRIORITY_TOOLS_HEADER) ?? ""
+  )
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => REALTIME_VOICE_TOOL_NAME.test(name))
+    .slice(0, REALTIME_VOICE_MAX_TOOLS);
   return {
     sdp,
     ...(capability ? { capability } : {}),
     ...(protocol ? { protocol } : {}),
     ...(model ? { model } : {}),
+    ...(intelligence ? { intelligence } : {}),
+    ...(priorityToolNames.length > 0 ? { priorityToolNames } : {}),
   };
 }
 
@@ -1041,10 +1229,14 @@ export async function executeRealtimeVoiceTool(input: {
   name: string;
   args: Record<string, unknown>;
   callId: string;
-  sessionId?: string;
-  browserTabId?: string;
-  capability?: string;
-  signal?: AbortSignal;
+  sessionId?: string | undefined;
+  browserTabId?: string | undefined;
+  capability?: string | undefined;
+  signal?: AbortSignal | undefined;
+  /** Runs the call this approval record was asked for, once. */
+  approvalId?: string | undefined;
+  /** Declines that approval record instead of running the call. */
+  declinedApprovalId?: string | undefined;
 }): Promise<RealtimeVoiceToolResult> {
   const response = await fetch(REALTIME_VOICE_TOOL_PATH, {
     method: "POST",
@@ -1064,6 +1256,10 @@ export async function executeRealtimeVoiceTool(input: {
       callId: input.callId,
       sessionId: input.sessionId,
       browserTabId: input.browserTabId,
+      ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+      ...(input.declinedApprovalId
+        ? { declinedApprovalId: input.declinedApprovalId }
+        : {}),
     }),
     signal: input.signal,
   });
@@ -1155,7 +1351,11 @@ function createRealtimeVoiceToolManifestUpdate(
         ? {
             delegation: {
               type: "responses",
-              responses: { tools, tool_choice: "auto" },
+              // Strict schemas make every optional parameter required.
+              responses: {
+                tools: tools.map((tool) => ({ ...tool, strict: false })),
+                tool_choice: "auto",
+              },
             },
           }
         : {
@@ -1170,6 +1370,7 @@ export function mergeRealtimeVoiceToolManifest(
   currentTools: readonly RealtimeVoiceFunctionTool[],
   expandedTools: readonly RealtimeVoiceFunctionTool[],
   protocol: RealtimeVoiceProtocol = "realtime",
+  appPriorityToolNames: readonly string[] = [],
 ): RealtimeVoiceFunctionTool[] {
   const current = new Map<string, RealtimeVoiceFunctionTool>();
   for (const value of currentTools) {
@@ -1189,7 +1390,10 @@ export function mergeRealtimeVoiceToolManifest(
     seen.add(tool.name);
     candidates.push(tool);
   };
-  for (const name of REALTIME_VOICE_PRIORITY_TOOL_NAMES) {
+  for (const name of [
+    ...REALTIME_VOICE_PRIORITY_TOOL_NAMES,
+    ...appPriorityToolNames,
+  ]) {
     add(expanded.get(name) ?? current.get(name));
   }
   for (const tool of expanded.values()) add(tool);
@@ -1212,6 +1416,31 @@ export function mergeRealtimeVoiceToolManifest(
     }
   }
   return packed;
+}
+
+/** Tells the assistant what the user decided about a call that asked. */
+export function createRealtimeVoiceApprovalOutcomeEvent(
+  toolName: string,
+  result: RealtimeVoiceToolResult | null,
+  protocol: RealtimeVoiceProtocol = "realtime",
+): Record<string, unknown> {
+  const text = !result
+    ? `The user declined ${toolName}, so it did not run.`
+    : result.status === "approval_required"
+      ? `${toolName} asked for approval again, so it has not run. The user can approve it on screen.`
+      : `The user approved ${toolName}. ${JSON.stringify({
+          status: result.status,
+          output: result.output,
+        })}`;
+  return {
+    type:
+      protocol === "live" ? "response.item.create" : "conversation.item.create",
+    item: {
+      type: "message",
+      role: "system",
+      content: [{ type: "input_text", text }],
+    },
+  };
 }
 
 function createRealtimeVoiceToolResultEvent(
@@ -1238,6 +1467,7 @@ function createRealtimeVoiceToolResultEvent(
 export interface RealtimeVoiceToolManifestCoordinator {
   enqueue: (result: RealtimeVoiceToolResult) => void;
   setProtocol: (protocol: RealtimeVoiceProtocol) => void;
+  setPriorityToolNames: (names: readonly string[]) => void;
   setSessionTools: (tools: readonly RealtimeVoiceFunctionTool[]) => void;
   handleError: (eventId: string | undefined, message?: string) => boolean;
   reset: (options?: { preserveSessionTools?: boolean }) => void;
@@ -1250,6 +1480,7 @@ export function createRealtimeVoiceToolManifestCoordinator(
 ): RealtimeVoiceToolManifestCoordinator {
   let currentTools: RealtimeVoiceFunctionTool[] = [];
   let protocol: RealtimeVoiceProtocol = "realtime";
+  let priorityToolNames: readonly string[] = [];
   const queue: RealtimeVoiceToolResult[] = [];
   let updateSequence = 0;
   let active:
@@ -1302,6 +1533,7 @@ export function createRealtimeVoiceToolManifestCoordinator(
       currentTools,
       expanded,
       protocol,
+      priorityToolNames,
     );
     const mergedNames = new Set(merged.map((tool) => tool.name));
     const expectedNames = expanded
@@ -1335,8 +1567,16 @@ export function createRealtimeVoiceToolManifestCoordinator(
     setProtocol(nextProtocol) {
       protocol = nextProtocol;
     },
+    setPriorityToolNames(names) {
+      priorityToolNames = [...names];
+    },
     setSessionTools(tools) {
-      currentTools = mergeRealtimeVoiceToolManifest([], tools, protocol);
+      currentTools = mergeRealtimeVoiceToolManifest(
+        [],
+        tools,
+        protocol,
+        priorityToolNames,
+      );
       if (!active) return;
       const names = new Set(currentTools.map((tool) => tool.name));
       if (active.expectedNames.every((name) => names.has(name))) finish();
@@ -1350,7 +1590,10 @@ export function createRealtimeVoiceToolManifestCoordinator(
       if (active) clearTimeout(active.timer);
       active = undefined;
       queue.length = 0;
-      if (!options?.preserveSessionTools) currentTools = [];
+      if (!options?.preserveSessionTools) {
+        currentTools = [];
+        priorityToolNames = [];
+      }
       protocol = "realtime";
     },
     getTools() {
@@ -1491,6 +1734,16 @@ export function createRealtimeVoiceModeCopy(
     voiceSettings: t("agentChat.voiceMode.voiceSettings", {
       defaultValue: "Voice settings",
     }),
+    thinking: t("agentChat.status.thinking", { defaultValue: "Thinking" }),
+    approval: {
+      question: (toolLabel) =>
+        t("agentChat.approval.question", {
+          tool: toolLabel,
+          defaultValue: "Approve to run {{tool}}?",
+        }),
+      approve: t("agentChat.approval.approve", { defaultValue: "Approve" }),
+      deny: t("agentChat.approval.deny", { defaultValue: "Deny" }),
+    },
     settings: {
       language: t("agentChat.voiceMode.settings.language", {
         defaultValue: "Language",
@@ -1706,7 +1959,33 @@ function useRealtimeVoiceModeController(
   const liveCloseDrainTimerRef = useRef<number | null>(null);
   const liveCloseDrainFinishRef = useRef<(() => void) | null>(null);
   const toolAbortControllersRef = useRef(new Set<AbortController>());
+  const pendingApprovalsRef = useRef(new Map<string, PendingApproval>());
+  const runningToolsRef = useRef(new Map<string, string>());
+  const [currentToolName, setCurrentToolName] = useState<string | null>(null);
+  const trackRunningTool = useCallback(
+    (callId: string, name: string | null) => {
+      const running = runningToolsRef.current;
+      if (name) running.set(callId, name);
+      else running.delete(callId);
+      setCurrentToolName([...running.values()].at(-1) ?? null);
+    },
+    [],
+  );
+  const [approvals, setApprovals] = useState<readonly RealtimeVoiceApproval[]>(
+    [],
+  );
+  const syncApprovals = useCallback(() => {
+    setApprovals(
+      [...pendingApprovalsRef.current.values()].map(({ callId, name }) => ({
+        callId,
+        toolName: name,
+      })),
+    );
+  }, []);
   const transcriptSequenceRef = useRef(0);
+  const transcriptCreatedAtRef = useRef(new Map<string, string>());
+  const workSegmentRef = useRef<RealtimeVoiceWorkSegment | null>(null);
+  const responseCallCountsRef = useRef(new Map<string, number>());
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
   const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -1715,6 +1994,17 @@ function useRealtimeVoiceModeController(
       createRealtimeVoiceResponseCoordinator((event) => {
         sendDataChannelEvent(channelRef.current, event);
       }),
+    [],
+  );
+  // The metrics outlive adapter changes such as a locale switch: the
+  // transport cleanup depends on them, and a new instance would end the call.
+  const trackEventRef = useRef(adapters.voice.trackEvent);
+  trackEventRef.current = adapters.voice.trackEvent;
+  const turnMetrics = useMemo(
+    () =>
+      createRealtimeVoiceTurnMetrics((name, properties) =>
+        trackEventRef.current(name, properties),
+      ),
     [],
   );
   const toolManifestCoordinator = useMemo(
@@ -1819,6 +2109,11 @@ function useRealtimeVoiceModeController(
 
   const updateLivePreferences = useCallback(
     (next: RealtimeVoicePreferences, includeVoice = false) => {
+      turnMetrics.setContext({
+        protocol: protocolRef.current,
+        intelligence: next.intelligence,
+        intelligenceSource: next.intelligenceChosen ? "user" : "default",
+      });
       sendDataChannelEvent(
         channelRef.current,
         createRealtimeVoicePreferenceUpdate(next, {
@@ -1829,7 +2124,7 @@ function useRealtimeVoiceModeController(
         }),
       );
     },
-    [],
+    [turnMetrics],
   );
 
   const setLanguage = useCallback(
@@ -1849,7 +2144,11 @@ function useRealtimeVoiceModeController(
 
   const setIntelligence = useCallback(
     (intelligence: RealtimeVoiceIntelligence) => {
-      const next = { ...preferencesRef.current, intelligence };
+      const next = {
+        ...preferencesRef.current,
+        intelligence,
+        intelligenceChosen: true,
+      };
       savePreferences(next);
       updateLivePreferences(next);
     },
@@ -2004,6 +2303,19 @@ function useRealtimeVoiceModeController(
   switchMicrophoneRef.current = setMicrophone;
 
   const cleanupTransport = useCallback(() => {
+    // Teardown keeps what was heard now, so no grouper timer publishes into
+    // the chat after the session is gone.
+    flushTranscriptsRef.current?.();
+    turnMetrics.sessionEnded();
+    for (const pending of pendingApprovalsRef.current.values()) {
+      finishPendingApproval(pending, null);
+    }
+    pendingApprovalsRef.current.clear();
+    syncApprovals();
+    runningToolsRef.current.clear();
+    setCurrentToolName(null);
+    closeRealtimeVoiceWorkSegment(workSegmentRef);
+    responseCallCountsRef.current.clear();
     if (liveCloseDrainTimerRef.current !== null) {
       window.clearTimeout(liveCloseDrainTimerRef.current);
       liveCloseDrainTimerRef.current = null;
@@ -2054,7 +2366,9 @@ function useRealtimeVoiceModeController(
     abortActiveToolCalls,
     audioLevels,
     responseCoordinator,
+    syncApprovals,
     toolManifestCoordinator,
+    turnMetrics,
   ]);
 
   const fail = useCallback(
@@ -2068,8 +2382,68 @@ function useRealtimeVoiceModeController(
     [cleanupTransport, transition],
   );
 
+  const publishTranscript = useCallback(
+    (
+      transcript: CompletedRealtimeVoiceTranscript,
+      status: "streaming" | "complete",
+    ) => {
+      const threadId = transcriptThreadIdRef.current;
+      if (!threadId) return;
+      // The session id arrives after the first events; the start time keeps
+      // every update of one turn under the same message id.
+      const sessionIdentity = startedAtRef.current ?? "pending";
+      const providerIdentity =
+        transcript.providerId ?? `sequence-${++transcriptSequenceRef.current}`;
+      const id = `realtime-voice:${sessionIdentity}:${transcript.role}:${providerIdentity}`;
+      // Work rows sit before the first message created after their call, so a
+      // turn keeps the time it started however late its final text arrives.
+      let createdAt = transcriptCreatedAtRef.current.get(id);
+      if (!createdAt) {
+        createdAt = new Date().toISOString();
+        transcriptCreatedAtRef.current.set(id, createdAt);
+      }
+      realtimeVoiceTranscriptRegistry.publish({
+        id,
+        threadId,
+        role: transcript.role,
+        text: transcript.text,
+        createdAt,
+        status,
+      });
+    },
+    [],
+  );
+
+  const transcriptSequencer = useMemo(
+    () =>
+      createRealtimeVoiceTranscriptSequencer(
+        (transcript) => publishTranscript(transcript, "complete"),
+        (transcript) => publishTranscript(transcript, "streaming"),
+        (turn) => {
+          if (turn.speaker !== "user") return;
+          turnMetrics.userTurnUpdated(performance.now(), turn.id, turn.endMs);
+        },
+      ),
+    [publishTranscript, turnMetrics],
+  );
+  flushTranscriptsRef.current = transcriptSequencer.flush;
+  const greetingStarter = useMemo(
+    () =>
+      createRealtimeVoiceGreetingStarter((event) => {
+        if (event.type === "response.create") {
+          responseCoordinator.request(event);
+        } else {
+          sendDataChannelEvent(channelRef.current, event);
+        }
+      }),
+    [responseCoordinator],
+  );
+
   const handleFunctionCall = useCallback(
-    async (call: { name: string; callId: string; argumentsText: string }) => {
+    async (
+      call: { name: string; callId: string; argumentsText: string },
+      delegationId: string | undefined,
+    ) => {
       if (handledCallsRef.current.has(call.callId)) return;
       handledCallsRef.current.add(call.callId);
       const transportGeneration = transportGenerationRef.current;
@@ -2077,9 +2451,28 @@ function useRealtimeVoiceModeController(
       const toolAbortController = new AbortController();
       toolAbortControllersRef.current.add(toolAbortController);
       transition("working");
+      trackRunningTool(call.callId, call.name);
+      const finishTurnToolCall = turnMetrics.toolCallStarted();
+      const workCall: RealtimeVoiceWorkCall = {
+        id: call.callId,
+        name: call.name,
+        status: "running",
+        startedAt: new Date().toISOString(),
+      };
+      const workSegment = openRealtimeVoiceWorkSegment(
+        workSegmentRef,
+        transcriptThreadIdRef.current,
+        call.callId,
+        delegationId,
+      );
       let result: RealtimeVoiceToolResult;
       try {
         const args = parseFunctionArguments(call.argumentsText);
+        workCall.input = args;
+        if (workSegment) {
+          workSegment.calls.push(workCall);
+          publishRealtimeVoiceWorkSegment(workSegment);
+        }
         result = await executeRealtimeVoiceTool({
           name: call.name,
           args,
@@ -2097,7 +2490,41 @@ function useRealtimeVoiceModeController(
         };
       } finally {
         toolAbortControllersRef.current.delete(toolAbortController);
+        trackRunningTool(call.callId, null);
       }
+      // Session teardown aborted the call, so it did not fail. A call that
+      // asks for approval stays running until the user decides.
+      const approvalId =
+        !toolAbortController.signal.aborted &&
+        result.status === "approval_required" &&
+        workCall.input &&
+        transportGeneration === transportGenerationRef.current
+          ? result.approvalId
+          : undefined;
+      const awaitingApproval = Boolean(approvalId);
+      if (!awaitingApproval) {
+        workCall.status =
+          toolAbortController.signal.aborted ||
+          result.status === "approval_required"
+            ? "cancelled"
+            : result.status;
+        workCall.output = result.output;
+        workCall.completedAt = new Date().toISOString();
+      }
+      if (workSegment) {
+        if (!workSegment.calls.includes(workCall)) {
+          workSegment.calls.push(workCall);
+        }
+        if (workSegment.closing) {
+          closeRealtimeVoiceWorkSegment(workSegmentRef, workSegment);
+        } else {
+          publishRealtimeVoiceWorkSegment(workSegment);
+        }
+      }
+      finishTurnToolCall(
+        performance.now(),
+        toolAbortController.signal.aborted ? { status: "cancelled" } : result,
+      );
       if (
         transportGeneration !== transportGenerationRef.current ||
         channelRef.current !== transportChannel
@@ -2105,54 +2532,115 @@ function useRealtimeVoiceModeController(
         return;
       }
       if (result.capability) capabilityRef.current = result.capability;
+      if (approvalId && workCall.input) {
+        pendingApprovalsRef.current.set(call.callId, {
+          callId: call.callId,
+          name: call.name,
+          args: workCall.input,
+          approvalId,
+          workCall,
+          workSegment,
+        });
+        syncApprovals();
+      }
       toolManifestCoordinator.enqueue(result);
     },
-    [browserTabId, toolManifestCoordinator, transition],
+    [
+      browserTabId,
+      syncApprovals,
+      toolManifestCoordinator,
+      trackRunningTool,
+      transition,
+      turnMetrics,
+    ],
   );
 
-  const publishTranscript = useCallback(
-    (
-      transcript: CompletedRealtimeVoiceTranscript,
-      status: "streaming" | "complete",
-    ) => {
-      const threadId = transcriptThreadIdRef.current;
-      if (!threadId) return;
-      // The session id arrives after the first events; the start time keeps
-      // every update of one turn under the same message id.
-      const sessionIdentity = startedAtRef.current ?? "pending";
-      const providerIdentity =
-        transcript.providerId ?? `sequence-${++transcriptSequenceRef.current}`;
-      realtimeVoiceTranscriptRegistry.publish({
-        id: `realtime-voice:${sessionIdentity}:${transcript.role}:${providerIdentity}`,
-        threadId,
-        role: transcript.role,
-        text: transcript.text,
-        createdAt: new Date().toISOString(),
-        status,
-      });
-    },
-    [],
-  );
-
-  const transcriptSequencer = useMemo(
-    () =>
-      createRealtimeVoiceTranscriptSequencer(
-        (transcript) => publishTranscript(transcript, "complete"),
-        (transcript) => publishTranscript(transcript, "streaming"),
-      ),
-    [publishTranscript],
-  );
-  flushTranscriptsRef.current = transcriptSequencer.flush;
-  const greetingStarter = useMemo(
-    () =>
-      createRealtimeVoiceGreetingStarter((event) => {
-        if (event.type === "response.create") {
-          responseCoordinator.request(event);
-        } else {
-          sendDataChannelEvent(channelRef.current, event);
+  const resolveApproval = useCallback(
+    async (callId: string, approved: boolean) => {
+      const pending = pendingApprovalsRef.current.get(callId);
+      if (!pending) return;
+      pendingApprovalsRef.current.delete(callId);
+      syncApprovals();
+      const transportGeneration = transportGenerationRef.current;
+      const transportChannel = channelRef.current;
+      let result: RealtimeVoiceToolResult | null = null;
+      let aborted = false;
+      if (approved) {
+        transition("working");
+        trackRunningTool(callId, pending.name);
+        const toolAbortController = new AbortController();
+        toolAbortControllersRef.current.add(toolAbortController);
+        try {
+          result = await executeRealtimeVoiceTool({
+            name: pending.name,
+            args: pending.args,
+            callId: `${callId}_approved`,
+            sessionId: sessionIdRef.current,
+            browserTabId,
+            capability: capabilityRef.current,
+            signal: toolAbortController.signal,
+            approvalId: pending.approvalId,
+          });
+        } catch (toolError) {
+          result = {
+            callId,
+            status: "failed",
+            output: errorMessage(toolError),
+          };
+        } finally {
+          toolAbortControllersRef.current.delete(toolAbortController);
+          trackRunningTool(callId, null);
         }
-      }),
-    [responseCoordinator],
+        aborted = toolAbortController.signal.aborted;
+      } else {
+        // A declined record left pending would make a later identical
+        // request's approval ambiguous on the server.
+        await executeRealtimeVoiceTool({
+          name: pending.name,
+          args: pending.args,
+          callId: `${callId}_declined`,
+          sessionId: sessionIdRef.current,
+          browserTabId,
+          capability: capabilityRef.current,
+          declinedApprovalId: pending.approvalId,
+        }).catch((declineError: unknown) => {
+          console.warn(
+            "Could not record the declined voice approval.",
+            declineError,
+          );
+        });
+      }
+      const transportChanged =
+        transportGeneration !== transportGenerationRef.current ||
+        channelRef.current !== transportChannel;
+      // An approval that expired or no longer applies asks again; the call
+      // stays running and the user sees the new request.
+      const renewedApprovalId =
+        !aborted && !transportChanged && result?.status === "approval_required"
+          ? result.approvalId
+          : undefined;
+      if (renewedApprovalId) {
+        pendingApprovalsRef.current.set(callId, {
+          ...pending,
+          approvalId: renewedApprovalId,
+        });
+        syncApprovals();
+      } else {
+        finishPendingApproval(pending, aborted || !result ? null : result);
+      }
+      if (aborted || transportChanged) return;
+      if (result?.capability) capabilityRef.current = result.capability;
+      sendDataChannelEvent(
+        channelRef.current,
+        createRealtimeVoiceApprovalOutcomeEvent(
+          pending.name,
+          result,
+          protocolRef.current,
+        ),
+      );
+      sendDataChannelEvent(channelRef.current, { type: "response.create" });
+    },
+    [browserTabId, syncApprovals, trackRunningTool, transition],
   );
 
   const handleServerEvent = useCallback(
@@ -2194,15 +2682,21 @@ function useRealtimeVoiceModeController(
         greetingStarter.start();
         transition("working");
       } else if (event.type === "input_audio_buffer.speech_started") {
+        closeRealtimeVoiceWorkSegment(workSegmentRef);
+        turnMetrics.userSpeechStarted(performance.now());
         transition("listening");
       } else if (event.type === "input_audio_buffer.speech_stopped") {
+        turnMetrics.userSpeechEnded(performance.now());
         transition("working");
         if (protocolRef.current === "realtime") responseCoordinator.request();
       } else if (event.type === "response.created") {
         hasOutputAudioRef.current = true;
         lastAssistantTextRef.current = "";
         transition("working");
+      } else if (event.type === "output_audio_buffer.started") {
+        turnMetrics.assistantAudioStarted(performance.now());
       } else if (event.type === "response.output_audio_transcript.delta") {
+        turnMetrics.assistantResponded();
         hasOutputAudioRef.current = true;
         if (typeof event.delta === "string") {
           lastAssistantTextRef.current += event.delta;
@@ -2226,6 +2720,10 @@ function useRealtimeVoiceModeController(
         }
         transition("listening");
       } else if (event.type === "session.output_transcript.delta") {
+        turnMetrics.assistantAudioStarted(
+          performance.now(),
+          typeof event.start_ms === "number" ? event.start_ms : undefined,
+        );
         hasOutputAudioRef.current = true;
         if (typeof event.delta === "string") {
           lastAssistantTextRef.current += event.delta;
@@ -2244,6 +2742,7 @@ function useRealtimeVoiceModeController(
             ? (response as { status?: unknown }).status
             : undefined;
         if (responseEvent.type === "response.failed" || status === "failed") {
+          closeRealtimeVoiceWorkSegment(workSegmentRef);
           transportGenerationRef.current += 1;
           handledCallsRef.current.clear();
           abortActiveToolCalls();
@@ -2295,11 +2794,33 @@ function useRealtimeVoiceModeController(
         return;
       }
 
+      const delegationId =
+        typeof event.delegation_id === "string" ? event.delegation_id : "";
       const calls = extractRealtimeVoiceFunctionCalls(event);
-      for (const call of calls) void handleFunctionCall(call);
-      if (responseBoundary && calls.length === 0) {
+      for (const call of calls) {
+        void handleFunctionCall(call, delegationId || undefined);
+      }
+      // GPT-Live's response snapshots carry no output, so whether a response
+      // called a tool is counted from its streamed items, per delegation.
+      const responseCalls = responseCallCountsRef.current;
+      if (responseEvent.type === "response.created") {
+        responseCalls.set(delegationId, 0);
+      }
+      if (calls.length > 0) {
+        responseCalls.set(
+          delegationId,
+          (responseCalls.get(delegationId) ?? 0) + calls.length,
+        );
+      }
+      if (responseBoundary && !responseCalls.get(delegationId)) {
+        // Only the segment's own delegation ends it; an uncorrelated
+        // boundary would split one request's work into several rows.
+        if ((workSegmentRef.current?.delegationId ?? "") === delegationId) {
+          closeRealtimeVoiceWorkSegment(workSegmentRef);
+        }
         transition("listening");
       }
+      if (responseBoundary) responseCalls.delete(delegationId);
       if (responseBoundary) {
         lastUserTextRef.current = "";
         lastAssistantTextRef.current = "";
@@ -2317,6 +2838,7 @@ function useRealtimeVoiceModeController(
       transition,
       responseCoordinator,
       toolManifestCoordinator,
+      turnMetrics,
       updateLivePreferences,
     ],
   );
@@ -2350,6 +2872,7 @@ function useRealtimeVoiceModeController(
       requestedTranscriptThreadIdRef.current ??
       realtimeVoiceTranscriptRegistry.activeThreadId();
     transcriptSequenceRef.current = 0;
+    transcriptCreatedAtRef.current.clear();
     transcriptSequencer.reset();
     inputMutedRef.current = false;
     outputMutedRef.current = false;
@@ -2433,8 +2956,13 @@ function useRealtimeVoiceModeController(
             JSON.parse(String(messageEvent.data)),
             stateRef.current === "ending",
           );
-        } catch {
-          // Ignore malformed provider events without ending a healthy call.
+        } catch (eventError) {
+          // A malformed provider event must not end a healthy call, but the
+          // text it carried is lost, so say so.
+          console.warn(
+            "Ignored a realtime voice event that could not be handled.",
+            eventError,
+          );
         }
       };
       channel.onerror = () => {
@@ -2486,7 +3014,29 @@ function useRealtimeVoiceModeController(
         answer.model ??
         (protocolRef.current === "live" ? "gpt-live-1" : "gpt-realtime-2.1");
       toolManifestCoordinator.setProtocol(protocolRef.current);
+      toolManifestCoordinator.setPriorityToolNames(
+        answer.priorityToolNames ?? [],
+      );
       greetingStarter.setProtocol(protocolRef.current);
+      const chosen = preferencesRef.current.intelligenceChosen === true;
+      if (
+        !chosen &&
+        answer.intelligence &&
+        answer.intelligence !== preferencesRef.current.intelligence
+      ) {
+        // Saved as not chosen, so Settings shows the app's default after a
+        // reload and the app can still change it.
+        savePreferences({
+          ...preferencesRef.current,
+          intelligence: answer.intelligence,
+          intelligenceChosen: false,
+        });
+      }
+      turnMetrics.setContext({
+        protocol: protocolRef.current,
+        intelligence: preferencesRef.current.intelligence,
+        intelligenceSource: chosen ? "user" : "default",
+      });
       await peer.setRemoteDescription({ type: "answer", sdp: answer.sdp });
     } catch (startError) {
       if (
@@ -2525,9 +3075,11 @@ function useRealtimeVoiceModeController(
     handleServerEvent,
     hydratePreferences,
     refreshMicrophones,
+    savePreferences,
     t,
     transcriptSequencer,
     transition,
+    turnMetrics,
   ]);
 
   const startForThread = useCallback(
@@ -2666,6 +3218,9 @@ function useRealtimeVoiceModeController(
     start: startForThread,
     end,
     dismissError,
+    currentToolName,
+    approvals,
+    resolveApproval,
   };
 }
 
@@ -2763,7 +3318,11 @@ export function buildRealtimeVoiceSettings({
       })),
       onValueChange: (value: string) => {
         if (isOneOf(REALTIME_VOICE_INTELLIGENCE_LEVELS, value)) {
-          onPreferencesChange({ ...preferences, intelligence: value });
+          onPreferencesChange({
+            ...preferences,
+            intelligence: value,
+            intelligenceChosen: true,
+          });
         }
       },
     },

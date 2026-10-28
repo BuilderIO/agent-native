@@ -189,6 +189,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "돌아가기",
   "onboarding.creditsSkipAnyway": "그래도 건너뛰기",
   "onboarding.creditsUseCustomKeys": "사용자 지정 키 사용",
+  "onboarding.creditsUseOwnApiKeys": "내 API 키 사용",
   "onboarding.creditsAboutLabel": "무료 크레딧 정보",
   "onboarding.creditsActivating": "무료 크레딧 활성화 중",
   "onboarding.creditsActivatingTooltip":
@@ -545,6 +546,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" 파일은 {{size}} MB입니다. {{limit}} MB를 넘는 이미지는 첨부할 수 없습니다. 더 작은 이미지를 사용해 주세요.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" 이미지는 {{megapixels}} 메가픽셀입니다. {{limit}} 메가픽셀을 넘는 이미지는 첨부할 수 없습니다. 더 작은 이미지를 사용해 주세요.',
   "composer.fileTooLarge": "이 파일은 {{size}}MB 업로드 제한보다 큽니다.",
   "composer.sessionExpired":
     "세션이 만료되었습니다. 다시 로그인한 후 메시지를 보내세요.",

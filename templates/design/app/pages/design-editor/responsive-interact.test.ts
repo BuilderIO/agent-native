@@ -161,36 +161,7 @@ describe("responsive Interact wiring", () => {
   });
 
   it("gates the visual-edit loop on edit access, never on sign-in", () => {
-    const consentAnchor =
-      "const localhostConsentRequestQuery = useActionQuery(";
-    const consentIndex = source.indexOf(consentAnchor);
-    expect(consentIndex).toBeGreaterThan(0);
-    const consentQuery = source.slice(consentIndex, consentIndex + 700);
-    expect(consentQuery).toContain("enabled: Boolean(id && canEditDesign)");
-    expect(consentQuery).not.toContain("isSignedIn");
-    expect(consentQuery).toContain("localhostConsentRequestRefetchInterval({");
-    expect(consentQuery).toContain(
-      "failedClearKey: failedLocalhostConsentClear",
-    );
-
-    const consentEffect = source.slice(
-      source.indexOf(
-        "// Agent requests run in a design-scoped capability session",
-      ),
-      source.indexOf("const activeScreenBaseWidthPx"),
-    );
-    expect(consentEffect).toMatch(/!id\s*\|\|\s*!canEditDesign/);
-    expect(consentEffect).not.toMatch(/!id\s*\|\|\s*!isSignedIn/);
-    expect(consentEffect).toContain("localhostConsentRequestQuery.refetch()");
-    expect(consentEffect).toContain("setFailedLocalhostConsentClear");
-    expect(consentEffect).not.toContain(
-      "lastLocalhostConsentRequestRef.current ===",
-    );
-    expect(consentEffect).toContain('if (disposition === "ignore") return;');
-    expect(consentEffect).toContain(
-      'const retryingClear = disposition === "retry-clear";',
-    );
-
+    // oracle-change: Consent polling moved to useLocalhostWriteConsent and has behavioral coverage in localhost-consent-resume.test.tsx.
     const commandChannel = source.slice(
       source.indexOf("designEditorCommandFromSearchParams(\n") - 600,
       source.indexOf("designEditorCommandKey()];"),

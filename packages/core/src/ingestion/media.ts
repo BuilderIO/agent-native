@@ -201,11 +201,18 @@ export async function downscaleImageToFit(input: {
   const metadata = await sharp(source, { failOn: "none" }).metadata();
   if (!metadata.width || !metadata.height) return null;
 
+  // sharp reports EXIF orientation without applying it; phone photos need the rotate and swapped dimensions.
+  const quarterTurn = (metadata.orientation ?? 1) >= 5;
+  const oriented = {
+    width: quarterTurn ? metadata.height : metadata.width,
+    height: quarterTurn ? metadata.width : metadata.height,
+  };
+
   const mimeType = metadata.hasAlpha ? "image/png" : "image/jpeg";
   const encode = (width: number, height: number) => {
-    const pipeline = sharp(source, { failOn: "none" }).resize(width, height, {
-      fit: "inside",
-    });
+    const pipeline = sharp(source, { failOn: "none" })
+      .rotate()
+      .resize(width, height, { fit: "inside" });
     return (
       metadata.hasAlpha
         ? pipeline.png({ compressionLevel: 9 })
@@ -217,8 +224,8 @@ export async function downscaleImageToFit(input: {
     1,
     Math.sqrt(input.maxBytes / Math.max(1, input.data.byteLength)) * 0.9,
   );
-  let width = Math.max(1, Math.round(metadata.width * firstGuess));
-  let height = Math.max(1, Math.round(metadata.height * firstGuess));
+  let width = Math.max(1, Math.round(oriented.width * firstGuess));
+  let height = Math.max(1, Math.round(oriented.height * firstGuess));
   while (true) {
     const encoded = await encode(width, height);
     if (encoded.byteLength <= input.maxBytes) {
@@ -282,11 +289,13 @@ interface SharpPipeline {
     options: { fit: "inside" },
   ): SharpPipeline;
   removeAlpha(): SharpPipeline;
+  rotate(): SharpPipeline;
   metadata(): Promise<{
     width?: number;
     height?: number;
     channels?: number;
     hasAlpha?: boolean;
+    orientation?: number;
   }>;
   extract(region: {
     left: number;

@@ -38,6 +38,38 @@ export const factoryOperations: OperationDefinitionInput[] = [
       action: "get-factory-merge-gate",
       argMap: { repo: "repo", number: "number" },
     },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "eligible",
+        type: "boolean",
+        description: "True only when no rule holds the pull request back.",
+      },
+      {
+        name: "reasons",
+        type: "list",
+        description:
+          "One sentence per rule that holds it back; empty when eligible.",
+      },
+      { name: "reasonCodes", type: "list" },
+      {
+        name: "reasonText",
+        type: "string",
+        description: "The reasons joined into one string, for a message.",
+      },
+      {
+        name: "approvals",
+        type: "object",
+        description:
+          "Counts of approvals found: seen, qualifying, byAuthor, fromBots, fromNonCollaborators, stale.",
+      },
+      { name: "repo", type: "string" },
+      { name: "number", type: "number" },
+      { name: "url", type: "string", nullable: true },
+      { name: "state", type: "string", nullable: true },
+      { name: "headSha", type: "string", nullable: true },
+      { name: "checkedAt", type: "string" },
+    ],
     credential: { provider: "factory" },
   },
 ];

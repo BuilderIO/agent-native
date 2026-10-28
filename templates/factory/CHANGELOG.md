@@ -3,6 +3,14 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-23
+
+### Fixed
+
+- Prompt automation jobs created, edited, restored, or started by external agents require approval.
+
+  Single-line automation settings now reject line breaks.
+
 ## 2026-10-10
 
 ### Improved

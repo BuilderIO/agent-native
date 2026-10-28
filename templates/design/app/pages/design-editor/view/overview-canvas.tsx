@@ -176,6 +176,7 @@ export function renderOverviewCanvas({
   } = editorContentAndComponents;
   const {
     reviewFocusRequest,
+    setOpenReviewThreadId,
     handleDispatchCommentToAgent,
     handleSendReviewThreadToAgent,
     handleOverviewActiveToolChange,
@@ -327,6 +328,7 @@ export function renderOverviewCanvas({
           reviewTargetId: null,
           reviewCurrentUserEmail: session?.email,
           reviewFocusRequest,
+          onReviewActiveThreadChange: setOpenReviewThreadId,
           onExitReviewPinMode: handleExitReviewCommentMode,
           onDispatchCommentToAgent: handleDispatchCommentToAgent,
           onSendThreadToAgent: handleSendReviewThreadToAgent,
@@ -523,6 +525,7 @@ export function renderOverviewCanvas({
           canPost={canCommentDesign}
           canResolve={canEditDesign}
           focusRequest={reviewFocusRequest}
+          onActiveThreadChange={setOpenReviewThreadId}
           onDispatchCommentToAgent={
             canEditDesign ? handleDispatchCommentToAgent : undefined
           }

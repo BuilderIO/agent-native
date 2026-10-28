@@ -421,6 +421,48 @@ describe("run-workflow-operation: a good answer", () => {
     expect(result.truncated).toBe(false);
   });
 
+  describe("an empty range", () => {
+    const gongEmpty = {
+      requestId: "req-1",
+      errors: ["No calls found corresponding to the provided filters"],
+    };
+    const window = { from: SINCE, to: UNTIL };
+
+    it("reads Gong's 404 for a range with no calls as zero items", async () => {
+      executeRequestMock.mockResolvedValue(answer(gongEmpty, { status: 404 }));
+      const result = await run({ operationId: "gong.newCalls", window });
+      expect(result).toMatchObject({
+        ok: true,
+        operationId: "gong.newCalls",
+        items: [],
+        output: { itemCount: 0, truncated: false },
+      });
+    });
+
+    it("keeps a Gong 404 that does not say there are no calls a failure", async () => {
+      for (const body of [
+        { requestId: "req-1", errors: ["Unknown call"] },
+        { requestId: "req-1", errors: [gongEmpty.errors[0], "Unknown call"] },
+        { requestId: "req-1" },
+        "not json",
+      ]) {
+        executeRequestMock.mockResolvedValue(answer(body, { status: 404 }));
+        const failure = await failureOf(
+          run({ operationId: "gong.newCalls", window }),
+        );
+        expect(failure.errorCode).toBe("provider_not_found");
+      }
+    });
+
+    it("does not read that text as empty for an operation that did not declare it", async () => {
+      executeRequestMock.mockResolvedValue(answer(gongEmpty, { status: 404 }));
+      const failure = await failureOf(
+        run({ operationId: "hubspot.newLeads", cursor: "1" }),
+      );
+      expect(failure.errorCode).toBe("provider_not_found");
+    });
+  });
+
   it("primes the cursor and returns no items on a first live run", async () => {
     executeRequestMock.mockResolvedValue(
       answer({ results: [lead("9003"), lead("9002")] }),

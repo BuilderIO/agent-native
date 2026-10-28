@@ -6,6 +6,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { ThreadSuggestionBody } from "./ThreadSuggestion";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -67,22 +69,36 @@ function render(
 ) {
   act(() =>
     root.render(
-      <ThreadSuggestionBody
-        suggestions={suggestions}
-        canDecide
-        busy={() => false}
-        conflict={handlers.conflict ?? (() => false)}
-        onDecide={handlers.onDecide ?? (() => {})}
-        onDecideRemaining={handlers.onDecideRemaining}
-      />,
+      <TooltipProvider>
+        <ThreadSuggestionBody
+          suggestions={suggestions}
+          canDecide
+          busy={() => false}
+          conflict={handlers.conflict ?? (() => false)}
+          onDecide={handlers.onDecide ?? (() => {})}
+          {...(handlers.onDecideRemaining
+            ? { onDecideRemaining: handlers.onDecideRemaining }
+            : {})}
+        />
+      </TooltipProvider>,
     ),
   );
 }
 
+// Accept and Reject are icons named by their aria-label.
 const button = (label: string, index = 0) =>
   [...host.querySelectorAll("button")].filter(
-    (entry) => entry.textContent === label,
+    (entry) =>
+      entry.textContent === label || entry.getAttribute("aria-label") === label,
   )[index]!;
+
+const openGroup = () => {
+  const toggle = host.querySelector<HTMLButtonElement>(
+    "[data-suggestion-proposal] > button[aria-expanded]",
+  );
+  if (!toggle) throw new Error("No suggestion group to open");
+  act(() => toggle.click());
+};
 
 describe("ThreadSuggestionBody", () => {
   it("shows a proposal's summary once and each edit as its own small change", () => {
@@ -92,6 +108,7 @@ describe("ThreadSuggestionBody", () => {
     render(suggestions, { onDecide, onDecideRemaining });
 
     expect(host.textContent?.match(/Hyphenate Open-source/g)).toHaveLength(1);
+    openGroup();
     const diffs = [...host.querySelectorAll("[data-thread-suggestion-diff]")];
     expect(diffs.map((diff) => diff.querySelector("del")?.textContent)).toEqual(
       ["Open source ", "Open source "],
@@ -105,6 +122,20 @@ describe("ThreadSuggestionBody", () => {
     expect(onDecide).toHaveBeenCalledWith(suggestions[1], "accepted");
     act(() => button("comments.acceptAll").click());
     expect(onDecideRemaining).toHaveBeenCalledWith("accepted");
+  });
+
+  it("closes a proposal to its summary and group decision until opened", () => {
+    render(proposal(), { onDecideRemaining: vi.fn() });
+
+    expect(
+      host.querySelector("[data-suggestion-proposal] > button")?.textContent,
+    ).toContain("Hyphenate Open-source");
+    expect(host.querySelector("[data-thread-suggestion]")).toBeNull();
+    expect(button("comments.acceptAll")).toBeDefined();
+    expect(button("comments.rejectAll")).toBeDefined();
+
+    openGroup();
+    expect(host.querySelectorAll("[data-thread-suggestion]")).toHaveLength(2);
   });
 
   it("decides the rest of a proposal once one edit is decided", () => {
@@ -129,7 +160,11 @@ describe("ThreadSuggestionBody", () => {
         (status) => status.textContent,
       ),
     ).toEqual(["comments.suggestionReplaced"]);
-    expect(host.querySelector("button")).toBeNull();
+    openGroup();
+    expect(host.querySelector("[data-suggestion-decision]")).toBeNull();
+    expect(
+      host.querySelector("[data-suggestion-proposal-decision]"),
+    ).toBeNull();
   });
 
   it("keeps a group accept from failing on an edit that cannot be placed", () => {

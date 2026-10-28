@@ -795,7 +795,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -816,7 +820,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -1311,7 +1319,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });

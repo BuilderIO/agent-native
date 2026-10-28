@@ -1,8 +1,12 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import type { ClipEmbedOrigin } from "@shared/clip-embed-block";
+import { CONTENT_CLIP_UPLOAD_MIME_TYPES } from "@shared/clips-peer-contract";
+import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import {
   IconArrowsMaximize,
   IconArrowsMinimize,
@@ -18,7 +22,6 @@ import {
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import {
   type ChangeEvent,
-  type FormEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useRef,
@@ -26,6 +29,22 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { clipEmbedBlockContent } from "@/components/editor/clip-embed/clip-embed-content";
+import {
+  announceClipAlreadySaved,
+  announceClipCancel,
+} from "@/components/editor/clip-embed/clip-upload-notices";
+import {
+  beginClipUpload,
+  cancelClipUpload,
+  takeDroppedClipFile,
+} from "@/components/editor/clip-embed/clip-uploads";
+import {
+  ClipUploadGate,
+  ClipUploadHint,
+  useClipFileUpload,
+  useClipUploadStorage,
+} from "@/components/editor/clip-embed/ClipUploadGate";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +53,6 @@ import {
   DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -51,6 +69,7 @@ import {
   EDITOR_NON_EDIT_META,
 } from "../editor-transaction-meta";
 import { uploadVideoFile, videoUploadErrorMessage } from "../image-upload";
+import { VideoLinkForm } from "./VideoLinkForm";
 import type { ContentVideoOptions } from "./VideoNode";
 
 type VideoSourceTab = "upload" | "link";
@@ -161,7 +180,6 @@ export function VideoBlock({
   const [isHovered, setIsHovered] = useState(false);
   const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
-  const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
@@ -181,6 +199,45 @@ export function VideoBlock({
     node.attrs.sourceTab === "link" ? "link" : "upload";
   const poster = (node.attrs.poster as string) || "";
   const isUploading = Boolean(node.attrs.uploadId);
+  // While Clips in pages is on, an uploaded video is always saved as a Clip.
+  const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
+  const uploadsGoToClips = clipsEnabled && Boolean(options.documentId);
+  const clipUpload = useClipFileUpload({
+    documentId: options.documentId,
+    onStarted: ({ file, documentId, recordingId, ticket, blockId }) => {
+      if (replaceWithClip(recordingId, "upload", blockId)) {
+        if (ticket) {
+          void beginClipUpload({
+            file,
+            ticket,
+            documentId,
+            blockId,
+          });
+        }
+        return;
+      }
+      if (!ticket) {
+        void announceClipAlreadySaved({ recordingId, t });
+        return;
+      }
+      // Clips has reserved the upload by now; nothing in the page can use it.
+      const cancelledKey =
+        editor.isDestroyed || canMutateMediaNow()
+          ? "clipEmbed.uploadCancelledBlockGone"
+          : "clipEmbed.uploadCancelledReadOnly";
+      void cancelClipUpload(ticket).then((cancelled) =>
+        announceClipCancel(cancelled, {
+          recordingId: ticket.recordingId,
+          cancelledKey,
+          t,
+        }),
+      );
+    },
+  });
+  const clipUploadStorage = useClipUploadStorage(
+    options.documentId,
+    uploadsGoToClips && isEditable && (!src || sourcePanelOpen),
+  );
   const width = normalizedVideoWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
@@ -231,6 +288,41 @@ export function VideoBlock({
       document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [selected, setSourcePanelOpen, sourcePanelOpen]);
 
+  const { start: startClipUpload } = clipUpload;
+  const uploadId = node.attrs.uploadId;
+  useEffect(() => {
+    if (!uploadsGoToClips) return;
+    const file = takeDroppedClipFile(uploadId);
+    if (!file) return;
+    editor.commands.command(({ tr }) => {
+      const pos = typeof getPos === "function" ? getPos() : undefined;
+      const current = typeof pos === "number" ? tr.doc.nodeAt(pos) : null;
+      if (typeof pos !== "number" || !current) return false;
+      tr.setNodeMarkup(pos, undefined, { ...current.attrs, uploadId: null });
+      tr.setMeta(EDITOR_NON_EDIT_META, true).setMeta("addToHistory", false);
+      return true;
+    });
+    void startClipUpload(file).then((refused) => {
+      // The block was made for the file, so it goes when the file is refused,
+      // as a dropped file of a type Clips doesn't take gets no block. One the
+      // editor has since given a video keeps it.
+      if (!refused || editor.isDestroyed) return;
+      const pos = typeof getPos === "function" ? getPos() : undefined;
+      const current =
+        typeof pos === "number" ? editor.state.doc.nodeAt(pos) : null;
+      if (current?.type.name === node.type.name && !current.attrs.src) {
+        deleteNodeFromMenu({ editor, getPos, node: current });
+      }
+    });
+  }, [
+    editor,
+    getPos,
+    node.type.name,
+    startClipUpload,
+    uploadId,
+    uploadsGoToClips,
+  ]);
+
   function canComment() {
     const position = typeof getPos === "function" ? getPos() : undefined;
     return (
@@ -257,7 +349,6 @@ export function VideoBlock({
 
   function openReplacePanel() {
     if (!canMutateMediaNow()) return;
-    setVideoUrl("");
     setSourcePanelDismissed(false);
     setSourcePanel({ sourcePanelOpen: true, sourceTab: "upload" });
   }
@@ -420,7 +511,12 @@ export function VideoBlock({
   async function handleVideoFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file || !fileStorageConfigured || !canMutateMediaNow()) return;
+    if (!file || !canMutateMediaNow()) return;
+    if (uploadsGoToClips) {
+      void clipUpload.start(file);
+      return;
+    }
+    if (!fileStorageConfigured) return;
 
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
@@ -441,36 +537,39 @@ export function VideoBlock({
   }
 
   function requestVideoFilePicker() {
-    if (!isEditable || isUploading) return;
-    if (!fileStorageConfigured) {
+    if (!isEditable || isUploading || clipUpload.busy) return;
+    if (!uploadsGoToClips && !fileStorageConfigured) {
       setStorageSetupOpen(true);
       return;
     }
     fileInputRef.current?.click();
   }
 
-  function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canMutateMediaNow()) return;
-    const nextSrc = videoUrl.trim();
-    if (!nextSrc) return;
-
-    try {
-      const url = new URL(nextSrc);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        throw new Error("Invalid protocol");
-      }
-    } catch {
-      toast.error(t("editor.media.pasteValidVideoUrl"));
-      return;
-    }
-
+  function handleEmbedLink(nextSrc: string) {
+    if (editor.isDestroyed || !canMutateMediaNow()) return;
     updateAttributes({
       src: nextSrc,
       sourcePanelOpen: false,
       sourceTab: "upload",
     });
-    setVideoUrl("");
+  }
+
+  function replaceWithClip(
+    recordingId: string,
+    origin: ClipEmbedOrigin = "link",
+    blockId?: string,
+  ): boolean {
+    if (editor.isDestroyed || !canMutateMediaNow()) return false;
+    const pos = typeof getPos === "function" ? getPos() : undefined;
+    if (typeof pos !== "number") return false;
+    return editor
+      .chain()
+      .focus()
+      .insertContentAt(
+        { from: pos, to: pos + node.nodeSize },
+        clipEmbedBlockContent(recordingId, origin, blockId),
+      )
+      .run();
   }
 
   function renderSourcePanel(replace = false) {
@@ -517,43 +616,70 @@ export function VideoBlock({
               type="button"
               variant="outline"
               className="w-full"
+              disabled={clipUpload.busy}
               onClick={requestVideoFilePicker}
             >
               {t("editor.media.uploadFile")}
             </Button>
-            <FileStorageStatusGate
-              status={fileUploadStatus}
-              open={storageSetupOpen}
-              onOpenChange={setStorageSetupOpen}
-            />
+            {uploadsGoToClips ? (
+              <ClipUploadHint
+                storage={clipUploadStorage.data?.storage}
+                error={
+                  clipUploadStorage.isError ? clipUploadStorage.error : null
+                }
+              />
+            ) : (
+              <FileStorageStatusGate
+                status={fileUploadStatus}
+                open={storageSetupOpen}
+                onOpenChange={setStorageSetupOpen}
+              />
+            )}
           </div>
         ) : (
-          <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
-            <Input
-              autoFocus
-              type="url"
-              value={videoUrl}
-              onChange={(event) => setVideoUrl(event.target.value)}
-              placeholder={t("editor.media.pasteVideoLink")}
-            />
-            <Button type="submit" className="w-full">
-              {replace
-                ? t("editor.media.replaceVideo")
-                : t("editor.media.embedVideo")}
-            </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              {t("editor.media.videoLinkHint")}
-            </p>
-          </form>
+          <VideoLinkForm
+            replace={replace}
+            onVideo={handleEmbedLink}
+            onClip={replaceWithClip}
+          />
         )}
       </div>
     );
   }
 
+  const fileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept={
+        uploadsGoToClips ? CONTENT_CLIP_UPLOAD_MIME_TYPES.join(",") : "video/*"
+      }
+      disabled={!uploadsGoToClips && !fileStorageConfigured}
+      className="hidden"
+      tabIndex={-1}
+      aria-hidden="true"
+      onChange={(event) => void handleVideoFilePicked(event)}
+    />
+  );
+
+  if (clipUpload.held && isEditable) {
+    return (
+      <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
+        <ClipUploadGate
+          held={clipUpload.held}
+          busy={clipUpload.busy}
+          onCheckAgain={() => void clipUpload.checkAgain()}
+          onDiscard={clipUpload.discard}
+        />
+      </NodeViewWrapper>
+    );
+  }
+
   if (!src) {
+    const busy = isUploading || clipUpload.busy;
     const showSourcePanel =
       isEditable &&
-      !isUploading &&
+      !busy &&
       !sourcePanelDismissed &&
       (selected || sourcePanelOpen);
 
@@ -568,32 +694,23 @@ export function VideoBlock({
           <button
             type="button"
             className="media-empty-block__trigger"
-            disabled={isUploading}
-            aria-busy={isUploading}
+            disabled={busy}
+            aria-busy={busy}
             onClick={() => {
-              if (!isEditable || isUploading) return;
+              if (!isEditable || busy) return;
               setSourcePanelDismissed(false);
               setSourcePanelOpen(true);
             }}
           >
             <IconVideo size={20} />
             <span>
-              {isUploading
+              {busy
                 ? t("editor.media.uploadingVideo")
                 : t("editor.media.addVideo")}
             </span>
           </button>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*"
-            disabled={!fileStorageConfigured}
-            className="hidden"
-            tabIndex={-1}
-            aria-hidden="true"
-            onChange={handleVideoFilePicked}
-          />
+          {fileInput}
 
           {showSourcePanel ? renderSourcePanel() : null}
         </div>
@@ -628,16 +745,7 @@ export function VideoBlock({
           }}
         />
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          disabled={!fileStorageConfigured}
-          className="hidden"
-          tabIndex={-1}
-          aria-hidden="true"
-          onChange={handleVideoFilePicked}
-        />
+        {fileInput}
 
         {isEditable ? (
           <>

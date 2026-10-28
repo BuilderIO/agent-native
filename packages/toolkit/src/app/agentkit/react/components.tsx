@@ -108,6 +108,7 @@ import {
   ComposerNotice,
   ComposerNoticeScope,
 } from "../../../composer/composer-notice.js";
+import { useComposerRuntimeAdapters } from "../../../composer/runtime-adapters.js";
 import { Dialog, Tooltip } from "../../../design-system/index.js";
 import { useTableColumnGlide } from "../../../table-column-glide.js";
 import { Skeleton } from "../../../ui/skeleton.js";
@@ -2563,9 +2564,15 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
         event.type === "run.failed" ||
         event.type === "run.cancelled"),
   );
+  // A local run, such as voice chat's, never starts on the server, so it
+  // stays queued while it works; its own events show it is working.
+  const localRunWorking =
+    run?.status === "queued" && runEvents.length > 0 && !hasTerminalRunEvent;
   const activelyWorking =
     isCurrentSegment &&
-    (run ? run.status === "running" : running && !hasTerminalRunEvent);
+    (run
+      ? run.status === "running" || localRunWorking
+      : running && !hasTerminalRunEvent);
   const waitingLabel =
     isCurrentSegment && run?.status === "awaiting_approval"
       ? labels.waitingForApproval
@@ -4763,6 +4770,15 @@ function messageText(message: AgentMessage): string {
     .join("\n");
 }
 
+function messageCopyText(message: AgentMessage, text: string): string {
+  const files = message.parts.flatMap((part) => {
+    if (part.type !== "file") return [];
+    const href = safeAgentHref(part.url);
+    return [[part.name, ...(href ? [href] : [])].join("\n")];
+  });
+  return [text, ...files].filter(Boolean).join("\n\n");
+}
+
 function findPreviousMessage(
   messages: readonly AgentMessage[],
   messageId: string,
@@ -5381,6 +5397,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   const secondaryActionsRef = useRef<HTMLDivElement>(null);
   const pendingFocusRef = useRef<"secondary" | "toggle" | null>(null);
   const secondaryActionsId = useId();
+  const copyText = messageCopyText(message, text);
   const showRetry =
     isLastAssistantMessage &&
     position.hasPreviousUserMessage &&
@@ -5438,8 +5455,8 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     if (!hasSecondaryActions && moreActionsOpen) setMoreActions(false, null);
   }, [hasSecondaryActions, moreActionsOpen, setMoreActions]);
   const copyAction = useAgentKitMutation(async () => {
-    const handled = await onCopyMessage?.({ message, text });
-    if (!handled && !(await writeClipboardText(text))) {
+    const handled = await onCopyMessage?.({ message, text: copyText });
+    if (!handled && !(await writeClipboardText(copyText))) {
       throw new Error(labels.copyUnavailable);
     }
     setCopied(true);
@@ -6191,6 +6208,7 @@ export interface AgentKitComposerProps extends Omit<
     | "modelStatusChecksEnabled"
     | "showMissingApiKeySetup"
     | "setupCardVisible"
+    | "onModelConnectionRequiredChange"
     | "contextUsageSlot"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
@@ -6292,6 +6310,7 @@ export function AgentKitComposer({
   requireAgentEngine = false,
   showMissingApiKeySetup,
   setupCardVisible,
+  onModelConnectionRequiredChange,
   contextUsageSlot,
   attachmentsEnabled,
   onAttachmentRequest,
@@ -6426,13 +6445,14 @@ export function AgentKitComposer({
     };
   }, []);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerTranslate = useComposerRuntimeAdapters().translate;
   useEffect(() => {
     setAttachmentError(null);
     setStopError(null);
   }, [threadId]);
   const composerAttachmentAdapter = useMemo(
-    () => attachmentAdapter ?? createChatAttachmentAdapter(),
-    [attachmentAdapter],
+    () => attachmentAdapter ?? createChatAttachmentAdapter(composerTranslate),
+    [attachmentAdapter, composerTranslate],
   );
   const starting = useAgentKitSubmissionStarting(threadId);
   const active = hasActiveRuns(thread) || starting;
@@ -7009,6 +7029,7 @@ export function AgentKitComposer({
             requireAgentEngine,
             showMissingApiKeySetup,
             setupCardVisible,
+            onModelConnectionRequiredChange,
             contextUsageSlot,
             layoutVariant,
             toolbarSlot,

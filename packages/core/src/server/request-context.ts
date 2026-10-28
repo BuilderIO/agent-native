@@ -118,6 +118,11 @@ export interface RequestRunContext {
 }
 
 export interface RequestContext {
+  /**
+   * The id the server stamps on this request's response, so a failure captured
+   * anywhere in the request names the id the person sees on screen.
+   */
+  requestId?: string;
   isSyntheticTraffic?: boolean;
   mcpRequestId?: string;
   userEmail?: string;
@@ -169,6 +174,8 @@ export interface RequestContext {
   authContextAccessed?: boolean;
   requestOrigin?: string;
   federationMembershipValidated?: boolean;
+  /** Resolves embed authority independently of the origin used for MCP links. */
+  resolveEmbedRequestOrigin?: () => string;
   /**
    * True when the request's real socket peer is loopback, captured by the
    * action-route handler while the h3 event is still in scope (nothing below

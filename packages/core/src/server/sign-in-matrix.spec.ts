@@ -32,6 +32,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { searchForWorkspaceRoot } from "vite";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -548,7 +549,7 @@ describe("sign-in matrix", () => {
   });
 
   describe("the browser-driven half is real and runs", () => {
-    const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+    const repoRoot = searchForWorkspaceRoot(import.meta.dirname);
     const read = (rel: string) =>
       fs.readFileSync(path.join(repoRoot, rel), "utf8");
 

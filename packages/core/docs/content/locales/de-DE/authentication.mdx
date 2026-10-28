@@ -342,6 +342,8 @@ export default createAuthPlugin({
 });
 ```
 
+Bei benutzerdefinierter Authentifizierung muss auch der optionale Rückruf `AuthOptions.getBrowserSession` für UI-Funktionen und Browserfreigaben konfiguriert werden. Er akzeptiert ein `H3Event` und gibt wie `getSession` `AuthSession | null` zurück, darf aber ausschließlich Browser-Cookies und niemals Bearer-Token, Query-Token oder andere Header lesen. Ohne diesen expliziten Hook geben diese reinen Browseroperationen `401` zurück.
+
 ## Öffentliche Workspace-Apps {#public-workspace-apps}
 
 Workspace-Apps sind standardmäßig intern. Damit anonyme Besucher eine öffentliche laden können

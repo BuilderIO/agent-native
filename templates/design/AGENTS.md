@@ -58,8 +58,10 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `get-native-shader-approvals` | Read effect approvals |
 | `prepare-native-scene-export` | Pin scene for PNG |
 | `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Export native PNG |
+| `generate-screens` | Plan screens |
 | `take-design-screenshot` / `export-png` | Inspect responsive images / export PNG |
-| `export-html` / `export-hubspot-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
+| `export-html` / `export-hubspot-html` / `export-zip` / `export-design-as-figma-svg` | Export finished work |
+| `export-coding-handoff` | Export code; outside-agent calls need approval (7-day bearer URLs) |
 
 ## Core Rules
 
@@ -77,7 +79,7 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 - `visual-edit`: last project/connection; same-connection opens resume unless `newDesign` is true.
 - `agent-selection`: screens and layers picked with Select; a `Selected objects` context block names the target set, so edit only those.
 - `navigate`: transient request to move the requesting tab; deleted after consumption.
-- `design-selection`: active screen/element, `activeFrameType` and screen `frameType` (`hubspot-email` or null), overview, inspector, zoom, `layoutGrid`; `motion` holds timeline, playback, auto-keyframe and selection.
+- `design-selection`: active screen/element, `activeFrameType` and screen `frameType` (`hubspot-email` or null), overview, inspector, zoom, `layoutGrid`, `reviewThreadId` (open comment thread or null); `motion` holds timeline, playback, auto-keyframe and selection.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions`: generation planning and variant choice; see `design-generation`.
 - `design-reprompt-pending:<designId>:<fileId>` and `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` must be present and matched before `propose-node-rewrite`.
 
