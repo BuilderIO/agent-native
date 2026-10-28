@@ -157,6 +157,11 @@ export const journeyExampleSchema = z.object({
 
 const journeyNodeBaseSchema = z.object({
   key: z.string().min(1).max(MAX_JOURNEY_KEY_CHARS),
+  cohortKey: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{0,127}$/)
+    .optional()
+    .describe("Explicit cohort key used to group app-band nodes."),
   keyTruncated: z.boolean().optional(),
   label: z.string().min(1).max(MAX_JOURNEY_LABEL_CHARS),
   labelTruncated: z.boolean().optional(),
@@ -293,7 +298,10 @@ export const journeyTreeSchema = z
     app: z.string().min(1).max(128),
     rootN: count,
     appRootN: z
-      .record(z.string().regex(/^[a-z][a-z0-9-]{0,127}$/), count.min(1))
+      .record(
+        z.string().regex(/^[a-z][a-z0-9-]{0,127}(?:::[a-z][a-z0-9-]{0,127})?$/),
+        count.min(1),
+      )
       .optional()
       .describe(
         "Per-app or per-cohort root denominators for app-band layouts.",
@@ -571,6 +579,16 @@ export const createJourneyCanvasInputSchema = z
   .superRefine((input, ctx) => {
     const issue = (path: (string | number)[], message: string) =>
       ctx.addIssue({ code: "custom", path, message });
+    const byKey = new Map<string, number>();
+    input.tree.nodes.forEach((node, index) => {
+      if (byKey.has(node.key)) {
+        issue(
+          ["tree", "nodes", index, "key"],
+          `Duplicate node key "${node.key}".`,
+        );
+      }
+      byKey.set(node.key, index);
+    });
     if (input.layoutMode === "appBands") {
       if (input.tree.app !== "all") {
         issue(
@@ -588,7 +606,7 @@ export const createJourneyCanvasInputSchema = z
       const bands = new Set<string>();
       input.tree.nodes.forEach((node, index) => {
         const sourceApp = appKeyForNode(node.key);
-        const band = appBandKeyForNode(node.key);
+        const band = appBandKeyForNode(node);
         if (!sourceApp || !band) {
           issue(
             ["tree", "nodes", index, "key"],
@@ -598,11 +616,16 @@ export const createJourneyCanvasInputSchema = z
         }
         bands.add(band);
         if (node.parentKey !== null) {
-          const parentBand = appBandKeyForNode(node.parentKey);
-          if (parentBand !== band) {
+          const parentIndex = byKey.get(node.parentKey);
+          const parent =
+            parentIndex === undefined
+              ? undefined
+              : input.tree.nodes[parentIndex];
+          const parentBand = parent ? appBandKeyForNode(parent) : null;
+          if (parent && parentBand !== band) {
             issue(
               ["tree", "nodes", index, "parentKey"],
-              "App-band parent links must stay within the same app cohort.",
+              "App-band parent links must stay within the same source app and cohort.",
             );
           }
         }
@@ -644,16 +667,6 @@ export const createJourneyCanvasInputSchema = z
         "Pass the Design ID used to stage screenshots when any frame has stagedFrameId.",
       );
     }
-    const byKey = new Map<string, number>();
-    input.tree.nodes.forEach((node, index) => {
-      if (byKey.has(node.key)) {
-        issue(
-          ["tree", "nodes", index, "key"],
-          `Duplicate node key "${node.key}".`,
-        );
-      }
-      byKey.set(node.key, index);
-    });
     input.tree.nodes.forEach((node, index) => {
       if (node.parentKey === null) return;
       if (node.parentKey === node.key) {
@@ -1028,6 +1041,14 @@ function appDisplayName(value: string): string {
   );
 }
 
+function appBandDisplayName(value: string): string {
+  const separator = value.indexOf("::");
+  if (separator < 0) return appDisplayName(value);
+  const sourceApp = value.slice(0, separator);
+  const cohort = value.slice(separator + 2);
+  return `${appDisplayName(sourceApp)} ${appDisplayName(cohort)}`;
+}
+
 export function formatPercent(value: number, locale = "en-US"): string {
   const clamped = Math.min(100, Math.max(0, value));
   return new Intl.NumberFormat(locale, {
@@ -1213,12 +1234,12 @@ function otherNodeSessionDetail(args: {
   const formattedCount = formatInt(count, messages.htmlLanguage);
   const formattedPercent = formatPercent(pctOfParent, messages.htmlLanguage);
   if (!parent || !hasCohortMetrics(parent)) {
-    const bandKey = appBandKeyForNode(node.key);
+    const bandKey = appBandKeyForNode(node);
     if (layoutMode === "appBands" && bandKey) {
       return interpolateJourneyCanvasMessage(messages.sessionsOfAppRoot, {
         count: formattedCount,
         percent: formattedPercent,
-        app: appDisplayName(bandKey),
+        app: appDisplayName(appBandLabelForNode(node) ?? bandKey),
         rootCount: formatInt(
           appBandRootCount(tree, bandKey),
           messages.htmlLanguage,
@@ -1596,11 +1617,18 @@ function appKeyForNode(nodeKey: string): string | null {
   return /^([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[1] ?? null;
 }
 
-function appBandKeyForNode(nodeKey: string): string | null {
-  return (
-    /^([a-z][a-z0-9-]{0,127})::([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[2] ??
-    appKeyForNode(nodeKey)
-  );
+function appBandKeyForNode(
+  node: Pick<JourneyNode, "key" | "cohortKey">,
+): string | null {
+  const sourceApp = appKeyForNode(node.key);
+  if (!sourceApp) return null;
+  return node.cohortKey ? `${sourceApp}::${node.cohortKey}` : sourceApp;
+}
+
+function appBandLabelForNode(
+  node: Pick<JourneyNode, "key" | "cohortKey">,
+): string | null {
+  return node.cohortKey ?? appKeyForNode(node.key);
 }
 
 function recordValueAt<T>(
@@ -1625,10 +1653,12 @@ function appBandRootCount(
   return rootN;
 }
 
-function requiredAppBandKey(nodeKey: string): string {
-  const bandKey = appBandKeyForNode(nodeKey);
+function requiredAppBandKey(
+  node: Pick<JourneyNode, "key" | "cohortKey">,
+): string {
+  const bandKey = appBandKeyForNode(node);
   if (!bandKey) {
-    throw new Error(`App-band node has no source app prefix: ${nodeKey}`);
+    throw new Error(`App-band node has no source app prefix: ${node.key}`);
   }
   return bandKey;
 }
@@ -2201,7 +2231,7 @@ export function planJourneyCanvas(
     const incomingLabelSize = incomingLabel
       ? edgeLabelSize(incomingLabel)
       : undefined;
-    const bandKey = appBandKeyForNode(entry.node.key);
+    const bandKey = appBandKeyForNode(entry.node);
     if (bandKey) {
       layoutBandById.set(entry.layoutId, bandKey);
       layoutEntryById.set(entry.layoutId, entry);
@@ -2276,7 +2306,7 @@ export function planJourneyCanvas(
           ),
         },
       });
-      const bandKey = appBandKeyForNode(entry.node.key);
+      const bandKey = appBandKeyForNode(entry.node);
       if (bandKey) {
         layoutBandById.set(`d${entry.index}`, bandKey);
         layoutEntryById.set(`d${entry.index}`, entry);
@@ -2287,11 +2317,7 @@ export function planJourneyCanvas(
   const appBandLayout =
     input.layoutMode === "appBands"
       ? layoutJourneyAppBands(
-          [
-            ...new Set(
-              ordered.map((entry) => appBandKeyForNode(entry.node.key)),
-            ),
-          ]
+          [...new Set(ordered.map((entry) => appBandKeyForNode(entry.node)))]
             .filter((band): band is string => band !== null)
             .map((band) => ({
               key: band,
@@ -2502,9 +2528,12 @@ export function planJourneyCanvas(
                 entry.node.pctOfRoot,
                 messages.htmlLanguage,
               ),
-              app: appDisplayName(requiredAppBandKey(entry.node.key)),
+              app: appDisplayName(
+                appBandLabelForNode(entry.node) ??
+                  requiredAppBandKey(entry.node),
+              ),
               rootCount: formatInt(
-                appBandRootCount(tree, requiredAppBandKey(entry.node.key)),
+                appBandRootCount(tree, requiredAppBandKey(entry.node)),
                 messages.htmlLanguage,
               ),
             })
@@ -2638,7 +2667,7 @@ export function planJourneyCanvas(
           style: `padding:6px 10px;background:${SURFACE};border:1px solid ${BORDER};border-radius:6px;font-family:system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
           html: escapeHtml(
             interpolateJourneyCanvasMessage(messages.appBandHeading, {
-              app: appDisplayName(band.key),
+              app: appBandDisplayName(band.key),
               count: formatInt(band.rootN, messages.htmlLanguage),
             }),
           ),

@@ -441,18 +441,33 @@ describe("snapshot tree planning", () => {
 
     expect(combined.app).toBe("all");
     expect(combined.rootN).toBe(30);
-    expect(combined.appRootN).toEqual({ control: 10, credits: 20 });
+    expect(combined.appRootN).toEqual({
+      "design::control": 10,
+      "design::credits": 20,
+    });
     expect(combined.nodes).toMatchObject([
-      { key: "design::control::signup", parentKey: null, pctOfRoot: 100 },
+      {
+        key: "design::control::signup",
+        cohortKey: "control",
+        parentKey: null,
+        pctOfRoot: 100,
+      },
       {
         key: "design::control::signup > choice",
+        cohortKey: "control",
         parentKey: "design::control::signup",
         pctOfRoot: 80,
         pctOfParent: 80,
       },
-      { key: "design::credits::signup", parentKey: null, pctOfRoot: 100 },
+      {
+        key: "design::credits::signup",
+        cohortKey: "credits",
+        parentKey: null,
+        pctOfRoot: 100,
+      },
       {
         key: "design::credits::signup > choice",
+        cohortKey: "credits",
         parentKey: "design::credits::signup",
         pctOfRoot: 60,
         pctOfParent: 60,

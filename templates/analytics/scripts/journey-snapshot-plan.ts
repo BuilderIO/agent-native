@@ -32,6 +32,7 @@ export interface SnapshotExample {
 
 export interface SnapshotNode {
   key: string;
+  cohortKey?: string;
   label: string;
   parentKey: string | null;
   depth: number;
@@ -464,10 +465,11 @@ export function combineSnapshotBands(
     if (!Number.isSafeInteger(band.tree.rootN) || band.tree.rootN < 1) {
       throw new Error(`Cohort ${band.key} needs a positive root denominator.`);
     }
-    if (Object.prototype.hasOwnProperty.call(appRootN, band.key)) {
-      throw new Error(`Duplicate side-by-side cohort key: ${band.key}`);
+    const rootKey = sourceApp ? `${sourceApp}::${band.key}` : band.key;
+    if (Object.prototype.hasOwnProperty.call(appRootN, rootKey)) {
+      throw new Error(`Duplicate side-by-side cohort key: ${rootKey}`);
     }
-    appRootN[band.key] = band.tree.rootN;
+    appRootN[rootKey] = band.tree.rootN;
     const prefix = sourceApp ? `${sourceApp}::${band.key}` : band.key;
     for (const node of band.tree.nodes) {
       const key = `${prefix}::${node.key}`;
@@ -478,6 +480,7 @@ export function combineSnapshotBands(
       nodes.push({
         ...node,
         key,
+        ...(sourceApp ? { cohortKey: band.key } : {}),
         parentKey: node.parentKey ? `${prefix}::${node.parentKey}` : null,
       });
     }

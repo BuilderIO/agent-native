@@ -755,7 +755,37 @@ describe("create-journey-canvas input", () => {
     const crossAppParent = appBandsInput();
     crossAppParent.tree.nodes[1]!.parentKey = "design::root";
     expect(problems(crossAppParent).join("\n")).toMatch(
-      /App-band parent links must stay within the same app cohort/,
+      /App-band parent links must stay within the same source app and cohort/,
+    );
+
+    const base = rawInput();
+    const sameNamedCrossAppParent = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 20,
+        appRootN: { "clips::web": 10, "design::web": 10 },
+        nodes: [
+          node("clips::web::root", null, 10, {
+            cohortKey: "web",
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+          node("design::web::child", "clips::web::root", 5, {
+            cohortKey: "web",
+            pctOfRoot: 50,
+            pctOfParent: 50,
+          }),
+        ],
+      },
+      frames: [
+        frame("clips::web::root", 0, { sourceApp: "clips" }),
+        frame("design::web::child", 0, { sourceApp: "design" }),
+      ],
+    });
+    expect(problems(sameNamedCrossAppParent).join("\n")).toMatch(
+      /App-band parent links must stay within the same source app and cohort/,
     );
 
     const missingPrefix = appBandsInput();
@@ -772,11 +802,30 @@ describe("create-journey-canvas input", () => {
     expect(problems(inheritedDenominator).join("\n")).toMatch(
       /Pass the root denominator for the constructor cohort/,
     );
+
+    const legacyTripleKey = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 1,
+        appRootN: { design: 1 },
+        nodes: [
+          node("design::step::variant", null, 1, {
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+        ],
+      },
+      frames: [frame("design::step::variant", 0, { sourceApp: "design" })],
+    });
+    expect(problems(legacyTripleKey)).toEqual([]);
   });
 
   it("supports independent cohort bands from one source app", () => {
     const base = rawInput();
     const controlRoot = node("design::control::root", null, 60, {
+      cohortKey: "control",
       pctOfRoot: 100,
       pctOfParent: 100,
     });
@@ -784,9 +833,10 @@ describe("create-journey-canvas input", () => {
       "design::control::child",
       "design::control::root",
       30,
-      { pctOfRoot: 50, pctOfParent: 50 },
+      { cohortKey: "control", pctOfRoot: 50, pctOfParent: 50 },
     );
     const creditsRoot = node("design::credits::root", null, 40, {
+      cohortKey: "credits",
       pctOfRoot: 100,
       pctOfParent: 100,
     });
@@ -796,7 +846,7 @@ describe("create-journey-canvas input", () => {
         ...base.tree,
         app: "all",
         rootN: 100,
-        appRootN: { control: 60, credits: 40 },
+        appRootN: { "design::control": 60, "design::credits": 40 },
         nodes: [controlRoot, controlChild, creditsRoot],
       },
       frames: [
@@ -818,8 +868,8 @@ describe("create-journey-canvas input", () => {
     expect(screen(creditsRoot.key).html).toContain(
       "40 sessions · 100% of Credits cohort (n=40)",
     );
-    expect(fragments).toContain("Control · 60 sessions");
-    expect(fragments).toContain("Credits · 40 sessions");
+    expect(fragments).toContain("Design Control · 60 sessions");
+    expect(fragments).toContain("Design Credits · 40 sessions");
   });
 
   it("rejects data: and non-https image URLs with a clear message", () => {
