@@ -53,9 +53,6 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * truncated warehouse reads still checked, cursor resumes for each recoverable
  * status). Trimming the AGENTS routing bullet and the BigQuery and get-dbt-connection
  * descriptions, which repeated data-querying, leaves ~55t over the last ratchet.
- *
- * 18,850 -> 18,925: the call-agent `attachments` parameter (~75t after trimming its
- * description), so chat uploads reach a delegated app instead of being dropped.
  */
 const BASELINE_BUDGET_TOKENS = 18_925;
 
