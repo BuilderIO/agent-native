@@ -116,7 +116,6 @@ describe("server/auth", () => {
     vi.doUnmock("./framework-request-handler.js");
     vi.doUnmock("@agent-native/core/action");
     vi.doUnmock("@agent-native/core/server");
-    vi.doUnmock("@agent-native/core/secrets");
     vi.doUnmock("@agent-native/core/labs/server");
     vi.doUnmock("@agent-native/core/sharing");
     vi.doUnmock("./email.js");
@@ -9706,26 +9705,6 @@ describe("server/auth", () => {
       vi.doMock("@agent-native/core/sharing", () => ({
         registerHostAccessResolver: vi.fn(),
       }));
-      // The Builder session is valid only while its sign-in is on the shared
-      // list, which lives in the secrets store.
-      const storedSecrets = new Map<string, string>();
-      vi.doMock("@agent-native/core/secrets", () => ({
-        writeAppSecret: vi.fn(async (ref: any) => {
-          storedSecrets.set(
-            `${ref.scope}:${ref.scopeId}:${ref.key}`,
-            ref.value,
-          );
-          return "id";
-        }),
-        readAppSecret: vi.fn(async (ref: any) => {
-          const value = storedSecrets.get(
-            `${ref.scope}:${ref.scopeId}:${ref.key}`,
-          );
-          return value === undefined ? null : { value };
-        }),
-        deleteAppSecret: vi.fn(async () => true),
-        listAppSecretsForScope: vi.fn(async () => []),
-      }));
       vi.doMock("./framework-request-handler.js", () => ({
         getH3App: (app: any) => app,
       }));
@@ -9733,21 +9712,8 @@ describe("server/auth", () => {
         BUILDER_IDENTITY_COOKIE,
         encodeIdentityCookie,
         getBuilderIdentitySession,
-        rememberDelegatedCredential,
       } =
         await import("../../../../templates/design/server/lib/builder-identity.js");
-      const part = (value: object) =>
-        Buffer.from(JSON.stringify(value)).toString("base64url");
-      await rememberDelegatedCredential(
-        {
-          uid: "builder-user",
-          projectId: "builder-3b0a2",
-          email: cookieOwner,
-          spaceId: "space-1",
-        },
-        `${part({ alg: "none" })}.${part({ exp: Math.floor(Date.now() / 1000) + 3600 })}.`,
-        "sid-ui",
-      );
       const { autoMountAuth, getSession } = await import("./auth.js");
       await autoMountAuth(createMockApp(), {
         getSession: getBuilderIdentitySession,
@@ -9758,7 +9724,7 @@ describe("server/auth", () => {
         await import("./ui-action-capability.js");
       const mounted = createMockApp();
       mountUiActionCapabilityRoute(mounted);
-      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", projectId: "builder-3b0a2", email: cookieOwner, sid: "sid-ui" })}`;
+      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", projectId: "builder-3b0a2", email: cookieOwner })}`;
       const event = createMockEvent({
         path: "/_agent-native/ui-capability",
         headers: { cookie, "sec-fetch-site": "same-origin" },

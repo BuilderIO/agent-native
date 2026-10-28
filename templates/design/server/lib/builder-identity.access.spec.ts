@@ -5,8 +5,6 @@ process.env.BUILDER_IDENTITY = "1";
 // The app secrets store, shared by every "instance" in these tests.
 const store = vi.hoisted(() => ({
   rows: new Map<string, string>(),
-  created: new Map<string, number>(),
-  clock: 0,
   failReads: false,
   failDeletes: false,
 }));
@@ -28,32 +26,16 @@ vi.mock("@agent-native/core/secrets", () => ({
       key: string;
       value: string;
     }) => {
-      const id = `${ref.scope}:${ref.scopeId}:${ref.key}`;
-      if (!store.rows.has(id)) store.created.set(id, ++store.clock);
-      store.rows.set(id, ref.value);
+      store.rows.set(`${ref.scope}:${ref.scopeId}:${ref.key}`, ref.value);
       return "id";
     },
   ),
   deleteAppSecret: vi.fn(
     async (ref: { scope: string; scopeId: string; key: string }) => {
       if (store.failDeletes) throw new Error("secrets store down");
-      const id = `${ref.scope}:${ref.scopeId}:${ref.key}`;
-      store.created.delete(id);
-      return store.rows.delete(id);
+      return store.rows.delete(`${ref.scope}:${ref.scopeId}:${ref.key}`);
     },
   ),
-  listAppSecretsForScope: vi.fn(async (scope: string, scopeId: string) => {
-    const prefix = `${scope}:${scopeId}:`;
-    return [...store.rows.keys()]
-      .filter((id) => id.startsWith(prefix))
-      .map((id) => ({
-        key: id.slice(prefix.length),
-        // Newest first, like the real store (insertion order stands in for time).
-        createdAt: Date.now(),
-        order: store.created.get(id) ?? 0,
-      }))
-      .sort((a, b) => b.order - a.order);
-  }),
   readAppSecret: vi.fn(
     async (ref: { scope: string; scopeId: string; key: string }) => {
       if (store.failReads) throw new Error("secrets store down");
@@ -72,7 +54,6 @@ const {
   getBuilderIdentitySession,
   isBuilderOwnerEmail,
   rememberDelegatedCredential,
-  resolveSignInId,
   BUILDER_IDENTITY_COOKIE,
 } = await import("./builder-identity.js");
 
@@ -92,7 +73,6 @@ async function signIn(email: string, ttlSeconds = 3600): Promise<string> {
   await rememberDelegatedCredential(
     { uid, projectId: PROJECT, email, spaceId: "space-1" },
     tokenFor(email, ttlSeconds),
-    `sid-${uid}`,
   );
   return builderOwnerEmail(PROJECT, uid);
 }
@@ -195,11 +175,29 @@ describe("Builder owner key", () => {
         spaceId: "space-1",
       },
       tokenFor("new-address@example.com"),
-      "sid-new-address",
     );
     expect(builderOwnerEmail(PROJECT, "uid-old-address@example.com")).toBe(
       before,
     );
+  });
+
+  it("separates users who share a uid in different projects", () => {
+    expect(builderOwnerEmail("builder-3b0a2", "same-uid")).not.toBe(
+      builderOwnerEmail("builder-io-qa", "same-uid"),
+    );
+  });
+
+  it("cannot be computed without the server secret, so no account can claim it", async () => {
+    const known = builderOwnerEmail(PROJECT, "victim-uid");
+    process.env.BUILDER_IDENTITY_COOKIE_SECRET = "a-different-secret";
+    try {
+      vi.resetModules();
+      const other = await import("./builder-identity.js");
+      expect(other.builderOwnerEmail(PROJECT, "victim-uid")).not.toBe(known);
+    } finally {
+      delete process.env.BUILDER_IDENTITY_COOKIE_SECRET;
+      vi.resetModules();
+    }
   });
 });
 
@@ -240,16 +238,8 @@ describe("Builder credential store", () => {
       store.failReads = false;
     }
   });
-});
 
-describe("Builder owner key across Firebase projects", () => {
-  it("separates users who share a uid in different projects", () => {
-    expect(builderOwnerEmail("builder-3b0a2", "same-uid")).not.toBe(
-      builderOwnerEmail("builder-io-qa", "same-uid"),
-    );
-  });
-
-  it("keeps their stored credentials apart", async () => {
+  it("keeps each project's credential for the same uid apart", async () => {
     const credential = (project: string) =>
       rememberDelegatedCredential(
         {
@@ -259,7 +249,6 @@ describe("Builder owner key across Firebase projects", () => {
           spaceId: project,
         },
         tokenFor(project),
-        `sid-${project}`,
       );
     await credential("builder-3b0a2");
     await credential("builder-io-qa");
@@ -272,17 +261,32 @@ describe("Builder owner key across Firebase projects", () => {
     ).resolves.toMatchObject({ spaceId: "builder-io-qa" });
   });
 
-  it("gives a cookie without a project no session", async () => {
-    const part = (value: object) =>
-      Buffer.from(JSON.stringify(value)).toString("base64url");
-    const event = {
-      req: {
-        headers: new Headers({
-          cookie: `${BUILDER_IDENTITY_COOKIE}=${part({ uid: "u", email: "e@x.test" })}.sig`,
-        }),
+  it("reports an unreadable stored credential instead of treating it as absent", async () => {
+    const owner = builderOwnerEmail(PROJECT, "corrupt");
+    store.rows.set(`user:${owner}:BUILDER_DELEGATED_CREDENTIAL`, "{not json");
+    await expect(registered.provider!(owner)).rejects.toThrow(
+      "could not be read",
+    );
+    await expect(
+      canAccessBuilderProject(owner, "proj-corrupt"),
+    ).rejects.toMatchObject({ errorCode: "builder_unavailable" });
+  });
+
+  it("replaces an unreadable credential when the user signs in again", async () => {
+    const owner = builderOwnerEmail(PROJECT, "corrupt-again");
+    store.rows.set(`user:${owner}:BUILDER_DELEGATED_CREDENTIAL`, "{not json");
+    await rememberDelegatedCredential(
+      {
+        uid: "corrupt-again",
+        projectId: PROJECT,
+        email: "c@example.com",
+        spaceId: "space-1",
       },
-    } as never;
-    await expect(getBuilderIdentitySession(event)).resolves.toBeNull();
+      tokenFor("corrupt-again"),
+    );
+    await expect(registered.provider!(owner)).resolves.toMatchObject({
+      spaceId: "space-1",
+    });
   });
 });
 
@@ -308,9 +312,6 @@ describe("Builder credential hook", () => {
 
   it("lets a store outage surface to core instead of reading as no credential", async () => {
     const owner = await signIn("hook-outage@example.com");
-    vi.resetModules();
-    const other = await import("./builder-identity.js");
-    expect(other.isBuilderOwnerEmail(owner)).toBe(true);
     store.failReads = true;
     try {
       await expect(registered.provider!(owner)).rejects.toThrow(
@@ -322,33 +323,87 @@ describe("Builder credential hook", () => {
   });
 });
 
+describe("Builder session", () => {
+  const eventWith = (cookie: string) =>
+    ({
+      req: { headers: new Headers({ cookie }) },
+      res: { headers: new Headers() },
+      context: {},
+    }) as never;
+  const cookieFor = (uid: string, projectId = PROJECT) =>
+    `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({
+      uid,
+      projectId,
+      email: `${uid}@example.com`,
+    })}`;
+
+  it("is the owner key, a project-qualified user id and the Builder email as the display name", async () => {
+    await expect(
+      getBuilderIdentitySession(eventWith(cookieFor("who"))),
+    ).resolves.toEqual({
+      email: builderOwnerEmail(PROJECT, "who"),
+      userId: `builder:${PROJECT}:who`,
+      name: "who@example.com",
+      emailVerified: true,
+    });
+  });
+
+  it("does not depend on the credential store, so an outage signs no one out", async () => {
+    store.failReads = true;
+    try {
+      await expect(
+        getBuilderIdentitySession(eventWith(cookieFor("steady"))),
+      ).resolves.not.toBeNull();
+    } finally {
+      store.failReads = false;
+    }
+  });
+
+  it("gives a cookie without a project, or with a bad signature, no session", async () => {
+    const part = (value: object) =>
+      Buffer.from(JSON.stringify(value)).toString("base64url");
+    const unsigned = `${BUILDER_IDENTITY_COOKIE}=${part({ uid: "u", email: "e@x.test" })}.sig`;
+    await expect(
+      getBuilderIdentitySession(eventWith(unsigned)),
+    ).resolves.toBeNull();
+    const tampered = cookieFor("tampered").replace(/.$/, "x");
+    await expect(
+      getBuilderIdentitySession(eventWith(tampered)),
+    ).resolves.toBeNull();
+  });
+
+  it("gives a request with no cookie no session", async () => {
+    await expect(
+      getBuilderIdentitySession(eventWith("other=1")),
+    ).resolves.toBeNull();
+  });
+});
+
 describe("Builder sign-out", () => {
   const eventWith = (cookie: string) => {
     const headers = new Headers();
     return {
       req: { headers: new Headers({ cookie }) },
       res: { headers },
-      node: undefined,
       context: {},
     } as never;
   };
-
-  it("forgets the stored credential and expires the identity cookie", async () => {
-    const uid = "signing-out";
-    await rememberDelegatedCredential(
-      { uid, projectId: PROJECT, email: "out@example.com", spaceId: "space-1" },
-      tokenFor("out@example.com"),
-      "sid-out",
-    );
-    const owner = builderOwnerEmail(PROJECT, uid);
-    const cookie = encodeIdentityCookie({
+  const cookieFor = (uid: string) =>
+    `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({
       uid,
       projectId: PROJECT,
-      sid: "sid-out",
-      email: "out@example.com",
-    });
-    await clearBuilderIdentitySession(
-      eventWith(`${BUILDER_IDENTITY_COOKIE}=${cookie}`),
+      email: `${uid}@example.com`,
+    })}`;
+
+  it("forgets the stored credential and expires the cookie", async () => {
+    const owner = await signIn("signing-out@example.com");
+    const event = eventWith(cookieFor("uid-signing-out@example.com")) as {
+      res: { headers: Headers };
+    };
+    await clearBuilderIdentitySession(event as never);
+
+    expect(event.res.headers.get("set-cookie")).toContain(
+      `${BUILDER_IDENTITY_COOKIE}=;`,
     );
     vi.resetModules();
     const other = await import("./builder-identity.js");
@@ -357,144 +412,9 @@ describe("Builder sign-out", () => {
     ).rejects.toMatchObject({ errorCode: "builder_sign_in_required" });
   });
 
-  it("is harmless without an identity cookie", async () => {
-    await expect(
-      clearBuilderIdentitySession(eventWith("other=1")),
-    ).resolves.toBeUndefined();
-  });
-});
-
-describe("Builder sessions are revocable", () => {
-  const eventWith = (cookie: string) =>
-    ({
-      req: { headers: new Headers({ cookie }) },
-      res: { headers: new Headers() },
-      context: {},
-    }) as never;
-  const cookieFor = (uid: string, sid: string) =>
-    `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({
-      uid,
-      projectId: PROJECT,
-      email: `${uid}@example.com`,
-      sid,
-    })}`;
-  const remember = (uid: string, sid: string) =>
-    rememberDelegatedCredential(
-      {
-        uid,
-        projectId: PROJECT,
-        email: `${uid}@example.com`,
-        spaceId: "space-1",
-      },
-      tokenFor(uid),
-      sid,
-    );
-
-  it("keys the session's user id by project as well as uid", async () => {
-    await remember("who", "sid-who");
-    await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("who", "sid-who"))),
-    ).resolves.toMatchObject({ userId: `builder:${PROJECT}:who` });
-  });
-
-  it("accepts a cookie only while its sign-in is on the live list", async () => {
-    await remember("known", "sid-known");
-    await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("known", "sid-known"))),
-    ).resolves.not.toBeNull();
-    // Validly signed, but a sign-in the server never recorded.
-    await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("known", "sid-other"))),
-    ).resolves.toBeNull();
-    // Nothing stored for this user at all.
-    await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("nobody", "sid-nobody"))),
-    ).resolves.toBeNull();
-  });
-
-  it("revokes every copy of the cookie everywhere when the user signs out", async () => {
-    await remember("leaving", "sid-leaving");
-    const copy = cookieFor("leaving", "sid-leaving");
-    await clearBuilderIdentitySession(eventWith(copy));
-
-    // Another instance, with no memory of this one.
-    vi.resetModules();
-    const other = await import("./builder-identity.js");
-    await expect(
-      other.getBuilderIdentitySession(eventWith(copy)),
-    ).resolves.toBeNull();
-  });
-
-  it("keeps a user's other devices signed in when one more signs in", async () => {
-    await remember("two-devices", "sid-laptop");
-    await remember("two-devices", "sid-phone");
-    for (const sid of ["sid-laptop", "sid-phone"]) {
-      await expect(
-        getBuilderIdentitySession(eventWith(cookieFor("two-devices", sid))),
-      ).resolves.not.toBeNull();
-    }
-  });
-
-  it("prunes the oldest sign-ins past twenty", async () => {
-    for (let i = 0; i < 21; i++) await remember("many", `sid-${i}`);
-    await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("many", "sid-0"))),
-    ).resolves.toBeNull();
-    await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("many", "sid-20"))),
-    ).resolves.not.toBeNull();
-  });
-
-  it("lets a sign-in made while another is being created keep both", async () => {
-    // No shared list to read-modify-write: each sign-in is its own row.
-    await Promise.all([
-      remember("racing", "sid-a"),
-      remember("racing", "sid-b"),
-      remember("racing", "sid-c"),
-    ]);
-    for (const sid of ["sid-a", "sid-b", "sid-c"]) {
-      await expect(
-        getBuilderIdentitySession(eventWith(cookieFor("racing", sid))),
-      ).resolves.not.toBeNull();
-    }
-  });
-
-  it("signs out only the device that signed out", async () => {
-    await remember("two-places", "sid-laptop");
-    await remember("two-places", "sid-phone");
-    await clearBuilderIdentitySession(
-      eventWith(cookieFor("two-places", "sid-laptop")),
-    );
-
-    await expect(
-      getBuilderIdentitySession(
-        eventWith(cookieFor("two-places", "sid-laptop")),
-      ),
-    ).resolves.toBeNull();
-    await expect(
-      getBuilderIdentitySession(
-        eventWith(cookieFor("two-places", "sid-phone")),
-      ),
-    ).resolves.not.toBeNull();
-    // The phone still needs the Builder credential.
-    await expect(
-      registered.provider!(builderOwnerEmail(PROJECT, "two-places")),
-    ).resolves.toMatchObject({ spaceId: "space-1" });
-  });
-
-  it("forgets the Builder credential once the last sign-in is gone", async () => {
-    await remember("last-one", "sid-only");
-    await clearBuilderIdentitySession(
-      eventWith(cookieFor("last-one", "sid-only")),
-    );
-    await expect(
-      registered.provider!(builderOwnerEmail(PROJECT, "last-one")),
-    ).resolves.toBe("none");
-  });
-
-  it("revokes before it expires the cookie, so a failed sign-out can be retried", async () => {
-    await remember("retry", "sid-retry");
-    const event = eventWith(cookieFor("retry", "sid-retry")) as unknown as {
+  it("forgets the credential before it expires the cookie, so a failed sign-out can be retried", async () => {
+    const owner = await signIn("retry@example.com");
+    const event = eventWith(cookieFor("uid-retry@example.com")) as {
       res: { headers: Headers };
     };
     store.failDeletes = true;
@@ -505,144 +425,20 @@ describe("Builder sessions are revocable", () => {
     } finally {
       store.failDeletes = false;
     }
-    // Still signed in, with the cookie intact: nothing was half done.
+    // Nothing was half done: still signed in, cookie intact.
     expect(event.res.headers.get("set-cookie")).toBeNull();
-    await expect(
-      getBuilderIdentitySession(eventWith(cookieFor("retry", "sid-retry"))),
-    ).resolves.not.toBeNull();
-
-    await clearBuilderIdentitySession(event as never);
-    expect(event.res.headers.get("set-cookie")).toContain(
-      `${BUILDER_IDENTITY_COOKIE}=;`,
-    );
-  });
-
-  it("does not hold a credential in process memory past sign-out", async () => {
-    const owner = await signIn("nocache@example.com");
     await expect(registered.provider!(owner)).resolves.toMatchObject({
       spaceId: "space-1",
     });
-    await clearBuilderIdentitySession(
-      eventWith(
-        cookieFor("uid-nocache@example.com", "sid-uid-nocache@example.com"),
-      ),
-    );
-    // Same instance, immediately: no stale copy of the token.
+
+    await clearBuilderIdentitySession(event as never);
     await expect(registered.provider!(owner)).resolves.toBe("none");
   });
 
-  it("reports an unreadable stored credential instead of treating it as absent", async () => {
-    const owner = builderOwnerEmail(PROJECT, "corrupt");
-    store.rows.set(`user:${owner}:BUILDER_DELEGATED_CREDENTIAL`, "{not json");
-    await expect(registered.provider!(owner)).rejects.toThrow(
-      "could not be read",
-    );
+  it("is harmless without an identity cookie", async () => {
+    const event = eventWith("other=1") as { res: { headers: Headers } };
     await expect(
-      canAccessBuilderProject(owner, "proj-corrupt"),
-    ).rejects.toMatchObject({ errorCode: "builder_unavailable" });
-  });
-
-  it("reports an unreadable sign-in row instead of reading it as signed out", async () => {
-    const owner = builderOwnerEmail(PROJECT, "corrupt-sign-in");
-    store.rows.set(`user:${owner}:BUILDER_SIGN_IN:sid-corrupt`, "{not json");
-    await expect(
-      getBuilderIdentitySession(
-        eventWith(cookieFor("corrupt-sign-in", "sid-corrupt")),
-      ),
-    ).rejects.toThrow("could not be read");
-  });
-
-  it("replaces an unreadable row when the user signs in again", async () => {
-    const owner = builderOwnerEmail(PROJECT, "corrupt-again");
-    store.rows.set(`user:${owner}:BUILDER_DELEGATED_CREDENTIAL`, "{not json");
-    await remember("corrupt-again", "sid-fresh");
-    await expect(
-      getBuilderIdentitySession(
-        eventWith(cookieFor("corrupt-again", "sid-fresh")),
-      ),
-    ).resolves.not.toBeNull();
-  });
-});
-
-describe("Renewing a Builder sign-in", () => {
-  const eventWith = (cookie: string) =>
-    ({
-      req: { headers: new Headers({ cookie }) },
-      res: { headers: new Headers() },
-      context: {},
-    }) as never;
-  const identity = (uid: string, projectId = PROJECT) => ({
-    uid,
-    projectId,
-    email: `${uid}@example.com`,
-  });
-  const cookieFor = (uid: string, sid: string, projectId = PROJECT) =>
-    `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ ...identity(uid, projectId), sid })}`;
-
-  it("keeps the sign-in a live session already has, so refreshes use no slots", async () => {
-    await rememberDelegatedCredential(
-      { ...identity("renewing"), spaceId: "space-1" },
-      tokenFor("renewing"),
-      "sid-renewing",
-    );
-    const before = store.rows.size;
-
-    const renewal = await resolveSignInId(
-      eventWith(cookieFor("renewing", "sid-renewing")),
-      identity("renewing"),
-    );
-    expect(renewal).toEqual({ sid: "sid-renewing", isNew: false });
-
-    await rememberDelegatedCredential(
-      { ...identity("renewing"), spaceId: "space-1" },
-      tokenFor("renewing"),
-      renewal.sid,
-      { isNew: renewal.isNew },
-    );
-    expect(store.rows.size).toBe(before);
-  });
-
-  it("starts a new sign-in when the cookie's sign-in was revoked, even if a renewal races it", async () => {
-    await rememberDelegatedCredential(
-      { ...identity("revoked"), spaceId: "space-1" },
-      tokenFor("revoked"),
-      "sid-revoked",
-    );
-    const cookie = cookieFor("revoked", "sid-revoked");
-    await clearBuilderIdentitySession(eventWith(cookie));
-
-    // A renewal that began before sign-out finishes after it: it must not
-    // bring the revoked sign-in back.
-    await rememberDelegatedCredential(
-      { ...identity("revoked"), spaceId: "space-1" },
-      tokenFor("revoked"),
-      "sid-revoked",
-      { isNew: false },
-    );
-    await expect(
-      getBuilderIdentitySession(eventWith(cookie)),
-    ).resolves.toBeNull();
-
-    const next = await resolveSignInId(eventWith(cookie), identity("revoked"));
-    expect(next.isNew).toBe(true);
-    expect(next.sid).not.toBe("sid-revoked");
-  });
-
-  it("does not reuse another user's or another project's sign-in", async () => {
-    await rememberDelegatedCredential(
-      { ...identity("owner-a"), spaceId: "space-1" },
-      tokenFor("owner-a"),
-      "sid-a",
-    );
-    const cookie = cookieFor("owner-a", "sid-a");
-    await expect(
-      resolveSignInId(eventWith(cookie), identity("someone-else")),
-    ).resolves.toMatchObject({ isNew: true });
-    await expect(
-      resolveSignInId(eventWith(cookie), identity("owner-a", "builder-io-qa")),
-    ).resolves.toMatchObject({ isNew: true });
-    await expect(
-      resolveSignInId(eventWith(""), identity("owner-a")),
-    ).resolves.toMatchObject({ isNew: true });
+      clearBuilderIdentitySession(event as never),
+    ).resolves.toBeUndefined();
   });
 });

@@ -25,7 +25,6 @@ import {
   createHash,
   createHmac,
   randomBytes,
-  randomUUID,
   timingSafeEqual,
 } from "node:crypto";
 
@@ -33,7 +32,6 @@ import { ActionContractError } from "@agent-native/core/action";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
 import {
   deleteAppSecret,
-  listAppSecretsForScope,
   readAppSecret,
   writeAppSecret,
 } from "@agent-native/core/secrets";
@@ -61,6 +59,11 @@ export function isBuilderIdentityEnabled(): boolean {
 // exchange. Production sets BUILDER_IDENTITY_COOKIE_SECRET.
 const cookieSecret =
   process.env.BUILDER_IDENTITY_COOKIE_SECRET || randomBytes(32).toString("hex");
+// Owner keys must not change between restarts (they name stored data), so
+// without a configured secret (local development) they use a fixed one.
+const ownerKeySecret =
+  process.env.BUILDER_IDENTITY_COOKIE_SECRET ||
+  "builder-identity-dev-owner-key";
 
 function allowedFirebaseProjects(token: string): string[] {
   const configured = (process.env.BUILDER_FIREBASE_PROJECT_IDS ?? "")
@@ -86,14 +89,15 @@ export function isBuilderOwnerEmail(email: string): boolean {
  * The owner key Design uses for a Builder user. Design keys everything it
  * stores by the session's email, so using the Builder email would merge a
  * Builder user into any Design account that shares it, and orphan their work
- * when they change email. The key is derived from the stable Builder uid
- * instead, together with the Firebase project that issued it: a uid is only
- * unique within its project, and tokens from every configured project are
- * accepted. It is not a deliverable address (`.invalid`), and is lowercase so
- * the places that normalize emails cannot make two users collide.
+ * when they change email. The key is derived from the stable Builder uid and
+ * the Firebase project that issued it, with a server secret: nobody who does
+ * not hold the secret can compute (and so register an ordinary Design account
+ * under) another user's key, and the delegated Builder credential is handed
+ * out by this key. It is not a deliverable address (`.invalid`), and is
+ * lowercase so the places that normalize emails cannot make two users collide.
  */
 export function builderOwnerEmail(projectId: string, uid: string): string {
-  const digest = createHash("sha256")
+  const digest = createHmac("sha256", ownerKeySecret)
     .update(`${projectId}\n${uid}`)
     .digest("hex")
     .slice(0, 32);
@@ -137,13 +141,7 @@ function sign(body: string): string {
   return createHmac("sha256", cookieSecret).update(body).digest("base64url");
 }
 
-/** What the signed cookie carries: the identity, and which sign-in it belongs to. */
-export interface BuilderCookieIdentity extends BuilderIdentity {
-  /** Must be on the server-side list of live sign-ins, so logout can revoke every copy. */
-  sid: string;
-}
-
-export function encodeIdentityCookie(identity: BuilderCookieIdentity): string {
+export function encodeIdentityCookie(identity: BuilderIdentity): string {
   const body = Buffer.from(
     JSON.stringify({
       ...identity,
@@ -157,7 +155,7 @@ export function identityCookieMaxAge(): number {
   return COOKIE_TTL_SECONDS;
 }
 
-function decodeIdentityCookie(value: string): BuilderCookieIdentity | null {
+function decodeIdentityCookie(value: string): BuilderIdentity | null {
   const [body, signature] = value.split(".");
   if (!body || !signature) return null;
   const expected = Buffer.from(sign(body));
@@ -173,12 +171,11 @@ function decodeIdentityCookie(value: string): BuilderCookieIdentity | null {
     if (
       typeof parsed.uid !== "string" ||
       typeof parsed.projectId !== "string" ||
-      typeof parsed.sid !== "string" ||
       typeof parsed.email !== "string"
     ) {
       return null;
     }
-    return parsed as BuilderCookieIdentity;
+    return parsed as BuilderIdentity;
   } catch {
     // coercion-ok: a cookie that does not decode is no session; the caller
     // treats null as signed out and the host re-runs the exchange.
@@ -205,29 +202,10 @@ interface DelegatedCredential {
 }
 
 const CREDENTIAL_SECRET_KEY = "BUILDER_DELEGATED_CREDENTIAL";
-/**
- * One row per sign-in (per cookie session id), so signing in, renewing and
- * signing out never read-modify-write a shared list: each touches only its
- * own row. A row is a live sign-in; deleting it revokes every copy of that
- * sign-in's cookie.
- */
-const SIGN_IN_KEY_PREFIX = "BUILDER_SIGN_IN:";
-/** A sign-in's absolute lifetime. The host renews the cookie within it. */
-const SIGN_IN_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
-/** Newest sign-ins kept per user; older rows are pruned when a new one is made. */
-const MAX_SIGN_IN_ROWS = 20;
 
 function credentialRef(owner: string) {
   return {
     key: CREDENTIAL_SECRET_KEY,
-    scope: "user" as const,
-    scopeId: owner,
-  };
-}
-
-function signInRef(owner: string, sid: string) {
-  return {
-    key: `${SIGN_IN_KEY_PREFIX}${sid}`,
     scope: "user" as const,
     scopeId: owner,
   };
@@ -241,28 +219,22 @@ class UnreadableCredentialError extends Error {
 }
 
 /** A stored row that does not parse is corrupt state, never "no credential". */
-function parseStored<T>(
-  value: string,
-  valid: (parsed: Partial<T>) => boolean,
-): T {
-  let parsed: Partial<T>;
+function parseCredential(value: string): DelegatedCredential {
+  let parsed: Partial<DelegatedCredential>;
   try {
-    parsed = JSON.parse(value) as Partial<T>;
+    parsed = JSON.parse(value) as Partial<DelegatedCredential>;
   } catch {
     throw new UnreadableCredentialError();
   }
-  if (!valid(parsed)) throw new UnreadableCredentialError();
-  return parsed as T;
+  if (
+    typeof parsed.token !== "string" ||
+    typeof parsed.uid !== "string" ||
+    typeof parsed.expiresAtMs !== "number"
+  ) {
+    throw new UnreadableCredentialError();
+  }
+  return parsed as DelegatedCredential;
 }
-
-const parseCredential = (value: string) =>
-  parseStored<DelegatedCredential>(
-    value,
-    (parsed) =>
-      typeof parsed.token === "string" &&
-      typeof parsed.uid === "string" &&
-      typeof parsed.expiresAtMs === "number",
-  );
 
 /** The stored row, expired or not; null only when there is no row. */
 async function readStoredCredential(
@@ -272,92 +244,27 @@ async function readStoredCredential(
   return secret ? parseCredential(secret.value) : null;
 }
 
-/** Whether this sign-in is live: its row exists and is within its lifetime. */
-async function isSignInLive(owner: string, sid: string): Promise<boolean> {
-  const secret = await readAppSecret(signInRef(owner, sid));
-  if (!secret) return false;
-  const { expiresAtMs } = parseStored<{ expiresAtMs: number }>(
-    secret.value,
-    (parsed) => typeof parsed.expiresAtMs === "number",
-  );
-  return expiresAtMs >= Date.now();
-}
-
-/** The user's sign-in rows, newest first. */
-async function listSignIns(owner: string) {
-  const rows = await listAppSecretsForScope("user", owner);
-  return rows.filter((row) => row.key.startsWith(SIGN_IN_KEY_PREFIX));
-}
-
 /**
- * The sign-in id for an exchange. A host refreshing a live session (Firebase
- * tokens last an hour) keeps its sign-in rather than minting another, so
- * routine refreshes neither use up slots nor evict another device. Anything
- * else, including a cookie whose sign-in was revoked, is a new sign-in.
+ * One credential per user, the newest exchange winning. A user with two
+ * devices in different Builder spaces at once is not supported: the stored
+ * space is whichever exchanged last.
  */
-export async function resolveSignInId(
-  event: H3Event,
-  identity: BuilderIdentity,
-): Promise<{ sid: string; isNew: boolean }> {
-  const cookie = getCookie(event, BUILDER_IDENTITY_COOKIE);
-  const presented = cookie ? decodeIdentityCookie(cookie) : null;
-  if (
-    presented &&
-    presented.uid === identity.uid &&
-    presented.projectId === identity.projectId &&
-    (await isSignInLive(
-      builderOwnerEmail(identity.projectId, identity.uid),
-      presented.sid,
-    ))
-  ) {
-    return { sid: presented.sid, isNew: false };
-  }
-  return { sid: randomUUID(), isNew: true };
-}
-
 export async function rememberDelegatedCredential(
   identity: BuilderIdentity,
   token: string,
-  sid: string,
-  options: { isNew?: boolean } = {},
 ): Promise<void> {
   const exp = decodeJwt(token).exp;
-  const owner = builderOwnerEmail(identity.projectId, identity.uid);
   const entry: DelegatedCredential = {
     token,
     uid: identity.uid,
     spaceId: identity.spaceId,
     expiresAtMs: typeof exp === "number" ? exp * 1000 : Date.now() + 5 * 60_000,
   };
-  // The token is the user's newest; last writer wins, which is what we want.
   await writeAppSecret({
-    ...credentialRef(owner),
+    ...credentialRef(builderOwnerEmail(identity.projectId, identity.uid)),
     value: JSON.stringify(entry),
     description: "Builder sign-in for Design (renewed hourly)",
   });
-  // A renewal never rewrites its sign-in row, so a renewal racing a sign-out
-  // cannot bring a revoked sign-in back.
-  if (options.isNew === false) return;
-  await writeAppSecret({
-    ...signInRef(owner, sid),
-    value: JSON.stringify({ expiresAtMs: Date.now() + SIGN_IN_LIFETIME_MS }),
-    description: "A Builder sign-in to Design",
-  });
-  // Housekeeping only: failing to prune must not fail a sign-in.
-  await pruneSignIns(owner).catch((error) =>
-    console.warn("[builder-identity] could not prune old sign-ins:", error),
-  );
-}
-
-async function pruneSignIns(owner: string): Promise<void> {
-  const rows = await listSignIns(owner);
-  const cutoff = Date.now() - SIGN_IN_LIFETIME_MS;
-  const stale = rows.filter(
-    (row, index) => row.createdAt < cutoff || index >= MAX_SIGN_IN_ROWS,
-  );
-  for (const row of stale) {
-    await deleteAppSecret({ key: row.key, scope: "user", scopeId: owner });
-  }
 }
 
 /**
@@ -564,17 +471,19 @@ if (isBuilderIdentityEnabled()) {
   });
 }
 
-/** Core's `AuthOptions.getSession`: the Builder user, or nobody. */
+/**
+ * Core's `AuthOptions.getSession`: the Builder user, or nobody. The session is
+ * the signed cookie alone, which lasts an hour; it does not consult a store,
+ * so a store outage cannot sign anyone out. A copy of the cookie taken before
+ * sign-out stays valid for the rest of that hour, but with no stored Builder
+ * credential it can act only on the Design data of that user.
+ */
 export async function getBuilderIdentitySession(event: H3Event) {
   const cookie = getCookie(event, BUILDER_IDENTITY_COOKIE);
   const identity = cookie ? decodeIdentityCookie(cookie) : null;
   if (!identity) return null;
-  const owner = builderOwnerEmail(identity.projectId, identity.uid);
-  // A correctly signed cookie is not enough: its sign-in must still be live,
-  // or a copy taken before logout would keep working until it expired.
-  if (!(await isSignInLive(owner, identity.sid))) return null;
   return {
-    email: owner,
+    email: builderOwnerEmail(identity.projectId, identity.uid),
     // The Firebase project is part of the id: uids repeat across projects, and
     // caches partition on this.
     userId: `builder:${identity.projectId}:${identity.uid}`,
@@ -585,21 +494,19 @@ export async function getBuilderIdentitySession(event: H3Event) {
 }
 
 /**
- * Sign-out for a Builder session: revoke this sign-in (every copy of its
- * cookie, on every instance), then expire the browser's cookie. The user's
- * other devices stay signed in; the stored Builder credential goes only when
- * no sign-in is left to use it. Revocation comes first, so if the store fails
- * the cookie is kept and the user can retry.
+ * Sign-out for a Builder session: forget the stored Builder credential, then
+ * expire the browser's cookie. The credential goes first, so if the store
+ * fails the cookie is kept and the user can retry. Another device of the same
+ * user loses Builder access until its host next exchanges (at the latest when
+ * its token refreshes within the hour).
  */
 export async function clearBuilderIdentitySession(event: H3Event) {
   const cookie = getCookie(event, BUILDER_IDENTITY_COOKIE);
   const identity = cookie ? decodeIdentityCookie(cookie) : null;
   if (identity) {
-    const owner = builderOwnerEmail(identity.projectId, identity.uid);
-    await deleteAppSecret(signInRef(owner, identity.sid));
-    if ((await listSignIns(owner)).length === 0) {
-      await deleteAppSecret(credentialRef(owner));
-    }
+    await deleteAppSecret(
+      credentialRef(builderOwnerEmail(identity.projectId, identity.uid)),
+    );
   }
   deleteCookie(event, BUILDER_IDENTITY_COOKIE, { path: "/" });
 }
