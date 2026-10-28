@@ -1356,55 +1356,127 @@ export default defineAction({
           );
           throw error;
         }
-        if (postApprovalPullRequest.headSha !== pullRequest.headSha) {
+        if (
+          postApprovalPullRequest.headSha !== pullRequest.headSha ||
+          postApprovalPullRequest.state !== "open" ||
+          postApprovalPullRequest.draft ||
+          postApprovalPullRequest.merged
+        ) {
           await reconcileClaim(
             pullRequest.headSha,
-            "The pull request changed after approval was posted; reconciliation is required before finalizing.",
+            "The pull-request head or state changed after approval was posted; reconciliation is required before finalizing.",
           );
           return {
             ok: true,
             action: "needs_manual",
             reason:
-              "The pull request changed after approval was posted; durable approval state was not finalized.",
+              "The pull-request head or state changed after approval was posted; durable approval state was not finalized.",
           };
         }
-        const latestItem = (
-          await getDb()
+        const finalizationReason =
+          "GitHub accepted the approval, but the Factory item changed before finalization; reconciliation is required.";
+        const finalization = await getDb().transaction(async (tx) => {
+          const finalizedClaim = await tx
+            .update(triageDecisions)
+            .set({ outcome: "auto_approve" })
+            .where(
+              and(
+                eq(
+                  triageDecisions.id,
+                  stableId("pr-governance", orgId, itemId, pullRequest.headSha),
+                ),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approval_claimed"),
+              ),
+            )
+            .returning({ id: triageDecisions.id });
+          if (!finalizedClaim[0]) return "claim_changed" as const;
+
+          const latestItems = await tx
             .select({ metadataJson: triageItems.metadataJson })
             .from(triageItems)
             .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
-            .limit(1)
-        )[0];
-        if (!latestItem) {
-          throw new Error("Factory item disappeared after GitHub approval.");
-        }
-        const latestMetadata = parseTriageMetadata(latestItem.metadataJson);
-        latestMetadata.autoApprovedAt = new Date().toISOString();
-        latestMetadata.autoApprovalUrl = approval.htmlUrl;
-        latestMetadata.autoApprovalHeadSha = pullRequest.headSha;
-        await getDb()
-          .update(triageItems)
-          .set({
-            metadataJson: serializeTriageMetadata(latestMetadata),
-            status: "auto_approved",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
-        await getDb()
-          .update(triageDecisions)
-          .set({ outcome: "auto_approve" })
-          .where(
-            and(
-              eq(
-                triageDecisions.id,
-                stableId("pr-governance", orgId, itemId, pullRequest.headSha),
-              ),
-              eq(triageDecisions.itemId, itemId),
-              eq(triageDecisions.orgId, orgId),
-              eq(triageDecisions.factoryId, factoryId),
-              eq(triageDecisions.outcome, "auto_approval_claimed"),
-            ),
+            .limit(1);
+          type LatestItemResult =
+            | { found: true; item: (typeof latestItems)[number] }
+            | { found: false };
+          let latestItemResult: LatestItemResult = { found: false };
+          for (const item of latestItems) {
+            latestItemResult = { found: true, item };
+            break;
+          }
+          if (!latestItemResult.found) {
+            fail("Factory item disappeared after GitHub approval.", {
+              errorCode: "factory_item_not_found",
+              statusCode: 404,
+            });
+          }
+          const latestMetadata = parseTriageMetadata(
+            latestItemResult.item.metadataJson,
           );
+          latestMetadata.autoApprovedAt = new Date().toISOString();
+          latestMetadata.autoApprovalUrl = approval.htmlUrl;
+          latestMetadata.autoApprovalHeadSha = pullRequest.headSha;
+          const updatedItem = await tx
+            .update(triageItems)
+            .set({
+              metadataJson: serializeTriageMetadata(latestMetadata),
+              status: "auto_approved",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              and(
+                orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                notInArray(triageItems.status, [
+                  "reconciliation_required",
+                  "merged",
+                  "resolved",
+                  "dismissed",
+                ]),
+              ),
+            )
+            .returning({ id: triageItems.id });
+          if (!updatedItem[0]) {
+            await tx
+              .update(triageDecisions)
+              .set({
+                outcome: "needs_manual",
+                reason: finalizationReason,
+                createdAt: new Date().toISOString(),
+              })
+              .where(
+                and(
+                  eq(
+                    triageDecisions.id,
+                    stableId(
+                      "pr-governance",
+                      orgId,
+                      itemId,
+                      pullRequest.headSha,
+                    ),
+                  ),
+                  eq(triageDecisions.itemId, itemId),
+                  eq(triageDecisions.orgId, orgId),
+                  eq(triageDecisions.factoryId, factoryId),
+                  eq(triageDecisions.outcome, "auto_approve"),
+                ),
+              );
+            return "item_state_changed" as const;
+          }
+          return "finalized" as const;
+        });
+        if (finalization !== "finalized") {
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              finalization === "claim_changed"
+                ? "The approval claim changed before finalization; manual reconciliation is required."
+                : finalizationReason,
+          };
+        }
       }
     } else {
       throw new Error(
