@@ -67,10 +67,11 @@ function withUpdatedAssistant(
 
 /**
  * The part a keyed delta continues. The adapter keys every delta of a reply by
- * its message id, so text after a tool call would otherwise join the text
- * before it, and a cleared draft could not be cut back to that call.
+ * its message id, so without a break at each tool call or change of kind,
+ * text after a call joins the text before it, a cleared draft cannot be cut
+ * back to that call, and resumed reasoning jumps above the text between.
  */
-function partAfterLastTool(
+function continuedPart(
   parts: ChatContentPart[],
   kind: "text" | "reasoning",
   partId: string,
@@ -79,6 +80,7 @@ function partAfterLastTool(
     const part = parts.at(index);
     if (!part || part.type === "tool-call") return -1;
     if (part.type === kind && part.partId === partId) return index;
+    if (part.type === (kind === "text" ? "reasoning" : "text")) return -1;
   }
   return -1;
 }
@@ -90,7 +92,7 @@ function appendDelta(
   partId: string | undefined,
 ): ChatContentPart[] {
   const index = partId
-    ? partAfterLastTool(parts, kind, partId)
+    ? continuedPart(parts, kind, partId)
     : ((): number => {
         const last = parts[parts.length - 1];
         return last && last.type === kind && !last.partId

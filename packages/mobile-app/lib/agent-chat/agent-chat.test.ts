@@ -102,6 +102,21 @@ describe("applyWireEvent", () => {
     ]);
   });
 
+  it("keeps reasoning resumed after text below that text", () => {
+    const state = run([
+      { type: "reasoning", text: "First.", partId: "reply" },
+      { type: "text", text: "Answer.", partId: "reply" },
+      { type: "reasoning", text: "Second.", partId: "reply" },
+    ]);
+    expect(
+      state.messages[0]?.parts.map((part) =>
+        part.type === "text" || part.type === "reasoning"
+          ? `${part.type}:${part.text}`
+          : part.type,
+      ),
+    ).toEqual(["reasoning:First.", "text:Answer.", "reasoning:Second."]);
+  });
+
   it("tracks tool lifecycle from start to done", () => {
     const state = run([
       { type: "tool_start", id: "t1", tool: "navigate", input: { to: "/" } },
