@@ -1200,6 +1200,9 @@ tokened SVG/CSS, not photos.
   64px or more, each shape and `<text>` becomes its own layer, and each `<use>`
   is replaced by a copy of the shapes it points to. Users can then select,
   move, recolor, and retype each part. Icons smaller than that stay one layer.
+  A `<use>` stays one layer when a stylesheet selects it by tag, sizes or
+  transforms it, or selects its symbol's parts by `#id`, so style artwork
+  with attributes and classes.
   Never rebuild an illustration as divs or export a PNG to make it editable.
   To convert an SVG saved before this, rewrite it with `edit-design`.
 - **A moved SVG part keeps its `translate`.** The editor moves a shape inside

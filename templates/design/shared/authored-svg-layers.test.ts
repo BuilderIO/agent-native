@@ -54,10 +54,10 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     );
 
     expect(content).toContain(
-      `<g class="gn" data-agent-native-layer-name="il-chip-on" transform="translate(50 70)"><rect x="1" y="1" width="42" height="42" rx="8" fill="currentColor"></rect></g>`,
+      `<g class="gn" data-agent-native-layer-name="il-chip-on" transform="translate(50 70)" clip-path="url(#il-chip-on-viewport-4)"><clipPath id="il-chip-on-viewport-4"><rect x="0" y="0" width="44" height="44"></rect></clipPath><rect x="1" y="1" width="42" height="42" rx="8" fill="currentColor"></rect></g>`,
     );
     expect(content).toContain(
-      `<g data-agent-native-layer-name="i-pencil" transform="translate(62 82) scale(0.833)">`,
+      `<g data-agent-native-layer-name="i-pencil" transform="translate(62 82) scale(0.833)" clip-path="url(#i-pencil-viewport-6)">`,
     );
     expect(content).not.toMatch(/<use\b/);
   });
@@ -87,9 +87,9 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     );
 
     const { content } = promoteAuthoredSvgArtworkInHtml(html);
-    const clipIds = [...content.matchAll(/<clipPath id="([^"]+)"/g)].map(
-      (match) => match[1],
-    );
+    const clipIds = [
+      ...content.matchAll(/<clipPath id="(il-badge-cut[^"]*)"/g),
+    ].map((match) => match[1]);
 
     expect(clipIds).toHaveLength(3);
     expect(new Set(clipIds).size).toBe(3);
@@ -108,7 +108,7 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
 
     expect(content).toContain(`<use href="#missing"/>`);
     expect(content).toContain(
-      `<g data-agent-native-layer-name="loop"><use href="#loop"></use></g>`,
+      `<g data-agent-native-layer-name="loop" clip-path="url(#loop-viewport-2)"><clipPath id="loop-viewport-2"><rect x="0" y="0" width="10" height="10"></rect></clipPath><use href="#loop"></use></g>`,
     );
   });
 
@@ -120,7 +120,7 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     );
 
     expect(content).toContain(
-      `<g data-agent-native-layer-name="dot"><g fill="#f00" stroke="#000"><circle cx="5" cy="5" r="4"></circle></g></g>`,
+      `<g fill="#f00" stroke="#000"><clipPath id="dot-viewport-2"><rect x="0" y="0" width="10" height="10"></rect></clipPath><circle cx="5" cy="5" r="4"></circle></g>`,
     );
   });
 
@@ -132,7 +132,7 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     );
 
     expect(content).toContain(
-      `<g data-agent-native-layer-name="dot" transform="scale(10)">`,
+      `<g data-agent-native-layer-name="dot" transform="scale(10)" clip-path="url(#dot-viewport-2)">`,
     );
   });
 
@@ -144,7 +144,7 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     );
 
     expect(content).toContain(
-      `<g data-agent-native-layer-name="dot" transform="translate(100 10)">`,
+      `<g data-agent-native-layer-name="dot" transform="translate(100 10)" clip-path="url(#dot-viewport-2)">`,
     );
     expect(content).toContain(
       `<use href="#dot" x="2em" width="10" height="10"/>`,
@@ -171,6 +171,59 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
 
     expect(content).toContain(`<use href="#l4" width="10" height="10"/>`);
     expect(content.length).toBeLessThan(html.length * 2);
+  });
+
+  it("clips an expanded symbol to its viewport unless overflow is visible", () => {
+    const { content } = promoteAuthoredSvgArtworkInHtml(
+      screen(
+        `<svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="wide" viewBox="0 0 10 20"><rect width="10" height="20"/></symbol><symbol id="open" viewBox="0 0 10 10" overflow="visible"><rect width="10" height="10"/></symbol></defs><use href="#wide" width="40" height="20"/><use href="#open" width="10" height="10"/></svg>`,
+      ),
+    );
+
+    expect(content).toContain(
+      `<g data-agent-native-layer-name="wide" transform="translate(15 0)" clip-path="url(#wide-viewport-2)"><clipPath id="wide-viewport-2"><rect x="-15" y="0" width="40" height="20"></rect></clipPath>`,
+    );
+    expect(content).toContain(
+      `<g data-agent-native-layer-name="open"><g overflow="visible"><rect width="10" height="10"></rect></g></g>`,
+    );
+  });
+
+  it("keeps a use that a stylesheet sizes, transforms, or selects by tag", () => {
+    const symbol = `<defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs>`;
+    const art = (uses: string) =>
+      `<svg viewBox="0 0 100 100" width="100" height="100">${symbol}${uses}</svg>`;
+    const withStyle = (css: string, uses: string) =>
+      `<!doctype html><html><head><style>${css}</style></head><body>${art(uses)}</body></html>`;
+    const sized = withStyle(
+      `.big{width:40px}.tint{fill:red}`,
+      `<use class="big" href="#dot"/><use class="tint" href="#dot"/>`,
+    );
+    const byTag = withStyle(`svg > use{opacity:.5}`, `<use href="#dot"/>`);
+    const inline = withStyle(
+      ``,
+      `<use href="#dot" style="transform: rotate(10deg)"/>`,
+    );
+
+    const sizedResult = promoteAuthoredSvgArtworkInHtml(sized).content;
+    expect(sizedResult).toContain(`<use class="big" href="#dot"/>`);
+    expect(sizedResult).not.toContain(`<use class="tint"`);
+    expect(promoteAuthoredSvgArtworkInHtml(byTag).content).toContain(
+      `<use href="#dot"/>`,
+    );
+    expect(promoteAuthoredSvgArtworkInHtml(inline).content).toContain(
+      `<use href="#dot" style="transform: rotate(10deg)"/>`,
+    );
+  });
+
+  it("expands only the outermost of nested use elements", () => {
+    const html = screen(
+      `<svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot" width="10" height="10"><g><use href="#dot" width="10" height="10"/></g></use></svg>`,
+    );
+
+    const { content, promoted } = promoteAuthoredSvgArtworkInHtml(html);
+
+    expect(promoted).toBe(1);
+    expect(content).not.toMatch(/<use\b/);
   });
 
   it("is stable when a promoted screen is saved again", () => {

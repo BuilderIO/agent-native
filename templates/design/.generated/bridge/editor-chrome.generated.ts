@@ -18799,16 +18799,61 @@ export const editorChromeBridgeScript: string = `"use strict";
       snapGuideLayer.innerHTML = "";
       snapGuideNodeCount = 0;
     }
+    function moveGroupMixesSvgShapes(gestureEl) {
+      var members = collectMoveGroupMembers(gestureEl);
+      var shapes = members.filter(function(member) {
+        return !!editableSvgShapeParent(member);
+      });
+      return shapes.length > 0 && shapes.length < members.length;
+    }
+    function startRejectedDrag(e, reason, selectOnRelease) {
+      postCrossScreenDrag("cancel");
+      var events = dragEventNames(e);
+      function onRejectedMove(ev) {
+        showRejectedDragBadge(reason, ev.clientX, ev.clientY);
+      }
+      function cleanupRejectedDrag() {
+        document.removeEventListener(events.move, onRejectedMove, true);
+        document.removeEventListener(events.up, onRejectedUp, true);
+        document.removeEventListener("keydown", onRejectedKeyDown, true);
+        clearActiveDragCancel(onRejectedEscape);
+        shieldOverlay.style.cursor = "default";
+      }
+      function onRejectedEscape() {
+        resetBridgeDragModifierStateOnCancel();
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        suppressNextShieldClickBriefly();
+        return true;
+      }
+      function onRejectedKeyDown(ev) {
+        if (ev.key === "Escape") {
+          stopNativeInteraction(ev);
+          onRejectedEscape();
+        }
+      }
+      function onRejectedUp() {
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        if (selectOnRelease) {
+          selectedEl = selectOnRelease;
+          positionOverlay(selectionOverlay, selectedEl);
+        }
+      }
+      shieldOverlay.style.cursor = "not-allowed";
+      showRejectedDragBadge(reason, e.clientX, e.clientY);
+      document.addEventListener(events.move, onRejectedMove, true);
+      document.addEventListener(events.up, onRejectedUp, true);
+      document.addEventListener("keydown", onRejectedKeyDown, true);
+      setActiveDragCancel(onRejectedEscape);
+    }
     function startSvgShapeMove(e, gestureEl, pointerStart) {
       postCrossScreenDrag("cancel");
       var events = dragEventNames(e);
       var startX = pointerStart ? pointerStart.clientX : e.clientX;
       var startY = pointerStart ? pointerStart.clientY : e.clientY;
       var DRAG_THRESHOLD = 3;
-      var members = collectMoveGroupMembers(gestureEl).filter(function(member) {
-        return !!editableSvgShapeParent(member);
-      });
-      if (members.indexOf(gestureEl) === -1) members = [gestureEl];
+      var members = collectMoveGroupMembers(gestureEl);
       var states = members.map(function(member) {
         var shape = member;
         var toCanvas = svgShapeUserUnitsToCanvas(shape);
@@ -18906,7 +18951,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
       if (editableSvgShapeParent(gestureEl)) {
-        startSvgShapeMove(e, gestureEl, pointerStartParam);
+        if (e.altKey) {
+          startRejectedDrag(e, "Can't duplicate SVG shapes by dragging", null);
+        } else if (moveGroupMixesSvgShapes(gestureEl)) {
+          startRejectedDrag(e, "Can't move SVG shapes with other layers", null);
+        } else {
+          startSvgShapeMove(e, gestureEl, pointerStartParam);
+        }
+        return;
+      }
+      if (!e.altKey && moveGroupMixesSvgShapes(gestureEl)) {
+        startRejectedDrag(e, "Can't move SVG shapes with other layers", null);
         return;
       }
       clearGridProjectionCaches();
@@ -18959,50 +19014,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         postCrossScreenDrag("cancel");
       }
       if (!isGroupDrag && !duplicatedForDrag && isFlowReorderCandidate(gestureEl) && isTemplateCloneElement(gestureEl)) {
-        let onRejectedMove2 = function(ev) {
-          showRejectedDragBadge(
-            "Can't reorder repeated items",
-            ev.clientX,
-            ev.clientY
-          );
-        }, cleanupRejectedDrag2 = function() {
-          document.removeEventListener(events.move, onRejectedMove2, true);
-          document.removeEventListener(events.up, onRejectedUp2, true);
-          document.removeEventListener("keydown", onRejectedKeyDown2, true);
-          clearActiveDragCancel(onRejectedEscape2);
-          shieldOverlay.style.cursor = "default";
-        }, onRejectedEscape2 = function() {
-          resetBridgeDragModifierStateOnCancel();
-          cleanupRejectedDrag2();
-          hideTransformBadge();
-          suppressNextShieldClickBriefly();
-          return true;
-        }, onRejectedKeyDown2 = function(ev) {
-          if (ev.key === "Escape") {
-            stopNativeInteraction(ev);
-            onRejectedEscape2();
-          }
-        }, onRejectedUp2 = function() {
-          cleanupRejectedDrag2();
-          hideTransformBadge();
-          selectTargetAfterRejectedDrag2();
-        }, selectTargetAfterRejectedDrag2 = function() {
-          selectedEl = rejectedEl;
-          positionOverlay(selectionOverlay, selectedEl);
-        };
-        var onRejectedMove = onRejectedMove2, cleanupRejectedDrag = cleanupRejectedDrag2, onRejectedEscape = onRejectedEscape2, onRejectedKeyDown = onRejectedKeyDown2, onRejectedUp = onRejectedUp2, selectTargetAfterRejectedDrag = selectTargetAfterRejectedDrag2;
-        postCrossScreenDrag("cancel");
-        var rejectedEl = gestureEl;
-        shieldOverlay.style.cursor = "not-allowed";
-        showRejectedDragBadge(
-          "Can't reorder repeated items",
-          e.clientX,
-          e.clientY
-        );
-        document.addEventListener(events.move, onRejectedMove2, true);
-        document.addEventListener(events.up, onRejectedUp2, true);
-        document.addEventListener("keydown", onRejectedKeyDown2, true);
-        setActiveDragCancel(onRejectedEscape2);
+        startRejectedDrag(e, "Can't reorder repeated items", gestureEl);
         return;
       }
       if (isFlowReorderCandidate(gestureEl)) {

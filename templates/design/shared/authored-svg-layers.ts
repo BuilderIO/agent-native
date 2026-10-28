@@ -34,6 +34,18 @@ const RESOURCE_TAGS = new Set([
   "filter",
 ]);
 const RAW_TEXT_TAGS = new Set(["style", "script"]);
+const USE_LAYOUT_PROPERTIES = new Set([
+  "x",
+  "y",
+  "width",
+  "height",
+  "transform",
+  "transform-origin",
+  "transform-box",
+  "translate",
+  "rotate",
+  "scale",
+]);
 const USE_GEOMETRY_ATTRIBUTES = new Set(["href", "x", "y", "width", "height"]);
 // The instance's geometry, which the expansion turns into a transform.
 const VIEWPORT_ATTRIBUTES = new Set([
@@ -153,6 +165,21 @@ function nearestViewport(node: HtmlNode): Size | null {
   return null;
 }
 
+// The viewport's `overflow` from its attribute or inline style; null when it
+// is set to something other than a keyword.
+function viewportOverflow(node: HtmlNode): string | null {
+  let value = attribute(node, "overflow");
+  for (const declaration of (attribute(node, "style") ?? "").split(";")) {
+    const colon = declaration.indexOf(":");
+    if (colon < 0) continue;
+    if (declaration.slice(0, colon).trim().toLowerCase() === "overflow") {
+      value = declaration.slice(colon + 1);
+    }
+  }
+  const keyword = (value ?? "hidden").trim().toLowerCase();
+  return /^(visible|auto|hidden|scroll|clip)$/.test(keyword) ? keyword : null;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -171,6 +198,16 @@ function insideResource(node: HtmlNode, root: HtmlNode): boolean {
   for (let parent = node.parentNode; parent; parent = parent.parentNode) {
     if (parent === root) return false;
     if (parent.tagName && RESOURCE_TAGS.has(parent.tagName)) return true;
+  }
+  return false;
+}
+
+// A `<use>` never renders its children, and expanding the outer one already
+// rewrites them, so editing one inside it too would overlap.
+function hasUseAncestor(node: HtmlNode, root: HtmlNode): boolean {
+  for (let parent = node.parentNode; parent && parent !== root; ) {
+    if (parent.tagName === "use") return true;
+    parent = parent.parentNode;
   }
   return false;
 }
@@ -217,12 +254,14 @@ function round(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-function viewBoxTransform(
+type ViewBoxMapping = { x: number; y: number; scaleX: number; scaleY: number };
+
+function viewBoxMapping(
   box: Box,
   width: number,
   height: number,
   preserveAspectRatio: string | null,
-): string {
+): ViewBoxMapping {
   const [align = "xMidYMid", meetOrSlice = "meet"] = (preserveAspectRatio ?? "")
     .trim()
     .split(/\s+/)
@@ -245,8 +284,15 @@ function viewBoxTransform(
     if (align.endsWith("YMid")) y = spareY / 2;
     else if (align.endsWith("YMax")) y = spareY;
   }
-  x -= box.x * scaleX;
-  y -= box.y * scaleY;
+  return { x: x - box.x * scaleX, y: y - box.y * scaleY, scaleX, scaleY };
+}
+
+function formatViewBoxMapping({
+  x,
+  y,
+  scaleX,
+  scaleY,
+}: ViewBoxMapping): string {
   const parts: string[] = [];
   if (round(x) !== 0 || round(y) !== 0) {
     parts.push(`translate(${round(x)} ${round(y)})`);
@@ -266,16 +312,67 @@ function hrefTarget(use: HtmlNode): string | null {
   return href?.startsWith("#") && href.length > 1 ? href.slice(1) : null;
 }
 
+type CssRule = { selector: string; properties: string[] };
+
+function cssRules(styleText: string): CssRule[] {
+  const rules: CssRule[] = [];
+  const text = styleText.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [, selector, body] of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    rules.push({
+      selector,
+      properties: body
+        .split(";")
+        .map((declaration) =>
+          (declaration.split(":")[0] ?? "").trim().toLowerCase(),
+        )
+        .filter(Boolean),
+    });
+  }
+  return rules;
+}
+
+function selectsTag(selector: string, tag: string): boolean {
+  return new RegExp(`(^|[\\s>+~,(])${tag}(?![\\w-])`, "i").test(selector);
+}
+
+// Conservative: ignores combinators, so a rule that names the node's id or
+// one of its classes anywhere counts as selecting it.
+function mayMatchNode(selector: string, node: HtmlNode): boolean {
+  if (/(^|[\s>+~,(])\*/.test(selector)) return true;
+  const id = attribute(node, "id");
+  if (id && new RegExp(`#${escapeRegExp(id)}(?![\\w-])`).test(selector)) {
+    return true;
+  }
+  return (attribute(node, "class") ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((name) =>
+      new RegExp(`\\.${escapeRegExp(name)}(?![\\w-])`).test(selector),
+    );
+}
+
+function inlineProperties(node: HtmlNode): string[] {
+  return (attribute(node, "style") ?? "")
+    .split(";")
+    .map((declaration) =>
+      (declaration.split(":")[0] ?? "").trim().toLowerCase(),
+    )
+    .filter(Boolean);
+}
+
 class UseExpander {
   private readonly usedIds: Set<string>;
   private instance = 0;
   private remaining = MAX_EXPANDED_ELEMENTS;
+
+  private readonly rules: CssRule[];
 
   constructor(
     private readonly byId: Map<string, HtmlNode>,
     private readonly styleText: string,
   ) {
     this.usedIds = new Set(byId.keys());
+    this.rules = cssRules(styleText);
   }
 
   /** Returns null when the `<use>` should stay as written. */
@@ -300,6 +397,7 @@ class UseExpander {
       return null;
     }
     if (this.isSelectedById(target, id)) return null;
+    if (this.stylesheetDependsOnUse(use, target)) return null;
     const x = length(attribute(use, "x"), viewport?.width);
     const y = length(attribute(use, "y"), viewport?.height);
     if (x === null || y === null) return null;
@@ -307,6 +405,7 @@ class UseExpander {
     if (x || y) transforms.push(`translate(${x ?? 0} ${y ?? 0})`);
     const nextChain = [...chain, id];
     let content: string;
+    let viewportClip = "";
     if (target.tagName === "symbol" || target.tagName === "svg") {
       if (attribute(target, "transform") !== null) return null;
       const instance = this.instanceViewport(use, target, viewport);
@@ -317,12 +416,24 @@ class UseExpander {
         .map((child) => this.serialize(child, scope, nextChain, instance.inner))
         .join("");
       // The referenced root's own paint and style still cascade to its shapes.
-      const inherited = this.serializeAttributes(
+      let inherited = this.serializeAttributes(
         (target.attrs ?? []).filter(
           (attr) => !VIEWPORT_ATTRIBUTES.has(attr.name),
         ),
         scope,
       );
+      if (instance.clip) {
+        const clipId = escapeAttribute(this.uniqueId(`${id}-viewport`));
+        const { x: clipX, y: clipY, width, height } = instance.clip;
+        viewportClip = ` clip-path="url(#${clipId})"`;
+        // The use's own clip-path stays on the outer group, so this one
+        // moves in with the symbol's attributes.
+        if (attribute(use, "clip-path") !== null) {
+          inherited += viewportClip;
+          viewportClip = "";
+        }
+        content = `<clipPath id="${clipId}"><rect x="${round(clipX)}" y="${round(clipY)}" width="${round(width)}" height="${round(height)}"></rect></clipPath>${content}`;
+      }
       if (inherited) content = `<g${inherited}>${content}</g>`;
     } else {
       const scope = this.scopeIds(target);
@@ -346,16 +457,18 @@ class UseExpander {
     const transform = transforms.filter(Boolean).join(" ").trim();
     if (transform)
       attributes.push(` transform="${escapeAttribute(transform)}"`);
+    if (viewportClip) attributes.push(viewportClip);
     return `<g${attributes.join("")}>${content}</g>`;
   }
 
   // A symbol or nested svg instance is sized by the use, then by its own
-  // width and height, then fills the viewport it is drawn in (100%).
+  // width and height, then fills the viewport it is drawn in (100%). Like the
+  // original, the copy is clipped to that viewport unless overflow is visible.
   private instanceViewport(
     use: HtmlNode,
     target: HtmlNode,
     viewport: Size | null,
-  ): { transforms: string[]; inner: Size | null } | null {
+  ): { transforms: string[]; inner: Size | null; clip: Box | null } | null {
     const offsetX = length(attribute(target, "x"), viewport?.width);
     const offsetY = length(attribute(target, "y"), viewport?.height);
     const ownWidth = length(attribute(target, "width"), viewport?.width);
@@ -374,6 +487,11 @@ class UseExpander {
     }
     const width = useWidth ?? ownWidth ?? viewport?.width;
     const height = useHeight ?? ownHeight ?? viewport?.height;
+    if (!width || !height || width < 0 || height < 0) return null;
+    const overflow = viewportOverflow(target);
+    if (overflow === null) return null;
+    const clips = overflow !== "visible" && overflow !== "auto";
+    if (clips && attribute(target, "clip-path") !== null) return null;
     const transforms: string[] = [];
     if (offsetX || offsetY) {
       transforms.push(`translate(${offsetX ?? 0} ${offsetY ?? 0})`);
@@ -382,22 +500,56 @@ class UseExpander {
     if (!box) {
       return {
         transforms,
-        inner:
-          width !== undefined && height !== undefined
-            ? { width, height }
-            : viewport,
+        inner: { width, height },
+        clip: clips ? { x: 0, y: 0, width, height } : null,
       };
     }
-    if (!width || !height || width < 0 || height < 0) return null;
-    transforms.push(
-      viewBoxTransform(
-        box,
-        width,
-        height,
-        attribute(target, "preserveAspectRatio"),
-      ),
+    const mapping = viewBoxMapping(
+      box,
+      width,
+      height,
+      attribute(target, "preserveAspectRatio"),
     );
-    return { transforms, inner: { width: box.width, height: box.height } };
+    transforms.push(formatViewBoxMapping(mapping));
+    return {
+      transforms,
+      inner: { width: box.width, height: box.height },
+      clip: clips
+        ? {
+            x: -mapping.x / mapping.scaleX,
+            y: -mapping.y / mapping.scaleY,
+            width: width / mapping.scaleX,
+            height: height / mapping.scaleY,
+          }
+        : null,
+    };
+  }
+
+  // Expansion turns the use into a `<g>` and moves the symbol's shapes out
+  // from under the symbol, so a rule that selects either by tag, or sizes,
+  // places, or transforms the use, would stop applying.
+  private stylesheetDependsOnUse(use: HtmlNode, target: HtmlNode): boolean {
+    if (inlineProperties(use).some((name) => USE_LAYOUT_PROPERTIES.has(name))) {
+      return true;
+    }
+    return this.rules.some(
+      (rule) =>
+        selectsTag(rule.selector, "use") ||
+        (target.tagName === "symbol" && selectsTag(rule.selector, "symbol")) ||
+        (mayMatchNode(rule.selector, use) &&
+          rule.properties.some((name) => USE_LAYOUT_PROPERTIES.has(name))) ||
+        ((selectsTag(rule.selector, target.tagName ?? "") ||
+          mayMatchNode(rule.selector, target)) &&
+          rule.properties.includes("overflow")),
+    );
+  }
+
+  private uniqueId(base: string): string {
+    this.instance += 1;
+    let id = `${base}-${this.instance}`;
+    while (this.usedIds.has(id)) id = `${id}-${this.instance}`;
+    this.usedIds.add(id);
+    return id;
   }
 
   // Copies get new ids, which a stylesheet `#id` rule would stop matching.
@@ -559,7 +711,7 @@ export function promoteAuthoredSvgArtworkInHtml(html: string): {
     });
     for (const use of descendants(svg)) {
       if (use.tagName !== "use" || insideResource(use, svg)) continue;
-      if (use.parentNode?.tagName === "use") continue;
+      if (hasUseAncestor(use, svg)) continue;
       const location = use.sourceCodeLocation;
       if (!location) continue;
       const expanded = expander.expandInPlace(use);
