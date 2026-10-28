@@ -1702,49 +1702,50 @@ export function startRun(
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
   let terminalStatusWriteOutcomeUnknown = false;
-  const checkSqlAbort = (
-    force = false,
-    includeTerminalStatus = true,
+  const inspectSqlAbortState = async (
+    includeTerminalStatus: boolean,
   ): Promise<void> => {
-    const now = Date.now();
-    if (!force) {
-      if (now - lastAbortCheck < 3000) return Promise.resolve();
-      lastAbortCheck = now;
-    }
     // raw-sql-ok: getRunAbortState binds runId through its query args.
-    return getRunAbortState(runId)
-      .then(async (state) => {
-        if (state.aborted && !abort.signal.aborted) {
-          abortInMemoryRun(run, state.reason ?? "user");
-          return;
-        }
-        if (
-          includeTerminalStatus &&
-          !abort.signal.aborted &&
-          !ownTerminalStatusEstablished
-        ) {
-          const status = await getRunStatus(runId);
-          if (status !== null && status !== "running") {
-            const pendingStatusWrite = terminalStatusWrite;
-            if (pendingStatusWrite) {
-              try {
-                await pendingStatusWrite;
-              } catch (error) {
-                if (!terminalStatusWriteOutcomeUnknown) throw error;
-                return;
-              }
-            }
-            if (terminalStatusWriteOutcomeUnknown) return;
-          }
-          if (
-            status !== null &&
-            status !== "running" &&
-            !ownTerminalStatusEstablished
-          ) {
-            abortInMemoryRun(run, "displaced");
+    const state = await getRunAbortState(runId);
+    if (state.aborted && !abort.signal.aborted) {
+      abortInMemoryRun(run, state.reason ?? "user");
+      return;
+    }
+    let status: string | null = null;
+    if (
+      includeTerminalStatus &&
+      !abort.signal.aborted &&
+      !ownTerminalStatusEstablished
+    ) {
+      status = await getRunStatus(runId);
+      if (status !== null && status !== "running") {
+        const pendingStatusWrite = terminalStatusWrite;
+        if (pendingStatusWrite) {
+          try {
+            await pendingStatusWrite;
+          } catch (error) {
+            if (!terminalStatusWriteOutcomeUnknown) throw error;
+            return;
           }
         }
-      })
+        if (terminalStatusWriteOutcomeUnknown) return;
+      }
+    }
+    if (
+      status !== null &&
+      status !== "running" &&
+      !abort.signal.aborted &&
+      !ownTerminalStatusEstablished
+    ) {
+      abortInMemoryRun(run, "displaced");
+    }
+  };
+
+  const checkSqlAbort = (): Promise<void> => {
+    const now = Date.now();
+    if (now - lastAbortCheck < 3000) return Promise.resolve();
+    lastAbortCheck = now;
+    return inspectSqlAbortState(true)
       .then(() => {
         consecutiveAbortCheckFailures = 0;
       })
@@ -2105,7 +2106,8 @@ export function startRun(
       if (executionLeaseClaimFailed || abort.signal.aborted) return;
       await withWorkerFence(async () => {
         if (executionLeaseClaimFailed || abort.signal.aborted) return;
-        await checkSqlAbort(true, false);
+        await inspectSqlAbortState(false);
+        consecutiveAbortCheckFailures = 0;
         if (isRunAborted()) return;
         await runFn(send, runControl.chunkSignal, runControl);
       });
@@ -2113,7 +2115,8 @@ export function startRun(
     }
     if (servicePrincipalRunStart) await insertRunPromise;
     if (abort.signal.aborted) return;
-    await checkSqlAbort(true, false);
+    await inspectSqlAbortState(false);
+    consecutiveAbortCheckFailures = 0;
     if (isRunAborted()) return;
     await runFn(send, runControl.chunkSignal, runControl);
   };

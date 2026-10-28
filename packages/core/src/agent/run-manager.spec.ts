@@ -3584,6 +3584,33 @@ describe("run manager soft timeout", () => {
     },
   );
 
+  it.each([false, true])(
+    "fails closed when the pre-dispatch SQL abort check fails (lease=%s)",
+    async (executionLease) => {
+      vi.mocked(getRunAbortState).mockRejectedValueOnce(
+        new Error("abort state unavailable"),
+      );
+      const runFn = vi.fn(async () => undefined);
+
+      const run = startRun(
+        executionLease
+          ? "run-startup-sql-abort-failure-with-lease"
+          : "run-startup-sql-abort-failure-without-lease",
+        executionLease
+          ? "thread-startup-sql-abort-failure-with-lease"
+          : "thread-startup-sql-abort-failure-without-lease",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease },
+      );
+
+      await run.finalized;
+
+      expect(runFn).not.toHaveBeenCalled();
+      expect(run.status).toBe("errored");
+    },
+  );
+
   it("observes cross-isolate SQL aborts even when the run is idle", async () => {
     vi.mocked(getRunAbortState)
       .mockResolvedValueOnce({ aborted: false })
@@ -8229,8 +8256,10 @@ describe("run manager soft timeout", () => {
     );
   });
 
-  it("keeps running to completion when every abort-state read fails", async () => {
-    vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+  it("keeps running to completion when a background abort-state poll fails", async () => {
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockRejectedValue(new Error("read timeout"));
     vi.mocked(getRunStatus).mockRejectedValue(new Error("read timeout"));
 
     let abortFired = false;
