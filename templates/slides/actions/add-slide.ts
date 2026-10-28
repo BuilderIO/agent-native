@@ -203,6 +203,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  eagerInputStreaming: true,
   run: async (
     {
       deckId,

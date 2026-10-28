@@ -734,6 +734,7 @@
     "idb-keyval": "6.3.0",
     "ink": "6.8.0",
     "isbot": "^5",
+    "isomorphic-git": "1.44.5",
     "jiti": "^2.7.0",
     "jose": "^6.2.2",
     "linkedom": "catalog:",
