@@ -823,7 +823,7 @@ export const tool: ActionTool = {
       attachments: {
         type: "array",
         description:
-          "Chat files the receiving agent needs. Pass each url, name, and contentType exactly as listed in <chat-file-attachment> or <chat-image-attachment>. Use with message.",
+          "Chat files to send: url, name, contentType exactly as in <chat-file-attachment> or <chat-image-attachment>.",
         items: {
           type: "object",
           properties: {
