@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
+import {
+  getAgentChatSubmitTarget,
+  sendToAgentChatAndConfirm,
+} from "@agent-native/core/client/agent-chat";
 import {
   act,
   cleanup,
@@ -21,11 +24,13 @@ import {
 
 import { CHAT_STOP_DEBOUNCE_MS } from "./use-agent-generating";
 import {
+  clearNewDeckGenerationRun,
   useNewDeckGeneration,
   useNewDeckGenerationRun,
 } from "./use-new-deck-generation";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  getAgentChatSubmitTarget: vi.fn(() => null),
   sendToAgentChatAndConfirm: vi.fn(),
 }));
 
@@ -35,6 +40,7 @@ describe("useNewDeckGeneration", () => {
     cleanup();
     sessionStorage.clear();
     vi.mocked(sendToAgentChatAndConfirm).mockReset();
+    vi.mocked(getAgentChatSubmitTarget).mockReset().mockReturnValue(null);
     vi.useRealTimers();
   });
 
@@ -402,6 +408,55 @@ describe("useNewDeckGeneration", () => {
       expect.objectContaining({ targetTabId: "pending-question-thread" }),
       expect.objectContaining({ submitMessageId: expect.any(String) }),
     );
+  });
+
+  it("restores a run the chat routed before this route mounted", () => {
+    vi.mocked(getAgentChatSubmitTarget).mockReturnValue({
+      tabId: "late-mount-tab",
+      threadId: "late-mount-thread",
+    });
+
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun("deck-late-mount", true, "submit-late-mount"),
+    );
+
+    expect(result.current.tabId).toBe("late-mount-tab");
+    expect(result.current.conversationThreadId).toBe("late-mount-thread");
+  });
+
+  it("does not bring back a cleared run from the chat's route history", () => {
+    vi.mocked(getAgentChatSubmitTarget).mockReturnValue({
+      tabId: "cleared-tab",
+      threadId: "cleared-thread",
+    });
+    clearNewDeckGenerationRun("deck-cleared-run", "submit-cleared-run");
+
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun("deck-cleared-run", true, "submit-cleared-run"),
+    );
+
+    expect(result.current.tabId).toBeNull();
+    expect(result.current.conversationThreadId).toBeNull();
+  });
+
+  it("does not let a stale route replace the deck's active run", () => {
+    const activeRunKey = "slides:new-deck-generation-active:deck-newer-run";
+    const activeRun = JSON.stringify({
+      submitMessageId: "submit-newer-run",
+      tabId: "newer-tab",
+    });
+    sessionStorage.setItem(activeRunKey, activeRun);
+    vi.mocked(getAgentChatSubmitTarget).mockReturnValue({
+      tabId: "stale-tab",
+      threadId: "stale-thread",
+    });
+
+    const { result } = renderHook(() =>
+      useNewDeckGenerationRun("deck-newer-run", true, "submit-stale-run"),
+    );
+
+    expect(result.current.tabId).toBeNull();
+    expect(sessionStorage.getItem(activeRunKey)).toBe(activeRun);
   });
 
   it("reports malformed restored ownership instead of treating it as absent", () => {
