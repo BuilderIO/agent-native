@@ -444,6 +444,7 @@ export interface MultiScreenCanvasProps {
   onBoardElementHover?: (info: ElementInfo | null) => void;
   onBoardElementClear?: () => void;
   onBoardElementDblClickText?: (info: ElementInfo) => void;
+  onBoardFrameLabelRename?: (info: ElementInfo, name: string) => void;
   onBoardIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onBoardFigmaClipboardPaste?: (
     event: IframeFigmaClipboardPastePayload,
@@ -595,6 +596,7 @@ export type MultiScreenCanvasBoardProps = Pick<
   | "onBoardElementHover"
   | "onBoardElementClear"
   | "onBoardElementDblClickText"
+  | "onBoardFrameLabelRename"
   | "onBoardIframeHotkey"
   | "onBoardFigmaClipboardPaste"
   | "onBoardImagePaste"
