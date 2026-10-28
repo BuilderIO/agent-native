@@ -16,7 +16,10 @@ import {
 
 import { getAppCreationSettings } from "./app-creation-store.js";
 import { CURATED_COMMUNITY_APP_SOURCES } from "./community-apps.js";
-import { verifyCommunityBranchFiles } from "./community-install-integrity.js";
+import {
+  CommunityInstallIntegrityError,
+  verifyCommunityBranchFiles,
+} from "./community-install-integrity.js";
 import { CURATED_WORKSPACE_TEMPLATES } from "./curated-workspace-templates.js";
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
@@ -34,6 +37,8 @@ export const communityInstallVerificationErrors = defineActionErrors(
   "community_verification_readback_forbidden",
   "community_verification_readback_unverified",
   "community_verification_integrity_failed",
+  "community_verification_catalog_invalid",
+  "community_verification_internal_error",
 );
 
 function verificationFail(
@@ -250,11 +255,45 @@ export async function verifyCuratedCommunityApp(input: {
       projectId,
       branchName,
     });
-  } catch {
-    verificationFail(
-      "Builder branch files do not match the reviewed community template.",
-      "community_verification_integrity_failed",
-      { statusCode: 422 },
-    );
+  } catch (error) {
+    if (!(error instanceof CommunityInstallIntegrityError)) {
+      verificationFail(
+        "Community branch verification could not be completed.",
+        "community_verification_internal_error",
+        { statusCode: 500 },
+      );
+    }
+
+    switch (error.code) {
+      case "file_set_mismatch":
+      case "file_mode_unsupported":
+      case "file_too_large":
+      case "total_too_large":
+      case "blob_mismatch":
+        verificationFail(
+          "Builder branch files do not match the reviewed community template.",
+          "community_verification_integrity_failed",
+          { statusCode: 422 },
+        );
+      case "ref_mismatch":
+      case "invalid_snapshot":
+        verificationFail(
+          "Builder could not provide a complete, identity-bound branch snapshot.",
+          "community_verification_readback_unverified",
+          { statusCode: 422 },
+        );
+      case "invalid_source":
+        verificationFail(
+          "The reviewed community catalog entry is invalid.",
+          "community_verification_catalog_invalid",
+          { statusCode: 500 },
+        );
+      case "invalid_target":
+        verificationFail(
+          "Community branch verification could not be completed.",
+          "community_verification_internal_error",
+          { statusCode: 500 },
+        );
+    }
   }
 }

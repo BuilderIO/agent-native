@@ -30,6 +30,25 @@ const mocks = vi.hoisted(() => {
     getAppCreationSettings: vi.fn(),
     readBuilderBranchFiles: vi.fn(),
     readOrgMemberRole: vi.fn(),
+    curatedSources: [
+      {
+        id: "community-fixture",
+        name: "Fixture",
+        description: "Fixture source",
+        appId: "community-fixture",
+        license: "MIT",
+        provenance: "Inline test bytes",
+        repo: "BuilderIO/agent-native",
+        ref: "main",
+        templatePath: "templates/community/fixture",
+        files: [
+          {
+            path: "README.md",
+            blobSha: "d82bea9ff7c974a8455933d520b0e529cb5b3593",
+          },
+        ],
+      },
+    ],
   };
 });
 
@@ -45,25 +64,7 @@ vi.mock("./app-creation-store.js", () => ({
 }));
 
 vi.mock("./community-apps.js", () => ({
-  CURATED_COMMUNITY_APP_SOURCES: [
-    {
-      id: "community-fixture",
-      name: "Fixture",
-      description: "Fixture source",
-      appId: "community-fixture",
-      license: "MIT",
-      provenance: "Inline test bytes",
-      repo: "BuilderIO/agent-native",
-      ref: "main",
-      templatePath: "templates/community/fixture",
-      files: [
-        {
-          path: "README.md",
-          blobSha: "d82bea9ff7c974a8455933d520b0e529cb5b3593",
-        },
-      ],
-    },
-  ],
+  CURATED_COMMUNITY_APP_SOURCES: mocks.curatedSources,
 }));
 
 vi.mock("./curated-workspace-templates.js", () => ({
@@ -226,7 +227,7 @@ describe("verifyCuratedCommunityApp", () => {
     });
 
     await expect(verifyCuratedCommunityApp(input)).rejects.toMatchObject({
-      errorCode: "community_verification_integrity_failed",
+      errorCode: "community_verification_readback_unverified",
       statusCode: 422,
     });
   });
@@ -246,6 +247,47 @@ describe("verifyCuratedCommunityApp", () => {
       errorCode: "community_verification_integrity_failed",
       statusCode: 422,
     });
+  });
+
+  it("reports malformed reviewed pins as a catalog error", async () => {
+    const source = mocks.curatedSources[0];
+    const originalBlobSha = source.files[0].blobSha;
+    source.files[0].blobSha = "invalid-pin";
+
+    try {
+      await expect(verifyCuratedCommunityApp(input)).rejects.toMatchObject({
+        errorCode: "community_verification_catalog_invalid",
+        statusCode: 500,
+      });
+    } finally {
+      source.files[0].blobSha = originalBlobSha;
+    }
+
+    expect(mocks.readBuilderBranchFiles).toHaveBeenCalledOnce();
+  });
+
+  it("sanitizes unexpected verifier errors as internal failures", async () => {
+    const snapshotWithThrowingFiles = Object.defineProperty(
+      { ...baseSnapshot },
+      "files",
+      {
+        get() {
+          throw new Error("private provider detail");
+        },
+      },
+    );
+    mocks.readBuilderBranchFiles.mockResolvedValue(snapshotWithThrowingFiles);
+
+    const error = await verifyCuratedCommunityApp(input).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toMatchObject({
+      errorCode: "community_verification_internal_error",
+      statusCode: 500,
+      message: "Community branch verification could not be completed.",
+    });
+    expect(String(error)).not.toContain("private provider detail");
   });
 
   it("maps Builder read failures to typed errors without returning a receipt", async () => {
