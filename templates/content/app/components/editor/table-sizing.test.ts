@@ -117,12 +117,11 @@ describe("planColumns", () => {
   });
 
   it("stops trading widths in a wide table before it holds up the page", () => {
-    const words = sentence.split(" ");
-    const rows = Array.from({ length: 49 }, (_, row) =>
-      Array.from({ length: 40 }, (_, column) =>
-        words.slice(0, 1 + ((row * 7 + column * 3) % words.length)).join(" "),
-      ),
-    );
+    // A column three sentences long beside 39 of one sentence each.
+    const rows = Array.from({ length: 49 }, () => [
+      `${sentence} ${sentence} ${sentence}`,
+      ...Array.from({ length: 39 }, () => sentence),
+    ]);
     const wide = measureOf(rows);
 
     const start = performance.now();
@@ -134,6 +133,11 @@ describe("planColumns", () => {
     expect(total(plan.widths)).toBeCloseTo(total(wide.floor) + 2000, 1);
     plan.widths.forEach((width, column) =>
       expect(width).toBeGreaterThanOrEqual(nth(wide.floor, column) - 0.01),
+    );
+    // The budget runs out in its first look through the moves. The best one
+    // it found by then, widening the long column, is still made.
+    expect(plan.widths).not.toEqual(
+      fairShares(wide.natural, wide.floor, total(wide.floor) + 2000),
     );
   });
 

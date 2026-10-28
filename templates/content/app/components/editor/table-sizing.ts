@@ -426,12 +426,20 @@ export function fairShares(
 function shortestWidths(measure: TableMeasure, start: number[]) {
   const { natural, floor, rows, spans } = measure;
   const widths = start.slice();
+  // Counting a cell's lines takes a step per word, so the budget does too.
+  const cost = (cell: MeasuredCell | null | undefined) =>
+    1 + (cell ? sum(cell.blocks.map((block) => block.pieces.length)) : 0);
+  const columnCost = start.map((_, column) =>
+    sum(rows.map((row) => cost(at(row, column)))),
+  );
+  const spanCost = sum(spans.map(({ cell }) => cost(cell)));
   let budget = BALANCE_BUDGET;
   const cache = new Map<string, number[]>();
   const linesAt = (column: number, width: number) => {
     const key = `${column} ${Math.round(width * 2)}`;
     let lines = cache.get(key);
     if (!lines) {
+      budget -= at(columnCost, column) ?? 0;
       lines = rows.map((row) => {
         const cell = at(row, column);
         return cell ? cellLines(cell, width) : 0;
@@ -441,7 +449,7 @@ function shortestWidths(measure: TableMeasure, start: number[]) {
     return lines;
   };
   const height = () => {
-    budget -= rows.length * widths.length + spans.length;
+    budget -= rows.length * widths.length + spanCost;
     const tallest = rows.map(() => 1);
     let total = 0;
     const add = (row: number, lines: number) => {
@@ -457,44 +465,42 @@ function shortestWidths(measure: TableMeasure, start: number[]) {
     return sum(tallest) + 0.02 * total;
   };
   let best = height();
-  for (const step of [96, 48, 24, 12, 6, 3]) {
-    while (budget > 0) {
-      let move: {
-        to: number;
-        toWidth: number;
-        from: number;
-        fromWidth: number;
-      } | null = null;
-      let moveHeight = best;
-      const current = widths.slice();
-      for (const [to, toWidth] of current.entries()) {
-        const room = (at(natural, to) ?? 0) - toWidth;
-        if (room < 0.5) continue;
-        for (const [from, fromWidth] of current.entries()) {
-          const amount = Math.min(
-            step,
-            room,
-            fromWidth - (at(floor, from) ?? 0),
-          );
-          if (from === to || amount < 0.5) continue;
-          // Out of budget, the widths so far are as short as it found.
-          if (budget <= 0) return widths;
-          widths[to] = toWidth + amount;
-          widths[from] = fromWidth - amount;
-          const tried = height();
-          widths[to] = toWidth;
-          widths[from] = fromWidth;
-          if (tried < moveHeight - 1e-9) {
-            moveHeight = tried;
-            move = {
-              to,
-              toWidth: toWidth + amount,
-              from,
-              fromWidth: fromWidth - amount,
-            };
-          }
+  type Move = { to: number; toWidth: number; from: number; fromWidth: number };
+  // The move of `step` px that makes the table shortest, of those the budget
+  // leaves room to try.
+  const bestMove = (step: number) => {
+    let move: Move | null = null;
+    let moveHeight = best;
+    const current = widths.slice();
+    for (const [to, toWidth] of current.entries()) {
+      const room = (at(natural, to) ?? 0) - toWidth;
+      if (room < 0.5) continue;
+      for (const [from, fromWidth] of current.entries()) {
+        const amount = Math.min(step, room, fromWidth - (at(floor, from) ?? 0));
+        if (from === to || amount < 0.5) continue;
+        if (budget <= 0) return { move, moveHeight };
+        widths[to] = toWidth + amount;
+        widths[from] = fromWidth - amount;
+        const tried = height();
+        widths[to] = toWidth;
+        widths[from] = fromWidth;
+        if (tried < moveHeight - 1e-9) {
+          moveHeight = tried;
+          move = {
+            to,
+            toWidth: toWidth + amount,
+            from,
+            fromWidth: fromWidth - amount,
+          };
         }
       }
+    }
+    return { move, moveHeight };
+  };
+  for (const step of [96, 48, 24, 12, 6, 3]) {
+    while (budget > 0) {
+      // A move found before the budget ran out still counts.
+      const { move, moveHeight } = bestMove(step);
       if (!move) break;
       widths[move.to] = move.toWidth;
       widths[move.from] = move.fromWidth;
@@ -573,6 +579,8 @@ export function cellLabel(text: string) {
 export class ContentTableSizer {
   private measure: TableMeasure | null = null;
   private plan: ColumnPlan | null = null;
+  /** Whether `plan` fits the table to the page width. */
+  private plannedToFit = false;
   private active = false;
   private holding = false;
   private scheduled = false;
@@ -616,6 +624,9 @@ export class ContentTableSizer {
     this.holding = hold;
     const columns = this.cols().length;
     if (this.plan?.widths.length === columns) {
+      // Fit to page width changes the plan, not the measure, so a held table
+      // takes it at once.
+      if (this.fitPageWidth() !== this.plannedToFit) this.replan();
       this.apply(this.plan);
       if (hold) return;
     } else {
@@ -692,8 +703,9 @@ export class ContentTableSizer {
     }
     const available = this.available();
     if (available <= 0) return;
+    this.plannedToFit = this.fitPageWidth();
     this.plan = planColumns(this.measure, available, {
-      fitPageWidth: this.fitPageWidth(),
+      fitPageWidth: this.plannedToFit,
     });
     this.apply(this.plan);
   }

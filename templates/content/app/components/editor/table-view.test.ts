@@ -16,6 +16,7 @@ import {
 } from "@tiptap/pm/view";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { TABLE_SCROLLS_ATTRIBUTE } from "./table-sizing";
 import {
   COLUMN_SIZING_ATTRIBUTE,
   ContentTableView,
@@ -325,6 +326,38 @@ describe("content-sized columns", () => {
     await cellsDrawn();
     const { first, second } = firstTwo(view);
     expect(first).toBeGreaterThan(second);
+  });
+
+  it("fits a held table to the page width as soon as it is set to", async () => {
+    // Text 8 px a character: three 25-letter words need 603 px of 600.
+    const ranges = vi
+      .spyOn(Range.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Range) {
+        return { width: this.toString().length * 8, left: 0 } as DOMRect;
+      });
+    try {
+      const node = table([{}, {}, {}]);
+      const view = laidOut(node);
+      const row = renderFirstRow(view, [250, 250, 250]);
+      for (const cell of Array.from(row.cells)) {
+        cell.innerHTML = "<p>Internationalisationalism</p>";
+      }
+      view.update(node, []);
+      await cellsDrawn();
+      expect(view.dom.hasAttribute(TABLE_SCROLLS_ATTRIBUTE)).toBe(true);
+
+      // Set from the table's menu, with the caret still in the table.
+      const fitted = table([{}, {}, {}], { fitPageWidth: true });
+      view.update(fitted, holdDecorations(stateWith(fitted, 4)));
+
+      expect(view.dom.hasAttribute(TABLE_SCROLLS_ATTRIBUTE)).toBe(false);
+      expect(pixels(view).reduce((sum, width) => sum + width)).toBeCloseTo(
+        pageWidth,
+        1,
+      );
+    } finally {
+      ranges.mockRestore();
+    }
   });
 
   it("measures a held table again once it has another column", async () => {

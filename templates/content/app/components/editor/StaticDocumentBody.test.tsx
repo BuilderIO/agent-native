@@ -278,6 +278,23 @@ describe("the static document body", () => {
     expect(blocks(staticBody).map(shape)).toEqual(blocks(editor).map(shape));
   });
 
+  it("labels and sizes the tables it draws, as the editor does", async () => {
+    await show(
+      createElement(StaticDocumentBody, {
+        schema: getContentEditorSchema(),
+        content: ["| Name | Role |", "| --- | --- |", "| Priya | |"].join("\n"),
+      }),
+    );
+
+    // The table view that drew it is gone, but the table keeps its mark as
+    // content-sized, so the body's own sizer takes it.
+    const table = container.querySelector("table");
+    expect(table?.getAttribute("data-column-sizing")).toBe("content");
+    const cells = container.querySelectorAll("td");
+    expect(cells.item(0).getAttribute("data-label")).toBe("Name");
+    expect(cells.item(1).hasAttribute("data-empty")).toBe(true);
+  });
+
   it("draws an image that failed to load as the image block draws one", async () => {
     await show(imageStoredBody());
     await failImage(container.querySelector("img")!);
