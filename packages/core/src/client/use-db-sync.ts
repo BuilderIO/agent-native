@@ -19,7 +19,7 @@ import {
 } from "../shared/surface-visibility.js";
 import { actionQueryAffectedByResources } from "./action-query-scope.js";
 import { agentNativePath } from "./api-path.js";
-import { getBrowserTabId } from "./browser-tab-id.js";
+import { getBrowserTabId, resolveBrowserTabIdAlias } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
 import {
   ensureEmbedAuthFetchInterceptor,
@@ -87,6 +87,12 @@ let collabBoostActivityAt = 0;
 // proves someone is editing the resource right now, so it boosts on its own.
 const collabActivityUntilByResource = new Map<string, number>();
 const openCollabResources = new Map<string, number>();
+// The request sources this tab's collab connections have posted updates under.
+// Apps choose their own (Content's `chat-…` tab id is not getBrowserTabId()),
+// and a lone editor's every update comes back in its polls under that source.
+// Never forget one when its connection closes: echoes of its last updates can
+// arrive minutes later, while another doc on the resource is still open.
+const ownCollabSources = new Set<string>();
 
 function collabResourceKey(resourceType: string, resourceId: string): string {
   return `${resourceType}\0${resourceId}`;
@@ -110,6 +116,10 @@ export function registerCollabActivityResource(resource: {
     }
     notifyCollabBoostChange();
   };
+}
+
+export function registerOwnCollabSource(source: string): void {
+  ownCollabSources.add(source);
 }
 
 function collabBoostWanted(): boolean {
@@ -158,7 +168,9 @@ function noteCollaboratorActivity(
       typeof event.resourceType !== "string" ||
       event.resourceType === "" ||
       typeof event.resourceId !== "string" ||
-      event.requestSource === ownSource
+      event.requestSource === ownSource ||
+      (event.requestSource !== undefined &&
+        ownCollabSources.has(event.requestSource))
     ) {
       continue;
     }
@@ -1379,6 +1391,7 @@ export function _resetSyncTransportRegistryForTests(): void {
   collabBoostActivityAt = 0;
   collabActivityUntilByResource.clear();
   openCollabResources.clear();
+  ownCollabSources.clear();
 }
 
 export interface SubscribeSyncEventsOptions {
@@ -1578,6 +1591,8 @@ export function useDbSync(
           bumpChangeVersion(src, ver);
           if (typeof evt.key === "string" && evt.key) {
             bumpChangeVersion(`${src}:${evt.key}`, ver);
+          } else if (src === "app-state") {
+            bumpChangeVersion("app-state:*", ver);
           }
         }
       }
@@ -1712,10 +1727,7 @@ export function useDbSync(
             const needsBroadAppStateRefresh = appStateKeys.some(
               (key) =>
                 key === "*" ||
-                isInteractionCriticalSyncEvent({
-                  source: "app-state",
-                  key,
-                }),
+                INTERACTION_CRITICAL_APP_STATE_KEYS.includes(key),
             );
             invalidateWithoutCancel(
               needsBroadAppStateRefresh
@@ -1811,14 +1823,26 @@ export function useDbSync(
     }
 
     const sideEffectToolsByTab = new Map<string, Map<string, boolean>>();
+    const browserTabIdsByTab = new Map<
+      string,
+      { browserTabId: string; runId?: string }
+    >();
     const eventsForTool = (
       tool: string,
       completedSideEffect: boolean,
       failed: boolean,
+      browserTabId?: string,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
         events.push({ source: "action", key: tool, version: 0 });
+      }
+      if (tool === "navigate" && completedSideEffect) {
+        events.push({
+          source: "app-state",
+          key: browserTabId ? `navigate:${browserTabId}` : "navigate",
+          version: 0,
+        });
       }
       if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
         events.push({ source: "app-state", key: "__set_url__", version: 0 });
@@ -1869,22 +1893,49 @@ export function useDbSync(
           completedSideEffect?: unknown;
           isError?: unknown;
           tabId?: unknown;
+          browserTabId?: unknown;
+          runId?: unknown;
         }>
       ).detail;
       if (typeof detail?.tool !== "string") return;
       const tool = detail.tool;
       const completedSideEffect = detail.completedSideEffect === true;
+      const tabId =
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      const runId =
+        typeof detail.runId === "string" && detail.runId
+          ? detail.runId
+          : undefined;
+      const runStart = browserTabIdsByTab.get(tabId);
+      if (runId && runStart?.runId && runId !== runStart.runId) return;
+      const aliasedRunStartId = runStart
+        ? resolveBrowserTabIdAlias(runStart.browserTabId)
+        : undefined;
+      const browserTabId =
+        aliasedRunStartId ??
+        runStart?.browserTabId ??
+        (typeof detail.browserTabId === "string"
+          ? detail.browserTabId
+          : getBrowserTabId());
+      if (runStart && browserTabId !== runStart.browserTabId) {
+        browserTabIdsByTab.set(tabId, { ...runStart, browserTabId });
+      }
+      if (completedSideEffect && !runStart) {
+        browserTabIdsByTab.set(tabId, {
+          browserTabId,
+          ...(runId ? { runId } : {}),
+        });
+      }
       const events = eventsForTool(
         tool,
         completedSideEffect,
         detail.isError === true,
+        browserTabId,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
-        const tabId =
-          typeof detail.tabId === "string" && detail.tabId
-            ? detail.tabId
-            : "__default__";
         const tools =
           sideEffectToolsByTab.get(tabId) ?? new Map<string, boolean>();
         const previouslyFailed = tools.get(tool);
@@ -1898,13 +1949,34 @@ export function useDbSync(
     };
     const handleRunStatus = (event: Event) => {
       const detail = (
-        event as CustomEvent<{ isRunning?: unknown; tabId?: unknown }>
+        event as CustomEvent<{
+          isRunning?: unknown;
+          tabId?: unknown;
+          browserTabId?: unknown;
+          runId?: unknown;
+        }>
       ).detail;
       if (detail?.isRunning === true) {
         const tabId =
           typeof detail.tabId === "string" && detail.tabId
             ? detail.tabId
             : "__default__";
+        const browserTabId =
+          typeof detail.browserTabId === "string"
+            ? detail.browserTabId
+            : getBrowserTabId();
+        const runId =
+          typeof detail.runId === "string" && detail.runId
+            ? detail.runId
+            : undefined;
+        const runStart = browserTabIdsByTab.get(tabId);
+        if (!runId) {
+          browserTabIdsByTab.set(tabId, { browserTabId });
+        } else if (!runStart || (runStart.runId && runStart.runId !== runId)) {
+          browserTabIdsByTab.set(tabId, { browserTabId, runId });
+        } else if (!runStart.runId) {
+          browserTabIdsByTab.set(tabId, { ...runStart, runId });
+        }
         sideEffectToolsByTab.delete(tabId);
         return;
       }
@@ -1913,13 +1985,29 @@ export function useDbSync(
         typeof detail.tabId === "string" && detail.tabId
           ? detail.tabId
           : "__default__";
+      const runStart = browserTabIdsByTab.get(tabId);
+      const runId =
+        typeof detail.runId === "string" && detail.runId
+          ? detail.runId
+          : undefined;
+      if (runId && runStart?.runId && runId !== runStart.runId) return;
+      const aliasedRunStartId = runStart
+        ? resolveBrowserTabIdAlias(runStart.browserTabId)
+        : undefined;
+      const browserTabId =
+        aliasedRunStartId ??
+        runStart?.browserTabId ??
+        (typeof detail.browserTabId === "string"
+          ? detail.browserTabId
+          : getBrowserTabId());
+      browserTabIdsByTab.delete(tabId);
       const tools = sideEffectToolsByTab.get(tabId);
       if (!tools?.size) return;
       sideEffectToolsByTab.delete(tabId);
       applyRunEvents(
         event,
         [...tools].flatMap(([tool, failed]) =>
-          eventsForTool(tool, true, failed),
+          eventsForTool(tool, true, failed, browserTabId),
         ),
         processedRunEndEvents,
       );

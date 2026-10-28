@@ -15,11 +15,14 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../../db/index.js";
+import { readUploadPhase } from "../../../../lib/final-chunk-claim.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
+import { deleteStoredMediaUrl } from "../../../../lib/recording-media-cleanup.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -31,6 +34,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isParkedForStorage } from "../../../../lib/upload-lease.js";
+import { releaseHostedClipRecording } from "../../../../lib/video-storage.js";
 
 function uploadStateMatchesRecording(
   state: Record<string, unknown>,
@@ -74,6 +78,17 @@ export async function handleAbortRecordingUpload(
     recordingId?: string;
     ownerEmail?: string;
     orgId?: string;
+    authUserId?: string;
+    /** The abort request, from a caller that reads its own body. */
+    body?: Record<string, unknown>;
+    /**
+     * Change nothing unless the upload is `uploading` or `parked`
+     * (`readUploadPhase`), and answer the `phase` it found. A final chunk
+     * claims the upload before Clips takes its bytes, changing the upload
+     * state, so the claim below fails for an abort that read the state
+     * first, and the abort reads the phase again.
+     */
+    onlyWhileUploading?: boolean;
   },
 ) {
   const recordingId =
@@ -84,13 +99,19 @@ export async function handleAbortRecordingUpload(
   }
 
   const { ownerEmail, orgId, authUserId } = override?.ownerEmail
-    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
+    ? {
+        ownerEmail: override.ownerEmail,
+        orgId: override.orgId,
+        authUserId: override.authUserId,
+      }
     : await getEventOwnerContext(event).then((context) => ({
         ownerEmail: context.userEmail,
         orgId: context.orgId,
         authUserId: context.authUserId,
       }));
-  const body = (await readBody(event).catch(() => null)) as {
+  const body = (override?.body ??
+    // coercion-ok: an unreadable abort report still aborts, with its reason recorded as unknown.
+    (await readBody(event).catch(() => null))) as {
     reason?: unknown;
     failureCode?: unknown;
     failureStage?: unknown;
@@ -181,6 +202,7 @@ export async function handleAbortRecordingUpload(
         failureCode: schema.recordings.failureCode,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        storageMode: schema.recordings.storageMode,
       })
       .from(schema.recordings)
       .where(
@@ -289,6 +311,17 @@ export async function handleAbortRecordingUpload(
         chunksCleared: 0,
       };
     }
+    // Read after the upload state the claim below expects, so a final
+    // chunk's claim either shows here or fails that claim.
+    const leftAlone = async () => {
+      if (override?.onlyWhileUploading !== true) return null;
+      const standing = await readUploadPhase(recordingId, ownerEmail);
+      return standing?.phase === "uploading" || standing?.phase === "parked"
+        ? null
+        : { ok: true, recordingId, phase: standing?.phase, chunksCleared: 0 };
+    };
+    const untouched = await leftAlone();
+    if (untouched) return untouched;
 
     let preserveRecoveryState =
       isStoredButUnservableFinalizeError(failureReason) ||
@@ -343,6 +376,7 @@ export async function handleAbortRecordingUpload(
           failureCode: schema.recordings.failureCode,
           uploadAttemptId: schema.recordings.uploadAttemptId,
           uploadGenerationId: schema.recordings.uploadGenerationId,
+          storageMode: schema.recordings.storageMode,
         })
         .from(schema.recordings)
         .where(
@@ -418,6 +452,8 @@ export async function handleAbortRecordingUpload(
           chunksCleared: 0,
         };
       }
+      const untouchedLatest = await leftAlone();
+      if (untouchedLatest) return untouchedLatest;
 
       transitionExisting = latest;
       transitionUploadStateSnapshot =
@@ -564,6 +600,9 @@ export async function handleAbortRecordingUpload(
           recordingId,
           abortedGenerationId,
         );
+    // A session the provider could not abort may still hold uploaded parts; it
+    // stays in app state for the reaper, so the reservation has to stay too.
+    let sessionCleanupConfirmed = true;
     if (!preserveRecoveryState) {
       if (resumableSession) {
         const provider = await resolveResumableUploadProvider(
@@ -591,6 +630,8 @@ export async function handleAbortRecordingUpload(
           await deleteResumableSession(recordingId, abortedGenerationId).catch(
             () => {},
           );
+        } else {
+          sessionCleanupConfirmed = false;
         }
       } else {
         await deleteResumableSession(recordingId, abortedGenerationId).catch(
@@ -598,7 +639,31 @@ export async function handleAbortRecordingUpload(
         );
       }
     }
+    if (existing.storageMode === "hosted" && !preserveRecoveryState) {
+      const mediaDeleted = existing.videoUrl
+        ? await deleteStoredMediaUrl(existing.videoUrl, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : true;
+      if (mediaDeleted && sessionCleanupConfirmed) {
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+          ownerEmail,
+        });
+      } else {
+        console.error("[abort] hosted recording media remains reserved", {
+          recordingId,
+          sessionCleanupConfirmed,
+        });
+      }
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     return { ok: true, recordingId, chunksCleared: cleared };
   });

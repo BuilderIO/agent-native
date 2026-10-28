@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+
+const approvalAudit = vi.hoisted(() => vi.fn(async (_input: any) => {}));
+vi.mock("../audit/store.js", () => ({ insertAuditEvent: approvalAudit }));
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn(async () => {}));
 const mockIsLoopbackRequest = vi.hoisted(() => vi.fn(() => true));
@@ -18,6 +22,8 @@ vi.mock("h3", () => ({
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   getRequestHeader: (event: any, name: string) =>
     event._headers?.[name.toLowerCase()],
+  getRequestHeaders: (event: { _headers?: Record<string, string> }) =>
+    event._headers ?? {},
   getRequestIP: () => "127.0.0.1",
   getRequestURL: (event: any) =>
     new URL(`http://${event._headers?.host ?? "localhost"}/`),
@@ -66,6 +72,9 @@ vi.mock("drizzle-orm/pglite/migrator", () => ({
   migrate: (...args: unknown[]) => mockMigrate(...args),
 }));
 
+import { currentInvocationEvidence } from "../action-frame.js";
+import { runActionInvocation } from "../action-invocation.js";
+import { defineAction } from "../action.js";
 import {
   DEV_ACTION_ROUTE,
   DEV_DB_MIGRATE_ROUTE,
@@ -237,6 +246,7 @@ describe("mountDevActionForwardRoute", () => {
     mockResolveDeployEnvironment.mockReturnValue("local");
     mockResolveDevUserEmail.mockReset();
     mockResolveDevUserEmail.mockResolvedValue(undefined);
+    approvalAudit.mockClear();
   });
 
   afterEach(() => {
@@ -250,6 +260,447 @@ describe("mountDevActionForwardRoute", () => {
     const event: any = { _headers: {} };
     await expect(handler(event)).resolves.toMatchObject({ ok: false });
     expect(event._status).toBe(401);
+  });
+
+  it.each([undefined, false, "true", 1])(
+    "refuses a gated action without boolean approval (%j)",
+    async (approved) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn();
+      const entry = defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      });
+      const handler = mountedHandler({ "delete-data": entry });
+      const event: any = {
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "delete-data", input: {}, approved },
+      };
+      expect(await handler(event)).toEqual({
+        ok: false,
+        errorCode: "approval_required",
+        error:
+          'Action "delete-data" requires human approval. Ask the person, then rerun with --approved.',
+        arguments: { action: "delete" },
+        argumentsHash: expect.any(String),
+      });
+      expect(event._status).toBe(409);
+      expect(run).not.toHaveBeenCalled();
+      expect(mockNotifyActionChange).not.toHaveBeenCalled();
+      expect(approvalAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["flag", "prompt"])(
+    "runs an explicitly approved call and audits %s outside the input",
+    async (approvalSource) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn(async (args) => args);
+      const entry = defineAction({
+        schema: z.object({ action: z.string().default("delete") }).strict(),
+        needsApproval: true,
+        run,
+      });
+      const handler = mountedHandler({ "delete-data": entry });
+      const challenge = await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "delete-data", input: {} },
+      });
+      const response = await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource,
+          ...(approvalSource === "prompt"
+            ? { approvalArgumentsHash: challenge.argumentsHash }
+            : {}),
+        },
+      });
+      expect(response).toEqual({ ok: true, result: { action: "delete" } });
+      expect(run).toHaveBeenCalledWith(
+        { action: "delete" },
+        expect.objectContaining({ caller: "cli" }),
+      );
+      // One row per run: the approval rides on the action's own audit event.
+      expect(approvalAudit).toHaveBeenCalledTimes(1);
+      expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+        caller: "cli",
+        action: "delete-data",
+        status: "success",
+        approval: approvalSource === "flag" ? "cli-flag" : "cli-prompt",
+      });
+      expect(mockNotifyActionChange).toHaveBeenCalledWith({
+        actionName: "delete-data",
+      });
+    },
+  );
+
+  it("runs the reviewed call on a prompted retry, once, after its dynamic defaults change", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    let destination = "reviewed@example.test";
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      send: defineAction({
+        schema: z.object({
+          destination: z.string().default(() => destination),
+        }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "send", input: {} },
+    });
+    expect(challenge.arguments).toEqual({
+      destination: "reviewed@example.test",
+    });
+    destination = "changed@example.test";
+    const retry = (): any => ({
+      _headers: headers,
+      _body: {
+        name: "send",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        approvalArgumentsHash: challenge.argumentsHash,
+      },
+    });
+    expect(await handler(retry())).toEqual({
+      ok: true,
+      result: { destination: "reviewed@example.test" },
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // The reviewed call runs once.
+    const replay = retry();
+    expect(await handler(replay)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(replay._status).toBe(409);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a replayed prompt approval whose arguments didn't change", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "delete-data", input: {} },
+    });
+    const retry = (): any => ({
+      _headers: headers,
+      _body: {
+        name: "delete-data",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        approvalArgumentsHash: challenge.argumentsHash,
+      },
+    });
+    expect(await handler(retry())).toEqual({
+      ok: true,
+      result: { action: "delete" },
+    });
+    const replay = retry();
+    expect(await handler(replay)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(replay._status).toBe(409);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs each of two identical refusals once", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const refuse = () =>
+      handler({
+        _headers: headers,
+        _body: { name: "delete-data", input: {} },
+      });
+    const first = await refuse();
+    const second = await refuse();
+    expect(second.argumentsHash).toBe(first.argumentsHash);
+    const confirm = (challenge: { argumentsHash: string }) =>
+      handler({
+        _headers: headers,
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource: "prompt",
+          approvalArgumentsHash: challenge.argumentsHash,
+        },
+      });
+    expect(await confirm(first)).toMatchObject({ ok: true });
+    expect(await confirm(second)).toMatchObject({ ok: true });
+    expect(await confirm(second)).toMatchObject({
+      ok: false,
+      errorCode: "approval_expired",
+    });
+    expect(run).toHaveBeenCalledTimes(2);
+
+    // An expired refusal doesn't use up a newer identical one.
+    const now = vi.spyOn(Date, "now");
+    try {
+      now.mockReturnValue(1_000_000);
+      await refuse();
+      now.mockReturnValue(1_000_000 + 10 * 60_000 - 5);
+      const fresh = await refuse();
+      now.mockReturnValue(1_000_000 + 10 * 60_000);
+      expect(await confirm(fresh)).toMatchObject({ ok: true });
+      expect(await confirm(fresh)).toMatchObject({
+        ok: false,
+        errorCode: "approval_expired",
+      });
+      expect(run).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("holds a reviewed call for 10 minutes", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const handler = mountedHandler({
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    });
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const now = vi.spyOn(Date, "now");
+    try {
+      const confirmAfter = async (elapsedMs: number) => {
+        now.mockReturnValue(1_000_000);
+        const challenge = await handler({
+          _headers: headers,
+          _body: { name: "delete-data", input: {} },
+        });
+        now.mockReturnValue(1_000_000 + elapsedMs);
+        return handler({
+          _headers: headers,
+          _body: {
+            name: "delete-data",
+            input: {},
+            approved: true,
+            approvalSource: "prompt",
+            approvalArgumentsHash: challenge.argumentsHash,
+          },
+        });
+      };
+      expect(await confirmAfter(10 * 60_000 - 1)).toMatchObject({ ok: true });
+      expect(await confirmAfter(10 * 60_000)).toMatchObject({
+        ok: false,
+        errorCode: "approval_expired",
+      });
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("refuses a prompted retry after the action reloads", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const define = (run: () => unknown) =>
+      defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      });
+    const stale = vi.fn();
+    const reloaded = vi.fn();
+    const actions: Record<string, ReturnType<typeof define>> = {
+      "delete-data": define(stale),
+    };
+    const handler = mountedHandler(actions);
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = await handler({
+      _headers: headers,
+      _body: { name: "delete-data", input: {} },
+    });
+    actions["delete-data"] = define(reloaded);
+    expect(
+      await handler({
+        _headers: headers,
+        _body: {
+          name: "delete-data",
+          input: {},
+          approved: true,
+          approvalSource: "prompt",
+          approvalArgumentsHash: challenge.argumentsHash,
+        },
+      }),
+    ).toMatchObject({ ok: false, errorCode: "approval_expired" });
+    expect(stale).not.toHaveBeenCalled();
+    expect(reloaded).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the server lost the reviewed call", true],
+    ["no refusal showed the call", false],
+  ])("refuses a prompt approval when %s", async (_case, refusedFirst) => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const actions = {
+      "delete-data": defineAction({
+        schema: z.object({ action: z.string().default("delete") }),
+        needsApproval: true,
+        audit: { enabled: false },
+        run,
+      }),
+    };
+    const headers = { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() };
+    const challenge = refusedFirst
+      ? await mountedHandler(actions)({
+          _headers: headers,
+          _body: { name: "delete-data", input: {} },
+        })
+      : undefined;
+    // A restarted dev server mounts the route again with nothing held.
+    const handler = mountedHandler(actions);
+    const event: any = {
+      _headers: headers,
+      _body: {
+        name: "delete-data",
+        input: {},
+        approved: true,
+        approvalSource: "prompt",
+        ...(challenge
+          ? { approvalArgumentsHash: challenge.argumentsHash }
+          : {}),
+      },
+    };
+    expect(await handler(event)).toEqual({
+      ok: false,
+      errorCode: "approval_expired",
+      error:
+        'Action "delete-data" has no pending confirmation for this call. A confirmation runs once, and expires after 10 minutes or a dev server restart. Run the command again to review it.',
+    });
+    expect(event._status).toBe(409);
+    expect(run).not.toHaveBeenCalled();
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it("preserves audit records for validation failures before a handler runs", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const handler = mountedHandler({
+      invalid: defineAction({ schema: z.object({ name: z.string() }), run }),
+    });
+    const response = await handler({
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+      _body: { name: "invalid", input: {} },
+    });
+    expect(response.ok).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(approvalAudit).toHaveBeenCalledTimes(1);
+    expect(approvalAudit.mock.calls[0]![0]).toMatchObject({
+      action: "invalid",
+      caller: "cli",
+      status: "error",
+      approval: null,
+    });
+  });
+
+  it("evaluates function gates with prepared defaults and cli context", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async (args) => args);
+    const entry = defineAction({
+      schema: z.object({ action: z.string().default("delete") }),
+      needsApproval: (args, ctx) =>
+        ctx?.caller === "cli" && args.action === "delete",
+      audit: { enabled: false },
+      run,
+    });
+    const handler = mountedHandler({ conditional: entry });
+    const call = (input: unknown) =>
+      handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "conditional", input },
+      });
+    expect(await call({})).toMatchObject({
+      ok: false,
+      errorCode: "approval_required",
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(await call({ action: "read" })).toEqual({
+      ok: true,
+      result: { action: "read" },
+    });
+    expect(approvalAudit).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, true])(
+    "does not add an approval audit for ungated calls (%j)",
+    async (approved) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn(async (args) => args);
+      const handler = mountedHandler({
+        ungated: defineAction({
+          schema: z.object({}),
+          audit: { enabled: false },
+          run,
+        }),
+      });
+      expect(
+        await handler({
+          _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+          _body: { name: "ungated", input: {}, approved },
+        }),
+      ).toEqual({ ok: true, result: {} });
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(approvalAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails closed when a predicate throws", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn();
+    const handler = mountedHandler({
+      gated: {
+        needsApproval: () => {
+          throw new Error("predicate failed");
+        },
+        run,
+      },
+    });
+    expect(
+      await handler({
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() },
+        _body: { name: "gated" },
+      }),
+    ).toMatchObject({ ok: false, errorCode: "approval_required" });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects a non-loopback request with 401", async () => {
@@ -367,6 +818,32 @@ describe("mountDevActionForwardRoute", () => {
     expect(mockNotifyActionChange).toHaveBeenCalledWith({
       actionName: "do-thing",
     });
+  });
+
+  it("runs the action in its own frame, without the evidence of an invocation it runs inside", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const seen: unknown[] = [];
+    const handler = mountedHandler({
+      child: { run: async () => seen.push(currentInvocationEvidence()) },
+    });
+    const evidence = {
+      auditOverride: { approval: "a2a-review" as const, threadId: "task-1" },
+    };
+    const outer = {
+      run: () =>
+        handler({
+          _headers: {
+            host: "localhost:8100",
+            [DEV_ACTION_TOKEN_HEADER]: getDevActionToken(),
+            [DEV_ACTION_USER_HEADER]: "owner@example.test",
+          },
+          _body: { name: "child", input: {} },
+        }),
+    };
+
+    const response = await runActionInvocation(outer, {}, undefined, evidence);
+    expect(response.ok).toBe(true);
+    expect(seen).toEqual([undefined]);
   });
 
   it("forwards a hidden browser handoff without making it enumerable in the result", async () => {

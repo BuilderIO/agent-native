@@ -29,11 +29,12 @@ Paste a public Clips share link into an agent, or use **Share → Copy** in the 
 
 Most agents that can view images handle this on their own, including ChatGPT, Claude Code, Cursor, and Codex. A few text-only chats can read the transcript but not the frames, so open the clip in an image-capable agent for those.
 
-| Endpoint                                          | What agents get                                                                                                |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs   |
-| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | A JPEG frame extracted from the video at an original-video timestamp                                           |
+| Endpoint                                                                 | What agents get                                                                                                                      |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `/api/agent-context.json?id=<recordingId>`                               | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs                         |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels                       |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | A JPEG frame extracted from the video at an original-video timestamp                                                                 |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a time range, for watching an animation or a transition in a single image |
 
 The endpoints follow the same public/password/expiry rules as the share page, or accept the scoped `agent_access` token from a temporary agent link. Password-protected clips require the password once; successful responses return short-lived tokenized links so downstream agents do not need the plaintext password.
 
@@ -104,6 +105,50 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
 
 </Endpoint>
 
+<Endpoint id="doc-block-clips-agent-frames" title="Frame sheet for a time range" method="GET" path="/api/agent-frames.jpg" summary="Consecutive frames from a time range in one JPEG contact sheet" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds up to 36 frames from startMs, stopping at 60 seconds or the end of the clip"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+Cell _i_ shows the frame on screen at `startMs + i × 1000 / fps`. Leave out `fps` to see every frame the video has.
+
+</Endpoint>
+
 If a transcript isn't ready yet, a well-behaved agent waits a bit and retries instead of giving up right away. Long recordings can take a few minutes. If transcription fails because Builder credits ran out, the agent should say so and point to [Transcription and AI metadata](/docs/template-clips-features#transcription-and-ai-metadata).
 
 ### Exporting to Brain
@@ -112,47 +157,9 @@ Once your workspace connects Brain, Clips sends ready transcripts over automatic
 
 ### CRM call evidence
 
-CRM tools sometimes need proof a call happened, without the full recording. Clips hands over just an opaque clip ID and a durable link, never the video or a transcript. This only works for a recording you can already see, and only when you ask for it or an approved automation triggers it.
+CRM tools sometimes need proof a call happened, without the full recording. Clips hands over just an opaque clip ID and a durable link, never the video or a transcript. This only works for a recording you can already see, and only when you ask for it.
 
-<Diagram id="doc-block-clips-crm" title="CRM call evidence" summary={"A clip.created automation hands a CRM workflow a durable link, never the media itself."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">Recording ready</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">approved automation</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Evidence link</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM record</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+Setting up CRM-to-Clips call automations isn't available yet.
 
 ### Natural-language delegation through Dispatch
 

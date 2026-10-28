@@ -3,6 +3,49 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-23
+
+### Fixed
+
+- Workspace app sharing is managed only by app owners and organization admins.
+
+## 2026-10-22
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
+## 2026-10-21
+
+### Added
+
+- You can pin a shared chat just for yourself, or hide it from your list and undo that from the toast.
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
+
+### Improved
+
+- Customer AI credit questions route to account health instead of workspace spend metrics.
+
+### Fixed
+
+- Workspace apps load reliably with organization sign-in, and failures identify the request and status
+
+## 2026-10-19
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+### Security
+
+- Vault secrets, grants, link tokens, app access, and workspace connections now ask you to approve each change the agent or another app makes.
+
+## 2026-10-14
+
+### Fixed
+
+- Gong questions go to Analytics instead of the chat scanning every call and stalling.
+
 ## 2026-10-13
 
 ### Fixed

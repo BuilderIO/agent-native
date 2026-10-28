@@ -21,6 +21,7 @@ import { withDesignSourceMutationTransaction } from "../server/source-workspace.
 import { BOARD_FILENAME } from "../shared/board-file.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designTemplateRetryKey } from "../shared/design-template-retry.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
@@ -136,6 +137,7 @@ async function readRetryDesign(
         ? "Call get-design-snapshot, then refine unlocked content with edit-design. Do not call generate-design."
         : null,
     reused: true,
+    _receipt: designOutputWriteReceipt(id, 0),
   };
 }
 
@@ -450,7 +452,7 @@ export default defineAction({
         if (existing) return existing;
         return templateCopyConflict();
       }
-      trackDesignCreated(
+      await trackDesignCreated(
         designId,
         {
           creationMethod: "template",
@@ -485,6 +487,7 @@ export default defineAction({
       nextRequiredAction: adaptationPending
         ? "Call get-design-snapshot, then refine unlocked content with edit-design. Do not call generate-design."
         : null,
+      _receipt: designOutputWriteReceipt(designId, files.length),
     };
   },
   link: ({ result }) => {

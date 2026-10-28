@@ -92,14 +92,14 @@
 
     e.preventDefault();
     try {
-      (window.parent as Window).postMessage(
-        {
-          type: "prototype-navigate",
-          href: target,
-          screen: screenName(target),
-        },
-        "*",
-      );
+      var message: Record<string, unknown> = {
+        type: "prototype-navigate",
+        href: target,
+        screen: screenName(target),
+      };
+      var transition = link.getAttribute("data-an-prototype-transition");
+      if (transition !== null) message.transition = transition;
+      (window.parent as Window).postMessage(message, "*");
     } catch (_err) {
       // coercion-ok: the editor is gone, so there is no screen to switch to.
       return;

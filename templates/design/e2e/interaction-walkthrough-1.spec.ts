@@ -13,7 +13,7 @@ import {
 const MOD = process.platform === "darwin" ? "Meta" : "Control";
 const BOARD = "__board__.html";
 
-test.use({ viewport: { width: 1440, height: 1000 } });
+test.use({ viewport: { width: 1480, height: 1000 } });
 
 const EMPTY_SCREEN = `<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:40px;font-family:system-ui;background:#ffffff;min-height:800px">
@@ -86,8 +86,7 @@ function px(value: string | undefined) {
 }
 
 test.describe("interaction: button component", () => {
-  // fixme: fails in CI on current main: expect(received).toEqual(expected) // deep equality
-  test.fixme("Text tool click and type creates a text node with the typed content", async ({
+  test("Text tool click and type creates a text node with the typed content", async ({
     app,
   }) => {
     const id = await app.seed(EMPTY_SCREEN);
@@ -106,6 +105,14 @@ test.describe("interaction: button component", () => {
     await app.page.keyboard.type("Button");
     await app.page.keyboard.press("Escape");
     await app.settled();
+    // On a slow runner the text commit can start after settled() saw a quiet window.
+    await expect
+      .poll(async () =>
+        [...(await app.savedNodes(id)).values()]
+          .filter((node) => !before.has(node.id))
+          .map((node) => node.text),
+      )
+      .toEqual(["Button"]);
 
     const after = await app.savedNodes(id);
     const created = [...after.keys()].filter((nodeId) => !before.has(nodeId));
@@ -139,8 +146,7 @@ test.describe("interaction: button component", () => {
     await expect(app.node(created[0]!)).toHaveText("Button");
   });
 
-  // fixme: fails on current main after the merge: Error: a save never settled
-  test.fixme("double-click a layer row in the panel enters rename mode", async ({
+  test("double-click a layer row in the panel enters rename mode", async ({
     app,
   }) => {
     const id = await app.seed(LAYERS_SCREEN);
@@ -171,8 +177,7 @@ test.describe("interaction: button component", () => {
     await expect(row).toContainText("Renamed Alpha");
   });
 
-  // fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-  test.fixme("Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it", async ({
+  test("Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it", async ({
     app,
   }) => {
     const id = await app.seed(TEXT_LEAF_SCREEN);
@@ -201,6 +206,7 @@ test.describe("interaction: button component", () => {
       top: "200px",
       display: "flex",
       "flex-direction": "column",
+      "align-items": "flex-start",
       gap: "10px",
       padding: "0px",
       width: "fit-content",
@@ -298,10 +304,7 @@ test.describe("interaction: button component", () => {
     await expect(app.node("cta")).toHaveCSS("padding-left", "32px");
   });
 
-  // fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-  test.fixme("Cmd+Alt+K annotates the selection as a component", async ({
-    app,
-  }) => {
+  test("Cmd+Alt+K annotates the selection as a component", async ({ app }) => {
     const id = await app.seed(FRAME_SCREEN);
     await app.open(id);
     await app.zoomToFit();
@@ -425,13 +428,11 @@ function attrsBesidesStyle(node: SavedNode | undefined) {
 const CROSSED_CHIP_ATTRS = {
   "data-agent-native-node-id": "chip",
   "data-agent-native-layer-name": "Chip",
-  "data-agent-native-clone-root": "true",
   "data-agent-native-preserve-styles": "true",
 };
 
 test.describe("interaction: overview canvas and cross-boundary interactions", () => {
-  // fixme: fails on current main after the merge: Error: expect(received).toHaveLength(expected)
-  test.fixme("board object drag-move on overview canvas moves position without entering any screen", async ({
+  test("board object drag-move on overview canvas moves position without entering any screen", async ({
     app,
   }) => {
     const id = await app.seed(EMPTY_SCREEN);
@@ -474,8 +475,7 @@ test.describe("interaction: overview canvas and cross-boundary interactions", ()
     expectOnlyChanged(screenBefore, await app.savedNodes(id), []);
   });
 
-  // fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-  test.fixme("dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each)", async ({
+  test("dragging a screen element out onto the board, then back into a screen, reparents it both ways (one undo each)", async ({
     app,
   }) => {
     const id = await app.seed(CHIP_SCREEN);

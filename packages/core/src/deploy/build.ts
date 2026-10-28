@@ -96,6 +96,7 @@ import {
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
+import { boundedTaskSourcePlugin } from "../vite/bounded-task-plugin.js";
 import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
 import {
   cloneServerBundleForFunction,
@@ -1498,8 +1499,12 @@ export function generateWorkerEntry(
       `  const ${handlerName} = defineEventHandler(async (event) => {
     setResponseHeader(event, "Cache-Control", "no-" + "store");
     const actionIsUiOnly = ${a.uiOnly ? "true" : `${varName}.uiOnly === true`};
-    const uiActionContext = actionIsUiOnly
-      ? await getGeneratedUiActionContext(event)
+    const actionDeclaresApproval =
+      ${varName}.needsApproval !== undefined && ${varName}.needsApproval !== false;
+    const actionIsEmbedded = (actionIsUiOnly || actionDeclaresApproval) &&
+      hasGeneratedEmbedCredential(event);
+    const uiActionContext = actionIsUiOnly || actionDeclaresApproval
+      ? await getGeneratedUiActionContext(event, actionIsEmbedded)
       : undefined;
     if (actionIsUiOnly && !uiActionContext) {
       return new Response(
@@ -1546,10 +1551,30 @@ export function generateWorkerEntry(
         actionName: ${JSON.stringify(a.name)},
         ...(actionContext ?? {}),
       };
-      const runAction = () => ${varName}.run(params, actionRunContext);
+      const runAction = async () => {
+        if (
+          actionDeclaresApproval &&
+          !(uiActionContext && caller === "frontend")
+        ) {
+          const refusal = await generatedActionApprovalRefusal(
+            ${varName},
+            params,
+            actionRunContext,
+            actionIsEmbedded,
+          );
+          if (refusal) {
+            return new Response(
+              JSON.stringify({ error: refusal.message, errorCode: refusal.errorCode }),
+              { status: refusal.statusCode, headers: { "Content-Type": "application/json" } },
+            );
+          }
+        }
+        return ${varName}.run(params, actionRunContext);
+      };
       const result = actionContext
         ? await runWithGeneratedRequestContext(actionContext, runAction)
         : await runAction();
+      if (result instanceof Response) return result;
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -1580,7 +1605,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  getSession as getGeneratedSession,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  isSameOriginRequest as isGeneratedSameOriginRequest,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2124,6 +2149,14 @@ function getAppOriginClientConfigScript() {
   const workspaceAppPath =
     workspaceAppMountConfig?.currentPath ??
     (workspaceRuntime ? configuredWorkspaceAppPath : "");
+  const explicitRootPath =
+    workspaceAppMountConfig?.currentPath === "/" ||
+    (typeof appConfig.app.basePath === "string" &&
+      appConfig.app.basePath.trim().length > 0 &&
+      normalizeAppBasePath(appConfig.app.basePath) === "");
+  const frameworkRoutePrefix = (
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX || ""
+  ).trim();
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId
@@ -2141,6 +2174,8 @@ function getAppOriginClientConfigScript() {
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
       : {}),
+    ...(explicitRootPath ? { explicitRootPath: true } : {}),
+    ...(frameworkRoutePrefix ? { frameworkRoutePrefix } : {}),
   };
   const toUnicodeEscape = (character) =>
     String.fromCharCode(92) +
@@ -2535,13 +2570,16 @@ ${pluginCalls.join("\n")}
 
 ${
   hasActions
-    ? `  async function getGeneratedUiActionContext(event) {
-    const session = await getGeneratedSession(event);
+    ? `  async function getGeneratedUiActionContext(event, embedded) {
+    if (event.req.headers.has("authorization") || embedded) {
+      return null;
+    }
+    const session = await getGeneratedBrowserCookieSession(event);
     const userEmail =
       typeof session?.email === "string" ? session.email.trim().toLowerCase() : undefined;
     if (
       !userEmail ||
-      !isGeneratedSameOriginRequest(event) ||
+      !hasGeneratedSameOriginBrowserEvidence(event) ||
       !hasGeneratedUiActionCapability(event, userEmail)
     ) {
       return null;
@@ -6161,6 +6199,7 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        boundedTaskSourcePlugin(),
         ...sentryServerSourceMapPlugins,
         ...(enterpriseAuthAdaptersEnabled
           ? []

@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { isStoreLedgerStatement } from "../db/store-ledger.test-helpers.js";
 import { decryptSharedSecretValue } from "./crypto.js";
 
 beforeAll(async () => {
@@ -35,6 +36,7 @@ async function createPgliteExec() {
         const info = await pglite.prepare(sql).run(...args);
         return { rows: [], rowsAffected: info.changes };
       },
+      transaction: <T>(run: (tx: any) => Promise<T>) => pglite.transaction(run),
     },
   };
 }
@@ -44,9 +46,10 @@ async function loadStorageWithPglite() {
   vi.doMock("../db/client.js", () => ({
     getDbExec: () => exec,
     isProductionServerlessFunctionRuntime: () => false,
+    isLocalDatabase: () => true,
   }));
   const mod = await import("./storage.js");
-  return { pglite, mod };
+  return { pglite, exec, mod };
 }
 
 const userRef = {
@@ -67,6 +70,7 @@ describe("secrets storage bootstrap", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
+      isLocalDatabase: () => true,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -103,6 +107,7 @@ describe("secrets storage bootstrap", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
+      isLocalDatabase: () => true,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -132,6 +137,7 @@ describe("secrets storage bootstrap", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
+      isLocalDatabase: () => true,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -147,15 +153,18 @@ describe("secrets storage bootstrap", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
+      isLocalDatabase: () => true,
     }));
 
     const { writeAppSecret } = await import("./storage.js");
     await writeAppSecret({ ...userRef, value: "example-secret" });
 
-    const allSql = execute.mock.calls.map((c) => {
-      const input = c[0] as string | { sql: string };
-      return typeof input === "string" ? input : input.sql;
-    });
+    const allSql = execute.mock.calls
+      .map((c) => {
+        const input = c[0] as string | { sql: string };
+        return typeof input === "string" ? input : input.sql;
+      })
+      .filter((sql) => !isStoreLedgerStatement(sql));
     const createSql = allSql.find((s) =>
       s.includes("CREATE TABLE IF NOT EXISTS app_secrets"),
     );
@@ -179,15 +188,18 @@ describe("secrets storage bootstrap", () => {
     vi.doMock("../db/client.js", () => ({
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
+      isLocalDatabase: () => true,
     }));
 
     const { writeAppSecret } = await import("./storage.js");
     await writeAppSecret({ ...userRef, value: "example-secret" });
 
-    const allSql = execute.mock.calls.map((c) => {
-      const input = c[0] as string | { sql: string };
-      return typeof input === "string" ? input : input.sql;
-    });
+    const allSql = execute.mock.calls
+      .map((c) => {
+        const input = c[0] as string | { sql: string };
+        return typeof input === "string" ? input : input.sql;
+      })
+      .filter((sql) => !isStoreLedgerStatement(sql));
     expect(allSql.some((s) => /CREATE TABLE/i.test(s))).toBe(false);
     expect(allSql.some((s) => /ALTER TABLE/i.test(s))).toBe(false);
   });
@@ -195,11 +207,13 @@ describe("secrets storage bootstrap", () => {
 
 describe("secrets storage CRUD (real pglite)", () => {
   let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+  let exec: Awaited<ReturnType<typeof createPgliteExec>>["exec"];
   let mod: typeof import("./storage.js");
 
   beforeEach(async () => {
     const loaded = await loadStorageWithPglite();
     pglite = loaded.pglite;
+    exec = loaded.exec;
     mod = loaded.mod;
   });
 
@@ -699,7 +713,7 @@ describe("secrets storage CRUD (real pglite)", () => {
     expect(await mod.readAppSecretMeta(userRef)).toBeNull();
   });
 
-  it("returns null (never throws or leaks) when the stored ciphertext is corrupt", async () => {
+  it("keeps an undecryptable row distinct from an absent secret and doesn't cache it as missing", async () => {
     await mod.writeAppSecret({ ...userRef, value: "tamperable" });
     await pglite
       .prepare(
@@ -707,7 +721,28 @@ describe("secrets storage CRUD (real pglite)", () => {
       )
       .run("v1:dead:beef:cafe", "v1:dead:beef:cafe");
 
-    await expect(mod.readAppSecret(userRef)).resolves.toBeNull();
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    await runWithRequestContext({}, async () => {
+      const batchRead = () =>
+        mod.readAppSecrets({
+          keys: [userRef.key],
+          scope: userRef.scope,
+          scopeId: userRef.scopeId,
+        });
+      await expect(batchRead()).rejects.toMatchObject({
+        name: "AppSecretDecryptionError",
+        errorCode: "app_secret_unreadable",
+        scope: userRef.scope,
+        scopeId: userRef.scopeId,
+      });
+      await expect(mod.readAppSecret(userRef)).rejects.toMatchObject({
+        name: "AppSecretDecryptionError",
+        errorCode: "app_secret_unreadable",
+        scope: userRef.scope,
+        scopeId: userRef.scopeId,
+      });
+    });
 
     const meta = await mod.readAppSecretMeta(userRef);
     expect(meta).not.toBeNull();
@@ -789,6 +824,102 @@ describe("secrets storage CRUD (real pglite)", () => {
     expect(await mod.readAppSecret(userRef)).toBeNull();
     expect(await mod.deleteAppSecret(userRef)).toBe(false);
   });
+
+  it("deletes a secret only while its ciphertext version is unchanged", async () => {
+    await mod.writeAppSecret({ ...userRef, value: "original-value" });
+    const originalVersion = await mod.readAppSecretVersion(userRef);
+    expect(originalVersion).toBeTruthy();
+
+    await mod.writeAppSecret({ ...userRef, value: "rotated-value" });
+    await expect(
+      mod.deleteAppSecretIfVersion(userRef, originalVersion!),
+    ).resolves.toBe(false);
+    await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
+      value: "rotated-value",
+    });
+
+    const currentVersion = await mod.readAppSecretVersion(userRef);
+    expect(currentVersion).toBeTruthy();
+    await expect(
+      mod.deleteAppSecretIfVersion(userRef, currentVersion!),
+    ).resolves.toBe(true);
+    await expect(mod.readAppSecret(userRef)).resolves.toBeNull();
+  });
+
+  it("rolls back a batch when a later confirmed secret changes during deletion", async () => {
+    const secondRef = { ...userRef, key: "SLACK_BOT_TOKEN" };
+    await mod.writeAppSecret({ ...userRef, value: "original-first" });
+    await mod.writeAppSecret({ ...secondRef, value: "original-second" });
+    const firstVersion = await mod.readAppSecretVersion(userRef);
+    const secondVersion = await mod.readAppSecretVersion(secondRef);
+    expect(firstVersion).toBeTruthy();
+    expect(secondVersion).toBeTruthy();
+
+    exec.transaction = (run) =>
+      pglite.transaction(async (tx) => {
+        let deleteCount = 0;
+        return run({
+          execute: async (input: string | { sql: string; args?: any[] }) => {
+            const sql = typeof input === "string" ? input : input.sql;
+            if (sql.startsWith("DELETE FROM app_secrets")) {
+              deleteCount += 1;
+              if (deleteCount === 2) return { rows: [], rowsAffected: 0 };
+            }
+            return tx.execute(input);
+          },
+        });
+      });
+
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: userRef, expectedVersion: firstVersion! },
+        { ref: secondRef, expectedVersion: secondVersion! },
+      ]),
+    ).resolves.toBe(false);
+    const remaining = await pglite.query(
+      "SELECT key FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY key",
+      [userRef.scope, userRef.scopeId],
+    );
+    expect(remaining.rows.map((row) => row.key)).toEqual([
+      "OPENAI_API_KEY",
+      "SLACK_BOT_TOKEN",
+    ]);
+  });
+
+  it("keeps a confirmed batch intact when one secret has rotated", async () => {
+    const first = { ...userRef, key: "FIRST_KEY" };
+    const second = { ...userRef, key: "SECOND_KEY" };
+    await mod.writeAppSecret({ ...first, value: "first-original-value" });
+    await mod.writeAppSecret({ ...second, value: "second-original-value" });
+    const firstVersion = await mod.readAppSecretVersion(first);
+    const secondVersion = await mod.readAppSecretVersion(second);
+    expect(firstVersion).toBeTruthy();
+    expect(secondVersion).toBeTruthy();
+
+    await mod.writeAppSecret({ ...second, value: "second-rotated-value" });
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: first, expectedVersion: firstVersion! },
+        { ref: second, expectedVersion: secondVersion! },
+      ]),
+    ).resolves.toBe(false);
+    await expect(mod.readAppSecret(first)).resolves.toMatchObject({
+      value: "first-original-value",
+    });
+    await expect(mod.readAppSecret(second)).resolves.toMatchObject({
+      value: "second-rotated-value",
+    });
+
+    const currentSecondVersion = await mod.readAppSecretVersion(second);
+    await expect(
+      mod.deleteAppSecretsIfVersions([
+        { ref: first, expectedVersion: firstVersion! },
+        { ref: second, expectedVersion: currentSecondVersion! },
+      ]),
+    ).resolves.toBe(true);
+    await expect(mod.readAppSecret(first)).resolves.toBeNull();
+    await expect(mod.readAppSecret(second)).resolves.toBeNull();
+  });
 });
 
 describe("last4 preview", () => {
@@ -820,6 +951,7 @@ describe("per-request read memo", () => {
     selects = [];
     vi.doMock("../db/client.js", () => ({
       isProductionServerlessFunctionRuntime: () => false,
+      isLocalDatabase: () => true,
       getDbExec: () => ({
         async execute(input: string | { sql: string; args?: any[] }) {
           const sql = typeof input === "string" ? input : input.sql;
@@ -957,5 +1089,301 @@ describe("per-request read memo", () => {
       return selects.length;
     });
     expect(reads).toBe(0);
+  });
+});
+
+describe("development process on a shared database", () => {
+  let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+  let mod: typeof import("./storage.js");
+  let localDatabase: boolean;
+  let databaseUrl: string;
+
+  const orgRef = {
+    scope: "org" as const,
+    scopeId: "org_shared",
+    key: "ANTHROPIC_API_KEY",
+  };
+
+  function useDeploymentKeys() {
+    vi.stubEnv("WORKSPACE_SECRETS_ENCRYPTION_KEY", "deployment-workspace-key");
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "deployment-app-key");
+  }
+
+  function useDevelopmentKeys() {
+    vi.stubEnv("WORKSPACE_SECRETS_ENCRYPTION_KEY", undefined);
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "development-app-key");
+  }
+
+  async function storedRow() {
+    return (await pglite
+      .prepare(
+        `SELECT encrypted_value, shared_encrypted_value FROM app_secrets WHERE key = ?`,
+      )
+      .get(orgRef.key)) as {
+      encrypted_value: string;
+      shared_encrypted_value: string | null;
+    };
+  }
+
+  beforeEach(async () => {
+    localDatabase = false;
+    databaseUrl = "postgres://app@db.example.test:5432/shared";
+    for (const marker of [
+      "NETLIFY_FUNCTION_NAME",
+      "AWS_LAMBDA_FUNCTION_NAME",
+      "LAMBDA_TASK_ROOT",
+      "AWS_EXECUTION_ENV",
+      "VERCEL_FUNCTION_ID",
+      "VERCEL_REGION",
+    ]) {
+      vi.stubEnv(marker, undefined);
+    }
+    const { pglite: db, exec } = await createPgliteExec();
+    pglite = db;
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => exec,
+      getRuntimeDatabaseUrl: () => databaseUrl,
+      isProductionServerlessFunctionRuntime: () => false,
+      isLocalDatabase: () => localDatabase,
+    }));
+    mod = await import("./storage.js");
+  });
+
+  afterEach(async () => {
+    await pglite.close();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.resetModules();
+    vi.doUnmock("../db/client.js");
+  });
+
+  it("refuses to overwrite a row encrypted with key material it does not have", async () => {
+    useDeploymentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+    const before = await storedRow();
+
+    useDevelopmentKeys();
+    await expect(
+      mod.writeAppSecret({ ...orgRef, value: "development-value" }),
+    ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+
+    expect(await storedRow()).toEqual(before);
+    useDeploymentKeys();
+    await expect(mod.readAppSecret(orgRef)).resolves.toMatchObject({
+      value: "deployment-value",
+    });
+  });
+
+  it("refuses a new key when the scope's secrets use other key material", async () => {
+    useDeploymentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+
+    useDevelopmentKeys();
+    await expect(
+      mod.writeAppSecret({
+        ...orgRef,
+        key: "OPENAI_API_KEY",
+        value: "development-value",
+      }),
+    ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+  });
+
+  it("refuses when stored secrets only decrypt with a fallback key", async () => {
+    useDeploymentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+
+    vi.stubEnv("WORKSPACE_SECRETS_ENCRYPTION_KEY", "development-workspace-key");
+    vi.stubEnv(
+      "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
+      "deployment-workspace-key",
+    );
+    await expect(
+      mod.writeAppSecret({ ...orgRef, value: "development-value" }),
+    ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+  });
+
+  describe("rows without shared ciphertext", () => {
+    function useAppScopedKeyOnly(appName: string, key: string) {
+      for (const name of [
+        "WORKSPACE_SECRETS_ENCRYPTION_KEY",
+        "SECRETS_ENCRYPTION_KEY",
+        "BETTER_AUTH_SECRET",
+        "A2A_SECRET",
+        "AGENT_NATIVE_WORKSPACE",
+      ]) {
+        vi.stubEnv(name, undefined);
+      }
+      vi.stubEnv("APP_NAME", appName);
+      vi.stubEnv(`${appName.toUpperCase()}_SECRETS_ENCRYPTION_KEY`, key);
+    }
+
+    beforeEach(async () => {
+      useAppScopedKeyOnly("deployed", "deployment-app-scoped-key");
+      await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+      expect((await storedRow()).shared_encrypted_value).toBeNull();
+      useAppScopedKeyOnly("local", "development-app-scoped-key");
+    });
+
+    it("refuses to overwrite one written with another app key", async () => {
+      await expect(
+        mod.writeAppSecret({ ...orgRef, value: "development-value" }),
+      ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+    });
+
+    it("checks a new key against them", async () => {
+      await expect(
+        mod.writeAppSecret({
+          ...orgRef,
+          key: "OPENAI_API_KEY",
+          value: "development-value",
+        }),
+      ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+    });
+  });
+
+  it("refuses a new key when any secret in the scope uses other key material", async () => {
+    useDevelopmentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "development-value" });
+
+    useDeploymentKeys();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "deployed-function");
+    await mod.writeAppSecret({
+      ...orgRef,
+      key: "OPENAI_API_KEY",
+      value: "deployment-value",
+    });
+
+    useDevelopmentKeys();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", undefined);
+    await expect(
+      mod.writeAppSecret({
+        ...orgRef,
+        key: "BUILDER_PRIVATE_KEY",
+        value: "development-value",
+      }),
+    ).rejects.toBeInstanceOf(mod.AppSecretKeyMismatchError);
+  });
+
+  it("writes when the scope's secrets use its preferred key", async () => {
+    useDevelopmentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "first-value" });
+    await mod.writeAppSecret({ ...orgRef, value: "second-value" });
+    await mod.writeAppSecret({
+      ...orgRef,
+      key: "OPENAI_API_KEY",
+      value: "other-value",
+    });
+
+    await expect(mod.readAppSecret(orgRef)).resolves.toMatchObject({
+      value: "second-value",
+    });
+  });
+
+  it("lets a deployment repair rows a mismatched process wrote", async () => {
+    useDevelopmentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "stranded-value" });
+
+    useDeploymentKeys();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "deployed-function");
+    await mod.writeAppSecret({ ...orgRef, value: "repaired-value" });
+
+    await expect(mod.readAppSecret(orgRef)).resolves.toMatchObject({
+      value: "repaired-value",
+    });
+  });
+
+  it.each([
+    ["PGlite", true, "pglite:./data/pglite"],
+    ["loopback Postgres", false, "postgres://app@localhost:5432/dev"],
+  ])(
+    "allows overwrites against a local %s database",
+    async (_label, isPglite, url) => {
+      localDatabase = isPglite;
+      databaseUrl = url;
+      useDeploymentKeys();
+      await mod.writeAppSecret({ ...orgRef, value: "old-local-value" });
+
+      useDevelopmentKeys();
+      await mod.writeAppSecret({ ...orgRef, value: "new-local-value" });
+
+      await expect(mod.readAppSecret(orgRef)).resolves.toMatchObject({
+        value: "new-local-value",
+      });
+    },
+  );
+
+  it("does not re-encrypt shared ciphertext after a fallback read", async () => {
+    vi.stubEnv("WORKSPACE_SECRETS_ENCRYPTION_KEY", undefined);
+    vi.stubEnv("SECRETS_ENCRYPTION_KEY", "shared-fallback-key");
+    await mod.writeAppSecret({ ...orgRef, value: "fallback-value" });
+    const before = await storedRow();
+
+    vi.stubEnv("WORKSPACE_SECRETS_ENCRYPTION_KEY", "development-workspace-key");
+    await expect(mod.readAppSecret(orgRef)).resolves.toMatchObject({
+      value: "fallback-value",
+    });
+
+    expect(await storedRow()).toEqual(before);
+  });
+
+  it("warns once, without the value, when a stored secret cannot be decrypted", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    useDeploymentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+
+    useDevelopmentKeys();
+    await expect(mod.readAppSecret(orgRef)).rejects.toMatchObject({
+      name: "AppSecretDecryptionError",
+      errorCode: "app_secret_unreadable",
+      scope: orgRef.scope,
+      scopeId: orgRef.scopeId,
+    });
+    await expect(
+      mod.readAppSecrets({
+        keys: [orgRef.key],
+        scope: orgRef.scope,
+        scopeId: orgRef.scopeId,
+      }),
+    ).rejects.toMatchObject({
+      name: "AppSecretDecryptionError",
+      errorCode: "app_secret_unreadable",
+      scope: orgRef.scope,
+      scopeId: orgRef.scopeId,
+    });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain(orgRef.key);
+    expect(message).not.toContain("deployment-value");
+    expect(message).not.toContain(orgRef.scopeId);
+  });
+
+  it("remembers, for the request, keys it couldn't decrypt", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    useDeploymentKeys();
+    await mod.writeAppSecret({ ...orgRef, value: "deployment-value" });
+
+    useDevelopmentKeys();
+    const seen = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      async () => {
+        await expect(
+          mod.readAppSecrets({
+            keys: [orgRef.key],
+            scope: orgRef.scope,
+            scopeId: orgRef.scopeId,
+          }),
+        ).rejects.toMatchObject({ name: "AppSecretDecryptionError" });
+        return [...mod.undecryptableSecretKeysForRequest()];
+      },
+    );
+    expect(seen).toEqual([orgRef.key]);
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.test" }, async () => [
+        ...mod.undecryptableSecretKeysForRequest(),
+      ]),
+    ).resolves.toEqual([]);
   });
 });

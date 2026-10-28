@@ -1,3 +1,6 @@
+import { parse, type DefaultTreeAdapterTypes } from "parse5";
+
+import { nativeShaderRuntimeBridgeScript } from "../.generated/bridge/native-shader-runtime.generated";
 import { shaderRuntimeBridgeScript } from "../.generated/bridge/shader-runtime.generated";
 
 export type GlslUniformType = "float" | "vec2" | "color";
@@ -39,30 +42,7 @@ export const SHADER_UNIFORMS_ATTR = "data-an-shader-uniforms";
 export const SHADER_EFFECT_UNIFORMS_ATTR = "data-an-shader-effect-uniforms";
 export const SHADER_RUNTIME_ATTR = "data-agent-native-shader-runtime";
 export const SHADER_RUNTIME_VERSION = "1";
-export const SHADER_MANIFEST_VERSION = 1;
-
-export const SHADER_BUILTIN_UNIFORMS = ["u_time", "u_resolution"] as const;
-
-const MAX_GLSL_LENGTH = 20000;
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-const UNIFORM_NAME_RE = /^u_[A-Za-z0-9_]{1,48}$/;
-const VOID_TAGS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "link",
-  "meta",
-  "param",
-  "source",
-  "track",
-  "wbr",
-]);
-
 function escapeAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -85,242 +65,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function newShaderId(): string {
-  let suffix = "";
-  while (suffix.length < 8) {
-    suffix += Math.random().toString(36).slice(2);
-  }
-  return "an-shader-" + suffix.slice(0, 8);
-}
-
-const GLSL_TYPE_FOR_UNIFORM: Record<GlslUniformType, string> = {
-  float: "float",
-  vec2: "vec2",
-  color: "vec3",
-};
-
-const SAFE_COLOR_RE =
-  /^(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgba?\([\d.,\s%/]*\)|hsla?\([\d.,\s%/deg]*\)|oklch\([\d.,\s%/deg]*\)|color\(\s*(?:display-p3|srgb)\s[\d.\s%/+-]*\)|[a-zA-Z]{3,25})$/;
-
-export function isSafeShaderFallbackColor(value: string): boolean {
-  const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > 64) return false;
-  if (/[;{}<>]|url\s*\(/i.test(trimmed)) return false;
-  return SAFE_COLOR_RE.test(trimmed);
-}
-
-export function sanitizeShaderFallbackColor(value: string | undefined): string {
-  if (value && isSafeShaderFallbackColor(value)) return value.trim();
-  return "#808080";
-}
-
-export interface ShaderValidationResult {
-  valid: boolean;
-  errors: string[];
-}
-
-export function validateGlslSource(glsl: string): ShaderValidationResult {
-  const errors: string[] = [];
-  if (typeof glsl !== "string" || glsl.trim().length === 0) {
-    return { valid: false, errors: ["GLSL source is empty"] };
-  }
-  if (glsl.length > MAX_GLSL_LENGTH) {
-    errors.push(
-      `GLSL source is ${glsl.length} chars — max is ${MAX_GLSL_LENGTH}`,
-    );
-  }
-  if (!/void\s+main\s*\(/.test(glsl)) {
-    errors.push("GLSL source must define void main()");
-  }
-  if (!/gl_FragColor/.test(glsl)) {
-    errors.push("GLSL source must write gl_FragColor");
-  }
-  if (/<script/i.test(glsl)) {
-    errors.push("GLSL source must not contain an opening script tag");
-  }
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(glsl)) {
-    errors.push("GLSL source contains control characters");
-  }
-  return { valid: errors.length === 0, errors };
-}
-
-export function validateUniformManifest(
-  uniforms: GlslUniformManifest,
-): ShaderValidationResult {
-  const errors: string[] = [];
-  if (!uniforms || typeof uniforms !== "object") {
-    return { valid: false, errors: ["uniforms manifest must be an object"] };
-  }
-  const names = Object.keys(uniforms);
-  if (names.length > 16) {
-    errors.push(`too many uniforms (${names.length}) — max is 16`);
-  }
-  for (const name of names) {
-    const def = uniforms[name];
-    if (!UNIFORM_NAME_RE.test(name)) {
-      errors.push(
-        `uniform "${name}" must match u_[A-Za-z0-9_]+ (max 50 chars)`,
-      );
-      continue;
-    }
-    if ((SHADER_BUILTIN_UNIFORMS as readonly string[]).includes(name)) {
-      errors.push(
-        `uniform "${name}" is a built-in provided by the runtime — ` +
-          "do not declare it in the manifest",
-      );
-      continue;
-    }
-    if (!def || typeof def !== "object") {
-      errors.push(`uniform "${name}" definition must be an object`);
-      continue;
-    }
-    if (def.type === "float") {
-      if (typeof def.value !== "number" || !isFinite(def.value)) {
-        errors.push(`uniform "${name}" value must be a finite number`);
-      } else {
-        if (def.min !== undefined && def.value < def.min) {
-          errors.push(`uniform "${name}" value is below its min`);
-        }
-        if (def.max !== undefined && def.value > def.max) {
-          errors.push(`uniform "${name}" value is above its max`);
-        }
-      }
-      if (
-        def.min !== undefined &&
-        def.max !== undefined &&
-        !(def.min < def.max)
-      ) {
-        errors.push(`uniform "${name}" needs min < max`);
-      }
-      if (def.step !== undefined && !(def.step > 0)) {
-        errors.push(`uniform "${name}" step must be > 0`);
-      }
-    } else if (def.type === "vec2") {
-      const v = def.value;
-      if (
-        !Array.isArray(v) ||
-        v.length !== 2 ||
-        typeof v[0] !== "number" ||
-        typeof v[1] !== "number" ||
-        !isFinite(v[0]) ||
-        !isFinite(v[1])
-      ) {
-        errors.push(`uniform "${name}" value must be [x, y] finite numbers`);
-      }
-    } else if (def.type === "color") {
-      if (
-        typeof def.value !== "string" ||
-        !/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(def.value)
-      ) {
-        errors.push(
-          `uniform "${name}" value must be a hex color like "#1a2b3c"`,
-        );
-      }
-    } else {
-      errors.push(
-        `uniform "${name}" has unknown type "${String(
-          (def as { type?: unknown }).type,
-        )}" — use float, vec2, or color`,
-      );
-    }
-    if (def.label !== undefined) {
-      if (typeof def.label !== "string" || def.label.length > 40) {
-        errors.push(`uniform "${name}" label must be a string ≤ 40 chars`);
-      } else if (def.label.includes("*/") || /<\/?script/i.test(def.label)) {
-        errors.push(`uniform "${name}" label contains forbidden sequences`);
-      }
-    }
-  }
-  return { valid: errors.length === 0, errors };
-}
-
-export function validateShaderDef(def: GlslShaderDef): ShaderValidationResult {
-  const errors: string[] = [];
-  if (!def || typeof def !== "object") {
-    return { valid: false, errors: ["shader definition must be an object"] };
-  }
-  if (typeof def.id !== "string" || !ID_RE.test(def.id)) {
-    errors.push(
-      'shader id must match [A-Za-z0-9_-]{1,64} (e.g. "an-shader-x1y2z3")',
-    );
-  }
-  if (
-    typeof def.name !== "string" ||
-    def.name.trim().length === 0 ||
-    def.name.length > 80
-  ) {
-    errors.push("shader name must be a non-empty string ≤ 80 chars");
-  } else if (def.name.includes("*/") || /<\/?script/i.test(def.name)) {
-    errors.push("shader name contains forbidden sequences");
-  }
-  if (def.mode !== "fill" && def.mode !== "effect") {
-    errors.push('shader mode must be "fill" or "effect"');
-  }
-  const glslResult = validateGlslSource(def.glsl);
-  errors.push(...glslResult.errors);
-  const manifestResult = validateUniformManifest(def.uniforms ?? {});
-  errors.push(...manifestResult.errors);
-
-  if (glslResult.valid && manifestResult.valid) {
-    for (const [name, u] of Object.entries(def.uniforms ?? {})) {
-      const glslType = GLSL_TYPE_FOR_UNIFORM[u.type];
-      const declRe = new RegExp(
-        "uniform\\s+(?:lowp\\s+|mediump\\s+|highp\\s+)?" +
-          glslType +
-          "\\s+" +
-          escapeRegExp(name) +
-          "\\s*;",
-      );
-      if (!declRe.test(def.glsl)) {
-        errors.push(
-          `uniform "${name}" (${u.type}) is not declared in the GLSL as ` +
-            `"uniform ${glslType} ${name};" — every knob must drive the shader`,
-        );
-      }
-    }
-  }
-  return { valid: errors.length === 0, errors };
-}
-
 const MANIFEST_COMMENT_RE = /^\s*\/\*!\s*an-shader\s+v(\d+)\s*([\s\S]*?)\*\//;
-
-export function serializeManifestComment(
-  uniforms: GlslUniformManifest,
-): string {
-  const json = JSON.stringify({ uniforms }, null, 2);
-  if (json.includes("*/")) {
-    throw new Error("uniforms manifest must not contain */");
-  }
-  return "/*! an-shader v" + SHADER_MANIFEST_VERSION + "\n" + json + "\n*/";
-}
-
-/**
- * Escape/unescape pair guarding against a `</script` breakout inside a
- * serialized GLSL body.
- *
- * `def.glsl` is caller-controlled (agent/user-edited GLSL source) and is
- * embedded RAW inside a `<script type="application/x-agent-native-shader">`
- * block. `validateGlslSource` already rejects a literal `</script` at the
- * point a shader definition is validated/applied — but `serializeShaderScriptBlock`
- * is also reachable with defs that were constructed without going through
- * that validation (e.g. directly in tests, or future callers), and stored
- * legacy content may already contain the substring. Escaping here is
- * defense in depth: even if an unescaped `</script` reaches this function,
- * the emitted HTML never contains a literal closing-script-tag sequence
- * inside the block body, so the surrounding document can't be corrupted.
- *
- * Approach: replace `</script` (case-insensitive) with `<\/script` — the
- * same backslash-escape idiom used for embedding JS strings inside
- * `<script>` blocks. It's a minimal, transform-invariant edit (inserts one
- * `\` character) that is trivial to reverse exactly on parse.
- */
-export function escapeShaderScriptBreakout(glsl: string): string {
-  return glsl.replace(
-    /<\/script/gi,
-    (match) => match.slice(0, 1) + "\\" + match.slice(1),
-  );
-}
 
 export function unescapeShaderScriptBreakout(glsl: string): string {
   return glsl.replace(
@@ -358,25 +103,6 @@ export function parseShaderBlockBody(body: string): {
       .trim(),
   );
   return { uniforms, glsl };
-}
-
-export function serializeShaderScriptBlock(def: GlslShaderDef): string {
-  const validation = validateShaderDef(def);
-  if (!validation.valid) {
-    throw new Error(
-      "Invalid shader definition: " + validation.errors.join("; "),
-    );
-  }
-  return (
-    `<script type="${SHADER_SCRIPT_TYPE}"` +
-    ` data-shader-id="${escapeAttr(def.id)}"` +
-    ` data-shader-name="${escapeAttr(def.name)}"` +
-    ` data-shader-mode="${def.mode}">\n` +
-    serializeManifestComment(def.uniforms) +
-    "\n" +
-    escapeShaderScriptBreakout(def.glsl.trim()) +
-    "\n</script>"
-  );
 }
 
 const SHADER_BLOCK_RE = new RegExp(
@@ -421,13 +147,6 @@ export function listShadersInHtml(html: string): GlslShaderDef[] {
   return defs;
 }
 
-export function getShaderFromHtml(
-  html: string,
-  id: string,
-): GlslShaderDef | undefined {
-  return listShadersInHtml(html).find((def) => def.id === id);
-}
-
 function findShaderBlockSpan(
   html: string,
   id: string,
@@ -440,23 +159,6 @@ function findShaderBlockSpan(
     }
   }
   return null;
-}
-
-export function upsertShaderInHtml(html: string, def: GlslShaderDef): string {
-  const block = serializeShaderScriptBlock(def);
-  const existing = findShaderBlockSpan(html, def.id);
-  if (existing) {
-    return html.slice(0, existing.start) + block + html.slice(existing.end);
-  }
-  const bodyClose = html.toLowerCase().lastIndexOf("</body>");
-  if (bodyClose !== -1) {
-    return html.slice(0, bodyClose) + block + "\n" + html.slice(bodyClose);
-  }
-  const htmlClose = html.toLowerCase().lastIndexOf("</html>");
-  if (htmlClose !== -1) {
-    return html.slice(0, htmlClose) + block + "\n" + html.slice(htmlClose);
-  }
-  return html + "\n" + block + "\n";
 }
 
 export function removeShaderFromHtml(html: string, id: string): string {
@@ -473,6 +175,108 @@ export function removeShaderFromHtml(html: string, id: string): string {
 }
 
 export const SHADER_RUNTIME_SOURCE: string = shaderRuntimeBridgeScript;
+
+export const NATIVE_SHADER_RUNTIME_SOURCE: string =
+  nativeShaderRuntimeBridgeScript;
+const NATIVE_RUNTIME_ATTR = "data-agent-native-native-shader-runtime";
+
+type LocatedHtmlNode = DefaultTreeAdapterTypes.Node;
+type RuntimeScript = {
+  native: boolean;
+  start: number;
+  end: number;
+  verified: boolean;
+};
+
+function isGeneratedShaderRuntime(source: string, native: boolean): boolean {
+  const body = source.trim();
+  if (
+    body ===
+    (native ? NATIVE_SHADER_RUNTIME_SOURCE : SHADER_RUNTIME_SOURCE).trim()
+  )
+    return true;
+  return native
+    ? body.startsWith(
+        '"use strict";\n(() => {\n  var __defProp = Object.defineProperty;',
+      ) &&
+        body.includes("nativeBuiltinExecutionMetadata") &&
+        body.includes("window.__anNativeShaders = runtime;") &&
+        body.endsWith("else runtime.start();\n})();")
+    : body.startsWith(
+        '"use strict";\n(() => {\n  // app/components/design/bridge/shader-runtime.bridge.ts',
+      ) &&
+        body.includes("W.__anShaders = {") &&
+        body.endsWith("})();\n})();");
+}
+
+function inspectRuntimeScripts(html: string): RuntimeScript[] {
+  if (
+    !html.includes(NATIVE_RUNTIME_ATTR) &&
+    !html.includes(SHADER_RUNTIME_ATTR)
+  )
+    return [];
+  const scripts: RuntimeScript[] = [];
+  const visit = (node: LocatedHtmlNode): void => {
+    if (node.nodeName === "script") {
+      const script = node as DefaultTreeAdapterTypes.Element;
+      const native = script.attrs.some(
+        (attribute) => attribute.name === NATIVE_RUNTIME_ATTR,
+      );
+      const legacy = script.attrs.some(
+        (attribute) => attribute.name === SHADER_RUNTIME_ATTR,
+      );
+      const location = script.sourceCodeLocation;
+      const version = script.attrs.find(
+        (attribute) => attribute.name === "data-runtime-version",
+      )?.value;
+      if ((native || legacy) && location?.startTag && location.endTag) {
+        const body = html.slice(
+          location.startTag.endOffset,
+          location.endTag.startOffset,
+        );
+        scripts.push({
+          native,
+          start: location.startOffset,
+          end: location.endOffset,
+          verified:
+            ((native && version === "2") || (legacy && version === "1")) &&
+            isGeneratedShaderRuntime(body, native),
+        });
+      }
+    }
+    if ("childNodes" in node) node.childNodes.forEach(visit);
+  };
+  visit(parse(html, { sourceCodeLocationInfo: true }));
+  return scripts;
+}
+
+/** Removes only parsed, marked runtime scripts with a verified generated body. */
+export function stripGeneratedShaderRuntimes(html: string): string {
+  const spans = inspectRuntimeScripts(html).filter((script) => script.verified);
+  let compact = html;
+  for (const span of spans.reverse())
+    compact = compact.slice(0, span.start) + compact.slice(span.end);
+  return compact;
+}
+
+export function ensureNativeShaderRuntime(html: string): string {
+  const tag = `<script ${NATIVE_RUNTIME_ATTR} data-runtime-version="2">\n${NATIVE_SHADER_RUNTIME_SOURCE}\n</script>`;
+  const scripts = inspectRuntimeScripts(html).filter((script) => script.native);
+  if (scripts.length > 1 || scripts.some((script) => !script.verified))
+    throw new Error("Native shader runtime marker has unrecognized content");
+  const existing = scripts[0];
+  if (existing) {
+    if (html.slice(existing.start, existing.end) === tag) return html;
+    return html.slice(0, existing.start) + tag + html.slice(existing.end);
+  }
+  const bodyClose = html.toLowerCase().lastIndexOf("</body>");
+  if (bodyClose !== -1)
+    return html.slice(0, bodyClose) + tag + "\n" + html.slice(bodyClose);
+  const htmlClose = html.toLowerCase().lastIndexOf("</html>");
+  if (htmlClose !== -1)
+    return html.slice(0, htmlClose) + tag + "\n" + html.slice(htmlClose);
+  return html + "\n" + tag + "\n";
+}
 
 export function buildShaderRuntimeScriptTag(): string {
   return (
@@ -511,13 +315,6 @@ export function ensureShaderRuntime(html: string): string {
   return html + "\n" + tag + "\n";
 }
 
-/**
- * The framework's runtime in place of any other that carries its marker, and
- * nothing added to a document that has none. The agent cannot run the apply
- * helper from chat, so it hand-writes a runtime of its own under the marker; it
- * mounts first, and its opaque canvas paints over the one the pane's knobs
- * drive, so no knob moves what the user sees.
- */
 export function replaceForeignShaderRuntime(html: string): string {
   return html.includes(SHADER_RUNTIME_ATTR) ? ensureShaderRuntime(html) : html;
 }
@@ -590,53 +387,10 @@ function findTagBounds(
   return null;
 }
 
-function tagNameOf(tagText: string): string {
-  const match = /^<\s*([a-zA-Z][a-zA-Z0-9-]*)/.exec(tagText);
-  return match ? match[1].toLowerCase() : "";
-}
-
 function removeAttr(tagText: string, name: string): string {
   return tagText.replace(
     new RegExp("\\s+" + name + "\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s/>]+)", "gi"),
     "",
-  );
-}
-
-function upsertStyleProperty(
-  tagText: string,
-  property: string,
-  value: string,
-): string {
-  const styleRe = /(\sstyle\s*=\s*")([^"]*)(")/i;
-  const styleMatch = styleRe.exec(tagText);
-  const decl = `${property}: ${value}`;
-  if (!styleMatch) {
-    const insertAt = tagText.endsWith("/>")
-      ? tagText.length - 2
-      : tagText.length - 1;
-    return (
-      tagText.slice(0, insertAt) +
-      ` style="${escapeAttr(decl)}"` +
-      tagText.slice(insertAt)
-    );
-  }
-  const existing = unescapeAttr(styleMatch[2]);
-  const kept = existing
-    .split(";")
-    .map((part) => part.trim())
-    .filter(
-      (part) =>
-        part.length > 0 &&
-        !new RegExp("^" + escapeRegExp(property) + "\\s*:", "i").test(part),
-    );
-  kept.push(decl);
-  const next = kept.join("; ");
-  return (
-    tagText.slice(0, styleMatch.index) +
-    styleMatch[1] +
-    escapeAttr(next) +
-    styleMatch[3] +
-    tagText.slice(styleMatch.index + styleMatch[0].length)
   );
 }
 
@@ -677,81 +431,10 @@ function locateNodeTag(
   };
 }
 
-export interface AnnotateShaderNodeOptions {
-  nodeId: string;
-  shaderId: string;
-  mode: GlslShaderMode;
-  values?: Record<string, GlslUniformValue>;
-  fallbackColor?: string;
-}
-
 export interface HtmlTransformResult {
   html: string;
   changed: boolean;
   errors: string[];
-}
-
-export function annotateNodeWithShader(
-  html: string,
-  options: AnnotateShaderNodeOptions,
-): HtmlTransformResult {
-  const errors: string[] = [];
-  if (!ID_RE.test(options.shaderId)) {
-    return { html, changed: false, errors: ["invalid shader id"] };
-  }
-  const located = locateNodeTag(html, options.nodeId);
-  if (!located) {
-    return {
-      html,
-      changed: false,
-      errors: [
-        `no element with data-agent-native-node-id="${options.nodeId}" found`,
-      ],
-    };
-  }
-  const tagName = tagNameOf(located.tagText);
-  if (VOID_TAGS.has(tagName)) {
-    return {
-      html,
-      changed: false,
-      errors: [
-        `<${tagName}> cannot host a shader canvas — wrap it in a container ` +
-          "element and apply the shader there",
-      ],
-    };
-  }
-
-  const isEffect = options.mode === "effect";
-  const refAttr = isEffect ? SHADER_EFFECT_ATTR : SHADER_FILL_ATTR;
-  const valuesAttr = isEffect
-    ? SHADER_EFFECT_UNIFORMS_ATTR
-    : SHADER_UNIFORMS_ATTR;
-
-  let tagText = located.tagText;
-  tagText = removeAttr(tagText, refAttr);
-  tagText = removeAttr(tagText, valuesAttr);
-
-  let insertion = ` ${refAttr}="${escapeAttr(options.shaderId)}"`;
-  if (options.values && Object.keys(options.values).length > 0) {
-    const json = JSON.stringify(options.values);
-    insertion += ` ${valuesAttr}="${escapeAttr(json)}"`;
-  }
-
-  const selfClosing = tagText.endsWith("/>");
-  const insertAt = selfClosing ? tagText.length - 2 : tagText.length - 1;
-  tagText = tagText.slice(0, insertAt) + insertion + tagText.slice(insertAt);
-
-  if (options.mode === "fill" && options.fallbackColor !== undefined) {
-    tagText = upsertStyleProperty(
-      tagText,
-      "background",
-      sanitizeShaderFallbackColor(options.fallbackColor),
-    );
-  }
-
-  const nextHtml =
-    html.slice(0, located.start) + tagText + html.slice(located.end);
-  return { html: nextHtml, changed: nextHtml !== html, errors };
 }
 
 export function clearNodeShader(
@@ -827,67 +510,6 @@ export function listShaderMounts(html: string): GlslShaderMountRef[] {
   return mounts;
 }
 
-export interface ApplyShaderOptions {
-  nodeId: string;
-  def: GlslShaderDef;
-  values?: Record<string, GlslUniformValue>;
-  fallbackColor?: string;
-  /**
-   * A fill shader replaces the element's gradient and image layers: the
-   * fallback `background` covers them, and left in the style they would still
-   * be listed as fills behind it. Set when the shader takes over from a layer.
-   */
-  clearBackgroundLayers?: boolean;
-}
-
-const BACKGROUND_LAYER_PROPERTIES = [
-  "background-image",
-  "background-size",
-  "background-repeat",
-  "background-position",
-];
-
-function clearNodeBackgroundLayers(html: string, nodeId: string): string {
-  const located = locateNodeTag(html, nodeId);
-  if (!located) return html;
-  const tagText = BACKGROUND_LAYER_PROPERTIES.reduce(
-    removeStyleProperty,
-    located.tagText,
-  );
-  return html.slice(0, located.start) + tagText + html.slice(located.end);
-}
-
-export function applyShaderToHtml(
-  html: string,
-  options: ApplyShaderOptions,
-): HtmlTransformResult {
-  const validation = validateShaderDef(options.def);
-  if (!validation.valid) {
-    return { html, changed: false, errors: validation.errors };
-  }
-  let next = upsertShaderInHtml(html, options.def);
-  next = ensureShaderRuntime(next);
-  const annotated = annotateNodeWithShader(next, {
-    nodeId: options.nodeId,
-    shaderId: options.def.id,
-    mode: options.def.mode,
-    values: options.values,
-    fallbackColor: options.fallbackColor,
-  });
-  if (annotated.errors.length > 0) {
-    return { html, changed: false, errors: annotated.errors };
-  }
-  const nextHtml =
-    options.clearBackgroundLayers && options.def.mode === "fill"
-      ? clearNodeBackgroundLayers(annotated.html, options.nodeId)
-      : annotated.html;
-  return {
-    html: nextHtml,
-    changed: nextHtml !== html,
-    errors: [],
-  };
-}
-
 export function removeShaderFromNode(
   html: string,
   nodeId: string,
@@ -924,34 +546,4 @@ export function removeShaderFill(
     tagText +
     removed.html.slice(located.end);
   return { html: nextHtml, changed: nextHtml !== html, errors: [] };
-}
-
-/**
- * A knob's name in the pane: the label its manifest declares, else its uniform
- * name read as words (`u_glow_amount`, `uGlowAmount` -> "Glow amount"). Agent
- * written manifests are not always labeled, and a hand-written one is not run
- * through `validateShaderDef`.
- */
-export function shaderUniformLabel(
-  name: string,
-  uniform: GlslUniformDef,
-): string {
-  if (uniform.label) return uniform.label;
-  const words = name
-    .replace(/^u(?=[_A-Z])/, "")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/_+/g, " ")
-    .trim()
-    .toLowerCase();
-  return words ? words.charAt(0).toUpperCase() + words.slice(1) : name;
-}
-
-export function defaultUniformValues(
-  def: GlslShaderDef,
-): Record<string, GlslUniformValue> {
-  const out: Record<string, GlslUniformValue> = {};
-  for (const [name, u] of Object.entries(def.uniforms)) {
-    out[name] = u.value;
-  }
-  return out;
 }

@@ -11,7 +11,7 @@
  * dedicated actions which also use the same per-deck lock.
  */
 import { ActionContractError } from "@agent-native/core";
-import { defineAction, fail } from "@agent-native/core/action";
+import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -40,6 +40,7 @@ import {
 } from "../server/lib/deck-versions.js";
 import {
   applySlideContentEdits,
+  SlideContentEditError,
   SlideContentEditSchema,
   type SlideContentEdit,
 } from "../server/lib/slide-content-patch.js";
@@ -56,6 +57,7 @@ import {
   assertSlideAnimationsResolve,
   type SlideAnimationBaseline,
 } from "../server/lib/validate-slide-animations.js";
+import { ANIMATION_TRIGGERS } from "../shared/api.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { isRealSlide } from "../shared/blank-slide.js";
 import { stableStringify } from "../shared/deck-content.js";
@@ -140,6 +142,12 @@ const SlideAnimationSchema = z.object({
     .optional()
     .describe(
       "Reveal each paragraph or list item inside this element as its own click step, in document order. A paragraph reveal starts at that paragraph and runs through the rest of its container. With nothing to split it is one step.",
+    ),
+  trigger: z
+    .enum(ANIMATION_TRIGGERS)
+    .optional()
+    .describe(
+      "When this step plays. on-click (default) waits for its own click. with-previous plays in the same click as the step before it, so the objects appear together. The first step always waits for a click.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
@@ -770,7 +778,7 @@ async function resolvePatchSlideEdits(
     }
     const slide = slides.find((entry) => entry?.id === operation.slideId);
     if (!slide) {
-      fail(
+      throw new NoWriteError(
         `patch-slide edits target slide "${operation.slideId}", which does not exist in the current deck. Check the slideId; if this slide is added by add-slide in the same call, edits cannot target it until a later call. No slides were changed.`,
         { errorCode: "slide_not_found", statusCode: 404 },
       );
@@ -779,10 +787,19 @@ async function resolvePatchSlideEdits(
     const currentContent =
       pendingContent.get(operation.slideId) ?? originalContent;
     const { edits, ...rest } = operation;
-    const patched = await applySlideContentEdits(
-      currentContent,
-      edits as SlideContentEdit[],
-    );
+    let patched: Awaited<ReturnType<typeof applySlideContentEdits>>;
+    try {
+      patched = await applySlideContentEdits(
+        currentContent,
+        edits as SlideContentEdit[],
+      );
+    } catch (error) {
+      if (!(error instanceof SlideContentEditError)) throw error;
+      throw new NoWriteError(error.message, {
+        errorCode: error.errorCode,
+        statusCode: error.statusCode,
+      });
+    }
     pendingContent.set(operation.slideId, patched.content);
     const next: Operation = {
       ...rest,
@@ -1946,7 +1963,7 @@ export default defineAction({
         requestedSlideIds.length > 0 &&
         changedSlideIds.size === 0
       ) {
-        throw new Error(
+        throw new NoWriteError(
           `Nothing was written: every patched slide (${requestedSlideIds.join(", ")}) is identical to the deck's current content, so the deck is unchanged. Do not report these slides as edited. Re-read them with get-deck and send content that actually differs.`,
         );
       }
@@ -1959,7 +1976,7 @@ export default defineAction({
         generationRecord !== undefined;
       if (!meaningfulChange) {
         if (isAgentCaller) {
-          throw new Error(
+          throw new NoWriteError(
             "Nothing was written: the requested deck patch is identical to the current deck. Re-read with get-deck before retrying.",
           );
         }

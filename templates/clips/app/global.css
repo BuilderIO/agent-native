@@ -90,6 +90,7 @@
   --highlight-foreground: 0 0% 10%;
 }
 
+.dark .clips-share-control,
 .dark .clips-share-trigger {
   --primary: 0 0% 100%;
 }
@@ -262,4 +263,14 @@
 }
 .clips-toolbar-strip:hover::-webkit-scrollbar-thumb {
   background: hsl(var(--muted-foreground) / 0.6);
+}
+
+@media (min-width: 64rem) and (max-height: 700px) {
+  .clips-recording-player-column {
+    overflow-y: auto;
+  }
+
+  .clips-recording-player-column [data-clips-scroll-content] {
+    flex: none;
+  }
 }

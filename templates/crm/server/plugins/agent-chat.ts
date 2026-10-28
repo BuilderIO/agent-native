@@ -98,7 +98,6 @@ function hasCrmDashboardEdit(
     return (
       record?.type === "tool_done" &&
       record.completedSideEffect === true &&
-      record.isError !== true &&
       typeof record.tool === "string" &&
       CRM_DASHBOARD_EDIT_TOOLS.has(record.tool) &&
       input?.id === dashboardId
@@ -131,7 +130,7 @@ export default createAgentChatPlugin({
   onAgentTurnComplete: autosaveCrmDashboardAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
-  mcp: { connectorCatalog: [...CRM_CONNECTOR_CATALOG] },
+  mcp: { connectorCatalog: [...CRM_CONNECTOR_CATALOG], appApprovalPage: true },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the CRM for this workspace. Your operating rules live in AGENTS.md and the \`crm\` skill — follow them; this prompt deliberately does not restate them.

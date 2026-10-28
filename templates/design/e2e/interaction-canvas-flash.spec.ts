@@ -514,10 +514,7 @@ async function altDragWidgetOut(
   await page.keyboard.up("Alt");
 }
 
-/**
- * Selects Widget and deletes it. On the overview a plain click reaches the nested Widget; once its screen is
- * focused a plain click stops at Main, so that caller deep-selects with Cmd/Ctrl held.
- */
+/** Selects Widget and deletes it. A plain click stops at Main, so callers deep-select with Cmd/Ctrl held. */
 async function deleteWidget(app: App, screenId: string, held: string[]) {
   const widget = await boxFor(app.page, screenId, "widget");
   for (const key of held) await app.page.keyboard.down(key);
@@ -543,7 +540,7 @@ async function interactRoundTrip(page: Page, screenId: string) {
   await expect(
     page.locator('[role="treeitem"][aria-selected="true"]'),
   ).toHaveCount(0);
-  await shell.locator("[data-frame-full-view]").click();
+  await shell.locator("[data-frame-title]").first().dblclick();
   await page
     .locator('[data-design-top-bar] [data-design-mode="interact"]')
     .click();
@@ -634,8 +631,6 @@ test("frame recorder continues while a preview document has no root", async ({
 });
 
 test.describe("canvas flash — transient capture, dark theme, multi-screen", () => {
-  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
-  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test("overview canvas never paints a light/white frame across drag-into-container, undo x2, alt-drag-out, new shape, single-screen round trip, and resize", async ({
     app,
   }) => {
@@ -750,8 +745,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
 });
 
 test.describe("screen document flash — inside-iframe capture, dark theme", () => {
-  // fixme: product bug: Drag, undo, then a second undo with nothing left to undo, then redo: Widget stays in Main. The extra undo discards the redo; with a
-  test.fixme("no screen document ever paints a light/white background across drag-into-container, undo/redo depth, alt-drag-out, delete+undo, and Direct<->Interact", async ({
+  test("no screen document ever paints a light/white background across drag-into-container, undo/redo depth, alt-drag-out, delete+undo, and Direct<->Interact", async ({
     app,
   }) => {
     test.setTimeout(180_000);
@@ -1009,7 +1003,9 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
       namedNodes(await app.savedNodes(id, BOARD), "Widget"),
       "undo removed the copy",
     ).toEqual([]);
-    await capture("delete-widget", () => deleteWidget(app, screenOneId, []));
+    await capture("delete-widget", () =>
+      deleteWidget(app, screenOneId, ["ControlOrMeta"]),
+    );
     expect(
       (await app.savedNodes(id)).has("widget"),
       "Delete removed Widget",

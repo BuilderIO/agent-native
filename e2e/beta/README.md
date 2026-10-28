@@ -25,7 +25,7 @@ gh workflow run beta-e2e.yml --ref main -f apps=design -f lane=authed
 | `apps`       | `all`           | Restrict to specific beta apps, e.g. `slides,analytics`. An unknown or empty value fails the run rather than silently testing nothing. |
 | `lane`       | `public+authed` | `public` skips everything needing credentials or spend.                                                                                |
 | `key_source` | `dedicated`     | Which OpenAI credential the agent turns bill — see below.                                                                              |
-| `grep`       | none            | Only run tests whose title matches.                                                                                                    |
+| `grep`       | none            | Run tests whose title contains this literal text; regular-expression punctuation is treated literally.                                 |
 
 The `public` lane needs no secrets, so it works today with no setup.
 
@@ -47,17 +47,17 @@ shards (at most 8 at a time), `fleet`, and `advisory` start as soon as
 5 at a time). The authenticated lane is one job per slot, 12 in all, so a hang
 or failure in one place is isolated and named:
 
-| Slot                                       | Project                | Tests                                                                   | Job limit / `globalTimeout` |
-| ------------------------------------------ | ---------------------- | ----------------------------------------------------------------------- | --------------------------- |
-| `chat-slides`                              | `chat` (slides)        | chat, A2A, realtime (10 idle minutes), reliability                      | 30 / 27 min                 |
-| `chat-analytics`, `chat-chat`              | `chat` (that app)      | chat, reliability (5 scenarios, ~8 turns)                               | 30 / 25 min                 |
-| `chat-content`, `chat-dispatch`            | `chat` (that app)      | chat, reliability (1 scenario)                                          | 20 / 15 min                 |
-| `journeys-session-1`, `journeys-session-2` | `journeys-session`     | `[journey] [session]`, 13 tests split by `--shard=1/2`, `2/2`           | 30 / 25 min                 |
-| `journeys-credentials`                     | `journeys-credentials` | `[credentials]` (12) and `[settings-keys]` (3)                          | 30 / 25 min                 |
-| `journeys-flows`                           | `journeys-flows`       | `[slides-import]`, `[forms]`, `[design-systems]`, `[dispatch-apps]` (7) | 30 / 25 min                 |
-| `journeys-core`                            | `journeys-core`        | the original 38 journeys                                                | 20 / 15 min                 |
-| `design`                                   | `design`               | editor interactions and culling                                         | 15 / 11 min                 |
-| `registry`                                 | `registry`             | per-app registry checks                                                 | 10 / 7 min                  |
+| Slot                                       | Project                | Tests                                                                                            | Job limit / `globalTimeout` |
+| ------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------ | --------------------------- |
+| `chat-slides`                              | `chat` (slides)        | chat, A2A, realtime (10 idle minutes), reliability                                               | 30 / 27 min                 |
+| `chat-analytics`, `chat-chat`              | `chat` (that app)      | chat, reliability (5 scenarios, ~8 turns)                                                        | 30 / 25 min                 |
+| `chat-content`, `chat-dispatch`            | `chat` (that app)      | chat, reliability (1 scenario)                                                                   | 20 / 15 min                 |
+| `journeys-session-1`, `journeys-session-2` | `journeys-session`     | `[journey] [session]`, 13 tests split by `--shard=1/2`, `2/2`                                    | 30 / 25 min                 |
+| `journeys-credentials`                     | `journeys-credentials` | `[credentials]` (12) and `[settings-keys]` (3)                                                   | 30 / 25 min                 |
+| `journeys-flows`                           | `journeys-flows`       | `[slides-import]`, `[forms]`, `[design-systems]`, `[dispatch-apps]` (7), `[content-review]` (16) | 30 / 25 min                 |
+| `journeys-core`                            | `journeys-core`        | the original 38 journeys                                                                         | 20 / 15 min                 |
+| `design`                                   | `design`               | editor interactions and culling                                                                  | 15 / 11 min                 |
+| `registry`                                 | `registry`             | per-app registry checks                                                                          | 10 / 7 min                  |
 
 The journeys used to be one slot of ~75 serial tests with a 15 minute limit. A
 spec file belongs to exactly one project (`journeys-core` takes every file under
@@ -269,6 +269,9 @@ commands to download the artifact and to reproduce a test on CI
 (`gh workflow run beta-e2e.yml --ref main -f apps=<app> -f lane=authed -f grep='<title>'`)
 or locally
 (`BETA_E2E_APPS=<app> pnpm e2e:beta --project=<project> --grep '<title>'`).
+The workflow's `grep` input is literal title text. The local Playwright CLI
+still treats `--grep` as a regular expression, so escape regex punctuation in
+the local command; generated reproduction commands already do this.
 
 Each failure carries a class: `[product]` an assertion failed, `[env]` a
 credential or session problem (an expired token, the wrong identity, a rejected

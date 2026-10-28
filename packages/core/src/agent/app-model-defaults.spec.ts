@@ -48,7 +48,9 @@ vi.mock("../db/client.js", () => ({
 
 let requestUserEmail: string | undefined;
 let requestOrgId: string | undefined;
+let requestOrgScope: "personal" | undefined;
 vi.mock("../server/request-context.js", () => ({
+  getRequestContext: () => ({ orgId: requestOrgId, orgScope: requestOrgScope }),
   getRequestUserEmail: () => requestUserEmail,
   getRequestOrgId: () => requestOrgId,
 }));
@@ -71,6 +73,7 @@ beforeEach(() => {
   roleQueryThrows = false;
   requestUserEmail = undefined;
   requestOrgId = undefined;
+  requestOrgScope = undefined;
   execute.mockClear();
 });
 
@@ -146,13 +149,23 @@ describe("readAgentAppModelDefaultSettings", () => {
       model: "claude-opus-4-8",
     });
     const s = await readAgentAppModelDefaultSettings(
-      { userEmail: "a@b.com" },
+      { userEmail: "a@b.com", orgScope: "personal" },
       "MAIL",
     );
     expect(s.scope).toBe("user");
     expect(s.source).toBe("user");
     expect(s.engine).toBe("anthropic");
     expect(s.appId).toBe("mail");
+  });
+
+  it("does not read personal settings when an authenticated scope is unknown", async () => {
+    userStore.set(userK("a@b.com", agentAppModelDefaultSettingsKey("mail")), {
+      engine: "anthropic",
+      model: "private-personal-model",
+    });
+    await expect(
+      readAgentAppModelDefaultSettings({ userEmail: "a@b.com" }, "mail"),
+    ).rejects.toThrow(/scope could not be resolved/);
   });
 
   it("treats a stored row missing engine or model as empty (parse guard)", async () => {
@@ -205,10 +218,14 @@ describe("writeAgentAppModelDefaultSettings", () => {
   });
 
   it("omits updatedBy when not supplied", async () => {
-    await writeAgentAppModelDefaultSettings({ userEmail: "a@b.com" }, "mail", {
-      engine: "anthropic",
-      model: "claude-opus-4-8",
-    });
+    await writeAgentAppModelDefaultSettings(
+      { userEmail: "a@b.com", orgScope: "personal" },
+      "mail",
+      {
+        engine: "anthropic",
+        model: "claude-opus-4-8",
+      },
+    );
     const stored = userStore.get(
       userK("a@b.com", agentAppModelDefaultSettingsKey("mail")),
     )!;
@@ -248,6 +265,16 @@ describe("writeAgentAppModelDefaultSettings", () => {
       }),
     ).rejects.toThrow(/Authentication required/);
   });
+
+  it("rejects unresolved authenticated scope without writing personal settings", async () => {
+    await expect(
+      writeAgentAppModelDefaultSettings({ userEmail: "a@b.com" }, "mail", {
+        engine: "builder",
+        model: "m",
+      }),
+    ).rejects.toThrow(/scope could not be resolved/);
+    expect(userStore.size).toBe(0);
+  });
 });
 
 describe("resetAgentAppModelDefaultSettings", () => {
@@ -270,7 +297,10 @@ describe("resetAgentAppModelDefaultSettings", () => {
       engine: "anthropic",
       model: "m",
     });
-    await resetAgentAppModelDefaultSettings({ userEmail: "a@b.com" }, "mail");
+    await resetAgentAppModelDefaultSettings(
+      { userEmail: "a@b.com", orgScope: "personal" },
+      "mail",
+    );
     expect(userStore.size).toBe(0);
   });
 
@@ -278,6 +308,18 @@ describe("resetAgentAppModelDefaultSettings", () => {
     await expect(resetAgentAppModelDefaultSettings({}, "mail")).rejects.toThrow(
       /Authentication required/,
     );
+  });
+
+  it("does not delete personal settings when scope is unresolved", async () => {
+    const key = agentAppModelDefaultSettingsKey("mail");
+    userStore.set(userK("a@b.com", key), { engine: "builder", model: "m" });
+    await expect(
+      resetAgentAppModelDefaultSettings({ userEmail: "a@b.com" }, "mail"),
+    ).rejects.toThrow(/scope could not be resolved/);
+    expect(userStore.get(userK("a@b.com", key))).toEqual({
+      engine: "builder",
+      model: "m",
+    });
   });
 });
 
@@ -289,8 +331,11 @@ describe("canUpdateAgentAppModelDefaultSettings", () => {
   });
 
   it("allows any signed-in user with no org (personal scope)", async () => {
+    expect(
+      await canUpdateAgentAppModelDefaultSettings("a@b.com", null, "personal"),
+    ).toBe(true);
     expect(await canUpdateAgentAppModelDefaultSettings("a@b.com", null)).toBe(
-      true,
+      false,
     );
     expect(execute).not.toHaveBeenCalled();
   });
@@ -356,6 +401,16 @@ describe("getAgentAppModelDefaultForCurrentRequest", () => {
 
   it("returns null when nothing is stored for the request scope", async () => {
     requestUserEmail = "a@b.com";
+    requestOrgScope = "personal";
+    expect(await getAgentAppModelDefaultForCurrentRequest("mail")).toBeNull();
+  });
+
+  it("does not read a personal override when request scope is unknown", async () => {
+    requestUserEmail = "a@b.com";
+    userStore.set(userK("a@b.com", agentAppModelDefaultSettingsKey("mail")), {
+      engine: "anthropic",
+      model: "private-personal-model",
+    });
     expect(await getAgentAppModelDefaultForCurrentRequest("mail")).toBeNull();
   });
 });

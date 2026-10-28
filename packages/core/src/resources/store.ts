@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -8,6 +8,7 @@ import {
 } from "../db/ddl-guard.js";
 import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { isRecordingStoreMigration } from "../db/runtime-facts.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
@@ -323,6 +324,28 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
   runId?: string | null;
   expiresAt?: number | null;
   metadata?: string | Record<string, unknown> | null;
+}
+
+/** Notify listeners after commit and await asynchronous post-commit work. */
+export interface TransactionScopedResourceWrite<T> {
+  value: T;
+  notifyAfterCommit: () => void | Promise<void>;
+}
+
+export interface PreparedResourceMutation<
+  T,
+> extends TransactionScopedResourceWrite<T> {
+  statements: DbExecStatement[];
+}
+
+export interface PrepareResourceCreateInput {
+  id: string;
+  owner: string;
+  path: string;
+  content: string;
+  mimeType?: string;
+  options?: ResourceWriteOptions;
+  now?: number;
 }
 
 export interface ResourceConditionalWrite {
@@ -1210,7 +1233,9 @@ export const resourcesStore = defineStore({
           `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
         ).catch((err) => {
           // At release, fail so the ledger never records an index that was not built.
-          if (isMigrationAuthorizedRuntime()) throw err;
+          if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+            throw err;
+          }
           // An index is an optimization, not a correctness requirement: a
           // concurrent creator or a permissions edge must not fail table init and
           // take the app down with it. The scan it avoids is slow, not wrong — but
@@ -1238,7 +1263,9 @@ export const resourcesStore = defineStore({
           "resources_path_pattern_idx",
           `CREATE INDEX IF NOT EXISTS resources_path_pattern_idx ON resources (path text_pattern_ops)`,
         ).catch((err) => {
-          if (isMigrationAuthorizedRuntime()) throw err;
+          if (isMigrationAuthorizedRuntime() || isRecordingStoreMigration()) {
+            throw err;
+          }
           // coercion-ok: absence of an index degrades latency, never correctness
           console.warn(
             "[resources] could not ensure resources_path_pattern_idx; prefix reads such as the jobs/ fingerprint will full-scan:",
@@ -1699,40 +1726,203 @@ export async function resourceGetByPath(
   return workspace ? grantedWorkspaceResourceByPath(path, options) : null;
 }
 
-export async function resourcePut(
+export async function ensureResourceStoreReady(): Promise<void> {
+  await ensureTable();
+}
+
+/**
+ * Write through an existing SQL transaction. The caller must initialize the
+ * resource store before opening the transaction and invoke notifyAfterCommit
+ * only after that transaction commits.
+ */
+export function prepareResourceCreate(
+  input: PrepareResourceCreateInput,
+): PreparedResourceMutation<Resource> {
+  const now = input.now ?? Date.now();
+  const mimeType = input.mimeType || "text/markdown";
+  const size = Buffer.byteLength(input.content, "utf8");
+  const createdBy = normalizeCreatedBy(input.options?.createdBy);
+  const visibility = normalizeVisibility(input.options?.visibility);
+  const threadId = input.options?.threadId ?? null;
+  const runId = input.options?.runId ?? null;
+  let expiresAt = input.options?.expiresAt ?? null;
+  if (visibility === "agent_scratch" && expiresAt === null) {
+    expiresAt = now + AGENT_SCRATCH_TTL_MS;
+  }
+  const metadata = serializeMetadata(input.options?.metadata) ?? null;
+  const resource: Resource = {
+    id: input.id,
+    path: input.path,
+    owner: input.owner,
+    content: input.content,
+    mimeType,
+    size,
+    createdAt: now,
+    updatedAt: now,
+    createdBy,
+    visibility,
+    threadId,
+    runId,
+    expiresAt,
+    metadata,
+  };
+  return {
+    value: resource,
+    statements: [
+      {
+        sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM resources WHERE owner = ? AND path = ?)`,
+        args: [
+          input.id,
+          input.path,
+          input.owner,
+          input.content,
+          mimeType,
+          size,
+          now,
+          now,
+          createdBy,
+          visibility,
+          threadId,
+          runId,
+          expiresAt,
+          metadata,
+          input.owner,
+          input.path,
+        ],
+      },
+    ],
+    notifyAfterCommit: () =>
+      emitResourceChange(
+        input.id,
+        input.path,
+        input.owner,
+        input.options?.requestSource,
+      ),
+  };
+}
+
+export function prepareResourceBatchAssertion(condition: {
+  sql: string;
+  args: readonly unknown[];
+}): {
+  statements: DbExecStatement[];
+  cleanupStatement: DbExecStatement;
+} {
+  const guard = prepareResourceCreate({
+    id: crypto.randomUUID(),
+    owner: "__automation_atomic_guard__",
+    path: `guards/${crypto.randomUUID()}`,
+    content: "",
+  });
+  const resource = guard.value;
+  return {
+    statements: [
+      ...guard.statements,
+      {
+        sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT (${condition.sql})`,
+        args: [
+          resource.id,
+          resource.path,
+          resource.owner,
+          resource.content,
+          resource.mimeType,
+          resource.size,
+          resource.createdAt,
+          resource.updatedAt,
+          resource.createdBy,
+          resource.visibility,
+          resource.threadId,
+          resource.runId,
+          resource.expiresAt,
+          resource.metadata,
+          ...condition.args,
+        ],
+      },
+    ],
+    cleanupStatement: {
+      sql: "DELETE FROM resources WHERE id = ?",
+      args: [resource.id],
+    },
+  };
+}
+
+export function prepareResourceUpdate(input: {
+  current: Resource;
+  content: string;
+  mimeType?: string;
+  now?: number;
+}): PreparedResourceMutation<Resource> {
+  const now = Math.max(input.now ?? Date.now(), input.current.updatedAt + 1);
+  const mimeType = input.mimeType || input.current.mimeType;
+  const size = Buffer.byteLength(input.content, "utf8");
+  const resource: Resource = {
+    ...input.current,
+    content: input.content,
+    mimeType,
+    size,
+    updatedAt: now,
+  };
+  return {
+    value: resource,
+    statements: [
+      {
+        sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
+        args: [
+          input.content,
+          mimeType,
+          size,
+          now,
+          input.current.owner,
+          input.current.path,
+          input.current.id,
+          input.current.updatedAt,
+          input.current.content,
+        ],
+      },
+    ],
+    notifyAfterCommit: () =>
+      emitResourceChange(
+        input.current.id,
+        input.current.path,
+        input.current.owner,
+      ),
+  };
+}
+
+export function prepareResourceDelete(
+  resource: Resource,
+): PreparedResourceMutation<boolean> {
+  return {
+    value: true,
+    statements: [
+      {
+        sql: `DELETE FROM resources WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ?`,
+        args: [
+          resource.id,
+          resource.owner,
+          resource.path,
+          resource.updatedAt,
+          resource.content,
+        ],
+      },
+    ],
+    notifyAfterCommit: () =>
+      emitResourceDelete(resource.id, resource.path, resource.owner),
+  };
+}
+
+export async function resourcePutWithDb(
+  client: DbExec,
   owner: string,
   path: string,
   content: string,
   mimeType?: string,
   options?: ResourceWriteOptions,
-): Promise<Resource> {
+): Promise<TransactionScopedResourceWrite<Resource>> {
   assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
-  await ensureTable();
-  if (
-    isBareWorkspaceResourceOwner(owner) &&
-    (await shouldHandleWorkspaceResourceAsLocal(path))
-  ) {
-    const written = await writeLocalWorkspaceResource({ path, content });
-    const resource = localWorkspaceResourceToResource({
-      ...written,
-      content,
-    });
-    emitResourceChange(
-      resource.id,
-      resource.path,
-      resource.owner,
-      options?.requestSource,
-    );
-    return resource;
-  }
-  if (isBareWorkspaceResourceOwner(owner)) {
-    await assertWritableWorkspaceResourcePath(path);
-  }
-  const client = getDbExec();
   const now = Date.now();
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
-
   const isJobFile = path.startsWith("jobs/");
   const { rows: existing } = await client.execute({
     sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata${isJobFile ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
@@ -1752,8 +1942,7 @@ export async function resourcePut(
       }
     | undefined;
 
-  const id =
-    existing.length > 0 ? (existingRow?.id as string) : crypto.randomUUID();
+  const id = existingRow?.id ?? crypto.randomUUID();
   const createdAt = existingRow ? Number(existingRow.created_at) : now;
   const createdBy = normalizeCreatedBy(
     hasOption(options, "createdBy")
@@ -1806,19 +1995,7 @@ export async function resourcePut(
     ],
   });
 
-  if (typeof existingRow?.content === "string") {
-    await noteJobFrontmatterWrite({
-      owner,
-      orgId: organizationIdFromResourceOwner(owner),
-      path,
-      before: existingRow.content,
-      after: content,
-      writer: "resourcePut",
-    });
-  }
-  emitResourceChange(id, path, owner, options?.requestSource);
-
-  return {
+  const resource: Resource = {
     id,
     path,
     owner,
@@ -1834,6 +2011,62 @@ export async function resourcePut(
     expiresAt,
     metadata,
   };
+  return {
+    value: resource,
+    notifyAfterCommit: async () => {
+      if (typeof existingRow?.content === "string") {
+        await noteJobFrontmatterWrite({
+          owner,
+          orgId: organizationIdFromResourceOwner(owner),
+          path,
+          before: existingRow.content,
+          after: content,
+          writer: "resourcePut",
+        });
+      }
+      emitResourceChange(id, path, owner, options?.requestSource);
+    },
+  };
+}
+
+export async function resourcePut(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType?: string,
+  options?: ResourceWriteOptions,
+): Promise<Resource> {
+  await ensureTable();
+  if (
+    owner === WORKSPACE_OWNER &&
+    (await shouldHandleWorkspaceResourceAsLocal(path))
+  ) {
+    const written = await writeLocalWorkspaceResource({ path, content });
+    const resource = localWorkspaceResourceToResource({
+      ...written,
+      content,
+    });
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      options?.requestSource,
+    );
+    return resource;
+  }
+  if (owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(path);
+  }
+  const write = await resourcePutWithDb(
+    getDbExec(),
+    owner,
+    path,
+    content,
+    mimeType,
+    options,
+  );
+  await write.notifyAfterCommit();
+  return write.value;
 }
 
 export async function resourcePutIfAbsent(
@@ -2019,6 +2252,42 @@ async function writeResourceIfCurrent(
   if (rows.length === 0) return null;
   const resource = rowToResource(rows[0]);
   return resource;
+}
+
+/**
+ * Delete through an existing SQL transaction. The caller must await
+ * notifyAfterCommit only after that transaction commits.
+ */
+export async function resourceDeleteWithDb(
+  client: DbExec,
+  id: string,
+): Promise<TransactionScopedResourceWrite<boolean>> {
+  if (isLocalWorkspaceResourceId(id)) {
+    throw new Error(
+      "Transaction-scoped deletes do not support workspace files.",
+    );
+  }
+  const { rows } = await client.execute({
+    sql: `SELECT path, owner FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) {
+    return { value: false, notifyAfterCommit: () => {} };
+  }
+
+  const result = await client.execute({
+    sql: `DELETE FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  const deleted = result.rowsAffected > 0;
+  const path = String(rows[0].path);
+  const owner = String(rows[0].owner);
+  return {
+    value: deleted,
+    notifyAfterCommit: () => {
+      if (deleted) emitResourceDelete(id, path, owner);
+    },
+  };
 }
 
 function resourceSnapshotMatch(resource: Resource) {
@@ -2419,23 +2688,10 @@ export async function resourceDelete(id: string): Promise<boolean> {
     }
     return deleted;
   }
-  const client = getDbExec();
 
-  const { rows } = await client.execute({
-    sql: `SELECT path, owner FROM resources WHERE id = ?`,
-    args: [id],
-  });
-  if (rows.length === 0) return false;
-
-  const result = await client.execute({
-    sql: `DELETE FROM resources WHERE id = ?`,
-    args: [id],
-  });
-  const deleted = result.rowsAffected > 0;
-  if (deleted) {
-    emitResourceDelete(id, rows[0].path as string, rows[0].owner as string);
-  }
-  return deleted;
+  const write = await resourceDeleteWithDb(getDbExec(), id);
+  await write.notifyAfterCommit();
+  return write.value;
 }
 
 export async function resourceDeleteByPath(

@@ -1,3 +1,4 @@
+import { captureRouteError } from "@agent-native/core/server";
 import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +17,8 @@ const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
 const mockCreateSsrfSafeDispatcher = vi.hoisted(() => vi.fn());
 const mockIsBlockedExtensionUrlWithDns = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockIsUrlInS3Storage = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -30,6 +33,10 @@ vi.mock("h3", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(),
   eq: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -72,7 +79,9 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       password: "recordings.password",
       sharePasswordVersion: "recordings.sharePasswordVersion",
+      storageMode: "recordings.storageMode",
       trashedAt: "recordings.trashedAt",
+      failureCode: "recordings.failureCode",
       visibility: "recordings.visibility",
     },
     recordingContextItems: {
@@ -81,6 +90,11 @@ vi.mock("../../../db/index.js", () => ({
       status: "recordingContextItems.status",
     },
   },
+}));
+
+vi.mock("../../../lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+  isUrlInS3Storage: (...args: unknown[]) => mockIsUrlInS3Storage(...args),
 }));
 
 vi.mock("../../../lib/recordings.js", () => ({
@@ -115,12 +129,21 @@ function createDbWithRow(row: Record<string, unknown> | null) {
 function createDbWithSelectSequence(...results: Array<unknown[]>) {
   let call = 0;
   return {
-    select: vi.fn(() => {
+    select: vi.fn((columns?: Record<string, unknown>) => {
       const rows = results[call++] ?? [];
+      const selected = columns
+        ? rows.map((row) =>
+            Object.fromEntries(
+              Object.keys(columns)
+                .filter((key) => columns[key] !== undefined)
+                .map((key) => [key, (row as Record<string, unknown>)[key]]),
+            ),
+          )
+        : rows;
       const builder = {
         from: vi.fn(() => builder),
         where: vi.fn(() => builder),
-        limit: vi.fn(async () => rows),
+        limit: vi.fn(async () => selected),
       };
       return builder;
     }),
@@ -187,9 +210,56 @@ describe("/api/thumbnail/:recordingId route", () => {
     mockResolveAccess.mockResolvedValue(null);
     mockCreateSsrfSafeDispatcher.mockResolvedValue(null);
     mockIsBlockedExtensionUrlWithDns.mockResolvedValue(false);
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsUrlInS3Storage.mockResolvedValue(true);
     mockVerifyShortLivedToken.mockReturnValue({ ok: false });
     mockSignShortLivedToken.mockReturnValue("renewed-token");
   });
+
+  it.each([null, "viewer", "editor", "admin"])(
+    "does not serve trashed thumbnails to %s callers",
+    async (role) => {
+      const recording = makeRow({ trashedAt: "2026-10-22T12:00:00.000Z" });
+      mockGetDb.mockReturnValue(createDbWithRow(recording));
+      if (role)
+        mockResolveAccess.mockResolvedValue({ role, resource: recording });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("thumbnail", {
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+      const event = makeEvent();
+
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({ error: "Not found" });
+      expect(event.status).toBe(404);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { role: "owner", trashedAt: "2026-10-22T12:00:00.000Z" },
+    { role: "viewer", trashedAt: null },
+  ])(
+    "serves owner Trash previews and restored thumbnails: $role",
+    async ({ role, trashedAt }) => {
+      const recording = makeRow({ trashedAt });
+      mockGetDb.mockReturnValue(createDbWithSelectSequence([]));
+      mockResolveAccess.mockResolvedValue({ role, resource: recording });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("thumbnail", {
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+      const result = await handler(
+        makeEvent() as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(await (result as Response).text()).toBe("thumbnail");
+    },
+  );
 
   it("proxies a public provider thumbnail", async () => {
     mockGetDb.mockReturnValue(createDbWithRow(makeRow()));
@@ -209,6 +279,309 @@ describe("/api/thumbnail/:recordingId route", () => {
       "https://cdn.example.com/thumb.jpg",
       expect.objectContaining({ redirect: "manual" }),
     );
+  });
+
+  it("uses the recording-scoped signed reader for hosted public thumbnails", async () => {
+    const thumbnailUrl = "https://storage.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "hosted" })),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("private thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(await (result as Response).text()).toBe("private thumbnail");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      thumbnailUrl,
+      expect.objectContaining({
+        recordingId: "rec-1",
+        storageMode: "hosted",
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("serves an external thumbnail for a hosted recording without the bucket reader", async () => {
+    const thumbnailUrl = "https://cdn.loom.com/sessions/thumbnails/abc.jpg";
+    mockIsUrlInS3Storage.mockResolvedValue(false);
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "hosted" })),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("loom thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("loom thumbnail");
+    expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      thumbnailUrl,
+      expect.objectContaining({ redirect: "manual" }),
+    );
+  });
+
+  it("reads an own-bucket thumbnail on a private address with the owner's bucket credentials", async () => {
+    const thumbnailUrl = "http://127.0.0.1:4634/bucket/clips/rec-1/thumb.jpg";
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl,
+          storageMode: "own",
+          ownerEmail: "owner@example.com",
+          organizationId: "org-1",
+        }),
+      ),
+    );
+    const contexts: unknown[] = [];
+    mockRunWithRequestContext.mockImplementation(async (context, callback) => {
+      contexts.push(context);
+      try {
+        return await callback();
+      } finally {
+        contexts.pop();
+      }
+    });
+    let readerContext: unknown;
+    mockFetchS3ObjectByUrl.mockImplementation(async () => {
+      readerContext = contexts[contexts.length - 1];
+      return new Response("bucket thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("bucket thumbnail");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      thumbnailUrl,
+      expect.objectContaining({ recordingId: "rec-1", storageMode: "own" }),
+    );
+    expect(readerContext).toEqual({
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a private address the own bucket does not serve", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl: "http://169.254.169.254/latest/meta-data",
+          storageMode: "own",
+        }),
+      ),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the public fetch when the own bucket refuses the thumbnail", async () => {
+    const thumbnailUrl = "https://bucket.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "own" })),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("denied", { status: 403 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("public thumbnail");
+    expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalledWith(thumbnailUrl);
+    expect(captureRouteError).not.toHaveBeenCalled();
+  });
+
+  it("reports a bucket 5xx that the public fallback would hide", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+          storageMode: "own",
+        }),
+      ),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("unavailable", { status: 503 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(new Response("denied", { status: 403 }));
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+    expect(captureRouteError).toHaveBeenCalledWith(
+      new Error("Storage provider returned 503 for thumbnail"),
+      expect.objectContaining({ tags: { upstreamStatus: "503" } }),
+    );
+  });
+
+  it("refuses the public fallback when its DNS check outlasts the budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 25_000);
+        throw new Error("bucket timed out");
+      });
+      mockIsBlockedExtensionUrlWithDns.mockReturnValue(new Promise(() => {}));
+      let settled = false;
+      const pending = handler(makeEvent() as any).finally(() => {
+        settled = true;
+      });
+      await vi.waitFor(() =>
+        expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalled(),
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(settled).toBe(true);
+      expectDefaultSocialRedirect(await pending);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(captureRouteError).toHaveBeenCalledWith(
+        new Error("Thumbnail fetch ran out of time before the host check"),
+        expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("treats a host check that finishes after the deadline as too late", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockRejectedValue(new Error("bucket timed out"));
+      // The clock passes the deadline without the race's timer getting a turn.
+      mockIsBlockedExtensionUrlWithDns.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 31_000);
+        return false;
+      });
+
+      const result = await handler(makeEvent() as any);
+
+      expectDefaultSocialRedirect(result);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the public fallback when the bucket read spent the whole budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 30_000);
+        throw new Error("bucket timed out");
+      });
+
+      const result = await handler(makeEvent() as any);
+
+      expectDefaultSocialRedirect(result);
+      expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives the public fallback only what the bucket read left of the budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetDb.mockReturnValue(
+        createDbWithRow(
+          makeRow({
+            thumbnailUrl: "https://bucket.example.com/clips/rec-1/thumb.jpg",
+            storageMode: "own",
+          }),
+        ),
+      );
+      mockFetchS3ObjectByUrl.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 25_000);
+        throw new Error("bucket timed out");
+      });
+      vi.mocked(fetch).mockImplementation(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
+          }),
+      );
+      let settled = false;
+      const pending = handler(makeEvent() as any).finally(() => {
+        settled = true;
+      });
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(settled).toBe(true);
+      expectDefaultSocialRedirect(await pending);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the public fetch when the own bucket read throws", async () => {
+    const thumbnailUrl = "https://bucket.example.com/clips/rec-1/thumb.jpg";
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ thumbnailUrl, storageMode: "own" })),
+    );
+    mockFetchS3ObjectByUrl.mockRejectedValue(new Error("bucket timed out"));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public thumbnail", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(await (result as Response).text()).toBe("public thumbnail");
   });
 
   it("redirects to the branded image while a thumbnail is unavailable", async () => {
@@ -445,6 +818,53 @@ describe("/api/thumbnail/:recordingId route", () => {
       );
     });
 
+    it.each(["viewer", "owner"])(
+      "refuses taken-down footage beneath a healthy Clip for a %s",
+      async (role) => {
+        mockGetDb.mockReturnValue(
+          createDbWithSelectSequence(
+            [{ recordingId: "clip-1" }],
+            [{ ...footageRow, failureCode: "taken_down" }],
+          ),
+        );
+        mockResolveAccess.mockResolvedValue({
+          role,
+          resource: makeRow({ id: "clip-1" }),
+        });
+        vi.mocked(fetch).mockResolvedValue(imageResponse());
+
+        const event = makeEvent();
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
+
+        expect(event.status).toBe(404);
+        expect(result).toEqual({ error: "Not found" });
+        expect(fetch).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+      },
+    );
+
+    it("still refuses a taken-down Clip with healthy footage", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence([{ recordingId: "clip-1" }], [footageRow]),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "owner",
+        resource: makeRow({ id: "clip-1", failureCode: "taken_down" }),
+      });
+      vi.mocked(fetch).mockResolvedValue(imageResponse());
+
+      const event = makeEvent();
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({
+        error: "Not found",
+      });
+      expect(event.status).toBe(404);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     it("is refused when the footage itself is in Trash", async () => {
       mockGetDb.mockReturnValue(
         createDbWithSelectSequence(
@@ -520,6 +940,36 @@ describe("/api/thumbnail/:recordingId route", () => {
         passwordRequired: true,
       });
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("is read from the footage's storage, with the clip owner's credentials", async () => {
+      mockGetDb.mockReturnValue(
+        createDbWithSelectSequence(
+          [{ recordingId: "clip-1" }],
+          [{ ...footageRow, storageMode: "own" }],
+        ),
+      );
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: makeRow({
+          id: "clip-1",
+          storageMode: "hosted",
+          ownerEmail: "owner@example.com",
+        }),
+      });
+      mockFetchS3ObjectByUrl.mockResolvedValue(imageResponse());
+
+      const result = await handler(makeEvent() as any);
+
+      expect(await (result as Response).text()).toBe("thumbnail");
+      expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+        "https://cdn.example.com/footage-thumb.jpg",
+        expect.objectContaining({ recordingId: "rec-1", storageMode: "own" }),
+      );
+      expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+        expect.objectContaining({ userEmail: "owner@example.com" }),
+        expect.any(Function),
+      );
     });
   });
 });

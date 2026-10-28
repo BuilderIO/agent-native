@@ -34,8 +34,12 @@ const messages = {
       newest: "Plus récents",
       priority: "Priorité",
       priorityFailed: "Impossible de trier la boîte de réception.",
+      priorityProviderRequired:
+        "Connectez un fournisseur d’IA pour trier par priorité.",
+      priorityPartialFailed:
+        "Impossible de classer {{count}} messages. Ils apparaissent après les messages évalués.",
       priorityScoreHelp:
-        "Un score plus élevé signifie que Jev juge le message plus important.",
+        "Un score plus élevé indique que ce message a plus de chances d’être important.",
       priorityFeedbackSuggestion:
         "Transformez ce comportement en règle d’importance ou d’archivage automatique.",
       priorityFeedbackAskAgent: "Demander à l’agent de proposer des règles",
@@ -317,7 +321,12 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enrichissement des contacts et données d’entreprise",
       hubspotDescription: "Contacts CRM, affaires et tickets",
-      gongDescription: "Appels récents et intelligence conversationnelle",
+      gongDescription: "Historique des appels Gong",
+      gongAccessCheckFailed:
+        "Impossible de vérifier si vous pouvez connecter Gong.",
+      gongKeyPlaceholder: "Clé API Gong",
+      gongKeyFormatHint:
+        "Saisissez la clé d’accès et le secret au format access_key:secret.",
       pylonDescription: "Tickets de support et données de compte",
       gongCalls: "Appels Gong",
       deals: "Affaires",
@@ -441,6 +450,7 @@ const messages = {
       tryDifferentKeywords: "Essayez d’autres mots-clés",
       nothingHere: "Rien ici pour l’instant",
       loadingMore: "Chargement...",
+      openAllMailForOlder: "Ouvrir tous les e-mails pour les anciens messages",
     },
     toasts: {
       noEmailSelected: "Aucun email sélectionné.",
@@ -474,6 +484,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Message envoyé.",
       failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
+      failedToRefreshInbox:
+        "Impossible d'actualiser la boîte de réception. Réessayez dans un instant.",
       failedToDeleteDraft: "Échec de la suppression du brouillon.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -739,12 +751,14 @@ const messages = {
       tagTabsHelp: "Chaque tag devient un onglet de la boîte de réception",
       addTag: "Ajouter un tag",
       triageTitle: "Tri par IA",
-      connectJev: "Connecter Jev",
-      connectJevToRunTriage: "Connectez Jev pour lancer le tri",
+      connectJev: "Connecter un fournisseur d’IA",
+      connectJevToRunTriage: "Connectez un fournisseur d’IA pour lancer le tri",
       freeBuilderOrApiKey: "Gratuit avec Builder.io, ou ajoutez une clé API.",
-      jevAvailabilityFailed: "Impossible de vérifier si Jev est disponible.",
+      jevAvailabilityFailed:
+        "Impossible de vérifier si un fournisseur de décision IA est disponible.",
       connectBuilder: "Utiliser Builder.io",
-      addJevApiKey: "Ajouter une clé API",
+      addJevApiKey: "Ajouter une clé API Jev",
+      addOpenAiApiKey: "Ajouter une clé API OpenAI",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -786,6 +800,17 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "Brouillon d’e-mail - Mail",
+    },
+    draftCard: {
+      loadFailed: "Impossible de charger ce brouillon.",
+      notFoundTitle: "Brouillon introuvable",
+      threadUnavailable:
+        "Impossible de charger les messages précédents de cette conversation.",
+      threadLookupFailed:
+        "Impossible de trouver la conversation de cette réponse, elle ne peut donc pas encore être envoyée.",
+      earlierMessages: "Messages précédents ({{count}})",
+      deleted: "Brouillon supprimé.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

@@ -12,6 +12,7 @@ import {
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import type { A11yFinding } from "@shared/design-review";
+import type { FrameSizePreset } from "@shared/frame-size-presets";
 import type { InteractionState } from "@shared/interaction-states";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -177,6 +178,7 @@ export function useEditorCanvasAndScreens({
     designEditorCommandVersion,
     designAccessRole,
     canEditDesign,
+    canPersistDesignSource,
     rawServerFilesByIdRef,
     historyFilesRef,
     pendingLocalFileContentsRef,
@@ -435,13 +437,12 @@ export function useEditorCanvasAndScreens({
           };
         });
       }
-      if (!options?.preserveCamera) {
-        cameraCommandNonceRef.current += 1;
-        setCameraCommand({
-          ...plan.camera,
-          nonce: cameraCommandNonceRef.current,
-        });
-      }
+      cameraCommandNonceRef.current += 1;
+      setCameraCommand({
+        ...plan.camera,
+        ...(options?.preserveCamera ? { revealOnly: true } : {}),
+        nonce: cameraCommandNonceRef.current,
+      });
     },
     [clearPendingOverviewLayerSelectionTimer, overviewScreens.length],
   );
@@ -585,7 +586,7 @@ export function useEditorCanvasAndScreens({
   );
 
   const handleCreateScreenFromPreset = useCallback(
-    (preset: { name: string; width: number; height: number }) => {
+    (preset: FrameSizePreset) => {
       const frames = getAllScreenFrameEntries({
         overviewScreens,
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
@@ -702,6 +703,7 @@ export function useEditorCanvasAndScreens({
     serverFiles,
     publishCanonicalContent,
     canEditDesign,
+    canPersistDesignSource,
     isSignedIn,
     activeFileId,
     viewMode,

@@ -12,7 +12,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -28,8 +28,16 @@ const MIN_MAX_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_MAX_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 const ROTATOR_TICK: Duration = Duration::from_millis(500);
 const EXCLUSION_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const CAPTURE_RECOVERY_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(1);
+const CAPTURE_RECOVERY_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+const EXCLUSION_GATE_TAINTED: u8 = 0b01;
+const CAPTURE_MODE_CHANGE_START_RESERVED: u64 = 0b1;
+const EXCLUSION_MARKERS_IN_FLIGHT_INCREMENT: u64 = 0b10;
+const EXCLUSION_MARKERS_IN_FLIGHT_MASK: u64 = 0xFFFF << 1;
+const CAPTURE_START_GATE_GENERATION_INCREMENT: u64 = 1 << 17;
+const CAPTURE_START_GATE_GENERATION_MASK: u64 = !(CAPTURE_START_GATE_GENERATION_INCREMENT - 1);
 const SCREEN_MEMORY_MCP_NAME: &str = "clips-screen-memory";
-
+const RETENTION_SWEEP_INTERVAL: Duration = Duration::from_secs(10 * 60);
 static SEGMENT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
@@ -37,6 +45,13 @@ pub struct ScreenMemoryState {
     inner: Mutex<ScreenMemoryRuntime>,
     indexing: Mutex<()>,
     transition: Mutex<()>,
+    // Pruning rewrites the event log through a temporary file, so an append that lands
+    // between its read and its rename would be lost.
+    event_log: Mutex<()>,
+    // Exclusion markers increment before locking `inner`; the reservation CAS
+    // orders replacement starts against those immediate markers.
+    capture_start_gate: Arc<AtomicU64>,
+    exclusion_applied_generation: AtomicU64,
 }
 
 #[derive(Default)]
@@ -65,6 +80,12 @@ struct ActiveExclusionGap {
     sources: Vec<CaptureSource>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FailedModeChangeRecovery {
+    KeepActive,
+    StopActive,
+}
+
 fn active_exclusion_gap(
     started_at: Instant,
     capture_mode: RewindCaptureMode,
@@ -73,6 +94,182 @@ fn active_exclusion_gap(
         started_at,
         sources: requested_sources(capture_mode),
     }
+}
+
+fn merge_exclusion_gaps(
+    earlier: Option<ActiveExclusionGap>,
+    later: ActiveExclusionGap,
+) -> ActiveExclusionGap {
+    let Some(earlier) = earlier else {
+        return later;
+    };
+    let mut sources: BTreeSet<_> = earlier.sources.into_iter().collect();
+    sources.extend(later.sources);
+    ActiveExclusionGap {
+        started_at: earlier.started_at.min(later.started_at),
+        sources: sources.into_iter().collect(),
+    }
+}
+
+fn begin_exclusion_gap(
+    runtime: &mut ScreenMemoryRuntime,
+    started_at: Instant,
+    capture_mode: RewindCaptureMode,
+) {
+    runtime.exclusion_active = true;
+    runtime.exclusion_gap = Some(merge_exclusion_gaps(
+        runtime.exclusion_gap.take(),
+        active_exclusion_gap(started_at, capture_mode),
+    ));
+}
+
+fn failed_mode_change_recovery(
+    active_mode: RewindCaptureMode,
+    requested_mode: RewindCaptureMode,
+) -> FailedModeChangeRecovery {
+    match (active_mode, requested_mode) {
+        (RewindCaptureMode::VisualsAudio, RewindCaptureMode::Visuals) => {
+            FailedModeChangeRecovery::StopActive
+        }
+        _ => FailedModeChangeRecovery::KeepActive,
+    }
+}
+
+fn capture_mode_change_start_allowed(
+    exclusion_active: bool,
+    active_exclusion_tainted: bool,
+    expected_generation: u64,
+    observed_generation: u64,
+    applied_generation: u64,
+    markers_in_flight: bool,
+) -> bool {
+    !exclusion_active
+        && !active_exclusion_tainted
+        && !markers_in_flight
+        && expected_generation == observed_generation
+        && observed_generation == applied_generation
+}
+
+fn exclusion_is_tainted(state: &AtomicU8) -> bool {
+    state.load(Ordering::SeqCst) & EXCLUSION_GATE_TAINTED != 0
+}
+
+fn mark_exclusion_tainted(state: &AtomicU8) {
+    state.fetch_or(EXCLUSION_GATE_TAINTED, Ordering::SeqCst);
+}
+
+fn mark_exclusion_observed(state: &ScreenMemoryState) -> u64 {
+    let previous = state.capture_start_gate.fetch_add(
+        CAPTURE_START_GATE_GENERATION_INCREMENT | EXCLUSION_MARKERS_IN_FLIGHT_INCREMENT,
+        Ordering::SeqCst,
+    );
+    previous.wrapping_add(CAPTURE_START_GATE_GENERATION_INCREMENT)
+        & CAPTURE_START_GATE_GENERATION_MASK
+}
+
+fn capture_start_generation(gate: u64) -> u64 {
+    gate & CAPTURE_START_GATE_GENERATION_MASK
+}
+
+fn exclusion_markers_in_flight(gate: u64) -> bool {
+    gate & EXCLUSION_MARKERS_IN_FLIGHT_MASK != 0
+}
+
+fn mark_exclusion_applied(state: &ScreenMemoryState, generation: u64) {
+    state
+        .exclusion_applied_generation
+        .fetch_max(generation, Ordering::SeqCst);
+    state
+        .capture_start_gate
+        .fetch_sub(EXCLUSION_MARKERS_IN_FLIGHT_INCREMENT, Ordering::SeqCst);
+}
+
+struct CaptureModeChangeStartReservation {
+    gate: Arc<AtomicU64>,
+    generation: u64,
+    released: bool,
+}
+
+impl CaptureModeChangeStartReservation {
+    fn exclusion_observed_since_reservation(&self, state: &ScreenMemoryState) -> bool {
+        let gate_before = state.capture_start_gate.load(Ordering::SeqCst);
+        let applied = state.exclusion_applied_generation.load(Ordering::SeqCst);
+        let gate_after = state.capture_start_gate.load(Ordering::SeqCst);
+        capture_start_generation(gate_before) != self.generation
+            || capture_start_generation(gate_after) != self.generation
+            || exclusion_markers_in_flight(gate_before)
+            || exclusion_markers_in_flight(gate_after)
+            || applied != capture_start_generation(gate_after)
+    }
+
+    fn release_if_clear(&mut self, state: &ScreenMemoryState) -> bool {
+        let current = state.capture_start_gate.load(Ordering::SeqCst);
+        if capture_start_generation(current) != self.generation
+            || exclusion_markers_in_flight(current)
+            || state.exclusion_applied_generation.load(Ordering::SeqCst) != self.generation
+        {
+            return false;
+        }
+        if self
+            .gate
+            .compare_exchange(
+                current,
+                current & !CAPTURE_MODE_CHANGE_START_RESERVED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err()
+        {
+            return false;
+        }
+        self.released = true;
+        true
+    }
+}
+
+impl Drop for CaptureModeChangeStartReservation {
+    fn drop(&mut self) {
+        if !self.released {
+            self.gate
+                .fetch_and(!CAPTURE_MODE_CHANGE_START_RESERVED, Ordering::SeqCst);
+        }
+    }
+}
+
+fn start_capture_mode_change_if_allowed<T>(
+    start_allowed: bool,
+    expected_generation: u64,
+    state: &ScreenMemoryState,
+    start: impl FnOnce() -> T,
+) -> Option<(T, CaptureModeChangeStartReservation)> {
+    if !start_allowed {
+        return None;
+    }
+
+    let current = state.capture_start_gate.load(Ordering::SeqCst);
+    if current & CAPTURE_MODE_CHANGE_START_RESERVED != 0
+        || exclusion_markers_in_flight(current)
+        || capture_start_generation(current) != expected_generation
+        || state.exclusion_applied_generation.load(Ordering::SeqCst) != expected_generation
+        || state
+            .capture_start_gate
+            .compare_exchange(
+                current,
+                current | CAPTURE_MODE_CHANGE_START_RESERVED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err()
+    {
+        return None;
+    }
+
+    let reservation = CaptureModeChangeStartReservation {
+        gate: Arc::clone(&state.capture_start_gate),
+        generation: expected_generation,
+        released: false,
+    };
+    Some((start(), reservation))
 }
 
 struct TemporaryAudioConsumer {
@@ -94,7 +291,7 @@ struct ActiveScreenMemorySegment {
     width: Option<u32>,
     height: Option<u32>,
     capture_mode: RewindCaptureMode,
-    exclusion_tainted: Arc<AtomicBool>,
+    exclusion_state: Arc<AtomicU8>,
     graph_epoch_id: String,
     graph_started_elapsed_ms: u64,
 }
@@ -220,6 +417,7 @@ pub struct ScreenMemoryActiveSegment {
     pub duration_ms: u128,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    pub capture_mode: RewindCaptureMode,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -937,6 +1135,7 @@ fn build_status(app: &AppHandle) -> Result<ScreenMemoryStatus, String> {
                     duration_ms: active.started_at.elapsed().as_millis(),
                     width: active.width,
                     height: active.height,
+                    capture_mode: active.capture_mode,
                 }),
             guard.last_error.clone(),
             guard.exclusion_active,
@@ -1080,7 +1279,12 @@ pub(crate) fn acquire_temporary_audio_consumer(
     }
     if !producer_active {
         ensure_running_inner(app, &config)?;
-        producer_active = true;
+        producer_active = state
+            .inner
+            .lock()
+            .map_err(|error| error.to_string())?
+            .active
+            .is_some();
     }
     if already_present {
         return Ok(Some(TemporaryAudioLease {
@@ -1250,7 +1454,7 @@ pub(crate) fn fence_active_for_clip(
         active
     }
     .ok_or_else(|| "rewind-not-compatible: Screen Memory is not recording".to_string())?;
-    if active.exclusion_tainted.load(Ordering::SeqCst) {
+    if exclusion_is_tainted(&active.exclusion_state) {
         let gap = active_exclusion_gap(active.started_at, active.capture_mode);
         let segment_id = active.id.clone();
         {
@@ -1297,7 +1501,7 @@ pub(crate) fn prepare_shared_clip_sink(
         .active
         .as_ref()
         .ok_or_else(|| "rewind-not-compatible: Screen Memory is not recording".to_string())?;
-    if active.exclusion_tainted.load(Ordering::SeqCst) {
+    if exclusion_is_tainted(&active.exclusion_state) {
         return Err(not_compatible_clip_sink(
             "recognized privacy exclusion created a coverage gap",
         ));
@@ -1347,7 +1551,13 @@ fn ensure_running_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
     {
         let state = app.state::<ScreenMemoryState>();
         let guard = state.inner.lock().map_err(|e| e.to_string())?;
-        if guard.active.is_some() || guard.exclusion_active {
+        if guard.active.is_some()
+            || guard.exclusion_active
+            || guard
+                .worker_stop
+                .as_ref()
+                .is_some_and(|stop| !stop.load(Ordering::Relaxed))
+        {
             return Ok(());
         }
     }
@@ -1379,23 +1589,124 @@ fn ensure_running_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
 }
 
 fn spawn_rotator(app: AppHandle, stop: Arc<AtomicBool>) {
-    std::thread::spawn(move || loop {
-        let config =
-            normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
-        match wait_for_rotation(&app, &stop, &config) {
-            RotationWait::Stop => return,
-            RotationWait::Resumed => continue,
-            RotationWait::Rotate => {}
-        }
-        let config =
-            normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
-        if !config.enabled || config.paused {
-            return;
-        }
-        if let Err(err) = rotate_segment(&app, &config) {
-            record_error(&app, err);
+    std::thread::spawn(move || {
+        let mut recovery_retry_delay = Duration::ZERO;
+        let mut mode_change_retry_delay = Duration::ZERO;
+        loop {
+            let capture_missing = match screen_memory_capture_missing(&app) {
+                Ok(capture_missing) => capture_missing,
+                Err(error) => {
+                    record_error(&app, error);
+                    return;
+                }
+            };
+            if !capture_missing {
+                recovery_retry_delay = Duration::ZERO;
+            } else if !recovery_retry_delay.is_zero()
+                && !wait_for_capture_recovery_retry(&stop, recovery_retry_delay)
+            {
+                return;
+            }
+
+            let config =
+                normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
+            let rotation_wait =
+                match wait_for_rotation(&app, &stop, &config, mode_change_retry_delay) {
+                    Ok(rotation_wait) => rotation_wait,
+                    Err(error) => {
+                        record_error(&app, error);
+                        return;
+                    }
+                };
+            match rotation_wait {
+                RotationWait::Stop => return,
+                RotationWait::Resumed => {
+                    recovery_retry_delay = Duration::ZERO;
+                    mode_change_retry_delay = Duration::ZERO;
+                    continue;
+                }
+                RotationWait::Rotate => {}
+            }
+            let config =
+                normalize_screen_memory_config(crate::config::feature_config(&app).screen_memory);
+            if !config.enabled || config.paused {
+                return;
+            }
+            if let Err(err) = rotate_segment_from_worker(&app, &stop, &config) {
+                record_error(&app, err);
+            }
+            match screen_memory_capture_missing(&app) {
+                Ok(true) => {
+                    recovery_retry_delay = next_capture_recovery_retry_delay(recovery_retry_delay);
+                }
+                Ok(false) => recovery_retry_delay = Duration::ZERO,
+                Err(error) => {
+                    record_error(&app, error);
+                    return;
+                }
+            }
+            match screen_memory_mode_change_pending(&app) {
+                Ok(true) => {
+                    mode_change_retry_delay =
+                        next_capture_recovery_retry_delay(mode_change_retry_delay);
+                }
+                Ok(false) => mode_change_retry_delay = Duration::ZERO,
+                Err(error) => {
+                    record_error(&app, error);
+                    return;
+                }
+            }
         }
     });
+}
+
+fn screen_memory_capture_missing(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    Ok(runtime.active.is_none() && !runtime.exclusion_active)
+}
+
+fn screen_memory_exclusion_active(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    Ok(runtime.exclusion_active)
+}
+
+fn screen_memory_mode_change_pending(app: &AppHandle) -> Result<bool, String> {
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    if !config.enabled || config.paused || crate::rewind_capture_suspension::is_active(app) {
+        return Ok(false);
+    }
+    let capture_mode = effective_capture_mode(app, config.capture_mode);
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    Ok(!runtime.exclusion_active
+        && runtime
+            .active
+            .as_ref()
+            .is_some_and(|active| active.capture_mode != capture_mode))
+}
+
+fn wait_for_capture_recovery_retry(stop: &AtomicBool, delay: Duration) -> bool {
+    let deadline = Instant::now() + delay;
+    while !stop.load(Ordering::Relaxed) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return true;
+        }
+        std::thread::sleep(remaining.min(ROTATOR_TICK));
+    }
+    false
+}
+
+fn next_capture_recovery_retry_delay(previous: Duration) -> Duration {
+    if previous.is_zero() {
+        CAPTURE_RECOVERY_RETRY_INITIAL_DELAY
+    } else {
+        previous
+            .saturating_mul(2)
+            .min(CAPTURE_RECOVERY_RETRY_MAX_DELAY)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1437,38 +1748,72 @@ fn wait_for_rotation(
     app: &AppHandle,
     stop: &AtomicBool,
     config: &ScreenMemoryConfig,
-) -> RotationWait {
+    mode_change_retry_delay: Duration,
+) -> Result<RotationWait, String> {
+    if stop.load(Ordering::Relaxed) {
+        return Ok(RotationWait::Stop);
+    }
+    if crate::rewind_capture_suspension::is_active(app) {
+        return Ok(wait_for_capture_suspension_to_clear(app, stop));
+    }
+    if screen_memory_exclusion_active(app)? {
+        return Ok(wait_for_exclusion(app, stop));
+    }
+    if screen_memory_capture_missing(app)? {
+        let live_config =
+            normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+        let (_, exclusion_reason) = sample_active_window(&live_config);
+        if let Some(reason) = exclusion_reason {
+            return Ok(suspend_for_detected_exclusion(app, stop, reason));
+        }
+        return Ok(RotationWait::Rotate);
+    }
     let deadline = Instant::now() + Duration::from_secs(config.segment_seconds);
+    let mode_retry_delay = if mode_change_retry_delay.is_zero() {
+        CAPTURE_RECOVERY_RETRY_INITIAL_DELAY
+    } else {
+        mode_change_retry_delay
+    };
+    let mut mode_change_retry_at =
+        screen_memory_mode_change_pending(app)?.then(|| Instant::now() + mode_retry_delay);
     let mut next_sample = Instant::now();
     let mut next_exclusion_poll = Instant::now();
     loop {
         if stop.load(Ordering::Relaxed) {
-            return RotationWait::Stop;
+            return Ok(RotationWait::Stop);
         }
-        if Instant::now() >= deadline {
-            return RotationWait::Rotate;
+        if crate::rewind_capture_suspension::is_active(app) {
+            return Ok(wait_for_capture_suspension_to_clear(app, stop));
+        }
+        if screen_memory_exclusion_active(app)? {
+            return Ok(wait_for_exclusion(app, stop));
         }
         let now = Instant::now();
+        if now >= deadline || mode_change_retry_at.is_some_and(|retry_at| now >= retry_at) {
+            return Ok(RotationWait::Rotate);
+        }
         if now >= next_exclusion_poll {
             let live_config =
                 normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
             let (event, exclusion_reason) = sample_active_window(&live_config);
-            if exclusion_transition(false, exclusion_reason.is_some())
-                == ExclusionTransition::Suspend
-            {
-                mark_active_segment_exclusion_tainted(app);
-                append_event(
-                    app,
-                    coverage_gap_event(exclusion_reason.unwrap_or("privacy-exclusion")),
-                );
-                if let Err(error) = suspend_for_exclusion(app) {
-                    record_error(app, error);
+            match exclusion_transition(
+                screen_memory_exclusion_active(app)?,
+                exclusion_reason.is_some(),
+            ) {
+                ExclusionTransition::Suspend => {
+                    return Ok(suspend_for_detected_exclusion(
+                        app,
+                        stop,
+                        exclusion_reason.unwrap_or("privacy-exclusion"),
+                    ));
                 }
-                if wait_for_exclusion_to_clear(app, stop) {
-                    return RotationWait::Stop;
+                ExclusionTransition::StaySuspended | ExclusionTransition::Resume => {
+                    return Ok(wait_for_exclusion(app, stop));
                 }
-                return RotationWait::Resumed;
+                ExclusionTransition::KeepCapturing => {}
             }
+            mode_change_retry_at = screen_memory_mode_change_pending(app)?
+                .then(|| mode_change_retry_at.unwrap_or(now + mode_retry_delay));
             if now >= next_sample {
                 append_event(app, event);
                 next_sample = now + Duration::from_secs(live_config.sample_interval_seconds.max(1));
@@ -1478,21 +1823,59 @@ fn wait_for_rotation(
         let remaining = deadline.saturating_duration_since(Instant::now());
         let until_sample = next_sample.saturating_duration_since(Instant::now());
         let until_exclusion = next_exclusion_poll.saturating_duration_since(Instant::now());
+        let until_mode_change_retry = mode_change_retry_at
+            .map(|retry_at| retry_at.saturating_duration_since(Instant::now()))
+            .unwrap_or(remaining);
         std::thread::sleep(
             remaining
                 .min(until_sample)
                 .min(until_exclusion)
+                .min(until_mode_change_retry)
                 .min(ROTATOR_TICK),
         );
     }
 }
 
+fn wait_for_capture_suspension_to_clear(app: &AppHandle, stop: &AtomicBool) -> RotationWait {
+    while !stop.load(Ordering::Relaxed) && crate::rewind_capture_suspension::is_active(app) {
+        std::thread::sleep(ROTATOR_TICK);
+    }
+    if stop.load(Ordering::Relaxed) {
+        RotationWait::Stop
+    } else {
+        RotationWait::Resumed
+    }
+}
+
+fn suspend_for_detected_exclusion(
+    app: &AppHandle,
+    stop: &AtomicBool,
+    reason: &'static str,
+) -> RotationWait {
+    mark_active_segment_exclusion_tainted(app);
+    append_event(app, coverage_gap_event(reason));
+    if let Err(error) = suspend_for_exclusion(app) {
+        record_error(app, error);
+    }
+    wait_for_exclusion(app, stop)
+}
+
+fn wait_for_exclusion(app: &AppHandle, stop: &AtomicBool) -> RotationWait {
+    if wait_for_exclusion_to_clear(app, stop) {
+        RotationWait::Stop
+    } else {
+        RotationWait::Resumed
+    }
+}
+
 fn mark_active_segment_exclusion_tainted(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScreenMemoryState>() {
+        let generation = mark_exclusion_observed(&state);
         if let Ok(runtime) = state.inner.lock() {
             if let Some(active) = runtime.active.as_ref() {
-                active.exclusion_tainted.store(true, Ordering::SeqCst);
+                mark_exclusion_tainted(&active.exclusion_state);
             }
+            mark_exclusion_applied(&state, generation);
         }
     }
 }
@@ -1605,10 +1988,7 @@ fn suspend_for_exclusion(app: &AppHandle) -> Result<(), String> {
         let active = runtime.active.take();
         runtime.exclusion_active = true;
         runtime.exclusion_gap = Some(match active.as_ref() {
-            Some(active) => active_exclusion_gap(
-                active.started_at,
-                active.capture_mode,
-            ),
+            Some(active) => active_exclusion_gap(active.started_at, active.capture_mode),
             None => active_exclusion_gap(
                 Instant::now(),
                 effective_mode(config.capture_mode, runtime.temporary_audio_consumers.len()),
@@ -1723,6 +2103,86 @@ fn record_source_coverage_gap(app: &AppHandle, gap: ActiveExclusionGap, ended_at
     }
 }
 
+fn discard_excluded_segment(
+    app: &AppHandle,
+    active: ActiveScreenMemorySegment,
+) -> Result<(), String> {
+    let segment_id = active.id.clone();
+    let started_at = active.started_at;
+    let capture_mode = active.capture_mode;
+    discard_active_segment(active);
+
+    let state_result = app
+        .state::<ScreenMemoryState>()
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())
+        .map(|mut runtime| begin_exclusion_gap(&mut runtime, started_at, capture_mode));
+    let artifacts_result = discard_segment_artifacts(app, &segment_id);
+    end_rewind_lease(app);
+    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+    state_result.and(artifacts_result)
+}
+
+fn discard_finalized_excluded_segment(
+    app: &AppHandle,
+    segment: ScreenMemorySegmentMetadata,
+    gap_started_at: Instant,
+    capture_mode: RewindCaptureMode,
+) -> Result<(), String> {
+    let mut paths = vec![segment.path];
+    paths.extend(segment.system_audio_path);
+    paths.extend(segment.microphone_path);
+    discard_excluded_mode_change_artifacts(app, &segment.id, &paths, gap_started_at, capture_mode)
+}
+
+fn discard_excluded_mode_change_artifacts(
+    app: &AppHandle,
+    segment_id: &str,
+    paths: &[PathBuf],
+    gap_started_at: Instant,
+    capture_mode: RewindCaptureMode,
+) -> Result<(), String> {
+    let (active, state_result) = {
+        let state = app.state::<ScreenMemoryState>();
+        let state_result = state
+            .inner
+            .lock()
+            .map(|mut runtime| {
+                begin_exclusion_gap(&mut runtime, gap_started_at, capture_mode);
+                let active = runtime.active.take();
+                if let Some(active) = active.as_ref() {
+                    begin_exclusion_gap(&mut runtime, active.started_at, active.capture_mode);
+                }
+                active
+            })
+            .map_err(|error| error.to_string());
+        match state_result {
+            Ok(active) => (active, Ok(())),
+            Err(error) => (None, Err(error)),
+        }
+    };
+    if let Some(active) = active {
+        discard_active_segment(active);
+    }
+    let mut cleanup_errors = state_result.err().into_iter().collect::<Vec<_>>();
+    for path in paths {
+        if let Err(error) = remove_file_if_exists(path) {
+            cleanup_errors.push(error);
+        }
+    }
+    if let Err(error) = discard_segment_artifacts(app, segment_id) {
+        cleanup_errors.push(error);
+    }
+    end_rewind_lease(app);
+    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+    if cleanup_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(cleanup_errors.join("; "))
+    }
+}
+
 fn discard_segment_artifacts(app: &AppHandle, segment_id: &str) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     {
@@ -1764,6 +2224,8 @@ fn append_event(app: &AppHandle, event: ScreenMemoryEvent) {
 
 fn append_event_inner(app: &AppHandle, event: &ScreenMemoryEvent) -> Result<(), String> {
     let path = screen_memory_events_path(app)?;
+    let state = app.state::<ScreenMemoryState>();
+    let _event_log = state.event_log.lock().map_err(|error| error.to_string())?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -1778,12 +2240,53 @@ fn append_event_inner(app: &AppHandle, event: &ScreenMemoryEvent) -> Result<(), 
 fn rotate_segment(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    if crate::rewind_capture_suspension::is_active(app) {
+        return Ok(());
+    }
+    rotate_segment_inner(app, config)
+}
+
+fn rotate_segment_from_worker(
+    app: &AppHandle,
+    stop: &Arc<AtomicBool>,
+    config: &ScreenMemoryConfig,
+) -> Result<(), String> {
+    let state = app.state::<ScreenMemoryState>();
+    let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    if stop.load(Ordering::Relaxed) || crate::rewind_capture_suspension::is_active(app) {
+        return Ok(());
+    }
+    let current_worker = state
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())?
+        .worker_stop
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(current, stop));
+    if !current_worker {
+        return Ok(());
+    }
     rotate_segment_inner(app, config)
 }
 
 fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let mut config = config.clone();
     config.capture_mode = effective_capture_mode(app, config.capture_mode);
+    let (active_mode, exclusion_active) = {
+        let state = app.state::<ScreenMemoryState>();
+        let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        (
+            runtime.active.as_ref().map(|active| active.capture_mode),
+            runtime.exclusion_active,
+        )
+    };
+    if active_mode.is_none() && exclusion_active {
+        return Ok(());
+    }
+    if active_mode.is_some_and(|mode| mode != config.capture_mode) {
+        return rotate_segment_with_capture_mode_change(app, &config);
+    }
+
     let active = {
         let state = app.state::<ScreenMemoryState>();
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -1791,7 +2294,7 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
     };
 
     if let Some(active) = active {
-        if active.exclusion_tainted.load(Ordering::SeqCst) {
+        if exclusion_is_tainted(&active.exclusion_state) {
             let gap = active_exclusion_gap(active.started_at, active.capture_mode);
             let segment_id = active.id.clone();
             {
@@ -1819,37 +2322,26 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
                     }
                     return install_rotated_segment(app, next);
                 }
-                Err(active) => {
-                    match finalize_active_segment(app, active) {
-                        Ok(segment) => {
-                            write_segment_metadata(app, &segment)?;
-                            enqueue_segment_ocr(
-                                app,
-                                segment.clone(),
-                                config.sample_interval_seconds,
-                            );
-                            prune_segments(app, &config)?;
-                        }
-                        Err(err) => {
-                            record_error(app, err);
-                            end_rewind_lease(app);
-                        }
+                Err(active) => match finalize_active_segment(app, active) {
+                    Ok(segment) => {
+                        write_segment_metadata(app, &segment)?;
+                        enqueue_segment_ocr(app, segment.clone(), config.sample_interval_seconds);
+                        prune_segments(app, &config)?;
                     }
-                }
+                    Err(err) => {
+                        record_error(app, err);
+                        end_rewind_lease(app);
+                    }
+                },
             }
         } else {
-            end_rewind_lease(app);
-            match finalize_active_segment(app, active) {
-                Ok(segment) => {
-                    write_segment_metadata(app, &segment)?;
-                    enqueue_segment_ocr(app, segment.clone(), config.sample_interval_seconds);
-                    prune_segments(app, &config)?;
-                }
-                Err(err) => {
-                    record_error(app, err);
-                    end_rewind_lease(app);
-                }
-            }
+            let state = app.state::<ScreenMemoryState>();
+            state
+                .inner
+                .lock()
+                .map_err(|error| error.to_string())?
+                .active = Some(active);
+            return rotate_segment_with_capture_mode_change(app, &config);
         }
     }
 
@@ -1861,6 +2353,221 @@ fn rotate_segment_inner(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<
         }
     };
     install_rotated_segment(app, next)
+}
+
+fn rotate_segment_with_capture_mode_change(
+    app: &AppHandle,
+    config: &ScreenMemoryConfig,
+) -> Result<(), String> {
+    let state = app.state::<ScreenMemoryState>();
+    let expected_generation =
+        capture_start_generation(state.capture_start_gate.load(Ordering::SeqCst));
+    let (_, exclusion_reason) = sample_active_window(config);
+    let current_window_excluded = exclusion_reason.is_some();
+    if let Some(reason) = exclusion_reason {
+        mark_active_segment_exclusion_tainted(app);
+        append_event(app, coverage_gap_event(reason));
+    }
+    let (start_allowed, active) = {
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        let gate = state.capture_start_gate.load(Ordering::SeqCst);
+        let active_exclusion_tainted = runtime
+            .active
+            .as_ref()
+            .is_some_and(|active| exclusion_is_tainted(&active.exclusion_state));
+        let applied_generation = state.exclusion_applied_generation.load(Ordering::SeqCst);
+        let start_allowed = capture_mode_change_start_allowed(
+            current_window_excluded || runtime.exclusion_active,
+            active_exclusion_tainted,
+            expected_generation,
+            capture_start_generation(gate),
+            applied_generation,
+            exclusion_markers_in_flight(gate),
+        );
+        let active = if start_allowed {
+            None
+        } else {
+            runtime.active.take()
+        };
+        (start_allowed, active)
+    };
+    let Some((start_result, mut reservation)) =
+        start_capture_mode_change_if_allowed(start_allowed, expected_generation, &state, || {
+            start_new_segment(app, config.capture_mode)
+        })
+    else {
+        if let Some(active) = active {
+            discard_excluded_segment(app, active)?;
+        } else {
+            let active = state
+                .inner
+                .lock()
+                .map_err(|error| error.to_string())?
+                .active
+                .take();
+            if let Some(active) = active {
+                discard_excluded_segment(app, active)?;
+                return Ok(());
+            }
+            end_rewind_lease(app);
+            let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+        }
+        return Ok(());
+    };
+    let next = match start_result {
+        Ok(next) => next,
+        Err(start_error) => {
+            let exclusion_observed = reservation.exclusion_observed_since_reservation(&state);
+            let (active, exclusion_active) = {
+                let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+                let should_stop_active = runtime.exclusion_active
+                    || exclusion_observed
+                    || runtime.active.as_ref().is_some_and(|active| {
+                        exclusion_is_tainted(&active.exclusion_state)
+                            || failed_mode_change_recovery(active.capture_mode, config.capture_mode)
+                                == FailedModeChangeRecovery::StopActive
+                    });
+                (
+                    should_stop_active.then(|| runtime.active.take()).flatten(),
+                    runtime.exclusion_active,
+                )
+            };
+            if let Some(active) = active {
+                if exclusion_active
+                    || reservation.exclusion_observed_since_reservation(&state)
+                    || exclusion_is_tainted(&active.exclusion_state)
+                {
+                    if let Err(error) = discard_excluded_segment(app, active) {
+                        record_error(app, error);
+                    }
+                } else {
+                    let ended_at = Instant::now();
+                    let ended_at_iso = now_iso();
+                    let gap_started_at = active.started_at;
+                    let capture_mode = active.capture_mode;
+                    let segment_id = active.id.clone();
+                    let paths = vec![
+                        active.path.clone(),
+                        audio_sidecar_path(&active.path, "system"),
+                        audio_sidecar_path(&active.path, "microphone"),
+                    ];
+                    let finalize_result =
+                        match finalize_active_segment_at(app, active, ended_at, ended_at_iso) {
+                            Ok(segment) if reservation.release_if_clear(&state) => {
+                                persist_finalized_segment(app, segment)
+                            }
+                            Ok(segment) => discard_finalized_excluded_segment(
+                                app,
+                                segment,
+                                gap_started_at,
+                                capture_mode,
+                            ),
+                            Err(_) if reservation.exclusion_observed_since_reservation(&state) => {
+                                discard_excluded_mode_change_artifacts(
+                                    app,
+                                    &segment_id,
+                                    &paths,
+                                    gap_started_at,
+                                    capture_mode,
+                                )
+                            }
+                            Err(error) => Err(error),
+                        };
+                    end_rewind_lease(app);
+                    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+                    if let Err(error) = finalize_result {
+                        record_error(app, error);
+                    }
+                }
+            }
+            return Err(start_error);
+        }
+    };
+    if let Some(reason) = sample_active_window(config).1 {
+        mark_active_segment_exclusion_tainted(app);
+        append_event(app, coverage_gap_event(reason));
+    }
+    let (active, exclusion_active) = {
+        let state = app.state::<ScreenMemoryState>();
+        let mut runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        (runtime.active.take(), runtime.exclusion_active)
+    };
+    let Some(active) = active else {
+        discard_active_segment(next);
+        return Err("Screen Memory capture changed during a mode transition.".into());
+    };
+    if exclusion_active
+        || reservation.exclusion_observed_since_reservation(&state)
+        || exclusion_is_tainted(&active.exclusion_state)
+    {
+        let next_id = next.id.clone();
+        let next_gap_started_at = next.started_at;
+        let next_capture_mode = next.capture_mode;
+        discard_active_segment(next);
+        let next_artifacts_result = discard_segment_artifacts(app, &next_id);
+        let next_gap_result =
+            state
+                .inner
+                .lock()
+                .map_err(|error| error.to_string())
+                .map(|mut runtime| {
+                    begin_exclusion_gap(&mut runtime, next_gap_started_at, next_capture_mode)
+                });
+        let active_cleanup_result = discard_excluded_segment(app, active);
+        return next_artifacts_result
+            .and(next_gap_result)
+            .and(active_cleanup_result);
+    }
+
+    // Keep the old stream live until the replacement is ready, then join the
+    // metadata ranges at that boundary so mode changes do not create holes.
+    let ended_at = next.started_at;
+    let ended_at_iso = next.started_at_iso.clone();
+    let gap_started_at = active.started_at;
+    let capture_mode = active.capture_mode;
+    let segment_id = active.id.clone();
+    let paths = vec![
+        active.path.clone(),
+        audio_sidecar_path(&active.path, "system"),
+        audio_sidecar_path(&active.path, "microphone"),
+    ];
+    end_rewind_lease(app);
+    let install_result = install_mode_change_segment(app, next, &state, &mut reservation);
+    let finalize_result = if let Some(reason) = sample_active_window(config).1 {
+        mark_active_segment_exclusion_tainted(app);
+        append_event(app, coverage_gap_event(reason));
+        discard_active_segment(active);
+        discard_excluded_mode_change_artifacts(
+            app,
+            &segment_id,
+            &paths,
+            gap_started_at,
+            capture_mode,
+        )
+    } else {
+        match finalize_active_segment_at(app, active, ended_at, ended_at_iso) {
+            Ok(segment) if reservation.release_if_clear(&state) => {
+                persist_finalized_segment(app, segment)
+            }
+            Ok(segment) => {
+                discard_finalized_excluded_segment(app, segment, gap_started_at, capture_mode)
+            }
+            Err(_) if reservation.exclusion_observed_since_reservation(&state) => {
+                discard_excluded_mode_change_artifacts(
+                    app,
+                    &segment_id,
+                    &paths,
+                    gap_started_at,
+                    capture_mode,
+                )
+            }
+            Err(error) => Err(error),
+        }
+    };
+    if let Err(error) = finalize_result {
+        record_error(app, error);
+    }
+    install_result
 }
 
 fn install_rotated_segment(app: &AppHandle, next: ActiveScreenMemorySegment) -> Result<(), String> {
@@ -1891,6 +2598,56 @@ fn install_rotated_segment(app: &AppHandle, next: ActiveScreenMemorySegment) -> 
     if installed {
         let needs_lease = app
             .state::<ScreenMemoryState>()
+            .inner
+            .lock()
+            .ok()
+            .is_some_and(|runtime| runtime.rewind_lease_id.is_none());
+        if needs_lease {
+            start_rewind_lease(app, capture_mode)?;
+        }
+    }
+
+    let _ = app.emit(SCREEN_MEMORY_EVENT, ());
+    Ok(())
+}
+
+fn install_mode_change_segment(
+    app: &AppHandle,
+    next: ActiveScreenMemorySegment,
+    state: &ScreenMemoryState,
+    reservation: &mut CaptureModeChangeStartReservation,
+) -> Result<(), String> {
+    let capture_mode = next.capture_mode;
+    let mut next = Some(next);
+    let installed = match state.inner.lock() {
+        Ok(mut guard) => {
+            let still_running = guard
+                .worker_stop
+                .as_ref()
+                .map(|stop| !stop.load(Ordering::Relaxed))
+                .unwrap_or(false);
+            // A marker that wins after gate release must wait here and taint the installed segment.
+            if still_running && guard.active.is_none() && reservation.release_if_clear(state) {
+                guard.active = next.take();
+                guard.last_error = None;
+                true
+            } else {
+                false
+            }
+        }
+        Err(error) => {
+            if let Some(next) = next.take() {
+                discard_active_segment(next);
+            }
+            return Err(error.to_string());
+        }
+    };
+    if !installed {
+        if let Some(next) = next {
+            discard_active_segment(next);
+        }
+    } else {
+        let needs_lease = state
             .inner
             .lock()
             .ok()
@@ -1941,7 +2698,7 @@ fn fence_rotate_segment(
             width: active.width,
             height: active.height,
             capture_mode: active.capture_mode,
-            exclusion_tainted: Arc::new(AtomicBool::new(false)),
+            exclusion_state: Arc::new(AtomicU8::new(0)),
             graph_epoch_id: active.graph_epoch_id,
             graph_started_elapsed_ms: graph_elapsed_ms(app, boundary),
         };
@@ -1955,9 +2712,13 @@ fn stop_active_segment(app: &AppHandle) -> Result<Option<ScreenMemorySegmentMeta
     stop_active_segment_inner(app)
 }
 
-pub(crate) fn suspend_physical_capture(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn suspend_physical_capture(
+    app: &AppHandle,
+    on_suspend: impl FnOnce(),
+) -> Result<(), String> {
     let state = app.state::<ScreenMemoryState>();
     let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    on_suspend();
     let exclusion_active = state
         .inner
         .lock()
@@ -2031,7 +2792,7 @@ fn stop_active_segment_inner(
         return Ok(None);
     };
 
-    if active.exclusion_tainted.load(Ordering::SeqCst) {
+    if exclusion_is_tainted(&active.exclusion_state) {
         let gap = active_exclusion_gap(active.started_at, active.capture_mode);
         let segment_id = active.id.clone();
         discard_active_segment(active);
@@ -2065,7 +2826,7 @@ fn suspend_active_segment_inner(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     };
 
-    if active.exclusion_tainted.load(Ordering::SeqCst) {
+    if exclusion_is_tainted(&active.exclusion_state) {
         let gap = active_exclusion_gap(active.started_at, active.capture_mode);
         let segment_id = active.id.clone();
         discard_active_segment(active);
@@ -2212,19 +2973,20 @@ fn start_new_segment(
             false,
         ) {
             Ok((backend, width, height)) => {
+                let started_at = Instant::now();
                 return Ok(ActiveScreenMemorySegment {
                     id,
                     path: mp4_path,
                     mime_type: MP4_RECORDING_MIME_TYPE,
                     backend,
-                    started_at: Instant::now(),
+                    started_at,
                     started_at_iso: now_iso(),
                     width: width.or(fallback_width),
                     height: height.or(fallback_height),
                     capture_mode,
-                    exclusion_tainted: Arc::new(AtomicBool::new(false)),
+                    exclusion_state: Arc::new(AtomicU8::new(0)),
                     graph_epoch_id: graph_epoch_id(app),
-                    graph_started_elapsed_ms: graph_elapsed_ms(app, Instant::now()),
+                    graph_started_elapsed_ms: graph_elapsed_ms(app, started_at),
                 });
             }
             Err(sck_err) => {
@@ -2251,19 +3013,20 @@ fn start_new_segment(
             target_display_id,
             None,
         )?;
+        let started_at = Instant::now();
         Ok(ActiveScreenMemorySegment {
             id,
             path: mov_path,
             mime_type: QUICKTIME_RECORDING_MIME_TYPE,
             backend,
-            started_at: Instant::now(),
+            started_at,
             started_at_iso: now_iso(),
             width: width.or(fallback_width),
             height: height.or(fallback_height),
             capture_mode,
-            exclusion_tainted: Arc::new(AtomicBool::new(false)),
+            exclusion_state: Arc::new(AtomicU8::new(0)),
             graph_epoch_id: graph_epoch_id(app),
-            graph_started_elapsed_ms: graph_elapsed_ms(app, Instant::now()),
+            graph_started_elapsed_ms: graph_elapsed_ms(app, started_at),
         })
     }
 }
@@ -2433,7 +3196,7 @@ fn finalize_active_segment_at(
         corrupt,
         error,
         capture_mode: active.capture_mode,
-        exclusion_tainted: active.exclusion_tainted.load(Ordering::Relaxed),
+        exclusion_tainted: exclusion_is_tainted(&active.exclusion_state),
         graph_epoch_id: Some(active.graph_epoch_id),
         graph_started_elapsed_ms: active.graph_started_elapsed_ms,
         graph_ended_elapsed_ms: graph_elapsed_ms(app, ended_at),
@@ -2477,7 +3240,7 @@ fn finalize_fenced_segment(
         corrupt: native_screen::mp4_has_moov(&closed_path) == Some(false),
         error: None,
         capture_mode: active.capture_mode,
-        exclusion_tainted: active.exclusion_tainted.load(Ordering::Relaxed),
+        exclusion_tainted: exclusion_is_tainted(&active.exclusion_state),
         graph_epoch_id: Some(active.graph_epoch_id.clone()),
         graph_started_elapsed_ms: active.graph_started_elapsed_ms,
         graph_ended_elapsed_ms: active
@@ -3170,10 +3933,44 @@ fn export_recent(app: &AppHandle, minutes: u64) -> Result<ScreenMemoryExportResu
     })
 }
 
+pub fn spawn_retention_sweeper(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        if let Err(err) = sweep_expired_history(&app) {
+            eprintln!("[clips-tray] Rewind retention sweep failed: {err}");
+        }
+        std::thread::sleep(RETENTION_SWEEP_INTERVAL);
+    });
+}
+
+fn sweep_expired_history(app: &AppHandle) -> Result<(), String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data directory unavailable: {e}"))?;
+    if !holds_history(&data_dir.join(SCREEN_MEMORY_DIR))? {
+        return Ok(());
+    }
+    let state = app.state::<ScreenMemoryState>();
+    let _transition = state.transition.lock().map_err(|error| error.to_string())?;
+    // A running producer prunes on every segment rotation.
+    let capturing = state
+        .inner
+        .lock()
+        .map_err(|error| error.to_string())?
+        .active
+        .is_some();
+    if capturing {
+        return Ok(());
+    }
+    let config = normalize_screen_memory_config(crate::config::feature_config(app).screen_memory);
+    prune_segments(app, &config)
+}
+
 fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), String> {
     let segments = recent_segments(app, None)?;
     let cutoff = Utc::now() - ChronoDuration::hours(config.retention_hours as i64);
     let mut kept_bytes = 0_u64;
+    let mut live_segment_ids = in_flight_segment_ids(app)?;
     for segment in segments {
         let ended_at = DateTime::parse_from_rfc3339(&segment.ended_at)
             .map(|value| value.with_timezone(&Utc))
@@ -3182,11 +3979,102 @@ fn prune_segments(app: &AppHandle, config: &ScreenMemoryConfig) -> Result<(), St
         kept_bytes = kept_bytes.saturating_add(segment.bytes);
         if (expired || kept_bytes > config.max_bytes) && !segment_is_pinned(app, &segment.id) {
             delete_segment(app, &segment.id)?;
+        } else {
+            live_segment_ids.insert(sanitize_segment_id(&segment.id));
         }
     }
+    remove_orphaned_segment_files(&screen_memory_dir(app)?, cutoff.into(), &live_segment_ids)?;
     prune_events(app, cutoff)?;
     refresh_rewind_chapters(app)?;
     Ok(())
+}
+
+fn in_flight_segment_ids(app: &AppHandle) -> Result<BTreeSet<String>, String> {
+    let state = app.state::<ScreenMemoryState>();
+    let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+    Ok(runtime
+        .active
+        .iter()
+        .chain(
+            runtime
+                .suspended_active
+                .iter()
+                .map(|suspended| &suspended.active),
+        )
+        .map(|active| sanitize_segment_id(&active.id))
+        .collect())
+}
+
+// Files whose metadata is missing or unreadable (a segment cut off by a quit or crash, or one
+// written by an older build) are invisible to the metadata pass, so they age out by their
+// last write. Only segment files match: the event log, chapters, egress log and agent
+// handoffs keep their own lifecycles.
+fn remove_orphaned_segment_files(
+    dir: &Path,
+    cutoff: std::time::SystemTime,
+    live_segment_ids: &BTreeSet<String>,
+) -> Result<(), String> {
+    for entry in
+        std::fs::read_dir(dir).map_err(|e| format!("screen memory directory read failed: {e}"))?
+    {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        let segment_id = file_name.split('.').next().unwrap_or(file_name);
+        if !segment_id.starts_with("segment-") || live_segment_ids.contains(segment_id) {
+            continue;
+        }
+        if last_written_before(entry.metadata(), cutoff)? {
+            remove_file_if_exists(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn holds_history(dir: &Path) -> Result<bool, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(format!("screen memory directory read failed: {err}")),
+    };
+    history_entries_present(entries)
+}
+
+fn history_entries_present(
+    entries: impl IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+) -> Result<bool, String> {
+    let mut has_history = false;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let file_name = entry.file_name();
+        has_history |= file_name == SCREEN_MEMORY_EVENTS_JSONL
+            || file_name
+                .to_str()
+                .is_some_and(|name| name.starts_with("segment-"));
+    }
+    Ok(has_history)
+}
+
+fn last_written_before(
+    metadata: std::io::Result<std::fs::Metadata>,
+    cutoff: std::time::SystemTime,
+) -> Result<bool, String> {
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("screen memory file metadata failed: {error}")),
+    };
+    if !metadata.is_file() {
+        return Ok(false);
+    }
+    let modified = metadata
+        .modified()
+        .map_err(|error| format!("screen memory file modification time unavailable: {error}"))?;
+    Ok(modified < cutoff)
 }
 
 fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
@@ -3194,12 +4082,6 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
-    let file = File::open(&path).map_err(|e| format!("screen memory events open failed: {e}"))?;
-    let retained = BufReader::new(file)
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<ScreenMemoryEvent>(&line).ok())
-        .collect::<Vec<_>>();
     let mut coverage = recent_segments(app, None)?
         .into_iter()
         .filter_map(|segment| {
@@ -3213,22 +4095,113 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
             ))
         })
         .collect::<Vec<_>>();
-    if let Some(active) = app
-        .state::<ScreenMemoryState>()
-        .inner
-        .lock()
-        .ok()
-        .and_then(|runtime| {
+    let state = app.state::<ScreenMemoryState>();
+    {
+        let runtime = state.inner.lock().map_err(|error| error.to_string())?;
+        coverage.extend(in_flight_event_coverage(
             runtime
                 .active
                 .as_ref()
-                .map(|active| active.started_at_iso.clone())
-        })
-        .and_then(|started_at| DateTime::parse_from_rfc3339(&started_at).ok())
-    {
-        coverage.push((active.with_timezone(&Utc), Utc::now()));
+                .map(|active| active.started_at_iso.as_str()),
+            runtime.suspended_active.as_ref().map(|suspended| {
+                (
+                    suspended.active.started_at_iso.as_str(),
+                    suspended.ended_at_iso.as_str(),
+                )
+            }),
+            Utc::now(),
+        )?);
     }
-    let retained = retain_events_with_media_coverage(retained, cutoff, &coverage);
+    prune_events_path(&state.event_log, &path, cutoff, &coverage)
+}
+
+fn in_flight_event_coverage(
+    active_started_at: Option<&str>,
+    suspended_range: Option<(&str, &str)>,
+    now: DateTime<Utc>,
+) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>, String> {
+    let parse = |value: &str| {
+        DateTime::parse_from_rfc3339(value)
+            .map(|value| value.with_timezone(&Utc))
+            .map_err(|error| format!("screen memory capture time invalid: {error}"))
+    };
+    let mut coverage = Vec::new();
+    if let Some(started_at) = active_started_at {
+        coverage.push((parse(started_at)?, now));
+    }
+    if let Some((started_at, ended_at)) = suspended_range {
+        coverage.push((parse(started_at)?, parse(ended_at)?));
+    }
+    Ok(coverage)
+}
+
+fn prune_events_path(
+    event_log: &Mutex<()>,
+    path: &Path,
+    cutoff: DateTime<Utc>,
+    coverage: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Result<(), String> {
+    let _event_log = event_log.lock().map_err(|error| error.to_string())?;
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("screen memory events open failed: {error}")),
+    };
+    prune_events_from_reader(BufReader::new(file), path, cutoff, coverage)
+}
+
+fn prune_events_from_reader(
+    mut reader: impl BufRead,
+    path: &Path,
+    cutoff: DateTime<Utc>,
+    coverage: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Result<(), String> {
+    let source_modified = std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| format!("screen memory events modification time unavailable: {error}"))?;
+    let mut events = Vec::new();
+    let mut malformed = Vec::new();
+    loop {
+        let mut line = Vec::new();
+        let read = reader
+            .read_until(b'\n', &mut line)
+            .map_err(|error| format!("screen memory events read failed: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        match serde_json::from_slice::<ScreenMemoryEvent>(&line) {
+            Ok(event) => events.push(event),
+            Err(_) => malformed.push(line),
+        }
+    }
+    if !malformed.is_empty() {
+        // The segment prefix gives quarantined records the same bounded orphan-file
+        // retention as interrupted captures, using the source log's last write time.
+        let quarantine = path.with_file_name(format!(
+            "segment-events-quarantine-{}-{}.jsonl",
+            Utc::now().timestamp_millis(),
+            SEGMENT_COUNTER.fetch_add(1, Ordering::Relaxed),
+        ));
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&quarantine)
+            .map_err(|error| format!("screen memory event quarantine failed: {error}"))?;
+        for line in &malformed {
+            file.write_all(line)
+                .map_err(|error| format!("screen memory event quarantine write failed: {error}"))?;
+        }
+        file.set_modified(source_modified)
+            .map_err(|error| format!("screen memory event quarantine timestamp failed: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("screen memory event quarantine sync failed: {error}"))?;
+        eprintln!(
+            "[clips-tray] quarantined {} malformed Screen Memory events in {}",
+            malformed.len(),
+            quarantine.display(),
+        );
+    }
+    let retained = retain_events_with_media_coverage(events, cutoff, coverage);
     let temporary_path = path.with_extension("jsonl.tmp");
     let mut file = File::create(&temporary_path)
         .map_err(|e| format!("screen memory events rewrite failed: {e}"))?;
@@ -3375,15 +4348,8 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         remove_file_if_exists(&segment_metadata_path(app, &segment.id)?)?;
         deleted_segments += 1;
     }
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|e| format!("screen memory directory read failed: {e}"))?
-        .flatten()
-    {
-        let path = entry.path();
-        if path.is_file() {
-            remove_file_if_exists(&path)?;
-        }
-    }
+    let event_log = state.as_ref().map(|state| &state.event_log);
+    clear_history_files(&dir, event_log)?;
     crate::rewind_chapters::clear(&dir)?;
     crate::rewind_clip::clear_preview_artifacts(app)?;
     if let Some(state) = state.as_ref() {
@@ -3396,6 +4362,23 @@ fn delete_all_segments(app: &AppHandle) -> Result<ScreenMemoryDeleteResult, Stri
         deleted_segments,
         deleted_bytes,
     })
+}
+
+fn clear_history_files(dir: &Path, event_log: Option<&Mutex<()>>) -> Result<(), String> {
+    let _event_log = event_log
+        .map(|event_log| event_log.lock().map_err(|error| error.to_string()))
+        .transpose()?;
+    for entry in std::fs::read_dir(dir)
+        .map_err(|error| format!("screen memory directory read failed: {error}"))?
+    {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let path = entry.path();
+        if path.is_file() {
+            remove_file_if_exists(&path)?;
+        }
+    }
+    Ok(())
 }
 
 fn remove_file_if_exists(path: &Path) -> Result<(), String> {
@@ -3701,6 +4684,130 @@ command = "keep"
     }
 
     #[test]
+    fn failed_visuals_audio_downgrade_stops_the_active_segment() {
+        assert_eq!(
+            failed_mode_change_recovery(
+                RewindCaptureMode::VisualsAudio,
+                RewindCaptureMode::Visuals,
+            ),
+            FailedModeChangeRecovery::StopActive
+        );
+        assert_eq!(
+            failed_mode_change_recovery(
+                RewindCaptureMode::Visuals,
+                RewindCaptureMode::VisualsAudio,
+            ),
+            FailedModeChangeRecovery::KeepActive
+        );
+    }
+
+    #[test]
+    fn capture_mode_change_does_not_start_during_an_exclusion() {
+        assert!(capture_mode_change_start_allowed(
+            false, false, 0, 0, 0, false
+        ));
+        assert!(!capture_mode_change_start_allowed(
+            true, false, 0, 0, 0, false
+        ));
+        assert!(!capture_mode_change_start_allowed(
+            false, true, 0, 0, 0, false
+        ));
+        assert!(!capture_mode_change_start_allowed(
+            true, true, 0, 0, 0, false
+        ));
+        assert!(!capture_mode_change_start_allowed(
+            false, false, 0, 2, 0, false
+        ));
+        assert!(!capture_mode_change_start_allowed(
+            false, false, 2, 2, 2, true
+        ));
+
+        let state = ScreenMemoryState::default();
+        let expected_generation =
+            capture_start_generation(state.capture_start_gate.load(Ordering::SeqCst));
+        mark_exclusion_observed(&state);
+        let start_called = std::cell::Cell::new(false);
+        assert!(
+            start_capture_mode_change_if_allowed(true, expected_generation, &state, || {
+                start_called.set(true)
+            },)
+            .is_none()
+        );
+        assert!(!start_called.get());
+    }
+
+    #[test]
+    fn capture_mode_change_reservation_detects_exclusion_during_startup() {
+        let state = ScreenMemoryState::default();
+        let expected_generation =
+            capture_start_generation(state.capture_start_gate.load(Ordering::SeqCst));
+        let (started, reservation) =
+            start_capture_mode_change_if_allowed(true, expected_generation, &state, || true)
+                .unwrap();
+        assert!(started);
+
+        let generation = mark_exclusion_observed(&state);
+        assert!(reservation.exclusion_observed_since_reservation(&state));
+        mark_exclusion_applied(&state, generation);
+        drop(reservation);
+
+        let gate = state.capture_start_gate.load(Ordering::SeqCst);
+        assert_eq!(capture_start_generation(gate), generation);
+        assert!(!exclusion_markers_in_flight(gate));
+    }
+
+    #[test]
+    fn later_applied_marker_does_not_hide_an_earlier_marker_still_in_flight() {
+        let state = ScreenMemoryState::default();
+        let first_generation = mark_exclusion_observed(&state);
+        let latest_generation = mark_exclusion_observed(&state);
+        mark_exclusion_applied(&state, latest_generation);
+
+        assert_eq!(
+            state.exclusion_applied_generation.load(Ordering::SeqCst),
+            latest_generation
+        );
+        assert!(exclusion_markers_in_flight(
+            state.capture_start_gate.load(Ordering::SeqCst)
+        ));
+        assert!(
+            start_capture_mode_change_if_allowed(true, latest_generation, &state, || ()).is_none()
+        );
+
+        mark_exclusion_applied(&state, first_generation);
+        assert!(
+            start_capture_mode_change_if_allowed(true, latest_generation, &state, || ()).is_some()
+        );
+    }
+
+    #[test]
+    fn exclusion_gap_keeps_earlier_start_and_union_of_discarded_sources() {
+        let earlier_start = Instant::now() - Duration::from_secs(10);
+        let active_start = earlier_start + Duration::from_secs(5);
+        let mut runtime = ScreenMemoryRuntime {
+            exclusion_gap: Some(active_exclusion_gap(
+                earlier_start,
+                RewindCaptureMode::Visuals,
+            )),
+            ..ScreenMemoryRuntime::default()
+        };
+
+        begin_exclusion_gap(&mut runtime, active_start, RewindCaptureMode::VisualsAudio);
+
+        assert!(runtime.exclusion_active);
+        let gap = runtime.exclusion_gap.unwrap();
+        assert_eq!(gap.started_at, earlier_start);
+        assert_eq!(
+            gap.sources,
+            vec![
+                CaptureSource::Screen,
+                CaptureSource::SystemAudio,
+                CaptureSource::Microphone
+            ]
+        );
+    }
+
+    #[test]
     fn discarded_segment_sidecars_are_removed_as_one_retention_unit() {
         let dir = std::env::temp_dir().join(format!(
             "clips-exclusion-discard-{}-{}",
@@ -3725,6 +4832,143 @@ command = "keep"
         remove_discarded_sidecars(&paths).unwrap();
 
         assert!(paths.iter().all(|path| !path.exists()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn retention_fixture_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "clips-retention-{label}-{}-{}",
+            std::process::id(),
+            SEGMENT_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_aged(path: &Path, age: Duration) {
+        std::fs::write(path, b"history").unwrap();
+        File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - age)
+            .unwrap();
+    }
+
+    const HOUR: Duration = Duration::from_secs(60 * 60);
+
+    #[test]
+    fn orphaned_segment_files_age_out_while_live_and_unrelated_files_stay() {
+        let dir = retention_fixture_dir("orphans");
+        let handoffs = dir.join("agent-handoffs");
+        std::fs::create_dir_all(&handoffs).unwrap();
+        let expired = [
+            "segment-1-0.mov",
+            "segment-1-0.system.wav",
+            "segment-1-0.microphone.wav",
+            "segment-1-0.json",
+            "segment-1-0.ocr.jsonl",
+            "segment-1-0.transcript.jsonl",
+        ];
+        let kept = [
+            "segment-2-0.mov",
+            "segment-3-0.mov",
+            "segment-3-0.json",
+            "events.jsonl",
+            "chapters.json",
+            "egress.jsonl",
+        ];
+        for name in expired {
+            write_aged(&dir.join(name), 9 * HOUR);
+        }
+        write_aged(&dir.join("segment-2-0.mov"), HOUR / 2);
+        for name in &kept[1..] {
+            write_aged(&dir.join(name), 9 * HOUR);
+        }
+        write_aged(&handoffs.join("request.mp4"), 9 * HOUR);
+        let live = BTreeSet::from(["segment-3-0".to_string()]);
+
+        remove_orphaned_segment_files(&dir, std::time::SystemTime::now() - 8 * HOUR, &live)
+            .unwrap();
+
+        assert!(expired.iter().all(|name| !dir.join(name).exists()));
+        assert!(kept.iter().all(|name| dir.join(name).exists()));
+        assert!(handoffs.join("request.mp4").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn orphan_cleanup_stays_within_its_bundle_directory() {
+        let dir = retention_fixture_dir("bundle-boundary");
+        let current = dir.join("current").join(SCREEN_MEMORY_DIR);
+        let sibling = dir.join("sibling").join(SCREEN_MEMORY_DIR);
+        for bundle in [&current, &sibling] {
+            std::fs::create_dir_all(bundle).unwrap();
+            write_aged(&bundle.join("segment-1-0.mov"), 25 * HOUR);
+        }
+
+        remove_orphaned_segment_files(
+            &current,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+
+        assert!(!current.join("segment-1-0.mov").exists());
+        assert_eq!(
+            std::fs::read(sibling.join("segment-1-0.mov")).unwrap(),
+            b"history"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn retention_probe_reports_unreadable_entries_instead_of_absent_history() {
+        let result = history_entries_present([Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "injected directory-entry failure",
+        ))]);
+        assert!(result.unwrap_err().contains("directory entry failed"));
+    }
+
+    #[test]
+    fn retention_preserves_metadata_errors_other_than_absence() {
+        let result = last_written_before(
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected metadata denial",
+            )),
+            std::time::SystemTime::now(),
+        );
+        assert!(result.unwrap_err().contains("injected metadata denial"));
+    }
+
+    // Windows caches DirEntry metadata, so unlinking exercises this lookup only on Unix.
+    #[cfg(unix)]
+    #[test]
+    fn retention_treats_a_vanished_file_as_already_removed() {
+        let dir = retention_fixture_dir("vanished-file");
+        let path = dir.join("segment-1-0.mov");
+        write_aged(&path, 9 * HOUR);
+        let entry = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert!(
+            !last_written_before(entry.metadata(), std::time::SystemTime::now() - 8 * HOUR)
+                .unwrap()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn retention_sweep_skips_folders_without_history() {
+        let dir = retention_fixture_dir("no-history");
+        assert!(!holds_history(&dir).unwrap());
+        assert!(!holds_history(&dir.join("missing")).unwrap());
+        std::fs::write(dir.join("egress.jsonl"), b"{}").unwrap();
+        assert!(!holds_history(&dir).unwrap());
+        std::fs::write(dir.join("segment-1-0.mov"), b"history").unwrap();
+        assert!(holds_history(&dir).unwrap());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3846,6 +5090,206 @@ command = "keep"
         assert!(!rows.exists());
         assert!(!status.exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn event_pruning_keeps_the_original_log_when_a_later_line_is_unreadable() {
+        struct UnreadableTail;
+        impl std::io::Read for UnreadableTail {
+            fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("injected read failure"))
+            }
+        }
+        let dir = retention_fixture_dir("unreadable-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.push(b'\n');
+        let first_line_len = original.len();
+        original.extend_from_slice(&serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap());
+        std::fs::write(&path, &original).unwrap();
+
+        let reader = BufReader::new(std::io::Read::chain(
+            std::io::Cursor::new(&original[..first_line_len]),
+            UnreadableTail,
+        ));
+        let result = prune_events_from_reader(
+            reader,
+            &path,
+            cutoff,
+            &[(cutoff, cutoff + ChronoDuration::hours(1))],
+        );
+
+        assert!(result.unwrap_err().contains("events read failed"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!path.with_extension("jsonl.tmp").exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn malformed_events_are_quarantined_without_blocking_retention() {
+        let dir = retention_fixture_dir("invalid-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.extend_from_slice(b"\n{incomplete event}\n\xff\n");
+        let mut expected = serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap();
+        expected.push(b'\n');
+        original.extend_from_slice(&expected);
+        std::fs::write(&path, original).unwrap();
+        let source_modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let event_log = Mutex::new(());
+        let coverage = [(cutoff, cutoff + ChronoDuration::hours(1))];
+
+        prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        let quarantines = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("segment-events-quarantine-")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(quarantines.len(), 1);
+        let quarantine = &quarantines[0];
+        assert_eq!(
+            std::fs::metadata(quarantine).unwrap().modified().unwrap(),
+            source_modified
+        );
+        assert_eq!(
+            std::fs::read(quarantine).unwrap(),
+            b"{incomplete event}\n\xff\n"
+        );
+        prune_events_path(&event_log, &path, cutoff, &coverage).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        remove_orphaned_segment_files(
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert!(quarantine.exists());
+        File::options()
+            .write(true)
+            .open(quarantine)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - 9 * HOUR)
+            .unwrap();
+        remove_orphaned_segment_files(
+            &dir,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert!(!quarantine.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn event_pruning_rewrites_a_complete_log_with_retained_events() {
+        let dir = retention_fixture_dir("complete-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.push(b'\n');
+        let retained = serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap();
+        original.extend_from_slice(&retained);
+        std::fs::write(&path, original).unwrap();
+
+        prune_events_path(
+            &Mutex::new(()),
+            &path,
+            cutoff,
+            &[(cutoff, cutoff + ChronoDuration::hours(1))],
+        )
+        .unwrap();
+
+        let mut expected = retained;
+        expected.push(b'\n');
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        assert!(!path.with_extension("jsonl.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_history_waits_for_an_event_log_rewrite_before_removing_files() {
+        let dir = retention_fixture_dir("clear-during-rewrite");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let temporary_path = path.with_extension("jsonl.tmp");
+        std::fs::write(&path, b"old history").unwrap();
+        std::fs::write(&temporary_path, b"retained history").unwrap();
+        let event_log = Arc::new(Mutex::new(()));
+        let rewrite = event_log.lock().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let clear_dir = dir.clone();
+        let clear_log = event_log.clone();
+        let clear = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            finished_tx
+                .send(clear_history_files(&clear_dir, Some(&clear_log)))
+                .unwrap();
+        });
+        started_rx.recv().unwrap();
+        assert!(matches!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        std::fs::rename(temporary_path, &path).unwrap();
+        drop(rewrite);
+        finished_rx
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        clear.join().unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn suspended_segment_events_remain_within_their_exact_capture_coverage() {
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let coverage = in_flight_event_coverage(
+            None,
+            Some(("2026-07-14T12:01:00Z", "2026-07-14T12:05:00Z")),
+            cutoff + ChronoDuration::hours(1),
+        )
+        .unwrap();
+        let retained = retain_events_with_media_coverage(
+            vec![
+                event("2026-07-14T11:59:59Z"),
+                event("2026-07-14T12:03:00Z"),
+                event("2026-07-14T12:06:00Z"),
+            ],
+            cutoff,
+            &coverage,
+        );
+        assert_eq!(
+            retained
+                .iter()
+                .map(|event| event.captured_at.as_str())
+                .collect::<Vec<_>>(),
+            ["2026-07-14T12:03:00Z"]
+        );
+        assert!(
+            in_flight_event_coverage(None, Some(("invalid", "2026-07-14T12:05:00Z")), cutoff)
+                .is_err()
+        );
     }
 
     #[test]

@@ -25,7 +25,7 @@ For press-and-hold dictations (Hold-Fn / Cmd+Shift+Space) and the `/dictate` tab
 
 ## Design reference
 
-The Meetings tab intentionally mirrors **Granola**: a compact "Coming up" card over a dense reverse-chronological history, two-pane detail (transcript left + AI notes right), inline title edit, "Generate notes" button, per-attendee action items. See `templates/clips/desktop/design-refs/granola-ux.md` for the source-of-truth interaction notes — read this before redesigning any Meetings surface. (Wispr-style press-and-hold patterns belong in the Dictate skill, not here.)
+The Meetings tab intentionally mirrors **Granola**: a compact "Coming up" card over a dense reverse-chronological history, two-pane detail (transcript left + AI notes right), inline title edit, "Generate notes" button, per-attendee action items. See `templates/clips/desktop/design-refs/granola-ux.md` for the source-of-truth interaction notes — read this before redesigning any Meetings surface. Dictation behavior belongs in the Dictate skill.
 
 The list was a grid of tiles until 2026-08-14. That contradicted §2 of the ref ("list-row style rather than tile cards") and cost so much vertical space that history sat below the fold, which is how a user ends up unable to find last month's call.
 
@@ -67,9 +67,15 @@ Both fields are set by `start-meeting-recording`. Agents that operate on a recor
 
 Calendar events fire a desktop notification **1 minute before** the meeting start and keep it visible until **5 minutes after** start unless dismissed (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live and excludes events the current user has declined, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. The normal Meetings list remains calendar-backed and is not filtered by the reminder-only exclusion. Desktop Zoom joins use Zoom's native `zoommtg://` link so the Zoom app opens directly without an intermediate browser tab; unsupported Zoom link shapes and other providers retain their HTTPS join URL. Agents do not need to schedule reminders manually.
 
-## Adhoc Zoom / Teams detection (desktop)
+## Adhoc call detection (desktop macOS)
 
-When meetings are enabled, the Clips desktop app also watches for native Zoom (`us.zoom.xos` / `us.zoom.ZoomClips`) and Microsoft Teams (`com.microsoft.teams` / `com.microsoft.teams2`) becoming frontmost. After a short dwell (~9s), and only while that same platform holds a live audio input, it creates an adhoc meeting via `create-meeting` (`source: "adhoc"`) and shows the same Granola-style popup (`type: "adhoc"`, subtitle "Take notes?"). Auto transcription mode also emits `meetings:start-transcription` with reason `adhoc-auto`. Detection skips when a meeting is already being transcribed, when Manual mode has the meeting widget disabled, and soft-skips shortly after a calendar reminder for the same platform. The microphone check reads CoreAudio per-process input state, which is macOS 14+; where the OS cannot answer, detection falls back to dwell alone rather than going silent.
+When meetings are enabled, the desktop polls every 2s for native Zoom (`us.zoom.xos` / `us.zoom.ZoomClips`) and Teams (`com.microsoft.teams` / `com.microsoft.teams2`), plus browser calls from Chrome, Arc, Safari, and Firefox. Native calls are associated with the conferencing app's process microphone state; browser calls require the active window to belong to a supported browser, its focused page to have an exact HTTPS host for Google Meet, Teams, Zoom, or Webex, and that browser process to be using the microphone. A sustained 3s microphone signal confirms the call. Browser call evidence stays associated with its platform while the user switches to another app, and is cleared after confirmed microphone release or when the signal becomes unreadable for its grace period. A browser microphone by itself, a meeting URL in a background tab, or a lookalike host does not confirm a meeting. CoreAudio reports microphone use per browser process, not per tab, so browser candidates always show a confirmation popup even in Auto mode; its subtitle explains that the active meeting tab is unknown. Native candidates retain Auto-mode start behavior.
+
+After confirmation, Clips matches a nearby calendar meeting or creates an adhoc meeting via `create-meeting` (`source: "adhoc"`). Ask mode shows the meeting popup. Auto mode starts native candidates, but browser candidates wait for the user to choose Start notes because microphone activity cannot identify which browser tab is in the call. Detection skips when a meeting is already being transcribed, when Manual mode has the meeting widget disabled, and shortly after a calendar reminder for the same platform. Native detection may fall back to foreground dwell when macOS cannot read the process microphone state; browser detection requires a positive process-microphone signal. Browser URL matching uses macOS Accessibility data, so do not treat an unreadable page as a meeting.
+
+Recording stop has several signals: conferencing-app microphone release is confirmed for 15s, scheduled end is combined with quiet system audio, both audio streams can trigger the longer silence fallback, and sleep is treated as an end signal. Browser adhoc detection carries the exact browser bundle through the meeting prompt so stop monitoring follows the app that confirmed the call; calendar starts infer the app from the join URL or platform. Native auto-stop events retry with backoff until the frontend acknowledges by stopping the detector. The frontend stops through the idempotent `stop-meeting-recording` action and uses its returned persisted `actualEnd` as confirmation; it does not read back `get-meeting`, which hides trashed meetings. Stop and transcript-save requests have 10s deadlines. The final transcript flush happens only after the server confirms the stop; if confirmation or flushing fails, Clips retains the session and retries instead of reporting completion. When quitting during a meeting, Clips waits 15s for teardown, then offers Keep Clips open to continue retries or Quit anyway, which may lose the latest unflushed transcript. A second explicit quit request remains available if the WebView cannot show the recovery dialog. The server stale-meeting sweeper remains a recovery path, not the normal end signal.
+
+Desktop notes also check for web End meeting requests every five seconds while active, and on startup or focus/visibility recovery. `start-meeting-recording` returns the meeting's `captureStopRevision` and initial `actualEnd`; monitoring waits for that startup snapshot. Each stop atomically advances the revision, and the scoped `get-meeting-capture-state` read returns only that revision and end time, including for trashed meetings. It does not load transcripts, recordings, participants, or action items. A native session stops on a newer revision or a newly changed end timestamp, covering server recovery closures while keeping a meeting's persistent first `actualEnd` from immediately stopping restarted notes. An untyped route 404 or explicit unknown-action error selects the legacy get-meeting end check on its 30-second cadence, preserving its reopened-note actualEnd limitation until the server supports capture-state. Other failures retry the five-second path without downgrading. Fallback is scoped to the affected session; the next session probes capture-state again. Only one polling path is active. Failed, unavailable, or timed-out checks are logged and retried without overlapping requests; an unavailable response does not establish that the meeting ended.
 
 ## Actions
 
@@ -78,8 +84,8 @@ When meetings are enabled, the Clips desktop app also watches for native Zoom (`
 | `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live. `hasContent` filters to meetings worth reopening; `offset` + `hasMore` page the history |
 | `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
-| `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams detection passes `source: "adhoc"` |
-| `update-meeting`          | Inline title/notes edits and owner/admin visibility changes; meeting share links include the full transcript whenever one exists |
+| `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams/Meet/Webex detection passes `source: "adhoc"` |
+| `update-meeting`          | Inline title/notes edits; owner/admin changes to visibility and `shareTranscript` |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
@@ -103,12 +109,17 @@ sharing/status boundary.
 
 ## Sharing meeting notes and transcripts
 
-Meeting share links always include generated notes: the summary, key points,
-action items, and the full transcript whenever a linked transcript exists.
-There is no transcript-sharing toggle. The legacy `share_transcript` column is
-retained for database compatibility, but it is no longer a control and does not
-change the meeting share payload. Sharing a meeting still must not expose the
-linked recording's media or comments.
+Meeting share links always include the generated notes: the summary, key
+points, and action items. The full transcript appears on the share link and the
+agent link only when the meeting's `shareTranscript` is `true`. The owner sets
+it with **Transcript on the share link** under Advanced in the Share panel, or
+an admin passes `shareTranscript` to `update-meeting`.
+
+New meetings start with `shareTranscript: true`. Meetings created earlier keep
+whatever they stored, and any value other than `true` means off, so never
+backfill or default older meetings on. People invited to a meeting see its full
+transcript in Clips either way; the switch only governs the link. Sharing a
+meeting still must not expose the linked recording's media or comments.
 
 ## Cleanup credential order
 

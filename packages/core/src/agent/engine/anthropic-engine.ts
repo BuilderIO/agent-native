@@ -6,6 +6,8 @@ import {
 import {
   allowsSamplingParams,
   anthropicManualThinkingBudget,
+  claudeAdaptiveThinking,
+  isUnsetReasoningEffort,
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
@@ -41,6 +43,7 @@ import {
   finalizeStreamedToolInputs,
   observeStreamedToolInput,
 } from "./translate-anthropic.js";
+import { startModelDispatch } from "./types.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -117,9 +120,19 @@ class AnthropicEngine implements AgentEngine {
       opts.model,
       opts.reasoningEffort,
     );
+    if (
+      !extra.thinking &&
+      !reasoningEffort &&
+      isUnsetReasoningEffort(opts.reasoningEffort) &&
+      supportsClaudeAdaptiveThinking(opts.model)
+    ) {
+      // No effort chosen: keep adaptive thinking on and send no effort, so
+      // the model's own default level applies.
+      extra.thinking = claudeAdaptiveThinking(opts.model);
+    }
     if (reasoningEffort && !extra.thinking) {
       if (supportsClaudeAdaptiveThinking(opts.model)) {
-        extra.thinking = { type: "adaptive" };
+        extra.thinking = claudeAdaptiveThinking(opts.model);
         extra.output_config = { effort: reasoningEffort };
       } else {
         const budgetTokens = clampThinkingBudgetTokens(
@@ -194,9 +207,19 @@ class AnthropicEngine implements AgentEngine {
     if (!requestParams.tools) delete requestParams.tools;
 
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
-    const apiStream = client.messages.stream(requestParams, {
-      signal: firstEventAbort.signal,
+    const dispatch = await startModelDispatch(opts, () =>
+      client.messages.stream(requestParams, {
+        signal: firstEventAbort.signal,
+      }),
+    ).catch((error) => {
+      firstEventAbort.cleanup();
+      throw error;
     });
+    if (!dispatch.started) {
+      firstEventAbort.cleanup();
+      return;
+    }
+    const apiStream = dispatch.value;
 
     const chunkState = createAnthropicChunkStreamState();
     const toolInputs = createStreamedToolInputState();

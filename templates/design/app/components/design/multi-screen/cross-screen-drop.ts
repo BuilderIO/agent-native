@@ -10,6 +10,7 @@ import type {
   CrossScreenDropMode,
   CrossScreenDropPlacement,
   CrossScreenHitTestAnchorRect,
+  CrossScreenHitTestOrigin,
   CrossScreenHitTestResult,
   FrameGeometry,
   Point,
@@ -444,6 +445,14 @@ export function isCrossScreenHitTestAnchorRect(
     Number.isFinite(rect.width) &&
     Number.isFinite(rect.height)
   );
+}
+
+export function isCrossScreenHitTestOrigin(
+  value: unknown,
+): value is CrossScreenHitTestOrigin {
+  if (!value || typeof value !== "object") return false;
+  const origin = value as Record<string, unknown>;
+  return Number.isFinite(origin.left) && Number.isFinite(origin.top);
 }
 
 export function isCrossScreenGridPlacement(

@@ -5,6 +5,7 @@ import path from "node:path";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentFileMutationProof } from "../agent/types.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 
 export interface CodingCommandResult {
   code: number | null;
@@ -115,8 +116,13 @@ export function createCodingToolRegistry(
       contentSha256: createHash("sha256").update(content).digest("hex"),
     });
 
-  return {
+  return frameworkMcpTools({
     bash: {
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
       tool: {
         description:
           'Run a shell command. This is the tool for file discovery, directory listing, and search: reach first for `rg <pattern>` and `rg --files`, which are much faster than `grep` or `find`. Also use it to run tests, builds, package scripts, `git status`/`git diff`, and project CLIs. Use the read tool to view a single file\'s contents; use bash for everything else. Very long output is truncated.\n\nSet `background` to "true" to spawn the command detached and return immediately. The tool returns the PID and a log file path; the process writes its stdout/stderr to that log file. You can read or tail the log file to check progress, and run `kill <pid>` to stop it. Background processes are not killed when the timeout expires.',
@@ -280,6 +286,11 @@ export function createCodingToolRegistry(
       },
     },
     edit: {
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
       fileMutationProof: (args) =>
         typeof args === "object" && args !== null
           ? fileMutationProofs.get(args)
@@ -387,6 +398,11 @@ export function createCodingToolRegistry(
       },
     },
     write: {
+      mcpAnnotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
       fileMutationProof: (args) =>
         typeof args === "object" && args !== null
           ? fileMutationProofs.get(args)
@@ -449,7 +465,7 @@ export function createCodingToolRegistry(
         });
       },
     },
-  };
+  });
 }
 
 export async function runCodingCommand(

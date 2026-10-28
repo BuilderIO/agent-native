@@ -1,0 +1,102 @@
+name: Slides authoring nightly
+
+# This is the only run of the Slides authoring matrix and the macOS caret check:
+# PRs do not run them, and macOS minutes bill at 10x. A WebKit, Firefox, corpus,
+# or parity break therefore reaches main and is caught within a day.
+on:
+  schedule:
+    - cron: "43 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: slides-authoring-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  slides-authoring-image:
+    name: Slides authoring image
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: |
+            .github/actions/slides-authoring-image
+            docker/ci-slides-authoring
+
+      - id: image
+        uses: ./.github/actions/slides-authoring-image
+
+  slides-authoring:
+    name: Slides rich-text authoring (${{ matrix.shard }})
+    needs: slides-authoring-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.slides-authoring-image.outputs.image }}
+      options: --ipc=host
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            chromium-1,
+            chromium-2,
+            chromium-3,
+            webkit-1,
+            webkit-2,
+            webkit-3,
+            corpus,
+            fuzz,
+          ]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+          native-canvas-deps: "false"
+
+      - uses: ./.github/actions/slides-authoring-shard
+        with:
+          shard: ${{ matrix.shard }}
+
+  slides-macos-caret-qa:
+    name: Slides caret navigation in macOS
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Check platform-aware line-edge caret navigation in slide text
+        working-directory: templates/slides
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin

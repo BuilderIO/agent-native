@@ -10,7 +10,22 @@ export {
   stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
+export {
+  AGENT_SELECTION_CONTEXT_KEY_PREFIX,
+  AGENT_SELECTION_STATE_KEY,
+  agentSelectionContextKey,
+  formatAgentSelectionPreamble,
+  isAgentSelectionContextKey,
+  parseAgentSelectionContextKey,
+  type AgentSelectionReference,
+  type AgentSelectionState,
+  type AgentSelectionStateItem,
+} from "./agent-selection.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
+export {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "./action-browser-persist.js";
 export {
   APP_STATUS,
   DEFAULT_APP_STATUS,
@@ -67,12 +82,22 @@ export {
   type ParsedDataUrl,
 } from "./data-url.js";
 export { stripInlineAttachmentPayloads } from "./attachments.js";
+export {
+  assignFirstRunBuilderCreditsV2,
+  FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
+  FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS,
+  type FirstRunBuilderCreditsV2Assignment,
+  type FirstRunBuilderCreditsV2RequestAssignment,
+  type FirstRunBuilderCreditsV2Variant,
+} from "./first-run-builder-credits-experiment.js";
 export { stripInlineBytes, type InlineBytesPolicy } from "./inline-bytes.js";
 export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type ReasoningEffort,
@@ -287,3 +312,10 @@ export {
   stripDiagnosticSnippets,
   wrapDiagnosticSnippet,
 } from "./diagnostic-snippet.js";
+export {
+  AGENT_PROFILE_DESCRIPTION_MAX_LENGTH,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH,
+  parseAgentProfileMetadata,
+  type AgentProfileMetadata,
+} from "./agent-profile.js";

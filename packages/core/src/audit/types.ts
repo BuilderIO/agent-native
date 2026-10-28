@@ -3,6 +3,29 @@ export type AuditStatus = "success" | "error" | "denied";
 export type AuditActorKind = "agent" | "human" | "service" | "system";
 
 /**
+ * Source of the accepted authorization signal. `agent-chat` records a
+ * person's approval in agent chat. `a2a-review` records the owner's approval
+ * of a paused A2A call on its review page. `mcp-client-accepted` records an
+ * accepted MCP elicitation response; the server cannot verify who responded.
+ * `mcp-review` records the owner's approval of an MCP call on its review page,
+ * signed in as the user the call ran for.
+ * `cli-prompt` records a yes at the `pnpm action` terminal prompt, as the CLI
+ * reports it; the server never sees the prompt. `cli-flag` records a
+ * `pnpm action` call rerun with `--approved`, which whoever ran the command
+ * added. Nothing checks that a person approved either one.
+ */
+export type AuditApproval =
+  | "agent-chat"
+  | "a2a-review"
+  | "mcp-client-accepted"
+  | "mcp-review"
+  | "cli-prompt"
+  | "cli-flag";
+
+/** Verified identity provenance for a request authenticated through A2A. */
+export type AuditIdentityAssurance = "user" | "organization" | "org-member";
+
+/**
  * Who can read an event besides its owner.
  * - `private` — the owner only (the default; personal content stays here).
  * - `org` — every member of `org_id`.
@@ -70,6 +93,21 @@ export interface AuditEvent {
   /** App that recorded the event (`app.id`, else `app.name`). Null on rows
    *  written before the column existed or by an app with no identity. */
   app?: string | null;
+  /**
+   * The name and version an MCP client sent as its `clientInfo` for this
+   * `tools/call`. Self-reported: any client can send any value. Null when the
+   * call carried none.
+   */
+  reportedClientName?: string | null;
+  reportedClientVersion?: string | null;
+  /** The OAuth client the MCP credential was issued to, when it has one. */
+  oauthClientId?: string | null;
+  /** Source of the accepted authorization signal. MCP client acceptance does
+   * not verify who responded. Rows written before the column existed are null.
+   */
+  approval?: AuditApproval | null;
+  /** Verified identity provenance; null on older rows or non-A2A calls. */
+  identityAssurance?: AuditIdentityAssurance | null;
 }
 
 export interface AuditQueryFilters {

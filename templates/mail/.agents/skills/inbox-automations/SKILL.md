@@ -16,9 +16,11 @@ Use `apply-ai-filter` when the user manually marks mail as unwanted or keeps a
 message that was filtered. It adds or removes the reversible
 `agent-native-filtered` label, archives or restores the conversation, and
 records the feedback for future classification. User comments become editable
-natural-language AI filter instructions; the AI filter uses Luna when
-available, auto-filters only above its configured confidence threshold, and
-keeps lower-confidence matches in the review queue. It never claims the
+natural-language AI filter instructions; the AI filter uses the configured
+Jev or OpenAI decision provider, auto-filters only above its configured
+threshold, and keeps lower-probability matches in the review queue. A failed
+or refused classification affects only that email and is reported as a
+failure, not as a no-match. It never claims the
 custom label is Gmail's provider-controlled Spam system label.
 
 ## Automation rules
@@ -72,7 +74,8 @@ AI filter settings for review. Rules also process new inbound mail on the
 per-minute cron; `trigger-automations` forces immediate processing (debounced —
 a just-triggered run may report "skipped, try again in 30 seconds").
 
-Priority sort uses enabled AI Important rules as its Jev instruction.
+Priority sort uses enabled AI Important rules as its decision guidance and can
+use either configured decision provider.
 Use `record-ai-priority-feedback` when the user says a specific email should or
 should not be important. It stores per-email important/not-important votes;
 Priority treats a vote as an explicit score override for that message.

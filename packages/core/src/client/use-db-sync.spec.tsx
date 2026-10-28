@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getBrowserTabId } from "./browser-tab-id.js";
-import { useChangeVersion } from "./use-change-version.js";
+import { getChangeVersion, useChangeVersion } from "./use-change-version.js";
 import {
   isInteractionCriticalSyncEvent,
   subscribeSyncEvents,
@@ -44,6 +44,25 @@ class QueryClientProbe {
     this.calls.push(opts);
     this.refetchOptions.push(options);
   }
+}
+
+const browserTabIdStateSymbol = Symbol.for(
+  "@agent-native/core/client/browser-tab-id",
+);
+
+function resetBrowserTabIdState() {
+  const state = (globalThis as typeof globalThis & Record<symbol, unknown>)[
+    browserTabIdStateSymbol
+  ];
+  if (!state || typeof state !== "object") return;
+  const tabState = state as {
+    ids: Map<string, string>;
+    aliases?: Map<string, { storageKey: string; id: string }>;
+    pendingId: string | null;
+  };
+  tabState.ids.clear();
+  tabState.aliases?.clear();
+  tabState.pendingId = null;
 }
 
 function SyncProbe({
@@ -146,7 +165,11 @@ describe("useDbSync", () => {
     roots = [];
     containers = [];
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.useRealTimers();
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/");
+    resetBrowserTabIdState();
     _resetSyncTransportRegistryForTests();
   });
 
@@ -231,6 +254,384 @@ describe("useDbSync", () => {
     expect(invalidatedQueryKeys(queryClient.calls)).toEqual([
       ["action"],
       ["action"],
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("invalidates the originating tab's navigation command on local navigate completion", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    const observedEvents: Array<{ source?: string; key?: string }> = [];
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        onEvent: (event) => observedEvents.push(event),
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "navigate",
+            completedSideEffect: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-a",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    const keys = invalidatedQueryKeys(queryClient.calls);
+    expect(keys).toContainEqual(["navigate-command", "browser-tab-a"]);
+    expect(keys).not.toContainEqual(["navigate-command", "chat-tab-a"]);
+    expect(keys).not.toContainEqual(["navigate-command"]);
+    expect(keys).not.toContainEqual(["app-state"]);
+    const appStateCall = queryClient.calls.find(
+      (call) => call?.predicate && !call.queryKey,
+    );
+    expect(
+      appStateCall?.predicate?.({
+        queryKey: ["app-state", "navigate:browser-tab-a"],
+      }),
+    ).toBe(true);
+    expect(
+      appStateCall?.predicate?.({
+        queryKey: ["app-state", "selection:chat-tab-a"],
+      }),
+    ).toBe(false);
+    expect(
+      isInteractionCriticalSyncEvent({
+        source: "app-state",
+        key: "navigate:browser-tab-a",
+      }),
+    ).toBe(true);
+    expect(observedEvents).toContainEqual(
+      expect.objectContaining({
+        source: "app-state",
+        key: "navigate:browser-tab-a",
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the run's starting mount for navigation invalidation after navigation", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-risk",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "navigate",
+            completedSideEffect: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-chat",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-chat",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    const navigateCommandKeys = invalidatedQueryKeys(queryClient.calls).filter(
+      (key) => key?.[0] === "navigate-command",
+    );
+    expect(navigateCommandKeys).toEqual([
+      ["navigate-command", "browser-tab-risk"],
+      ["navigate-command", "browser-tab-risk"],
+    ]);
+    expect(navigateCommandKeys).not.toContainEqual([
+      "navigate-command",
+      "browser-tab-chat",
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves a pending run-start identity before navigation invalidation", async () => {
+    window.sessionStorage.clear();
+    resetBrowserTabIdState();
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    });
+    vi.spyOn(performance, "getEntriesByType").mockImplementation((type) =>
+      type === "navigation"
+        ? ([{ type: "reload" }] as PerformanceNavigationTiming[])
+        : [],
+    );
+    window.sessionStorage.setItem(
+      "agent-native:browser-tab-id:/mail",
+      "stored-mail-id",
+    );
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe("stored-mail-id");
+    window.history.replaceState({}, "", "/opening");
+    const pendingId = getBrowserTabId();
+
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    const observedEvents: SyncEvent[] = [];
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        pollUrl: "/poll",
+        sseUrl: false,
+        onEvent: (event) => observedEvents.push(event),
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "chat-tab-a",
+            browserTabId: pendingId,
+            runId: "run-pending-id",
+          },
+        }),
+      );
+    });
+
+    window.history.replaceState({}, "", "/mail/inbox");
+    expect(getBrowserTabId()).toBe("stored-mail-id");
+    window.history.replaceState({}, "", "/calendar/inbox");
+    const destinationId = getBrowserTabId();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "navigate",
+            completedSideEffect: true,
+            tabId: "chat-tab-a",
+            browserTabId: destinationId,
+            runId: "run-pending-id",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "chat-tab-a",
+            browserTabId: destinationId,
+            runId: "run-pending-id",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    const navigateCommandKeys = invalidatedQueryKeys(queryClient.calls).filter(
+      (key) => key?.[0] === "navigate-command",
+    );
+    expect(navigateCommandKeys).toEqual([
+      ["navigate-command", "stored-mail-id"],
+      ["navigate-command", "stored-mail-id"],
+    ]);
+    expect(navigateCommandKeys).not.toContainEqual([
+      "navigate-command",
+      pendingId,
+    ]);
+    expect(navigateCommandKeys).not.toContainEqual([
+      "navigate-command",
+      destinationId,
+    ]);
+    expect(observedEvents).toContainEqual(
+      expect.objectContaining({
+        source: "app-state",
+        key: "navigate:stored-mail-id",
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("replaces an interrupted run's starting mount when a new run begins", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    function RunProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<RunProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-risk",
+            runId: "run-interrupted",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-calendar",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-calendar",
+            runId: "run-current",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-risk",
+            runId: "run-interrupted",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "navigate",
+            completedSideEffect: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-risk",
+            runId: "run-interrupted",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "navigate",
+            completedSideEffect: true,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-mail",
+            runId: "run-current",
+          },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: false,
+            tabId: "chat-tab-a",
+            browserTabId: "browser-tab-mail",
+            runId: "run-current",
+          },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    const navigateCommandKeys = invalidatedQueryKeys(queryClient.calls).filter(
+      (key) => key?.[0] === "navigate-command",
+    );
+    expect(navigateCommandKeys).toEqual([
+      ["navigate-command", "browser-tab-calendar"],
+      ["navigate-command", "browser-tab-calendar"],
+    ]);
+    expect(navigateCommandKeys).not.toContainEqual([
+      "navigate-command",
+      "browser-tab-risk",
+    ]);
+    expect(navigateCommandKeys).not.toContainEqual([
+      "navigate-command",
+      "browser-tab-mail",
     ]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -346,6 +747,19 @@ describe("useDbSync", () => {
     expect(invalidatedQueryKeys(result.queryClient.calls)).toContainEqual([
       "navigate-command",
     ]);
+  });
+
+  it("bumps the app-state wildcard for an unscoped remote state event", async () => {
+    const before = getChangeVersion("app-state:*");
+    const result = await renderWithEvent({
+      version: before + 1,
+      source: "app-state",
+      type: "change",
+    });
+    roots.push(result.root);
+    containers.push(result.container);
+
+    expect(getChangeVersion("app-state:*")).toBeGreaterThan(before);
   });
 
   it("invalidates only the originating tab's navigate command cache", async () => {

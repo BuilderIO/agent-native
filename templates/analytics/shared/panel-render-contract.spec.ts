@@ -240,6 +240,44 @@ describe("unknownPanelConfigKeys", () => {
     ...extra,
   });
 
+  it("accepts declared record SQL on supported charts and rejects malformed declarations", () => {
+    const extra = { source: "bigquery", chartType: "bar" };
+    expect(
+      unknownPanelConfigKeys(
+        panel(
+          { drilldown: { sql: "SELECT record FROM events LIMIT 500" } },
+          extra,
+        ),
+      ),
+    ).toEqual([]);
+    for (const drilldown of [
+      {},
+      { sql: " " },
+      { sql: "x".repeat(50_001) },
+      { sql: "SELECT 1", extra: true },
+    ]) {
+      expect(unknownPanelConfigKeys(panel({ drilldown }, extra))).toEqual([
+        expect.objectContaining({ kind: "invalid-value", key: "drilldown" }),
+      ]);
+    }
+    for (const chartType of ["table", "heatmap"]) {
+      expect(
+        unknownPanelConfigKeys(
+          panel({ drilldown: { sql: "SELECT 1" } }, { ...extra, chartType }),
+        ),
+      ).toEqual([
+        expect.objectContaining({ kind: "wrong-chart-type", key: "drilldown" }),
+      ]);
+    }
+    expect(
+      unknownPanelConfigKeys(
+        panel({ drilldown: { sql: "SELECT 1" } }, { source: "prometheus" }),
+      ),
+    ).toEqual([
+      expect.objectContaining({ kind: "invalid-value", key: "drilldown" }),
+    ]);
+  });
+
   it("suggests yFormatter for yAxis and names the panel", () => {
     const [issue] = unknownPanelConfigKeys(
       panel({ yAxis: { format: "percent" } }),
@@ -287,6 +325,22 @@ describe("unknownPanelConfigKeys", () => {
     ]);
     expect(issues[0].didYouMean).toBe("line");
     expect(issues[2].message).toContain("config.colors");
+  });
+
+  it("rejects breakdowns on a pivoted table", () => {
+    const breakdowns = [{ column: "app" }];
+    const pivot = { xKey: "day", seriesKey: "app", valueKey: "n" };
+
+    expect(
+      unknownPanelConfigKeys(
+        panel({ breakdowns, pivot }, { chartType: "table" }),
+      ),
+    ).toEqual([
+      expect.objectContaining({ kind: "invalid-value", key: "breakdowns" }),
+    ]);
+    expect(
+      unknownPanelConfigKeys(panel({ breakdowns }, { chartType: "table" })),
+    ).toEqual([]);
   });
 
   it("accepts every registered chart type, legacy aliases, and unset keys", () => {
@@ -550,6 +604,76 @@ describe("unknownPanelConfigKeys on shipped panels and value shapes", () => {
     expect(issues[0].message).toContain("config.yKeys must be an array");
   });
 
+  it("accepts the duration formatter and names the formatters on a typo", () => {
+    expect(
+      unknownPanelConfigKeys(
+        stray("line", { yFormatter: "duration", rightYFormatter: "duration" }),
+      ),
+    ).toEqual([]);
+
+    const issues = unknownPanelConfigKeys(
+      stray("line", { yFormatter: "seconds", rightYFormatter: "minutes" }),
+    );
+
+    expect(issues.map((issue) => [issue.kind, issue.key])).toEqual([
+      ["invalid-value", "yFormatter"],
+      ["invalid-value", "rightYFormatter"],
+    ]);
+    expect(issues[0]?.message).toContain(
+      'one of "number", "currency", "percent", "duration"',
+    );
+  });
+
+  it("accepts a metric comparison and keeps it to metric panels", () => {
+    expect(
+      unknownPanelConfigKeys(
+        stray("metric", {
+          comparison: {
+            previousKey: "last_week",
+            periodKey: "window",
+            label: "the week before",
+            better: "lower",
+          },
+        }),
+      ),
+    ).toEqual([]);
+    expect(unknownPanelConfigKeys(stray("metric", { comparison: {} }))).toEqual(
+      [],
+    );
+
+    expect(
+      unknownPanelConfigKeys(
+        stray("line", { comparison: { better: "higher" } }),
+      ).map((issue) => [issue.kind, issue.key]),
+    ).toEqual([["wrong-chart-type", "comparison"]]);
+  });
+
+  it("names what is wrong with a misshapen comparison", () => {
+    const messages = [
+      { better: "up" },
+      { previousKey: "" },
+      { previous: "last_week" },
+      "previous_value",
+    ].map((comparison) => {
+      const issues = unknownPanelConfigKeys(stray("metric", { comparison }));
+      expect(issues.map((issue) => [issue.kind, issue.key])).toEqual([
+        ["invalid-value", "comparison"],
+      ]);
+      return issues[0]?.message;
+    });
+
+    expect(messages[0]).toContain(
+      'config.comparison.better must be "higher", "lower" or "neither", not "up"',
+    );
+    expect(messages[1]).toContain(
+      "config.comparison.previousKey must be a non-empty string",
+    );
+    expect(messages[2]).toContain(
+      "config.comparison.previous is not a comparison option",
+    );
+    expect(messages[3]).toContain("an object with optional string previousKey");
+  });
+
   it("does not flag a misshapen value the baseline already had", () => {
     const config = { yKeys: "n" };
 
@@ -683,6 +807,7 @@ describe("PANEL_TOP_LEVEL_KEYS", () => {
       "source",
       "chartType",
       "width",
+      "height",
       "columns",
       "config",
       "tab",
@@ -1166,5 +1291,93 @@ describe("pivot.seriesOrder shape", () => {
     ).toEqual([
       expect.objectContaining({ kind: "invalid-value", key: "pivot" }),
     ]);
+  });
+});
+
+describe("funnelOutcomes", () => {
+  const outcomes = {
+    completedKey: "completed",
+    skippedKey: "skipped",
+    leftKey: "left_here",
+    optionalKey: "optional",
+  };
+  const role = {
+    step: "Your role",
+    shown: 1927,
+    completed: 1168,
+    skipped: 520,
+    left_here: 75,
+    optional: true,
+  };
+  const funnel = (funnelOutcomes: unknown) => ({
+    chartType: "funnel" as const,
+    config: {
+      xKey: "step",
+      yKey: "shown",
+      funnelOutcomes: funnelOutcomes as typeof outcomes,
+    },
+  });
+
+  it("binds the outcome columns and reports stages that cannot split", () => {
+    expect(planPanelRender([role], funnel(outcomes))).toMatchObject({
+      empty: false,
+      missingKeys: [],
+      ignoredConfig: [],
+    });
+
+    const renamed = planPanelRender(
+      [role],
+      funnel({ ...outcomes, leftKey: "left" }),
+    );
+    expect(renamed.missingKeys).toEqual(["left"]);
+    expect(renamed.ignoredConfig).toEqual([]);
+
+    const overfull = planPanelRender(
+      [{ ...role, completed: 1900 }],
+      funnel(outcomes),
+    );
+    expect(overfull.empty).toBe(false);
+    expect(overfull.ignoredConfig).toEqual([
+      {
+        key: "funnelOutcomes",
+        reason: expect.stringContaining(
+          'Stage "Your role": completed, skipped and left add up to more than shown',
+        ),
+      },
+    ]);
+  });
+
+  it("checks outcome columns against a schema without rows", () => {
+    expect(missingKeysFromColumns(["step", "shown"], funnel(outcomes))).toEqual(
+      ["completed", "skipped", "left_here", "optional"],
+    );
+  });
+
+  it("accepts funnelOutcomes only on a funnel, in its documented shape", () => {
+    const stored = (chartType: string, value: unknown) => ({
+      id: "steps",
+      title: "Steps",
+      chartType,
+      config: { funnelOutcomes: value },
+    });
+
+    expect(unknownPanelConfigKeys(stored("funnel", outcomes))).toEqual([]);
+    expect(unknownPanelConfigKeys(stored("bar", outcomes))).toEqual([
+      expect.objectContaining({
+        kind: "wrong-chart-type",
+        key: "funnelOutcomes",
+      }),
+    ]);
+    for (const value of [
+      { completedKey: "completed" },
+      { ...outcomes, movedOnKey: "moved_on" },
+      { ...outcomes, optionalKey: true },
+    ]) {
+      expect(
+        unknownPanelConfigKeys(stored("funnel", value)).map(
+          (issue) => issue.kind,
+        ),
+      ).toEqual(["invalid-value"]);
+    }
   });
 });

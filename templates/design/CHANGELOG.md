@@ -3,11 +3,429 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-14
+## 2026-10-27
 
 ### Improved
 
+- First-run setup makes free credits the primary path while keeping personal API keys one click away
+
+### Fixed
+
+- Design imports make your source and page choices clear, and checklist steps take you to the right place.
+
+## 2026-10-26
+
+### Improved
+
+- The editor chat shows its context chips again, so picked screens and layers stay visible and removable after Select closes.
+- The new-design prompt keeps Send as its main button; the mic still dictates.
+- Voice edits make the smallest matching change, say the new value out loud, and start faster
+
+### Fixed
+
+- Suggested actions in the docked chat sit on one line just above the prompt bar.
+
+## 2026-10-25
+
+### Fixed
+
+- Bounce edits are saved when you leave the editor
+- Clearing the final Motion track no longer blocks saving.
+- Motion edits keep spring settings intact and save animation styles and easing presets on the first save.
+- Double-clicking the Motion timeline adds a keyframe again
+- Motion easing previews now render CSS steps and linear curves correctly while preserving spring values after source saves
+- Clamped Bounce input returns to the saved value when the editor loses focus.
+- Motion keeps spring easing edits valid and keyframes unchanged when easing segments are double-clicked
+- Pending edits, coding handoffs and snapshot exports for a live URL screen no longer carry the frame's internal connection key in the route.
+- Removing the final screen no longer crashes the Motion editor.
+- Spring easing values retain their precision, and double-clicking an easing segment no longer adds a keyframe
+
+## 2026-10-24
+
+### Added
+
+- Pick screens and layers for the agent with the Select button in the chat composer.
+
+### Improved
+
+- Motion edits now preserve styles targeted to other layers by structural CSS selectors.
+- Motion transition controls now line up with their inspector rows
+- The agent chat panel swaps its tabs for a chat switcher when narrow and keeps a 320px minimum width.
+- The home prompt uses the large composer with dictation, and the agent panel opens on the same default model as the home prompt
+
+### Fixed
+
+- Approving local file writes no longer undoes the edit that asked for them, and the consent dialog stays open until approval finishes.
+- Design history restores remain available after collaborators leave
+- Local file write consent asks you to sign in before approving access.
+- Motion edits catch more script and stylesheet changes that can interfere with animations.
+- Motion edits stop when structural CSS selectors could change at runtime, including through dynamic Alpine data and lifecycle directives.
+- Motion edits now stop when authored CSS or runtime HTML could override animated styles.
+- Motion edits protect animations from conflicting styles while preserving ordinary hover effects
+- Motion styles stay selected across timeline layers and valid Path animations remain editable.
+- Signing in from the file-write consent dialog now brings you back to the same request, ready to approve.
+- Visual Edit links keep their editing access after sign-in without background save errors.
+
+## 2026-10-23
+
+### Improved
+
+- Changes to Position and Scale animations stay in sync with local React and HTML/CSS source.
+- Drag a frame on the canvas by its name label to move it.
+- HTML Motion edits preserve interactive Alpine visibility state
+- Promotional artwork now sizes and checks text for its intended display size.
+
+### Fixed
+
+- PNG and PDF exports preserve frame proportions, responsive layouts, and image sizing.
+- Image and PDF exports preserve external stylesheet styles when the stylesheet can be fetched.
+- Motion editing works again on designs that load Tailwind and Alpine from the CDN.
+- Reopening a design while it is still generating keeps tracking the generation until it finishes.
+- Text typed right after placing a text layer on the board is no longer lost when you press Escape quickly.
+
+## 2026-10-22
+
+### Added
+
+- Export compatible HTML frames for HubSpot email, or ask the agent to adapt existing content into a new email frame while preserving the original.
+- HubSpot conversion exports can verify that original link destinations are preserved.
+- Preview HubSpot emails with sample recipient names and button destinations without changing saved content.
+- Remove auto layout from a frame with the minus button in its Auto layout section, the canvas menu, or Shift+Option+A, and its layers stay where they are.
+- Screens have a Rotation field and Rotate 90° button, so a rotated screen can be reset.
+- Prototype links can play code-authored screen transitions.
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+- A selected line or arrow shows a handle at each end; drag one to move just that end, with Shift to snap to 45 degrees
+- Independent content and mobile layout reviews are available on request for HubSpot emails.
+- Right-clicking a layer row opens the full canvas menu, and Tab while renaming moves to the next layer.
+- The design agent builds flatter layer trees with whole-pixel values.
+- The inspector names each layer's type, hides sections that don't apply, and gives lines Length and Angle.
+
+### Fixed
+
+- Builder sign-in keeps Design export actions available
+- Local visual editing returns an app link when no browser handoff is available
+- Align works on a single layer inside its frame, and aligning several layers moves only the aligned axis.
+- Hug, Fill, and Fixed only appear where they apply, so frames no longer collapse to 0×0 and the inspector shows the mode a layer is actually in.
+- Frames using Hug height expand to show their full content on the canvas.
+- Moving, resizing, pasting, and typing positions land layers on whole pixels.
+- Paste lands inside the selected frame, free on empty canvas, or in another design.
+- Screenshot previews use local Chromium when available for faster, more reliable rendering.
+- Shapes and text drawn on a card or row nest inside it.
+- Undo and redo skip selection changes, so they only step through edits.
+- Verification and export requests finish without requiring unnecessary design changes.
+- Zoom at 100% shows true size, and Shift+0, Shift+R, and Zoom to selection work.
+- Collapsed shader layers no longer interrupt other shaders on the canvas
+- Shader fills keep rendering when other screen content cannot be captured
+- Shader fills and effects render correctly on canvas elements created or updated in the editor.
+
+### Changed
+
+- A click in a screen selects the top-level layer under the pointer, double-click goes one level deeper, and Cmd+click selects the innermost layer
+
+## 2026-10-21
+
+### Added
+
+- A Getting started checklist at the bottom of the sidebar tracks your first design, brand, sharing, teammates, and templates, and checks steps off as you finish them
+- Pulsing Border adds moving color highlights along an element’s outline, with concentrated bright cores, colored falloff, and controls for motion and shape.
+
+### Improved
+
+- The ownership filter beside search is a lighter button with a filter icon.
+- Templates now open a read-only preview from the card, and the home library shows more starters, including dashboard, messaging, task board and design studio screens.
+- Effect thumbnails now show how shaders treat the Agent-Native mark against a quiet tonal background, making their differences easier to judge.
+- Native shader previews use less GPU memory when many mesh effects are visible.
+- Pulsing Border uses the standard Linear and Angular gradient picker for its moving border colors, with up to eight editable stops and a separate Background color. Thickness sets the bright edge, Softness feathers it, Bloom adjusts glow brightness, and Glow spread sets the halo radius. Smoke, margins, offsets, and layout settings stay grouped in collapsible sections.
+
+### Fixed
+
+- Native effects now render consistently in the editor, presentation, board overview, and design previews.
+- Opening Design no longer shows PNG export errors when no export was requested
+- Shader previews recover from temporary GPU and image failures, and PNG exports stay bound to the correct editor document.
+- Journey canvases accept partial Analytics samples when replay counts are unknown
+- Design generation now counts file renames and type changes as saved output.
+- Design reports uncertain generation outcomes clearly and confirms completed file deletions
+- Generation offers a retry when a completed run saved no design files
+
+### Removed
+
+- Remove obsolete shader catalogs and GLSL authoring controls in favor of native WebGPU shaders. Existing GLSL designs keep rendering and can be removed or replaced.
+
+## 2026-10-20
+
+### Added
+
+- Folded Mesh adds an animated sculpted fill with editable color, shape, lighting, and noise bands.
+
+### Improved
+
+- Shader previews reuse validated scene data while panning, including public views.
+- Phones now see a page that shares or emails the link to a larger screen, instead of an editor that isn't built for small screens.
+- Suggested prompts and the quieter Skip prompt action now share one row.
+
+### Fixed
+
+- The Design / Full app toggle on the home page no longer hides behind the Connect AI card.
+- Read-only Design views render native shader previews in nested frames.
+- Selected screens with shader effects can be exported together as a PNG
+- Shader previews stay aligned while you zoom.
+- Signed-out sessions no longer watch for private PNG export requests
+- Public Design previews no longer show spurious export errors
+- Screen image uploads no longer overwrite edits made during the upload.
+- Failed Design generations now show an error and retry action instead of appearing complete
+- Finished design output stays available when a generation run stops unexpectedly.
+- Reopening a design no longer reports completed generation as stopped.
+- Comments return to the prior Interact screen and device, stay open when that return is blocked, and fall back to Design if that screen was removed. Layers search toggles closed.
+- Public Design viewers no longer see repeated PNG export errors
+- Design resizes more high-resolution reference images before adding them to a prompt.
+- Review menus no longer trigger canvas gestures, and rewrite previews and proposal controls follow the uniquely resolved target.
+- The Design home chat keeps its model picker visible while readiness checks run.
+
+## 2026-10-19
+
+### Added
+
+- Motion shows a layer's animation as read-only CSS or data in the Animations section, and it updates as you edit the timeline.
+- Right-click selected layers to add an animation, and the Animations add button now lists every animation style in one menu.
+
+### Improved
+
+- Text stagger has a settings panel with overlap, order, crop and pivot, and an effects list where each effect can be added, hidden, or removed.
+
+### Fixed
+
+- Reply and Edit on a comment, in the sidebar or on a canvas pin, put the cursor in the box, after the text when editing.
+- Comment mode no longer selects or hovers the design underneath, and pan and zoom work while commenting.
+- Text color adapts when layers move between screens with different backgrounds
+- Text keeps readable contrast when moved between screens with different backgrounds.
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+### Removed
+
+- Screen overviews no longer show Focus screen buttons on screens or breakpoints.
+
+## 2026-10-18
+
+### Fixed
+
+- Grid children stretch by default after switching a flex container to grid
+- Place items edits no longer leave stale alignment that prevents grid children from stretching.
+- Editing a resized pasted SVG keeps its original frame and sibling artwork in place.
+
+## 2026-10-17
+
+### Fixed
+
+- Adding a Position animation to a layer whose Position path is curved now shows a message instead of leaving an animation that cannot save.
+- Auto-layout preserves responsive and authored alignment, and modifier-click cycles through overlapping layers
+- Canvas clicks keep selected layers in context, and new text stays readable on painted surfaces.
+- Clicking inside a drilled container selects the layer under the pointer, and modifier-click cycles through overlapping layers.
+- Component properties stay read-only while an earlier change is still saving, so an edit can no longer overwrite it.
+- Curving a Position path on a layer that already has another Position animation now shows a message and leaves the path unchanged, instead of failing silently.
+- Keep selected design layers stable during repeated clicks and match inserted text to the visible canvas surface
+- Layer toggle drags pass through open tooltips
+- Modifier-click selects the nested layer beneath the pointer.
+- Motion timelines remain available for inline screens in localhost-connected designs.
+- Motion timelines keep using saved localhost source mappings from older designs without per-screen source types.
+- After Alt is pressed during a drag, the pointer must move past the drag threshold before the layer duplicates.
+- Reopening the Motion dock right after collapsing it keeps it open, instead of the dock disappearing.
+- Text color follows the surface beneath inserted and moved text.
+- Text stays legible on styled surfaces, and authored alignment is preserved during auto-layout.
+
+## 2026-10-16
+
+### Added
+
+- Create custom WebGPU shaders from the Shader picker with AI
+
+### Improved
+
+- Design pages use localized visibility badges and a shared ownership filter.
+- Animated shader fills render together more efficiently and pause work outside the visible canvas.
+- Shader property sliders preview changes while dragging
+- Canvas selection, layer controls, text insertion, grouping, and auto-layout behave more predictably.
+- The Gap field shows its whole value; the advanced gap button now sits beside the Gap label
+
+### Fixed
+
+- Export selected shader frames and Liquid Glass as transparent PNGs at the chosen scale
+- Glass backdrops and animated shaders stay stable on large Design canvases
+- Hidden layers no longer interrupt effects on visible layers
+- New Glowing Waves, Lens Distortion, and Water shaders preserve their appearance as the canvas zoom changes
+- Pasted SVGs keep their position inside freeform frames
+- Shader fills stay visible when frames are wrapped or moved into auto layout
+- Shader previews remain active when the canvas viewport changes
+- A layer copied onto another screen keeps its original style text instead of rewriting its colors and spacing
+- A layer moved to another screen keeps the font it inherited when it sets only part of it, such as its weight
+- A new text box is named after everything you typed, even when you started typing before it opened for editing
+- Selected text keeps its natural width in auto layout, and closing an edited path keeps the pasted SVG in place.
+- Design shows guidance when external stylesheets prevent Motion editing.
+- Dragging a layer out of its frame no longer snaps it to the old frame's guides
+- Escape clears newly drawn layers, redo restores the right selection, and pasted SVG shapes keep their names.
+- Fixed SVG export timeouts so a delayed preview reports an export error instead of appearing missing
+- Handle unresolved external stylesheets as unsupported motion sources without surfacing a failed action.
+- Moving a layer to another screen no longer deletes it when a reload or dropped connection interrupts the save.
+- Undo and redo restore the correct selection after creating or duplicating a layer.
+- Option-dragging a layer to empty board space near other layers now drops the copy where you release it, instead of thousands of pixels away.
+- Picking a Screen right after zooming to fit no longer zooms the canvas back in
+- Pressing Escape right after switching a fill to Gradient keeps the color picker closed instead of reopening it
+- Resizing a screen from its left or right edge keeps its saved height
+- Size and min/max fields in the inspector show their whole value instead of cutting off the last character
+- SVG exports wait for external previews to load.
+- The component panel no longer shows an error when you redo a duplicated component before its save lands.
+- Undo and redo restore the layer selection associated with each recorded edit.
+- Shift-drag keeps selected screens, screen nudges stay with the canvas selection, and Code refreshes when reopened.
+
+## 2026-10-15
+
+### Added
+
+- Nebula and Glowing Waves join the editable WebGPU fill library.
+- The Design shader picker now includes a broader library of original WebGPU textures, patterns, and effects with editable controls.
+- Liquid Glass refracts the backdrop through rounded layers and SVG logos with shared effect controls
+- Drawing a frame around layers with the Frame tool now wraps the layers it fully encloses, without moving them.
+- External Design agents can delete screens when you ask them.
+
+### Improved
+
+- Liquid Metal reflects moving studio light across a continuous silver surface
+- Liquid Metal gains smooth reflective cells, broad white reflections, and crisp chromatic ribbons.
+- Liquid Metal has independent Tint and Fill controls, with solid colors and spatial gradients edited through the shared color picker.
+- Animation controls align with the inspector edge
+- Animation recipes preserve their full duration at the timeline endpoint
+- Animation style browser now aligns beside the inspector.
+- Adding an animation style or recipe now appends tracks even when those properties already have motion
+- Motion can import and edit authored CSS animations that change multiple properties together.
+- Motion lets you edit repeated animation tracks independently while keeping changes in source.
+- Motion style popovers align with the inspector and the gallery opens ready for keyboard search
+
+### Fixed
+
+- Liquid Metal flows and deforms in place instead of sliding a fixed pattern across the layer.
+- Liquid Metal flows through curved chrome bands with tight multicolor rims
+- Liquid Metal reflections wrap around SVG shapes.
+- Native shader fills follow SVG artwork, including transparent gaps and layered paints.
+- Pasted SVG artwork no longer hides native shader fills and effects.
+- SVG artwork stays sharp when zooming in on the canvas
+- A layer dropped on the empty part of a box that already has content stays where you release it
+- A localhost screen hides "Preparing the live editor…" as soon as its editor is ready instead of waiting for its slowest image.
+- A screen that links one of the design's CSS files with a stylesheet link now shows those styles on the canvas.
+- Align the Motion style gallery with its inspector
+- An animation you add to a property that already has a Motion style no longer gets replaced by that style when the design is saved and reopened
+- Board objects placed over a screen now paint on top of it instead of hiding behind it.
+- Text you type right after creating a text box is now saved in the order you typed it, even if you press Escape or click away straight away.
+- Cancelling a drag with Escape keeps the dragged layer selected instead of selecting the layer under the pointer.
+- Clicking another Screen's name just below a selected Screen now picks that Screen instead of grabbing the selected Screen's resize edge.
+- Dragged layers use the final pointer release position even when it differs from the last move event, and keep that position after saving and reloading.
+- Dropping a layer into another layer on the same screen keeps its authored styles, such as hex colors, instead of rewriting every declaration.
+- Edits made at a breakpoint now show in that breakpoint's frame only, and This breakpoint only edits stay inside that breakpoint's width range.
+- In a design with localhost screens, its static screens are inspected as Static instead of URL.
+- Motion duration edits stay stable when the timeline updates
+- Motion now refuses HTML edits with unresolved external stylesheets and checks text line spans against the runtime limit
+- Motion saves no longer conflict when the editor already holds the latest source.
+- Nudging a screen quickly with the arrow keys no longer snaps it back a step or drops a nudge while the previous move is still saving.
+- Opening a Visual Edit link from the Design page reuses the project's registered local bridge instead of failing.
+- Option-dragging a layer out of an auto-layout row no longer squeezes the row while you hold the copy
+- Pressing Escape just before releasing an Option-drag from an auto-layout row discards the copy
+- Redo after undoing a drawn shape selects that shape again, and an interaction state with nothing authored shows the element's own values instead of the last edited state's
+- Repeated pastes preserve relative layer offsets in right-to-left layouts and across Screens.
+- Route search waits until you start typing before showing an empty state.
+- SVG exports report when another export is already running
+- Text animation edits keep long stagger timings aligned with the timeline
+- Text stagger previews finish in sync with the motion timeline.
+- Text layers retain their individual widths when wrapped in auto layout.
+- Text you type into a new text box and then click away from right away is no longer deleted
+- The animation gallery lists only available actions.
+- The inspector shows the rendered width and height of a layer selected in a live URL screen instead of 0.
+- Undo and Redo now work while a Group Fill, Selection colors or background color picker is open, and changing a Group Fill's opacity keeps text layers plain.
+- Empty inspector section titles stay compact
+- Fixed local screen, account, and storage setup when route or connection data is unavailable.
+
+## 2026-10-14
+
+### Added
+
+- Add Liquid Metal, Fluted Glass, Image Dithering, and Waves to the shader library
+- Apply curated WebGPU fills and effects to Design layers and export their rendered frames as PNGs
+- Native fills can stack multiple shader layers while keeping CSS fills in their own ordered group.
+
+### Improved
+
+- Choose each native shader once and customize its parameters.
+- Liquid Metal adds flowing contours, sharper reflections, and adjustable color separation with percentage and angle controls.
+- Mesh Gradient now blends four deliberate color points into a smoother animated field.
+- Native shader choices now show visual previews and use the same color controls as other fills.
+- Shader controls use familiar units and reliable numeric editing, Liquid Metal has smoother reflections, and duplicating layers preserves their shader stacks
+- Text layers show one Text option for adding staggered motion.
+- Design Motion keeps supported React and HTML motion edits in sync with their source code.
+- Motion can import supported inline CSS keyframes and round-trip them through the timeline editor.
+- Motion timeline duration fields support keyboard stepping
+- Text motion presets now include editable direction, grouping, order, overlap, and space handling.
 - Show Figma fidelity warnings in Home URL imports
+
+### Fixed
+
+- Static content extending beyond the viewport no longer prevents shader effects from rendering.
+- A failed live snapshot of a URL screen now names the page that failed instead of showing the bridge's raw JSON.
+- A layer dragged away and back to where it started no longer rewrites its style
+- A save rejected as out of date is no longer sent again after you reload the editor.
+- A screen no longer grows while a layer is dragged below it
+- Add auto layout keeps each wrapped layer at its own width, keeps a centred section full width when used on a screen, and on a layer that already has auto layout it wraps it in a new frame
+- Adding an image or video hosted on this machine no longer turns an inline screen into a localhost preview.
+- Adding an Inside stroke keeps the layer's size, and Shift+X turns a fill into a visible 1px stroke.
+- After Option-dragging a layer to another screen, only the copy shows as selected
+- Alt-resizing a layer from an edge now moves both opposite edges with the pointer
+- Clicking a Screen's label no longer changes the zoom, Cmd+D pans to a copy that lands out of view, and copies of Home are named Home copy.
+- Comment pins land where you click instead of at the edge of the layer
+- Continuing a pasted or imported SVG with the Pen tool keeps it in place instead of moving it away
+- Copying or moving a layer to another screen keeps its own fill and styles instead of rewriting them
+- Dragging a layer straight after editing text moves it instead of cancelling the drag
+- Dragging an anchor in vector edit mode moves the anchor instead of grabbing a nearby handle
+- Dragging down the Layers panel's eye column hides each row it crosses without reordering them
+- Go to main component in the inspector selects the main instance, not just its Layers row
+- Grid drops land in the cell the preview shows, a grid item with its own cell moves to the cell past the drop line, and items they displace stay inside the grid
+- Holding Control on a Mac before dragging a layer no longer opens the context menu
+- Inspect code shows a layer's authored markup instead of the editor's internal text wrapper.
+- K-scaling no longer writes invisible border and outline widths, keeps fractional borders exact, and scales auto-sized text without fixing its size.
+- Layers dropped on a positioned frame inside an auto-layout screen land in that frame at the release point
+- Layers moved into an auto-layout frame keep their fixed size instead of being squeezed or sized along the wrong axis, and fixed-size neighbours no longer shrink when a move or a Fixed size overfills the frame
+- Layers pasted into a frame keep their size and draw above the frame's other layers, and pasted SVG shapes keep readable names
+- Leaving Interact returns the canvas to where you left it instead of jumping under the Layers panel
+- Legacy text animations keep their timing and remain editable after cloning
+- Multi-selection inspector shows shared values instead of false Mixed, and Gap, Min width and Hug fields show their full values
+- New text over a light shape gets a readable colour instead of following the page behind it
+- On an empty board the zoom readout matches the drawing scale, so shapes save at the size you drag
+- On phone-width screens the canvas toolbar no longer covers an open side panel
+- Option-dragging a layer onto an empty screen drops the copy where you release it
+- Option-dragging a positioned layer into an auto-layout row adds it to the row's flow
+- PNG and PDF exports of auto-height screens keep the screen's frame size instead of squashing taller content into it.
+- Pressing Enter after extending a path in vector edit mode exits to the Move tool
+- Removing a fill, recoloring SVG paths, and grouping layers placed at 0 no longer leave stale styles or a zero-height group.
+- Renaming a layer no longer scrolls the Layers panel sideways
+- Swapping a component instance keeps it where it stood
+- Switches and checkboxes inside a tooltip, such as Share's Live collaboration toggle, show their on and off colors again.
+- Text animations keep defaults consistent, show grouping-specific controls, and explain when preset settings conflict.
+- Text motion clears Ignore spaces when the selected grouping hides that option.
+- Text motion edits now preserve saved stagger timing and outgoing rotation direction.
+- The Layers panel keeps previewing a drop after the pointer leaves the screen and comes back
+- Undoing a drag no longer leaves an extra undo step for the selection the drag started with.
+- Restoring a version puts Screens back in their original order, and selecting several Screens no longer tints the Screens between them.
+- Chats no longer stop with "result is unknown" after a rejected edit; the agent corrects the call and continues.
+- Deselecting a layer keeps Motion open and restores the canvas inspector.
+- Image fills show their picture in the Fill inspector instead of a broken swatch.
+- Motion reports unsupported animation syntax without interrupting Design editing
+- Motion saves now move imported inline HTML animations into managed source
+- Motion source editing now refuses targets with dynamic styles, Alpine transitions, or inline CSS motion declarations that cannot be synchronized safely
+- Screen undo keeps the original order, deselected Screens clear from Layers, and clipboard pastes preserve placement across responsive previews.
+- Selection stays precise in deeply nested layers, and pasted content keeps its size, styling, and editing history
+- Text animations preserve whitespace layout, punctuation, legacy timing, and outgoing easing
+- Text animation edits preserve collapsed whitespace and reset ordering when grouping changes
 
 ## 2026-10-13
 
@@ -17,6 +435,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- The Tokens panel import menu now imports DTCG token files, CSS or Tailwind files, the clipboard, or tokens generated from the design, and DTCG tokens keep their type.
+- The Tokens panel + menu now creates a token of a chosen kind (color, font size, opacity, and more) as an inline draft row in its group.
 - Fill and effect rows keep the reorder handle outside the field, so OKLCH values show in full.
 - HTML token imports now skip prose and preserve CSS declaration precedence.
 - Left panels keep one width, Tokens search and rows match Layers, the org menu matches other apps, and the import picker names Figma and HTML files.
@@ -24,6 +444,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Dropping a layer in the empty end of an auto-layout row of buttons keeps it in the row as the last item
+- Layers dropped onto another screen, or beside an auto-layout frame they don't fit, land where they are released instead of the screen's top-left corner
+- Moving a layer in the Layers panel, including from the board into a screen, keeps it where it sits on the canvas
+- Home prompt suggestions stay hidden until AI is connected
+- Undo reliably restores screen positions after repeated keyboard nudges
 - Comment pins no longer show in Interact mode or paint over the editor panels.
 - Design token imports now accept trailing commas after quoted values
 - Design token imports now handle size-limited files, attribute-selector CSS, and SCSS interpolation.

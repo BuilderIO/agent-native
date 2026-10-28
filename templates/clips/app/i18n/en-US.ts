@@ -1,10 +1,28 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  meetingBrowserConfirmation:
+    "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
+  meetingReplacement: {
+    title: "Meeting notes need attention",
+    description:
+      "The previous meeting's notes couldn't be saved. Copy them before starting this meeting.",
+    copyAndStart: "Copy notes and start",
+    actionFailed: "Could not continue meeting recovery. Try again.",
+  },
+  quitRecovery: {
+    title: "Clips is still finishing the meeting",
+    body: "Clips hasn't finished stopping and saving this meeting. The latest transcript may be lost if you quit now.",
+    keepOpen: "Keep Clips open",
+    quitAnyway: "Quit anyway",
+    actionFailed: "Clips couldn't update the quit recovery state. Try again.",
+  },
   lookbackContext: {
     includeLast: "Include last",
     whatIsThis: "What is this?",
     off: "Off",
     none: "None",
+    noneExplanation:
+      "None means new Clips won’t include earlier screen time. Rewind still records your screen while it’s on. Choose Turn off below to stop it.",
     custom: "Custom…",
     customLabel: "Custom length",
     customAmount: "Length",
@@ -31,13 +49,13 @@ const messages = {
       "Couldn't access Rewind's storage. Check disk space and folder permissions, then try again.",
     rewindConsentTitle: "Turn on Rewind?",
     rewindConsentBody:
-      "Clips will continuously record your screen and keep it on this device. Agents get text excerpts, and video is shared only when you approve it.",
+      "While Rewind is on, Clips continuously records your screen and keeps recent history on this device until it reaches your time or storage limit. Choose Screen + audio to also capture your microphone and system audio. Connected agents can access screen images directly, without a Clips approval; what happens to those images next depends on the agent. When you set an earlier-screen-time length, Clips adds that much history to each new Clip, using the Clip's sharing settings. Requests to share a selected time range as a Clip are reviewed before sending by default. Turn off review before sending in Rewind settings to send those requests automatically. A Clip may include captured microphone and system audio. Turning Rewind off stops new recording but keeps saved history. While Rewind is off, history can remain past your time and storage limits until recording starts again. Choose Delete all to erase saved history now.",
     rewindConsentCancel: "Not now",
     rewindConsentConfirm: "Turn on Rewind",
     rewindConsentBusy: "Turning on…",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
-      "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
+      "To include earlier screen time, turn on Rewind first. While Rewind is on, it keeps recent screen history on this device within your time and storage limits. When Rewind is off, saved history can remain past those limits until recording starts again. To erase it now, open Settings > Rewind > Storage > On this device and choose Delete all. A requested Clip is reviewed before sending by default, unless you turn off review before sending in Rewind settings.",
     requestFailed:
       "Couldn't include earlier screen time. The recording continues without it.",
     localOnlyUnavailable:
@@ -143,6 +161,7 @@ const messages = {
     spaces: "Spaces",
     meetings: "Meetings",
     dictate: "Dictate",
+    fromContent: "From Content",
     archive: "Archive",
     trash: "Trash",
     agent: "Agent",
@@ -197,6 +216,10 @@ const messages = {
     archive: {
       title: "No archived recordings",
       body: "Archived Clips stay here until you’re ready to bring them back.",
+    },
+    fromContent: {
+      title: "No uploads from Content yet",
+      body: "Videos you upload to a Content page are saved here as Clips.",
     },
     trash: {
       title: "Trash is empty",
@@ -262,6 +285,8 @@ const messages = {
     fillerCompleted: "Filler-word removal complete",
     workflowReady: "Workflow ready",
     workflowFailed: "Workflow generation failed",
+    workflowCancelled: "Workflow generation cancelled",
+    workflowTimedOut: "Workflow generation timed out",
     transcriptionCompleted: "Transcription complete",
     transcriptNotReady: "Transcript is not ready yet",
     tryAfterTranscription: "Try again after transcription finishes.",
@@ -280,6 +305,8 @@ const messages = {
     silenceEditsUnreadable:
       "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
+    workflowStillGenerating: "Still generating workflow…",
+    workflowTakingLonger: "This is taking longer than usual…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
     finalizeFailed: "Finalize failed ({{status}})",
@@ -570,6 +597,40 @@ const messages = {
     waiting: "Waiting…",
     nativeSpeechPrimary: "Native speech remains the primary transcript source.",
   },
+  transcriptImport: {
+    addFile: "Add transcript file",
+    imported: "Imported",
+    replaceTitle: "Replace transcript?",
+    replaceDescription: "{{fileName}} will replace the current transcript.",
+    replace: "Replace",
+    regenerateOverImportTitle: "Replace the imported transcript?",
+    regenerateOverImportDescription:
+      "A new transcript made from the recording's audio will replace the one imported from a file.",
+    added: "Transcript added",
+    replaced: "Transcript replaced",
+    failed: "Couldn't add transcript",
+    invalidFile: "Couldn't read {{fileName}}",
+    errorEmpty: "The file has no transcript text.",
+    errorTooLarge: "The file is too large to import.",
+    errorNotUtf8: "The file isn't UTF-8 text. Save it as UTF-8 and try again.",
+    errorMissingTiming:
+      "Line {{line}}: expected a cue timing line like 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "Line {{line}}: the cue timing couldn't be read.",
+    errorBadRange: "Line {{line}}: the cue ends before it starts.",
+    errorMissingTimestamp:
+      "Line {{line}}: expected a start time like 0:21 or [0:21].",
+    errorOutOfOrder:
+      "Line {{line}}: this time is earlier than the one before it.",
+    errorPastEnd: "Line {{line}}: this time is after the end of the video.",
+  },
+  transcriptHistory: {
+    title: "Earlier transcripts",
+    automatic: "Automatic",
+    restore: "Restore",
+    restored: "Transcript restored",
+    restoreFailed: "Couldn't restore transcript",
+    undo: "Undo",
+  },
   thumbnailPicker: {
     failedCapture: "Failed to capture frame",
     failedGif: "Failed to generate GIF — try a shorter range",
@@ -623,7 +684,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report. If your tool cannot return images or open these links, say that your tool has this limit; it is not a Clips error.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:
@@ -638,12 +699,16 @@ const messages = {
     chooseFile: "Choose file",
     remove: "Remove",
     downloadMp4: "Download MP4",
-    embedsNeedPublic: "Embeds need a public clip",
-    embedPublicDescription:
-      "This clip is currently {{visibility}}. Embedded iframes load anonymously, so the clip must be public for viewers to watch.",
-    makingPublic: "Making public…",
-    makePublic: "Make public",
     askOwnerPublic: "Ask the owner to make it public.",
+    advanced: "Advanced",
+    passwordSet: "Password set",
+    noPassword: "No password",
+    linkExpires: "Link expires",
+    expiresOn: "Expires {{date}}",
+    neverExpires: "Never expires",
+    embedNeedsLinkAccess:
+      "Embedded players load without sign-in, so they only play when anyone with the link can view.",
+    changeGeneralAccess: "Change general access",
     responsive: "Responsive (16:9)",
     fixedSize: "Fixed size",
     embedIframeTitle: "Clips video",
@@ -837,8 +902,9 @@ const messages = {
     labVideoEditingDescription: "Try the new video editor.",
     labMeetings: "Meetings and transcription",
     labMeetingsDescription: "Try automatic meeting capture and transcription.",
-    labWisprFlow: "Voice dictation",
-    labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
+    labVoiceDictation: "Voice dictation",
+    labVoiceDictationDescription:
+      "Show or hide voice dictation in Clips Desktop.",
     labLookbackContext: "Include earlier screen time",
     labLookbackContextDescription:
       "Attach up to five minutes of screen time from before a recording as passive context.",
@@ -1208,12 +1274,13 @@ const messages = {
     actionItems: "Action items",
     sharedContent: "Shared content",
     summaryIncluded: "Summary, key points, and action items",
-    includeTranscript: "Include full transcript",
-    includeTranscriptDescription:
-      "Anyone with access to this meeting can read the complete transcript.",
     transcriptUnavailable: "The transcript isn't ready yet.",
-    agentLinkDescription:
-      "This temporary link lets agents read these meeting notes without making them public. It expires after two hours.",
+    transcriptOnShareLink: "Transcript on the share link",
+    transcriptOnShareLinkDescription:
+      "People you invite always see the transcript in Clips.",
+    linkShowsTranscript: "Link includes the transcript",
+    linkShowsNotesOnly: "Link shows notes only",
+    copyAgentLink: "Copy agent link",
     transcript: "Transcript",
     copyTranscript: "Copy transcript",
     transcriptCopied: "Transcript copied",
@@ -1264,6 +1331,15 @@ const messages = {
     playClip: "Play clip",
     unsupportedFormat:
       "This browser can't play this video. Try opening the link in Chrome, Edge, or Firefox.",
+    youtubeLoading: "Loading YouTube's player",
+    youtubeUnavailable: "This YouTube video is private or has been removed.",
+    youtubeEmbedBlocked:
+      "This video's owner doesn't allow it to play outside YouTube.",
+    youtubeInvalid: "This YouTube link doesn't point to a playable video.",
+    youtubePlaybackFailed: "YouTube couldn't play this video here.",
+    youtubeApiUnavailable:
+      "YouTube's player didn't load. Check your connection or content blocker, then reload.",
+    watchOnYouTube: "Watch on YouTube",
   },
   searchBar: {
     placeholder: "Search recordings…",
@@ -1486,6 +1562,9 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io's free tier includes video storage, with one-click setup.",
+    customKeys: "Custom keys",
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
@@ -1499,13 +1578,14 @@ const messages = {
     builderGrantAskAdmin:
       "Ask an owner or admin to connect Builder.io with clip upload access.",
     statusUnavailable: "Couldn't check whether video storage is ready.",
+    hostedStorageUnavailable:
+      "Clips hosted storage is temporarily unavailable. Your free clip allowance is unchanged; try the upload again later.",
     checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    description:
-      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
+    description: "Choose where to store your recorded videos.",
     createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
@@ -1533,12 +1613,28 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Add chapters",
+    editLabel: "Edit chapters",
+    placeholder: "0:00 Introduction\n1:30 Next section",
+    errorLineShape:
+      'Line {{line}}: put a time then a title, e.g. "0:48 Saved note dates".',
+    errorBadTime: 'Line {{line}}: "{{value}}" isn\'t a time like 0:48.',
+    errorDuplicate: "Line {{line}}: there's already a chapter at {{value}}.",
+    errorPastEnd: "Line {{line}}: {{value}} is past the end of the clip.",
+    changedWhileEditing:
+      "Chapters changed while you were editing. Check your lines, then Save again to replace them.",
+  },
   chapters: {
     title: "Chapters",
     addHere: "Add here",
     empty: "No chapters yet.",
     remove: "Remove chapter",
     saveFailed: "Failed to save chapters",
+    changedElsewhere:
+      "Chapters were changed elsewhere, so your last change wasn't saved.",
+    unreadable:
+      "Some saved chapters can't be read, so changes can't be saved here. Ask the agent to replace the chapters.",
     duplicateAtPoint: "A chapter already exists at this point",
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",
@@ -1728,7 +1824,7 @@ const messages = {
     unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
     takeScreenshot: "Take screenshot",
-    importLoom: "Import Loom",
+    importLoom: "Import video",
     importing: "Importing...",
     import: "Import",
     recordNew: "Record new",
@@ -1850,11 +1946,25 @@ const messages = {
     validWebUrl: "Enter a valid http:// or https:// address.",
   },
   recordRoute: {
+    freeClipsLeft_one: "{{count}} free clip left",
+    freeClipsLeft_other: "{{count}} free clips left",
+    hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
+    hostedClipsExhaustedDescription:
+      "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
+    clipExceedsSizeLimit: "This clip exceeds the current upload size limit.",
+    clipExceedsMaxDuration:
+      "This clip exceeds the current recording length limit.",
+    maxClipDurationReached:
+      "The maximum clip length was reached. Saving your recording now.",
     pageTitle: "New recording — Clips",
     uploadFailed: "Upload failed",
     uploadFailedAtChunk:
       "Upload failed at chunk {{chunk}}/{{total}}: {{message}}",
     couldNotStartRecording: "Could not start recording",
+    intakeStorageUnavailable:
+      "This link needs its owner to connect video storage before you can record.",
+    streamingStorageUnavailable:
+      "The current storage setup does not support the resumable upload Clips needs. Configure a compatible provider, or ask a workspace owner or admin to do it, then start a new recording.",
     couldNotStartRecorder: "Could not start recorder",
     openSettings: "Open settings",
     openedRecorderInNewTab: "Opened recorder in a new tab",
@@ -1864,6 +1974,8 @@ const messages = {
     storageNeededToFinishLoomImport: "Storage needed to finish Loom import",
     loomImported: "Loom imported",
     couldNotImportLoom: "Could not import that Loom.",
+    youtubeImported: "YouTube video added",
+    couldNotImportVideo: "Could not import that video.",
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     linkCopied: "Link copied",
@@ -1883,6 +1995,8 @@ const messages = {
     sessionExpired: "Session expired",
     sessionExpiredDescription:
       "Your login session has expired. Log in again to start recording.",
+    accountMismatch:
+      "Your signed-in account changed after recording setup started. Switch back to the account you started with, then try again.",
     logIn: "Log in",
     betterInDesktop: "Better in the desktop app",
     desktopAppDescription:
@@ -1896,8 +2010,8 @@ const messages = {
     openRecorderInTab: "Open recorder in tab",
     retryUpload: "Retry upload",
     tryAgain: "Try again",
-    storageConnectedReopeningRecorder:
-      "Storage connected. Reopening recorder...",
+    storageConnectedRecorderReady:
+      "Storage connected. Start a new recording when you're ready.",
     connectStorageToFinish:
       "On the next screen, use Builder.io storage (free tier storage + AI) or configure S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
@@ -1963,12 +2077,12 @@ const messages = {
       "This recording is still processing, so Clips kept your copy here. Wait for it, or upload it again.",
   },
   importRoute: {
-    pageTitle: "Import Loom — Clips",
-    title: "Import Loom",
+    pageTitle: "Import video — Clips",
+    title: "Import video",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Import",
     helperText:
-      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+      "Works great with Loom and YouTube. You can also paste a link to any other screen recording or video file.",
     stageFetching: "Pulling in your video…",
     stageUploading: "Uploading the raw footage…",
     stageTranscript: "Making speech and on-screen visuals agent-readable…",
@@ -2013,6 +2127,32 @@ const messages = {
     copy: "Copy",
     copied: "Copied",
     copyFailed: "Couldn't copy",
+    flowStarting: "Starting dictation…",
+    flowFinalizing: "Finishing dictation…",
+    flowBusy: "Finishing the previous dictation…",
+    flowTranscribing: "Transcribing…",
+    flowCleaning: "Cleaning up text…",
+    flowPasting: "Pasting text…",
+    flowSavingHistory: "Saving to history…",
+    flowPasted: "Pasted",
+    flowCopied: "Copied to clipboard",
+    flowPastedHistoryFailed: "Pasted, but history wasn’t saved",
+    flowCopiedHistoryFailed: "Copied, but history wasn’t saved",
+    flowHistoryNotSaved: "Dictation history wasn’t saved",
+    flowPermissionFailed: "Microphone permission is off",
+    flowMicrophoneUnavailable: "Microphone unavailable",
+    flowProviderFailed: "Couldn’t transcribe speech",
+    flowMeetingCaptureActive: "Stop the meeting recording before dictating",
+    flowPasteFailed: "Couldn’t paste transcript",
+    flowCancelled: "Dictation canceled",
+    flowRetryHistory: "Retry saving history",
+    flowDismiss: "Dismiss",
+    flowTranscriptRecovery: "Transcript recovery",
+    flowOriginalTranscript: "Show original transcript",
+    flowCleanupSkipped: "Text cleanup was skipped; original text was kept",
+    flowBacktrackSkipped: "Text editing was skipped; recognized text was kept",
+    flowCancelDictation: "Cancel dictation",
+    flowCopying: "Copying transcript…",
     aiProcessed: "AI Processed",
     aiCleaned: "AI cleaned",
     original: "Original",
@@ -2082,6 +2222,10 @@ const messages = {
     vocabularyRemoveFailed: "Couldn't remove term",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Hosted Clips storage is full. Connect Builder.io storage to keep saving clips.",
+    hostedRecordingTakenDown:
+      "This recording was removed from hosted Clips storage.",
     splitAtPlayhead: "Split at playhead (S)",
     selectedCount: "{{count}} selected",
     selectAll: "Select all",
@@ -2112,6 +2256,7 @@ const messages = {
     viewsCount: "{{count}} views",
     recordingMenu: "Recording menu",
     moveToFolder: "Move to folder",
+    moveHere: "Move here",
     unarchive: "Unarchive",
     shareNamedMeeting: 'Share "{{title}}"',
     shareMeeting: "Share meeting",
@@ -2142,6 +2287,8 @@ const messages = {
     goHome: "Go home",
     testMic: "Test mic",
     archivePageTitle: "Archive · Clips",
+    fromContentPageTitle: "From Content · Clips",
+    openContentPage: "Open page",
     insightsPageTitle: "Insights · Clips",
     folderPageTitle: "Folder · Clips",
     spacePageTitle: "Space · Clips",
@@ -2260,9 +2407,15 @@ const messages = {
     issues: "Issues",
     consoleSource: "Console",
     networkSource: "Network",
+    appSource: "App activity",
+    appEvent: "Event",
+    appData: "Data",
+    appFailureSummary: "{{count}} app failures",
+    appUnavailable: "App activity could not be loaded.",
     consoleCount: "Console {{count}}",
     networkCount: "Network {{count}}",
     afterRecording: "After recording",
+    beforeRecording: "Before recording",
     seekToTime: "Seek to {{time}}",
     occurrences: "Occurrences",
     message: "Message",
@@ -2274,6 +2427,7 @@ const messages = {
     noIssuesTitle: "No browser issues detected",
     noConsoleTitle: "No console events",
     noNetworkTitle: "No network requests",
+    noAppTitle: "No app activity",
     capturedDescription: "Diagnostics were captured for this recording.",
   },
   timeline: {

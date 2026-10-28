@@ -6,6 +6,7 @@ import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
 import {
   alignSlideObjectMembers,
+  applySlideObjectContext,
   applySlideObjectMoveDelta,
   arrangeSlideLayerInParent,
   buildPastedSlideObjects,
@@ -77,6 +78,7 @@ import {
   resolveFitTextBoxResize,
   resolveFreeformSizing,
   resolveSelectionIdentity,
+  resolveRetainedSlideSelectionNode,
   resolveSlideSelectionAnchor,
   clientRectToContainingBlockBox,
   hasRotatedAncestor,
@@ -133,6 +135,45 @@ function rotationMember(
   };
 }
 
+function installLegacyCopyRecorder({
+  result = true,
+  dispatchCopyEvent = true,
+}: { result?: boolean; dispatchCopyEvent?: boolean } = {}) {
+  const written = new Map<string, string>();
+  const originalExecCommand = Object.getOwnPropertyDescriptor(
+    document,
+    "execCommand",
+  );
+  const execCommand = vi.fn(() => {
+    if (dispatchCopyEvent) {
+      const event = new Event("copy", { cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: {
+          setData: (type: string, value: string) => written.set(type, value),
+        },
+      });
+      document.dispatchEvent(event);
+    }
+    return result;
+  });
+  Object.defineProperty(document, "execCommand", {
+    configurable: true,
+    value: execCommand,
+  });
+
+  return {
+    execCommand,
+    written,
+    restore() {
+      if (originalExecCommand) {
+        Object.defineProperty(document, "execCommand", originalExecCommand);
+      } else {
+        Reflect.deleteProperty(document, "execCommand");
+      }
+    },
+  };
+}
+
 describe("slide object interactions", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -150,109 +191,8 @@ describe("slide object interactions", () => {
     ).toBe(null);
   });
 
-  it("writes readable text and a layer marker to the native clipboard", async () => {
-    const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
-    class FakeClipboardItem {
-      constructor(readonly items: Record<string, Blob>) {}
-    }
-    vi.stubGlobal("navigator", { clipboard: { write } });
-    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
-
-    await writeSlideObjectClipboard(
-      "copy-1",
-      { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
-      null,
-    );
-
-    const item = write.mock.calls[0]![0]![0] as unknown as FakeClipboardItem;
-    expect(await item.items["text/plain"]?.text()).toBe("Layer");
-    expect(await item.items["text/html"]?.text()).toContain(
-      'data-agent-native-slide-object-clipboard="copy-1"',
-    );
-  });
-
-  it("does not start a fallback write after rich clipboard rejection", async () => {
-    const write = vi.fn(async () => {
-      throw new Error("clipboard denied");
-    });
-    const writeText = vi.fn(async (_text: string) => undefined);
-    class FakeClipboardItem {
-      constructor(readonly items: Record<string, Blob>) {}
-    }
-    vi.stubGlobal("navigator", { clipboard: { write, writeText } });
-    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
-
-    await expect(
-      writeSlideObjectClipboard(
-        "copy-1",
-        { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
-        null,
-      ),
-    ).rejects.toThrow("clipboard denied");
-    expect(writeText).not.toHaveBeenCalled();
-  });
-
-  it("preserves line breaks in plain-text clipboard content", async () => {
-    const write = vi.fn(async (_items: ClipboardItem[]) => undefined);
-    class FakeClipboardItem {
-      constructor(readonly items: Record<string, Blob>) {}
-    }
-    vi.stubGlobal("navigator", { clipboard: { write } });
-    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
-
-    await writeSlideObjectClipboard(
-      "copy-1",
-      {
-        html: [
-          '<div data-slide-object-id="layer-1">First<br>Second</div>',
-          "<p>Third</p><p>Fourth</p><style>.hidden{display:none}</style><script>bad()</script><template>Hidden</template>",
-        ],
-      },
-      null,
-    );
-
-    const item = write.mock.calls[0]![0]![0] as unknown as FakeClipboardItem;
-    expect(await item.items["text/plain"]?.text()).toBe(
-      "First\nSecond\nThird\nFourth",
-    );
-  });
-
-  it("uses plain text when rich clipboard writing is unavailable", async () => {
-    const writeText = vi.fn(async (_text: string) => undefined);
-    vi.stubGlobal("navigator", { clipboard: { writeText } });
-    vi.stubGlobal("ClipboardItem", undefined);
-
-    await expect(
-      writeSlideObjectClipboard(
-        "copy-1",
-        { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
-        null,
-      ),
-    ).resolves.toBe("text-only");
-    expect(writeText).toHaveBeenCalledWith("Layer");
-  });
-
-  it("keeps the marker when the legacy copy event writes clipboard HTML", async () => {
-    const written = new Map<string, string>();
-    const originalExecCommand = Object.getOwnPropertyDescriptor(
-      document,
-      "execCommand",
-    );
-    const execCommand = vi.fn(() => {
-      const event = new Event("copy", { cancelable: true });
-      Object.defineProperty(event, "clipboardData", {
-        value: {
-          setData: (type: string, value: string) => written.set(type, value),
-        },
-      });
-      document.dispatchEvent(event);
-      return true;
-    });
-    Object.defineProperty(document, "execCommand", {
-      configurable: true,
-      value: execCommand,
-    });
-
+  it("writes readable text and a layer marker through the synchronous copy event", async () => {
+    const recorder = installLegacyCopyRecorder();
     try {
       await expect(
         writeSlideObjectClipboard(
@@ -262,58 +202,60 @@ describe("slide object interactions", () => {
         ),
       ).resolves.toBe("rich");
       expect(
-        readSlideObjectClipboardId(written.get("text/html"), document),
+        readSlideObjectClipboardId(recorder.written.get("text/html"), document),
       ).toBe("copy-1");
-      expect(written.get("text/html")).toContain(
+      expect(recorder.written.get("text/html")).toContain(
         "<div data-agent-native-slide-object-clipboard=",
       );
+      expect(recorder.written.get("text/plain")).toBe("Layer");
     } finally {
-      if (originalExecCommand) {
-        Object.defineProperty(document, "execCommand", originalExecCommand);
-      } else {
-        Reflect.deleteProperty(document, "execCommand");
-      }
+      recorder.restore();
     }
   });
 
-  it("starts each asynchronous native clipboard write immediately", async () => {
-    class FakeClipboardItem {
-      constructor(readonly items: Record<string, Blob>) {}
+  it("preserves line breaks in plain-text clipboard content", async () => {
+    const recorder = installLegacyCopyRecorder();
+    try {
+      await writeSlideObjectClipboard(
+        "copy-1",
+        {
+          html: [
+            '<div data-slide-object-id="layer-1">First<br>Second</div>',
+            "<p>Third</p><p>Fourth</p><style>.hidden{display:none}</style><script>bad()</script><template>Hidden</template>",
+          ],
+        },
+        document,
+      );
+
+      expect(recorder.written.get("text/plain")).toBe(
+        "First\nSecond\nThird\nFourth",
+      );
+    } finally {
+      recorder.restore();
     }
-    const htmlWrites: Blob[] = [];
-    const releases: Array<() => void> = [];
-    const write = vi.fn((items: FakeClipboardItem[]) => {
-      htmlWrites.push(items[0]!.items["text/html"]!);
-      return new Promise<void>((resolve) => releases.push(resolve));
+  });
+
+  it("does not start an asynchronous clipboard write when synchronous copy fails", async () => {
+    const recorder = installLegacyCopyRecorder({
+      result: false,
+      dispatchCopyEvent: false,
     });
-    vi.stubGlobal("navigator", { clipboard: { write } });
-    vi.stubGlobal("ClipboardItem", FakeClipboardItem);
-
-    const first = writeSlideObjectClipboard(
-      "copy-1",
-      { html: ['<div data-slide-object-id="layer-1">First</div>'] },
-      null,
-    );
-    await Promise.resolve();
-    const second = writeSlideObjectClipboard(
-      "copy-2",
-      { html: ['<div data-slide-object-id="layer-2">Second</div>'] },
-      null,
-    );
-    await Promise.resolve();
-
-    expect(write).toHaveBeenCalledTimes(2);
-    await expect(htmlWrites[0]!.text()).resolves.toContain(
-      'data-agent-native-slide-object-clipboard="copy-1"',
-    );
-    await expect(htmlWrites[1]!.text()).resolves.toContain(
-      'data-agent-native-slide-object-clipboard="copy-2"',
-    );
-    releases[1]!();
-    releases[0]!();
-    await expect(first).resolves.toBe("rich");
-    await expect(second).resolves.toBe("rich");
-    expect(htmlWrites).toHaveLength(2);
+    const write = vi.fn(async () => undefined);
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { write, writeText } });
+    try {
+      await expect(
+        writeSlideObjectClipboard(
+          "copy-1",
+          { html: ['<div data-slide-object-id="layer-1">Layer</div>'] },
+          document,
+        ),
+      ).rejects.toThrow("Clipboard writing is not supported");
+      expect(write).not.toHaveBeenCalled();
+      expect(writeText).not.toHaveBeenCalled();
+    } finally {
+      recorder.restore();
+    }
   });
 
   it("lets an explicit size override a generated text cap", () => {
@@ -2263,6 +2205,82 @@ describe("slide object interactions", () => {
     expect(pasted.style.left).toBe("");
     expect(pasted.style.top).toBe("");
   });
+
+  function zoomedSlide(scale: number): HTMLElement {
+    const slide = document.createElement("div");
+    slide.className = "fmd-slide";
+    Object.defineProperty(slide, "offsetWidth", { value: 960 });
+    Object.defineProperty(slide, "offsetHeight", { value: 540 });
+    stubRect(slide, {
+      left: 100,
+      top: 50,
+      width: 960 * scale,
+      height: 540 * scale,
+    });
+    document.body.append(slide);
+    return slide;
+  }
+
+  function stubRect(
+    element: HTMLElement,
+    box: { left: number; top: number; width: number; height: number },
+  ) {
+    element.getBoundingClientRect = () =>
+      ({
+        ...box,
+        x: box.left,
+        y: box.top,
+        right: box.left + box.width,
+        bottom: box.top + box.height,
+      }) as DOMRect;
+  }
+
+  it("records each copied object's box in slide layout px under zoom", () => {
+    const slide = zoomedSlide(0.5);
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    second.style.marginLeft = "8px";
+    slide.append(first, second);
+    stubRect(first, { left: 110, top: 60, width: 50, height: 20 });
+    stubRect(second, { left: 160, top: 100, width: 25, height: 10 });
+
+    expect(copySlideObjects([first, second]).layout).toEqual([
+      { left: 20, top: 20, width: 100, height: 40 },
+      // `left` places the margin box, so the margin is backed out.
+      { left: 112, top: 100, width: 50, height: 20 },
+    ]);
+  });
+
+  it("records no layout when the copied objects are not on one slide", () => {
+    const first = document.createElement("div");
+    const second = document.createElement("div");
+    zoomedSlide(1).append(first);
+    zoomedSlide(1).append(second);
+
+    expect(copySlideObjects([first, second]).layout).toBeUndefined();
+  });
+});
+
+describe("applySlideObjectContext", () => {
+  it("pins only the context the target does not already provide", () => {
+    const target = document.createElement("div");
+    target.style.setProperty("--deck-muted", "#111111");
+    target.style.setProperty("--deck-accent", "#222222");
+    document.body.append(target);
+    const pasted = document.createElement("p");
+    pasted.style.color = "red";
+
+    applySlideObjectContext(
+      pasted,
+      { "--deck-muted": "#111111", "--deck-accent": "#999999", color: "blue" },
+      target,
+    );
+
+    expect(pasted.style.getPropertyValue("--deck-muted")).toBe("");
+    expect(pasted.style.getPropertyValue("--deck-accent")).toBe("#999999");
+    // The object's own inline styling wins over what it inherited at copy.
+    expect(pasted.style.color).toBe("red");
+  });
 });
 
 describe("isDeletableFlowImage", () => {
@@ -3911,6 +3929,25 @@ describe("object interaction geometry hardening", () => {
     expect(
       resolveSlideSelectionAnchor(root, { objectId: null, path: [0, 1] }),
     ).toBeNull();
+  });
+
+  it("keeps a connected selection target when AutoFit reparents its node", () => {
+    const root = document.createElement("div");
+    const previousParent = document.createElement("div");
+    const selected = document.createElement("img");
+    previousParent.append(selected);
+    root.append(previousParent);
+    document.body.append(root);
+
+    const autofitWrapper = document.createElement("div");
+    autofitWrapper.setAttribute("data-fmd-autofit-content", "");
+    previousParent.replaceWith(autofitWrapper);
+    autofitWrapper.append(selected);
+
+    expect(resolveRetainedSlideSelectionNode(root, selected)).toBe(selected);
+
+    document.body.append(selected);
+    expect(resolveRetainedSlideSelectionNode(root, selected)).toBeNull();
   });
 
   it("snaps within 4 screen px at any zoom (oracle 9.1)", () => {

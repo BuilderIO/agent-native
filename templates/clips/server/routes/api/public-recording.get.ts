@@ -28,6 +28,7 @@ import {
   isImageRecording,
   resolveRecordingKind,
 } from "../../../shared/recording-kind.js";
+import { parseStoredChapters } from "../../../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -45,6 +46,7 @@ import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -251,6 +253,14 @@ export default defineEventHandler(async (event) => {
     : null;
   const viewerIsOwner = viewerAccess?.role === "owner";
 
+  if (
+    isRecordingTrashedForViewer({ trashedAt: rec.trashedAt, viewerIsOwner })
+  ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
   let viewerIsOrgMember = false;
   if (session?.email && rec.visibility === "org" && rec.organizationId) {
     try {
@@ -270,6 +280,12 @@ export default defineEventHandler(async (event) => {
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
+  if (rec.failureCode === "taken_down") {
     setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
     setResponseStatus(event, 404);
     return { error: "Not found" };
@@ -341,16 +357,17 @@ export default defineEventHandler(async (event) => {
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
     .limit(1);
 
-  const comments = rec.enableComments
-    ? await db
-        .select()
-        .from(schema.recordingComments)
-        .where(eq(schema.recordingComments.recordingId, recordingId))
-        .orderBy(
-          asc(schema.recordingComments.videoTimestampMs),
-          asc(schema.recordingComments.createdAt),
-        )
-    : [];
+  const comments =
+    rec.enableComments || viewerIsOwner
+      ? await db
+          .select()
+          .from(schema.recordingComments)
+          .where(eq(schema.recordingComments.recordingId, recordingId))
+          .orderBy(
+            asc(schema.recordingComments.videoTimestampMs),
+            asc(schema.recordingComments.createdAt),
+          )
+      : [];
   const hydratedComments = await hydrateCommentAuthorNames(comments);
   const commentMentions = new Map(
     hydratedComments.map((comment) => [
@@ -376,16 +393,7 @@ export default defineEventHandler(async (event) => {
     .where(eq(schema.recordingCtas.recordingId, recordingId))
     .orderBy(asc(schema.recordingCtas.createdAt));
 
-  let chapters: { startMs: number; title: string }[] = [];
-  try {
-    const parsed = JSON.parse(rec.chaptersJson ?? "[]");
-    if (Array.isArray(parsed)) {
-      chapters = parsed.filter(
-        (c: any) =>
-          typeof c?.startMs === "number" && typeof c?.title === "string",
-      );
-    }
-  } catch {}
+  const chapters = parseStoredChapters(rec.chaptersJson);
 
   const transcriptSegments = normalizeTranscriptSegments({
     segments: parseTranscriptSegments(transcript?.segmentsJson),
@@ -406,7 +414,8 @@ export default defineEventHandler(async (event) => {
   //      the URL leaks it into browser history, CDN logs, and Referer headers.
   //      The downstream `/api/video/:id` route accepts `?t=<token>`, the media
   //      cookie, or `?password=<pw>` as a legacy fallback. (audit 11 F-07)
-  //      Remote provider URLs (R2/S3/Builder) are kept behind the same-origin
+  //      Remote provider URLs (S3-compatible storage, including hosted GCS,
+  //      or Builder) are kept behind the same-origin
   //      proxy on public pages so CORS, Range support, and fragile signed URLs
   //      fail in one server-controlled place instead of as opaque <video>
   //      errors in the browser.

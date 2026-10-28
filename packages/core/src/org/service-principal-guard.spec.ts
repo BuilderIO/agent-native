@@ -169,10 +169,10 @@ describe("recordServicePrincipalDenial", () => {
     const input = recordActionAuditMock.mock.calls[0][0];
     expect(input.ctx).toMatchObject({
       actionName: "delete-doc",
-      caller: "mcp",
       userEmail: SVC,
       orgId: "org_1",
     });
+    expect(input.attribution).toMatchObject({ caller: "mcp" });
     expect(input.error.statusCode).toBe(403);
     expect(input.config.target()).toMatchObject({
       orgId: "org_1",

@@ -625,16 +625,27 @@ function findEmptyImageCropViewport(
   return viewport && viewport.childElementCount === 0 ? viewport : null;
 }
 
-function imageStructure(doc: Document, ignoredSourceStamp?: string): string {
+function imageStructure(
+  doc: Document,
+  options: {
+    ignoreImageFrameGeometry?: boolean;
+    ignoredSourceStamp?: string;
+  } = {},
+): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
-  if (ignoredSourceStamp) {
+  if (options.ignoredSourceStamp) {
     const editedNode = Array.from(
       body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
     ).find(
       (element) =>
-        element.getAttribute(SOURCE_STAMP_ATTR) === ignoredSourceStamp,
+        element.getAttribute(SOURCE_STAMP_ATTR) === options.ignoredSourceStamp,
     );
     editedNode?.remove();
+  }
+  if (options.ignoreImageFrameGeometry) {
+    body
+      .querySelectorAll<HTMLElement>(".fmd-pptx-image")
+      .forEach(removeImageGeometryStyles);
   }
   body.querySelectorAll("img").forEach((image, index) => {
     image.replaceWith(`__slide-image-${index}__`);
@@ -674,28 +685,68 @@ const LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES = [
   "aspect-ratio",
 ] as const;
 
+function removeImageGeometryStyles(element: HTMLElement): void {
+  for (const property of LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES) {
+    element.style.removeProperty(property);
+  }
+  if (element.style.length === 0) element.removeAttribute("style");
+}
+
+function applyImageGeometryStyles(
+  liveElement: HTMLElement,
+  nextElement: HTMLElement,
+): void {
+  removeImageGeometryStyles(liveElement);
+  for (const property of LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES) {
+    const value = nextElement.style.getPropertyValue(property);
+    if (value) {
+      liveElement.style.setProperty(
+        property,
+        value,
+        nextElement.style.getPropertyPriority(property),
+      );
+    }
+  }
+}
+
+function hasSameImageGeometryStyles(
+  left: HTMLElement,
+  right: HTMLElement,
+): boolean {
+  return LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.every(
+    (property) =>
+      left.style.getPropertyValue(property) ===
+        right.style.getPropertyValue(property) &&
+      left.style.getPropertyPriority(property) ===
+        right.style.getPropertyPriority(property),
+  );
+}
+
 function updateImageAttributesInPlace(
   liveImage: HTMLImageElement,
   nextImage: HTMLImageElement,
+  preserveLiveGeometry: boolean,
 ): void {
-  const liveGeometry = LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.map((property) => {
-    const value = liveImage.style.getPropertyValue(property);
-    return value
-      ? {
-          priority: liveImage.style.getPropertyPriority(property),
-          property,
-          value,
-        }
-      : null;
-  }).filter(
-    (
-      declaration,
-    ): declaration is {
-      priority: string;
-      property: (typeof LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES)[number];
-      value: string;
-    } => declaration !== null,
-  );
+  const liveGeometry = preserveLiveGeometry
+    ? LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES.map((property) => {
+        const value = liveImage.style.getPropertyValue(property);
+        return value
+          ? {
+              priority: liveImage.style.getPropertyPriority(property),
+              property,
+              value,
+            }
+          : null;
+      }).filter(
+        (
+          declaration,
+        ): declaration is {
+          priority: string;
+          property: (typeof LIVE_IMAGE_GEOMETRY_STYLE_PROPERTIES)[number];
+          value: string;
+        } => declaration !== null,
+      )
+    : [];
 
   for (const attribute of Array.from(liveImage.attributes)) {
     if (
@@ -748,12 +799,55 @@ export function swapImageSourcesInPlace(
   }
 
   const nextSources = nextImages.map((image) => image.getAttribute("src"));
-  if (imageStructure(previousDoc) !== imageStructure(nextDoc)) return false;
-
+  if (
+    imageStructure(previousDoc, { ignoreImageFrameGeometry: true }) !==
+    imageStructure(nextDoc, { ignoreImageFrameGeometry: true })
+  ) {
+    return false;
+  }
   const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
   if (liveImages.length !== nextSources.length) return false;
+  const previousFrames = Array.from(
+    previousDoc.body.querySelectorAll<HTMLElement>(".fmd-pptx-image"),
+  );
+  const nextFrames = Array.from(
+    nextDoc.body.querySelectorAll<HTMLElement>(".fmd-pptx-image"),
+  );
+  const liveFrames = Array.from(
+    root.querySelectorAll<HTMLElement>(".fmd-pptx-image"),
+  );
+  if (
+    previousFrames.length !== nextFrames.length ||
+    liveFrames.length !== nextFrames.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < nextFrames.length; index += 1) {
+    const objectId = nextFrames[index]!.getAttribute("data-slide-object-id");
+    if (
+      previousFrames[index]!.getAttribute("data-slide-object-id") !==
+        objectId ||
+      liveFrames[index]!.getAttribute("data-slide-object-id") !== objectId
+    ) {
+      return false;
+    }
+  }
   liveImages.forEach((image, index) => {
-    updateImageAttributesInPlace(image, nextImages[index]);
+    const previousImage = previousImages[index]!;
+    const nextImage = nextImages[index]!;
+    const preserveLiveGeometry =
+      !image.closest(".fmd-pptx-image") &&
+      !hasSameImageGeometryStyles(image, previousImage);
+    updateImageAttributesInPlace(image, nextImage, preserveLiveGeometry);
+  });
+  previousFrames.forEach((frame, index) => {
+    const nextFrame = nextFrames[index]!;
+    const liveFrame = liveFrames[index]!;
+    // A source update can race with a live move. Restore the snapshot geometry
+    // only when the live frame still matches the snapshot being replaced.
+    if (hasSameImageGeometryStyles(liveFrame, frame)) {
+      applyImageGeometryStyles(liveFrame, nextFrame);
+    }
   });
   return true;
 }
@@ -801,14 +895,14 @@ export function updateLiveImagesUnderEdit(
     return false;
   }
   if (
-    imageStructure(previousDoc, editedSourceStamp) !==
-    imageStructure(nextDoc, editedSourceStamp)
+    imageStructure(previousDoc, { ignoredSourceStamp: editedSourceStamp }) !==
+    imageStructure(nextDoc, { ignoredSourceStamp: editedSourceStamp })
   ) {
     return false;
   }
   liveImages.forEach((image, index) => {
     const stamp = image.getAttribute(SOURCE_STAMP_ATTR);
-    updateImageAttributesInPlace(image, nextImages[index]);
+    updateImageAttributesInPlace(image, nextImages[index], true);
     if (stamp === null) image.removeAttribute(SOURCE_STAMP_ATTR);
     else image.setAttribute(SOURCE_STAMP_ATTR, stamp);
   });

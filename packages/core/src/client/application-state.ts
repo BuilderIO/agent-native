@@ -1,6 +1,10 @@
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
-import { getBrowserTabId } from "./browser-tab-id.js";
+import {
+  getBrowserTabId,
+  isBrowserTabIdForCurrentDocument,
+} from "./browser-tab-id.js";
+import { recordStateWrite } from "./recorder.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const pendingMutations = new Map<string, Promise<void>>();
@@ -32,8 +36,17 @@ function buildHeaders(requestSource?: string): Record<string, string> {
   if (typeof window !== "undefined") {
     headers["X-Agent-Native-Browser-Tab"] = getBrowserTabId();
   }
-  if (requestSource) headers["X-Request-Source"] = requestSource;
+  Object.assign(headers, requestSourceHeader(requestSource));
   return headers;
+}
+
+function requestSourceHeader(requestSource?: string): Record<string, string> {
+  if (!requestSource) return {};
+  return {
+    "X-Request-Source": isBrowserTabIdForCurrentDocument(requestSource)
+      ? getBrowserTabId()
+      : requestSource,
+  };
 }
 
 function browserTabHeaders(): Record<string, string> | undefined {
@@ -275,7 +288,7 @@ export async function writeClientAppState<T = unknown>(
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
   assertAgentNativeApiEnabled(`write application state "${key}"`);
-  return runClientAppStateMutation(key, async () => {
+  const write = runClientAppStateMutation(key, async () => {
     const response = await fetch(appStateUrl(key), {
       method: "PUT",
       headers: buildHeaders(options.requestSource),
@@ -288,6 +301,8 @@ export async function writeClientAppState<T = unknown>(
       `Write application state "${key}"`,
     );
   });
+  recordStateWrite(key, value, write, options.signal);
+  return write;
 }
 
 export async function compareAndSetClientAppState(
@@ -323,15 +338,13 @@ export async function deleteClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
-  await runClientAppStateMutation(key, async () => {
+  const deletion = runClientAppStateMutation(key, async () => {
     const response = await fetch(appStateUrl(key), {
       method: "DELETE",
       headers: {
         "X-Agent-Native-CSRF": "1",
         ...(browserTabHeaders() ?? {}),
-        ...(options.requestSource
-          ? { "X-Request-Source": options.requestSource }
-          : {}),
+        ...requestSourceHeader(options.requestSource),
       },
       keepalive: options.keepalive,
       signal: options.signal,
@@ -341,6 +354,8 @@ export async function deleteClientAppState(
       `Delete application state "${key}"`,
     );
   });
+  recordStateWrite(key, undefined, deletion, options.signal);
+  await deletion;
 }
 
 export async function setClientAppState<T = unknown>(

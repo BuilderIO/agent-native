@@ -247,6 +247,11 @@
           "default": null
         },
         {
+          "name": "blockId",
+          "hasDefault": true,
+          "default": null
+        },
+        {
           "name": "uploadId",
           "hasDefault": true,
           "default": null
@@ -648,7 +653,7 @@
         {
           "name": "class",
           "hasDefault": true,
-          "default": "notion-link"
+          "default": "content-link"
         },
         {
           "name": "title",

@@ -8,15 +8,21 @@ import {
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
-import type { AgentSkill } from "../../a2a/types.js";
+import type {
+  A2AActionExecutionResult,
+  A2AApprovalExecution,
+  AgentSkill,
+} from "../../a2a/types.js";
 import { isActionExposedToExternalAgents } from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
+  executeAgentToolCall,
   filterInitialEngineTools,
   resolveAgentRequestReasoningEffort,
   type ActionEntry,
   type AgentLoopOutcome,
+  type AgentToolCallExecutionResult,
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
@@ -24,9 +30,14 @@ import type { AgentChatEvent } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
 import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
+  hasRawQueryInput,
+  isFrameworkRuntimeAction,
+} from "../../mcp/action-eligibility.js";
+import {
   isAuthenticatedReadAction,
   isAutoReadExcludedActionName,
 } from "../../mcp/build-server.js";
+export { hasRawQueryInput } from "../../mcp/action-eligibility.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
@@ -80,22 +91,18 @@ export function filterPublicAgentActions(
   );
 }
 
-const RAW_QUERY_INPUT_FIELDS = new Set(["sql", "code", "script", "expression"]);
-
-export function hasRawQueryInput(entry: ActionEntry): boolean {
-  const parameters = entry.tool?.parameters as
-    | { properties?: Record<string, { type?: unknown }> }
-    | undefined;
-  const properties = parameters?.properties;
-  if (!properties || typeof properties !== "object") return false;
-  return Object.entries(properties).some(([field, schema]) => {
-    const type = schema?.type;
-    const acceptsString =
-      type === "string" ||
-      type === undefined ||
-      (Array.isArray(type) && type.includes("string"));
-    return RAW_QUERY_INPUT_FIELDS.has(field.toLowerCase()) && acceptsString;
-  });
+// A run an outside caller started keeps the app's own actions, as the in-app
+// agent has them (`mcpTool` and raw inputs are direct-MCP policy), and loses
+// the framework runtime. Apply it after the request's actions merge and before
+// `tool-search` attaches, so every set the run reads leaves out the same.
+export function filterDelegatedRegistry(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(filterAgentTools(actions)).filter(
+      ([name, entry]) => !isFrameworkRuntimeAction(name, entry),
+    ),
+  );
 }
 
 export interface A2AExternalAgentSurface {
@@ -120,11 +127,8 @@ export function filterDirectA2AActions(
         (autoReads &&
           isAuthenticatedReadAction(entry) &&
           !isAutoReadExcludedActionName(name));
-      const rawQueryAllowed =
-        !hasRawQueryInput(entry) || exposure?.allowRawQueryInput === true;
       return (
         selected &&
-        rawQueryAllowed &&
         !denied.has(name) &&
         isActionExposedToExternalAgents(entry) &&
         entry.readOnly === true &&
@@ -132,7 +136,10 @@ export function filterDirectA2AActions(
         exposure.readOnly === true &&
         exposure.requiresAuth === true &&
         (entry.needsApproval === undefined || entry.needsApproval === false) &&
-        exposure.isConsequential !== true
+        exposure.isConsequential !== true &&
+        // Last: reading the parameters converts the action's schema, and this
+        // runs over every action when the plugin mounts.
+        (!hasRawQueryInput(entry) || exposure.allowRawQueryInput === true)
       );
     }),
   );
@@ -228,6 +235,8 @@ export function buildAuthenticatedAgentA2ASkills(
     };
   });
 }
+
+export { addAgentProfileExamples } from "../../a2a/app-profile.js";
 
 export function resolveArtifactBaseUrl(event: any): string | undefined {
   const fromEnv =
@@ -587,6 +596,76 @@ export async function runA2AAgentLoop(
   } catch (error) {
     throw withAgentNativeErrorCode(error);
   }
+}
+
+/** A direct A2A call's result, with the effect a failed call can still report. */
+export function a2aActionResult(
+  result: Exclude<
+    AgentToolCallExecutionResult,
+    { status: "approval_required" }
+  >,
+): A2AActionExecutionResult {
+  return {
+    status: result.status,
+    output: result.output,
+    ...(result.completedSideEffect === undefined
+      ? {}
+      : { completedSideEffect: result.completedSideEffect }),
+  };
+}
+
+/**
+ * Runs the tool call an A2A task paused on, once its owner approved it, under
+ * the approval's execution lease: its thread, its turn, and its signal.
+ */
+export async function executeApprovedA2AToolCall(
+  approval: A2AApprovalExecution,
+  options: {
+    actions: Record<string, ActionEntry>;
+    appId?: string;
+    signal?: AbortSignal;
+    threadId?: string;
+    turnId?: string;
+  },
+): Promise<A2AActionExecutionResult> {
+  const result = await executeAgentToolCall({
+    actions: options.actions,
+    name: approval.tool,
+    input: approval.input,
+    signal: options.signal,
+    threadId: options.threadId,
+    turnId: options.turnId,
+    callId: approval.callId,
+    ownerEmail: approval.ownerEmail,
+    orgId: approval.orgId ?? null,
+    appId: options.appId,
+    caller: "tool",
+    networkProtocol: "a2a",
+    networkId: approval.taskId,
+    approvedToolCalls: [approval.approvalKey],
+    // The replay runs under the lease's thread and turn, never the task's
+    // own: as the replay's thread and turn, the task id would load the task's
+    // journal and ledger, where an earlier identical call could stand in for
+    // this approved one. So the task id reaches the approved call's own audit
+    // rows only. Its caller app is not stored with the approval, so
+    // `networkPeer` stays empty.
+    auditOverride: {
+      networkProtocol: "a2a",
+      networkId: approval.taskId,
+      runId: approval.taskId,
+      threadId: approval.taskId,
+      turnId: approval.taskId,
+      approval: "a2a-review",
+    },
+  });
+  if (result.status === "approval_required") {
+    return {
+      status: "failed",
+      output:
+        "The approved action was unexpectedly gated again and did not run.",
+    };
+  }
+  return a2aActionResult(result);
 }
 
 export function runMCPAgentLoop(

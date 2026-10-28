@@ -121,21 +121,58 @@ describe("bigquery action error handling", () => {
     );
   });
 
-  it("passes successful query results straight through", async () => {
+  it.each([0, undefined])(
+    "preserves successful query usage of %s in results and tracking",
+    async (bytesProcessed) => {
+      runQuery.mockResolvedValue({
+        rows: [{ week: "2026-05-11", signups: 42 }],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed,
+      });
+
+      const result = await bigquery.run({ sql: "SELECT 1" });
+
+      expect(result).toEqual({
+        rows: [{ week: "2026-05-11", signups: 42 }],
+        totalRows: 1,
+        schema: [],
+        bytesProcessed,
+      });
+      const properties = track.mock.calls[0]?.[1];
+      if (bytesProcessed === undefined)
+        expect(properties).not.toHaveProperty("bytes_processed");
+      else expect(properties).toHaveProperty("bytes_processed", 0);
+    },
+  );
+
+  it("marks completed results with BigQuery warnings as partial", async () => {
     runQuery.mockResolvedValue({
       rows: [{ week: "2026-05-11", signups: 42 }],
       totalRows: 1,
       schema: [],
       bytesProcessed: 0,
+      partial: true,
+      warnings: [{ reason: "other", message: "A shard was unavailable" }],
     });
 
-    const result = await bigquery.run({ sql: "SELECT 1" });
+    const result = (await bigquery.run({ sql: "SELECT 1" })) as Record<
+      string,
+      unknown
+    >;
 
-    expect(result).toEqual({
-      rows: [{ week: "2026-05-11", signups: 42 }],
-      totalRows: 1,
-      schema: [],
-      bytesProcessed: 0,
+    expect(result.partial).toBe(true);
+    expect(result.warnings).toEqual([
+      { reason: "other", message: "A shard was unavailable" },
+    ]);
+    const [, properties] = track.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(properties).toMatchObject({
+      query_status: "partial",
+      partial: true,
+      warning_count: 1,
     });
   });
 
@@ -198,6 +235,7 @@ describe("bigquery action error handling", () => {
       query_status: "error",
       error_category: "schema_or_sql",
     });
+    expect(properties).not.toHaveProperty("bytes_processed");
     expect(properties).not.toHaveProperty("error_message");
     expect(JSON.stringify(properties)).not.toContain("event_time");
   });
@@ -205,8 +243,10 @@ describe("bigquery action error handling", () => {
   it("forwards the agent run signal and stops cleanly when the run is cancelled", async () => {
     const controller = new AbortController();
     const aborted = new DOMException("BigQuery query aborted", "AbortError");
-    controller.abort();
-    runQuery.mockRejectedValue(aborted);
+    runQuery.mockImplementation(async () => {
+      controller.abort();
+      throw aborted;
+    });
 
     await expect(
       bigquery.run(
@@ -226,5 +266,9 @@ describe("bigquery action error handling", () => {
     expect(runQuery).toHaveBeenCalledWith("SELECT 1", {
       signal: controller.signal,
     });
+    expect(track.mock.calls[0]?.[1]).toMatchObject({
+      query_status: "cancelled",
+    });
+    expect(track.mock.calls[0]?.[1]).not.toHaveProperty("bytes_processed");
   });
 });

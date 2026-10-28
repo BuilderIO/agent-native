@@ -15,6 +15,8 @@ export const reporterWorkflows = [
   ".github/workflows/keep-neon-warm.yml",
   ".github/workflows/signup-e2e-scheduled.yml",
   ".github/workflows/signup-agent-scheduled.yml",
+  ".github/workflows/deploy-canary.yml",
+  ".github/workflows/deploy-paths-reaper.yml",
 ] as const;
 
 const fullReportArtifactNames: Record<
@@ -27,6 +29,8 @@ const fullReportArtifactNames: Record<
   ".github/workflows/signup-e2e-scheduled.yml": "signup-e2e-report-",
   ".github/workflows/signup-agent-scheduled.yml":
     "signup-agent-${{ github.run_id }}",
+  ".github/workflows/deploy-canary.yml": "deploy-canary-report-",
+  ".github/workflows/deploy-paths-reaper.yml": "deploy-paths-reaper-report-",
 };
 
 export const supportingWorkflows = [
@@ -588,10 +592,25 @@ function issueWriteKindIsAllowed(
   );
 }
 
-function hasQaReporterTarget(path: string, source: string): boolean {
+const qaChannel = { id: "C0C4U4XRT6X", name: "#qa-agent-native" };
+const deployAlertChannel = {
+  id: "C0C7A1Y2EF6",
+  name: "#dev-agent-native-alerts",
+};
+const reporterChannels: Record<string, typeof qaChannel> = {
+  ".github/workflows/deploy-canary.yml": deployAlertChannel,
+  ".github/workflows/deploy-paths-reaper.yml": deployAlertChannel,
+};
+
+function reporterChannel(path: string): typeof qaChannel {
+  return reporterChannels[path] ?? qaChannel;
+}
+
+function hasReporterTarget(path: string, source: string): boolean {
+  const { id } = reporterChannel(path);
   return path === ".github/workflows/design-e2e.yml"
-    ? /--arg channel C0C4U4XRT6X\b/.test(source)
-    : /SLACK_CHANNEL:\s*C0C4U4XRT6X\b/.test(source);
+    ? new RegExp(`--arg channel ${id}\\b`).test(source)
+    : new RegExp(`SLACK_CHANNEL:\\s*${id}\\b`).test(source);
 }
 
 function isScheduledReportCandidate(path: string, source: string): boolean {
@@ -625,14 +644,15 @@ export function inspectAutomatedFindingWorkflows(
       continue;
     }
 
+    const channel = reporterChannel(path).name;
     const slackPosts = source.match(/method:\s*chat\.postMessage/g) ?? [];
     if (slackPosts.length !== 1) {
       problems.push(
-        `${path} must send one consolidated report to #qa-agent-native; found ${slackPosts.length} Slack post actions.`,
+        `${path} must send one consolidated report to ${channel}; found ${slackPosts.length} Slack post actions.`,
       );
     }
-    if (!hasQaReporterTarget(path, source)) {
-      problems.push(`${path} must route its report to #qa-agent-native.`);
+    if (!hasReporterTarget(path, source)) {
+      problems.push(`${path} must route its report to ${channel}.`);
     }
     if (!retainsFullReportArtifact(path, source)) {
       problems.push(

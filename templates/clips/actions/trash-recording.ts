@@ -5,6 +5,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 
 export default defineAction({
   description:
@@ -19,7 +20,9 @@ export default defineAction({
       ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.id, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.id, "editor"),
+    );
 
     const db = getDb();
 
@@ -30,7 +33,7 @@ export default defineAction({
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
 
     const now = new Date().toISOString();
-    await db
+    const updated = await db
       .update(schema.recordings)
       .set({ trashedAt: now, updatedAt: now })
       .where(
@@ -40,18 +43,27 @@ export default defineAction({
               ne(schema.recordings.status, "ready"),
             )
           : eq(schema.recordings.id, args.id),
-      );
-
-    const [after] = await db
-      .select({
+      )
+      .returning({
         status: schema.recordings.status,
         trashedAt: schema.recordings.trashedAt,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.id));
+      });
+
+    const [after] = updated.length
+      ? updated
+      : await db
+          .select({
+            status: schema.recordings.status,
+            trashedAt: schema.recordings.trashedAt,
+          })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.id));
 
     const trashedAt = after?.trashedAt ?? null;
-    const skipped = Boolean(args.skipIfReady) && !trashedAt;
+    const skipped =
+      Boolean(args.skipIfReady) &&
+      updated.length === 0 &&
+      after?.status === "ready";
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     console.log(

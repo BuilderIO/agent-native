@@ -11,6 +11,7 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 
 import { isBuilderCdnHost } from "../../server/lib/builder-cdn.js";
+import { fetchS3ObjectByUrl } from "../../server/lib/s3-upload-provider.js";
 import {
   AudioOnlyExtractionError,
   extractAudioOnlyWithFfmpeg,
@@ -96,6 +97,10 @@ async function downloadToFile(
   timeoutMs: number,
 ): Promise<void> {
   const res = await fetcher(url, { signal: AbortSignal.timeout(timeoutMs) });
+  await writeResponseToFile(res, path);
+}
+
+async function writeResponseToFile(res: Response, path: string): Promise<void> {
   if (!res.ok) {
     // guard:allow-bare-error — invariant: request-transcript records media preparation errors as a failed transcript.
     throw new Error(
@@ -128,12 +133,14 @@ async function downloadToFile(
 export async function prepareRecordingTranscriptionAudio({
   recordingId,
   videoUrl,
+  storageMode,
   timeouts,
   extractor = extractAudioOnlyWithFfmpeg,
   fetchers = { app: fetch, safe: safeFetch },
 }: {
   recordingId: string;
   videoUrl: string;
+  storageMode?: "own" | "hosted" | null;
   timeouts: RecordingAudioTimeouts;
   extractor?: AudioExtractor;
   fetchers?: { app: MediaFetcher; safe: MediaFetcher };
@@ -151,6 +158,19 @@ export async function prepareRecordingTranscriptionAudio({
     extractFromFile((path) =>
       downloadToFile(url, path, fetcher, timeouts.downloadMs),
     );
+
+  if (storageMode === "hosted") {
+    return extractFromFile(async (path) => {
+      const res = await fetchS3ObjectByUrl(videoUrl, {
+        storageMode: "hosted",
+        recordingId,
+        timeoutMs: timeouts.downloadMs,
+      });
+      // guard:allow-bare-error — invariant: request-transcript records media preparation errors as a failed transcript.
+      if (!res) throw new Error("Failed to fetch hosted recording media");
+      await writeResponseToFile(res, path);
+    });
+  }
 
   const target = resolveRecordingMediaTarget(videoUrl);
   switch (target.kind) {

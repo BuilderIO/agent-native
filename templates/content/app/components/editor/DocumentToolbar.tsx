@@ -895,6 +895,8 @@ interface DocumentToolbarProps {
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: "info" | "comments" | null;
   commentsHistoryOpen?: boolean;
+  /** Open comment threads on the Page, the count its Collection row shows. */
+  openCommentCount?: number;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   commentsTriggerRef?: Ref<HTMLButtonElement>;
@@ -988,6 +990,7 @@ export function DocumentToolbar({
   onToggleFavorite,
   utilityPanel,
   commentsHistoryOpen = false,
+  openCommentCount = 0,
   onUtilityPanelChange,
   showCommentsControl = true,
   commentsTriggerRef,
@@ -1872,17 +1875,32 @@ export function DocumentToolbar({
                   data-comments-history-trigger
                   type="button"
                   className={cn(
-                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "relative flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     commentsHistoryOpen && "bg-accent text-accent-foreground",
                   )}
-                  aria-label={t("comments.title")}
+                  aria-label={
+                    openCommentCount
+                      ? t("comments.discussionOpenCount", {
+                          count: openCommentCount,
+                        })
+                      : t("comments.discussion")
+                  }
                   aria-pressed={commentsHistoryOpen}
                   onClick={toggleCommentsHistory}
+                  data-open-comment-count={openCommentCount || undefined}
                 >
                   <IconMessageCircle size={16} />
+                  {openCommentCount ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute end-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-medium leading-none text-background"
+                    >
+                      {openCommentCount > 99 ? "99+" : openCommentCount}
+                    </span>
+                  ) : null}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>{t("comments.title")}</TooltipContent>
+              <TooltipContent>{t("comments.discussion")}</TooltipContent>
             </Tooltip>
           ) : null}
 
@@ -2003,7 +2021,7 @@ export function DocumentToolbar({
                         suggestFocusTimeoutRef.current = undefined;
                         document
                           .querySelector<HTMLElement>(
-                            ".notion-editor[contenteditable='true'], .notion-editor [contenteditable='true']",
+                            ".content-editor[contenteditable='true'], .content-editor [contenteditable='true']",
                           )
                           ?.focus({ preventScroll: true });
                       }, 50);
@@ -2057,7 +2075,12 @@ export function DocumentToolbar({
                     )}
                   >
                     <IconMessageCircle className="me-2 h-4 w-4" />
-                    {t("comments.title")}
+                    {t("comments.discussion")}
+                    {openCommentCount ? (
+                      <span className="ms-auto ps-3 text-xs text-muted-foreground">
+                        {openCommentCount}
+                      </span>
+                    ) : null}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuItem

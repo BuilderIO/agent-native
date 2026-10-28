@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   readAppState: vi.fn(),
   writeAppState: vi.fn(),
+  compareAndSetAppState: vi.fn(),
   deleteAppState: vi.fn(),
   deleteAppStateByPrefix: vi.fn(),
   listAppState: vi.fn(),
@@ -22,21 +23,30 @@ const mocks = vi.hoisted(() => ({
   appendSignatureToBody: vi.fn(),
 }));
 
-vi.mock("@agent-native/core", () => ({
-  embedApp: vi.fn(() => ({})),
-}));
+vi.mock("@agent-native/core", async () => {
+  const { isOutsideAgentCall } =
+    await import("../../../packages/core/src/action-caller.js");
+  return { embedApp: vi.fn(() => ({})), isOutsideAgentCall };
+});
 
-vi.mock("@agent-native/core/action", () => ({
-  defineAction: (config: unknown) => config,
-  fail: (message: string, options: Record<string, unknown>) => {
-    const error = Object.assign(new Error(message), options);
-    throw error;
-  },
-}));
+vi.mock("@agent-native/core/action", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/action")>();
+  return {
+    defineAction: (config: unknown) => config,
+    fail: (message: string, options: Record<string, unknown>) => {
+      const error = Object.assign(new Error(message), options);
+      throw error;
+    },
+    NoWriteError: actual.NoWriteError,
+    isNoWriteError: actual.isNoWriteError,
+  };
+});
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: mocks.readAppState,
   writeAppState: mocks.writeAppState,
+  compareAndSetAppState: mocks.compareAndSetAppState,
   deleteAppState: mocks.deleteAppState,
   deleteAppStateByPrefix: mocks.deleteAppStateByPrefix,
   listAppState: mocks.listAppState,
@@ -71,6 +81,12 @@ vi.mock("../shared/signature.js", () => ({
   appendSignatureToBody: mocks.appendSignatureToBody,
 }));
 
+import { isNoWriteError } from "@agent-native/core/action";
+
+import {
+  GmailQuotaCooldownError,
+  GmailQuotaRefusedError,
+} from "../server/lib/gmail-quota.js";
 import action from "./manage-draft";
 
 let appState = new Map<string, unknown>();
@@ -94,6 +110,13 @@ beforeEach(() => {
   mocks.writeAppState.mockImplementation(
     (key: string, value: unknown) => void appState.set(key, value),
   );
+  mocks.compareAndSetAppState.mockImplementation(
+    (key: string, expected: unknown, next: unknown) => {
+      if ((appState.get(key) ?? null) !== expected) return false;
+      appState.set(key, next);
+      return true;
+    },
+  );
 });
 
 function manageDraftSource(): string {
@@ -101,20 +124,6 @@ function manageDraftSource(): string {
 }
 
 describe("manage-draft MCP App", () => {
-  it("reuses the real Mail app embed instead of a bespoke compose form", () => {
-    const source = manageDraftSource();
-
-    expect(source).toContain("embedApp({");
-    expect(source).toContain('openLabel: "Open in Mail"');
-    expect(source).toContain('iframeTitle: "Agent-Native Mail"');
-    expect(source).toContain("height: 900");
-    expect(source).not.toContain("mailDraftMcpAppHtml");
-    expect(source).not.toContain("_mcp-apps");
-    expect(source).not.toContain("data-save");
-    expect(source).not.toContain("Update draft");
-    expect(existsSync(new URL("./_mcp-apps.ts", import.meta.url))).toBe(false);
-  });
-
   it("requires an action and IDs for draft operations that target a draft", () => {
     const source = manageDraftSource();
 
@@ -140,15 +149,18 @@ describe("manage-draft MCP App", () => {
 });
 
 describe("manage-draft saved mailbox deletion", () => {
-  it("deletes Gmail drafts with the exact selected account", async () => {
+  it("executes an approved MCP deletion with the exact selected Gmail account", async () => {
     mocks.isConnected.mockResolvedValue(true);
 
-    await action.run({
-      action: "delete-saved",
-      savedDraftId: "gmail-draft-1",
-      savedDraftBackend: "gmail",
-      accountEmail: "secondary@example.com",
-    });
+    await action.run(
+      {
+        action: "delete-saved",
+        savedDraftId: "gmail-draft-1",
+        savedDraftBackend: "gmail",
+        accountEmail: "secondary@example.com",
+      },
+      { caller: "mcp" },
+    );
 
     expect(mocks.deleteGmailDraft).toHaveBeenCalledWith({
       ownerEmail: "owner@example.com",
@@ -494,34 +506,65 @@ describe("manage-draft local fallback", () => {
   });
 });
 
+describe("manage-draft Gmail budget refusals", () => {
+  it("reports a create refused by Mail's Gmail budget as not saved", async () => {
+    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(23_000));
+
+    const error = await action
+      .run({
+        action: "create",
+        id: "refused-draft",
+        to: "recipient@example.com",
+        subject: "Refund",
+        body: "Draft",
+      })
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "gmail_quota_cooldown",
+      statusCode: 429,
+      details: { retryAfterSeconds: 23 },
+      message: expect.stringMatching(/^The draft was not saved\. .*about 23s/),
+    });
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused update of a Gmail draft as not saved", async () => {
+    const stored = {
+      id: "gmail-draft",
+      savedDraftId: "gmail-draft-1",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      to: "recipient@example.com",
+      subject: "Refund",
+      body: "Draft",
+      mode: "compose",
+    };
+    appState.set("compose-gmail-draft", stored);
+    mocks.saveGmailDraft.mockRejectedValue(new GmailQuotaRefusedError(5_000));
+
+    const error = await action
+      .run({ action: "update", id: "gmail-draft", body: "Changed" })
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(appState.get("compose-gmail-draft")).toBe(stored);
+  });
+
+  it("leaves Gmail's own 429 as it was, since that request was sent", async () => {
+    const gmail429 = new GmailQuotaCooldownError(60_000);
+    mocks.saveGmailDraft.mockRejectedValue(gmail429);
+
+    await expect(
+      action.run({ action: "create", id: "sent-draft", body: "Draft" }),
+    ).rejects.toBe(gmail429);
+  });
+});
+
 describe("manage-draft deep link", () => {
-  it("no longer encodes draft contents into the URL", () => {
-    const source = manageDraftSource();
-
-    expect(source).not.toContain("encodeComposeDraft");
-    expect(source).not.toContain("encodeComposePayload");
-    expect(source).not.toContain("MAX_COMPOSE_PAYLOAD_BYTES");
-    expect(source).not.toMatch(/\bcompose:\s*encode/);
-    expect(source).toContain("composeDraftId");
-  });
-
-  it("composeDeepLink calls buildDeepLink with only id + view + to (no payload)", () => {
-    const source = manageDraftSource();
-
-    const match = source.match(
-      /function composeDeepLink\([^)]*\)[^{]*{[\s\S]*?return buildDeepLink\(\{([\s\S]*?)\}\);[\s\S]*?}/,
-    );
-    expect(match).toBeTruthy();
-    const body = match![1];
-    expect(body).toContain('app: "mail"');
-    expect(body).toContain('view: "inbox"');
-    expect(body).toContain('to: "/inbox"');
-    expect(body).not.toContain("composeFullscreen");
-    expect(body).toContain("composeDraftId: draft.id");
-    expect(body).not.toContain("compose:");
-    expect(body).not.toContain("encode");
-  });
-
   it("creates an ordinary draft deep link without fullscreen mode", async () => {
     await action.run({
       action: "create",
@@ -537,6 +580,34 @@ describe("manage-draft deep link", () => {
       to: "/inbox",
       params: { composeDraftId: "compact-draft" },
     });
+  });
+
+  it("embeds the draft card and keeps the inbox deep link to open Mail", async () => {
+    mocks.buildDeepLink.mockReturnValue(
+      "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+    );
+
+    const created = await action.run({
+      action: "create",
+      id: "card-draft",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+    });
+    const updated = await action.run({
+      action: "update",
+      id: "card-draft",
+      body: "Revised body",
+    });
+
+    for (const result of [created, updated]) {
+      expect(result).toMatchObject({
+        embed: true,
+        path: "/draft?id=card-draft",
+        deepLink: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+        deepLinkUrl: "/_agent-native/open?view=inbox&composeDraftId=card-draft",
+      });
+    }
   });
 });
 
@@ -619,5 +690,301 @@ describe("manage-draft create-then-reply flow", () => {
       url: "/mail",
     });
     expect(JSON.stringify(updated.change)).not.toContain("Quick follow-up");
+  });
+});
+
+describe("manage-draft approval", () => {
+  it("requires a fresh approval for every external destructive draft call", () => {
+    expect(action.allowPersistentApproval).toBe(false);
+  });
+
+  it.each([
+    "create",
+    "update",
+    "delete",
+    "delete-saved",
+    "delete-all",
+  ] as const)(
+    "requires approval only for outside agents using destructive draft mode %s",
+    async (operation) => {
+      const needsApproval = action.needsApproval;
+      expect(typeof needsApproval).toBe("function");
+      if (typeof needsApproval !== "function")
+        throw new Error("Missing approval gate");
+      const args = action.schema.parse({
+        action: operation,
+        id: "draft-1",
+        savedDraftId: "saved-1",
+      });
+      expect(await needsApproval(args, { caller: "mcp" })).toBe(
+        operation !== "create" && operation !== "update",
+      );
+      expect(await needsApproval(args, { caller: "a2a" })).toBe(
+        operation !== "create" && operation !== "update",
+      );
+      expect(await needsApproval(args, { caller: "tool" })).toBe(false);
+      for (const networkProtocol of ["a2a", "mcp"] as const) {
+        expect(
+          await needsApproval(args, { caller: "tool", networkProtocol }),
+        ).toBe(operation !== "create" && operation !== "update");
+      }
+      expect(await needsApproval(args, { caller: "webmcp" })).toBe(
+        operation !== "create" && operation !== "update",
+      );
+      expect(await needsApproval(args, { caller: "frontend" })).toBe(false);
+      expect(await needsApproval(args)).toBe(
+        operation !== "create" && operation !== "update",
+      );
+    },
+  );
+});
+
+describe("manage-draft create collisions", () => {
+  it("refuses an existing ID without changing the draft or saving another Gmail draft", async () => {
+    const existing = {
+      id: "existing",
+      to: "recipient@example.com",
+      subject: "Keep this draft",
+      body: "Original body",
+      savedDraftId: "gmail-original",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+    };
+    appState.set("compose-existing", existing);
+
+    await expect(
+      action.run({ action: "create", id: "existing", body: "Replacement" }),
+    ).rejects.toMatchObject({
+      errorCode: "draft_already_exists",
+      statusCode: 409,
+    });
+
+    expect(appState.get("compose-existing")).toEqual(existing);
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("preserves a concurrently created draft and removes only its own new Gmail draft", async () => {
+    const competingDraft = {
+      id: "same-id",
+      body: "Concurrent draft",
+      savedDraftId: "gmail-competing",
+    };
+    mocks.saveGmailDraft.mockImplementationOnce(async () => {
+      appState.set("compose-same-id", competingDraft);
+      return {
+        draftId: "gmail-new",
+        accountEmail: "owner@example.com",
+        created: true,
+      };
+    });
+
+    await expect(
+      action.run({ action: "create", id: "same-id", body: "New draft" }),
+    ).rejects.toMatchObject({
+      errorCode: "draft_already_exists",
+      statusCode: 409,
+    });
+
+    expect(appState.get("compose-same-id")).toEqual(competingDraft);
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledExactlyOnceWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-new",
+    });
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("still reports the collision when removing its own Gmail draft fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.saveGmailDraft.mockImplementationOnce(async () => {
+      appState.set("compose-same-id", { id: "same-id", body: "Concurrent" });
+      return {
+        draftId: "gmail-new",
+        accountEmail: "owner@example.com",
+        created: true,
+      };
+    });
+    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail 503"));
+
+    await expect(
+      action.run({ action: "create", id: "same-id", body: "New draft" }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "The Gmail draft this call saved (gmail-new) couldn't be removed",
+      ),
+      errorCode: "draft_already_exists",
+      statusCode: 409,
+      details: { draftId: "same-id", leftoverGmailDraftId: "gmail-new" },
+    });
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
+  });
+});
+
+describe("manage-draft create when the draft write throws", () => {
+  const writeError = new Error("connection reset");
+
+  beforeEach(() => {
+    mocks.saveGmailDraft.mockResolvedValueOnce({
+      draftId: "gmail-new",
+      accountEmail: "owner@example.com",
+      created: true,
+    });
+  });
+
+  it("removes its new Gmail draft and rethrows when the write didn't commit", async () => {
+    mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "New draft" }),
+    ).rejects.toBe(writeError);
+
+    expect(appState.has("compose-fresh")).toBe(false);
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledExactlyOnceWith({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId: "gmail-new",
+    });
+  });
+
+  it("returns the draft when the write committed before throwing", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(
+      async (key: string, _expected: unknown, next: unknown) => {
+        appState.set(key, next);
+        throw writeError;
+      },
+    );
+
+    const result = await action.run({
+      action: "create",
+      id: "fresh",
+      body: "New draft",
+    });
+
+    expect(result).toMatchObject({
+      id: "fresh",
+      draft: { savedDraftId: "gmail-new" },
+    });
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Gmail draft and says so when the outcome can't be read", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.compareAndSetAppState.mockImplementationOnce(async () => {
+      mocks.readAppState.mockRejectedValue(new Error("database unavailable"));
+      throw writeError;
+    });
+
+    const error = await action
+      .run({ action: "create", id: "fresh", body: "New draft" })
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining(
+        "kept the Gmail draft it saved (gmail-new)",
+      ),
+      errorCode: "draft_store_unconfirmed",
+      statusCode: 503,
+      details: { draftId: "fresh", gmailDraftId: "gmail-new" },
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("write and reread both failed"),
+      writeError,
+    );
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("names the Gmail draft it left behind when Gmail cleanup also fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+    mocks.deleteGmailDraft.mockRejectedValueOnce(new Error("Gmail 503"));
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "New draft" }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "remove the Gmail draft it saved (gmail-new)",
+      ),
+      errorCode: "draft_store_failed",
+      statusCode: 503,
+      details: { draftId: "fresh", leftoverGmailDraftId: "gmail-new" },
+    });
+
+    expect(appState.has("compose-fresh")).toBe(false);
+    expect(mocks.deleteGmailDraft).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("draft fresh write failed"),
+      writeError,
+    );
+    consoleError.mockRestore();
+  });
+});
+
+describe("manage-draft local create when the draft write throws", () => {
+  const writeError = new Error("connection reset");
+
+  it("returns the draft when the write committed before throwing", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(
+      async (key: string, _expected: unknown, next: unknown) => {
+        appState.set(key, next);
+        throw writeError;
+      },
+    );
+
+    const result = await action.run({ action: "create", body: "Local draft" });
+
+    expect(result).toMatchObject({ draft: { body: "Local draft" } });
+    expect(appState.size).toBe(1);
+  });
+
+  it("rethrows when the write didn't commit", async () => {
+    mocks.compareAndSetAppState.mockRejectedValueOnce(writeError);
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "Local draft" }),
+    ).rejects.toBe(writeError);
+    expect(appState.has("compose-fresh")).toBe(false);
+  });
+
+  it("rethrows when another draft holds the key after the write throws", async () => {
+    mocks.compareAndSetAppState.mockImplementationOnce(async (key: string) => {
+      appState.set(key, { id: "fresh", body: "Someone else's draft" });
+      throw writeError;
+    });
+
+    await expect(
+      action.run({ action: "create", id: "fresh", body: "Local draft" }),
+    ).rejects.toBe(writeError);
+  });
+
+  it("says to check before creating again when the outcome can't be read", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.compareAndSetAppState.mockImplementationOnce(async () => {
+      mocks.readAppState.mockRejectedValue(new Error("database unavailable"));
+      throw writeError;
+    });
+
+    const error = await action
+      .run({ action: "create", id: "fresh", body: "Local draft" })
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toMatchObject({
+      message:
+        'Mail couldn\'t confirm whether draft "fresh" was stored. Check for draft "fresh" before creating it again.',
+      errorCode: "draft_store_unconfirmed",
+      statusCode: 503,
+      details: { draftId: "fresh" },
+    });
+    consoleError.mockRestore();
   });
 });

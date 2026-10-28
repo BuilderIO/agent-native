@@ -3,13 +3,8 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { CONTENT_DATABASE_FILTER_OPERATORS } from "../shared/api.js";
 import { blocksContentHash } from "../shared/blocks-field-identity.js";
-import {
-  renderCollectionCsv,
-  renderCollectionHtml,
-  renderCollectionMarkdownArchive,
-} from "../shared/database-collection-export.js";
-import { buildDocumentExport } from "../shared/document-export.js";
 import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
@@ -31,23 +26,12 @@ const collectionSchema = z.object({
             z.object({
               key: z.string(),
               label: z.string(),
-              operator: z.enum([
-                "contains",
-                "equals",
-                "does_not_equal",
-                "greater_than",
-                "less_than",
-                "before",
-                "after",
-                "between",
-                "is_checked",
-                "is_unchecked",
-                "is_empty",
-                "is_not_empty",
-              ]),
+              operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
               value: z.string(),
               filterGroupId: z.string().optional(),
               parentFilterGroupId: z.string().optional(),
+              filterGroupMode: z.enum(["and", "or"]).optional(),
+              parentFilterGroupMode: z.enum(["and", "or"]).optional(),
             }),
           )
           .max(50),
@@ -127,6 +111,14 @@ export default defineAction({
       throw new Error("CSV export requires collection options");
     }
     if (effectiveCollection) {
+      // The renderers bring the Tabler icon map, react-dom/server and KaTeX,
+      // megabytes of code a cold server would otherwise load before its first
+      // request of any kind, so they load when an export runs.
+      const {
+        renderCollectionCsv,
+        renderCollectionHtml,
+        renderCollectionMarkdownArchive,
+      } = await import("../shared/database-collection-export.js");
       const projection = await buildCollectionExportProjection(
         doc.id,
         effectiveCollection,
@@ -202,10 +194,13 @@ export default defineAction({
           propertyId: property.definition.id,
           name: property.definition.name,
           position: property.definition.position,
+          primary: isPrimaryBlocksField(property.definition.options),
           markdown,
           identity,
         };
       });
+    const { buildDocumentExport } =
+      await import("../shared/document-export.js");
     const payload = buildDocumentExport({
       id: doc.id,
       title: title ?? doc.title,

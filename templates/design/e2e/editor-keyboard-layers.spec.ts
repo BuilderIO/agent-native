@@ -82,21 +82,38 @@ function layerTree(page: Page) {
   return page.getByRole("tree", { name: "Layers" });
 }
 
-function layerRowButton(page: Page, name: string) {
+function layerRowButtons(page: Page, name: string) {
   return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
+    .locator(`span[title="${name}"]`)
+    .locator("xpath=ancestor::button[@data-layer-row-button]");
+}
+
+function layerRowButton(page: Page, name: string) {
+  return layerRowButtons(page, name).first();
 }
 
 function selectedRows(page: Page) {
   return layerTree(page).locator('[role="treeitem"][aria-selected="true"]');
 }
 
+function selectedLayerRowButtons(page: Page) {
+  return selectedRows(page).locator(
+    "[data-layer-row-button][data-layer-node-id]",
+  );
+}
+
 async function selectLayer(page: Page, name: string) {
   await expandAllLayers(page);
-  await layerRowButton(page, name).click();
+  const target = layerRowButton(page, name);
+  const nodeId = await target.getAttribute("data-layer-node-id");
+  expect(nodeId).toBeTruthy();
+  await target.click();
   await expect(selectedRows(page)).toHaveCount(1);
+  await expect(selectedLayerRowButtons(page)).toContainText(name);
+  await expect(selectedLayerRowButtons(page)).toHaveAttribute(
+    "data-layer-node-id",
+    nodeId!,
+  );
 }
 
 /** A Screens-list row selects that Screen on the overview canvas, so a paste lands in it. */
@@ -157,7 +174,7 @@ function expectStyledCards(html: string, cards: number) {
   expect(html).not.toContain("color: orange");
   expect(html).not.toContain("agent-native-clipboard-v1");
   expect(html).not.toContain('data-agent-native-node-id="source-card"');
-  expect(count(html, 'data-agent-native-clone-root="true"')).toBe(cards);
+  expect(html).not.toContain("data-agent-native-clone-root");
   expect(count(html, 'data-agent-native-preserve-styles="true"')).toBe(cards);
 }
 
@@ -221,7 +238,7 @@ test.describe("editor keyboard layer clipboard", () => {
       position: "absolute",
       width: "260px",
       "border-radius": "16px",
-      transform: "matrix(0.999391, 0.0348995, -0.0348995, 0.999391, 0, 0)",
+      transform: "rotate(2deg)",
     });
     expect
       .soft(
@@ -360,7 +377,6 @@ test.describe("editor keyboard layer clipboard", () => {
       "data-agent-native-node-id": sourceCard,
       "data-agent-native-layer-name": "Copy Card",
       class: "max-[1279px]:p-6",
-      "data-agent-native-clone-root": "true",
       "data-agent-native-preserve-styles": "true",
     });
 
@@ -445,6 +461,8 @@ test.describe("editor keyboard layer clipboard", () => {
     const id = await seedKeyboardDesign(app);
     const seeded = await app.savedNodes(id);
     await selectLayer(page, "Source Peer");
+    const originalPeerRowId =
+      await selectedLayerRowButtons(page).getAttribute("data-layer-node-id");
 
     await page.keyboard.press(`${PRIMARY}+d`);
     await app.settled();
@@ -461,6 +479,41 @@ test.describe("editor keyboard layer clipboard", () => {
     ]);
     expectOnlyChanged(seeded, duplicated, copy);
     await expect.poll(() => previewCount(app, "Source Peer")).toBe(2);
+    await expect(selectedLayerRowButtons(page)).toContainText("Source Peer");
+    const peerCopyRowId =
+      await selectedLayerRowButtons(page).getAttribute("data-layer-node-id");
+    expect(peerCopyRowId).not.toBe(originalPeerRowId);
+    await expect(selectedLayerRowButtons(page)).toHaveAttribute(
+      "data-layer-node-id",
+      peerCopyRowId!,
+    );
+
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await app.settled();
+    const withoutCopy = await app.savedNodes(id);
+    expect(idsNamed(withoutCopy, "Source Peer")).toStrictEqual(["source-peer"]);
+    await expect.poll(() => previewCount(app, "Source Peer")).toBe(1);
+    await expect(selectedLayerRowButtons(page)).toHaveAttribute(
+      "data-layer-node-id",
+      originalPeerRowId!,
+    );
+
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
+    await app.settled();
+    const redone = await app.savedNodes(id);
+    const redoneCopy = idsNamed(redone, "Source Peer").find(
+      (nodeId) => nodeId !== "source-peer",
+    );
+    expect(redoneCopy).toBeDefined();
+    await expect.poll(() => previewCount(app, "Source Peer")).toBe(2);
+    await expect(selectedLayerRowButtons(page)).toContainText("Source Peer");
+    const redoneCopyRowId =
+      await selectedLayerRowButtons(page).getAttribute("data-layer-node-id");
+    expect(redoneCopyRowId).not.toBe(originalPeerRowId);
+    await expect(selectedLayerRowButtons(page)).toHaveAttribute(
+      "data-layer-node-id",
+      redoneCopyRowId!,
+    );
 
     await page.keyboard.press("Delete");
     await app.settled();

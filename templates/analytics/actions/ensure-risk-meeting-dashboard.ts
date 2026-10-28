@@ -11,16 +11,17 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import {
+  loadBuiltinDashboard,
+  recordBuiltinDashboardInstall,
+  RISK_MEETING_COHORT_PROGRAM as COHORT_PROGRAM_NAME,
+  RISK_MEETING_EARLY_WARNING_PROGRAM as EARLY_WARNING_PROGRAM_NAME,
+} from "../server/lib/builtin-dashboards";
+import { BUILTIN_RISK_MEETING_DASHBOARD_ID } from "../shared/builtin-dashboard-ids";
 
 const APP_ID = "analytics";
-const DASHBOARD_ID = "risk-meeting";
-const DASHBOARD_TITLE = "Risk Meeting";
 const REFRESH_MODE = "ttl" as const;
 const REFRESH_TTL_MS = 900_000;
-
-const COHORT_PROGRAM_NAME = "risk-meeting-cohort";
-const EARLY_WARNING_PROGRAM_NAME = "risk-meeting-pylon-early-warning";
 
 interface ProgramSeedDef {
   name: string;
@@ -95,17 +96,6 @@ function loadProgramCode(filename: string): string {
   );
 }
 
-function programPanel(id: string, title: string, programId: string) {
-  return {
-    id,
-    title,
-    source: "program",
-    chartType: "table",
-    width: 2,
-    sql: JSON.stringify({ programId }),
-  };
-}
-
 interface EnsureCtx {
   email: string;
   orgId: string | null;
@@ -140,39 +130,21 @@ export async function ensureRiskMeetingDashboard(
     programIds[seed.name] = program.id;
   }
 
-  const existing = await getDashboard(DASHBOARD_ID, {
-    email: ctx.email,
-    orgId: ctx.orgId ?? null,
-  });
-
-  const config = {
-    name: DASHBOARD_TITLE,
-    description:
-      "HubSpot deal-property risk cohort joined with Pylon account sentiment, " +
-      "plus Pylon-only early-warning accounts not yet in the HubSpot cohort. " +
-      "Both panels are bound to stored data programs — see the data-programs " +
-      "skill for how the underlying join works.",
-    panels: [
-      programPanel(
-        "risk-meeting-cohort-panel",
-        "Risk Meeting Cohort (HubSpot x Pylon)",
-        programIds[COHORT_PROGRAM_NAME],
-      ),
-      programPanel(
-        "risk-meeting-early-warning-panel",
-        "Pylon Early Warning (not yet in HubSpot cohort)",
-        programIds[EARLY_WARNING_PROGRAM_NAME],
-      ),
-    ],
-  };
-
-  await upsertDashboard(DASHBOARD_ID, "sql", config, {
-    email: ctx.email,
-    orgId: ctx.orgId ?? null,
-  });
+  const scope = { email: ctx.email, orgId: ctx.orgId ?? null };
+  const existing = await loadBuiltinDashboard(
+    BUILTIN_RISK_MEETING_DASHBOARD_ID,
+    scope,
+  );
+  await recordBuiltinDashboardInstall(
+    scope,
+    BUILTIN_RISK_MEETING_DASHBOARD_ID,
+    {
+      programIds,
+    },
+  );
 
   return {
-    dashboardId: DASHBOARD_ID,
+    dashboardId: BUILTIN_RISK_MEETING_DASHBOARD_ID,
     programIds,
     created: !existing,
   };
@@ -180,11 +152,12 @@ export async function ensureRiskMeetingDashboard(
 
 export default defineAction({
   description:
-    "Install (or update, idempotently) the Risk Meeting dashboard: a worked example of the " +
+    "Install (or update, idempotently) the built-in, read-only Risk Meeting dashboard: a worked example of the " +
     "generic provider-access pattern combining a HubSpot deal-property risk cohort (arbitrary " +
     "property IN-search), a HubSpot deal -> company -> domain join, and a Pylon account " +
     "sentiment join, entirely inside two stored data programs with zero vendor-specific action " +
-    "code. Safe to re-run: upserts the same data programs by name and the same dashboard by id. " +
+    "code. Safe to re-run: upserts the same data programs by name and records the install for the organization; " +
+    "the dashboard itself ships with the app, and duplicate-dashboard makes an editable copy. " +
     "Creation succeeds without HubSpot/Pylon credentials configured — provider auth resolves " +
     "per-viewer only when a panel or run-data-program call actually executes a program.",
   schema: z.object({}),

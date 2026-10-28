@@ -96,6 +96,8 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: mocks.deletePrivateBlob,
   getActivePrivateBlobProviderForRequest: mocks.getProvider,
   isPrivateBlobConfiguredForRequest: mocks.isPrivateBlobConfiguredForRequest,
+  isPrivateBlobError: (error: { privateBlobError?: unknown } | null) =>
+    error?.privateBlobError === true,
   putPrivateBlob: mocks.putPrivateBlob,
   resolveAttachment: mocks.resolveAttachment,
 }));
@@ -381,6 +383,7 @@ describe("create-journey-canvas run", () => {
     );
 
     expect(Object.keys(result).sort()).toEqual([
+      "_receipt",
       "collabSyncPending",
       "designId",
       "frameCount",
@@ -1175,6 +1178,27 @@ describe("create-journey-canvas failures", () => {
     );
     expect(mocks.getProvider).not.toHaveBeenCalled();
     expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
+  });
+
+  it("reports saved storage settings that can't be used, with the reason", async () => {
+    mocks.getProvider.mockRejectedValue(
+      Object.assign(
+        new Error("Storage settings are incomplete: missing S3_BUCKET"),
+        { privateBlobError: true, kind: "not_configured" },
+      ),
+    );
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({
+      message: "Storage settings are incomplete: missing S3_BUCKET",
+      errorCode: "private_blob_provider_required",
+      statusCode: 503,
+    });
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
   });
 
   it("requires explicit opt-in before using the configured encrypted fallback", async () => {

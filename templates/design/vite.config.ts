@@ -18,6 +18,11 @@ export default defineConfig({
   // mid-session and answers with a full page reload, which closes open
   // popovers and fails in-flight Playwright actions.
   optimizeDeps: {
+    // The Code panel is lazy, so scan Monaco before its first browser load can invalidate the page.
+    entries: [
+      "app/root.tsx",
+      "app/components/design/code-workbench/CodeWorkbench.tsx",
+    ],
     include: [
       "@radix-ui/react-dialog",
       "@radix-ui/react-dropdown-menu",
@@ -25,6 +30,17 @@ export default defineConfig({
       "acorn",
       "drizzle-orm/pg-proxy",
       "jspdf",
+      "monaco-editor",
+      "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js",
+      "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js",
+      "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.js",
+      "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js",
+      "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js",
+      "monaco-editor/esm/vs/editor/editor.api.js",
+      "monaco-editor/esm/vs/language/css/monaco.contribution.js",
+      "monaco-editor/esm/vs/language/html/monaco.contribution.js",
+      "monaco-editor/esm/vs/language/json/monaco.contribution.js",
+      "monaco-editor/esm/vs/language/typescript/monaco.contribution.js",
       "nanoid/non-secure",
       "parse5",
       "postcss",

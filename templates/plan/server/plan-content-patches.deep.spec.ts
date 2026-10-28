@@ -32,7 +32,7 @@ describe("update-block on a wireframe screen", () => {
     ]);
     const blk = next.blocks.find((b) => b.id === "wf");
     if (blk?.type !== "wireframe") throw new Error("expected wireframe");
-    const node = blk.data.screen[0];
+    const node = blk.data.screen?.[0];
     expect(node?.id).toBeUndefined();
   });
 
@@ -88,7 +88,7 @@ describe("update-block on a wireframe screen", () => {
     ]);
     const blk = next.blocks.find((b) => b.id === "wf");
     if (blk?.type !== "wireframe") throw new Error("expected wireframe");
-    const row = blk.data.screen[0];
+    const row = blk.data.screen?.[0];
     expect(row?.id).toBeTruthy();
     expect(row?.children?.[0]?.id).toBeTruthy();
     expect(row?.children?.[1]?.id).toBeTruthy();
@@ -129,7 +129,7 @@ describe("update-wireframe-node patch boundaries", () => {
     ]);
     const blk = next.blocks.find((b) => b.id === "wf");
     if (blk?.type !== "wireframe") throw new Error("expected wireframe");
-    const btn = blk.data.screen[0]?.children?.[0];
+    const btn = blk.data.screen?.[0]?.children?.[0];
     expect(btn?.text).toBe("Continue");
     expect(btn?.tone).toBe("accent");
     expect(btn?.el).toBe("btn");
@@ -147,7 +147,7 @@ describe("update-wireframe-node patch boundaries", () => {
     ]);
     const blk = next.blocks.find((b) => b.id === "wf");
     if (blk?.type !== "wireframe") throw new Error("expected wireframe");
-    const row = blk.data.screen[0];
+    const row = blk.data.screen?.[0];
     expect(row?.tone).toBe("muted");
     expect(row?.children?.[0]?.id).toBe("btn1");
   });

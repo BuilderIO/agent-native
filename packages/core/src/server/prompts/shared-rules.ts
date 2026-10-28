@@ -21,6 +21,9 @@ export interface SharedRuleOptions {
 export const RESPONSE_TYPOGRAPHY_GUIDANCE =
   "Keep body typography quiet: do not use bold or italics as routine emphasis, scan anchors, or decoration. Use them only when the user explicitly requests styled Markdown or when faithfully preserving formatting supplied by the user or a source.";
 
+export const WORKSPACE_APP_DELEGATION_GUIDANCE =
+  "Default to local. Delegate only on request or for peer-exclusive data, credentials, or capability; availability or optional enrichment alone is insufficient. Keep authorship here.";
+
 const DEFAULT_PROVIDER_ACTIONS = [
   "provider-search",
   "provider-records",
@@ -86,6 +89,9 @@ export function sharedRule13(options?: SharedRuleOptions): string {
   }
   return `13. **Plan and track multi-step work** — When a task spans several real steps the user would want to watch, open a \`manage-progress\` run so the work is visible while it's still in flight, and keep it updated as you go rather than after the fact; the tool's own description carries the full discipline. Skip it for single-action lookups, simple reads, and anything that finishes in one tool call — never create single-step plans.`;
 }
+
+/** Full prompt only: the compact prompt's byte budget has no room for it. */
+export const ATTACHMENT_READ_RULE = `   - **Read the whole attachment before acting on it** — a \`<chat-attachment-truncated>\` note means you have seen only the head of that file: call \`read-attachment\` as the note directs before you edit, restyle, summarize, or answer from it. If the file is too long to read in full, read the parts the request depends on and tell the user which parts you did not read. A \`<chat-attachment-processing-error>\` or \`<chat-attachment-read-error>\` means you do not have that file's contents: say so before any other work, and never tell the user a task built on it is done.`;
 
 export const SHARED_RULE_14 = `14. **Collaborate through uncertainty** — If a task stalls, errors, or depends on setup the user may not know about, shift into builder-coach mode instead of repeating the same attempt. State what you verified, name the most likely next checks, and proactively try common unblockers you can inspect (for example prompt size, missing environment variables, unavailable connections, current screen state, or tool choice). When you finish a meaningful step, offer one or two concrete next steps or improvements so non-technical users can keep iterating. When you are genuinely blocked on a decision you cannot resolve from context — and a wrong guess would be costly — use \`ask-question\` to present the choice instead of guessing; otherwise prefer a reasonable assumption and keep moving.`;
 

@@ -6,10 +6,12 @@ import {
   type H3Event,
 } from "h3";
 
+import { canReadRecordingComments } from "../../../shared/comment-access.js";
 import { getDb, schema } from "../../db/index.js";
 import {
   applyAgentJsonHeaders,
   buildPublicAgentContext,
+  canReadAppActivityEvents,
   describeAgentAccessFailure,
   loadAgentBugReport,
   loadAgentBrowserDiagnostics,
@@ -40,6 +42,10 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
+  const commentsReadable = canReadRecordingComments({
+    enableComments: recording.enableComments,
+    viewerIsOwner: accessResult.access.viewerIsOwner,
+  });
   const db = getDb();
   const historyQueryLimit = MAX_PUBLIC_AGENT_HISTORY_ITEMS + 1;
   const [
@@ -53,7 +59,7 @@ export default defineEventHandler(async (event: H3Event) => {
     bugReport,
   ] = await Promise.all([
     loadAgentTranscript(recording.id, recording.durationMs),
-    recording.enableComments
+    commentsReadable
       ? db
           .select({
             id: schema.recordingComments.id,
@@ -90,7 +96,7 @@ export default defineEventHandler(async (event: H3Event) => {
           .orderBy(asc(schema.recordingReactions.createdAt))
           .limit(historyQueryLimit)
       : Promise.resolve([]),
-    recording.enableComments
+    commentsReadable
       ? db
           .select({ count: count() })
           .from(schema.recordingComments)
@@ -115,6 +121,10 @@ export default defineEventHandler(async (event: H3Event) => {
   const commentCount = Number(commentCountRows[0]?.count ?? comments.length);
   const reactionCount = Number(reactionCountRows[0]?.count ?? reactions.length);
 
+  const appActivityEventsReadable = await canReadAppActivityEvents(
+    accessResult.access,
+  );
+
   return buildPublicAgentContext({
     event,
     access: accessResult.access,
@@ -134,5 +144,6 @@ export default defineEventHandler(async (event: H3Event) => {
     ctas,
     browserDiagnostics,
     bugReport,
+    appActivityEventsReadable,
   });
 });

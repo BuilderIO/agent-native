@@ -24,6 +24,7 @@ import {
   documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useDeleteDocumentProperty,
   useDocumentProperties,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
@@ -207,6 +208,103 @@ describe("useUpdateDatabaseItems", () => {
   });
 });
 
+describe("useDeleteDocumentProperty", () => {
+  beforeEach(() => {
+    useActionMutation.mockReset();
+    useQueryClient.mockReset();
+    useActionMutation.mockImplementation((_name, options) => options);
+  });
+
+  it("rereads open table rows except reads that sort or filter on the deleted property", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    const returnedPage = { items: [] };
+    const tableQuery = (constraints: Record<string, unknown>) => ({
+      search: "",
+      filters: [],
+      sorts: [],
+      ...constraints,
+    });
+    const deletedFilter = {
+      filters: [
+        { key: "deleted", label: "Deleted", operator: "equals", value: "x" },
+      ],
+    };
+    const tableRead = (constraints: Record<string, unknown>) =>
+      [
+        "action",
+        "query-content-database-items",
+        { documentId: "database-page", tableQuery: tableQuery(constraints) },
+      ] as const;
+    const searchKey = tableRead({ search: "draft" });
+    const filteredKey = tableRead(deletedFilter);
+    const sortedKey = tableRead({
+      sorts: [{ key: "deleted", label: "Deleted", direction: "asc" }],
+    });
+    const databaseKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page" },
+    ] as const;
+    const filteredDatabaseKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", tableQuery: tableQuery(deletedFilter) },
+    ] as const;
+    const reads = [
+      searchKey,
+      filteredKey,
+      sortedKey,
+      databaseKey,
+      filteredDatabaseKey,
+    ].map((queryKey) => {
+      const queryFn = vi.fn(async () => returnedPage);
+      queryClient.setQueryData(
+        queryKey,
+        queryKey[1] === "get-content-database"
+          ? { database: { id: "database-1" }, properties: [], items: [] }
+          : { items: [{ id: "item-1" }] },
+      );
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn });
+      return { queryFn, unsubscribe: observer.subscribe(() => {}) };
+    });
+
+    try {
+      useDeleteDocumentProperty("database-page", "database-1");
+      const call = useActionMutation.mock.calls.find(
+        ([name]) => name === "delete-document-property",
+      );
+      if (!call) throw new Error("delete-document-property was not wired");
+      const mutation = call[1];
+      mutation.onSuccess(
+        {
+          documentId: "database-page",
+          databaseId: "database-1",
+          properties: [],
+        },
+        {
+          documentId: "database-page",
+          databaseId: "database-1",
+          propertyId: "deleted",
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(queryClient.getQueryData(searchKey)).toEqual(returnedPage);
+        expect(queryClient.getQueryData(databaseKey)).toEqual(returnedPage);
+      });
+      expect(reads.map(({ queryFn }) => queryFn.mock.calls.length)).toEqual([
+        1, 0, 0, 1, 0,
+      ]);
+    } finally {
+      reads.forEach(({ unsubscribe }) => unsubscribe());
+      queryClient.clear();
+    }
+  });
+});
+
 describe("useConfigureDocumentProperty", () => {
   beforeEach(() => {
     useActionMutation.mockReset();
@@ -272,6 +370,36 @@ describe("useConfigureDocumentProperty", () => {
       });
     },
   );
+
+  it("leaves a Blocks field's options out of a rename", async () => {
+    const transport = vi.fn(async (_input: unknown) => undefined);
+    useQueryClient.mockReturnValue(new QueryClient());
+    useActionMutation.mockReturnValue({ mutateAsync: transport });
+    const configure = useConfigureDocumentProperty("row-page", "database-1");
+
+    await configure.mutateAsync({
+      id: "notes",
+      documentId: "row-page",
+      name: "Workshop notes",
+      type: "blocks",
+      description: "",
+      visibility: "always_show",
+      options: { blocks: { primary: false } },
+      icon: null,
+    });
+
+    expect(transport.mock.calls[0][0]).toEqual({
+      id: "notes",
+      documentId: "row-page",
+      databaseId: "database-1",
+      name: "Workshop notes",
+      type: "blocks",
+      description: "",
+      visibility: "always_show",
+      options: undefined,
+      icon: null,
+    });
+  });
 
   it("adapts a rendered ordinary option edit to the guarded setup contract", async () => {
     const transportMutateAsync = vi.fn(async () => undefined);

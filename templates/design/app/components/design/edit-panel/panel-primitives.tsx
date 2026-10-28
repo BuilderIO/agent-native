@@ -1,5 +1,12 @@
 import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
-import { Children, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Children,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +35,7 @@ import {
 } from "../inspector/color-picker-tokens";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import { readFillField } from "../inspector/fill-field-reading";
-import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
+import type { ShaderEditorContext } from "../shader-source-coordination";
 import { useDesignColorTokenSource } from "./design-color-tokens";
 import {
   buildGradientLayer,
@@ -200,8 +207,7 @@ export function ColorInput({
   documentColors,
   supportedPaintTypes,
   pickerKey,
-  glslShaderContext,
-  fillShader,
+  shaderContext,
   authoredValue,
   bindTokens = false,
   boundToken,
@@ -251,10 +257,8 @@ export function ColorInput({
   documentColors?: string[];
   supportedPaintTypes?: DesignPaintType[];
   pickerKey?: string;
+  shaderContext?: ShaderEditorContext;
   disabled?: boolean;
-  glslShaderContext?: GlslShaderPanelContext;
-  /** The shader painted as this fill: the picker opens on its controls. */
-  fillShader?: { name: string } | null;
   /** The color as written in the design, for the field to read as written. */
   authoredValue?: string;
   /** Offers the design's color tokens in the picker's Libraries pane; picking one writes `var(--token)`. */
@@ -470,11 +474,9 @@ export function ColorInput({
       ? selectedGradient
         ? selectedGradient.type
         : "image"
-      : fillShader
-        ? "shader"
-        : colorHasVisibleAlpha(draft || value)
-          ? "solid"
-          : "none";
+      : colorHasVisibleAlpha(draft || value)
+        ? "solid"
+        : "none";
   const pickerValue = singlePaint
     ? singlePaintGradient
       ? value
@@ -672,9 +674,8 @@ export function ColorInput({
       onGradientTypeChange={handleGradientTypeChange}
       documentColors={documentColors}
       supportedPaintTypes={supportedPaintTypes}
-      glslShaderContext={glslShaderContext}
+      shaderContext={shaderContext}
       authoredValue={authoredValue}
-      paintLabel={fillShader?.name}
       tokens={bindTokens ? tokenSource?.tokens : undefined}
       onRequestTokens={bindTokens ? tokenSource?.request : undefined}
       onPickToken={bindTokens && tokenSource ? bindToken : undefined}
@@ -794,25 +795,29 @@ export function PanelSection({
   children,
   onEmptyTitleClick,
   emptyTitleActionLabel,
+  compactHeader = false,
+  titleClassName,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
   onEmptyTitleClick?: () => void;
   emptyTitleActionLabel?: string;
+  compactHeader?: boolean;
+  titleClassName?: string;
 }) {
   const hasContent = Children.toArray(children).length > 0;
   const heading = (
     <h3
       aria-label={title}
-      className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground"
+      className={`design-sidebar-section-title min-w-0 flex-1 truncate text-foreground ${titleClassName ?? ""}`}
     >
       {onEmptyTitleClick && !hasContent ? (
         <Button
           type="button"
           variant="ghost"
           aria-label={emptyTitleActionLabel ?? title}
-          className="h-full w-full min-w-0 justify-start rounded-none bg-transparent p-0 text-left text-inherit shadow-none hover:bg-transparent"
+          className="design-sidebar-section-title h-full w-full min-w-0 justify-start rounded-none bg-transparent p-0 text-left text-inherit shadow-none hover:bg-transparent"
           onClick={onEmptyTitleClick}
         >
           {title}
@@ -827,6 +832,11 @@ export function PanelSection({
     <section
       data-design-inspector-section
       className="design-sidebar-section shrink-0"
+      style={
+        compactHeader
+          ? ({ "--design-section-height": "24px" } as CSSProperties)
+          : undefined
+      }
     >
       <div data-design-inspector-section-header className="px-2">
         <InspectorGrid

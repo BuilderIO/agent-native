@@ -4,7 +4,9 @@ const recording = vi.hoisted(() => ({
   id: "rec_1",
   title: "Test recording",
   kind: "video" as string,
+  expiresAt: null as string | null,
   ownerEmail: "owner@example.com",
+  storageMode: null as "own" | "hosted" | null,
   videoUrl: "https://cdn.example.com/media/clips/rec_1.webm",
   videoFormat: "webm" as string,
   durationMs: 10_000,
@@ -32,7 +34,11 @@ const state = vi.hoisted(() => ({
   updated: [] as Array<Record<string, unknown>>,
   updateReturns: [{ id: "rec_1" }] as Array<{ id: string }>,
   deleted: [] as string[],
+  deleteCalls: [] as Array<{ url: string; options?: unknown }>,
+  uploadCalls: [] as Array<Record<string, unknown>>,
   deleteFails: new Set<string>(),
+  frameDeletes: [] as string[],
+  frameDeleteFails: false,
   deletedAppState: [] as string[],
   ffmpegRuns: 0,
   uploadUrl: "https://cdn.example.com/media/clips/rec_1.mp4" as string | null,
@@ -50,6 +56,8 @@ const state = vi.hoisted(() => ({
   canStart: true,
   filmstripCalls: [] as Array<Record<string, unknown>>,
   duringEncode: null as null | (() => void),
+  duringUpload: null as null | (() => void),
+  accessRole: "editor",
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -95,16 +103,23 @@ vi.mock("../server/lib/redaction-burn-progress.js", () => ({
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => Promise<unknown>) => fn(),
 }));
-vi.mock("@agent-native/core/file-upload", () => ({
-  uploadFile: vi.fn(async () => {
+vi.mock("../server/lib/upload-recording-media.js", () => ({
+  uploadRecordingMedia: vi.fn(async (input: Record<string, unknown>) => {
+    state.uploadCalls.push(input);
     if (state.uploadError) throw state.uploadError;
+    state.duringUpload?.();
     return state.uploadUrl ? { url: state.uploadUrl, provider: "s3" } : null;
   }),
 }));
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => undefined),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => ({
+    role: state.accessRole,
+    resource: { expiresAt: recording.expiresAt },
+  })),
 }));
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   and: (...args: unknown[]) => args,
   eq: (column: unknown, value: unknown) => ({ column, value }),
 }));
@@ -132,10 +147,17 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
   }),
 }));
 vi.mock("../server/lib/recording-media-cleanup.js", () => ({
-  deleteStoredMediaUrl: async (url: string) => {
+  deleteStoredMediaUrl: async (url: string, options?: unknown) => {
+    state.deleteCalls.push({ url, options });
     if (state.deleteFails.has(url)) return false;
     state.deleted.push(url);
     return true;
+  },
+}));
+vi.mock("../server/lib/agent-frame-store.js", () => ({
+  deleteStoredAgentFrames: async (target: { id: string }) => {
+    state.frameDeletes.push(target.id);
+    return state.frameDeleteFails ? 1 : 0;
   },
 }));
 vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
@@ -197,7 +219,11 @@ describe("burning redactions into a recording", () => {
     state.updated = [];
     state.updateReturns = [{ id: "rec_1" }];
     state.deleted = [];
+    state.deleteCalls = [];
+    state.uploadCalls = [];
     state.deleteFails = new Set();
+    state.frameDeletes = [];
+    state.frameDeleteFails = false;
     state.deletedAppState = [];
     state.ffmpegRuns = 0;
     state.uploadUrl = "https://cdn.example.com/media/clips/rec_1.mp4";
@@ -217,8 +243,39 @@ describe("burning redactions into a recording", () => {
     state.uploadError = null;
     state.canStart = true;
     state.duringEncode = null;
+    state.duringUpload = null;
+    state.accessRole = "editor";
+    recording.expiresAt = null;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
+    recording.storageMode = null;
+  });
+
+  it.each(["encode", "upload"])(
+    "refuses expiry during %s before replacing media",
+    async (phase) => {
+      const expire = () => {
+        recording.expiresAt = "2000-01-01T00:00:00Z";
+      };
+      if (phase === "encode") state.duringEncode = expire;
+      else state.duringUpload = expire;
+      await expect(run()).rejects.toMatchObject({ statusCode: 403 });
+      expect(state.updated).toHaveLength(0);
+      expect(state.deleted).not.toContain(
+        "https://cdn.example.com/media/clips/rec_1.webm",
+      );
+      expect(state.deleted).toEqual(
+        phase === "upload" ? [state.uploadUrl] : [],
+      );
+    },
+  );
+  it("retains owner completion when expiry changes during encoding", async () => {
+    state.accessRole = "owner";
+    state.duringEncode = () => {
+      recording.expiresAt = "2000-01-01T00:00:00Z";
+    };
+    await expect(run()).resolves.toMatchObject({ id: "rec_1" });
+    expect(state.updated).toHaveLength(2);
   });
 
   it("returns a typed setup error when storage is not connected", async () => {
@@ -317,6 +374,22 @@ describe("burning redactions into a recording", () => {
     );
   });
 
+  it("keeps hosted storage pinned for redacted media and cleanup", async () => {
+    recording.storageMode = "hosted";
+
+    await run();
+
+    expect(state.uploadCalls[0]).toMatchObject({ recordingId: "rec_1" });
+    expect(state.deleteCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: "https://cdn.example.com/media/clips/rec_1.webm",
+          options: { storageMode: "hosted", recordingId: "rec_1" },
+        }),
+      ]),
+    );
+  });
+
   it("deletes every image that was made from the unredacted frames", async () => {
     await run();
     expect(state.deleted).toEqual(
@@ -353,6 +426,18 @@ describe("burning redactions into a recording", () => {
       startMs: 2_000,
       endMs: 5_000,
     });
+  });
+
+  it("deletes the stored agent frames cut before the burn", async () => {
+    await run();
+
+    expect(state.frameDeletes).toEqual(["rec_1"]);
+  });
+
+  it("keeps the clip held when a stored agent frame cannot be deleted", async () => {
+    state.frameDeleteFails = true;
+
+    await expect(run()).rejects.toThrow("could not be deleted from storage");
   });
 
   it("keeps the clip held when the original cannot be deleted", async () => {
@@ -419,6 +504,8 @@ describe("starting a burn", () => {
     state.updateReturns = [{ id: "rec_1" }];
     state.deleted = [];
     state.deleteFails = new Set();
+    state.frameDeletes = [];
+    state.frameDeleteFails = false;
     state.progressWrites = [];
     state.progressCleared = 0;
     state.failures = [];

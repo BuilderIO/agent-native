@@ -29,9 +29,16 @@ import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 
 import { actionCallEmitsChange } from "../action-call-classification.js";
-import type { ActionRunContext } from "../action.js";
+import {
+  actionCallIntent,
+  preparedCallArguments,
+  preparedCallNeedsApproval,
+  recordInvalidActionCall,
+} from "../action.js";
+import type { ActionRunContext, PreparedActionCall } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
+import { runApprovedCliAction } from "../cli/action-approval.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { notifyActionChange } from "./action-change.js";
@@ -230,11 +237,56 @@ export interface MountDevActionForwardRouteOptions {
   appId?: string;
 }
 
+// How long a refused call waits for its prompted retry.
+const REVIEWED_CALL_TTL_MS = 10 * 60_000;
+
 export function mountDevActionForwardRoute(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
   options?: MountDevActionForwardRouteOptions,
 ): void {
+  // The calls each refusal showed, so a prompted retry runs what the person
+  // reviewed, defaults included, instead of preparing it again. The hash is
+  // taken after defaults, so calls under one key are identical: concurrent
+  // refusals of the same call queue there, and each retry takes one.
+  const reviewedCalls = new Map<
+    string,
+    { entry: ActionEntry; prepared: PreparedActionCall; expires: number }[]
+  >();
+  const reviewedCallKey = (
+    name: string,
+    ctx: ActionRunContext,
+    argumentsHash: string,
+  ) => JSON.stringify([name, ctx.userEmail, ctx.orgId ?? null, argumentsHash]);
+  const liveReviewedCalls = (key: string, now: number) => {
+    const live = (reviewedCalls.get(key) ?? []).filter(
+      (reviewed) => reviewed.expires > now,
+    );
+    if (live.length > 0) reviewedCalls.set(key, live);
+    else reviewedCalls.delete(key);
+    return live;
+  };
+  // A reloaded action prepares its call again.
+  const takeReviewedCall = (key: string, entry: ActionEntry) => {
+    const live = liveReviewedCalls(key, Date.now());
+    const reviewed = live.shift();
+    if (live.length === 0) reviewedCalls.delete(key);
+    return reviewed?.entry === entry ? reviewed.prepared : undefined;
+  };
+  const rememberReviewedCall = (
+    key: string,
+    entry: ActionEntry,
+    prepared: PreparedActionCall,
+  ) => {
+    const now = Date.now();
+    for (const stale of [...reviewedCalls.keys()]) {
+      liveReviewedCalls(stale, now);
+    }
+    reviewedCalls.set(key, [
+      ...(reviewedCalls.get(key) ?? []),
+      { entry, prepared, expires: now + REVIEWED_CALL_TTL_MS },
+    ]);
+  };
   getH3App(nitroApp).use(
     DEV_ACTION_ROUTE,
     defineEventHandler(async (event: H3Event) => {
@@ -272,6 +324,9 @@ export function mountDevActionForwardRoute(
       const body = (await readBody(event).catch(() => null)) as {
         name?: unknown;
         input?: unknown;
+        approved?: unknown;
+        approvalSource?: unknown;
+        approvalArgumentsHash?: unknown;
       } | null;
       const name = body?.name;
       if (typeof name !== "string") {
@@ -313,7 +368,62 @@ export function mountDevActionForwardRoute(
             caller: "cli",
             actionName: name,
           };
-          const result = await entry.run(params, ctx);
+          // A yes at the prompt answers one refusal, so it runs the call that
+          // refusal showed, once.
+          const promptApproval =
+            body?.approved === true && body.approvalSource === "prompt";
+          const approvalHash = body?.approvalArgumentsHash;
+          const reviewed =
+            promptApproval && typeof approvalHash === "string"
+              ? takeReviewedCall(
+                  reviewedCallKey(name, ctx, approvalHash),
+                  entry,
+                )
+              : undefined;
+          if (promptApproval && !reviewed) {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              errorCode: "approval_expired",
+              error: `Action "${name}" has no pending confirmation for this call. A confirmation runs once, and expires after 10 minutes or a dev server restart. Run the command again to review it.`,
+            };
+          }
+          const prepared = reviewed ?? (await actionCallIntent(entry, params));
+          if (!prepared.valid) {
+            await recordInvalidActionCall(entry, params, ctx, prepared.error);
+            throw prepared.error;
+          }
+          const needsApproval = await preparedCallNeedsApproval(
+            entry,
+            prepared,
+            ctx,
+          );
+          if (needsApproval && body?.approved !== true) {
+            rememberReviewedCall(
+              reviewedCallKey(name, ctx, prepared.argumentsHash),
+              entry,
+              prepared,
+            );
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              errorCode: "approval_required",
+              error: `Action "${name}" requires human approval. Ask the person, then rerun with --approved.`,
+              arguments: preparedCallArguments(prepared),
+              argumentsHash: prepared.argumentsHash,
+            };
+          }
+          const approval = needsApproval
+            ? promptApproval
+              ? "prompt"
+              : "flag"
+            : undefined;
+          const result = await runApprovedCliAction(
+            entry,
+            prepared,
+            ctx,
+            approval,
+          );
           if (actionCallEmitsChange(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }

@@ -21,7 +21,6 @@ import {
   setThreadSourceIfMissing,
   updateThreadData,
 } from "../chat-threads/store.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
 import {
   startIntervalJob,
   type IntervalJobHandle,
@@ -47,6 +46,10 @@ import {
   type GoogleDocsPushHeaders,
   verifyGoogleDocsChannel,
 } from "./google-docs-webhook.js";
+import {
+  integrationRequestContext,
+  resolveIntegrationRequestScope,
+} from "./request-scope.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -768,6 +771,10 @@ async function processComment(
   existingThreadId?: string,
 ): Promise<void> {
   const adapter = googleDocsAdapter();
+  const requestScope = await resolveIntegrationRequestScope({
+    ownerEmail: options.ownerEmail,
+  });
+  const requestContext = integrationRequestContext(requestScope);
   const key = commentKey(fileId, commentId);
 
   const incoming: IncomingMessage = {
@@ -786,10 +793,14 @@ async function processComment(
 
   let threadId = existingThreadId;
   if (!threadId) {
-    const thread = await createThread(options.ownerEmail, {
-      title: `Google Doc: ${senderName}`,
-      source,
-    });
+    const thread = await runWithRequestContext(
+      { userEmail: options.ownerEmail, ...requestContext },
+      () =>
+        createThread(options.ownerEmail, {
+          title: `Google Doc: ${senderName}`,
+          source,
+        }),
+    );
     await saveThreadMapping(PLATFORM, key, thread.id, { fileId, commentId });
     threadId = thread.id;
   }
@@ -843,14 +854,17 @@ async function processComment(
   );
   const runId = `gdocs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const capturedThreadId = threadId;
-  const orgId = (await resolveOrgIdForEmail(options.ownerEmail)) ?? undefined;
 
   startRun(
     runId,
     capturedThreadId,
     async (send, signal) => {
       await runWithRequestContext(
-        { userEmail: options.ownerEmail, orgId, isIntegrationCaller: true },
+        {
+          userEmail: options.ownerEmail,
+          ...requestContext,
+          isIntegrationCaller: true,
+        },
         () =>
           runAgentLoopDirectWithSoftTimeout(
             {
@@ -889,7 +903,7 @@ async function processComment(
         console.error("[google-docs] Error sending response:", err);
       }
     },
-    { model: options.model, engineName: engine.name },
+    { model: options.model, engineName: engine.name, executionLease: true },
   );
 }
 
@@ -1009,6 +1023,7 @@ function startPollLoop(
     pollerStartTimer = null;
     pollerJob = startIntervalJob(poll, { intervalMs });
   }, 5000);
+  pollerStartTimer.unref?.();
 
   const email = getServiceAccountEmail();
   if (process.env.DEBUG) {
@@ -1018,21 +1033,33 @@ function startPollLoop(
   }
 }
 
-export async function stopGoogleDocsPoller(): Promise<void> {
+/**
+ * Stops polling and watch renewal, then retires the shared Drive watch.
+ * With `shuttingDown`, it instead waits for a poll in flight to finish and
+ * leaves the watch registered for the servers still running, or the next
+ * start, to renew or replace.
+ */
+export async function stopGoogleDocsPoller(
+  options: { shuttingDown?: boolean } = {},
+): Promise<void> {
   pollerGeneration += 1;
   activeOptions = null;
   if (pollerStartTimer) {
     clearTimeout(pollerStartTimer);
     pollerStartTimer = null;
   }
-  if (pollerJob) {
-    pollerJob.stop();
-    pollerJob = null;
-  }
   if (watchRenewalTimer) {
     clearTimeout(watchRenewalTimer);
     watchRenewalTimer = null;
   }
+  const running = pollerJob;
+  pollerJob = null;
+  if (options.shuttingDown) {
+    await running?.stop();
+    return;
+  }
+  // Disabling doesn't wait on a slow poll; the stop ends its scheduling.
+  void running?.stop();
   try {
     const stopResult = await stopWatch();
     if (stopResult.status === "retry") {

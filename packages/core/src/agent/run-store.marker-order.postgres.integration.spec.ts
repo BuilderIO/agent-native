@@ -11,6 +11,7 @@ import {
   insertRunEvent,
   insertRunEvents,
   reapIfStale,
+  tryClaimRunSlot,
 } from "./run-store.js";
 import { classifyToolCallJournal } from "./tool-call-journal.js";
 
@@ -214,19 +215,74 @@ describe.skipIf(!databaseUrl)(
         expect(Number(rows[1_202].event_at)).toBe(2_202);
         expect(rows[1_202].event_data).toBe(events[1_202].eventData);
 
-        await sql`UPDATE agent_runs SET status = 'completed' WHERE id = ${runId}`;
         await withDbExec(executor(sql), () =>
-          insertRunEvents(runId, [
-            {
-              seq: 5_000,
-              eventAt: 1,
-              eventData: '{"type":"text","text":"late"}',
-            },
-          ]),
+          insertRunEvent(
+            runId,
+            events.length,
+            JSON.stringify({ type: "done" }),
+            { requireInserted: true },
+          ),
         );
+
+        await sql`UPDATE agent_runs SET status = 'completed' WHERE id = ${runId}`;
+        const completedTurn = await withDbExec(executor(sql), () =>
+          tryClaimRunSlot(runId, `retry-${runId}`, undefined, {
+            turnId: runId,
+            replayCompletedTurn: true,
+          }),
+        );
+        expect(completedTurn).toEqual({
+          claimed: false,
+          activeRunId: null,
+          completedRunId: runId,
+        });
+
+        await expect(
+          withDbExec(executor(sql), () =>
+            insertRunEvent(
+              runId,
+              5_001,
+              JSON.stringify({ type: "done", reason: "late" }),
+              { requireInserted: true },
+            ),
+          ),
+        ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+        await expect(
+          withDbExec(executor(sql), () =>
+            insertRunEvents(runId, [
+              {
+                seq: 5_000,
+                eventAt: 1,
+                eventData: '{"type":"text","text":"late"}',
+              },
+            ]),
+          ),
+        ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
+        await expect(
+          withDbExec(executor(sql), () =>
+            insertRunEvents(runId, [
+              {
+                seq: 0,
+                eventAt: 1_000,
+                eventData: '{"type":"text","text":"different retry"}',
+              },
+            ]),
+          ),
+        ).rejects.toBeInstanceOf(AgentRunEventNotPersistedError);
         const late =
           await sql`SELECT seq FROM agent_run_events WHERE run_id = ${runId} AND seq = 5000`;
         expect(late).toHaveLength(0);
+        const lateTerminal =
+          await sql`SELECT seq FROM agent_run_events WHERE run_id = ${runId} AND seq = 5001`;
+        expect(lateTerminal).toHaveLength(0);
+        await expect(
+          withDbExec(executor(sql), () =>
+            tryClaimRunSlot(runId, `retry-again-${runId}`, undefined, {
+              turnId: runId,
+              replayCompletedTurn: true,
+            }),
+          ),
+        ).resolves.toEqual(completedTurn);
       } finally {
         await sql`DELETE FROM agent_run_events WHERE run_id = ${runId}`;
         await sql`DELETE FROM agent_runs WHERE id = ${runId}`;

@@ -1,5 +1,23 @@
 const REACTION_NAME = /^[a-z0-9_+-]{1,50}$/;
 
+/**
+ * Where the Slack poller records which reactions a person put on a message,
+ * in the item's metadata. A person is anyone who is not a bot, so the
+ * workflow's own acknowledgement never counts as someone claiming a report.
+ * `personReactions` is written only for a message that starts a thread, and an
+ * empty list means the reactions were read and a person had added none; a row
+ * without the key was never read for reactions at all.
+ */
+export const PERSON_REACTIONS_KEY = "personReactions";
+/** Slack ids of the people behind `personReactions`, for the audit. */
+export const PERSON_REACTORS_KEY = "personReactors";
+/**
+ * Reactors the poller could not tell from a bot (a failed lookup, or a list
+ * Slack cut short). Their reactions are counted in `personReactions`, so a
+ * claim is never missed, and they are listed here so it can be seen.
+ */
+export const UNVERIFIED_REACTORS_KEY = "unverifiedReactors";
+
 export const GITHUB_ISSUE_REACTIONS = [
   "+1",
   "-1",

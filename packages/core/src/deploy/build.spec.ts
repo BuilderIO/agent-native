@@ -1,6 +1,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import { randomBytes } from "node:crypto";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -25,6 +26,7 @@ import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
+import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
   CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
@@ -33,6 +35,7 @@ import {
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
+  EMBED_SESSION_COOKIE,
   EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -1624,9 +1627,15 @@ const corePackageRoot = path.resolve(
 );
 
 function linkCorePackageForWorker(dir: string): void {
+  // The plain Node worker needs built exports, which Stryker's sandbox omits.
+  const packageRootForWorker = corePackageRoot.includes(
+    `${path.sep}.stryker-tmp${path.sep}`,
+  )
+    ? path.resolve(corePackageRoot, "../..")
+    : corePackageRoot;
   const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
   fs.mkdirSync(path.dirname(packageLink), { recursive: true });
-  fs.symlinkSync(corePackageRoot, packageLink, "dir");
+  fs.symlinkSync(packageRootForWorker, packageLink, "dir");
 }
 
 describe("Netlify static cache headers", () => {
@@ -2295,16 +2304,13 @@ export default { run: async () => ({ ok: true }) };
       ],
     );
 
+    // oracle-change: Browser-cookie/origin route tests replace assertions about the generated helper's internal name.
     expect(source).toContain(
       "hasUiActionCapability as hasGeneratedUiActionCapability",
     );
     expect(source).toContain(
-      "isSameOriginRequest as isGeneratedSameOriginRequest",
-    );
-    expect(source).toContain(
       "mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute",
     );
-    expect(source).toContain("!isGeneratedSameOriginRequest(event)");
     expect(source).toContain(
       'setResponseHeader(event, "Cache-Control", "no-" + "store");',
     );
@@ -2407,12 +2413,140 @@ export default {
     const capability = await worker.fetch(
       new Request("https://app.test/_agent-native/ui-capability", {
         method: "GET",
+        headers: { origin: "https://app.test" },
       }),
       {},
       {},
     );
     expect(capability.status).toBe(401);
   });
+
+  it.each([
+    ["needsApproval: true", "frontend", 403, "ui_capability_required"],
+    ["needsApproval: true", "http", 409, "approval_required"],
+    [
+      'needsApproval: (_args, ctx) => ctx.caller !== "frontend"',
+      "frontend bearer",
+      409,
+      "approval_required",
+    ],
+    [
+      'needsApproval: (_args, ctx) => ctx.caller !== "frontend"',
+      "frontend",
+      403,
+      "ui_capability_required",
+    ],
+    [
+      'needsApproval: () => { throw new Error("x"); }',
+      "http",
+      409,
+      "approval_required",
+    ],
+    ["needsApproval: () => false", "http", 200, undefined],
+  ] as const)(
+    "gates %s for a %s caller in generated workers",
+    async (gate, caller, status, errorCode) => {
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "revoke-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `
+export default {
+  ${gate},
+  run: async () => ({ revoked: true }),
+};
+`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "revoke-thing", absPath: actionPath, method: "post" }],
+        ),
+      );
+
+      const response = await worker.fetch(
+        new Request("https://app.test/_agent-native/actions/revoke-thing", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(caller.startsWith("frontend")
+              ? { "x-agent-native-frontend": "1" }
+              : {}),
+            ...(caller === "frontend bearer"
+              ? { authorization: "Bearer test-session" }
+              : {}),
+          },
+          body: JSON.stringify({ id: "thing-1" }),
+        }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(status);
+      const body = await response.json();
+      if (errorCode) {
+        expect(body).toMatchObject({ errorCode });
+      } else {
+        expect(body).toEqual({ revoked: true });
+      }
+    },
+  );
+
+  it.each(["query", "target-header", "cookie"] as const)(
+    "refuses approval-gated embedded frontend calls with full-app guidance: %s",
+    async (credential) => {
+      vi.stubEnv("OAUTH_STATE_SECRET", randomBytes(32).toString("base64url"));
+      const token = signEmbedSessionToken({
+        ownerEmail: "widget-owner@example.com",
+        audienceHost: "https://app.test",
+        targetPath: "/visual-edit/design-1",
+        scope: "capability:visual-edit:design:design-1",
+      });
+      const dir = makeTempDir();
+      const actionPath = path.join(dir, "approval-action.mjs");
+      fs.writeFileSync(
+        actionPath,
+        `export default {
+  needsApproval: true,
+  run: async () => { throw new Error("An unapproved action must not run"); },
+};`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [],
+          [],
+          [],
+          [{ name: "write-record", absPath: actionPath, method: "post" }],
+        ),
+      );
+      const url = new URL(
+        "https://app.test/_agent-native/actions/write-record",
+      );
+      const headers = new Headers({
+        "content-type": "application/json",
+        "x-agent-native-frontend": "1",
+      });
+      if (credential === "query") {
+        url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+        url.searchParams.set(EMBED_TARGET_QUERY_PARAM, "/visual-edit/design-1");
+      } else if (credential === "target-header") {
+        headers.set("x-agent-native-embed-target", "/visual-edit/design-1");
+      } else {
+        headers.set("cookie", `${EMBED_SESSION_COOKIE}=${token}`);
+      }
+      const response = await worker.fetch(
+        new Request(url, { method: "POST", headers, body: "{}" }),
+        {},
+        {},
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        errorCode: "approval_required",
+        error: expect.stringContaining("Open the full app"),
+      });
+    },
+  );
 
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
@@ -2625,6 +2759,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+    vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([
         { id: "workspace-calendar", path: "/recordings" },
@@ -2652,6 +2790,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(html).toContain('"workspaceAppPath":"/recordings"');
     expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
     expect(html).toContain('"workspaceRuntime":true');
+    expect(html).toContain('"frameworkRoutePrefix":"/_platform"');
   });
 
   it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
@@ -2757,6 +2896,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
 
     expect(html).toContain('"workspaceAppPath":"/"');
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+    expect(html).toContain('"explicitRootPath":true');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {

@@ -16,6 +16,7 @@ in the skill.
 | Nothing else changed           | `expectOnlyChanged(before, after, ["edited-node-id"])`                                                                             |
 | Selection                      | `await expect.poll(() => app.selectedLayers()).toEqual([...])`                                                                     |
 | A failure the scenario expects | `app.allowFailure(pattern, reason)`; the pattern matches `"<kind> <detail>"`, for example `http 403 POST /_agent-native/actions/x` |
+| Why a test failed              | the failed test's `recorder.json` attachment                                                                                       |
 
 ## Traps
 

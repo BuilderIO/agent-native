@@ -4,9 +4,10 @@ import "../authorization/check-action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { CORE_ACTION_GROUPS } from "../framework-tools.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import { captureCliOutput } from "./cli-capture.js";
-import { carryExecutionKey } from "./filesystem-action-entry.js";
+import { preserveActionFlags } from "./filesystem-action-entry.js";
 
 let _fs: typeof import("fs") | undefined;
 async function getFs(): Promise<typeof import("fs")> {
@@ -100,131 +101,6 @@ function wrapDefaultExport(
       return captureCliOutput(() => defaultFn(cliArgs));
     },
   };
-}
-
-function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
-  const out: Partial<ActionEntry> = {};
-  if (
-    entry.schema &&
-    typeof entry.schema === "object" &&
-    "~standard" in entry.schema
-  ) {
-    out.schema = entry.schema;
-  }
-  if (
-    entry.access &&
-    typeof entry.access === "object" &&
-    !Array.isArray(entry.access)
-  ) {
-    out.access = entry.access;
-  }
-  if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
-  if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
-  if (
-    entry.mcpAnnotations &&
-    typeof entry.mcpAnnotations === "object" &&
-    !Array.isArray(entry.mcpAnnotations) &&
-    typeof entry.mcpAnnotations.readOnlyHint === "boolean" &&
-    typeof entry.mcpAnnotations.destructiveHint === "boolean" &&
-    typeof entry.mcpAnnotations.openWorldHint === "boolean"
-  ) {
-    out.mcpAnnotations = entry.mcpAnnotations;
-  }
-  if (typeof entry.deferLoading === "boolean") {
-    out.deferLoading = entry.deferLoading;
-  }
-  if (typeof entry.requiresAuth === "boolean") {
-    out.requiresAuth = entry.requiresAuth;
-  }
-  if (typeof entry.uiOnly === "boolean") out.uiOnly = entry.uiOnly;
-  if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
-  if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
-  if (typeof entry.allowInPlanMode === "boolean") {
-    out.allowInPlanMode = entry.allowInPlanMode;
-  }
-  if (
-    entry.planMode &&
-    typeof entry.planMode === "object" &&
-    !Array.isArray(entry.planMode)
-  ) {
-    out.planMode = entry.planMode;
-  }
-  if (typeof entry.changeEvents === "boolean") {
-    out.changeEvents = entry.changeEvents;
-  }
-  if (typeof entry.changeResource === "function") {
-    out.changeResource = entry.changeResource;
-  }
-  if (typeof entry.parallelSafe === "boolean") {
-    out.parallelSafe = entry.parallelSafe;
-  }
-  if (
-    typeof entry.retrySafe === "boolean" ||
-    typeof entry.retrySafe === "function"
-  ) {
-    out.retrySafe = entry.retrySafe;
-  }
-  carryExecutionKey(entry, out);
-  if (typeof entry.endsTurn === "boolean") {
-    out.endsTurn = entry.endsTurn;
-  }
-  if (typeof entry.dedupe === "boolean") {
-    out.dedupe = entry.dedupe;
-  }
-  if (typeof entry.toolCallable === "boolean") {
-    out.toolCallable = entry.toolCallable;
-  }
-  if (typeof entry.agentDiscoveryAvailable === "function") {
-    out.agentDiscoveryAvailable = entry.agentDiscoveryAvailable;
-  }
-  if (
-    Array.isArray(entry.capabilityScopes) &&
-    entry.capabilityScopes.length > 0 &&
-    entry.capabilityScopes.every((scope: unknown) => typeof scope === "string")
-  ) {
-    out.capabilityScopes = entry.capabilityScopes;
-  }
-  if (
-    entry.publicAgent &&
-    typeof entry.publicAgent === "object" &&
-    !Array.isArray(entry.publicAgent)
-  ) {
-    out.publicAgent = entry.publicAgent;
-  }
-  if (typeof entry.link === "function") {
-    out.link = entry.link;
-  }
-  if (
-    entry.mcpApp &&
-    typeof entry.mcpApp === "object" &&
-    !Array.isArray(entry.mcpApp)
-  ) {
-    out.mcpApp = entry.mcpApp;
-  }
-  if (
-    entry.chatUI &&
-    typeof entry.chatUI === "object" &&
-    !Array.isArray(entry.chatUI)
-  ) {
-    out.chatUI = entry.chatUI;
-  }
-  if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
-  if (typeof entry.maxResultChars === "number") {
-    out.maxResultChars = entry.maxResultChars;
-  }
-  if (typeof entry.maxBodyBytes === "number") {
-    out.maxBodyBytes = entry.maxBodyBytes;
-  }
-  if (
-    typeof entry.needsApproval === "boolean" ||
-    typeof entry.needsApproval === "function"
-  ) {
-    out.needsApproval = entry.needsApproval;
-  }
-  if (typeof entry.allowPersistentApproval === "boolean") {
-    out.allowPersistentApproval = entry.allowPersistentApproval;
-  }
-  return out;
 }
 
 async function resolveActionsDir(from: string): Promise<string> {
@@ -444,18 +320,33 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
   "list-mcp-tools",
   "call-mcp-tool",
+  // Connection setup UI needs the workspace prerequisite even in minimal apps.
+  "get-managed-mcp-oauth-readiness",
   "get-agentkit-capabilities",
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
+  "decide",
+  "decisions-status",
   // The client's same-tick GET batching depends on it, so it cannot be gated.
   "get-actions-batch",
+  // Any app can mount ReportProblemButton, which needs these.
+  "save-problem-report",
+  "read-problem-report",
 ]);
 
-export async function mergeCoreSharingActions(
-  registry: Record<string, ActionEntry>,
-): Promise<void> {
-  const entries: Array<[string, () => Promise<any>]> = [
+/**
+ * The framework actions every app composes, by action name. Each loader imports
+ * one action module. `mergeCoreSharingActions` skips a loader that throws, so
+ * contract tests import this list directly to see a failed or invalid entry.
+ */
+export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
+  return [
+    ["decide", () => import("../decisions/actions/decide.js")],
+    [
+      "decisions-status",
+      () => import("../decisions/actions/decisions-status.js"),
+    ],
     ["share-resource", () => import("../sharing/actions/share-resource.js")],
     [
       "unshare-resource",
@@ -532,10 +423,26 @@ export async function mergeCoreSharingActions(
     ["explain-access", () => import("../org/actions/explain-access.js")],
     ["offboard-member", () => import("../org/actions/offboard-member.js")],
     [
+      "list-organization-members",
+      () => import("../org/actions/list-organization-members.js"),
+    ],
+    [
+      "invite-organization-member",
+      () => import("../org/actions/invite-organization-member.js"),
+    ],
+    [
       "get-agentkit-capabilities",
       () => import("../agent/actions/get-agentkit-capabilities.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "save-problem-report",
+      () => import("../problem-report/actions/save-problem-report.js"),
+    ],
+    [
+      "read-problem-report",
+      () => import("../problem-report/actions/read-problem-report.js"),
+    ],
     [
       "get-file-storage",
       () => import("../file-upload/actions/get-file-storage.js"),
@@ -682,6 +589,7 @@ export async function mergeCoreSharingActions(
       "list-model-providers",
       () => import("../agent/actions/list-model-providers.js"),
     ],
+    ["describe-models", () => import("../agent/actions/describe-models.js")],
     [
       "get-experiments",
       () => import("../experiments/actions/get-experiments.js"),
@@ -749,6 +657,10 @@ export async function mergeCoreSharingActions(
       () => import("../usage/actions/get-builder-referral-info.js"),
     ],
     [
+      "search-automation-accounts",
+      () => import("../triggers/actions/search-automation-accounts.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],
@@ -773,6 +685,14 @@ export async function mergeCoreSharingActions(
       () => import("../agent/context-xray/actions/context-report.js"),
     ],
     [
+      "context-compact",
+      () => import("../agent/context-xray/actions/context-compact.js"),
+    ],
+    [
+      "context-compaction-get",
+      () => import("../agent/context-xray/actions/context-compaction-get.js"),
+    ],
+    [
       "get-localization-preference",
       () => import("../localization/actions/get-localization-preference.js"),
     ],
@@ -792,6 +712,10 @@ export async function mergeCoreSharingActions(
       "get-auth-methods",
       () => import("../user-profile/actions/get-auth-methods.js"),
     ],
+    [
+      "get-managed-mcp-oauth-readiness",
+      () => import("../mcp-client/actions/get-managed-mcp-oauth-readiness.js"),
+    ],
     ["set-password", () => import("../user-profile/actions/set-password.js")],
     [
       "change-password",
@@ -804,6 +728,14 @@ export async function mergeCoreSharingActions(
     [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
+    ],
+    [
+      "get-theme-family",
+      () => import("../appearance/actions/get-theme-family.js"),
+    ],
+    [
+      "set-theme-family",
+      () => import("../appearance/actions/set-theme-family.js"),
     ],
     [
       "list-audit-events",
@@ -973,13 +905,18 @@ export async function mergeCoreSharingActions(
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
     ["get-actions-batch", () => import("./get-actions-batch.js")],
   ];
-  for (const [name, loader] of entries) {
+}
+
+export async function mergeCoreSharingActions(
+  registry: Record<string, ActionEntry>,
+): Promise<void> {
+  for (const [name, loader] of coreActionLoaderEntries()) {
     if (registry[name]) continue;
     try {
       const mod = await loader();
       const def = mod.default;
       if (def && def.tool && typeof def.run === "function") {
-        registry[name] = {
+        registry[name] = frameworkMcpTool({
           tool: def.tool,
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
@@ -991,7 +928,7 @@ export async function mergeCoreSharingActions(
           ...(CORE_ACTION_GROUPS[name]
             ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
             : {}),
-        };
+        });
       }
     } catch {
       // Skip any sharing action that fails to import.

@@ -34,8 +34,11 @@ const messages = {
       newest: "Newest",
       priority: "Priority",
       priorityFailed: "Couldn’t rank this inbox.",
+      priorityProviderRequired: "Connect an AI provider to use Priority sort.",
+      priorityPartialFailed:
+        "Couldn’t rank {{count}} messages. They’re shown after scored messages.",
       priorityScoreHelp:
-        "Higher scores mean Jev expects the message to be more important.",
+        "Higher scores mean this message is more likely to be important.",
       priorityFeedbackSuggestion:
         "Turn this feedback pattern into an importance or auto-archive rule.",
       priorityFeedbackAskAgent: "Ask agent to suggest rules",
@@ -305,7 +308,11 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Contact enrichment & company data",
       hubspotDescription: "CRM contacts, deals & tickets",
-      gongDescription: "Recent calls & conversation intelligence",
+      gongDescription: "Gong call history",
+      gongAccessCheckFailed: "Couldn't check whether you can connect to Gong.",
+      gongKeyPlaceholder: "Gong API key",
+      gongKeyFormatHint:
+        "Enter the access key and secret as access_key:secret.",
       pylonDescription: "Support issues & account data",
       gongCalls: "Gong Calls",
       deals: "Deals",
@@ -426,6 +433,7 @@ const messages = {
       tryDifferentKeywords: "Try different keywords",
       nothingHere: "Nothing here yet",
       loadingMore: "Loading more...",
+      openAllMailForOlder: "Open All Mail for older messages",
     },
     toasts: {
       noEmailSelected: "No email selected.",
@@ -456,6 +464,8 @@ const messages = {
       failedToSendEmail: "Failed to send email",
       messageSent: "Message sent.",
       failedToSaveDraft: "Failed to save draft.",
+      failedToRefreshInbox:
+        "Couldn't refresh your inbox. Try again in a moment.",
       failedToDeleteDraft: "Failed to delete draft.",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",
@@ -705,12 +715,14 @@ const messages = {
       tagTabsHelp: "Each tag becomes an inbox tab",
       addTag: "Add tag",
       triageTitle: "AI triage",
-      connectJev: "Connect Jev",
-      connectJevToRunTriage: "Connect Jev to run triage",
+      connectJev: "Connect an AI provider",
+      connectJevToRunTriage: "Connect an AI provider to run triage",
       freeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
-      jevAvailabilityFailed: "Could not check whether Jev is available.",
+      jevAvailabilityFailed:
+        "Could not check whether an AI decision provider is available.",
       connectBuilder: "Use Builder.io",
-      addJevApiKey: "Add API key",
+      addJevApiKey: "Add Jev API key",
+      addOpenAiApiKey: "Add OpenAI API key",
     },
     draftQueue: {
       title: "Draft queue",
@@ -752,6 +764,17 @@ const messages = {
       emailThread: "Email thread",
       unableToLoadThread: "Unable to load thread",
       openInApp: "Open in app",
+      draft: "Email draft - Mail",
+    },
+    draftCard: {
+      loadFailed: "Couldn't load this draft.",
+      notFoundTitle: "Draft not found",
+      threadUnavailable:
+        "Couldn't load the earlier messages in this conversation.",
+      threadLookupFailed:
+        "Couldn't find the conversation this reply belongs to, so it can't be sent yet.",
+      earlierMessages: "Earlier messages ({{count}})",
+      deleted: "Draft deleted.",
     },
     agentEngine: {
       activeEngine: "Active engine",

@@ -8,13 +8,19 @@ import { z } from "zod";
 
 import {
   buildDashboardAgentContext,
+  buildDashboardSeedAgentContext,
   fitDashboardScreenContext,
 } from "../server/lib/agent-readable-resource-context";
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
-import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
+import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
+import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
+import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
+import { getAnalysis } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import { openDashboard } from "../server/lib/open-dashboard";
 import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
+import { withSessionsTriage } from "../server/lib/session-replay-triage.js";
 import {
   getSessionRecordingPerformance,
   getSessionReplaySummary,
@@ -33,6 +39,7 @@ import {
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { isAnalyticsAskPath } from "../shared/ask-route";
+import { isOutputUseApp, UNUSED_OUTPUT_PARAM } from "../shared/output-use";
 import { sessionDateBound } from "../shared/session-date-bounds";
 import {
   readSessionEventFilters,
@@ -176,6 +183,17 @@ export default defineAction({
     if (effectiveNavigation) screen.navigation = effectiveNavigation;
     if (url?.pathname) screen.pathname = url.pathname;
     if (selectedObject) screen.selectedObject = selectedObject;
+    // The key can outlive its dashboard (a reload onto a page with no
+    // breakdown table never clears it), so it only counts on that dashboard.
+    const rowBreakdown =
+      nav?.view === "adhoc" && typeof nav.dashboardId === "string"
+        ? ((await readAppStateForCurrentTab("row-breakdown")) as {
+            dashboardId?: unknown;
+          } | null)
+        : null;
+    if (rowBreakdown && rowBreakdown.dashboardId === nav.dashboardId) {
+      screen.rowBreakdown = rowBreakdown;
+    }
 
     if (url?.searchParams) {
       const activeFilters: Record<string, string> = {};
@@ -199,13 +217,52 @@ export default defineAction({
         const orgId = getRequestOrgId() || null;
         const email = getRequestUserEmail();
         if (email) {
-          const dashboard = await getDashboard(nav.dashboardId, {
+          const opened = await openDashboard(nav.dashboardId, {
             email,
             orgId,
           });
-          if (dashboard) {
+          const stored = opened?.saved;
+          if (opened?.builtin) {
+            const builtin = opened.builtin;
             screen.dashboard = fitDashboardScreenContext(
-              buildDashboardAgentContext(dashboard, { forAgent: true }),
+              buildDashboardSeedAgentContext(nav.dashboardId, builtin.config, {
+                forAgent: true,
+                annotationSummary: await loadDashboardAnnotationSummary(
+                  { scope: { email, orgId }, editable: true },
+                  nav.dashboardId,
+                  builtin.config,
+                  url?.searchParams,
+                ),
+              }),
+              SCREEN_DASHBOARD_CHAR_BUDGET,
+            );
+          } else if (stored) {
+            // The page draws what get-sql-dashboard returns: for a first-party
+            // dashboard, the repaired SQL, not the stored SQL.
+            const dashboard = {
+              ...stored,
+              config: repairKnownFirstPartyDashboardQueries(
+                stored.id,
+                stored.config,
+              ).config,
+            };
+            screen.dashboard = fitDashboardScreenContext(
+              buildDashboardAgentContext(dashboard, {
+                forAgent: true,
+                // Only SQL charts draw key dates and data notes.
+                annotationSummary:
+                  dashboard.kind === "sql"
+                    ? await loadDashboardAnnotationSummary(
+                        storedDashboardAnnotationScope(dashboard, {
+                          email,
+                          orgId,
+                        }),
+                        dashboard.id,
+                        dashboard.config as Record<string, unknown>,
+                        url?.searchParams,
+                      )
+                    : undefined,
+              }),
               SCREEN_DASHBOARD_CHAR_BUDGET,
             );
           }
@@ -260,9 +317,10 @@ export default defineAction({
         const scope = { userEmail: email, orgId: getRequestOrgId() || null };
         try {
           if (nav?.recordingId) {
-            screen.sessionReplay = await getSessionReplaySummary(
-              nav.recordingId,
+            screen.sessionReplay = await withSessionsTriage(
+              await getSessionReplaySummary(nav.recordingId, scope),
               scope,
+              "[view-screen]",
             );
           } else {
             const params = url?.searchParams ?? {};
@@ -321,8 +379,11 @@ export default defineAction({
             const urlSlow = isSlowSessionFilter(params.slow)
               ? params.slow
               : undefined;
+            const urlUnused = isOutputUseApp(params[UNUSED_OUTPUT_PARAM])
+              ? params[UNUSED_OUTPUT_PARAM]
+              : undefined;
             // Match the page: event conditions, friction filters and sorts,
-            // the slow filter, and row friction and speed hints apply only
+            // the slow and unused filters, and row friction and speed hints apply only
             // with the Lab on. A failed Lab read is reported, and the base
             // list is still read without them.
             let triageLabEnabled = false;
@@ -351,6 +412,7 @@ export default defineAction({
               }
               if (urlFrictionSort) filters.sort = urlFrictionSort;
               if (urlSlow) filters.slow = urlSlow;
+              if (urlUnused) filters.unused = urlUnused;
             }
             const result = await listSessionRecordingsPage(scope, {
               ...filters,
@@ -397,6 +459,16 @@ export default defineAction({
                 ...(speed.status === "fulfilled"
                   ? { performance: speed.value.performance[recording.id] }
                   : {}),
+                ...(result.outputs
+                  ? {
+                      outputs: result.outputs[recording.id],
+                      ...(result.omittedOutputs?.[recording.id]
+                        ? {
+                            omittedOutputs: result.omittedOutputs[recording.id],
+                          }
+                        : {}),
+                    }
+                  : {}),
               }));
             }
             // The URL's sort and Lab conditions are not what was applied
@@ -416,6 +488,9 @@ export default defineAction({
                 filters.frictionSignals;
             }
             if (filters.slow) activeFilters.slow = filters.slow;
+            if (filters.unused) {
+              activeFilters[UNUSED_OUTPUT_PARAM] = filters.unused;
+            }
             if (Object.keys(activeFilters).length > 0) {
               screen.activeFilters = activeFilters;
             }
@@ -441,6 +516,9 @@ export default defineAction({
               ...(performanceCoverageStartedAt !== undefined
                 ? { performanceCoverageStartedAt }
                 : {}),
+              ...(result.outputCoverageStartedAt !== undefined
+                ? { outputCoverageStartedAt: result.outputCoverageStartedAt }
+                : {}),
               ...(urlHasEventConditions && !triageLabEnabled
                 ? { eventConditionsNotApplied: urlEventConditions }
                 : {}),
@@ -455,6 +533,9 @@ export default defineAction({
                 : {}),
               ...(urlSlow && !triageLabEnabled
                 ? { slowFilterNotApplied: urlSlow }
+                : {}),
+              ...(urlUnused && !triageLabEnabled
+                ? { unusedFilterNotApplied: urlUnused }
                 : {}),
               truncated:
                 result.recordings.length <

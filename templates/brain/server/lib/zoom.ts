@@ -3,6 +3,8 @@ import { sanitizeSensitiveText } from "./sensitivity-policy.js";
 const ZOOM_API_BASE = "https://api.zoom.us/v2";
 const ZOOM_OAUTH_URL = "https://zoom.us/oauth/token";
 const ZOOM_REQUEST_TIMEOUT_MS = 30_000;
+const ZOOM_METADATA_REQUEST_BUDGET_MS = 60_000;
+const ZOOM_METADATA_RETRY_DELAY_MS = 250;
 const ZOOM_PAGE_SIZE = 300;
 const ZOOM_MAX_DOWNLOAD_REDIRECTS = 5;
 
@@ -31,6 +33,19 @@ export class ZoomHttpError extends Error {
         hint,
     );
     this.name = "ZoomHttpError";
+  }
+}
+
+export class ZoomTimeoutError extends Error {
+  constructor(
+    readonly step: string,
+    readonly elapsedMs: number,
+    readonly timeoutMs: number,
+  ) {
+    super(
+      `Zoom ${step} timed out after ${elapsedMs} ms (limit ${timeoutMs} ms).`,
+    );
+    this.name = "ZoomTimeoutError";
   }
 }
 
@@ -110,17 +125,66 @@ function isZoomHost(url: URL) {
   );
 }
 
+async function zoomRequest<T>(
+  step: string,
+  request: (signal: AbortSignal) => Promise<T>,
+  timeoutMs = ZOOM_REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  const startedAt = performance.now();
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    return await request(signal);
+  } catch (error) {
+    if (error instanceof ZoomHttpError) throw error;
+    if (
+      signal.aborted ||
+      (error instanceof Error && error.name === "TimeoutError")
+    ) {
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      throw new ZoomTimeoutError(step, elapsedMs, timeoutMs);
+    }
+    throw error;
+  }
+}
+
 async function zoomApiJson<T>(
   token: string,
   url: string,
   step: string,
 ): Promise<T> {
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
-  });
-  await assertOk(response, step);
-  return (await response.json()) as T;
+  const startedAt = performance.now();
+  const request = (timeoutMs: number) =>
+    zoomRequest(
+      step,
+      async (signal) => {
+        const response = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal,
+        });
+        await assertOk(response, step);
+        return (await response.json()) as T;
+      },
+      timeoutMs,
+    );
+  try {
+    return await request(ZOOM_REQUEST_TIMEOUT_MS);
+  } catch (error) {
+    if (!(error instanceof ZoomTimeoutError)) throw error;
+    if (
+      performance.now() - startedAt >=
+      ZOOM_METADATA_REQUEST_BUDGET_MS - ZOOM_METADATA_RETRY_DELAY_MS
+    ) {
+      throw error;
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, ZOOM_METADATA_RETRY_DELAY_MS),
+    );
+    const remainingMs = Math.floor(
+      ZOOM_METADATA_REQUEST_BUDGET_MS - (performance.now() - startedAt),
+    );
+    if (remainingMs <= 0) throw error;
+    return request(Math.min(ZOOM_REQUEST_TIMEOUT_MS, remainingMs));
+  }
 }
 
 export async function fetchZoomAccessToken(
@@ -129,16 +193,18 @@ export async function fetchZoomAccessToken(
   const basic = Buffer.from(
     `${credentials.clientId}:${credentials.clientSecret}`,
   ).toString("base64");
-  const response = await fetch(
-    `${ZOOM_OAUTH_URL}?grant_type=account_credentials&account_id=${encodeURIComponent(credentials.accountId)}`,
-    {
-      method: "POST",
-      headers: { Authorization: `Basic ${basic}` },
-      signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
-    },
-  );
-  await assertOk(response, "token request");
-  const body = (await response.json()) as { access_token?: unknown };
+  const body = await zoomRequest("token request", async (signal) => {
+    const response = await fetch(
+      `${ZOOM_OAUTH_URL}?grant_type=account_credentials&account_id=${encodeURIComponent(credentials.accountId)}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Basic ${basic}` },
+        signal,
+      },
+    );
+    await assertOk(response, "token request");
+    return (await response.json()) as { access_token?: unknown };
+  });
   if (typeof body.access_token !== "string" || !body.access_token) {
     throw new Error("Zoom OAuth token response did not include access_token.");
   }
@@ -242,14 +308,21 @@ export async function downloadZoomTranscript(
     );
   }
   for (let hop = 0; hop <= ZOOM_MAX_DOWNLOAD_REDIRECTS; hop += 1) {
-    const response = await fetch(url.toString(), {
-      headers: isZoomHost(url) ? { Authorization: `Bearer ${token}` } : {},
-      redirect: "manual",
-      signal: AbortSignal.timeout(ZOOM_REQUEST_TIMEOUT_MS),
+    const result = await zoomRequest("transcript download", async (signal) => {
+      const response = await fetch(url.toString(), {
+        headers: isZoomHost(url) ? { Authorization: `Bearer ${token}` } : {},
+        redirect: "manual",
+        signal,
+      });
+      const location = response.headers.get("location");
+      if (response.status >= 300 && response.status < 400 && location) {
+        return { kind: "redirect" as const, location };
+      }
+      await assertOk(response, "transcript download");
+      return { kind: "transcript" as const, content: await response.text() };
     });
-    const location = response.headers.get("location");
-    if (response.status >= 300 && response.status < 400 && location) {
-      url = new URL(location, url);
+    if (result.kind === "redirect") {
+      url = new URL(result.location, url);
       if (url.protocol !== "https:") {
         throw new Error(
           "Zoom transcript download redirected to a non-https URL.",
@@ -257,8 +330,7 @@ export async function downloadZoomTranscript(
       }
       continue;
     }
-    await assertOk(response, "transcript download");
-    return await response.text();
+    return result.content;
   }
   throw new Error("Zoom transcript download exceeded the redirect limit.");
 }

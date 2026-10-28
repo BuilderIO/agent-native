@@ -287,7 +287,7 @@ tú mismo. Es el campo, no todo el tiempo de ejecución del chat.
 
 ### Contexto preparado en el compositor {#composer-context}
 
-`PromptComposer` y `TiptapComposer` aceptan `submissionDisabled` para bloquear el envío sin impedir preparar el borrador, los archivos y el contexto. La falta de configuración del proveedor bloquea el envío, no la preparación. `disabled` sigue desactivando todo el compositor.
+`PromptComposer` y `TiptapComposer` aceptan `submissionDisabled` para bloquear el envío sin impedir preparar el borrador, los archivos y el contexto. Con `requireAgentEngine`, la falta de configuración del proveedor impide escribir en `PromptComposer` mientras hay una tarjeta de configuración en pantalla, y un clic en él señala la tarjeta. Sin tarjeta en pantalla, solo bloquea el envío. `disabled` sigue desactivando todo el compositor.
 
 `PromptComposer`, `TiptapComposer` y `AgentKitComposer` aceptan `contextItems` y `contextMenuItems`. Las aplicaciones gestionan las lecturas de fuentes y las etiquetas traducidas.
 
@@ -725,3 +725,7 @@ razonamiento.
 - [**Actions**](/docs/actions-overview) — `defineAction()`, esquemas y la superficie de acciones que llaman estos componentes
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — los hooks de colaboración y componentes de presencia en detalle
 - [**Sharing**](/docs/sharing) — configuración de `<ShareButton>` y `<ShareDialog>` para recursos con propietario
+
+## Historial de chats propios
+
+La barra lateral de chats puede usar `useOwnershipChatHistory()` y `OwnershipChatHistoryRail` de `@agent-native/toolkit/app/chat/ownership-history`. Tus chats y los compartidos aparecen en secciones separadas.

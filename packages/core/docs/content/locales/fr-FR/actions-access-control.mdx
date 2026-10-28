@@ -166,13 +166,15 @@ Une poignée d’actions sont trop conséquentes pour laisser l’agent les exé
 
 Quand `needsApproval` est omis, le comportement reste identique, octet pour octet. Il n’y a aucun coût supplémentaire sur le chemin courant.
 
-Cela fonctionne de la même façon pour les actions de style `parameters` hérité et pour les actions basées sur un schéma. Cela fonctionne aussi de la même façon pour l’agent intégré à l’application, les sous-agents, et les appelants A2A et MCP, parce que chaque surface d’agent passe par la même boucle.
+Cela fonctionne de la même façon pour les actions héritées au format `parameters` et pour les actions basées sur un schéma. L’agent de l’application et ses sous-agents se mettent en pause dans la boucle de l’agent. MCP et A2A utilisent leurs propres flux d’approbation.
+
+Les appels directs via l’[API HTTP](/docs/http-api) ne peuvent pas fournir d’approbation humaine. La route n’exécute une action protégée que depuis l’interface vérifiée de l’application ou le widget de répertoire MCP de l’application. Les autres appels HTTP directs reçoivent `409` avec `errorCode: "approval_required"`. Une identité de service ne peut pas approuver. Le client partagé envoie une capacité UI de courte durée avec les écritures d’une session connectée. Un appel sans cette preuve reçoit `403` avec `errorCode: "ui_capability_required"`; le client récupère ensuite la capacité et réessaie une fois. Les tâches A2A utilisent leur propre flux d’approbation, pas cette réponse HTTP. La tâche attend l’approbation de son propriétaire, puis rejoue l’appel d’outil approuvé. La commande locale `pnpm action ...` évalue aussi `needsApproval` sur l’entrée préparée et analysée, avec les valeurs par défaut et l’appelant `cli`. Elle exige une confirmation dans le terminal ou une nouvelle exécution avec `--approved` après l’accord de la personne. Voir [Approbation CLI](/docs/actions-other-surfaces#cli). Traitez ce champ comme un flux d’approbation, pas comme une limite d’autorisation.
 
 ### Comment la boucle se met en pause {#loop}
 
 Quand l’agent appelle une action gardée et que cet appel précis n’a **pas** déjà été approuvé, la boucle n’exécute **pas** `run()`. À la place, elle :
 
-1. Résout la garde. Pour un prédicat, la boucle appelle `needsApproval(input, ctx)`. Si cet appel lève une exception, la boucle le traite de la même façon qu’un résultat `true`, donc l’action exige une approbation.
+1. Résout la garde. La boucle prépare d’abord l’appel : elle valide les arguments et applique les valeurs par défaut et les conversions du schéma. Un appel invalide s’arrête ici avec son erreur de validation, et personne n’est sollicité pour l’approuver. Pour un prédicat, la boucle appelle ensuite `needsApproval(args, ctx)` avec les arguments préparés, ceux que recevrait `run()`. Si cet appel lève une exception, la boucle le traite de la même façon qu’un résultat `true`, donc l’action exige une approbation.
 2. Émet un événement `tool_start` (pour que l’UI affiche l’appel), immédiatement suivi d’un événement **`approval_required`**, puis arrête le tour. L’effet de bord de l’action ne se produit jamais.
 
 L’événement `approval_required` porte tout ce dont le client a besoin pour afficher une affordance :
@@ -404,12 +406,12 @@ Une action de création n’appelle ni l’une ni l’autre de ces aides. Elle a
 
 Les quatre mécanismes ne sont pas interchangeables :
 
-| Mécanisme                         | Question à laquelle il répond                               | S’applique à                                   |
-| --------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| `access`                          | L’appelant détient-il le rôle ou l’adhésion déclarés ?      | Les six sites de dispatch                      |
-| `authorize`                       | Cet appelant peut-il effectuer l’opération, tout court ?    | Les six sites de dispatch                      |
-| `needsApproval`                   | Un humain doit-il approuver cet appel précis et permis ?    | La boucle de l’agent seulement                 |
-| `accessFilter()`/`assertAccess()` | Quelles lignes cet appelant permis peut-il voir ou écrire ? | À l’intérieur de `run()`, par requête ou ligne |
+| Mécanisme                         | Question à laquelle il répond                               | S’applique à                                                 |
+| --------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| `access`                          | L’appelant détient-il le rôle ou l’adhésion déclarés ?      | Les six sites de dispatch                                    |
+| `authorize`                       | Cet appelant peut-il effectuer l’opération, tout court ?    | Les six sites de dispatch                                    |
+| `needsApproval`                   | Un humain doit-il approuver cet appel précis et permis ?    | Agent, MCP, A2A et CLI. HTTP protège les appels sans preuve. |
+| `accessFilter()`/`assertAccess()` | Quelles lignes cet appelant permis peut-il voir ou écrire ? | À l’intérieur de `run()`, par requête ou ligne               |
 
 Une action d’écriture restreinte a typiquement besoin à la fois de `authorize` et d’un contrôle de ligne. Le premier écarte les non-coachs de l’opération. Le second écarte un coach du plan d’une autre organisation. Le contrôle de ligne est `assertAccess()`, ou `access` quand l’identifiant de la ligne est un champ d’entrée. `needsApproval` est un axe séparé. Il ne restreint jamais qui peut appeler, seulement si l’agent peut continuer sans surveillance.
 

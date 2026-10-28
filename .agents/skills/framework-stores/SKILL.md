@@ -17,7 +17,7 @@ Every framework table in `packages/core/src` is owned by exactly one
 store's migrations once per database and records each in
 `_an_store_migrations`, then verifies the ledger covers every registered store.
 Hosted functions of release-owned apps do no schema work at all. Design and
-rollout: 
+rollout:
 `docs/plans/2026-09-28-store-registry-schema-ownership.md`.
 
 App-owned template tables are not covered here; they use `runMigrations` or
@@ -40,8 +40,18 @@ Drizzle (see `storing-data`).
   baseline into today's `CREATE TABLE`.
 - **Idempotent and additive.** First runs can race and old functions keep
   serving during a release. New columns are nullable or defaulted.
-- **One store's tables only.** Stores apply in registry order, which is by id,
-  so a migration must not depend on another store's tables.
+- **One store's tables only, or say so.** Stores apply in registry order (by
+  id). A migration that reads or alters another store's tables needs
+  `after: ["other_store_id"]` on its store; the release pass fails on an
+  unknown id or a cycle.
+- **Folding a `runMigrations` list.** Append it whole with
+  `...fromMigrationEntries(TABLE, LIST, { data: [...] })` to the store that
+  owns its tables. Each entry keeps its old identity, so databases that
+  applied it import it instead of re-running it. A release-only list keeps
+  running only in the release step; pass `{ ranAtBoot: true }` for a list that
+  also ran at plugin boot, so local runtimes import its history and hosted
+  apps without release migrations keep its old bookkeeping. Never rename or
+  reorder the entries.
 - **Mark data migrations.** Backfills and seeds get `kind: "data"`; a schema
   snapshot cannot replace them.
 - **Never swallow a failure inside a migration.** The ledger would record it as
@@ -79,7 +89,10 @@ export function ensureWidgetsTable(): Promise<void> {
 Then run, in this order:
 
 1. `pnpm gen:store-registry` — rewrites `store-registry.generated.ts` and
-   `store-migrations.lock.json`. Commit both.
+   `store-migrations.lock.json`. Then `pnpm gen:schema-snapshot` — rewrites
+   `schema-snapshot.generated.ts`, the schema fresh databases install in one
+   step. Commit all three; `release-schema.snapshot.spec.ts` fails when the
+   snapshot no longer covers every schema migration.
 2. `pnpm guard:release-schema-complete` and `pnpm guard:additive-migrations`.
 3. The store's own spec, plus `src/db/store-registry.spec.ts`,
    `src/server/release-schema.cold-start.spec.ts` and
@@ -92,14 +105,16 @@ Then run, in this order:
 
 `ready()` picks a mode from who owns the schema:
 
-- **apply** — the release step (`withMigrationRuntime`), under a lease in
-  `_an_store_migration_lock`. The only ledger writer; it verifies the ledger
-  against the registry afterwards.
+- **apply** — the release step (`withMigrationRuntime`, under a lease in
+  `_an_store_migration_lock`, verifying the ledger against the registry
+  afterwards), plus local dev, tests and self-hosted Node. Each migration runs
+  once per database. Specs that mock `getDbExec` answer ledger statements with
+  `db/store-ledger.test-helpers.ts`.
 - **trust** — hosted function of an app that migrates at release. No schema
   work at all, not even a ledger read.
-- **hosted-replay** / **replay** — hosted apps without release migrations,
-  local dev, tests, self-hosted. Runs migrations idempotently, as before,
-  without touching the ledger.
+- **hosted-replay** — hosted apps without release migrations. Runs migrations
+  idempotently, as before, and never writes the ledger: previews share
+  production's database and request writes can roll back.
 
 `SchemaNotMigratedError` is raised by the release step when the ledger does
 not cover the code being shipped. It fails that deploy; fix the migration or

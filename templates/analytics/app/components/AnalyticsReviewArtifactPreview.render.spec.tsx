@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   sqlChartProps: null as Record<string, unknown> | null,
+  chartEvents: undefined as unknown,
+  chartNotes: undefined as unknown,
+  listedNotes: undefined as unknown,
   markdownContent: null as string | null,
   queries: [] as Array<{
     action: string;
@@ -25,6 +28,8 @@ const mocks = vi.hoisted(() => ({
         },
       ],
       orgId: "customer-org",
+      keyDates: [],
+      dataNotes: [],
     } as Record<string, unknown>,
     isLoading: false,
     isError: false,
@@ -60,12 +65,25 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@/components/dashboard/SqlChart", () => ({
-  SqlChart: (props: Record<string, unknown>) => {
-    mocks.sqlChartProps = props;
-    return null;
-  },
-}));
+vi.mock("@/components/dashboard/SqlChart", async () => {
+  const { usePanelDataNotes, usePanelEvents } =
+    await import("@/components/dashboard/dashboard-annotations-context");
+  const { useDataNoteLayout } =
+    await import("@/components/dashboard/data-note-bands");
+  return {
+    SqlChart: (props: { panel: SqlPanel }) => {
+      mocks.sqlChartProps = props;
+      mocks.chartEvents = usePanelEvents(props.panel);
+      mocks.chartNotes = usePanelDataNotes(props.panel);
+      mocks.listedNotes = useDataNoteLayout(
+        mocks.chartNotes as DataNote[],
+        [{ total: 42 }],
+        "total",
+      ).unplaced;
+      return null;
+    },
+  };
+});
 
 vi.mock("@/components/Markdown", () => ({
   default: ({ content }: { content: string }) => {
@@ -78,6 +96,14 @@ vi.mock("@/pages/analyses/LegacyFusionAnalysis", () => ({
   default: () => null,
   isLegacyFusionAnalysis: () => false,
 }));
+
+import {
+  CONNECT_UNDERCOUNT,
+  SETUP_INCIDENT,
+} from "@shared/annotation-fixtures";
+import type { DataNote } from "@shared/data-notes";
+
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import { AnalyticsReviewArtifactPreview } from "./AnalyticsReviewArtifactPreview";
 
@@ -92,6 +118,9 @@ describe("Analytics review artifact preview rendering", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     mocks.sqlChartProps = null;
+    mocks.chartEvents = undefined;
+    mocks.chartNotes = undefined;
+    mocks.listedNotes = undefined;
     mocks.markdownContent = null;
     mocks.queries = [];
     mocks.query.data = {
@@ -105,6 +134,8 @@ describe("Analytics review artifact preview rendering", () => {
           chartType: "line",
         },
       ],
+      keyDates: [],
+      dataNotes: [],
     };
     mocks.panelQuery.data = {
       rows: [{ total: 42 }],
@@ -171,6 +202,8 @@ describe("Analytics review artifact preview rendering", () => {
           chartType: "line",
         },
       ],
+      keyDates: [],
+      dataNotes: [],
     };
 
     await act(async () => {
@@ -185,6 +218,113 @@ describe("Analytics review artifact preview rendering", () => {
 
     expect(mocks.sqlChartProps).toMatchObject({ timeRange: 90 });
   });
+
+  it("draws the key dates the reviewed dashboard came with on its charts", async () => {
+    const clipsLaunch = { date: "2026-10-13", label: "Clips launch" };
+    mocks.query.data = { ...mocks.query.data, keyDates: [clipsLaunch] };
+
+    await act(async () => {
+      root.render(
+        <AnalyticsReviewArtifactPreview
+          artifactId="dashboard-1"
+          compact={false}
+          reviewOrgId="customer-org"
+        />,
+      );
+    });
+
+    expect(mocks.chartEvents).toEqual([clipsLaunch]);
+  });
+
+  it("draws the data notes the reviewed dashboard came with, minus the ones it hides there", async () => {
+    const pinned = { dashboardId: "dashboard-1", panelId: "ga4-chart" };
+    const shown = { ...SETUP_INCIDENT, panels: [pinned] };
+    const hidden = { ...CONNECT_UNDERCOUNT, panels: [pinned] };
+    mocks.query.data = {
+      ...mocks.query.data,
+      dataNotes: [shown, hidden],
+      annotations: {
+        hiddenDataNotes: [{ noteId: hidden.id, panelId: "ga4-chart" }],
+      },
+    };
+
+    await act(async () => {
+      root.render(
+        <AnalyticsReviewArtifactPreview
+          artifactId="dashboard-1"
+          compact={false}
+          reviewOrgId="customer-org"
+        />,
+      );
+    });
+
+    expect(mocks.chartNotes).toEqual([shown]);
+  });
+
+  it("lists a note under a chart without a date axis when it falls in the dashboard's time range", async () => {
+    const pinned = { dashboardId: "dashboard-1", panelId: "ga4-chart" };
+    const longAgo = {
+      ...SETUP_INCIDENT,
+      startDate: "2020-01-06",
+      endDate: "2020-01-10",
+      panels: [pinned],
+    };
+    const panel = (sql: string) => ({
+      id: "ga4-chart",
+      title: "Signups",
+      sql,
+      width: 12,
+      source: "ga4",
+      chartType: "metric",
+    });
+    const render = async (sql: string) => {
+      mocks.query.data = {
+        variables: { timeRange: "all" },
+        filters: [],
+        panels: [panel(sql)],
+        keyDates: [],
+        dataNotes: [longAgo],
+      };
+      await act(async () => {
+        root.render(
+          <AnalyticsReviewArtifactPreview
+            artifactId="dashboard-1"
+            compact={false}
+            reviewOrgId="customer-org"
+          />,
+        );
+      });
+      return mocks.listedNotes;
+    };
+
+    expect(
+      await render("SELECT COUNT(*) AS total WHERE '{{timeRange}}' <> ''"),
+    ).toEqual([longAgo]);
+    expect(await render("SELECT COUNT(*) AS total")).toEqual([]);
+  });
+
+  it.each(["keyDates", "dataNotes"])(
+    "calls a dashboard that came without its %s unavailable, not unmarked",
+    async (missing) => {
+      const { [missing]: _, ...data } = mocks.query.data;
+      mocks.query.data = data;
+
+      await act(async () => {
+        root.render(
+          <AnalyticsReviewArtifactPreview
+            artifactId="dashboard-1"
+            compact={false}
+            reviewOrgId="customer-org"
+          />,
+        );
+      });
+
+      expect(mocks.sqlChartProps).toBeNull();
+      expect(
+        container.querySelector('[data-preview-state="unavailable"]'),
+      ).not.toBeNull();
+    },
+  );
 
   it("renders saved analysis results in the real review preview", async () => {
     mocks.query.data = {

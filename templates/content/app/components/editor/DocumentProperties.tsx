@@ -21,7 +21,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type {
   BindContentDatabaseSourceFieldRequest,
-  ContentDatabaseResponse,
+  ContentDatabaseResponsePayload,
   ContentDatabaseSource,
   ContentDatabaseSummary,
   DocumentProperty,
@@ -95,6 +95,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { Link } from "react-router";
@@ -151,6 +152,7 @@ import {
   useDeleteDocumentProperty,
   useDocumentProperties,
   useDuplicateDocumentProperty,
+  useSetBuilderEntryStatus,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
@@ -167,6 +169,14 @@ import {
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
+import {
+  PropertyCommentControl,
+  usePropertyCommentRowState,
+} from "./property-comments";
+import {
+  formatPropertyDate,
+  formatPropertyDateTime,
+} from "./property-date-format";
 
 type TFunction = ReturnType<typeof useT>;
 
@@ -278,56 +288,12 @@ function slugify(value: string) {
   return slug || `option-${Date.now()}`;
 }
 
-function formatDate(value: string) {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(new Date(year, month - 1, day));
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
-}
-
-function formatDateTime(value: string) {
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
-    const [datePart, timePart] = value.split("T");
-    const [year, month, day] = datePart.split("-").map(Number);
-    const [hour, minute] = timePart.split(":").map(Number);
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(year, month - 1, day, hour, minute));
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
 function formatPropertyDateDisplayValue(
   value: DocumentProperty["value"],
   t?: TFunction,
 ) {
   const includeTime = documentPropertyDateIncludesTime(value);
-  const formatter = includeTime ? formatDateTime : formatDate;
+  const formatter = includeTime ? formatPropertyDateTime : formatPropertyDate;
   const start = documentPropertyDatePart(value, "start");
   const end = documentPropertyDatePart(value, "end");
   if (!start) return tWithFallback(t, "editor.properties.empty", "Empty");
@@ -356,11 +322,67 @@ function propertyValueTextClass(presentation: PropertyValuePresentation) {
     : "truncate whitespace-nowrap";
 }
 
+/** A URL property's value as a link target: only http(s) addresses open. */
+export function propertyUrlHref(value: DocumentProperty["value"]) {
+  return typeof value === "string" && isHttpUrl(value) ? value.trim() : null;
+}
+
+/**
+ * Whether a property's value renders links, so its value editor gets its own
+ * trigger button beside them rather than wrapping them in button semantics.
+ */
+export function propertyValueHasLinks(property: DocumentProperty) {
+  const type = property.definition.type;
+  return (
+    type === "relation" ||
+    (type === "url" && propertyUrlHref(property.value) !== null)
+  );
+}
+
+// Links inside a cell, row or card keep the click to themselves: the cell
+// opens the value editor, and rows and cards open their page.
+const keepEventOnLink = {
+  onClick: (event: ReactMouseEvent) => event.stopPropagation(),
+  onPointerDown: (event: ReactPointerEvent) => event.stopPropagation(),
+  onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
+};
+
+/** A web address that opens in a new tab. */
+export function PropertyUrlLink({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={href}
+      // Ringed inside, since cells, rows and cards clip what overflows them.
+      className={cn(
+        "rounded-sm underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        className,
+      )}
+      {...keepEventOnLink}
+    >
+      {children}
+    </a>
+  );
+}
+
 export function displayValue(
   property: DocumentProperty,
   t?: TFunction,
   presentation: PropertyValuePresentation = "compact",
-  displayOptions: { interactiveRelations?: boolean } = {},
+  displayOptions: {
+    interactiveRelations?: boolean;
+    interactiveUrls?: boolean;
+  } = {},
 ) {
   const value = property.value;
   const type = property.definition.type;
@@ -388,7 +410,7 @@ export function displayValue(
   }
 
   if (type === "created_time" || type === "last_edited_time") {
-    return <span>{formatDateTime(propertyText(value))}</span>;
+    return <span>{formatPropertyDateTime(propertyText(value))}</span>;
   }
 
   if (type === "person") {
@@ -495,15 +517,30 @@ export function displayValue(
   }
 
   if (type === "url" && typeof value === "string") {
+    const href = displayOptions.interactiveUrls ? propertyUrlHref(value) : null;
+    if (!href) {
+      return (
+        <span
+          className={cn(
+            "underline decoration-muted-foreground/40 underline-offset-2",
+            propertyValueTextClass(presentation),
+          )}
+        >
+          {value}
+        </span>
+      );
+    }
     return (
-      <span
+      <PropertyUrlLink
+        href={href}
+        // Sized to the cell, so its click target covers only the visible text.
         className={cn(
-          "underline decoration-muted-foreground/40 underline-offset-2",
+          "inline-block max-w-full align-top",
           propertyValueTextClass(presentation),
         )}
       >
         {value}
-      </span>
+      </PropertyUrlLink>
     );
   }
 
@@ -615,6 +652,10 @@ export function filesMediaEditorValue(value: DocumentProperty["value"]) {
 }
 
 export function isValidFilesMediaLink(value: string) {
+  return isHttpUrl(value);
+}
+
+function isHttpUrl(value: string) {
   try {
     const url = new URL(value.trim());
     return url.protocol === "http:" || url.protocol === "https:";
@@ -710,11 +751,7 @@ function RelationPill({
         className,
         "underline-offset-2 hover:bg-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       )}
-      // Keep the click on the link: the surrounding cell opens the value
-      // editor, and table rows / cards have their own click handlers.
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
-      onKeyDown={(event) => event.stopPropagation()}
+      {...keepEventOnLink}
     >
       {content}
     </Link>
@@ -1131,14 +1168,37 @@ function PropertyRow({
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
+  const commentState = usePropertyCommentRowState(property.definition.id);
+  const editable = canEditValues && property.editable;
   const value = (
     <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
-      {displayValue(property, t, "compact", { interactiveRelations: true })}
+      {displayValue(property, t, "compact", {
+        interactiveRelations: true,
+        interactiveUrls: true,
+      })}
     </div>
   );
 
   return (
-    <div className="grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
+    <div
+      className={cn(
+        "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
+        // The Comment control floats at the right edge; room is kept for
+        // it only while it stays visible, so narrow panels keep their values,
+        // or where it would cover the edit button beside a value's links.
+        commentState.enabled &&
+          (commentState.shown ||
+            (editable && propertyValueHasLinks(property))) &&
+          "pr-10",
+        commentState.enabled &&
+          commentState.pending &&
+          "comment-highlight--pending comment-property-row--pending",
+        commentState.enabled &&
+          commentState.active &&
+          "comment-property-row--active",
+      )}
+      data-property-row={property.definition.id}
+    >
       {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
           databaseDocumentId={databaseDocumentId}
@@ -1173,7 +1233,19 @@ function PropertyRow({
           )}
         </div>
       )}
-      {canEditValues && property.editable ? (
+      {canEditValues &&
+      property.builderStatusChoices &&
+      property.definition.databaseId ? (
+        <BuilderStatusPicker
+          property={property}
+          databaseId={property.definition.databaseId}
+          documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
+          container={popoverContainer}
+        >
+          {value}
+        </BuilderStatusPicker>
+      ) : editable ? (
         <PropertyValuePopover
           property={property}
           documentId={documentId}
@@ -1186,7 +1258,106 @@ function PropertyRow({
       ) : (
         value
       )}
+      {commentState.enabled ? (
+        <PropertyCommentControl property={property} />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * Builder status stays a read-only system property; picking Published or
+ * Draft stages a publish or unpublish that the source review sends. Picking
+ * the entry's Builder status, Unpublished changes included, clears it.
+ */
+function BuilderStatusPicker({
+  property,
+  databaseId,
+  documentId,
+  databaseDocumentId,
+  container,
+  children,
+}: {
+  property: DocumentProperty;
+  databaseId: string;
+  documentId: string;
+  databaseDocumentId: string;
+  container?: HTMLElement | null | undefined;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const setStatus = useSetBuilderEntryStatus(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
+  const available = new Map(
+    (property.builderStatusChoices ?? []).map((choice) => [
+      choice.status,
+      choice.available,
+    ]),
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("editor.properties.editProperty", {
+            name: property.definition.name,
+          })}
+          className="flex min-h-6 w-full min-w-0 items-center rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {children}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56" container={container}>
+        {(property.definition.options.options ?? []).map((option) => {
+          const status =
+            option.id === "published" ||
+            option.id === "draft" ||
+            option.id === "unpublished_changes"
+              ? option.id
+              : null;
+          const item = (
+            <DropdownMenuItem
+              key={option.id}
+              disabled={!status || available.get(status) !== true}
+              onSelect={() => {
+                if (status && status !== property.value) {
+                  setStatus.mutate({ databaseId, documentId, status });
+                }
+              }}
+            >
+              <OptionPill option={option} />
+              {property.value === option.id ? (
+                <IconCheck className="ml-auto size-4 text-muted-foreground" />
+              ) : null}
+            </DropdownMenuItem>
+          );
+          const unavailableKey =
+            status && available.get(status) === false
+              ? status === "published"
+                ? "editor.properties.builderStatusPublishInBuilder"
+                : status === "unpublished_changes"
+                  ? "editor.properties.builderStatusUnpublishedChangesInBuilder"
+                  : null
+              : null;
+          return unavailableKey ? (
+            <Tooltip key={option.id}>
+              <TooltipTrigger asChild>
+                <div>{item}</div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64">
+                {t(unavailableKey)}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            item
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1279,7 +1450,7 @@ export function PropertyManagementPopover({
     databaseId,
   );
   const bindSourceField = useContentActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseResponsePayload,
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
     invalidates: [
@@ -2312,7 +2483,7 @@ export function PropertyValuePopover({
   databaseDocumentId?: string;
   children: React.ReactNode;
   portalled?: boolean;
-  container?: HTMLElement | null;
+  container?: HTMLElement | null | undefined;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -2323,9 +2494,10 @@ export function PropertyValuePopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      {property.definition.type === "relation" ? (
-        // Relation values render links, so the picker gets its own trigger
-        // button beside them rather than wrapping them in button semantics.
+      {propertyValueHasLinks(property) ? (
+        // Relation pages and web addresses render links, so the editor gets
+        // its own trigger button beside them rather than wrapping them in
+        // button semantics.
         <PopoverAnchor asChild>
           <div
             className="group flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-1 rounded px-1 hover:bg-accent"
@@ -2341,7 +2513,7 @@ export function PropertyValuePopover({
               <button
                 type="button"
                 aria-label={editLabel}
-                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 aria-expanded:opacity-100"
+                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100"
               >
                 <IconEdit className="size-3.5" />
               </button>

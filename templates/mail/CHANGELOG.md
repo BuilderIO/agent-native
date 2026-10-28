@@ -3,6 +3,71 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-27
+
+### Fixed
+
+- Configured Mail labels now show archived messages, and checkbox selection keeps the email list open.
+- Priority sort refreshes scores when its AI provider changes.
+
+## 2026-10-26
+
+### Improved
+
+- Mail AI rules and Priority sort can use OpenAI when Jev is unavailable.
+
+## 2026-10-22
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
+## 2026-10-21
+
+### Added
+
+- Connected agents can create and update email drafts for review in Mail.
+
+### Improved
+
+- When an agent in Claude or ChatGPT drafts an email, Mail shows a compact card with the conversation and the editable draft, ready to send.
+
+## 2026-10-20
+
+### Improved
+
+- Mail keeps the newest 2,000 inbox threads per account in its local cache and drops archived mail from it within minutes.
+- Mail's inbox loads faster, opens threads sooner after you hover them, and stops polling Gmail on pages other than the inbox.
+- Connected Gong settings now open the shared integration manager.
+- Gong connection details now match the call data available in Mail.
+- Improve Gong setup with a click-to-connect flow and permission gating
+- Mail lets you retry when it cannot check your Gong access.
+- The inbox and recently opened threads now open instantly from a cache on your device, cleared when you sign out, then refresh in the background.
+
+### Fixed
+
+- Cached conversations stay with the mailbox they belong to.
+
+## 2026-10-19
+
+### Changed
+
+- Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Improved
+
+- Search surfaces cached inbox matches sooner and uses fewer Gmail reads.
+
+## 2026-10-14
+
+### Fixed
+
+- Inbox previews show apostrophes, quotes and ampersands as text instead of HTML codes.
+- Allowing automations to send no longer lets them delete mail or change Gmail settings without approval.
+- Automations that add a Gmail label no longer wait for send approval that never arrives.
+
 ## 2026-10-09
 
 ### Improved

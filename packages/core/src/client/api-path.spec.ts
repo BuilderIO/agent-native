@@ -6,9 +6,11 @@ import {
   appApiPath,
   appBasePath,
   appPath,
+  appPathFromLocalRoute,
   frameworkRoutePrefix,
   isFrameworkRoutePath,
   isWorkspaceAppPath,
+  resolveExternalEmbedTargetAppBasePath,
 } from "./api-path.js";
 import { oauthRedirectUri } from "./frame.js";
 
@@ -108,6 +110,19 @@ describe("agentNativePath", () => {
     );
   });
 
+  it("honors the projected explicit-root flag on nested workspace routes", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/reports/detail" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        explicitRootPath: true,
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect(appBasePath()).toBe("");
+  });
+
   it("accepts an HTTP streaming origin and rejects executable URL schemes", () => {
     vi.stubEnv(
       "VITE_AGENT_NATIVE_AGENT_CHAT_STREAM_URL",
@@ -149,6 +164,114 @@ describe("agentNativePath", () => {
     expect(appBasePath()).toBe("/assets");
     expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
       "/assets/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("falls back to the configured app path when the external target has no workspace mount", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/deck");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/deck/reports" },
+    });
+
+    expect(appBasePath()).toBe("/deck");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/deck/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("uses the external embed target's explicit root workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/deck"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/deck/reports" },
+    });
+
+    expect(appBasePath()).toBe("/deck");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/deck/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("uses the configured nested workspace mount for an external target", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", {
+      location: { pathname: "srcdoc" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail/inbox",
+        workspaceAppMountPaths: ["/mail/inbox"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/mail/inbox/threads",
+      },
+    });
+
+    expect(appBasePath()).toBe("/mail/inbox");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/mail/inbox/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("uses the current workspace mount after navigating away from an external target", () => {
+    const win = {
+      location: { pathname: "/mail/inbox/threads" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail/inbox",
+        workspaceAppMountPaths: ["/mail/inbox", "/calendar"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: {
+        target: "/mail/inbox/threads",
+      },
+    };
+    vi.stubGlobal("window", win);
+
+    expect(appBasePath()).toBe("/mail/inbox");
+    win.location.pathname = "/calendar/events";
+    expect(appBasePath()).toBe("/calendar");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/calendar/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("does not keep a root external target when the current path belongs to a mounted app", () => {
+    const win = {
+      location: { pathname: "/reports/overview" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/",
+        workspaceAppMountPaths: ["/mail"],
+      },
+      __AGENT_NATIVE_EXTERNAL_EMBED: { target: "/reports" },
+    };
+    vi.stubGlobal("window", win);
+
+    expect(appBasePath()).toBe("");
+    win.location.pathname = "/mail/threads";
+    expect(appBasePath()).toBe("/mail");
+    expect(agentNativePath("/_agent-native/agent-engine/status")).toBe(
+      "/mail/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("does not infer an external workspace target outside declared mounts", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/mail/inbox" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/mail",
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect(resolveExternalEmbedTargetAppBasePath("/reports/detail")).toBe(
+      undefined,
     );
   });
 
@@ -297,6 +420,29 @@ describe("appPath", () => {
     });
 
     expect(appPath("api/local-migration")).toBe("api/local-migration");
+  });
+});
+
+describe("appPathFromLocalRoute", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("always prefixes a local route when its first segment matches the mount", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/_agent-native/auth/reset" },
+    });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe(
+      "/chat/chat/thread-123",
+    );
+  });
+
+  it("leaves local routes unchanged outside a mounted app", () => {
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
+
+    expect(appPathFromLocalRoute("/chat/thread-123")).toBe("/chat/thread-123");
   });
 });
 

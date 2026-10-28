@@ -1,8 +1,8 @@
 import { type Page, type Route } from "@playwright/test";
 
 import { OVERVIEW_FRAME_LABEL_HEIGHT } from "../shared/canvas-frames";
-import { e2eBaseURL } from "./base-url";
-import { layerRow, openEditor, setBaseURL } from "./drag-and-drop.shared";
+import { layerRow, openEditor } from "./drag-and-drop.shared";
+import { appPath } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
 const UNDO = process.platform === "darwin" ? "Meta+z" : "Control+z";
@@ -45,16 +45,6 @@ const THIRD_SCREEN = `<!doctype html>
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-let baseURL = "";
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-  baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
-});
-
 async function newTwoScreenDesign(
   app: App,
   homeContent = HOME_SCREEN,
@@ -83,7 +73,7 @@ async function fileIdByFilename(
   let filenames: string[] = [];
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const response = await page.request.get(
-      `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
+      appPath(`/_agent-native/actions/get-design?id=${designId}`),
     );
     if (!response.ok()) throw new Error(await response.text());
     const result = await response.json();
@@ -115,7 +105,7 @@ async function screenOrder(page: Page, names: string[]): Promise<string[]> {
 /** Saved canvas frames keyed by filename instead of file id, since undo recreates files under new ids. */
 async function framesByFilename(page: Page, designId: string) {
   const response = await page.request.get(
-    `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
+    appPath(`/_agent-native/actions/get-design?id=${designId}`),
   );
   expect(response.ok()).toBe(true);
   const record = (await response.json()) as {
@@ -166,7 +156,7 @@ async function selectedScreenIds(page: Page): Promise<string[]> {
   );
 }
 
-test("undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id", async ({
+test("undo of a screen deletion selects the recreated screen under its new id", async ({
   app,
   page,
 }) => {
@@ -209,27 +199,31 @@ test("undo of a screen deletion remaps stale selection-history entries instead o
     homeIdAfterUndo,
     "sanity: undoing a screen deletion must recreate it under a NEW id",
   ).not.toBe(homeIdBeforeDelete);
-
-  await page.keyboard.press(UNDO);
-  await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
-
-  await page.keyboard.press(UNDO);
-  await expect.poll(() => lastSelectedLayers(page)).toEqual([homeIdAfterUndo]);
   await expect(
     layerRow(page, "Home"),
     "the recreated Home screen's own layer row must show as selected",
   ).toHaveAttribute("aria-selected", "true");
-
-  await page.keyboard.press(REDO);
-  await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
-
-  await page.keyboard.press(REDO);
-  await expect.poll(() => lastSelectedLayers(page)).toEqual([homeIdAfterUndo]);
-  await expect(layerRow(page, "Home")).toHaveAttribute("aria-selected", "true");
+  await app.settled();
   expect(
     await screenOrder(page, ["Home", "Second"]),
     "the undone deletion puts Home back where it was in Layers",
   ).toEqual(["Second", "Home"]);
+
+  await page.keyboard.press(UNDO);
+  await app.settled();
+  await expect(
+    layerRow(page, "Home"),
+    "the clicks before the deletion were not undo steps",
+  ).toHaveAttribute("aria-selected", "true");
+  expect(await fileIdByFilename(page, id, "index.html")).toBe(homeIdAfterUndo);
+
+  await page.keyboard.press(REDO);
+  await expect(layerRow(page, "Home")).toHaveCount(0, { timeout: 10_000 });
+  await app.settled();
+
+  await page.keyboard.press(UNDO);
+  await expect(layerRow(page, "Home")).toHaveCount(1, { timeout: 10_000 });
+  await expect(layerRow(page, "Home")).toHaveAttribute("aria-selected", "true");
 
   expect(
     consoleErrors,
@@ -266,7 +260,7 @@ test("deleting a selected child layer keeps its owning Screen", async ({
   await expect(layerRow(page, "Home")).toHaveCount(1);
 });
 
-test("undo restores a child layer with its additive Screen selection", async ({
+test("selection changes are not undo steps, and Delete removes an additive Screen selection", async ({
   app,
   page,
 }) => {
@@ -306,10 +300,20 @@ test("undo restores a child layer with its additive Screen selection", async ({
   expect(indigoBoxId).toBeTruthy();
   await indigoBoxButton.click();
   await expect.poll(() => lastSelectedLayers(page)).toEqual([indigoBoxId]);
+  await app.settled();
+  const beforeUndo = await app.savedRecord(id);
 
+  // Nothing was edited, so Undo has nothing to take back, selection included.
   await page.keyboard.press(UNDO);
+  await app.settled();
+  await expect.poll(() => lastSelectedLayers(page)).toEqual([indigoBoxId]);
+  expect((await app.savedRecord(id)).files).toEqual(beforeUndo.files);
+
+  await blueBoxButton.click();
   await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+  await secondFrameTitle.click({ modifiers: ["Shift"] });
   await expect.poll(() => selectedScreenIds(page)).toContain(secondId);
+  await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
   await page.keyboard.press("Delete");
   await expect(layerRow(page, "Second")).toHaveCount(0, { timeout: 10_000 });
   await expect(layerRow(page, "Home")).toHaveCount(1);
@@ -928,18 +932,28 @@ test("Shift-marquee adds a hit Screen to the existing Delete selection", async (
   expect(to.x).toBeLessThanOrEqual(canvas!.x + canvas!.width);
   expect(to.y).toBeLessThanOrEqual(canvas!.y + canvas!.height);
 
-  await page.keyboard.down("Shift");
-  try {
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 12 });
-    await page.mouse.up();
-  } finally {
-    await page.keyboard.up("Shift");
-  }
+  const shiftMarqueeSecond = async () => {
+    await page.keyboard.down("Shift");
+    try {
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 12 });
+      await page.mouse.up();
+    } finally {
+      await page.keyboard.up("Shift");
+    }
+  };
+  await shiftMarqueeSecond();
   await expect
     .poll(() => selectedScreenIds(page))
     .toEqual(expect.arrayContaining([homeId, secondId]));
+  await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
+
+  await shiftMarqueeSecond();
+  await expect
+    .poll(() => selectedScreenIds(page))
+    .toEqual(expect.arrayContaining([homeId, secondId]));
+  await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
 
   await page.keyboard.press("Delete");
   await expect(layerRow(page, "Home")).toHaveCount(0);
@@ -947,7 +961,7 @@ test("Shift-marquee adds a hit Screen to the existing Delete selection", async (
   await expect(layerRow(page, "Third")).toHaveCount(1);
 });
 
-test("undoing a canvas element click restores its explicit Screen target for Delete", async ({
+test("Undo after a canvas element click keeps the element selected for Delete", async ({
   app,
   page,
 }) => {
@@ -981,14 +995,19 @@ test("undoing a canvas element click restores its explicit Screen target for Del
     blueBoxButton.locator("xpath=ancestor::*[@role='treeitem'][1]"),
   ).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => lastSelectedLayers(page)).toHaveLength(1);
+  const blueBoxId = (await lastSelectedLayers(page))[0];
+  await app.settled();
+  const beforeUndo = await app.savedRecord(id);
 
+  // Selecting is not an edit, so Undo has nothing to take back.
   await page.keyboard.press(UNDO);
-  await expect.poll(() => lastSelectedLayers(page)).toEqual([homeId]);
-  await expect(layerRow(page, "Home")).toHaveAttribute("aria-selected", "true");
+  await app.settled();
+  await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
+  expect((await app.savedRecord(id)).files).toEqual(beforeUndo.files);
 
   await page.keyboard.press("Delete");
-  await expect(layerRow(page, "Home")).toHaveCount(0, { timeout: 10_000 });
-  await expect(layerRow(page, "Blue Box")).toHaveCount(0);
+  await expect(layerRow(page, "Blue Box")).toHaveCount(0, { timeout: 10_000 });
+  await expect(layerRow(page, "Home")).toHaveCount(1);
   await expect(layerRow(page, "Second")).toHaveCount(1);
   await expect(layerRow(page, "Third")).toHaveCount(1);
 });

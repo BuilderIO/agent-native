@@ -6,6 +6,7 @@ export type RecordingSource =
   | "recorder"
   | "file_upload"
   | "local_copy_upload"
+  | "agent_upload"
   | "meeting"
   | "import";
 

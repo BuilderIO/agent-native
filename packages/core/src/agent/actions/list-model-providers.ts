@@ -6,8 +6,10 @@ import {
   type AgentProviderId,
 } from "../../client/agent-provider-catalog.js";
 import { canManageOrg } from "../../org/permissions.js";
+import { AppSecretDecryptionError } from "../../secrets/errors.js";
 import { secretKeyNames } from "../../secrets/key-aliases.js";
 import {
+  readAppSecret,
   readAppSecrets,
   type ReadSecretResult,
 } from "../../secrets/storage.js";
@@ -16,6 +18,7 @@ import {
   isPersonalProviderKeyUseRestricted,
   readOrgMemberRole,
 } from "../../server/personal-provider-key-policy.js";
+import { getRequestContext } from "../../server/request-context.js";
 import {
   readDefaultAgentEngineSettingDetailed,
   resolveDefaultAgentEngineAuthority,
@@ -46,6 +49,12 @@ export interface ModelProviderKey {
   rejectedAt?: number;
   /** The rejection markers couldn't be read, so nobody knows if it works. */
   rejectionUnknown?: true;
+  /** A saved key or endpoint exists but could not be decrypted. */
+  unreadable?: true;
+  /** At least one stored API key name could not be decrypted. */
+  unreadableKey?: true;
+  /** The stored OpenAI-compatible endpoint could not be decrypted. */
+  unreadableEndpoint?: true;
   /**
    * Stored in a legacy `workspace` row: the organization's (`workspace` /
    * orgId) for `scope: "org"`, the pre-organization solo row
@@ -123,6 +132,53 @@ interface ScopeProviderKeys {
   endpointProviders: Set<AgentProviderId>;
 }
 
+interface ScopeSecretRead {
+  rows: Map<string, ReadSecretResult>;
+  unreadableKeys: Set<string>;
+}
+
+async function readScopeSecrets(
+  source: StoredRow,
+  keys: readonly string[],
+): Promise<ScopeSecretRead> {
+  try {
+    return {
+      rows: await readAppSecrets({ keys, ...source }),
+      unreadableKeys: new Set(),
+    };
+  } catch (error) {
+    if (
+      !(error instanceof AppSecretDecryptionError) ||
+      error.scope !== source.scope ||
+      error.scopeId !== source.scopeId
+    ) {
+      throw error;
+    }
+  }
+
+  const rows = new Map<string, ReadSecretResult>();
+  const unreadableKeys = new Set<string>();
+  await Promise.all(
+    keys.map(async (key) => {
+      try {
+        const row = await readAppSecret({ key, ...source });
+        if (row) rows.set(key, row);
+      } catch (error) {
+        if (
+          error instanceof AppSecretDecryptionError &&
+          error.scope === source.scope &&
+          error.scopeId === source.scopeId
+        ) {
+          unreadableKeys.add(key);
+          return;
+        }
+        throw error;
+      }
+    }),
+  );
+  return { rows, unreadableKeys };
+}
+
 /**
  * The stored rows the credential resolver reads for one listing scope, in its
  * precedence order. Legacy `workspace` rows power chats like the first-class
@@ -154,46 +210,88 @@ async function readScopeKeys(
   );
   const sources = storedRowsFor(scope, scopeId);
   const reads = await Promise.all(
-    sources.map((source) => readAppSecrets({ keys, ...source })),
+    sources.map((source) => readScopeSecrets(source, keys)),
   );
 
   const found: Array<{
     names: ProviderKeyNames;
-    row: ReadSecretResult;
+    row: ReadSecretResult | null;
     endpoint: ReadSecretResult | null;
     legacy: boolean;
+    unreadableKey: boolean;
+    unreadableEndpoint: boolean;
   }> = [];
   const endpointProviders = new Set<AgentProviderId>();
   for (const entry of names) {
-    for (const [index, rows] of reads.entries()) {
-      if (entry.endpoint && firstPresent(rows, [entry.endpoint])) {
+    let unreadableEndpointIndex: number | null = null;
+    let resolved = false;
+    for (const [index, read] of reads.entries()) {
+      const { rows, unreadableKeys } = read;
+      const endpoint = entry.endpoint
+        ? firstPresent(rows, [entry.endpoint])
+        : null;
+      const unreadablePrimary = entry.primary.some((key) =>
+        unreadableKeys.has(key),
+      );
+      const unreadableEndpoint =
+        !!entry.endpoint && unreadableKeys.has(entry.endpoint);
+      if (unreadableEndpoint && unreadableEndpointIndex === null) {
+        unreadableEndpointIndex = index;
+      }
+      if (endpoint || unreadableEndpoint) {
         endpointProviders.add(entry.option.id);
       }
       const row = firstPresent(rows, entry.primary);
-      if (!row) continue;
+      if (row) {
+        found.push({
+          names: entry,
+          row,
+          endpoint,
+          legacy: sources[index]!.scope === "workspace",
+          unreadableKey: unreadablePrimary,
+          unreadableEndpoint:
+            unreadableEndpoint || unreadableEndpointIndex !== null,
+        });
+        resolved = true;
+        break;
+      }
+      if (unreadablePrimary) {
+        found.push({
+          names: entry,
+          row: null,
+          endpoint: null,
+          legacy: sources[index]!.scope === "workspace",
+          unreadableKey: true,
+          unreadableEndpoint: unreadableEndpointIndex !== null,
+        });
+        resolved = true;
+        break;
+      }
+    }
+    if (!resolved && unreadableEndpointIndex !== null) {
       found.push({
         names: entry,
-        row,
-        endpoint: entry.endpoint ? firstPresent(rows, [entry.endpoint]) : null,
-        legacy: sources[index]!.scope === "workspace",
+        row: null,
+        endpoint: null,
+        legacy: sources[unreadableEndpointIndex]!.scope === "workspace",
+        unreadableKey: false,
+        unreadableEndpoint: true,
       });
-      break;
     }
   }
 
   // Markers are fingerprinted with the canonical key name, the one the
   // runtime records a rejection under, whichever alias the value is stored as.
-  const checkable = found.filter(({ names }) => names.option.id !== "ollama");
+  const checkable = found.flatMap(({ names, row }) =>
+    names.option.id !== "ollama" && row
+      ? [{ key: names.option.key!, value: row.value }]
+      : [],
+  );
   let rejections: Awaited<
     ReturnType<typeof readProviderCredentialRejections>
   > | null;
   try {
-    rejections = await readProviderCredentialRejections(
-      checkable.map(({ names, row }) => ({
-        key: names.option.key!,
-        value: row.value,
-      })),
-    );
+    rejections = await readProviderCredentialRejections(checkable);
   } catch (error) {
     console.warn("[list-model-providers] could not read rejection markers", {
       error: error instanceof Error ? error.message : String(error),
@@ -202,22 +300,42 @@ async function readScopeKeys(
   }
 
   const result = new Map<AgentProviderId, ModelProviderKey>();
-  for (const { names: entry, row, endpoint, legacy } of found) {
+  for (const {
+    names: entry,
+    row,
+    endpoint,
+    legacy,
+    unreadableKey,
+    unreadableEndpoint,
+  } of found) {
     const id = entry.option.id;
     const isOllama = id === "ollama";
     const rejection =
-      !isOllama && rejections ? rejections.get(entry.option.key!) : undefined;
+      !isOllama && row && rejections
+        ? rejections.get(entry.option.key!)
+        : undefined;
     result.set(id, {
       scope,
-      ...(reveal
+      ...(row && reveal
         ? {
             ...(isOllama ? { endpoint: row.value } : { masked: row.last4 }),
             ...(endpoint?.value ? { endpoint: endpoint.value } : {}),
           }
         : {}),
-      updatedAt: row.updatedAt || null,
+      updatedAt: row?.updatedAt || null,
+      ...(unreadableKey || unreadableEndpoint
+        ? {
+            unreadable: true as const,
+            ...(unreadableKey ? { unreadableKey: true as const } : {}),
+            ...(unreadableEndpoint
+              ? { unreadableEndpoint: true as const }
+              : {}),
+          }
+        : {}),
       ...(rejection ? { rejectedAt: rejection.at } : {}),
-      ...(!isOllama && !rejections ? { rejectionUnknown: true as const } : {}),
+      ...(!isOllama && row && !rejections
+        ? { rejectionUnknown: true as const }
+        : {}),
       ...(legacy ? { legacyWorkspaceRow: true as const } : {}),
     });
   }
@@ -226,7 +344,7 @@ async function readScopeKeys(
 
 export default defineAction({
   description:
-    "List the model providers on Settings › Model: for each provider (OpenRouter, Ollama, Anthropic, OpenAI, Google Gemini, Groq, Mistral, Cohere), the organization's key and the caller's personal key, masked, with the endpoint URL saved for Ollama or an OpenAI-compatible gateway and when the provider rejected the key (rejectedAt: chats that use it stop until someone replaces it). Members see only that an organization key exists, not its mask. A key in a legacy workspace row (the organization's, or the caller's pre-organization solo row) lists at the scope chats resolve it as, marked legacyWorkspaceRow; removing the provider at that scope deletes it. Also returns whether the caller can manage organization providers, whether personal API keys are restricted for them (their personal keys are then stored but unused), and the stored default model. Builder.io connections come from the Builder.io status, not here. Never returns a key value. Related: get-provider-models and manage-provider-models (which models each provider shows), manage-agent-engine (the default model), manage-provider-key-policy (Restrict personal API keys), preview-secret-removal (what removing a key stops).",
+    "List the model providers on Settings › Model: for each provider (OpenRouter, Ollama, Anthropic, OpenAI, Google Gemini, Groq, Mistral, Cohere), the organization's key and the caller's personal key, masked, with the endpoint URL saved for Ollama or an OpenAI-compatible gateway and when the provider rejected the key (rejectedAt: chats that use it stop until someone replaces it). A key entry marked unreadable means saved provider data could not be decrypted; unreadableKey and unreadableEndpoint identify which value. Owners and admins can replace or clear the unreadable value from the row. Members see only that an organization key exists, not its mask. A key in a legacy workspace row (the organization's, or the caller's pre-organization solo row) lists at the scope chats resolve it as, marked legacyWorkspaceRow; removing the provider at that scope deletes it. Also returns whether the caller can manage organization providers, whether personal API keys are restricted for them (their personal keys are then stored but unused), and the stored default model. Builder.io connections come from the Builder.io status, not here. Never returns a key value. Related: get-provider-models and manage-provider-models (which models each provider shows), manage-agent-engine (the default model), manage-provider-key-policy (Restrict personal API keys), preview-secret-removal (what removing a key stops).",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -257,8 +375,20 @@ export default defineAction({
       orgId
         ? isPersonalProviderKeyUseRestricted({ email, orgId, role })
         : Promise.resolve(false),
-      readDefaultAgentEngineSettingDetailed({ userEmail: email, orgId }),
-      resolveDefaultAgentEngineAuthority({ userEmail: email, orgId }),
+      readDefaultAgentEngineSettingDetailed({
+        userEmail: email,
+        orgId,
+        ...(getRequestContext()?.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+      }),
+      resolveDefaultAgentEngineAuthority({
+        userEmail: email,
+        orgId,
+        ...(getRequestContext()?.orgScope === "personal"
+          ? { orgScope: "personal" as const }
+          : {}),
+      }),
       Promise.all(
         AGENT_PROVIDER_CATALOG.map(async (option) => {
           const engine = getAgentEngineEntry(option.engine);

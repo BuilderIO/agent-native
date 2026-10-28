@@ -13,6 +13,7 @@ export type ContentSaveOutcome =
   | "preserved_to_history"
   | "merged"
   | "merged_with_displaced_text"
+  | "live_copy_body"
   | "refused"
   | "applied"
   | "displaced_preserved"
@@ -63,6 +64,10 @@ const reasons = new Set([
   "stale_empty_body",
   "stale_builder_image",
   "recovery_base_changed",
+  "live_copy_save_held",
+  "live_copy_save_unheld",
+  "live_copy_save_noncanonical",
+  "live_copy_save_unchecked",
   "title_base_changed",
   "body_base_changed",
   "body_revision_cas_conflict",
@@ -76,6 +81,7 @@ const reasons = new Set([
   "EDIT_MATCH_MISSING",
   "EDIT_MATCH_AMBIGUOUS",
   "EDIT_RANGES_OVERLAP",
+  "DOCUMENT_BODY_UNREPRESENTABLE",
   "DOCUMENT_BODY_NOT_EMPTY",
   "DOCUMENT_EDIT_MODE_CONFLICT",
   "LINKED_LOCAL_REVISION_PROTOCOL_UNAVAILABLE",
@@ -112,22 +118,15 @@ export function recordContentSaveOutcome(
       ? { reason_code: boundedContentSaveReason(dimensions.reason_code) }
       : {}),
   };
-  // Providers must never run in the save's settlement or acknowledgement turn.
+  // Count inside the request: a serverless instance can freeze before a
+  // timer runs. countOutcome bumps an in-memory window and, for the first hit
+  // in a window, calls each analytics provider's track(), which the built-in
+  // providers only queue. The save never waits for delivery, and a throw
+  // cannot replace its result.
   try {
-    setTimeout(() => {
-      try {
-        const delivery: unknown = countOutcome(
-          "content_save_outcome_counts",
-          bounded,
-        );
-        // coercion-ok: telemetry delivery never changes the save's outcome.
-        void Promise.resolve(delivery).catch(() => {});
-      } catch {
-        // coercion-ok: a failed provider cannot invalidate a persisted save.
-      }
-    }, 0);
+    countOutcome("content_save_outcome_counts", bounded);
   } catch {
-    // coercion-ok: an unavailable telemetry scheduler cannot invalidate a save.
+    // coercion-ok: a failed provider cannot invalidate a persisted save.
   }
 }
 

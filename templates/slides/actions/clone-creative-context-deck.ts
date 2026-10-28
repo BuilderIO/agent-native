@@ -86,7 +86,7 @@ export default defineAction({
       .from(schema.decks)
       .where(eq(schema.decks.id, id));
     if (!saved) throw new Error("Deck clone did not persist.");
-    trackDeckCreated(
+    await trackDeckCreated(
       saved.id,
       {
         creationMethod: "duplicate",

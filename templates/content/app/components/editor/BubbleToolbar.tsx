@@ -16,6 +16,7 @@ import {
   PluginKey,
   type EditorState,
 } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -38,7 +39,6 @@ import {
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
-import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
@@ -76,6 +76,7 @@ const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
   "audio",
   "contentReference",
   "localMdxComponent",
+  "registryBlock",
 ]);
 
 type SelectionFillRange = {
@@ -160,19 +161,35 @@ type ToolbarAction = {
 
 function BubbleActionButton({ item }: { item: ToolbarAction }) {
   // Calling preventDefault on pointer-down also skips Radix's own close on
-  // press. An action that hides the bubble, like Comment, then leaves the
-  // tooltip open on a detached trigger, pinned to the top-left of the window.
+  // press, including the open it scheduled when the pointer arrived. An action
+  // that hides the bubble, like Comment, would then leave the tooltip open on
+  // a detached trigger, pinned to the top-left of the window, so a press keeps
+  // it shut until the pointer leaves or focus moves.
   const [tooltipOpen, setTooltipOpen] = useState(false);
+  const pressedRef = useRef(false);
   const { icon: Icon, title, action, isActive } = item;
   return (
-    <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+    <Tooltip
+      open={tooltipOpen}
+      onOpenChange={(open) => {
+        if (open && pressedRef.current) return;
+        setTooltipOpen(open);
+      }}
+    >
       <TooltipTrigger asChild>
         <button
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            pressedRef.current = true;
             setTooltipOpen(false);
             action();
+          }}
+          onPointerLeave={() => {
+            pressedRef.current = false;
+          }}
+          onBlur={() => {
+            pressedRef.current = false;
           }}
           onClick={(event) => {
             if (event.detail === 0) action();
@@ -195,10 +212,7 @@ function BubbleActionButton({ item }: { item: ToolbarAction }) {
 
 function toolbarEditChain(editor: Editor) {
   if (!editor.isEditable) return null;
-  return editor.chain().command(({ tr }) => {
-    tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-    return true;
-  });
+  return editor.chain();
 }
 
 export function setSelectionNotionSpanAttribute(
@@ -237,7 +251,6 @@ export function setSelectionNotionSpanAttribute(
   });
 
   if (!transaction.docChanged) return false;
-  transaction.setMeta(LOCAL_FILE_USER_EDIT_META, true);
   editor.view.dispatch(transaction);
   editor.commands.focus();
   return true;
@@ -259,6 +272,9 @@ function selectionIncludesBubbleToolbarExcludedNode(
   from: number,
   to: number,
 ) {
+  // Selected cells are a rectangle, not the text between from and to: that
+  // range also crosses the cells beside them.
+  if (state.selection instanceof CellSelection) return true;
   if (
     state.selection instanceof NodeSelection &&
     BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name)
@@ -294,6 +310,108 @@ export function shouldShowBubbleToolbar({
   if (!editor.view.hasFocus() && !focusBelongsToToolbar) return false;
   if (from === to) return false;
   return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
+}
+
+/** Starts a comment on the text in `range`; false when there's nothing to quote. */
+export function startCommentOnRange(
+  editor: Editor,
+  onComment: NonNullable<BubbleToolbarProps["onComment"]>,
+  range: CommentRange,
+) {
+  const { from, to } = trimSelectionRange(
+    editor.state.doc,
+    range.from,
+    range.to,
+  );
+  // The quote is the anchor's text, which runs blocks together: a selection
+  // across a paragraph break is highlighted and found again in that form.
+  const anchor = captureAnchor(editor.state.doc, from, to);
+  if (!anchor.quotedText.trim()) return false;
+  const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
+  const coords = editor.view.coordsAtPos(from);
+  const scrollContainer = editor.view.dom.closest(
+    ".flex-1.min-h-0.overflow-auto",
+  );
+  const containerTop = scrollContainer
+    ? scrollContainer.getBoundingClientRect().top
+    : 0;
+  const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+  const offsetTop = coords.top - containerTop + scrollTop;
+  editor.commands.setTextSelection(from);
+  onComment(anchor.quotedText, offsetTop, anchor, { from, to }, suggestionId);
+  return true;
+}
+
+/** Starts a comment on the selected text; false when there's nothing to quote. */
+function useCommentFromSelection(
+  editor: Editor,
+  onComment: BubbleToolbarProps["onComment"],
+) {
+  return useCallback(
+    () =>
+      !!onComment &&
+      startCommentOnRange(editor, onComment, editor.state.selection),
+    [editor, onComment],
+  );
+}
+
+/**
+ * A read-only editor never takes focus, so its menu follows the page's text
+ * selection instead.
+ */
+export function shouldShowReadOnlyCommentBubble({
+  editor,
+  state,
+  from,
+  to,
+}: {
+  editor: Editor;
+  state: EditorState;
+  from: number;
+  to: number;
+}) {
+  if (from === to) return false;
+  const anchorNode = window.getSelection()?.anchorNode;
+  if (!anchorNode || !editor.view.dom.contains(anchorNode)) return false;
+  return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
+}
+
+/** Readers who can't edit a page can still comment on what they select. */
+export function ReadOnlyCommentBubble({
+  editor,
+  onComment,
+}: {
+  editor: Editor;
+  onComment: NonNullable<BubbleToolbarProps["onComment"]>;
+}) {
+  const t = useT();
+  const [pluginKey] = useState(
+    () => new PluginKey("contentReadOnlyCommentBubble"),
+  );
+  const createCommentFromSelection = useCommentFromSelection(editor, onComment);
+  return (
+    <BubbleMenu
+      editor={editor}
+      pluginKey={pluginKey}
+      className="bubble-toolbar"
+      updateDelay={0}
+      shouldShow={shouldShowReadOnlyCommentBubble}
+    >
+      <div
+        className="flex items-center gap-0.5"
+        onMouseDown={(e) => e.preventDefault()}
+      >
+        <BubbleActionButton
+          item={{
+            icon: IconMessageCircle,
+            title: t("editor.comment"),
+            action: createCommentFromSelection,
+            isActive: () => false,
+          }}
+        />
+      </div>
+    </BubbleMenu>
+  );
 }
 
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
@@ -348,30 +466,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     };
   }, [editor, bubbleMenuKey]);
 
-  const createCommentFromSelection = useCallback(() => {
-    if (!onComment) return false;
-    const { from, to } = trimSelectionRange(
-      editor.state.doc,
-      editor.state.selection.from,
-      editor.state.selection.to,
-    );
-    const text = editor.state.doc.textBetween(from, to, " ");
-    if (!text.trim()) return false;
-    const anchor = captureAnchor(editor.state.doc, from, to);
-    const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
-    const coords = editor.view.coordsAtPos(from);
-    const scrollContainer = editor.view.dom.closest(
-      ".flex-1.min-h-0.overflow-auto",
-    );
-    const containerTop = scrollContainer
-      ? scrollContainer.getBoundingClientRect().top
-      : 0;
-    const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
-    const offsetTop = coords.top - containerTop + scrollTop;
-    editor.commands.setTextSelection(from);
-    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
-    return true;
-  }, [editor, onComment]);
+  const createCommentFromSelection = useCommentFromSelection(editor, onComment);
 
   useEffect(() => {
     if (!onComment) return;
@@ -522,14 +617,16 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         )}
       >
         {attribute === "color" ? (
-          <span className={colorName ? `notion-block-color--${colorName}` : ""}>
+          <span
+            className={colorName ? `content-block-color--${colorName}` : ""}
+          >
             A
           </span>
         ) : (
           <span
             className={cn(
               "size-5 rounded border border-border",
-              colorName && `notion-block-bg--${colorName}`,
+              colorName && `content-block-bg--${colorName}`,
             )}
           />
         )}
@@ -595,7 +692,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           if (!range || range.from === range.to) return DecorationSet.empty;
           return DecorationSet.create(state.doc, [
             Decoration.inline(range.from, range.to, {
-              class: "notion-selection-fill",
+              class: "content-selection-fill",
             }),
           ]);
         },
@@ -627,15 +724,35 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       );
     };
 
+    // A click into the unfocused editor focuses it before placing its caret.
+    // Drawing the old selection's fill then redraws the editor, which writes
+    // that selection back over the click; the click's own selection update
+    // draws the fill instead.
+    let pressing = false;
+    const startPress = () => {
+      pressing = true;
+    };
+    const endPress = () => {
+      pressing = false;
+    };
+    const syncAfterFocus = () => {
+      if (!pressing) syncSelectionFill();
+    };
+    const editorDom = editor.view.dom;
+
     editor.on("selectionUpdate", syncSelectionFill);
-    editor.on("focus", syncSelectionFill);
+    editor.on("focus", syncAfterFocus);
     editor.on("blur", syncSelectionFill);
+    editorDom.addEventListener("mousedown", startPress, true);
+    window.addEventListener("mouseup", endPress, true);
     syncSelectionFill();
 
     return () => {
       editor.off("selectionUpdate", syncSelectionFill);
-      editor.off("focus", syncSelectionFill);
+      editor.off("focus", syncAfterFocus);
       editor.off("blur", syncSelectionFill);
+      editorDom.removeEventListener("mousedown", startPress, true);
+      window.removeEventListener("mouseup", endPress, true);
       editor.unregisterPlugin(selectionFillPluginKey);
     };
   }, [editor, openLinkInput]);

@@ -34,8 +34,12 @@ const messages = {
       newest: "Neueste",
       priority: "Priorität",
       priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
+      priorityProviderRequired:
+        "Verbinde einen KI-Anbieter, um nach Priorität zu sortieren.",
+      priorityPartialFailed:
+        "Für {{count}} Nachrichten konnte keine Priorität ermittelt werden. Sie erscheinen nach den bewerteten Nachrichten.",
       priorityScoreHelp:
-        "Ein höherer Wert bedeutet, dass Jev die Nachricht für wichtiger hält.",
+        "Ein höherer Wert bedeutet, dass diese Nachricht wahrscheinlich wichtiger ist.",
       priorityFeedbackSuggestion:
         "Mach aus diesem Feedback eine Regel für Wichtigkeit oder automatisches Archivieren.",
       priorityFeedbackAskAgent: "Agent um Regelvorschläge bitten",
@@ -318,7 +322,12 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Kontaktanreicherung und Unternehmensdaten",
       hubspotDescription: "CRM-Kontakte, Deals und Tickets",
-      gongDescription: "Aktuelle Anrufe und Gesprächsintelligenz",
+      gongDescription: "Gong-Anrufverlauf",
+      gongAccessCheckFailed:
+        "Es konnte nicht geprüft werden, ob du Gong verbinden darfst.",
+      gongKeyPlaceholder: "Gong-API-Schlüssel",
+      gongKeyFormatHint:
+        "Gib Zugriffsschlüssel und Geheimnis im Format access_key:secret ein.",
       pylonDescription: "Supportfälle und Kontodaten",
       gongCalls: "Gong-Anrufe",
       deals: "Deals",
@@ -442,6 +451,7 @@ const messages = {
       tryDifferentKeywords: "Andere Schlüsselwörter versuchen",
       nothingHere: "Hier ist noch nichts",
       loadingMore: "Mehr wird geladen...",
+      openAllMailForOlder: "Alle E-Mails öffnen für ältere Nachrichten",
     },
     toasts: {
       noEmailSelected: "Keine E-Mail ausgewählt.",
@@ -475,6 +485,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Nachricht gesendet.",
       failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
+      failedToRefreshInbox:
+        "Posteingang konnte nicht aktualisiert werden. Bitte versuche es gleich noch einmal.",
       failedToDeleteDraft: "Entwurf konnte nicht gelöscht werden.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -739,14 +751,16 @@ const messages = {
       tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
       addTag: "Tag hinzufügen",
       triageTitle: "KI-Triage",
-      connectJev: "Jev verbinden",
-      connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
+      connectJev: "KI-Anbieter verbinden",
+      connectJevToRunTriage:
+        "Verbinde einen KI-Anbieter, um die Triage auszuführen",
       freeBuilderOrApiKey:
         "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
       jevAvailabilityFailed:
-        "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
+        "Die Verfügbarkeit eines KI-Entscheidungsanbieters konnte nicht geprüft werden.",
       connectBuilder: "Builder.io verwenden",
-      addJevApiKey: "API-Schlüssel hinzufügen",
+      addJevApiKey: "Jev-API-Schlüssel hinzufügen",
+      addOpenAiApiKey: "OpenAI-API-Schlüssel hinzufügen",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -788,6 +802,17 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "E-Mail-Entwurf - Mail",
+    },
+    draftCard: {
+      loadFailed: "Dieser Entwurf konnte nicht geladen werden.",
+      notFoundTitle: "Entwurf nicht gefunden",
+      threadUnavailable:
+        "Die früheren Nachrichten dieser Unterhaltung konnten nicht geladen werden.",
+      threadLookupFailed:
+        "Die Unterhaltung zu dieser Antwort wurde nicht gefunden, daher kann sie noch nicht gesendet werden.",
+      earlierMessages: "Frühere Nachrichten ({{count}})",
+      deleted: "Entwurf gelöscht.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

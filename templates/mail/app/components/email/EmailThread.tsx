@@ -94,6 +94,7 @@ import {
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
 import { mailLabelDisplayName } from "@/lib/label-display";
+import { mailThreadHref, mailViewHref } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -101,7 +102,7 @@ import {
 } from "@/lib/message-draft-builders";
 import { getResolvedTheme } from "@/lib/theme";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import type { ThreadSummary } from "@/lib/threads";
+import { matchesThreadAccount, type ThreadSummary } from "@/lib/threads";
 import {
   cn,
   formatEmailDate,
@@ -157,6 +158,7 @@ function InlineReplyComposerSkeleton() {
 
 export function EmailThread({
   activeThreadId,
+  activeThreadAccountEmail,
   onArchived,
   emailIds = [],
   threads = [],
@@ -168,13 +170,17 @@ export function EmailThread({
   onToggleMaximize,
 }: {
   activeThreadId?: string;
+  activeThreadAccountEmail?: string | null;
   onArchived?: (id: string) => void;
   emailIds?: string[];
   threads?: ThreadSummary[];
   selectedIds?: Set<string>;
   setSelectedIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
   onContactSelect?: (email: string) => void;
-  onNavigateThread?: (threadId: string | undefined) => void;
+  onNavigateThread?: (
+    threadId: string | undefined,
+    accountEmail?: string,
+  ) => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }) {
@@ -187,9 +193,11 @@ export function EmailThread({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const labelParam = searchParams.get("label");
-  const routeSearchSuffix = searchParams.toString()
-    ? `?${searchParams.toString()}`
-    : "";
+  const routeAccountEmail = searchParams.get("accountEmail") ?? undefined;
+  const accountEmail =
+    activeThreadAccountEmail === null
+      ? undefined
+      : (activeThreadAccountEmail ?? routeAccountEmail);
   const compose = useComposeState();
   const queryClient = useQueryClient();
   const priorityFeedback = useAiPriorityFeedback();
@@ -235,7 +243,10 @@ export function EmailThread({
         continue;
       }
       for (const email of emails) {
-        if ((email.threadId || email.id) === threadId) {
+        if (
+          (email.threadId || email.id) === threadId &&
+          matchesThreadAccount(email, accountEmail)
+        ) {
           allCached.push(email);
         }
       }
@@ -248,17 +259,19 @@ export function EmailThread({
         return true;
       })
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [threadId, queryClient]);
+  }, [accountEmail, threadId, queryClient]);
 
-  const { data: threadMessages } = useThreadMessages(threadId);
+  const { data: threadMessages } = useThreadMessages(threadId, accountEmail);
 
   const previewMessage = useMemo(() => {
     if (!threadId || !threads.length) return undefined;
     const thread = threads.find(
-      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+      (t) =>
+        (t.latestMessage.threadId || t.latestMessage.id) === threadId &&
+        matchesThreadAccount(t.latestMessage, accountEmail),
     );
     return thread?.latestMessage;
-  }, [threadId, threads]);
+  }, [accountEmail, threadId, threads]);
 
   const allMessages =
     threadMessages ??
@@ -532,9 +545,9 @@ export function EmailThread({
   }, [threadId, hasUnread]);
 
   const goBack = useCallback(() => {
-    onNavigateThread?.(undefined);
-    void navigate(`/${view}${routeSearchSuffix}`);
-  }, [navigate, view, routeSearchSuffix, onNavigateThread]);
+    onNavigateThread?.(undefined, undefined);
+    void navigate(mailViewHref(view, searchParams));
+  }, [navigate, view, searchParams, onNavigateThread]);
 
   const emailIdsRef = useRef(emailIds);
   emailIdsRef.current = emailIds;
@@ -561,14 +574,21 @@ export function EmailThread({
         nextThreadId,
         nextThread?.latestMessage.accountEmail,
       ).catch(() => {});
-      onNavigateThread?.(nextThreadId);
-      void navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
+      onNavigateThread?.(nextThreadId, nextThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          nextThreadId,
+          searchParams,
+          nextThread?.latestMessage.accountEmail,
+        ),
+      );
     },
     [
       threadId,
       view,
       navigate,
-      routeSearchSuffix,
+      searchParams,
       setSelectedIds,
       onNavigateThread,
       threads,
@@ -593,18 +613,29 @@ export function EmailThread({
         return updated;
       });
 
-      onNavigateThread?.(nextThreadKey);
-      void navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
-        replace: true,
-      });
+      const nextThread = threads.find(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) === nextThreadKey,
+      );
+      onNavigateThread?.(nextThreadKey, nextThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          nextThreadKey,
+          searchParams,
+          nextThread?.latestMessage.accountEmail,
+        ),
+        { replace: true },
+      );
     },
     [
       threadId,
       view,
       navigate,
-      routeSearchSuffix,
+      searchParams,
       setSelectedIds,
       onNavigateThread,
+      threads,
     ],
   );
 
@@ -634,25 +665,44 @@ export function EmailThread({
     const idx = emailIds.indexOf(threadId);
     if (idx !== -1 && idx + 1 < emailIds.length) {
       const nextId = emailIds[idx + 1];
-      onNavigateThread?.(nextId);
-      void navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
-        replace: true,
-      });
+      const nextThread = threads.find(
+        (t) => (t.latestMessage.threadId || t.latestMessage.id) === nextId,
+      );
+      onNavigateThread?.(nextId, nextThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          nextId,
+          searchParams,
+          nextThread?.latestMessage.accountEmail,
+        ),
+        { replace: true },
+      );
     } else if (idx !== -1 && idx - 1 >= 0) {
       const prevId = emailIds[idx - 1];
-      onNavigateThread?.(prevId);
-      void navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
-        replace: true,
-      });
+      const prevThread = threads.find(
+        (t) => (t.latestMessage.threadId || t.latestMessage.id) === prevId,
+      );
+      onNavigateThread?.(prevId, prevThread?.latestMessage.accountEmail);
+      void navigate(
+        mailThreadHref(
+          view,
+          prevId,
+          searchParams,
+          prevThread?.latestMessage.accountEmail,
+        ),
+        { replace: true },
+      );
     } else {
       goBack();
     }
   }, [
     threadId,
     emailIds,
+    threads,
     view,
     navigate,
-    routeSearchSuffix,
+    searchParams,
     goBack,
     onNavigateThread,
   ]);
@@ -1877,7 +1927,7 @@ function BodySkeleton() {
   );
 }
 
-const CollapsedMessageRow = forwardRef<
+export const CollapsedMessageRow = forwardRef<
   HTMLDivElement,
   {
     email: EmailMessage;
@@ -1912,16 +1962,17 @@ const CollapsedMessageRow = forwardRef<
   );
 });
 
-const ExpandedMessageCard = forwardRef<
+export const ExpandedMessageCard = forwardRef<
   HTMLDivElement,
   {
     email: EmailMessage;
     isFocused?: boolean;
     isFromMe?: boolean;
     onCollapse: () => void;
-    onReply: () => void;
-    onReplyAll: () => void;
-    onForward: () => void;
+    // Leave these out to hide the reply and forward buttons.
+    onReply?: () => void;
+    onReplyAll?: () => void;
+    onForward?: () => void;
     onFocus?: () => void;
     onContactSelect?: (email: string) => void;
     searchTerm?: string;
@@ -2072,64 +2123,66 @@ const ExpandedMessageCard = forwardRef<
           </div>
 
           {/* Reply / Reply All / Forward buttons */}
-          <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onMouseEnter={() => void preloadInlineReplyComposer()}
-                  onFocus={() => void preloadInlineReplyComposer()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onReply();
-                  }}
-                  aria-label={t("mail.compose.reply")}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-                >
-                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.compose.reply")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onMouseEnter={() => void preloadInlineReplyComposer()}
-                  onFocus={() => void preloadInlineReplyComposer()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onReplyAll();
-                  }}
-                  aria-label={t("mail.mobileActions.replyAll")}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-                >
-                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("mail.mobileActions.replyAll")}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onMouseEnter={() => void preloadInlineReplyComposer()}
-                  onFocus={() => void preloadInlineReplyComposer()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onForward();
-                  }}
-                  aria-label={t("mail.compose.forward")}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
-                >
-                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.compose.forward")}</TooltipContent>
-            </Tooltip>
-          </div>
+          {onReply && onReplyAll && onForward && (
+            <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseEnter={() => void preloadInlineReplyComposer()}
+                    onFocus={() => void preloadInlineReplyComposer()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReply();
+                    }}
+                    aria-label={t("mail.compose.reply")}
+                    className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  >
+                    <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.compose.reply")}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseEnter={() => void preloadInlineReplyComposer()}
+                    onFocus={() => void preloadInlineReplyComposer()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReplyAll();
+                    }}
+                    aria-label={t("mail.mobileActions.replyAll")}
+                    className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  >
+                    <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("mail.mobileActions.replyAll")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onMouseEnter={() => void preloadInlineReplyComposer()}
+                    onFocus={() => void preloadInlineReplyComposer()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onForward();
+                    }}
+                    aria-label={t("mail.compose.forward")}
+                    className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  >
+                    <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("mail.compose.forward")}</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
 
           <span className="shrink-0 text-[12px] text-muted-foreground/50 tabular-nums">
             {formatEmailDate(email.date)}

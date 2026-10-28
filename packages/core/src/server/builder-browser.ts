@@ -46,7 +46,7 @@ import {
   isAllowedOAuthRedirectUri,
   isConfiguredAppOrigin,
 } from "./google-oauth.js";
-import { isLoopbackOrigin } from "./origin-allowlist.js";
+import { getAppDeclaredOrigins, isLoopbackOrigin } from "./origin-allowlist.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -111,11 +111,23 @@ export interface BuilderRelayRequestBody {
 
 export class BuilderAccountProvisioningError extends Error {
   readonly code: string | null;
+  readonly upstreamStatus: number | null;
+  readonly upstreamErrorBody: string | null;
+  readonly upstreamBodyReadErrorType: string | null;
 
-  constructor(message: string, code?: string) {
+  constructor(
+    message: string,
+    code?: string,
+    upstreamStatus: number | null = null,
+    upstreamErrorBody: string | null = null,
+    upstreamBodyReadErrorType: string | null = null,
+  ) {
     super(message);
     this.name = "BuilderAccountProvisioningError";
     this.code = code ?? null;
+    this.upstreamStatus = upstreamStatus;
+    this.upstreamErrorBody = upstreamErrorBody;
+    this.upstreamBodyReadErrorType = upstreamBodyReadErrorType;
   }
 }
 
@@ -790,6 +802,7 @@ export interface BuilderBrowserStatus {
   envManaged: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
   canDisconnect?: boolean;
+  builderReauthorizationRequired?: boolean;
   authError?: { message: string; at: number };
   connectError?: { message: string; at: number; code?: string };
   appHost: string;
@@ -1392,7 +1405,7 @@ function getBuilderConnectCallbackOrigin(
   if (isBuilderCloudRequestHost(headerHost)) {
     return getBuilderBrowserOriginForEvent(event);
   }
-  const configuredOrigin = getOrigin(event, { useForwardedHost: false });
+  const configuredOrigin = getBuilderAppOrigin(event);
   if (!isLoopbackOrigin(configuredOrigin)) return configuredOrigin;
   if (
     !isLoopbackBuilderRequestHost(headerHost) &&
@@ -1402,6 +1415,22 @@ function getBuilderConnectCallbackOrigin(
     if (previewOrigin && !isLoopbackOrigin(previewOrigin)) return previewOrigin;
   }
   return configuredOrigin;
+}
+
+/**
+ * A proxy that rewrites `Host` (Builder Cloud -> `*.netlify.app`) hands us an
+ * origin the browser never visited, and the origin lock 404s it. When the
+ * inbound origin is not one the app declared, send the browser to the first
+ * declared origin instead.
+ */
+function getBuilderAppOrigin(event: H3Event): string {
+  const inbound = getOrigin(event, { useForwardedHost: false });
+  if (process.env.NODE_ENV !== "production") return inbound;
+  const declared = getAppDeclaredOrigins().filter(
+    (origin) => !isLoopbackOrigin(origin),
+  );
+  if (declared.length === 0 || declared.includes(inbound)) return inbound;
+  return declared[0];
 }
 
 function isAllowedBuilderConnectOrigin(origin: string): boolean {
@@ -1567,7 +1596,7 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
     return getConfiguredBuilderFallbackOrigin(event) ?? "";
   }
   if (!isTrustedBuilderRequestHost(headerHost)) {
-    return getOrigin(event, { useForwardedHost: false });
+    return getBuilderAppOrigin(event);
   }
   if (isLoopbackBuilderRequestHost(headerHost)) {
     const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
@@ -2550,7 +2579,37 @@ export async function provisionBuilderAccount(input: {
     },
     "account provisioning",
   );
-  const parsed = await readBuilderApiObject(response, "account provisioning");
+  const bodyRead = await response
+    .clone()
+    .text()
+    .then(
+      (body) => ({ ok: true as const, body }),
+      (error: unknown) => ({
+        ok: false as const,
+        errorType:
+          error instanceof Error &&
+          /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(error.name)
+            ? error.name
+            : typeof error,
+      }),
+    );
+  const rawErrorBody = bodyRead.ok ? bodyRead.body : null;
+  const bodyReadErrorType = bodyRead.ok ? null : bodyRead.errorType;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = await readBuilderApiObject(response, "account provisioning");
+  } catch (error) {
+    if (response.ok) throw error;
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      response.status,
+      builderProvisioningErrorBody(null, rawErrorBody),
+      bodyReadErrorType,
+    );
+  }
   if (!response.ok) {
     throw new BuilderAccountProvisioningError(
       builderApiErrorMessage(
@@ -2558,18 +2617,43 @@ export async function provisionBuilderAccount(input: {
         `Builder account provisioning failed (${response.status})`,
       ),
       typeof parsed.code === "string" ? parsed.code : undefined,
+      response.status,
+      builderProvisioningErrorBody(parsed, rawErrorBody),
+      bodyReadErrorType,
     );
   }
-  return parseBuilderAccountProvisioningResponse(parsed);
+  try {
+    return parseBuilderAccountProvisioningResponse(parsed);
+  } catch (error) {
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      response.status,
+      builderProvisioningErrorBody(parsed, rawErrorBody),
+      bodyReadErrorType,
+    );
+  }
 }
 
-function builderApiFailure(status: number, message: string): Error {
-  return status === 401
-    ? new ActionContractError(message, {
-        errorCode: "builder_not_connected",
-        statusCode: 400,
-      })
-    : new Error(message);
+/**
+ * The error for a Builder API call that answered with an error status. Every
+ * one carries that status as `builderStatus`; a 401 is also the reconnectable
+ * `ActionContractError`, whose own `statusCode` is the action's, not Builder's.
+ */
+function builderApiFailure(
+  status: number,
+  message: string,
+): Error & { builderStatus: number } {
+  const error =
+    status === 401
+      ? new ActionContractError(message, {
+          errorCode: "builder_not_connected",
+          statusCode: 400,
+        })
+      : new Error(message);
+  return Object.assign(error, { builderStatus: status });
 }
 
 function builderApiErrorMessage(
@@ -2583,6 +2667,64 @@ function builderApiErrorMessage(
     return parsed.message.trim();
   }
   return fallback;
+}
+
+function redactBuilderDiagnosticText(value: string): string {
+  // Upstream errors can nest escaped JSON several levels deep.
+  let normalizedValue = value;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const unescapedValue = normalizedValue.replace(/\\+(?=["'])/g, "");
+    if (unescapedValue === normalizedValue) break;
+    normalizedValue = unescapedValue;
+  }
+  return normalizedValue
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]")
+    .replace(
+      /\bauthorization\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,};]+)/gi,
+      "Authorization: [redacted]",
+    )
+    .replace(/\bBearer\s+[^\s,"']+/gi, "Bearer [redacted]")
+    .replace(
+      /\b(?:github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,})\b/gi,
+      "[redacted-token]",
+    )
+    .replace(
+      /\b[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g,
+      "[redacted-token]",
+    )
+    .replace(/\b(?:sk|bpk|space)[_-][A-Za-z0-9_-]{8,}\b/gi, "[redacted-key]")
+    .replace(
+      /(["']?[\w.-]*(?:authorization|access[_-]?(?:key|token)|session[_-]?key|signing[_-]?key|refresh[_-]?token|id[_-]?token|auth[_-]?token|oauth[_-]?token|api[_-]?key|private[_-]?key|client[_-]?secret|jwt|token|secret|password|cookie|credential)[\w.-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,\r\n}&;]+)/gi,
+      "$1[redacted]",
+    )
+    .slice(0, 512);
+}
+
+function builderProvisioningErrorBody(
+  parsed: Record<string, unknown> | null,
+  rawBody: string | null,
+): string | null {
+  if (parsed) {
+    const body: Record<string, string> = {};
+    for (const key of ["code", "error", "message", "detail", "type"]) {
+      const value = parsed[key];
+      if (typeof value === "string" && value.trim()) {
+        body[key] = redactBuilderDiagnosticText(value.trim());
+      }
+    }
+    if (Object.keys(body).length === 0) {
+      body.fields = Object.keys(parsed)
+        .filter(
+          (key) => !/(email|token|secret|password|key|auth|cookie)/i.test(key),
+        )
+        .slice(0, 12)
+        .join(",");
+    }
+    return JSON.stringify(body).slice(0, 2048);
+  }
+  if (rawBody === null) return null;
+  const excerpt = redactBuilderDiagnosticText(rawBody.trim());
+  return excerpt ? JSON.stringify({ text: excerpt }).slice(0, 2048) : null;
 }
 
 /** @deprecated Repository-backed Builder projects are retained for compatibility. */

@@ -40,7 +40,7 @@ import {
   IconPlayerPlay,
   IconTrash,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 
 import { AgentAskPopover } from "../chat/index.js";
 import { automationCreationContext } from "../settings/AutomationsSection.js";
@@ -65,8 +65,17 @@ import {
   useRecurringJobs,
   useScheduledTriggerState,
   type Automation,
+  type ManageAutomationInput,
   type RecurringJob,
 } from "./use-jobs.js";
+
+const loadAutomationEditor = () => import("./AutomationEditorDialog.js");
+
+const AutomationEditorDialog = lazy(() =>
+  loadAutomationEditor().then((module) => ({
+    default: module.AutomationEditorDialog,
+  })),
+);
 
 type ListedAutomation =
   | {
@@ -77,7 +86,7 @@ type ListedAutomation =
   | {
       kind: "automation";
       resource: Automation;
-      triggerType: "event" | "schedule" | "webhook";
+      triggerType: "event" | "schedule" | "manual" | "webhook";
     };
 
 function listRecurringJobs(jobs: RecurringJob[]): ListedAutomation[] {
@@ -99,6 +108,11 @@ function listAutomations(automations: Automation[]): ListedAutomation[] {
 type Translate = ReturnType<typeof useT>;
 
 function describeTrigger(entry: ListedAutomation, t: Translate): string {
+  if (entry.kind === "automation" && entry.triggerType === "manual") {
+    return t("jobs.automationManualDetails", {
+      defaultValue: "Runs only when started on demand.",
+    });
+  }
   if (entry.kind === "automation" && entry.triggerType === "event") {
     return t("jobs.automationEventDetails", {
       defaultValue: "Runs when {{event}}.",
@@ -115,6 +129,31 @@ function describeTrigger(entry: ListedAutomation, t: Translate): string {
     entry.resource.schedule ||
     t("jobs.scheduledTrigger", { defaultValue: "Scheduled" })
   );
+}
+
+function sharingLabel(automation: Automation, t: Translate): string {
+  const sharing = automation.sharing;
+  if (automation.effectiveRole !== "owner") {
+    return sharing.visibility === "organization"
+      ? t("jobs.sharingOrganization", { defaultValue: "Organization" })
+      : automation.effectiveRole === "collaborate"
+        ? t("jobs.sharingBadgeSharedCollaborate", {
+            defaultValue: "Shared with you · Collaborate",
+          })
+        : t("jobs.sharingBadgeSharedView", {
+            defaultValue: "Shared with you · View",
+          });
+  }
+  if (sharing.visibility === "organization") {
+    return t("jobs.sharingOrganization", { defaultValue: "Organization" });
+  }
+  if (sharing.visibility === "shared") {
+    return t("jobs.sharingSpecificCount", {
+      defaultValue: "Shared with {{count}} people",
+      count: sharing.grantCount,
+    });
+  }
+  return t("jobs.sharingPersonal", { defaultValue: "Personal" });
 }
 
 function nextRunValue(
@@ -161,11 +200,13 @@ function detailsFields(
     {
       label: t("jobs.trigger", { defaultValue: "Trigger" }),
       value:
-        entry.triggerType === "event"
-          ? t("jobs.eventTrigger", { defaultValue: "Event-triggered" })
-          : entry.triggerType === "webhook"
-            ? t("jobs.webhookTrigger", { defaultValue: "Webhook-triggered" })
-            : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" }),
+        entry.triggerType === "manual"
+          ? t("jobs.manualTrigger", { defaultValue: "On demand" })
+          : entry.triggerType === "event"
+            ? t("jobs.eventTrigger", { defaultValue: "Event-triggered" })
+            : entry.triggerType === "webhook"
+              ? t("jobs.webhookTrigger", { defaultValue: "Webhook-triggered" })
+              : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" }),
     },
   ];
 
@@ -224,6 +265,10 @@ function detailsFields(
 
   if (entry.kind === "automation") {
     fields.push({
+      label: t("jobs.sharingLabel", { defaultValue: "Sharing" }),
+      value: sharingLabel(entry.resource, t),
+    });
+    fields.push({
       label: t("jobs.model", { defaultValue: "Model" }),
       value: entry.resource.model || unset,
     });
@@ -280,7 +325,21 @@ export function AgentJobsTab({
   const [scheduleTarget, setScheduleTarget] = useState<ListedAutomation | null>(
     null,
   );
+  const [editorTarget, setEditorTarget] = useState<Automation | null>(null);
+  const [editorScope, setEditorScope] =
+    useState<Automation["scope"]>("personal");
+  const [editorOpen, setEditorOpen] = useState(false);
   const [runTarget, setRunTarget] = useState<ListedAutomation | null>(null);
+
+  const openEditor = (
+    automation: Automation | null,
+    scope: Automation["scope"] = automation?.scope ?? "personal",
+  ) => {
+    void loadAutomationEditor();
+    setEditorTarget(automation);
+    setEditorScope(scope);
+    setEditorOpen(true);
+  };
 
   const formatDateTime = (value: string | null) => {
     if (!value || Number.isNaN(new Date(value).getTime())) return null;
@@ -333,24 +392,18 @@ export function AgentJobsTab({
     }
   };
 
-  const organizationCreateAction = (
-    <AgentAskPopover
-      context={organizationAutomationCreationContext()}
-      draftScope={organizationDraftScope}
-      prompt={t("jobs.organizationPrompt", {
-        defaultValue:
-          "Create a shared organization automation that does this: ",
-      })}
-      title={t("jobs.automationsCreateTitle", {
-        defaultValue: "Create an automation",
-      })}
-      label={t("jobs.newAutomation", {
-        defaultValue: "New automation",
-      })}
+  const newAutomationButton = (scope: Automation["scope"]) => (
+    <Button
+      type="button"
       variant="outline"
       size={settingsVariant ? "xs" : "sm"}
-    />
+      onClick={() => openEditor(null, scope)}
+    >
+      {t("jobs.newAutomation", { defaultValue: "New automation" })}
+    </Button>
   );
+
+  const organizationCreateAction = newAutomationButton("organization");
 
   const renderRow = (entry: ListedAutomation) => {
     const resource = entry.resource;
@@ -358,21 +411,7 @@ export function AgentJobsTab({
     const lastRun = formatDateTime(resource.lastRun);
     const lastCheck = formatDateTime(resource.lastCheck);
     const nextRun = formatDateTime(resource.nextRun);
-    const triggerDescription =
-      entry.kind === "automation" && entry.triggerType === "event"
-        ? t("jobs.automationEventTrigger", {
-            defaultValue: "On {{event}}",
-            event: entry.resource.event ?? "event",
-          })
-        : entry.kind === "automation" && entry.triggerType === "webhook"
-          ? t("jobs.automationWebhookTrigger", {
-              defaultValue: "On webhook",
-            })
-          : resource.scheduleDescription ||
-            resource.schedule ||
-            t("jobs.scheduledTrigger", {
-              defaultValue: "Scheduled",
-            });
+    const triggerDescription = describeTrigger(entry, t);
     const instructions =
       entry.kind === "automation"
         ? entry.resource.body
@@ -388,6 +427,8 @@ export function AgentJobsTab({
         <div className="mt-0.5 text-muted-foreground">
           {entry.triggerType === "event" ? (
             <IconCalendarEvent className="size-4" />
+          ) : entry.triggerType === "manual" ? (
+            <IconPlayerPlay className="size-4" />
           ) : entry.triggerType === "webhook" ? (
             <IconBolt className="size-4" />
           ) : (
@@ -398,18 +439,23 @@ export function AgentJobsTab({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate text-sm font-medium">{name}</h3>
             <Badge variant="outline">
-              {entry.triggerType === "event"
-                ? t("jobs.eventTrigger", {
-                    defaultValue: "Event-triggered",
-                  })
-                : entry.triggerType === "webhook"
-                  ? t("jobs.webhookTrigger", {
-                      defaultValue: "Webhook-triggered",
+              {entry.triggerType === "manual"
+                ? t("jobs.manualTrigger", { defaultValue: "On demand" })
+                : entry.triggerType === "event"
+                  ? t("jobs.eventTrigger", {
+                      defaultValue: "Event-triggered",
                     })
-                  : t("jobs.scheduledTrigger", {
-                      defaultValue: "Scheduled",
-                    })}
+                  : entry.triggerType === "webhook"
+                    ? t("jobs.webhookTrigger", {
+                        defaultValue: "Webhook-triggered",
+                      })
+                    : t("jobs.scheduledTrigger", {
+                        defaultValue: "Scheduled",
+                      })}
             </Badge>
+            {entry.kind === "automation" ? (
+              <Badge variant="outline">{sharingLabel(entry.resource, t)}</Badge>
+            ) : null}
             {resource.canUpdate ? null : (
               <Badge variant="outline">
                 {resource.enabled
@@ -517,7 +563,14 @@ export function AgentJobsTab({
                       <IconPlayerPlay aria-hidden="true" />
                       {t("jobs.runNow", { defaultValue: "Run now" })}
                     </DropdownMenuItem>
-                    {entry.triggerType === "schedule" ? (
+                    {entry.kind === "automation" ? (
+                      <DropdownMenuItem
+                        onSelect={() => openEditor(entry.resource)}
+                      >
+                        <IconPencil aria-hidden="true" />
+                        {t("jobs.edit", { defaultValue: "Edit" })}
+                      </DropdownMenuItem>
+                    ) : entry.triggerType === "schedule" ? (
                       <DropdownMenuItem
                         onSelect={() => setScheduleTarget(entry)}
                       >
@@ -657,6 +710,7 @@ export function AgentJobsTab({
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
+                {organization ? organizationCreateAction : null}
                 <AgentAskPopover
                   context={
                     organization
@@ -721,39 +775,13 @@ export function AgentJobsTab({
         defaultValue:
           "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
       })}
-      actions={
-        <AgentAskPopover
-          context={automationCreationContext()}
-          draftScope="agent-jobs:page-create"
-          prompt={t("jobs.automationPrompt", {
-            defaultValue: "Create an automation that does this: ",
-          })}
-          title={t("jobs.automationsCreateTitle", {
-            defaultValue: "Create an automation",
-          })}
-          label={t("jobs.newAutomation", {
-            defaultValue: "New automation",
-          })}
-        />
-      }
+      actions={newAutomationButton("personal")}
     >
       <div className={settingsVariant ? "space-y-8" : "space-y-7"}>
         <ScheduledTriggerNotice state={scheduledTriggerState} />
         {hideHeader && !settingsVariant ? (
           <div className="flex justify-end">
-            <AgentAskPopover
-              context={automationCreationContext()}
-              draftScope="agent-jobs:compact-create"
-              prompt={t("jobs.automationPrompt", {
-                defaultValue: "Create an automation that does this: ",
-              })}
-              title={t("jobs.automationsCreateTitle", {
-                defaultValue: "Create an automation",
-              })}
-              label={t("jobs.newAutomation", {
-                defaultValue: "New automation",
-              })}
-            />
+            {newAutomationButton("personal")}
           </div>
         ) : null}
         {renderSection({
@@ -798,7 +826,11 @@ export function AgentJobsTab({
             organization: true,
           })}
         </div>
-        {mutationError && !deleteTarget && !scheduleTarget && !runTarget ? (
+        {mutationError &&
+        !deleteTarget &&
+        !scheduleTarget &&
+        !editorOpen &&
+        !runTarget ? (
           <Alert variant="destructive">
             <AlertDescription>{mutationErrorText}</AlertDescription>
           </Alert>
@@ -923,6 +955,7 @@ export function AgentJobsTab({
       {detailsTarget ? (
         <AutomationDetailsDialog
           open
+          resourceId={detailsTarget.resource.id}
           name={detailsTarget.resource.name}
           scope={
             detailsTarget.resource.scope === "organization" ? "org" : "user"
@@ -970,6 +1003,71 @@ export function AgentJobsTab({
             )
           }
         />
+      ) : null}
+
+      {editorOpen ? (
+        <Suspense
+          fallback={
+            <Dialog
+              open
+              onOpenChange={(open) => {
+                if (!open) setEditorOpen(false);
+              }}
+            >
+              <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editorTarget
+                      ? t("jobs.editorEditTitle", {
+                          defaultValue: "Edit automation",
+                        })
+                      : t("jobs.editorCreateTitle", {
+                          defaultValue: "Create an automation",
+                        })}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {t("jobs.editorScopeDescription", {
+                      defaultValue:
+                        "This automation is fixed to the {{scope}} scope.",
+                      scope:
+                        editorScope === "organization"
+                          ? t("jobs.editorScopeOrganization", {
+                              defaultValue: "organization",
+                            })
+                          : t("jobs.editorScopePersonal", {
+                              defaultValue: "personal",
+                            }),
+                    })}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-9 w-full" />
+                  <Skeleton className="h-20 w-full" />
+                </div>
+                <DialogFooter>
+                  <Skeleton className="h-9 w-24" />
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          }
+        >
+          <AutomationEditorDialog
+            open={editorOpen}
+            scope={editorScope}
+            automation={editorTarget}
+            saving={mutationPending}
+            error={mutationError?.message ?? null}
+            onCancel={() => setEditorOpen(false)}
+            onSave={(input: ManageAutomationInput) => {
+              const mutation =
+                editorScope === "organization"
+                  ? organizationAutomationsMutation
+                  : personalAutomationsMutation;
+              mutation.mutate(input, { onSuccess: () => setEditorOpen(false) });
+            }}
+          />
+        </Suspense>
       ) : null}
     </AgentTabFrame>
   );

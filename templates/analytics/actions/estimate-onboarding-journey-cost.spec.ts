@@ -29,7 +29,12 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../server/lib/onboarding-journey.js", () => ({
+  DEFAULT_ONBOARDING_EVENT_ROW_BUDGET: 40_000,
   freezeOnboardingJourneyObservationWindow: mocks.freezeObservation,
+  MAX_ONBOARDING_EVENT_ROW_BUDGET: 200_000,
+  ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED: 275_000_000_000,
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED: 25_000_000_000,
+  ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED: 1_275_000_000_000,
 }));
 
 vi.mock("../server/lib/onboarding-journey-cost.js", () => ({
@@ -96,6 +101,32 @@ describe("estimate-onboarding-journey-cost action", () => {
       },
       false,
       signal,
+      275_000_000_000,
+    );
+  });
+
+  it("passes the non-production host filter to the estimator", async () => {
+    const filteredArgs = action.schema.parse({
+      dateFrom: "2026-10-01",
+      dateTo: "2026-10-02",
+      app: "design",
+      excludeNonProductionHosts: true,
+    });
+
+    await action.run(filteredArgs);
+
+    expect(mocks.estimate).toHaveBeenCalledWith(
+      { userEmail: "caller@example.test", orgId: "org-1" },
+      expect.objectContaining({
+        app: "design",
+        emailFilter: "exclude_builder",
+        excludeNonProductionHosts: true,
+      }),
+      40_000,
+      expect.any(Object),
+      false,
+      undefined,
+      275_000_000_000,
     );
   });
 

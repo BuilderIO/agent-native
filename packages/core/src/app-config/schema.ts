@@ -6,8 +6,11 @@ import { agentConfig } from "./agent.js";
 import { analyticsConfig } from "./analytics.js";
 import { appConfig } from "./app.js";
 import { authConfig } from "./auth.js";
+import { clipsConfig } from "./clips.js";
+import { decisionsConfig } from "./decisions.js";
 import { dispatchConfig } from "./dispatch.js";
 import { extensionsConfig } from "./extensions.js";
+import { hostedStorageConfig } from "./hosted-storage.js";
 import { integrationsConfig } from "./integrations.js";
 import { launchDarklyConfig } from "./launchdarkly.js";
 import { mcpConfig } from "./mcp.js";
@@ -28,8 +31,11 @@ export const appConfigSchema = z.object({
   analytics: analyticsConfig.prefault({}),
   app: appConfig.prefault({}),
   auth: authConfig.prefault({}),
+  clips: clipsConfig.prefault({}),
+  decisions: decisionsConfig.prefault({}),
   dispatch: dispatchConfig.prefault({}),
   extensions: extensionsConfig.prefault({}),
+  hostedStorage: hostedStorageConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
   launchDarkly: launchDarklyConfig.prefault({}),
   mcp: mcpConfig.prefault({}),

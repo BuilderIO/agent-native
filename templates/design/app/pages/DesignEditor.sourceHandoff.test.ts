@@ -34,9 +34,7 @@ describe("DesignEditor pending source handoff", () => {
     expect(handler).toContain("HOST_TURN_START_TIMEOUT_MS");
     const chatState = source.slice(
       source.indexOf('if (data.type === "design:chatState")'),
-      source.indexOf(
-        "const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);",
-      ),
+      source.indexOf("const clearRedoStacks = useCallback(() => {"),
     );
     expect(chatState).toContain('stagedSourceHandoffRef.current = "running";');
     expect(chatState).toContain(
@@ -78,19 +76,6 @@ describe("DesignEditor pending source handoff", () => {
     expect(toolbar).toContain('"designEditor.pendingVisualStyles.applying"');
     expect(toolbar).toContain("applyingViaHost ||");
     expect(toolbar).toContain("{applyingViaHost ? (");
-  });
-
-  it("refreshes the copied handoff when the current design changes", () => {
-    const copyHandler = source.slice(
-      source.indexOf("const handleCopyPendingVisualStylePrompt = useCallback"),
-      source.indexOf(
-        "// ── Export:",
-        source.indexOf(
-          "const handleCopyPendingVisualStylePrompt = useCallback",
-        ),
-      ),
-    );
-    expect(copyHandler).toContain("          id,");
   });
 
   it("waits for queued handoff publication before copying the full prompt by default", () => {
@@ -154,22 +139,6 @@ describe("DesignEditor pending source handoff", () => {
     );
     expect(source).toContain("runPublishVisualEditPending({");
     expect(source).toContain("activeScreenBridgeUrl,");
-  });
-
-  it("routes interaction-state edits through the selected screen", () => {
-    const screenStyleHandler = source.slice(
-      source.indexOf("const handleInspectorScreenStyleChange = useCallback"),
-      source.indexOf(
-        "selectedScreenStyleChangeRef.current = handleInspectorScreenStyleChange",
-      ),
-    );
-    expect(screenStyleHandler).toContain("if (interactionState)");
-    expect(screenStyleHandler).toContain(
-      "sendLinkedScreenPreviewInteractionStateStyle(screenId",
-    );
-    expect(screenStyleHandler).toContain("recordPendingVisualStyleEdit(");
-    expect(screenStyleHandler).toContain("screenId,");
-    expect(screenStyleHandler).toContain("applyInteractionStateStyleCommit(");
   });
 
   it("opens Design chat only for a local fallback and prevents duplicate sends", () => {

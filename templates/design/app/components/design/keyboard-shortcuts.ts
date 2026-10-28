@@ -34,6 +34,8 @@ export interface DesignShortcutDefinition {
   labelKey: `designEditor.keyboardShortcuts.commands.${string}`;
   handler: DesignHotkeyHandlerKey;
   context?: "screen";
+  /** Listed only on Apple platforms, where the chord is bound. */
+  appleOnly?: true;
 }
 
 const shortcut = (
@@ -167,6 +169,13 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     labelKey: "designEditor.keyboardShortcuts.commands.toggleLayoutGrids",
     handler: "onToggleLayoutGrids",
   }),
+  shortcut({
+    id: "toggle-rulers",
+    category: "view",
+    bindings: ["shift+r"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleRulers",
+    handler: "onToggleRulers",
+  }),
 
   shortcut({
     id: "zoom-in",
@@ -204,6 +213,20 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onZoomToSelection",
   }),
 
+  shortcut({
+    id: "bold",
+    category: "text",
+    bindings: ["$mod+b"],
+    labelKey: "designEditor.keyboardShortcuts.commands.bold",
+    handler: "onToggleBold",
+  }),
+  shortcut({
+    id: "italic",
+    category: "text",
+    bindings: ["$mod+i"],
+    labelKey: "designEditor.keyboardShortcuts.commands.italic",
+    handler: "onToggleItalic",
+  }),
   shortcut({
     id: "underline",
     category: "text",
@@ -405,6 +428,34 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onDelete",
   }),
   shortcut({
+    id: "rename",
+    category: "edit",
+    bindings: ["$mod+r"],
+    labelKey: "designEditor.keyboardShortcuts.commands.rename",
+    handler: "onRename",
+  }),
+  shortcut({
+    id: "toggle-hidden",
+    category: "edit",
+    bindings: ["$mod+shift+h"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleHidden",
+    handler: "onToggleHidden",
+  }),
+  shortcut({
+    id: "toggle-locked",
+    category: "edit",
+    bindings: ["$mod+shift+l"],
+    labelKey: "designEditor.keyboardShortcuts.commands.toggleLocked",
+    handler: "onToggleLocked",
+  }),
+  shortcut({
+    id: "set-opacity",
+    category: "edit",
+    bindings: ["0-9"],
+    labelKey: "designEditor.keyboardShortcuts.commands.setOpacity",
+    handler: "onOpacityChange",
+  }),
+  shortcut({
     id: "find",
     category: "edit",
     bindings: ["$mod+f"],
@@ -498,6 +549,35 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onAlignSelection",
   }),
   shortcut({
+    id: "align-center-h",
+    category: "arrange",
+    bindings: ["alt+h"],
+    labelKey: "designEditor.keyboardShortcuts.commands.alignHorizontalCenters",
+    handler: "onAlignSelection",
+  }),
+  shortcut({
+    id: "align-center-v",
+    category: "arrange",
+    bindings: ["alt+v"],
+    labelKey: "designEditor.keyboardShortcuts.commands.alignVerticalCenters",
+    handler: "onAlignSelection",
+  }),
+  shortcut({
+    id: "distribute-horizontal",
+    category: "arrange",
+    bindings: ["ctrl+alt+h"],
+    labelKey: "designEditor.keyboardShortcuts.commands.distributeHorizontal",
+    handler: "onDistributeSelection",
+  }),
+  shortcut({
+    id: "distribute-vertical",
+    category: "arrange",
+    bindings: ["ctrl+alt+v"],
+    labelKey: "designEditor.keyboardShortcuts.commands.distributeVertical",
+    handler: "onDistributeSelection",
+    appleOnly: true,
+  }),
+  shortcut({
     id: "tidy",
     category: "arrange",
     bindings: ["ctrl+alt+t"],
@@ -547,6 +627,13 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     bindings: ["shift+a"],
     labelKey: "designEditor.keyboardShortcuts.commands.autoLayout",
     handler: "onAddAutoLayout",
+  }),
+  shortcut({
+    id: "remove-auto-layout",
+    category: "layout",
+    bindings: ["alt+shift+a"],
+    labelKey: "designEditor.keyboardShortcuts.commands.removeAutoLayout",
+    handler: "onRemoveAutoLayout",
   }),
 ] as const;
 

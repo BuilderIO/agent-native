@@ -43,13 +43,16 @@ it("renders an editable aligned table and saves its cell changes", async () => {
   await act(async () => root.render(<EditorContent editor={editor} />));
 
   const table =
-    container.querySelector(".notion-editor table") ??
+    container.querySelector(".content-editor table") ??
     container.querySelector("table");
   expect(table).not.toBeNull();
   expect(table?.querySelectorAll("tr")).toHaveLength(2);
-  expect(table?.querySelectorAll("td")).toHaveLength(6);
+  expect(table?.querySelectorAll("th")).toHaveLength(3);
+  expect(table?.querySelectorAll("td")).toHaveLength(3);
   expect(table?.querySelector("strong")?.textContent).toBe("A");
-  expect(table?.querySelectorAll('td[data-alignment="right"]')).toHaveLength(2);
+  expect(
+    table?.querySelectorAll(':is(td, th)[data-alignment="right"]'),
+  ).toHaveLength(2);
   expect(container.textContent).not.toContain("Unresolved GFM table");
   const firstCell = editor.state.doc.child(1).firstChild!.firstChild!;
   expect(firstCell.attrs.textAlign).toBe("left");

@@ -14,11 +14,12 @@ import { buildChatFirstAppCreationPrompt } from "@agent-native/core/shared/chat-
 import {
   DESKTOP_DEFAULT_APPS,
   FRAME_PORT,
+  getDesktopAppLaunchBehavior,
   getDesktopTemplateGatewayAppUrl,
   getTemplate,
   isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
-import type { AppConfig } from "@shared/app-registry";
+import type { AppConfig, DesktopAppLaunchBehavior } from "@shared/app-registry";
 import { desktopRemoteMcpUnavailable } from "@shared/chat-first-mcp";
 import { requiresConfiguredCodeAgentProvider } from "@shared/code-agent-readiness";
 import {
@@ -198,6 +199,7 @@ import {
   type CliStatusCache,
 } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
+import { normalizeCodeAgentPromptAttachments } from "./code-agent-prompt-attachments.js";
 import {
   isCodeAgentRunnerInFlight,
   resolveExecutable,
@@ -337,6 +339,7 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { setMailWebviewBackgroundThrottling } from "./webview-background-throttling.js";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
@@ -1542,9 +1545,37 @@ function scheduleWarmupRetry(): void {
   }, WARM_ORIGIN_RETRY_MS);
 }
 
+async function warmDesktopAppReadAction(
+  origin: string,
+  appSession: Session,
+  action: NonNullable<DesktopAppLaunchBehavior["warmReadAction"]>,
+  signal: AbortSignal,
+): Promise<void> {
+  const url = new URL(`/_agent-native/actions/${action.name}`, origin);
+  for (const [key, value] of Object.entries(action.params ?? {})) {
+    url.searchParams.set(key, value);
+  }
+  try {
+    await appSession.fetch(url.href, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+  } catch (error) {
+    // coercion-ok: the read only primes server-side caches and its result is
+    // discarded, so a failure must not undo the session warmup above.
+    console.debug("[desktop-warmup] read action warmup failed", {
+      origin,
+      action: action.name,
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+}
+
 async function warmDesktopAppOrigin(
   origin: string,
   appSession: Session,
+  readAction?: DesktopAppLaunchBehavior["warmReadAction"],
 ): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WARM_ORIGIN_TIMEOUT_MS);
@@ -1558,6 +1589,14 @@ async function warmDesktopAppOrigin(
       },
     );
     warmedOriginAt.set(origin, Date.now());
+    if (readAction) {
+      await warmDesktopAppReadAction(
+        origin,
+        appSession,
+        readAction,
+        controller.signal,
+      );
+    }
   } catch (error) {
     // coercion-ok: a failed warmup leaves the origin unmarked, so the next
     // pass retries it. The tab still loads; it just pays the cold start.
@@ -1581,12 +1620,20 @@ function warmDesktopAppOrigins(): void {
 
   const lane = resolveDesktopEnvironmentLaneState().lane;
   const now = Date.now();
-  const targets: { origin: string; session: Session }[] = [];
+  const targets: {
+    origin: string;
+    session: Session;
+    readAction?: DesktopAppLaunchBehavior["warmReadAction"];
+  }[] = [];
   for (const app of listDesktopIdentityApps()) {
     const origin = withDesktopEnvironmentLane(app.origin, lane);
     const warmedAt = warmedOriginAt.get(origin) ?? 0;
     if (now - warmedAt < WARM_ORIGIN_TTL_MS) continue;
-    targets.push({ origin, session: app.session });
+    targets.push({
+      origin,
+      session: app.session,
+      readAction: getDesktopAppLaunchBehavior(app.id).warmReadAction,
+    });
   }
   if (targets.length === 0) return;
 
@@ -1608,7 +1655,11 @@ function warmDesktopAppOrigins(): void {
     }
     for (const target of targets) {
       if (appIsQuitting) break;
-      await warmDesktopAppOrigin(target.origin, target.session);
+      await warmDesktopAppOrigin(
+        target.origin,
+        target.session,
+        target.readAction,
+      );
     }
   })()
     .catch(() => {})
@@ -2097,6 +2148,7 @@ ipcMain.on(
   IPC.SET_ACTIVE_WEBVIEW,
   (event: IpcMainEvent, target: ActiveWebviewTarget) => {
     if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+    setMailWebviewBackgroundThrottling(target, (id) => webContents.fromId(id));
     if (target.active === false) {
       desktopDesignPreviewManager?.clearOwner(target.webContentsId);
       if (activeWebviewContentsId === target.webContentsId) {
@@ -4890,30 +4942,6 @@ function readCodeAgentPermissionMode(
   return getCodeAgentPermissionMode(
     firstStringValue(metadata?.permissionMode, record?.permissionMode),
   );
-}
-
-function normalizeCodeAgentPromptAttachments(
-  value: unknown,
-): CodeAgentPromptAttachment[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const attachments = value
-    .map((item) => {
-      if (!isObject(item)) return null;
-      const name = firstStringValue(item.name);
-      if (!name) return null;
-      const size = Number(item.size);
-      const attachment: CodeAgentPromptAttachment = { name };
-      const type = firstStringValue(item.type);
-      const text = firstStringValue(item.text);
-      const dataUrl = firstStringValue(item.dataUrl);
-      if (type) attachment.type = type;
-      if (Number.isFinite(size) && size >= 0) attachment.size = size;
-      if (text) attachment.text = text;
-      if (dataUrl) attachment.dataUrl = dataUrl;
-      return attachment;
-    })
-    .filter((item): item is CodeAgentPromptAttachment => item !== null);
-  return attachments.length > 0 ? attachments : undefined;
 }
 
 function readCodeAgentAttempt(

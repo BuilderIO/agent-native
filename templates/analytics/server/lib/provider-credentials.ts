@@ -48,6 +48,7 @@ const GONG_LEGACY_API_KEY = "GONG_API_KEY";
 
 export type AnalyticsProviderCredentialSource =
   | "workspace_connection"
+  | "analytics_oauth"
   | "analytics_local";
 
 export interface AnalyticsProviderCredential {
@@ -241,6 +242,18 @@ function normalizeCoreCredentialResult(
   };
 }
 
+function isAllowedForCredentialScope(
+  credential: AnalyticsProviderCredential,
+  ctx: CredentialContext,
+): boolean {
+  if (ctx.credentialScope !== "org") return true;
+  return (
+    Boolean(ctx.orgId) &&
+    (credential.scope === "org" || credential.scope === "workspace") &&
+    credential.scopeId === ctx.orgId
+  );
+}
+
 function isGongAuthKey(
   key: string,
 ): key is (typeof GONG_ANALYTICS_CREDENTIAL_KEYS)[number] {
@@ -288,6 +301,7 @@ async function resolveViaCoreHelper({
   connectionId?: string | null;
 }): Promise<AnalyticsProviderCredential | null> {
   const normalizedConnectionId = connectionId?.trim() || undefined;
+  let lookupFailed = false;
   for (const key of keys) {
     const result = await resolveWorkspaceConnectionCredentialForApp({
       appId: ANALYTICS_APP_ID,
@@ -300,12 +314,26 @@ async function resolveViaCoreHelper({
         ? { credentialScope: "org" as const }
         : {}),
     });
+    if (result.status === "error") {
+      lookupFailed = true;
+      continue;
+    }
     const credential = normalizeCoreCredentialResult(result, {
       provider,
       key,
       ctx,
     });
     if (credential) return credential;
+  }
+
+  if (lookupFailed) {
+    fail(
+      `The ${provider} workspace credential lookup failed. Retry the request.`,
+      {
+        errorCode: "workspace_connection_credential_lookup_failed",
+        statusCode: 503,
+      },
+    );
   }
 
   return null;
@@ -337,6 +365,25 @@ async function resolveWorkspaceOAuthProviderCredential(
   ) {
     return null;
   }
+  const contextOrgId = options.ctx.orgId?.trim();
+  const connectionOrgId = resolvedConnection.connection.orgId?.trim();
+  const connectionScope =
+    resolvedConnection.connection.config.workspaceConnectionScope;
+  // A legacy app allowlist is ambiguous with an app-scoped OAuth grant.
+  const legacyOrganizationScope =
+    connectionScope === undefined &&
+    (resolvedConnection.connection.allowedApps?.length ?? 0) === 0 &&
+    (resolvedConnection.connection.allowedUsers?.length ?? 0) === 0 &&
+    (resolvedConnection.connection.allowedUserGroups?.length ?? 0) === 0;
+  if (
+    options.ctx.credentialScope === "org" &&
+    (!contextOrgId ||
+      !connectionOrgId ||
+      connectionOrgId !== contextOrgId ||
+      (connectionScope !== "organization" && !legacyOrganizationScope))
+  ) {
+    return null;
+  }
 
   const oauth = await resolveProviderApiOAuthAccessToken(
     {
@@ -357,6 +404,12 @@ async function resolveWorkspaceOAuthProviderCredential(
     connectionId: oauth.connectionId ?? resolvedConnection.connection.id,
     connectionLabel:
       oauth.connectionLabel ?? resolvedConnection.connection.label,
+    ...(connectionOrgId
+      ? {
+          scope: "org" as const,
+          scopeId: connectionOrgId,
+        }
+      : {}),
   };
 }
 
@@ -411,7 +464,7 @@ export async function resolveLocalAnalyticsProviderCredential(
   for (const key of keys) {
     const credential = await resolveCredentialDetailed(key, options.ctx);
     if (credential) {
-      return {
+      const normalized: AnalyticsProviderCredential = {
         value: credential.value,
         key,
         provider: options.provider,
@@ -419,6 +472,9 @@ export async function resolveLocalAnalyticsProviderCredential(
         scope: credential.scope,
         scopeId: credential.scopeId,
       };
+      if (isAllowedForCredentialScope(normalized, options.ctx)) {
+        return normalized;
+      }
     }
   }
   return null;
@@ -464,7 +520,11 @@ export async function resolveAnalyticsProviderCredential(
 
   const workspaceCredential =
     await resolveWorkspaceConnectionProviderCredential({ ...options, keys });
-  if (workspaceCredential) return workspaceCredential;
+  if (workspaceCredential) {
+    if (isAllowedForCredentialScope(workspaceCredential, options.ctx)) {
+      return workspaceCredential;
+    }
+  }
 
   if (!options.connectionId?.trim()) {
     const localCredential = await resolveLocalAnalyticsProviderCredential({

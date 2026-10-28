@@ -7,6 +7,11 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
+
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
@@ -1254,6 +1259,51 @@ describe("private preview document drafts", () => {
     ).toBe("Local recovery");
   });
 
+  it("saves a local draft whose videos share an id as a separate page", async () => {
+    const documentId = await createDocument();
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const local = `Local recovery\n${video("Demo")}\n${video("Copy")}`;
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: { ...payload(local), deferredReason: "conflict" },
+      }),
+    );
+
+    outcomeCounter.mockClear();
+    const result = await asUser(OWNER, () =>
+      resolveDraft.run({
+        choice: "save_separately",
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: "Builder row",
+        expectedDraftContent: local,
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      }),
+    );
+    // The page's outcome is counted after the action returns; let it land
+    // here rather than in the next test's count.
+    await vi.waitFor(() =>
+      expect(outcomeCounter).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          operation: "create_document",
+          outcome: "written",
+        }),
+      ),
+    );
+
+    expect(result).toMatchObject({ status: "resolved" });
+    const [copy] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, found(result.createdDocumentId)));
+    expect(copy.content).toBe(local);
+  });
+
   it("counts an idempotent inner create replay separately from the winning recovery write", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>
@@ -2149,6 +2199,68 @@ describe("private preview document drafts", () => {
     expect(
       (await asUser(OWNER, () => getDraft.run({ documentId }))).draft,
     ).toMatchObject({ title: "Local title", content: "Local body" });
+  });
+
+  async function saveBodyAfterPeerRename(
+    editorTitle: (savedTitle: string) => string,
+  ) {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    const snapshotTitle = editorTitle(before.title);
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Local body"),
+          title: snapshotTitle,
+          editorSessionId: "renamed-tab",
+          editGeneration: 5,
+        },
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        { id: documentId, title: "Renamed in another tab", reuseLabels: [] },
+        { caller: "frontend" } as any,
+      ),
+    );
+    const saveBase = await authoredSaveBase(documentId, "Local body");
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Local body",
+          ...saveBase,
+          browserSaveAttemptId: "body-after-peer-rename",
+          editorSessionId: "renamed-tab",
+          editorEditGeneration: 5,
+          editorSnapshotTitle: snapshotTitle,
+          editorSnapshotTitleBase: before.title,
+          editorSnapshotContent: "Local body",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+    const after = await documentRowForDraftTest(documentId);
+    expect(after).toMatchObject({
+      title: "Renamed in another tab",
+      content: "Local body",
+    });
+    return (await asUser(OWNER, () => getDraft.run({ documentId }))).draft;
+  }
+
+  it("settles a body save whose untouched title a peer renamed", async () => {
+    expect(await saveBodyAfterPeerRename((saved) => saved)).toBeNull();
+  });
+
+  it("keeps the draft of a title the editor edited when a peer renamed it", async () => {
+    expect(await saveBodyAfterPeerRename(() => "Local title")).toMatchObject({
+      title: "Local title",
+      content: "Local body",
+    });
   });
 
   it("settles a retained generation after its rebased candidate is confirmed", async () => {

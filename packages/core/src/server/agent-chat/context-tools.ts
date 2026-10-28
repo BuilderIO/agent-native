@@ -9,6 +9,7 @@ import {
   DATA_WIDGET_MAX_ROWS,
   dataWidgetResultSchema,
 } from "../../data-widgets/index.js";
+import { frameworkMcpTools } from "../../mcp/framework-tools.js";
 import { getRequestRunContext } from "../request-context.js";
 import { createOpenSettingsPageTool } from "./open-settings-page-tool.js";
 
@@ -159,7 +160,7 @@ Agent-Native Plan, a Plan artifact, or the Plans app.
 - The user explicitly asks you to communicate with a different app
 - The requested outcome depends on data or a capability only another deployed app can provide
 
-For brand-consistent generated media, use agent "assets" unless the current app has its own generation action that already delegates there. Keep returned asset IDs and URLs verbatim.
+For brand media, use agent "assets" only when the user asks for its brand library or an asset/capability only Assets can provide. Ordinary image generation stays in the current app. Keep returned asset IDs and URLs verbatim.
 
 If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
 
@@ -208,7 +209,7 @@ The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach exte
 
 export function createFrameworkContextEntry(): Record<string, ActionEntry> {
   const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
-  return {
+  return frameworkMcpTools({
     "get-framework-context": {
       tool: {
         description: `Read detailed framework instructions for a specific capability. Available topics: ${topicList}. Call with topic="all" to get everything.`,
@@ -236,11 +237,11 @@ export function createFrameworkContextEntry(): Record<string, ActionEntry> {
       },
       readOnly: true,
     },
-  };
+  });
 }
 
 export function createRefreshScreenEntry(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "refresh-screen": {
       readOnly: true,
       dedupe: false,
@@ -270,7 +271,7 @@ export function createRefreshScreenEntry(): Record<string, ActionEntry> {
         return `refreshed${scope ? ` (scope: ${scope})` : ""}`;
       },
     },
-  };
+  });
 }
 
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
@@ -286,7 +287,7 @@ export function appStateKeyForBrowserTab(
 }
 
 export function createUrlTools(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "set-search-params": {
       readOnly: true,
       tool: {
@@ -397,7 +398,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
     },
     "open-settings-page": createOpenSettingsPageTool(),
     "ask-question": createAskQuestionTool(),
-  };
+  });
 }
 
 function parseAskQuestion(args: any) {
@@ -552,7 +553,7 @@ function createAskQuestionTool(): ActionEntry {
 }
 
 export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "render-data-widget": {
       readOnly: true,
       parallelSafe: true,
@@ -588,7 +589,41 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
             display: {
               type: "object",
               description:
-                "Optional display metadata: title, description, primaryAction.",
+                "Optional display metadata: title, description, primaryAction, sources, and actions.",
+              properties: {
+                actions: {
+                  type: "array",
+                  items: {
+                    oneOf: [
+                      {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          type: { type: "string", enum: ["link"] },
+                          label: { type: "string" },
+                          href: { type: "string" },
+                          icon: {
+                            type: "string",
+                            enum: ["explore", "camera", "notebook"],
+                          },
+                          presentation: { type: "string", enum: ["icon"] },
+                        },
+                        required: ["type", "label", "href"],
+                      },
+                      {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          type: { type: "string", enum: ["copy"] },
+                          label: { type: "string" },
+                          text: { type: "string" },
+                        },
+                        required: ["type", "label", "text"],
+                      },
+                    ],
+                  },
+                },
+              },
             },
             table: {
               type: "object",
@@ -598,7 +633,79 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
             chartSeries: {
               type: "object",
               description:
-                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }.",
+                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }. Optional display controls include contentHeight from 1 to 1200 px, contentPadding from 0 to 64 px, labelFontFamily (sans, serif, mono), label font sizes and weights, valueAxisTickInterval, and horizontalCategoryGapRatio; these apply only to chart rendering.",
+              properties: {
+                contentHeight: {
+                  type: "number",
+                  minimum: 1,
+                  maximum: 1200,
+                  description: "Optional chart body height in pixels.",
+                },
+                contentPadding: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 64,
+                  description: "Optional inner chart body padding in pixels.",
+                },
+                labelFontFamily: {
+                  type: "string",
+                  enum: ["sans", "serif", "mono"],
+                  description:
+                    "Optional label font token; sans follows the app theme font.",
+                },
+                labelFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                axisTitleFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                axisTitleFontWeight: {
+                  type: "number",
+                  enum: [400, 500],
+                },
+                valueLabelFontSize: {
+                  type: "integer",
+                  minimum: 8,
+                  maximum: 24,
+                },
+                valueLabelFontWeight: {
+                  type: "number",
+                  enum: [400, 500],
+                },
+                valueAxisTickInterval: {
+                  type: "number",
+                  minimum: 1e-12,
+                  description:
+                    "Optional positive step for numeric value-axis labels and grid lines; it must produce between 1 and 100 ticks for the chart's value range.",
+                },
+                horizontalCategoryGapRatio: {
+                  type: "number",
+                  minimum: 0,
+                  maximum: 0.9,
+                  description:
+                    "Optional fraction of each horizontal-bar category slot left empty. Defaults to the existing spacing; use 0.08 for an 8% gap.",
+                },
+                actions: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      label: { type: "string" },
+                      href: { type: "string" },
+                      icon: {
+                        type: "string",
+                        enum: ["explore", "camera", "notebook"],
+                      },
+                      presentation: { type: "string", enum: ["icon"] },
+                    },
+                    required: ["label", "href"],
+                  },
+                },
+              },
             },
           },
           required: ["widget"],
@@ -607,5 +714,5 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
       run: async (args) =>
         clampDataWidgetRows(dataWidgetResultSchema.parse(args)),
     },
-  };
+  });
 }

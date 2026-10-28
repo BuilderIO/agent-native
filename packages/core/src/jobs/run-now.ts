@@ -3,6 +3,7 @@ import {
   dispatchPathTargetsNetlifyBackgroundFunction,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
+import { resolveAutomationAccess } from "../automations/access.js";
 import {
   canQueueAutomationRunNow,
   type AutomationScope,
@@ -23,11 +24,14 @@ import {
 export interface RunAutomationNowInput {
   userEmail: string;
   orgId?: string | null;
+  resourceId?: string;
   appId?: string | null;
-  scope: AutomationScope;
+  scope?: AutomationScope;
   requestHeaders?: Headers;
   name?: string;
   path?: string;
+  /** Job `appId` values the caller's app runs besides `appId`; see `SchedulerDeps`. */
+  additionalJobAppIds?: readonly string[];
 }
 
 export interface QueuedAutomationRun {
@@ -64,7 +68,14 @@ function automationName(path: string): string {
 }
 
 function ownerForScope(input: RunAutomationNowInput): string {
-  if (input.scope === "personal") return input.userEmail.trim().toLowerCase();
+  const scope = input.scope ?? "personal";
+  if (scope === "personal") return input.userEmail.trim().toLowerCase();
+  if (scope !== "organization") {
+    throw Object.assign(
+      new Error("Automation resource id or name and scope is required."),
+      { statusCode: 400 },
+    );
+  }
   if (!input.orgId) {
     throw Object.assign(
       new Error("An organization is required for organization automations."),
@@ -78,6 +89,12 @@ function resolveAutomationTarget(input: RunAutomationNowInput): {
   path: string;
   name: string;
 } {
+  if (input.resourceId?.trim()) {
+    throw Object.assign(
+      new Error("Specify either a resourceId or an automation name/path."),
+      { statusCode: 400 },
+    );
+  }
   const path = input.path?.trim();
   const name = input.name?.trim();
   if (path && name) {
@@ -111,25 +128,66 @@ function resolveAutomationTarget(input: RunAutomationNowInput): {
   return { path: `jobs/${name}.md`, name };
 }
 
+async function resolveRunAutomation(input: RunAutomationNowInput) {
+  if (input.resourceId?.trim()) {
+    if (input.name || input.path) {
+      throw Object.assign(
+        new Error("Specify either a resourceId or an automation name/path."),
+        { statusCode: 400 },
+      );
+    }
+    const access = await resolveAutomationAccess(
+      { userEmail: input.userEmail },
+      input.resourceId.trim(),
+    );
+    if (!access) return null;
+    return {
+      resource: access.resource,
+      name: access.name,
+      scope: access.owningOrganizationId ? "organization" : "personal",
+      orgId: access.owningOrganizationId,
+    };
+  }
+
+  const { path } = resolveAutomationTarget(input);
+  const resource = await resourceGetByPath(ownerForScope(input), path);
+  if (!resource) return null;
+  const ownership = automationRunOwnership(
+    resource.owner,
+    input.userEmail,
+    input.orgId,
+  );
+  return {
+    resource,
+    name: automationName(resource.path),
+    scope: ownership.scope,
+    orgId: ownership.orgId,
+  };
+}
+
 export async function queueAutomationRunNow(
   input: RunAutomationNowInput,
 ): Promise<QueuedAutomationRun> {
-  const { path, name } = resolveAutomationTarget(input);
-  const owner = ownerForScope(input);
-  const resource = await resourceGetByPath(owner, path);
-  if (!resource) {
-    throw Object.assign(new Error(`Automation "${name}" not found.`), {
+  const access = await resolveRunAutomation(input);
+  if (!access) {
+    throw Object.assign(new Error("Automation not found."), {
       statusCode: 404,
     });
   }
-  if (!(await canQueueAutomationRunNow(input, resource, input.scope))) {
+  if (
+    !(await canQueueAutomationRunNow(
+      input,
+      access.resource,
+      access.scope as AutomationScope,
+      input.additionalJobAppIds,
+    ))
+  ) {
     throw Object.assign(
-      new Error(
-        "Only the automation's creator or an organization admin can run it.",
-      ),
+      new Error("Collaborate access is required to run this automation."),
       { statusCode: 403 },
     );
   }
+  const { resource, name } = access;
   const { body } = parseJobResource(resource.content);
   if (!body.trim()) {
     throw Object.assign(
@@ -151,7 +209,11 @@ export async function queueAutomationRunNow(
   });
 
   const historyId = await startAutomationRun({
-    ...automationRunOwnership(resource.owner, input.userEmail, input.orgId),
+    ...automationRunOwnership(
+      resource.owner,
+      input.userEmail,
+      access.orgId ?? input.orgId,
+    ),
     automation: name,
     path: resource.path,
     appId: input.appId,

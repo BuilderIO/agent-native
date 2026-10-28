@@ -1,5 +1,6 @@
 import { pivotRows } from "../app/pages/adhoc/sql-dashboard/pivot";
 import {
+  CHART_VALUE_FORMATTERS,
   PANEL_CHART_TYPES,
   type ChartType,
   type SqlPanel,
@@ -8,9 +9,15 @@ import {
 import { axisDirection, isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
+  describeFunnelOutcomeProblems,
+  funnelOutcomeColumns,
+  funnelOutcomeKeys,
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import { isValidPanelDrilldown } from "./panel-drilldown";
+import { isValidPanelEvent, panelEventProblem } from "./panel-events";
+import { isValidPanelBreakdowns } from "./row-breakdown";
 import {
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
@@ -34,6 +41,7 @@ const PANEL_TOP_LEVEL_KEY_SET = {
   source: true,
   chartType: true,
   width: true,
+  height: true,
   columns: true,
   config: true,
   tab: true,
@@ -51,6 +59,7 @@ interface PanelConfigKeyInfo {
 // SqlPanelConfig gains a key the renderer contract has not registered.
 export const PANEL_CONFIG_KEYS = {
   timeScope: {},
+  events: { onlyFor: ["line", "area", "bar", "combo"] },
   xKey: {},
   yKey: {},
   yKeys: {},
@@ -63,11 +72,17 @@ export const PANEL_CONFIG_KEYS = {
   seriesLabels: {},
   description: {},
   pivot: {},
+  funnelOutcomes: { onlyFor: ["funnel"] },
   stacked: {},
   legend: {},
   valueLabels: {},
+  comparison: { onlyFor: ["metric"] },
   sortable: {},
   columns: {},
+  breakdowns: { onlyFor: ["table"] },
+  drilldown: {
+    onlyFor: ["line", "area", "bar", "combo", "pie", "funnel"],
+  },
   limit: {},
   extensionId: {},
   extensionSlotId: {},
@@ -244,6 +259,8 @@ function unknownConfigKeyIssue(
 interface ConfigValueShape {
   valid: (value: unknown) => boolean;
   expected: string;
+  /** Names what is wrong with an invalid value, when the shape can tell. */
+  problem?: (value: unknown) => string | null;
 }
 
 const STRING_ARRAY_SHAPE: ConfigValueShape = {
@@ -252,10 +269,57 @@ const STRING_ARRAY_SHAPE: ConfigValueShape = {
   expected: "an array of result column names",
 };
 
+const CHART_VALUE_FORMATTER_SHAPE: ConfigValueShape = {
+  valid: (value) =>
+    (CHART_VALUE_FORMATTERS as readonly unknown[]).includes(value),
+  expected: `one of ${CHART_VALUE_FORMATTERS.map((name) => `"${name}"`).join(", ")} ("duration" reads the value as seconds)`,
+};
+
+const COMPARISON_STRING_FIELDS = ["previousKey", "periodKey", "label"];
+const COMPARISON_BETTER_VALUES = ["higher", "lower", "neither"];
+
+function comparisonProblem(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "better") {
+      if (!COMPARISON_BETTER_VALUES.includes(item as string)) {
+        return `config.comparison.better must be "higher", "lower" or "neither", not ${clipHead(stableStringify(item), 30)}`;
+      }
+    } else if (!COMPARISON_STRING_FIELDS.includes(key)) {
+      return `config.comparison.${key} is not a comparison option`;
+    } else if (typeof item !== "string" || item.trim() === "") {
+      return `config.comparison.${key} must be a non-empty string`;
+    }
+  }
+  return null;
+}
+
+const FUNNEL_OUTCOME_FIELDS = [
+  "completedKey",
+  "leftKey",
+  "skippedKey",
+  "optionalKey",
+];
+
 const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
   yKeys: STRING_ARRAY_SHAPE,
   rightYKeys: STRING_ARRAY_SHAPE,
+  yFormatter: CHART_VALUE_FORMATTER_SHAPE,
+  rightYFormatter: CHART_VALUE_FORMATTER_SHAPE,
   barKeys: STRING_ARRAY_SHAPE,
+  events: {
+    valid: (value) => Array.isArray(value) && value.every(isValidPanelEvent),
+    expected:
+      'an array of { date: "YYYY-MM-DD", label: non-empty string, time?: "HH:MM", timeZone?: IANA zone (with time), color?: 3, 4, 6, or 8 digit hex color }',
+    problem: (value) => {
+      if (!Array.isArray(value)) return null;
+      for (let index = 0; index < value.length; index += 1) {
+        const problem = panelEventProblem(value[index]);
+        if (problem) return `config.events[${index}]: ${problem}`;
+      }
+      return null;
+    },
+  },
   pivot: {
     valid: (value) =>
       isRecord(value) &&
@@ -266,6 +330,31 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
         STRING_ARRAY_SHAPE.valid(value.seriesOrder)),
     expected:
       "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
+  },
+  breakdowns: {
+    valid: isValidPanelBreakdowns,
+    expected:
+      "a non-empty array of { column: result column identifier, label?: string } with no repeated column; the panel SQL selects and groups by the column inside a {{?breakdown}}…{{/breakdown}} block",
+  },
+  comparison: {
+    valid: (value) => isRecord(value) && comparisonProblem(value) === null,
+    expected:
+      'an object with optional string previousKey (the column with the previous value, default "previous_value"), periodKey (the column naming that period, default "period") and label (names the period when the row has no period), and better: "higher" (the default), "lower" or "neither"',
+    problem: comparisonProblem,
+  },
+  drilldown: {
+    valid: isValidPanelDrilldown,
+    expected:
+      "an object with only sql, a non-empty SQL template of at most 50000 characters using drillX, drillSeries and dashboard filter variables",
+  },
+  funnelOutcomes: {
+    valid: (value) =>
+      funnelOutcomeKeys(value) !== null &&
+      Object.keys(value as object).every((key) =>
+        FUNNEL_OUTCOME_FIELDS.includes(key),
+      ),
+    expected:
+      "an object with string completedKey and leftKey, and optional string skippedKey and optionalKey, each a result column name",
   },
 };
 
@@ -357,6 +446,20 @@ export function unknownPanelConfigKeys(
   }
 
   if (isRecord(panel.config)) {
+    if (
+      panel.config.drilldown != null &&
+      panel.source !== "bigquery" &&
+      panel.source !== "first-party" &&
+      (changedConfig("drilldown", panel.config) || changedTopLevel("source"))
+    ) {
+      issues.push({
+        panelId,
+        path: "config.drilldown",
+        key: "drilldown",
+        kind: "invalid-value",
+        message: `${label} config.drilldown requires a BigQuery or first-party panel.`,
+      });
+    }
     for (const [key, value] of Object.entries(panel.config)) {
       if (value == null) continue;
       if (!hasOwn(CONFIG_KEY_INFO, key)) {
@@ -367,12 +470,15 @@ export function unknownPanelConfigKeys(
       }
       const shape = CONFIG_VALUE_SHAPES[key];
       if (shape && !shape.valid(value) && changedConfig(key, panel.config)) {
+        const problem = shape.problem?.(value);
         issues.push({
           panelId,
           path: `config.${key}`,
           key,
           kind: "invalid-value",
-          message: `${label} config.${key} must be ${shape.expected}, not ${clipHead(stableStringify(value), 60)}.`,
+          message:
+            `${label} config.${key} must be ${shape.expected}, not ${clipHead(stableStringify(value), 60)}.` +
+            (problem ? ` ${problem}.` : ""),
         });
       }
       const onlyFor = CONFIG_KEY_INFO[key].onlyFor;
@@ -393,6 +499,22 @@ export function unknownPanelConfigKeys(
               : `${label} config.${key} only applies to chartType "${onlyFor.join('" or "')}", and this panel is "${chartType}".`,
         });
       }
+    }
+    // A breakdown reruns the panel's SQL and matches its raw rows, which a
+    // pivoted table no longer shows.
+    if (
+      panel.config.breakdowns != null &&
+      panel.config.pivot != null &&
+      (changedConfig("breakdowns", panel.config) ||
+        changedConfig("pivot", panel.config))
+    ) {
+      issues.push({
+        panelId,
+        path: "config.breakdowns",
+        key: "breakdowns",
+        kind: "invalid-value",
+        message: `${label} config.breakdowns does not work with config.pivot: a breakdown matches the panel's raw rows, not pivoted ones. Remove one of them.`,
+      });
     }
   }
   return issues;
@@ -531,6 +653,13 @@ function collectMissingKeys(
     check(col?.linkKey, bound);
   }
   if (panel.chartType === "heatmap") check(config?.color, bound);
+  const outcomes =
+    panel.chartType === "funnel"
+      ? funnelOutcomeKeys(config?.funnelOutcomes)
+      : null;
+  for (const key of outcomes ? funnelOutcomeColumns(outcomes) : []) {
+    check(key, bound);
+  }
   return Array.from(missing);
 }
 
@@ -911,6 +1040,7 @@ export function planPanelRender(
           limitChartRows(rows, panel.chartType),
           config?.xKey,
           config?.yKey,
+          config?.funnelOutcomes,
         )
       : null;
   const heatmap =
@@ -934,6 +1064,14 @@ export function planPanelRender(
   const ignoredConfig = noRows
     ? []
     : collectIgnoredConfig(panel, yKeys, pivoted?.seriesKeys, missingKeys);
+  // A missing outcome column is already in missingKeys.
+  const outcomeProblems =
+    funnel?.outcomes && funnel.outcomes.missingColumns.length === 0
+      ? describeFunnelOutcomeProblems(funnel.outcomes)
+      : null;
+  if (outcomeProblems) {
+    ignoredConfig.push({ key: "funnelOutcomes", reason: outcomeProblems });
+  }
 
   return {
     rows,

@@ -1,4 +1,9 @@
-export { mountA2A, verifyA2AToken } from "./server.js";
+export {
+  diagnoseA2ATokenFailure,
+  mountA2A,
+  verifyA2AToken,
+  type A2ATokenFailureCause,
+} from "./server.js";
 export type { A2ATokenPayload } from "./server.js";
 export { generateAgentCard } from "./agent-card.js";
 export {
@@ -32,6 +37,7 @@ export {
   callAgent,
   clearA2ACardCache,
   getGlobalA2ASecret,
+  signA2AOrgMemberDelegationToken,
   signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";

@@ -36,7 +36,6 @@ import { runRedo } from "../commands/redo";
 import { runUndo } from "../commands/undo";
 import { applyDesignDataOperations } from "../data-operations";
 import { getDesignDataRecord } from "../design-data-geometry-utils";
-import { type UndoRedoOrderKind } from "../editor-state";
 import {
   type ContentHistoryChange,
   type FileDeletionRestoreClaim,
@@ -46,7 +45,10 @@ import {
   pendingLiveStructureEditsFromEdit,
   pendingLiveStructureEditsFromUndoEntry,
 } from "../pending-edits";
-import { overviewSelectionTargetsElement } from "../selection-state";
+import {
+  overviewNudgeTargetsElement,
+  overviewSelectionTargetsElement,
+} from "../selection-state";
 import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -152,14 +154,13 @@ export function useEditorEditCommands({
     fileHistoryMutationPendingRef,
     historyOrderRef,
     redoOrderRef,
-    selectionUndoStackRef,
-    selectionRedoStackRef,
     clearRedoStacks,
     clearPendingHistoryDirections,
     syncUndoRedoState,
     recordLocalContentHistoryChangeFallback,
     flushPendingFileCreationHistoryEntries,
     discardPendingLiveStructureTransaction,
+    captureCurrentSelection,
   } = editorHistory;
   const {
     restoreSelectionSnapshot,
@@ -538,15 +539,13 @@ export function useEditorEditCommands({
           files,
           geometryRedoStackRef,
           geometryUndoStackRef,
-          historyOrderRef: historyOrderRef as React.RefObject<
-            UndoRedoOrderKind[]
-          >,
+          historyOrderRef,
           id,
           latestClipboardMutationContentRef,
           localContentRedoStackRef,
           localContentUndoStackRef,
           queryClient,
-          redoOrderRef: redoOrderRef as React.RefObject<UndoRedoOrderKind[]>,
+          redoOrderRef,
           selectionRevisionRef,
           overviewSelectedScreenIds,
           selectedElement,
@@ -611,18 +610,22 @@ export function useEditorEditCommands({
     [canEditDesign, files, id, performDeleteFiles, queryClient, t],
   );
 
-  const handleOverviewNudgeSelection = useCallback(() => {
-    if (
-      overviewSelectionTargetsElement({
+  const handleOverviewNudgeSelection = useCallback(
+    (targetScreenIds: string[]) =>
+      !overviewNudgeTargetsElement({
+        targetScreenIds,
+        explicitScreenIds: explicitOverviewScreenSelectionRef.current,
         selectedElement,
         selectedLayerIds: selectedLayerIdsState,
         fileIds: files.map((file) => file.id),
-      })
-    ) {
-      return false;
-    }
-    return true;
-  }, [files, selectedElement, selectedLayerIdsState]);
+      }),
+    [
+      explicitOverviewScreenSelectionRef,
+      files,
+      selectedElement,
+      selectedLayerIdsState,
+    ],
+  );
 
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[], explicitScreenDeletion = false) => {
@@ -1032,6 +1035,7 @@ export function useEditorEditCommands({
         applyLocalContentUpdate,
         canEditDesign,
         allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
+        captureCurrentSelection,
         clipboardPasteRedoStackRef,
         clipboardPasteUndoStackRef,
         codeLayerOwnerByNodeIdRef,
@@ -1083,8 +1087,6 @@ export function useEditorEditCommands({
         requestPendingLiveNonStyleRevert,
         requestPendingVisualStyleRevert,
         restoreSelectionSnapshot,
-        selectionRedoStackRef,
-        selectionUndoStackRef,
         setActiveFileId,
         setContentRenderRevision,
         setHoveredElement,
@@ -1106,6 +1108,7 @@ export function useEditorEditCommands({
     [
       ydoc,
       activeFile,
+      captureCurrentSelection,
       applyFileContentUpdate,
       applyDesignDataHistoryChanges,
       applyGeometryHistoryContentChangesRef,
@@ -1212,8 +1215,6 @@ export function useEditorEditCommands({
         restoreSelectionSnapshot,
         runtimeStructureInsertRevisionRef,
         runtimeStructureMoveRevisionRef,
-        selectionRedoStackRef,
-        selectionUndoStackRef,
         setContentRenderRevision,
         setHoveredElement,
         setPendingLayerNameReplayRequest,

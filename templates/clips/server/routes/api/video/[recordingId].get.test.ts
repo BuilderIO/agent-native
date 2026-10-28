@@ -33,6 +33,10 @@ vi.mock("h3", () => ({
   setCookie: (...args: unknown[]) => mockSetCookie(...args),
 }));
 
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
+}));
+
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
 }));
@@ -95,6 +99,7 @@ vi.mock("../../../db/index.js", () => ({
       visibility: "recordings.visibility",
       videoUrl: "recordings.videoUrl",
       editsJson: "recordings.editsJson",
+      storageMode: "recordings.storageMode",
       trashedAt: "recordings.trashedAt",
     },
     recordingContextItems: {
@@ -204,6 +209,58 @@ describe("/api/video/:recordingId route", () => {
     mockGetDb.mockReturnValue(createDbWithSelectResult([]));
   });
 
+  it.each(["viewer", "editor", "admin"])(
+    "does not serve a trashed recording to a %s with an existing media token",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          visibility: "public",
+          password: null,
+          trashedAt: "2026-10-22T12:00:00.000Z",
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+      vi.mocked(fetch).mockResolvedValue(new Response("video"));
+      const event = makeEvent();
+      event.query = { t: "existing-token" };
+
+      expect(
+        await handler(event as unknown as Parameters<typeof handler>[0]),
+      ).toEqual({ error: "Not found" });
+      expect(event.status).toBe(404);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { role: "owner", trashedAt: "2026-10-22T12:00:00.000Z" },
+    { role: "viewer", trashedAt: null },
+  ])(
+    "serves owner Trash previews and restored videos: $role",
+    async ({ role, trashedAt }) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          visibility: "public",
+          password: null,
+          trashedAt,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("video", { headers: { "content-type": "video/mp4" } }),
+      );
+      const result = await handler(
+        makeEvent() as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(await (result as Response).text()).toBe("video");
+    },
+  );
+
   it("returns a controlled media fetch error when upstream fetch throws", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("fetch failed"));
 
@@ -214,6 +271,72 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toEqual({
       error: "Recording media could not be fetched.",
     });
+  });
+
+  it("uses the persisted hosted mode for a public recording's signed media read", async () => {
+    const videoUrl = "https://storage.example.com/clips/rec-1/clip.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl,
+        storageMode: "own",
+      },
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([
+        { videoUrl, editsJson: null, storageMode: "hosted" },
+      ]),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("private media", {
+        status: 200,
+        headers: { "content-type": "video/webm" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(await (result as Response).text()).toBe("private media");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      videoUrl,
+      expect.objectContaining({
+        recordingId: "rec-1",
+        storageMode: "hosted",
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to an unsigned public fetch for hosted media", async () => {
+    const videoUrl = "https://storage.example.com/clips/rec-1/clip.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl,
+      },
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([
+        { videoUrl, editsJson: null, storageMode: "hosted" },
+      ]),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(404);
+    expect(result).toEqual({
+      error: "The recording's media could not be loaded from storage.",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("maps provider fetch aborts to timeout errors", async () => {
@@ -317,6 +440,7 @@ describe("/api/video/:recordingId route", () => {
       range: "bytes=0-31",
       timeoutMs: 30_000,
       recordingId: "rec-1",
+      storageMode: "own",
     });
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       {
@@ -356,6 +480,7 @@ describe("/api/video/:recordingId route", () => {
       timeoutMs: 30_000,
       recordingId: "rec-1",
       allowLegacyObjectKey: true,
+      storageMode: "own",
     });
   });
 
@@ -785,6 +910,70 @@ describe("/api/video/:recordingId route", () => {
       expect(result).toEqual({ error: "Forbidden" });
       expect(fetch).not.toHaveBeenCalled();
     });
+
+    it.each([null, "viewer", "editor", "admin", "owner"])(
+      "does not serve footage from a taken-down Clip to %s",
+      async (role) => {
+        const clip = {
+          visibility: "public",
+          password: null,
+          failureCode: "taken_down",
+        };
+        mockGetDb.mockReturnValue(
+          createDbWithSelectSequence(
+            [{ recordingId: "clip-1" }],
+            ...(role ? [] : [[clip]]),
+            [footageRow],
+          ),
+        );
+        mockResolveAccess.mockResolvedValue(
+          role ? { role, resource: clip } : null,
+        );
+        vi.mocked(fetch).mockResolvedValue(
+          new Response("media", {
+            headers: { "content-type": "video/mp4" },
+          }),
+        );
+
+        const event = makeEvent();
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
+
+        expect(event.status).toBe(404);
+        expect(result).toEqual({ error: "Not found" });
+        expect(mockReadAppState).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["viewer", "owner"])(
+      "does not serve taken-down footage under a healthy Clip to a %s",
+      async (role) => {
+        mockGetDb.mockReturnValue(
+          createDbWithSelectSequence(
+            [{ recordingId: "clip-1" }],
+            [{ ...footageRow, failureCode: "taken_down" }],
+          ),
+        );
+        mockResolveAccess.mockResolvedValue({
+          role,
+          resource: { visibility: "public", password: null },
+        });
+
+        const event = makeEvent();
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
+
+        expect(event.status).toBe(404);
+        expect(result).toEqual({ error: "Not found" });
+        expect(mockReadAppState).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+      },
+    );
 
     it("requires the clip's password, not the footage's", async () => {
       mockGetDb.mockReturnValue(

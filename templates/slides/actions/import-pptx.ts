@@ -321,7 +321,9 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe("Uploaded PPTX path or opaque hosted upload reference"),
+      .describe(
+        "Uploaded PPTX path, hosted reference, exact current attachment name, or a generic reference such as 'the attached presentation' when exactly one compatible PPTX is attached. Format-specific references must match PPTX.",
+      ),
     deckId: z
       .string()
       .optional()
@@ -345,14 +347,23 @@ export default defineAction({
       .describe("Why the deck is being imported; used only for analytics"),
   }),
   run: async ({ filePath, deckId, title, designSystemId, purpose }, ctx) => {
-    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
+    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx, {
+      expectedExtensions: [".pptx"],
+    });
     const result = await importPptxBufferToDeck({
       fileBuffer,
       deckId,
       title,
       designSystemId,
     });
-    trackPptxImport(result, { deckId, purpose }, ctx);
+    await trackPptxImport(
+      result,
+      {
+        ...(deckId ? { deckId } : {}),
+        ...(purpose ? { purpose } : {}),
+      },
+      ctx,
+    );
     return result;
   },
 });
@@ -361,13 +372,13 @@ export default defineAction({
  * A PPTX imported as a new deck is a creation; imported into an existing deck
  * it replaces that deck's slides, which is an edit.
  */
-export function trackPptxImport(
+export async function trackPptxImport(
   result: { id: string; slideCount: number },
   args: { deckId?: string; purpose?: "direct" | "reference" },
   source: Parameters<typeof trackSlides>[2],
-): void {
+): Promise<void> {
   if (!args.deckId) {
-    trackDeckCreated(
+    await trackDeckCreated(
       result.id,
       {
         creationMethod: "import_pptx",

@@ -1,11 +1,7 @@
 ===================================================================
 --- a/.agents/skills/actions/SKILL.md
 +++ b/.agents/skills/actions/SKILL.md
-@@ -156,8 +156,22 @@
- ```
- 
- CLI flags become action input fields (`--key value` or `--key=value`); the runner does not read or write files for `--input` or `--output`. The default template dispatches through core's `runScript()` in `actions/run.ts`. Action names are lowercase-with-hyphens (`pnpm action my-action` → `actions/my-action.ts`).
- 
+@@ -163,0 +164,14 @@
 +After adding or changing several related actions, smoke-test **once** (one
 +happy-path call that proves the wire-up), then typecheck once. Do not run
 +`pnpm action …` for every method unless a smoke test failed and you need to
@@ -20,7 +16,3 @@
 +
 +DB client: `getDb` / `schema` from `server/db.ts`.
 +
- ## Custom `/api/` Routes
- 
- Complete exception list — justified only when the caller isn't your own UI/agent, or the payload isn't JSON: **file uploads** (actions take JSON, not multipart), **streaming** (SSE/chunked needing direct H3 control), **webhooks**, **OAuth callbacks** (fixed redirect URL patterns), **public unauthenticated endpoints** (SEO/OG images, share links), **binary/non-JSON responses**.
- 

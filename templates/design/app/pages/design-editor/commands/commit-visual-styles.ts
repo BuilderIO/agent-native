@@ -1,8 +1,13 @@
+import { roundGeometryStylesPx } from "@shared/canvas-math";
 import type { CodeLayerProjection } from "@shared/code-layer";
-import { buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  buildCodeLayerProjection,
+  pinFixedFlexSiblingsOfNode,
+} from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import { LINE_SEGMENT_PROPERTY } from "@shared/line-segment";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import { isVectorEndpointProperty } from "@shared/vector-endpoints";
@@ -18,8 +23,13 @@ import {
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
-} from "@/components/design/inspector/GlslShaderPanel";
+} from "@/components/design/shader-source-coordination";
 import type { ElementInfo } from "@/components/design/types";
+import {
+  runCanvasOperation,
+  type CanvasOperationHandle,
+} from "@/lib/canvas-outcome-tracking";
+import { canvasStyleKind } from "@/lib/canvas-style-kind";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerPatchMessage,
@@ -183,7 +193,29 @@ export function styleWriteIsRetargeted(
   );
 }
 
+export type CommitVisualStylesOptions = {
+  runtimeApplied?: boolean;
+  elementInfo?: ElementInfo;
+  originalStyles?: Record<string, string>;
+  pendingUndoGestureId?: string;
+  preserveSelection?: boolean;
+  routePath?: string;
+  requirePersistedSourceAcceptance?: boolean;
+};
+
 export function runCommitVisualStyles(
+  args: CommitVisualStylesArgs,
+  selector: string,
+  styles: Record<string, string>,
+  options: CommitVisualStylesOptions = {},
+): void {
+  runCanvasOperation("style_commit", (op) =>
+    commitVisualStylesWithOutcome(op, args, selector, styles, options),
+  );
+}
+
+function commitVisualStylesWithOutcome(
+  op: CanvasOperationHandle,
   {
     activeBreakpointUpperBoundPx,
     activeBreakpointWidthStateRef,
@@ -228,25 +260,17 @@ export function runCommitVisualStyles(
     ydoc,
   }: CommitVisualStylesArgs,
   selector: string,
-  styles: Record<string, string>,
-  options: {
-    runtimeApplied?: boolean;
-    elementInfo?: ElementInfo;
-    originalStyles?: Record<string, string>;
-    pendingUndoGestureId?: string;
-    preserveSelection?: boolean;
-    routePath?: string;
-    requirePersistedSourceAcceptance?: boolean;
-  } = {},
-) {
+  requestedStyles: Record<string, string>,
+  options: CommitVisualStylesOptions,
+): void {
   trace("persist", "commit-styles", {
     selector: typeof selector === "string" ? selector : null,
-    props: Object.keys(styles ?? {}),
+    props: Object.keys(requestedStyles ?? {}),
   });
-  if (!activeFile || !canEditDesign) return;
-  if (!canApplyContentEdit(activeFile.id)) return;
-  // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
-  // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
+  op.setStyleKind(canvasStyleKind(Object.keys(requestedStyles ?? {})));
+  if (!activeFile || !canEditDesign) return op.skip("no_edit_rights");
+  if (!canApplyContentEdit(activeFile.id)) return op.skip("edit_blocked");
+  // Cross-pipeline write race guard (see shader-source-coordination.ts): a shader
   // apply/remove/knob-commit for this same file goes through a completely
   // separate round trip (read-source-file -> apply-source-edit) than this
   // function's own commit, and both eventually rewrite the SAME Y.Doc —
@@ -258,15 +282,32 @@ export function runCommitVisualStyles(
   // microtask tick to the hot path or breaks the same-tick multi-property
   // composition the baseContent comment below depends on.
   if (isShaderWriteInFlight(activeFile.id)) {
-    void waitForShaderWriteToSettle(activeFile.id).then(() => {
-      commitVisualStyles(selector, styles, options);
-    });
+    // The re-run joins this operation, so the edit counts once, by its result.
+    const resumeAfterShaderWrite = op.continueLater();
+    void waitForShaderWriteToSettle(activeFile.id).then(
+      () =>
+        resumeAfterShaderWrite(() =>
+          commitVisualStyles(selector, requestedStyles, options),
+        ),
+      () =>
+        resumeAfterShaderWrite((shaderOp) =>
+          shaderOp.fail("shader_write_failed"),
+        ),
+    );
     return;
   }
+  const styles = roundGeometryStylesPx(requestedStyles, {
+    containingBlockTransform: (options.elementInfo ?? selectedElement)
+      ?.positionContainingBlockTransform,
+  });
+  // The canvas already shows the sub-pixel value the gesture produced; it has
+  // to be resent or the preview disagrees with the persisted source.
+  const runtimePreviewStale =
+    Boolean(options.runtimeApplied) && styles !== requestedStyles;
   const entries = Object.entries(styles).filter(
     ([, value]) => value !== undefined,
   );
-  if (entries.length === 0) return;
+  if (entries.length === 0) return op.skip("empty_styles");
   const liveTargetInfo = isRunningAppSourceType(activeCanvasSourceType)
     ? (options.elementInfo ?? selectedElement ?? undefined)
     : undefined;
@@ -304,13 +345,13 @@ export function runCommitVisualStyles(
       }
     }
     onNoRenderedBox?.();
-    return;
+    return op.fail("no_rendered_box");
   }
   upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
   if (isRunningAppSourceType(activeCanvasSourceType)) {
     const targetInfo = liveTargetInfo;
     if (
-      !options.runtimeApplied &&
+      (!options.runtimeApplied || runtimePreviewStale) &&
       activeBreakpointUpperBoundPx == null &&
       typeof (window as any).__designCanvasSendStyleForScreen === "function"
     ) {
@@ -331,7 +372,7 @@ export function runCommitVisualStyles(
       preserveSelection: options.preserveSelection,
       routePath: options.routePath,
     });
-    return;
+    return op.defer("runtime_pending");
   }
   // Read through the editor's source boundary so pending linked projections
   // and synchronous local writes compose before this full-document commit.
@@ -345,7 +386,7 @@ export function runCommitVisualStyles(
     toast.error(t("designEditor.patchProof.snapshotNotLoaded"), {
       duration: 4000,
     });
-    return;
+    return op.fail("snapshot_not_loaded");
   }
   const [firstProperty, firstValue] = entries[0];
   const projection =
@@ -371,6 +412,7 @@ export function runCommitVisualStyles(
       ([property]) =>
         property === "--an-vector-stroke-position" ||
         isVectorEndpointProperty(property) ||
+        property === LINE_SEGMENT_PROPERTY ||
         (targetIsSvg &&
           /^border(-[a-z]+)*-radius$|^border\w*Radius$/.test(property)) ||
         (targetIsSvg &&
@@ -378,7 +420,7 @@ export function runCommitVisualStyles(
           targetNode?.dataAttributes["data-figma-node-id"] !== undefined &&
           targetNode.attributes["preserveaspectratio"] === undefined),
     ) &&
-    !options.runtimeApplied &&
+    (!options.runtimeApplied || runtimePreviewStale) &&
     activeBreakpointUpperBoundPx == null &&
     typeof sendStyleChange === "function";
   const sendRuntimeStylePreview = (): void => {
@@ -417,27 +459,29 @@ export function runCommitVisualStyles(
         t("designEditor.componentInstances.linkedEditScopeUnsupported"),
         { duration: 4000 },
       );
-      return;
+      return op.fail("linked_scope_unsupported");
     }
     if (!durableNodeId) {
       toast.error(t("designEditor.patchProof.selectorMissing"), {
         duration: 4000,
       });
-      return;
+      return op.fail("selector_missing");
     }
     if (!applyLinkedComponentEdit) {
       toast.error(
         t("designEditor.componentInstances.linkedEditSourceUnsupported"),
         { duration: 4000 },
       );
-      return;
+      return op.fail("linked_source_unsupported");
     }
     if (!options.requirePersistedSourceAcceptance) sendRuntimeStylePreview();
     applyLinkedComponentEdit(activeFile.id, durableNodeId, {
       kind: "styleBatch",
       values: Object.fromEntries(entries),
     });
-    return;
+    // The linked edit is a queued server mutation whose failure is not
+    // reported back here, so this commit never counts as a success.
+    return op.defer("linked_edit_queued");
   }
 
   if (targetNode && lastDuplicateTransformRef.current) {
@@ -523,7 +567,13 @@ export function runCommitVisualStyles(
       error: resolutionFailure,
       createdAt: Date.now(),
     });
-    return;
+    return op.fail(
+      targetResolution.status === "ambiguous"
+        ? "selector_ambiguous"
+        : isClientRenderedMountShell(projection)
+          ? "client_rendered_shell"
+          : "node_unresolved",
+    );
   }
   setPatchProofForCurrentFile({
     id: proofId,
@@ -550,7 +600,9 @@ export function runCommitVisualStyles(
   });
   if (!options.requirePersistedSourceAcceptance) sendRuntimeStylePreview();
   const committedSelection = selectedElementRef.current;
-  commitAfterPaint(() => {
+  const resumeAfterPaint = op.continueLater();
+  commitAfterPaint(() => resumeAfterPaint(commitStylesAfterPaint));
+  function commitStylesAfterPaint(op: CanvasOperationHandle): void {
     const latestContent = getScreenContent(activeFile.id);
 
     // §6.4 — Breakpoint-scoped editing (Framer cascade). Reuses the
@@ -620,8 +672,20 @@ export function runCommitVisualStyles(
             ...Object.fromEntries(entries),
           })
         : null;
+    const resizedNodeId =
+      activeBreakpointUpperBoundPx == null &&
+      entries.some(
+        ([property]) => property === "width" || property === "height",
+      )
+        ? targetNode?.dataAttributes["data-agent-native-node-id"]
+        : undefined;
+    const scopedContent =
+      resizedNodeId && !stylePatch.failed
+        ? pinFixedFlexSiblingsOfNode(stylePatch.content, resizedNodeId)
+        : stylePatch.content;
+    const siblingsPinned = scopedContent !== stylePatch.content;
     const commitResolution = resolveVisualStyleCommitContent({
-      scopedContent: stylePatch.content,
+      scopedContent,
       scopedFailure: stylePatch.failed,
       legacyFallbackContent,
       breakpointScoped: activeBreakpointUpperBoundPx != null,
@@ -637,7 +701,7 @@ export function runCommitVisualStyles(
           ? { ...prev, status: "failed", error: failureMessage }
           : prev,
       );
-      return;
+      return op.fail("patch_failed");
     }
     const resolvedNextContentBeforeFontLink = commitResolution.content;
 
@@ -682,7 +746,7 @@ export function runCommitVisualStyles(
           ? { ...previous, status: "failed", error: message }
           : previous,
       );
-      return;
+      return op.fail("integrity_failed");
     }
 
     const nextProjection = buildCodeLayerProjection(resolvedNextContent, {
@@ -721,7 +785,10 @@ export function runCommitVisualStyles(
       setPatchProofForCurrentFile((prev) =>
         prev?.id === proofId ? { ...prev, status: "queued" } : prev,
       );
-      queueFileContentSave(activeFile.id, resolvedNextContent, {
+      // This commit only lands once the server accepts the save, so the save's
+      // result decides the outcome.
+      const resumeAfterSave = op.continueLater();
+      const saved = queueFileContentSave(activeFile.id, resolvedNextContent, {
         expectedVersionHash: sourceContentHash(latestContent),
         syncCollab: false,
         immediate: true,
@@ -814,6 +881,18 @@ export function runCommitVisualStyles(
           }
         },
       });
+      void Promise.resolve(saved).then(
+        (result) =>
+          resumeAfterSave((saveOp) => {
+            if (result === "persisted") saveOp.succeed();
+            else if (result === "conflict") saveOp.fail("not_persisted");
+            else if (result === false) saveOp.skip("no_edit_rights");
+            // Offline, superseded, aborted or an error: the save's own count
+            // carries which, so this one does not claim a failure for it.
+            else saveOp.defer("save_unfinished");
+          }),
+        () => resumeAfterSave((saveOp) => saveOp.fail("exception")),
+      );
       return;
     }
 
@@ -824,7 +903,7 @@ export function runCommitVisualStyles(
       setPatchProof((prev) =>
         prev?.id === proofId ? { ...prev, status: "queued" } : prev,
       );
-      if (!runtimeStyleApplied) {
+      if (!runtimeStyleApplied || siblingsPinned) {
         setContentRenderRevision((revision) => revision + 1);
       }
     } else {
@@ -887,17 +966,23 @@ export function runCommitVisualStyles(
         syncCollab: !writeLiveDoc,
       });
       if (
-        shouldReplacePreviewAfterVisualStyleCommit({
-          runtimeApplied: options.runtimeApplied,
-          runtimeStyleApplied,
-        }) &&
+        (siblingsPinned ||
+          shouldReplacePreviewAfterVisualStyleCommit({
+            runtimeApplied: options.runtimeApplied && !runtimePreviewStale,
+            runtimeStyleApplied,
+          })) &&
         previewContentReplaceNeedsRenderFallback(
-          replacePreviewContent(resolvedNextContent, selector),
+          replacePreviewContent(resolvedNextContent, selector, {
+            forceFullDocument: siblingsPinned,
+          }),
         )
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
     }
+    // Applied on the canvas. Whether it persisted is the save's own outcome;
+    // only a caller that requires server acceptance waits for it.
+    op.succeed();
     if (options.preserveSelection) return;
     // The user may have selected something else before this commit landed.
     if (selectedElementRef.current !== committedSelection) return;
@@ -944,5 +1029,5 @@ export function runCommitVisualStyles(
         ),
       };
     });
-  });
+  }
 }

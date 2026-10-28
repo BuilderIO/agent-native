@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
@@ -34,7 +35,15 @@ import {
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
+import {
+  propertyChangeIdsFor,
+  propertyGenerationsFor,
+  readPropertyTombstones,
+  storedPropertyGenerations,
+  type StoredPropertyChangeIds,
+} from "./_property-generations.js";
 import {
   getDatabaseById,
   listPropertiesForDocument,
@@ -118,7 +127,14 @@ export default defineAction({
   run: async (args, ctx) => {
     if (!args.id) throw new Error("--id is required");
 
-    const access = await resolveDocumentAccess(args.id);
+    let access = await resolveDocumentAccess(args.id);
+    if (
+      access?.resource.sourceMode === "github" &&
+      !access.resource.trashedAt &&
+      (await refreshGitHubPageBeforeRead(access.resource.id))
+    ) {
+      access = await resolveDocumentAccess(args.id);
+    }
     if (!access || access.resource.trashedAt) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,
@@ -339,12 +355,16 @@ export default defineAction({
             }),
           );
     const bodyHydrationAccess = await readBodyHydrationAccess();
+    // Before the values: see readPropertyTombstones.
+    const tombstones = await readPropertyTombstones(db, [doc.id]);
+    const changeIds: StoredPropertyChangeIds = new Map();
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
         // not the private database document that owns those definitions.
         requireDatabaseAccess: hasPropertyDatabaseAccess,
         database: propertyDatabase,
+        changeIds,
       }),
       // Reading the collection's own fields also takes resolveAccess on its
       // document, which can refuse a document accessibleDocumentIds admits.
@@ -419,6 +439,7 @@ export default defineAction({
       bodyRevision: doc.bodyRevision,
       collabContentRevision:
         doc.collabBodyRevision === doc.bodyRevision ? revision : null,
+      writePath: (await liveBodyWriterGate(doc.id)).writePath,
       contentHash: documentContentHash(doc.content ?? ""),
       description: doc.description,
       icon: doc.icon,
@@ -484,6 +505,12 @@ export default defineAction({
             ...property,
             definition: { ...property.definition, databaseId: null },
           })),
+      propertyGenerations: propertyGenerationsFor(
+        doc.id,
+        properties,
+        storedPropertyGenerations(changeIds, tombstones),
+      ),
+      propertyChangeIds: propertyChangeIdsFor(doc.id, properties, changeIds),
       contextPath,
       // The same answer get-preview-document-draft gives, so a page open
       // needs no second request before it can show the page.

@@ -62,6 +62,7 @@ vi.mock("@agent-native/toolkit/app/chat/chat-first/app-pane", () => ({
     status: string;
   }) => (
     <div
+      data-chat-first-app-embed-url={embedUrl ?? ""}
       data-chat-first-app-error={errorMessage ?? ""}
       data-chat-first-app-status={status}
     >
@@ -381,6 +382,92 @@ describe("WorkspaceAppKeepAlive", () => {
     });
   });
 
+  it.each([
+    ["coach", "/", "/"],
+    ["onboarding", "/accounts", "/accounts"],
+  ])(
+    "embeds %s by its own home path when its registry url is this Dispatch's page",
+    async (id, homePath, expectedPath) => {
+      await act(async () => {
+        root.render(
+          <WorkspaceAppFrame
+            app={{
+              id,
+              name: id,
+              path: `/${id}`,
+              homePath,
+              url: `${window.location.origin}/dispatch/apps/${id}`,
+            }}
+          />,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+        app: id,
+        path: expectedPath,
+        chrome: "minimal",
+      });
+    },
+  );
+
+  it("never falls back to framing this Dispatch's own page for the app", async () => {
+    clientState.legacyMutateError = new Error("Embed failed");
+    clientState.legacyErrorMutateAsync.mockRejectedValue(
+      clientState.legacyMutateError,
+    );
+    clientState.suppressFrameLoad = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "onboarding",
+            name: "Onboarding",
+            path: "/onboarding",
+            homePath: "/accounts",
+            url: `${window.location.origin}/dispatch/apps/onboarding`,
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe("/onboarding/accounts");
+  });
+
+  it("keeps a Dispatch page url on another origin as the app url", async () => {
+    const url = "https://gateway.example.test/dispatch/apps/coach";
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "coach",
+            name: "Coach",
+            path: "/coach",
+            homePath: "/",
+            url,
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "coach",
+      url,
+      chrome: "minimal",
+    });
+  });
+
   it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
     clientState.workspaceSsoEnabled = true;
 
@@ -549,7 +636,7 @@ describe("WorkspaceAppKeepAlive", () => {
     });
 
     expect(onChildRouteChange).toHaveBeenCalledWith(
-      "/apps/design/foobar?mode=edit#canvas",
+      "/apps/design?__workspace_app_path=%2Ffoobar%3Fmode%3Dedit%23canvas",
     );
 
     await act(async () => {

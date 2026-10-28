@@ -13,9 +13,21 @@ import {
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { writeTextFileAtomically } from "./atomic-json-file.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
+import {
+  addMinimumReleaseAgeExclude,
+  pnpmWorkspacePackagePatterns,
+  pnpmWorkspaceListsProject,
+  workspaceMemberMatcher,
+} from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
+const SAFE_AGENT_NATIVE_PACKAGE_NAME = /^@agent-native\/[a-z0-9][a-z0-9._-]*$/;
+// New workspaces exclude every first-party package from pnpm's release-age
+// gate; older ones only excluded core, so same-day dependencies of a fresh
+// core release failed to install.
+const AGENT_NATIVE_RELEASE_AGE_EXCLUDE = '"@agent-native/*"';
 const PINNABLE_VERSION = "latest";
 const PINNABLE_SECTIONS = [
   "dependencies",
@@ -42,10 +54,12 @@ export interface UpgradeCliOptions {
 export interface PackageJsonLike {
   name?: string;
   version?: string;
+  packageManager?: string;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   pnpm?: {
     overrides?: Record<string, string>;
     patchedDependencies?: Record<string, string>;
@@ -97,6 +111,7 @@ export interface UpgradeProject {
   root: string;
   kind: "standalone" | "workspace";
   packageFiles: string[];
+  workspaceDiscoveryError?: string;
 }
 
 export interface UpgradeDoctorReport {
@@ -104,6 +119,7 @@ export interface UpgradeDoctorReport {
   findings: FrameworkOverrideFinding[];
   bumps: AgentNativeDepBump[];
   unreadable: string[];
+  workspaceDiscoveryError: string | null;
   installedCoreVersion: string | null;
   cliCoreVersion: string | null;
   scaffoldStaleHint: boolean;
@@ -655,6 +671,117 @@ function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
   }
 }
 
+// pnpm reads the nearest pnpm-workspace.yaml at or above the directory it runs
+// in, so an upgrade started from a member app still installs under the
+// workspace root's release-age settings.
+function findNearestPnpmWorkspaceFile(projectRoot: string): string | null {
+  let dir = projectRoot;
+  while (true) {
+    const file = path.join(dir, "pnpm-workspace.yaml");
+    if (fs.existsSync(file)) return file;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function isAgentNativeDependency(name: string, spec: string): boolean {
+  if (isAgentNativePackageName(name)) return true;
+  if (!spec.startsWith("npm:")) return false;
+
+  const aliasedPackage = spec.slice("npm:".length);
+  const versionSeparator = aliasedPackage.startsWith("@")
+    ? aliasedPackage.indexOf("@", aliasedPackage.indexOf("/") + 1)
+    : aliasedPackage.indexOf("@");
+  const packageName =
+    versionSeparator === -1
+      ? aliasedPackage
+      : aliasedPackage.slice(0, versionSeparator);
+  return isAgentNativePackageName(packageName);
+}
+
+// Only a project that installs @agent-native/* packages needs the exclusion;
+// any other pnpm workspace keeps its release-age gate as configured.
+function dependsOnAgentNative(project: UpgradeProject): boolean {
+  return project.packageFiles.some((file) => {
+    const read = readJsonFile(file);
+    if (!read.ok) return false;
+    if (
+      PINNABLE_SECTIONS.some((section) =>
+        Object.entries(read.value[section] ?? {}).some(([name, spec]) =>
+          isAgentNativeDependency(name, spec),
+        ),
+      )
+    ) {
+      return true;
+    }
+    return Object.entries(read.value.peerDependencies ?? {}).some(
+      ([name, spec]) =>
+        isAgentNativeDependency(name, spec) &&
+        read.value.peerDependenciesMeta?.[name]?.optional !== true,
+    );
+  });
+}
+
+function alignReleaseAgeExclude(
+  project: UpgradeProject,
+  dryRun: boolean,
+): UpgradeRunResult["steps"][number] | null {
+  if (detectPackageManager(project.root) !== "pnpm") return null;
+  if (!dependsOnAgentNative(project)) return null;
+  const file = findNearestPnpmWorkspaceFile(project.root);
+  if (!file) return null;
+  const displayFile = relativeTo(project.root, file);
+  const failed = (error: unknown): UpgradeRunResult["steps"][number] => ({
+    id: "release-age",
+    status: "failed",
+    detail: `Could not update ${displayFile} (${error instanceof Error ? error.message : String(error)}). Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand, then re-run upgrade.`,
+  });
+  let current: string;
+  let updated: string;
+  try {
+    current = fs.readFileSync(file, "utf-8");
+    // An ancestor's file only counts when that workspace lists the project;
+    // an unrelated parent is left alone.
+    const workspaceRoot = path.dirname(file);
+    if (
+      workspaceRoot !== project.root &&
+      !pnpmWorkspaceListsProject(
+        current,
+        path.relative(workspaceRoot, project.root).split(path.sep).join("/"),
+      )
+    ) {
+      return null;
+    }
+    updated = addMinimumReleaseAgeExclude(
+      current,
+      AGENT_NATIVE_RELEASE_AGE_EXCLUDE,
+    );
+  } catch (error) {
+    return failed(error);
+  }
+  if (updated === current) return null;
+  if (dryRun) {
+    return {
+      id: "release-age",
+      status: "planned",
+      detail: `Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
+    };
+  }
+  try {
+    // Write through a symlinked workspace file so the link keeps pointing at
+    // the shared file instead of being replaced by a copy.
+    writeTextFileAtomically(fs.realpathSync(file), updated);
+  } catch (error) {
+    return failed(error);
+  }
+  return {
+    id: "release-age",
+    status: "ok",
+    detail: `Added ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
+  };
+}
+
 export function detectUpgradeProject(cwd: string): UpgradeProject | null {
   const start = path.resolve(cwd);
   let dir = start;
@@ -673,17 +800,31 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
       const unreadable = !read.ok && read.reason === "unreadable";
       if (hasCore || isWorkspace || unreadable) {
         const packageFiles = [pkgPath];
-        if (hasWorkspaceYaml) {
-          packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
-        } else if (workspacePatterns.length > 0) {
-          packageFiles.push(
-            ...workspacePackageFilesForPatterns(dir, workspacePatterns),
-          );
+        let workspaceDiscoveryError: string | undefined;
+        try {
+          if (hasWorkspaceYaml) {
+            packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
+          } else if (workspacePatterns.length > 0) {
+            // npm drops the leading `!`s and excludes when they are odd, then
+            // drops a leading `./` or `/` and reads `\` as `/`.
+            const patterns = workspacePatterns.map((pattern) => {
+              const glob = pattern.replace(/^!+/, "");
+              const negated = (pattern.length - glob.length) % 2 === 1;
+              return `${negated ? "!" : ""}${glob.replace(/^\.?\/+/, "").replace(/\\/g, "/")}`;
+            });
+            packageFiles.push(
+              ...workspacePackageFilesForPatterns(dir, patterns, "npm"),
+            );
+          }
+        } catch (error) {
+          workspaceDiscoveryError =
+            error instanceof Error ? error.message : String(error);
         }
         return {
           root: dir,
           kind: isWorkspace ? "workspace" : "standalone",
           packageFiles: Array.from(new Set(packageFiles)),
+          workspaceDiscoveryError,
         };
       }
     }
@@ -702,97 +843,58 @@ function packageWorkspacePatterns(pkg: PackageJsonLike | undefined): string[] {
 }
 
 function workspacePackageFiles(root: string, workspaceYaml: string): string[] {
-  const patterns = parseWorkspacePackagePatterns(workspaceYaml);
+  const patterns = pnpmWorkspacePackagePatterns(
+    fs.readFileSync(workspaceYaml, "utf-8"),
+  );
   return workspacePackageFilesForPatterns(root, patterns);
 }
 
+// Walks from each glob's literal base, as pnpm does, and keeps what the
+// membership check's matcher lists, so both always agree on the members.
 function workspacePackageFilesForPatterns(
   root: string,
   patterns: string[],
+  rules: "pnpm" | "npm" = "pnpm",
 ): string[] {
-  const included = new Set<string>();
-  const excluded = new Set<string>();
-  for (const rawPattern of patterns) {
-    const exclude = rawPattern.startsWith("!");
-    const pattern = exclude ? rawPattern.slice(1) : rawPattern;
-    const files = packageFilesForWorkspacePattern(root, pattern);
-    for (const file of files) {
-      if (exclude) excluded.add(file);
-      else included.add(file);
+  const matcher = workspaceMemberMatcher(patterns, rules);
+  const files = new Set<string>();
+  const visit = (dir: string, relDir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (!matcher.mayContain(rel)) continue;
+      const child = path.join(dir, entry.name);
+      const file = path.join(child, "package.json");
+      if (matcher.lists(rel) && workspacePathStat(file)) files.add(file);
+      // A symlinked member counts, but walking into links could loop.
+      if (entry.isDirectory()) visit(child, rel);
     }
+  };
+  for (const base of matcher.bases) {
+    // The membership check's relative paths never match an absolute glob.
+    if (path.isAbsolute(base)) continue;
+    const dir = path.resolve(root, base);
+    if (!workspacePathStat(dir)?.isDirectory()) continue;
+    const file = path.join(dir, "package.json");
+    if (base && matcher.lists(base) && workspacePathStat(file)) files.add(file);
+    visit(dir, base);
   }
-  return Array.from(included)
-    .filter((file) => !excluded.has(file))
-    .sort();
+  return Array.from(files).sort();
 }
 
-function parseWorkspacePackagePatterns(workspaceYaml: string): string[] {
-  let text = "";
+function workspacePathStat(filePath: string): fs.Stats | null {
   try {
-    text = fs.readFileSync(workspaceYaml, "utf-8");
-  } catch {
-    return ["apps/*", "packages/*"];
-  }
-  const patterns: string[] = [];
-  let inPackages = false;
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    if (/^[A-Za-z0-9_-]+:/.test(trimmed)) {
-      inPackages = trimmed === "packages:";
-      continue;
+    return fs.statSync(filePath);
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? error.code
+        : undefined;
+    if (code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP") {
+      return null;
     }
-    if (!inPackages || !trimmed.startsWith("-")) continue;
-    const pattern = trimmed
-      .slice(1)
-      .trim()
-      .replace(/^['"]|['"]$/g, "");
-    if (pattern) patterns.push(pattern);
+    throw error;
   }
-  return patterns.length ? patterns : ["apps/*", "packages/*"];
-}
-
-function packageFilesForWorkspacePattern(
-  root: string,
-  pattern: string,
-): string[] {
-  const normalized = pattern.replace(/\\/g, "/").replace(/\/+$/g, "");
-  if (!normalized || normalized.includes("node_modules")) return [];
-  if (normalized.endsWith("/**")) {
-    return collectPackageFilesRecursive(
-      path.join(root, normalized.slice(0, -3)),
-    );
-  }
-  if (normalized.endsWith("/*")) {
-    const base = path.join(root, normalized.slice(0, -2));
-    if (!fs.existsSync(base)) return [];
-    return fs
-      .readdirSync(base, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => path.join(base, entry.name, "package.json"))
-      .filter((file) => fs.existsSync(file));
-  }
-  if (normalized.includes("*")) {
-    return collectPackageFilesRecursive(
-      path.join(root, normalized.split("*")[0]),
-    );
-  }
-  const file = path.join(root, normalized, "package.json");
-  return fs.existsSync(file) ? [file] : [];
-}
-
-function collectPackageFilesRecursive(dir: string): string[] {
-  if (!fs.existsSync(dir)) return [];
-  const files: string[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name === "node_modules" || entry.name === ".git") continue;
-    const child = path.join(dir, entry.name);
-    const pkg = path.join(child, "package.json");
-    if (fs.existsSync(pkg)) files.push(pkg);
-    files.push(...collectPackageFilesRecursive(child));
-  }
-  return files;
 }
 
 function isYarnPnpProject(projectRoot: string): boolean {
@@ -885,10 +987,34 @@ export function readCliCoreVersion(): string | null {
   }
 }
 
+function packageManagerLockfile(dir: string): "pnpm" | "npm" | "yarn" | null {
+  if (fs.existsSync(path.join(dir, "pnpm-lock.yaml"))) return "pnpm";
+  if (fs.existsSync(path.join(dir, "yarn.lock"))) return "yarn";
+  if (fs.existsSync(path.join(dir, "package-lock.json"))) return "npm";
+  return null;
+}
+
+function findNearestWorkspaceRoot(projectRoot: string): string | null {
+  let dir = projectRoot;
+  while (true) {
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    const read = readJsonFile(path.join(dir, "package.json"));
+    if (read.ok && packageWorkspacePatterns(read.value).length > 0) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
 function detectPackageManager(projectRoot: string): "pnpm" | "npm" | "yarn" {
-  if (fs.existsSync(path.join(projectRoot, "pnpm-lock.yaml"))) return "pnpm";
-  if (fs.existsSync(path.join(projectRoot, "yarn.lock"))) return "yarn";
-  if (fs.existsSync(path.join(projectRoot, "package-lock.json"))) return "npm";
+  const local = packageManagerLockfile(projectRoot);
+  if (local) return local;
+  const workspaceRoot = findNearestWorkspaceRoot(projectRoot);
+  const workspace =
+    workspaceRoot && workspaceRoot !== projectRoot
+      ? packageManagerLockfile(workspaceRoot)
+      : null;
+  if (workspace) return workspace;
   return "pnpm";
 }
 
@@ -896,6 +1022,209 @@ function installArgs(pm: "pnpm" | "npm" | "yarn"): string[] {
   if (pm === "npm") return ["install"];
   if (pm === "yarn") return ["install"];
   return ["install"];
+}
+
+type PinnableSection = (typeof PINNABLE_SECTIONS)[number];
+
+interface LatestAgentNativeDependencyDeclaration {
+  section: PinnableSection;
+  name: string;
+  originalVersion: string;
+  restoreToLatest: boolean;
+}
+
+interface LatestAgentNativeDependencyGroup {
+  file: string;
+  names: string[];
+  declarations: LatestAgentNativeDependencyDeclaration[];
+}
+
+function collectLatestAgentNativeDependencies(
+  project: UpgradeProject,
+  pendingBumps: AgentNativeDepBump[],
+): LatestAgentNativeDependencyGroup[] {
+  const byFile = new Map<string, Map<PinnableSection, Set<string>>>();
+  const add = (file: string, section: PinnableSection, name: string) => {
+    const sections =
+      byFile.get(file) ?? new Map<PinnableSection, Set<string>>();
+    const names = sections.get(section) ?? new Set<string>();
+    names.add(name);
+    sections.set(section, names);
+    byFile.set(file, sections);
+  };
+
+  for (const file of project.packageFiles) {
+    const read = readJsonFile(file);
+    if (!read.ok) continue;
+    for (const section of PINNABLE_SECTIONS) {
+      const dependencies = read.value[section] ?? {};
+      for (const [name, version] of Object.entries(dependencies)) {
+        if (
+          isAgentNativePackageName(name) &&
+          version.trim() === PINNABLE_VERSION
+        ) {
+          add(file, section, name);
+        }
+      }
+    }
+  }
+  for (const bump of pendingBumps) {
+    add(bump.file, bump.section, bump.name);
+  }
+
+  return [...byFile]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([file, targetSections]) => {
+      const names = [
+        ...new Set(
+          [...targetSections.values()].flatMap((section) => [...section]),
+        ),
+      ].sort();
+      const targetNames = new Set(names);
+      const read = readJsonFile(file);
+      const declarations: LatestAgentNativeDependencyDeclaration[] = [];
+      if (read.ok) {
+        for (const section of PINNABLE_SECTIONS) {
+          for (const [name, originalVersion] of Object.entries(
+            read.value[section] ?? {},
+          )) {
+            if (!targetNames.has(name)) continue;
+            declarations.push({
+              section,
+              name,
+              originalVersion,
+              restoreToLatest: targetSections.get(section)?.has(name) ?? false,
+            });
+          }
+        }
+      }
+      return { file, names, declarations };
+    });
+}
+
+function yarnMajorVersion(
+  project: UpgradeProject,
+  io: UpgradeIo,
+): number | null {
+  const rootPackage = readJsonFile(path.join(project.root, "package.json"));
+  const packageManager = rootPackage.ok
+    ? rootPackage.value.packageManager
+    : null;
+  const pinnedMajor = packageManager?.match(/^yarn@(\d+)/)?.[1];
+  if (pinnedMajor) return Number(pinnedMajor);
+
+  const version = io.spawn("yarn", ["--version"], {
+    cwd: project.root,
+    stdio: "pipe",
+  });
+  if (version.status !== 0) return null;
+  const output = String(version.stdout ?? version.output?.[1] ?? "").trim();
+  const major = Number(output.match(/^(\d+)/)?.[1]);
+  return Number.isSafeInteger(major) && major > 0 ? major : null;
+}
+
+function hasInvalidAgentNativePackageName(
+  groups: LatestAgentNativeDependencyGroup[],
+): boolean {
+  return groups.some(({ names }) =>
+    names.some((name) => !SAFE_AGENT_NATIVE_PACKAGE_NAME.test(name)),
+  );
+}
+
+function refreshLatestAgentNativeDependencies(
+  project: UpgradeProject,
+  groups: LatestAgentNativeDependencyGroup[],
+  pm: "pnpm" | "npm" | "yarn",
+  io: UpgradeIo,
+  stdio: "inherit" | "pipe",
+): { ok: true } | { ok: false; message: string } {
+  if (groups.length === 0) return { ok: true };
+  const yarnMajor = pm === "yarn" ? yarnMajorVersion(project, io) : null;
+  if (pm === "yarn" && yarnMajor === null) {
+    return {
+      ok: false,
+      message:
+        "Could not determine the Yarn version to refresh latest packages.",
+    };
+  }
+
+  const usesModernYarn = pm === "yarn" && yarnMajor !== null && yarnMajor >= 2;
+  const updateGroups: Array<
+    LatestAgentNativeDependencyGroup & { section?: PinnableSection }
+  > = usesModernYarn
+    ? groups.flatMap(({ file, declarations }) => {
+        const namesBySection = new Map<PinnableSection, Set<string>>();
+        for (const declaration of declarations) {
+          if (!declaration.restoreToLatest) continue;
+          const names =
+            namesBySection.get(declaration.section) ?? new Set<string>();
+          names.add(declaration.name);
+          namesBySection.set(declaration.section, names);
+        }
+        return [...namesBySection].map(([section, names]) => ({
+          file,
+          section,
+          names: [...names].sort(),
+          declarations,
+        }));
+      })
+    : groups;
+
+  let updateFailure: string | null = null;
+  for (const group of updateGroups) {
+    const args =
+      pm === "pnpm"
+        ? ["update", "--latest", ...group.names]
+        : pm === "npm"
+          ? ["update", "--save", ...group.names]
+          : usesModernYarn
+            ? [
+                "add",
+                ...(group.section === "devDependencies" ? ["--dev"] : []),
+                ...(group.section === "optionalDependencies"
+                  ? ["--optional"]
+                  : []),
+                ...group.names.map((name) => `${name}@latest`),
+              ]
+            : ["upgrade", ...group.names.map((name) => `${name}@latest`)];
+    const result = io.spawn(pm, args, {
+      cwd: path.dirname(group.file),
+      stdio,
+    });
+    if (result.status !== 0) {
+      updateFailure = `${pm} ${args.join(" ")} failed during package refresh.`;
+      break;
+    }
+  }
+
+  for (const group of groups) {
+    const read = readJsonFile(group.file);
+    if (!read.ok) {
+      return {
+        ok: false,
+        message: `Could not read ${relativeTo(
+          project.root,
+          group.file,
+        )} after refreshing latest packages.${
+          updateFailure ? ` ${updateFailure}` : ""
+        }`,
+      };
+    }
+    for (const declaration of group.declarations) {
+      const dependencies = read.value[declaration.section];
+      if (!dependencies || dependencies[declaration.name] === undefined) {
+        continue;
+      }
+      dependencies[declaration.name] = declaration.restoreToLatest
+        ? PINNABLE_VERSION
+        : declaration.originalVersion;
+    }
+    writeJsonFile(group.file, read.value);
+  }
+
+  if (updateFailure) return { ok: false, message: updateFailure };
+
+  return { ok: true };
 }
 
 export function buildUpgradeDoctorReport(
@@ -929,6 +1258,7 @@ export function buildUpgradeDoctorReport(
     findings,
     bumps,
     unreadable,
+    workspaceDiscoveryError: project.workspaceDiscoveryError ?? null,
     installedCoreVersion,
     cliCoreVersion,
     scaffoldStaleHint: skillsUpdateScript || bumps.length > 0,
@@ -956,6 +1286,10 @@ function formatDoctorHuman(report: UpgradeDoctorReport): string {
     for (const entry of report.unreadable) {
       lines.push(`  - ${entry}`);
     }
+  }
+  if (report.workspaceDiscoveryError) {
+    lines.push("Workspace package discovery failed (members not checked):");
+    lines.push(`  - ${report.workspaceDiscoveryError}`);
   }
   if (report.findings.length === 0) {
     lines.push("Framework overrides/patches: none");
@@ -1026,13 +1360,15 @@ export async function runUpgrade(
 
   const doctor = buildUpgradeDoctorReport(project);
   const doctorOk =
-    doctor.findings.length === 0 && doctor.unreadable.length === 0;
+    doctor.findings.length === 0 &&
+    doctor.unreadable.length === 0 &&
+    doctor.workspaceDiscoveryError === null;
   if (opts.command === "check") {
     if (opts.json) {
       io.log(JSON.stringify({ ok: doctorOk, doctor }, null, 2));
     } else {
       io.log(formatDoctorHuman(doctor));
-      if (doctor.findings.length > 0) {
+      if (doctor.findings.length > 0 || doctor.workspaceDiscoveryError) {
         io.err("");
         io.err(FAILURE_GUIDANCE);
       }
@@ -1054,6 +1390,19 @@ export async function runUpgrade(
     result.ok = false;
     result.exitCode = 1;
     result.message = `Blocked: these package.json files could not be parsed, so their overrides and @agent-native/* specs were never checked: ${doctor.unreadable.join("; ")}`;
+    result.steps.push({
+      id: "doctor",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
+  if (doctor.workspaceDiscoveryError) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message = `Blocked: workspace packages could not be enumerated, so their overrides and @agent-native/* specs were never checked: ${doctor.workspaceDiscoveryError}`;
     result.steps.push({
       id: "doctor",
       status: "failed",
@@ -1093,6 +1442,38 @@ export async function runUpgrade(
         ? "Continuing with --force despite framework overrides/patches"
         : "No framework overrides/patches",
   });
+
+  const latestDependencies = collectLatestAgentNativeDependencies(
+    project,
+    doctor.bumps,
+  );
+  if (hasInvalidAgentNativePackageName(latestDependencies)) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message =
+      "Refusing to refresh an invalid @agent-native package name.";
+    result.steps.push({
+      id: "refresh-latest",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
+
+  // Before any manifest edit: if the exclusion cannot be written, the install
+  // would hit the same release-age gate, so stop with the workspace untouched.
+  const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
+  if (releaseAgeStep) {
+    result.steps.push(releaseAgeStep);
+    if (releaseAgeStep.status === "failed") {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = releaseAgeStep.detail ?? "";
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+  }
 
   let dependencyAdditions: UpgradeDependencyAddition[];
   try {
@@ -1255,6 +1636,51 @@ export async function runUpgrade(
     }
   }
 
+  const pm = detectPackageManager(project.root);
+  if (latestDependencies.length === 0) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "skipped",
+      detail: "No floating @agent-native/* package specs need refreshing",
+    });
+  } else if (opts.skipInstall) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "skipped",
+      detail: "--skip-install leaves latest package specs unresolved",
+    });
+  } else if (dryRun) {
+    result.steps.push({
+      id: "refresh-latest",
+      status: "planned",
+      detail: `Would refresh ${latestDependencies
+        .flatMap(({ names }) => names)
+        .join(", ")} before installing`,
+    });
+  } else {
+    const refreshed = refreshLatestAgentNativeDependencies(
+      project,
+      latestDependencies,
+      pm,
+      io,
+      opts.json ? "pipe" : "inherit",
+    );
+    result.steps.push({
+      id: "refresh-latest",
+      status: refreshed.ok ? "ok" : "failed",
+      detail: refreshed.ok
+        ? "Refreshed floating @agent-native/* packages"
+        : refreshed.message,
+    });
+    if (!refreshed.ok) {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = refreshed.message;
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+  }
+
   if (opts.skipInstall) {
     result.steps.push({
       id: "install",
@@ -1265,10 +1691,9 @@ export async function runUpgrade(
     result.steps.push({
       id: "install",
       status: "planned",
-      detail: `${detectPackageManager(project.root)} install`,
+      detail: `${pm} install`,
     });
   } else {
-    const pm = detectPackageManager(project.root);
     const spawned = io.spawn(pm, installArgs(pm), {
       cwd: project.root,
       stdio: opts.json ? "pipe" : "inherit",

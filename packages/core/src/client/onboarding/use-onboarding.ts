@@ -28,6 +28,7 @@ const lastOnboardingStepViews = new Map<string, string>();
 const seenOnboardingEvents = new Set<string>();
 const CUSTOM_KEY_ATTEMPT_STORAGE_KEY =
   "agent-native.onboarding.custom_keys_attempt";
+const ONBOARDING_EXPERIMENT_STORAGE_KEY = "agent-native.onboarding.experiment";
 const locallyTrackedCustomKeyOutcomes = new Set<string>();
 type CustomKeyOnboardingSaveOutcome =
   | "credential_saved"
@@ -723,6 +724,66 @@ export function __resetOnboardingEventDedupeForTests(): void {
   seenOnboardingEvents.clear();
 }
 
+type OnboardingExperiment = {
+  experiment_id: string;
+  experiment_variant: string;
+};
+
+let onboardingExperiment: OnboardingExperiment | null = null;
+
+function readStoredOnboardingExperiment(): OnboardingExperiment | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value: unknown = JSON.parse(
+      window.localStorage.getItem(ONBOARDING_EXPERIMENT_STORAGE_KEY) ?? "null",
+    );
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      typeof (value as OnboardingExperiment).experiment_id !== "string" ||
+      typeof (value as OnboardingExperiment).experiment_variant !== "string"
+    ) {
+      return null;
+    }
+    return value as OnboardingExperiment;
+  } catch {
+    // coercion-ok: unreadable storage means no stored arm, so the event is sent untagged and stays out of the experiment cohort rather than blocking tracking.
+    return null;
+  }
+}
+
+export function __resetOnboardingExperimentMemoryForTests(): void {
+  onboardingExperiment = null;
+}
+
+/**
+ * Tags later first-run onboarding events with the experiment arm the user was
+ * exposed to, so funnels split by variant without each emitter (including the
+ * settings-side custom-key outcome) knowing about the experiment. Only
+ * `flow: "first_run"` events are tagged: the checklist and other onboarding
+ * flows share this tracker and must not inherit the arm.
+ */
+export function setOnboardingExperiment(
+  experiment: { id: string; variant: string } | null,
+): void {
+  onboardingExperiment = experiment
+    ? { experiment_id: experiment.id, experiment_variant: experiment.variant }
+    : null;
+  if (typeof window === "undefined") return;
+  try {
+    if (onboardingExperiment) {
+      window.localStorage.setItem(
+        ONBOARDING_EXPERIMENT_STORAGE_KEY,
+        JSON.stringify(onboardingExperiment),
+      );
+    } else {
+      window.localStorage.removeItem(ONBOARDING_EXPERIMENT_STORAGE_KEY);
+    }
+  } catch {
+    // coercion-ok: in-memory tagging still works when browser storage is unavailable; only the cross-reload copy is lost.
+  }
+}
+
 export function trackOnboardingEvent(
   name: string,
   properties: Record<string, unknown>,
@@ -730,12 +791,18 @@ export function trackOnboardingEvent(
   if (typeof window === "undefined") return;
   const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
   const sessionId = getAnalyticsSessionId() ?? "unknown-session";
+  const experiment =
+    properties.flow === "first_run"
+      ? (onboardingExperiment ?? readStoredOnboardingExperiment())
+      : null;
   const key = [
     sessionId,
     identityKey,
     name,
     properties.flow,
     properties.step_id,
+    properties.experiment_id ?? experiment?.experiment_id,
+    properties.experiment_variant ?? experiment?.experiment_variant,
     properties.extension_id,
     properties.integration_id,
     properties.role,
@@ -779,7 +846,7 @@ export function trackOnboardingEvent(
     if (seenOnboardingEvents.has(key)) return;
     seenOnboardingEvents.add(key);
   }
-  trackEvent(name, properties);
+  trackEvent(name, experiment ? { ...experiment, ...properties } : properties);
 }
 
 export interface UseOnboardingResult {
@@ -826,10 +893,30 @@ export function useOnboarding(
   const stepsRef = useRef<OnboardingStepStatus[]>([]);
   const mountedRef = useRef(true);
   const fetchGenerationRef = useRef(0);
+  const firstRunCompletedRef = useRef(false);
 
   useEffect(() => {
     setFirstRun(preview || initialFirstRun);
   }, [initialFirstRun, preview]);
+
+  // First run completed by another instance (the startup gate's, or a second
+  // copy of this module) must close this one too, including a status read
+  // that was still in flight when it completed.
+  useEffect(() => {
+    const handleFirstRunCompleted = () => {
+      firstRunCompletedRef.current = true;
+      setFirstRun(false);
+    };
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
+  }, []);
 
   const fetchAll = useCallback(
     async (reuseSharedRead?: boolean) => {
@@ -899,7 +986,9 @@ export function useOnboarding(
         if (preview) {
           setFirstRun(true);
         } else if (!initialFirstRun) {
-          setFirstRun(firstRunResult.value === true);
+          setFirstRun(
+            firstRunResult.value === true && !firstRunCompletedRef.current,
+          );
         }
 
         setError(null);

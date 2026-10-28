@@ -209,7 +209,10 @@ function readLines(source: HTMLElement): Line[] {
   const blocks = blockChildren(source);
   if (blocks) {
     return blocks.flatMap((block) =>
-      lineHtml(block).map((html) => ({ html, look: headingTextLook(block) })),
+      (isListTag(block) ? itemHtml(block) : lineHtml(block)).map((html) => ({
+        html,
+        look: headingTextLook(block),
+      })),
     );
   }
 

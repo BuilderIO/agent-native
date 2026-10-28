@@ -1,17 +1,19 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { resolveAutomationAccess } from "../automations/access.js";
 import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
-import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
-  resourcePut,
+  organizationIdFromResourceOwner,
   resourcePutIfAbsent,
   resourceGetByPath,
   resourceList,
   resourceDelete,
-  organizationIdFromResourceOwner,
-  sharedResourceOwner,
   SHARED_OWNER,
+  sharedResourceOwner,
+  type Resource,
 } from "../resources/store.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -31,10 +33,9 @@ import {
 } from "./cron.js";
 import {
   assertJobExecutionTargetFields,
+  assertJobRunnerTarget,
   classifyJobResource,
   jobBelongsToApp,
-  patchJobFrontmatterFields,
-  replaceJobResourceBody,
   type JobFrontmatterPatch,
 } from "./frontmatter.js";
 import {
@@ -43,6 +44,7 @@ import {
   normalizeJobMcpTools,
   type JobFrontmatter,
 } from "./scheduler.js";
+import { applyJobResourceEdit } from "./update-job-resource.js";
 
 export { jobBelongsToApp } from "./frontmatter.js";
 
@@ -63,46 +65,38 @@ async function isCurrentUserOrgAdmin(
   const email = getRequestUserEmail();
   if (!email) return false;
   try {
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT role FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ?
-              AND federation_removal_pending_at IS NULL
-            LIMIT 1`,
-      args: [orgId, email.toLowerCase()],
-    });
-    if (rows.length === 0) return false;
-    const role = String((rows[0] as any).role ?? "").toLowerCase();
+    const role = await readOrgMemberRole(orgId, email);
     return role === "owner" || role === "admin";
   } catch {
     return false;
   }
 }
 
-/**
- * Authorise a mutation (update / delete) against a job resource. When the
- * job is in the SHARED scope the caller must either be the original
- * `createdBy` user or an org owner/admin — otherwise any user could rewrite
- * another user's shared job and have it run as that user on the next cron
- * tick (the privilege-escalation chain documented in audit
- * `/tmp/security-audit/12-mcp-a2a-agent.md`, finding #3).
- *
- * Returns null when the mutation is allowed, or an error string suitable
- * for returning to the caller when not.
- */
 export async function authorizeJobMutation(
-  resourceOwner: string,
-  meta: JobFrontmatter,
+  resource: Resource,
+  operation: "edit" | "delete",
   appId?: string,
 ): Promise<string | null> {
+  const { meta } = parseJobFrontmatter(resource.content);
   if (!jobBelongsToApp(meta, appId)) {
     return "This job belongs to another app and cannot be changed here.";
   }
-  const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
-  if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
-    // Personal-scope job — owner is the request's user. resourceGetByPath is
-    // already scoped to the caller, so we know meta.createdBy must match.
-    return null;
+  const access = await resolveAutomationAccess(
+    { userEmail: getOwner() },
+    resource.id,
+  );
+  if (!access || access.classification.kind !== "job") return "Job not found.";
+  const allowed =
+    operation === "delete"
+      ? access.capabilities.canDelete
+      : access.capabilities.canEdit;
+  if (allowed) return null;
+
+  const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
+  if (resource.owner !== SHARED_OWNER && !resourceOrgId) {
+    return operation === "delete"
+      ? "Only the job owner can delete it."
+      : "Collaborate access is required to update this job.";
   }
   const caller = getOwner();
   const createdBy = meta.createdBy?.toLowerCase();
@@ -112,8 +106,9 @@ export async function authorizeJobMutation(
     resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
   if (isAdmin) return null;
-
-  return "Only the job's creator (or an org admin) can update or delete it.";
+  return operation === "delete"
+    ? "Only the job owner can delete it."
+    : "Collaborate access is required to update this job.";
 }
 
 async function runCreate(
@@ -340,7 +335,7 @@ async function runUpdate(
     });
   }
 
-  const denied = await authorizeJobMutation(resource.owner, meta, appId);
+  const denied = await authorizeJobMutation(resource, "edit", appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -380,16 +375,18 @@ async function runUpdate(
     fields.nextRun = meta.nextRun;
   }
 
+  let liftsPause = false;
+  let liftsFailureState = false;
   if (enabled !== undefined) {
     meta.enabled = enabled === true || enabled === "true";
     fields.enabled = meta.enabled;
-    if (
-      meta.enabled &&
-      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
-    ) {
-      // Enabling lifts a framework pause and starts a clean failure streak.
-      Object.assign(fields, RESUME_AUTOMATION_PATCH);
-    }
+    const failureFieldsPresent = Boolean(
+      meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures,
+    );
+    liftsPause = Boolean(meta.enabled && failureFieldsPresent);
+    liftsFailureState = Boolean(
+      meta.enabled && failureFieldsPresent && meta.lastStatus !== "running",
+    );
   }
 
   if (runAs === "creator" || runAs === "shared") {
@@ -438,6 +435,7 @@ async function runUpdate(
   ) {
     try {
       assertJobExecutionTargetFields(meta);
+      assertJobRunnerTarget(meta);
     } catch (err) {
       return JSON.stringify({ error: (err as Error).message });
     }
@@ -454,28 +452,98 @@ async function runUpdate(
     }
   }
 
-  let content = patchJobFrontmatterFields(resource.content, fields);
-  if (instructions) {
-    content = replaceJobResourceBody(content, instructions);
+  // Re-derive nextRun, and the pause reset an "enable" lifts, on each attempt
+  // so they follow the file the edit lands on, not the first snapshot's.
+  const failureStateOf = (job: JobFrontmatter) =>
+    [
+      job.lastStatus ?? "",
+      job.pausedReason ?? "",
+      job.pausedAt ?? "",
+      job.lastError ?? "",
+      job.lastErrorCode ?? "",
+      job.lastFailedEventId ?? "",
+      job.consecutiveFailures ?? 0,
+    ].join("\u0000");
+  const failureStateBeforeEdit = failureStateOf(meta);
+  const pausedReasonBeforeEdit = meta.pausedReason;
+  const pausedAtBeforeEdit = meta.pausedAt;
+  const deriveFields = (baseContent: string): JobFrontmatterPatch => {
+    const latest = parseJobFrontmatter(baseContent).meta;
+    const derived: JobFrontmatterPatch = { ...fields };
+    if (fields.nextRun !== undefined) {
+      const schedule =
+        typeof fields.schedule === "string" ? fields.schedule : latest.schedule;
+      const timezone =
+        typeof fields.timezone === "string" ? fields.timezone : latest.timezone;
+      derived.nextRun = nextOccurrence(
+        schedule,
+        undefined,
+        timezone,
+      ).toISOString();
+    }
+    if (
+      liftsPause &&
+      (latest.pausedReason ?? "") === (pausedReasonBeforeEdit ?? "") &&
+      (latest.pausedAt ?? "") === (pausedAtBeforeEdit ?? "")
+    ) {
+      // The owner enabled the automation, so the pause they saw is lifted. A
+      // newer pause or an active run keeps its state for its own outcome to
+      // settle.
+      derived.pausedReason = undefined;
+      derived.pausedAt = undefined;
+    }
+    if (
+      liftsFailureState &&
+      failureStateOf(latest) === failureStateBeforeEdit
+    ) {
+      // Enabling lifts the failure the editor saw and starts a clean streak; a
+      // failure recorded after that read is left alone.
+      Object.assign(derived, RESUME_AUTOMATION_PATCH);
+    }
+    return derived;
+  };
+  const result = await applyJobResourceEdit({
+    resource,
+    fields: deriveFields,
+    revalidate: async (base) => {
+      // The retry's file must still be a job this editor may change; a same-ID
+      // path that became an automation cannot be updated through manage-jobs.
+      if (classifyJobResource(base.content).kind !== "job") return false;
+      return !(await authorizeJobMutation(base, "edit", appId));
+    },
+    ...(instructions ? { body: instructions } : {}),
+  });
+  if (!result.ok) {
+    return JSON.stringify({
+      error:
+        result.reason === "missing"
+          ? `Job "${name}" no longer exists.`
+          : result.reason === "unauthorized"
+            ? `Only the job's creator (or an org admin) can update it.`
+            : result.reason === "replaced"
+              ? `Job "${name}" was replaced while it was updated. Try again.`
+              : `Job "${name}" changed while it was updated. Try again.`,
+    });
   }
-  await resourcePut(resource.owner, resource.path, content);
 
+  // Report what actually landed, including fields a concurrent writer kept.
+  const landed = parseJobFrontmatter(result.resource.content).meta;
   return JSON.stringify({
     updated: true,
     name,
-    schedule: meta.schedule,
-    timezone: effectiveTimezone(meta.timezone),
+    schedule: landed.schedule,
+    timezone: effectiveTimezone(landed.timezone),
     scheduleDescription: describeCron(
-      meta.schedule,
-      effectiveTimezone(meta.timezone),
+      landed.schedule,
+      effectiveTimezone(landed.timezone),
     ),
-    enabled: meta.enabled,
-    nextRun: meta.nextRun,
-    mcpTools: meta.mcpTools || [],
-    reasoningEffort: meta.reasoningEffort || null,
-    executionHostId: meta.executionHostId || null,
-    executionEngine: meta.executionEngine || null,
-    executionCwd: meta.executionCwd || null,
+    enabled: landed.enabled,
+    nextRun: landed.nextRun,
+    mcpTools: landed.mcpTools || [],
+    reasoningEffort: landed.reasoningEffort || null,
+    executionHostId: landed.executionHostId || null,
+    executionEngine: landed.executionEngine || null,
+    executionCwd: landed.executionCwd || null,
   });
 }
 
@@ -495,13 +563,12 @@ async function runDelete(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({
       error: `"${name}" is an automation. Use manage-automations to delete it.`,
     });
   }
-  const denied = await authorizeJobMutation(resource.owner, meta, appId);
+  const denied = await authorizeJobMutation(resource, "delete", appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -511,7 +578,7 @@ async function runDelete(
 }
 
 export function createJobTools(appId?: string): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-jobs": {
       tool: {
         description: `Manage recurring jobs that run on a cron schedule.
@@ -553,7 +620,7 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
             instructions: {
               type: "string",
               description:
-                "What the agent should do when this job runs. Be specific — include which actions to call and what to do with the results. Required for create, optional for update.",
+                "What the agent should do when this job runs. Be specific: include which actions to call and what to do with the results. Required for create, optional for update.",
             },
             enabled: {
               type: "string",
@@ -631,5 +698,5 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
         }
       },
     },
-  };
+  });
 }

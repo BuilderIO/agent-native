@@ -50,11 +50,12 @@ Dispatch → 에이전트 → 외부 에이전트 추가에서 공유 시크릿�
 포함해 이를 스스로 처리합니다. 일부 텍스트 전용 채팅은 전사는 읽을 수 있지만
 프레임은 읽지 못하므로, 이런 경우에는 이미지 지원 에이전트에서 클립을 여세요.
 
-| Endpoint                                          | What agents get                                                                                         |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `/api/agent-context.json?id=<recordingId>`        | 클립 메타데이터, 전사 상태, 챕터, CTA, 추천 프레임, 전사/프레임 API 링크                                |
-| `/api/agent-transcript.json?id=<recordingId>`     | `startMs`, `endMs`, 읽을 수 있는 타임스탬프, 텍스트, 선택적 소스 라벨이 포함된 타임스탬프 전사 세그먼트 |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 원본 동영상 타임스탬프에서 추출한 JPEG 프레임                                                           |
+| Endpoint                                                                 | What agents get                                                                                                        |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | 클립 메타데이터, 전사 상태, 챕터, CTA, 추천 프레임, 전사/프레임 API 링크                                               |
+| `/api/agent-transcript.json?id=<recordingId>`                            | `startMs`, `endMs`, 읽을 수 있는 타임스탬프, 텍스트, 선택적 소스 라벨이 포함된 타임스탬프 전사 세그먼트                |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | 원본 동영상 타임스탬프에서 추출한 JPEG 프레임                                                                          |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | 시간 범위에서 최대 36개의 연속 프레임을 담은 JPEG 콘택트 시트로, 애니메이션이나 전환을 이미지 한 장으로 볼 수 있습니다 |
 
 이 엔드포인트들은 공유 페이지와 동일한 공개/비밀번호/만료 규칙을 따르거나, 임시
 에이전트 링크의 범위가 지정된 `agent_access` 토큰을 받습니다. 비밀번호로 보호된
@@ -128,6 +129,50 @@ Dispatch → 에이전트 → 외부 에이전트 추가에서 공유 시크릿�
 
 </Endpoint>
 
+<Endpoint id="doc-block-clips-agent-frames" title="시간 범위의 콘택트 시트" method="GET" path="/api/agent-frames.jpg" summary="시간 범위의 연속 프레임을 담은 JPEG 콘택트 시트 한 장" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "startMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Time of the first frame in milliseconds"
+  },
+  {
+    "name": "endMs",
+    "in": "query",
+    "type": "integer",
+    "required": false,
+    "description": "End of the range in milliseconds (exclusive); without it, the sheet holds up to 36 frames from startMs, stopping at 60 seconds or the end of the clip"
+  },
+  {
+    "name": "fps",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Frames per second, up to 60; without it, the video's own frame rate"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg sheet read left to right, then top to bottom; the X-Clips-Frame-Sheet-Times header lists each cell's time"
+  },
+  {
+    "status": "400",
+    "description": "failureKind=request when the range needs more than 36 frames or spans more than 60 seconds; nextStep names a request that fits"
+  }
+]}>
+
+셀 *i*에는 `startMs + i × 1000 / fps` 시점에 화면에 보이는 프레임이 들어갑니다. `fps`를 생략하면 동영상의 모든 프레임이 나옵니다.
+
+</Endpoint>
+
 전사가 아직 준비되지 않았다면, 예의 바른 에이전트는 바로 포기하는 대신 잠시 기다렸다가 다시 시도합니다. 긴 녹화는 몇 분이 걸릴 수 있습니다. Builder 크레딧이 소진되어 전사가 실패했다면, 에이전트는 그렇게 말하고 [전사 및 AI 메타데이터](/docs/template-clips-features#transcription-and-ai-metadata) 문서를 안내해야 합니다.
 
 ### Brain으로 내보내기
@@ -136,47 +181,9 @@ Dispatch → 에이전트 → 외부 에이전트 추가에서 공유 시크릿�
 
 ### CRM 통화 증거
 
-CRM 도구는 때때로 전체 녹화 없이 통화가 있었다는 증거만 필요로 합니다. 클립은 동영상이나 전사가 아니라 불투명한 클립 ID와 지속되는 링크만 건네줍니다. 이는 여러분이 이미 볼 수 있는 녹화에서만, 그리고 여러분이 요청하거나 승인된 자동화가 트리거될 때만 동작합니다.
+CRM 도구는 때때로 전체 녹화 없이 통화가 있었다는 증거만 필요로 합니다. 클립은 동영상이나 전사가 아니라 불투명한 클립 ID와 지속되는 링크만 건네줍니다. 이는 여러분이 이미 볼 수 있는 녹화에서만, 그리고 여러분이 요청할 때만 동작합니다.
 
-<Diagram id="doc-block-clips-crm" title="CRM 통화 증거" summary={"clip.created 자동화가 미디어 자체가 아니라 지속되는 링크를 CRM 워크플로에 건네줍니다."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">녹화 준비 완료</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">승인된 자동화</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">증거 링크</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">CRM 레코드</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+CRM에서 Clips로의 통화 자동화 설정은 아직 사용할 수 없습니다.
 
 ### Dispatch를 통한 자연어 위임
 

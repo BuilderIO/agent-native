@@ -1,5 +1,14 @@
 export { FileReference } from "./extensions/FileReference.js";
 export {
+  ComposerContextBanner,
+  type ComposerContextBannerProps,
+} from "./ComposerContextBanner.js";
+export {
+  ComposerModePicker,
+  type ComposerModeOption,
+  type ComposerModePickerProps,
+} from "./ComposerModePicker.js";
+export {
   useComposerDefaultActions,
   mergeComposerMenuItems,
 } from "./ComposerPlusMenu.js";
@@ -20,6 +29,7 @@ export {
   type ComposerContextPickerSelection,
   type ComposerContextPickerFooterAction,
 } from "./ComposerContextMenu.js";
+export { ComposerContextPickerDialog } from "./ComposerContextPickerDialog.js";
 export {
   areComposerContextItemsReady,
   composerContextFits,
@@ -36,6 +46,12 @@ export {
   AgentComposerFrame,
   type AgentComposerFrameProps,
 } from "./AgentComposerFrame.js";
+export {
+  ComposerNotice,
+  ComposerNoticeScope,
+  type ComposerNoticeProps,
+  type ComposerNoticeTone,
+} from "./composer-notice.js";
 export {
   AgentSuggestionBar,
   agentSuggestionPrompt,
@@ -58,6 +74,9 @@ export {
   sameComposerDraft,
   type ComposerDraftSnapshot,
   type ComposerSubmitIntent,
+  type ComposerSubmitStart,
+  type ComposerSubmitStartAttachment,
+  type ComposerSubmitStartHandle,
   type TiptapComposerHandle,
   type ComposerTextReference,
   type ComposerTextSelection,
@@ -92,11 +111,7 @@ export {
 export { useEagerFileUploads } from "./use-eager-file-uploads.js";
 export type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 export {
-  RealtimeVoiceModeDock,
-  RealtimeVoiceModeEntry,
   type RealtimeVoiceModeCopy,
-  type RealtimeVoiceModeDockProps,
-  type RealtimeVoiceModeEntryProps,
   type RealtimeVoiceModeInlineSettings,
   type RealtimeVoiceModeSelectSetting,
   type RealtimeVoiceModeSettingOption,
@@ -117,16 +132,20 @@ export {
   type RealtimeVoiceModeApi,
   type RealtimeVoiceModeProviderProps,
   type RealtimeVoiceSessionAnswer,
+  type RealtimeVoiceStartOptions,
   type RealtimeVoiceToolResult,
 } from "./useRealtimeVoiceMode.js";
 export {
   AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
   AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
+  AGENT_PROMPT_MAX_TEXT_FILE_BYTES,
   escapePromptAttachmentAttribute,
   formatPromptWithAttachments,
   isInlineableAgentPromptFile,
+  probeAgentPromptAttachment,
   readAgentPromptAttachment,
   type AgentPromptAttachment,
+  type AgentPromptAttachmentReadError,
   type ReadAgentPromptAttachmentOptions,
 } from "./prompt-attachments.js";
 export { MentionChip, type MentionChipProps } from "./MentionChip.js";
@@ -135,6 +154,8 @@ export { useMentionSearch } from "./use-mention-search.js";
 export {
   ComposerRuntimeAdaptersProvider,
   useComposerRuntimeAdapters,
+  type ComposerModelBilling,
+  type ComposerModelDescription,
   type ComposerRuntimeAdapters,
   type ComposerTranslate,
 } from "./runtime-adapters.js";

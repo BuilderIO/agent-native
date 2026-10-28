@@ -1,14 +1,17 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { i18nCatalog } from "../../../i18n";
 import { DashboardFilterBar } from "./DashboardFilterBar";
-import type { DashboardFilter } from "./types";
+import { editFilterPresets } from "./filter-vars";
+import type { DashboardFilter, FilterPresetEdit } from "./types";
 
 const filters: DashboardFilter[] = [
   {
@@ -36,6 +39,7 @@ function SearchProbe() {
 function render(
   initialEntry = "/dashboards/test",
   list: DashboardFilter[] = filters,
+  props: Partial<ComponentProps<typeof DashboardFilterBar>> = {},
 ) {
   act(() => {
     root.render(
@@ -44,10 +48,12 @@ function render(
         initialLocale="en-US"
         persistPreference={false}
       >
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <DashboardFilterBar filters={list} />
-          <SearchProbe />
-        </MemoryRouter>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <DashboardFilterBar filters={list} {...props} />
+            <SearchProbe />
+          </MemoryRouter>
+        </TooltipProvider>
       </AgentNativeI18nProvider>,
     );
   });
@@ -111,7 +117,49 @@ function searchInput(): HTMLInputElement {
 }
 
 function setSearchQuery(value: string) {
-  const input = searchInput();
+  typeInto(searchInput(), value);
+}
+
+// Re-renders with each preset edit applied in the same click, as persist() does.
+function renderWithEdits(
+  initialEntry: string,
+  list: DashboardFilter[],
+  props: Partial<ComponentProps<typeof DashboardFilterBar>> = {},
+) {
+  let current = list;
+  const onEditPreset = vi.fn((filterId: string, edit: FilterPresetEdit) => {
+    current = current.map((filter) =>
+      filter.id === filterId
+        ? { ...filter, presets: editFilterPresets(filter.presets, edit) }
+        : filter,
+    );
+    render(initialEntry, current, { ...props, onEditPreset });
+  });
+  render(initialEntry, current, { ...props, onEditPreset });
+  return onEditPreset;
+}
+
+function groupNameInput(): HTMLInputElement {
+  const input = popover().querySelector<HTMLInputElement>(
+    'input[aria-label="Group name"]',
+  );
+  if (!input) throw new Error("group name input not rendered");
+  return input;
+}
+
+function pressEscape(target: Element) {
+  act(() => {
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+
+function typeInto(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     "value",
@@ -427,6 +475,281 @@ describe("multi-select dashboard filter", () => {
 
       expect(popover().querySelector('[role="group"]')).toBeNull();
       expect(optionLabel("Free")).toBeTruthy();
+    });
+  });
+
+  describe("Save as group", () => {
+    const withPreset: DashboardFilter[] = [
+      {
+        ...filters[0],
+        presets: [{ label: "Paid", values: ["self_serve", "enterprise"] }],
+      },
+    ];
+
+    it("is not offered in view mode, where no save changes the dashboard", () => {
+      render("/dashboards/test?f_plan=free,enterprise", withPreset);
+      act(() => trigger().click());
+
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+    });
+
+    it("appears only for two or more checked values that are not all values and match no preset", () => {
+      render("/dashboards/test?f_plan=free", withPreset, {
+        onEditPreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+
+      act(() => optionCheckbox("Enterprise").click());
+      expect(popoverButton("Save as group…")).toBeTruthy();
+
+      act(() => optionCheckbox("Self-Serve").click());
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+
+      act(() => optionCheckbox("Free").click());
+      expect(trigger().textContent).toContain("Paid");
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+    });
+
+    it("saves the checked values in option order under the typed name", () => {
+      const onEditPreset = vi.fn();
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onEditPreset,
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "  Mixed  ");
+      act(() => popoverButton("Save").click());
+
+      expect(onEditPreset).toHaveBeenCalledWith("plan", {
+        kind: "add",
+        preset: { label: "Mixed", values: ["free", "enterprise"] },
+      });
+      expect(() => groupNameInput()).toThrow("not rendered");
+      act(() => popoverButton("Save as group…").click());
+      expect(groupNameInput().value).toBe("");
+    });
+
+    it("moves focus to the group it saved, since the name form unmounts", () => {
+      renderWithEdits("/dashboards/test?f_plan=enterprise,free", withPreset);
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Mixed");
+      act(() => popoverButton("Save").click());
+
+      expect(popoverButton("Mixed").getAttribute("aria-pressed")).toBe("true");
+      expect(document.activeElement).toBe(popoverButton("Mixed"));
+    });
+
+    it("returns focus to Save as group when the dashboard rejects the save", () => {
+      const url = "/dashboards/test?f_plan=enterprise,free";
+      const onEditPreset = renderWithEdits(url, withPreset);
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Mixed");
+      act(() => popoverButton("Save").click());
+      expect(document.activeElement).toBe(popoverButton("Mixed"));
+
+      // The refetch after a failed save drops the preset the page added.
+      render(url, withPreset, { onEditPreset });
+
+      expect(() => popoverButton("Mixed")).toThrow("not rendered");
+      expect(document.activeElement).toBe(popoverButton("Save as group…"));
+    });
+
+    it("says Save for everyone on a shared dashboard and refuses a name already in use", () => {
+      const onEditPreset = vi.fn();
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onEditPreset,
+        shared: true,
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Paid");
+
+      const save = popoverButton("Save for everyone");
+      expect(save.disabled).toBe(true);
+      expect(groupNameInput().getAttribute("aria-invalid")).toBe("true");
+      expect(popover().querySelector('[role="alert"]')?.textContent).toBe(
+        "A group with this name already exists",
+      );
+      act(() => save.click());
+      expect(onEditPreset).not.toHaveBeenCalled();
+    });
+
+    it("backs out of naming on Escape and keeps the dropdown open", () => {
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onEditPreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Discard me");
+      pressEscape(groupNameInput());
+
+      expect(popover()).toBeTruthy();
+      expect(() => groupNameInput()).toThrow("not rendered");
+      expect(document.activeElement).toBe(popoverButton("Save as group…"));
+      act(() => popoverButton("Save as group…").click());
+      expect(groupNameInput().value).toBe("");
+    });
+
+    it("clears a nonempty preset name when the popover is explicitly dismissed", () => {
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onEditPreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Discard me");
+      act(() => trigger().click());
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      expect(groupNameInput().value).toBe("");
+    });
+  });
+
+  describe("Rename and delete group", () => {
+    const paidUrl = "/dashboards/test?f_plan=self_serve,enterprise";
+    const withPresets: DashboardFilter[] = [
+      {
+        ...filters[0],
+        presets: [
+          { label: "Paid", values: ["self_serve", "enterprise"] },
+          { label: "Starter", values: ["free", "self_serve"] },
+        ],
+      },
+    ];
+
+    it("is not offered in view mode, where no edit changes the dashboard", () => {
+      render(paidUrl, withPresets);
+      act(() => trigger().click());
+
+      expect(() => popoverButton("Rename group…")).toThrow("not rendered");
+      expect(() => popoverButton("Delete group")).toThrow("not rendered");
+    });
+
+    it("appears in place of Save as group only while the selection matches a group", () => {
+      render(paidUrl, withPresets, { onEditPreset: vi.fn() });
+      act(() => trigger().click());
+      expect(popoverButton("Rename group…")).toBeTruthy();
+      expect(popoverButton("Delete group")).toBeTruthy();
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+
+      act(() => optionCheckbox("Free").click());
+      expect(() => popoverButton("Rename group…")).toThrow("not rendered");
+      expect(() => popoverButton("Delete group")).toThrow("not rendered");
+    });
+
+    it("renames the group the selection matches and returns focus to Rename group", () => {
+      const onEditPreset = renderWithEdits(paidUrl, withPresets);
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+
+      expect(groupNameInput().value).toBe("Paid");
+      expect(popoverButton("Save").disabled).toBe(true);
+      typeInto(groupNameInput(), " Paying ");
+      act(() => popoverButton("Save").click());
+
+      expect(onEditPreset).toHaveBeenCalledWith("plan", {
+        kind: "rename",
+        label: "Paid",
+        newLabel: "Paying",
+      });
+      expect(popoverButton("Paying").getAttribute("aria-pressed")).toBe("true");
+      expect(() => popoverButton("Paid")).toThrow("not rendered");
+      expect(trigger().textContent).toContain("Paying");
+      expect(document.activeElement).toBe(popoverButton("Rename group…"));
+      expect(new URLSearchParams(search).get("f_plan")).toBe(
+        "self_serve,enterprise",
+      );
+    });
+
+    it("refuses a name another group uses, and backs out on Escape", () => {
+      const onEditPreset = vi.fn();
+      render(paidUrl, withPresets, { onEditPreset, shared: true });
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+      typeInto(groupNameInput(), "Starter");
+
+      expect(popoverButton("Save for everyone").disabled).toBe(true);
+      expect(popover().querySelector('[role="alert"]')?.textContent).toBe(
+        "A group with this name already exists",
+      );
+
+      pressEscape(groupNameInput());
+      expect(popover()).toBeTruthy();
+      expect(() => groupNameInput()).toThrow("not rendered");
+      expect(document.activeElement).toBe(popoverButton("Rename group…"));
+      expect(onEditPreset).not.toHaveBeenCalled();
+    });
+
+    it("closes the rename form when the selection moves to another group, rather than renaming that group", () => {
+      const onEditPreset = vi.fn();
+      render(paidUrl, withPresets, { onEditPreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+      typeInto(groupNameInput(), "Premium");
+
+      act(() => optionCheckbox("Enterprise").click());
+      act(() => optionCheckbox("Free").click());
+
+      expect(popoverButton("Starter").getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expect(() => groupNameInput()).toThrow("not rendered");
+      act(() => popoverButton("Rename group…").click());
+      expect(groupNameInput().value).toBe("Starter");
+      expect(onEditPreset).not.toHaveBeenCalled();
+    });
+
+    it("drops an abandoned rename, so coming back to its group doesn't reopen the draft", () => {
+      const onEditPreset = vi.fn();
+      render(paidUrl, withPresets, { onEditPreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+      typeInto(groupNameInput(), "Premium");
+
+      act(() => optionCheckbox("Enterprise").click());
+      act(() => optionCheckbox("Enterprise").click());
+
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("true");
+      expect(() => groupNameInput()).toThrow("not rendered");
+      act(() => popoverButton("Rename group…").click());
+      expect(groupNameInput().value).toBe("Paid");
+      expect(onEditPreset).not.toHaveBeenCalled();
+    });
+
+    it("starts Save as group from an empty name after an abandoned rename", () => {
+      render(paidUrl, withPresets, { onEditPreset: vi.fn() });
+      act(() => trigger().click());
+      act(() => popoverButton("Rename group…").click());
+      typeInto(groupNameInput(), "Premium");
+
+      act(() => optionCheckbox("Self-Serve").click());
+      act(() => optionCheckbox("Free").click());
+      act(() => popoverButton("Save as group…").click());
+
+      expect(groupNameInput().value).toBe("");
+    });
+
+    it("deletes the group but keeps its values checked, with focus on the search field", () => {
+      const onEditPreset = renderWithEdits(paidUrl, withPresets);
+      act(() => trigger().click());
+      act(() => popoverButton("Delete group").click());
+
+      expect(onEditPreset).toHaveBeenCalledWith("plan", {
+        kind: "delete",
+        label: "Paid",
+      });
+      expect(() => popoverButton("Paid")).toThrow("not rendered");
+      expect(popoverButton("Starter")).toBeTruthy();
+      expect(optionCheckbox("Enterprise").getAttribute("aria-checked")).toBe(
+        "true",
+      );
+      expect(new URLSearchParams(search).get("f_plan")).toBe(
+        "self_serve,enterprise",
+      );
+      expect(document.activeElement).toBe(searchInput());
+      expect(popoverButton("Save as group…")).toBeTruthy();
     });
   });
 });

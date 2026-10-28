@@ -2,6 +2,7 @@
   "name": "analytics",
   "displayName": "Analytics",
   "private": true,
+  "description": "Connect data sources and warehouses, including BigQuery, to explore product and event analytics, session data, dashboards, and charts.",
   "type": "module",
   "scripts": {
     "dev": "DATABASE_URL=${ANALYTICS_DATABASE_URL:-pglite:./data/pglite} agent-native dev",
@@ -13,6 +14,16 @@
     "typecheck": "agent-native typecheck",
     "migrate:production": "tsx scripts/migrate-production.ts",
     "journey:capture": "tsx scripts/journey-capture.ts",
+    "radar:query": "tsx scripts/radar/query.ts",
+    "radar:watch": "tsx scripts/radar/watch.ts",
+    "radar:live-watch": "tsx scripts/first-touch-radar-live.ts watch",
+    "radar:triage": "tsx scripts/radar/triage.ts",
+    "radar:ab": "tsx scripts/radar/ab.ts",
+    "radar:live-ab": "tsx scripts/first-touch-radar-live.ts ab",
+    "radar:report": "tsx scripts/radar/report.ts",
+    "radar:live-report": "tsx scripts/first-touch-radar-live.ts report",
+    "radar:backtest": "tsx scripts/first-touch-radar-live.ts backtest",
+    "journey:snapshot": "tsx scripts/journey-snapshot.ts",
     "source-index": "tsx scripts/build-source-index.ts",
     "backfill:first-party-bigquery": "tsx scripts/first-party-analytics-bigquery-backfill.ts",
     "action": "agent-native action",
@@ -85,7 +96,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@types/three": "^0.176.0",
-    "@vitejs/plugin-react-swc": "^4.0.0",
+    "@vitejs/plugin-react-swc": "^4.3.3",
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
     "class-variance-authority": "^0.7.1",
@@ -115,6 +126,11 @@
     "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748",
+  "agent-native": {
+    "whenToUse": [
+      "Use Analytics for connected data sources and warehouses, including BigQuery, product and event analytics, session data, dashboards, and charts."
+    ]
+  },
   "pkg": {
     "assets": [
       "dist/spa/*"

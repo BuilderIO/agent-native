@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizeNfm,
+  canonicalizeNotionNfm,
   collapseExactRepeatedNfm,
   docToNfm,
   inspectNfmFidelity,
   nfmToDoc,
 } from "./nfm";
+
+function found<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("Expected the fixture to have it");
+  return value;
+}
 
 const L = (...lines: string[]) => lines.join("\n");
 
@@ -874,6 +880,111 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("protective whitespace spans", () => {
+    it.each([
+      "<span>\tactual-tab text</span>",
+      "<span>  </span>",
+      "<span>\t</span>",
+      "- Parent\n\t<span>\tactual-tab text</span>",
+      "- Parent\n\t<span>  </span>",
+    ])("round-trips %j without interpreting text as block syntax", (nfm) => {
+      const doc = nfmToDoc(nfm);
+      const serialized = docToNfm(doc);
+
+      expect(nfmToDoc(serialized)).toEqual(doc);
+      expect(serialized).toBe(nfm);
+      expect(canonicalizeNfm(serialized)).toBe(serialized);
+    });
+
+    it.each([
+      ["a leading tab", "\tactual-tab text"],
+      ["only spaces", "  "],
+      ["only a tab", "\t"],
+    ])("keeps unmarked text with %s", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const paragraphs = nfmToDoc(serialized).content ?? [];
+
+      expect(serialized).toBe(`before\n<span>${text}</span>\nafter`);
+      expect(
+        paragraphs.map((node) =>
+          (node.content ?? []).map((child) => child.text).join(""),
+        ),
+      ).toEqual(["before", text, "after"]);
+      expect(docToNfm(nfmToDoc(serialized))).toBe(serialized);
+    });
+
+    it("leaves whitespace inside a line unwrapped", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "One", marks: [{ type: "bold" }] },
+              { type: "text", text: " " },
+              { type: "text", text: "\tTwo" },
+              { type: "text", text: "\n", marks: [{ type: "code" }] },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe("**One** \tTwo`<br>`");
+    });
+
+    it.each([
+      ["a newline", "\n"],
+      ["a space and a newline", " \n"],
+      ["a tab and a newline", "\t\n"],
+    ])("never wraps text with %s in a span", (_label, text) => {
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "before" }] },
+          { type: "paragraph", content: [{ type: "text", text }] },
+          { type: "paragraph", content: [{ type: "text", text: "after" }] },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const texts = (nfmToDoc(serialized).content ?? []).flatMap((node) =>
+        (node.content ?? []).map((child) => child.text ?? ""),
+      );
+
+      expect(serialized).not.toContain("<span>");
+      expect(texts.join("")).not.toContain("span>");
+    });
+
+    it.each([
+      ["bold", "\tfoo", "**\tfoo**"],
+      ["italic", "\tfoo", "*\tfoo*"],
+    ])("leaves %s text that starts a line unwrapped", (mark, text, nfm) => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text, marks: [{ type: mark }] }],
+          },
+        ],
+      } as any;
+      const serialized = docToNfm(doc);
+      const marks = nfmToDoc(serialized).content?.[0]?.content?.flatMap(
+        (child) => (child.marks ?? []).map((m) => m.type),
+      );
+
+      expect(serialized).toBe(nfm);
+      expect(marks).not.toContain("notionSpan");
+    });
+  });
+
   describe("dual inline colors", () => {
     it("serializes inline code without losing its color", () => {
       const doc = {
@@ -1435,15 +1546,20 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  describe("n20: canonicalization never trims intentional empty blocks", () => {
-    it("keeps a trailing <empty-block/> after a heading", () => {
-      const nfm = L("# H", "<empty-block/>");
-      expect(canonicalizeNfm(nfm)).toBe(nfm);
+  describe("n20: canonicalization trims only the editor's trailing filler", () => {
+    // The live copy saves without it, so canonical Markdown does too.
+    it("trims a trailing <empty-block/> after a heading or a list", () => {
+      expect(canonicalizeNfm(L("# H", "<empty-block/>"))).toBe("# H");
+      expect(canonicalizeNfm(L("- item", "<empty-block/>"))).toBe("- item");
     });
 
-    it("keeps a trailing <empty-block/> after a list", () => {
-      const nfm = L("- item", "<empty-block/>");
-      expect(canonicalizeNfm(nfm)).toBe(nfm);
+    it("keeps a trailing <empty-block/> after a paragraph, or one that is indented", () => {
+      for (const nfm of [
+        L("Text", "<empty-block/>"),
+        L("# H", "<empty-block/>", "<empty-block/>"),
+        L("# H", "\t<empty-block/>"),
+      ])
+        expect(canonicalizeNfm(nfm)).toBe(nfm);
     });
 
     it("keeps a trailing <empty-block/> nested inside a callout", () => {
@@ -1788,5 +1904,41 @@ describe("docToNfm — long containers", () => {
     expect(lines).toHaveLength(count);
     expect(lines[0]).toBe("> p0");
     expect(lines[count - 1]).toBe(`\tp${count - 1}`);
+  });
+});
+
+describe("video block ids", () => {
+  const withId =
+    '<video src="https://example.com/demo.mp4" id="video-a1b2c3d4">Demo</video>';
+
+  it("keeps a video's block id through a round trip", () => {
+    const doc = nfmToDoc(withId);
+    expect(doc.content[0]).toMatchObject({
+      type: "video",
+      attrs: {
+        src: "https://example.com/demo.mp4",
+        title: "Demo",
+        blockId: "video-a1b2c3d4",
+      },
+    });
+    expect(docToNfm(doc)).toBe(withId);
+    expect(inspectNfmFidelity(withId)).toMatchObject({
+      normalizedChanged: false,
+      unresolved: [],
+    });
+  });
+
+  it("writes no id for a video that has none", () => {
+    const plain = '<video src="https://example.com/demo.mp4"></video>';
+    expect(found(nfmToDoc(plain).content?.[0]).attrs).not.toHaveProperty(
+      "blockId",
+    );
+    expect(canonicalizeNfm(plain)).toBe(plain);
+  });
+
+  it("leaves the id out of the form Notion receives", () => {
+    expect(canonicalizeNotionNfm(withId)).toBe(
+      '<video src="https://example.com/demo.mp4">Demo</video>',
+    );
   });
 });

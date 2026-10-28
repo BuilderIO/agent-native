@@ -22,7 +22,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserName: () => undefined,
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 
@@ -50,7 +51,10 @@ describe("add-comment access", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
-    mockAssertAccess.mockResolvedValue({ role: "commenter", resource: {} });
+    mockAssertAccess.mockResolvedValue({
+      role: "commenter",
+      resource: { enableComments: true },
+    });
     mockDb.select.mockReturnValue({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
@@ -79,6 +83,18 @@ describe("add-comment access", () => {
         content: "A note from a viewer",
         videoTimestampMs: 12_000,
       }),
+    );
+  });
+
+  it("stores the exact frame time it is given", async () => {
+    await addComment.run({
+      recordingId: "recording-1",
+      content: "This frame",
+      videoTimestampMs: 12_542,
+    });
+
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ videoTimestampMs: 12_542 }),
     );
   });
 

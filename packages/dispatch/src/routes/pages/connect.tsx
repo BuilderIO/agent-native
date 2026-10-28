@@ -1,7 +1,10 @@
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink, IconPlugConnected } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { AppIcon } from "../../components/app-icon";
@@ -11,8 +14,6 @@ import { Input } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/skeleton";
 import {
   buildIdentityConnectUrl,
-  fetchConnectAgentCard,
-  fetchMarketplaceApps,
   normalizeConnectUrl,
   type ConnectAgentCard,
   type MarketplaceApp,
@@ -143,13 +144,15 @@ function ConnectAppsContent() {
   const [card, setCard] = useState<ConnectAgentCard | null>(null);
   const [cardError, setCardError] = useState(false);
   const [cardLoading, setCardLoading] = useState(false);
-  const feedQuery = useQuery({
-    queryKey: ["connect-apps-marketplace"],
-    queryFn: () => fetchMarketplaceApps(),
-    enabled: true,
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  });
+  const feedQuery = useActionQuery(
+    "list-connect-marketplace-apps",
+    {},
+    {
+      staleTime: 5 * 60 * 1000,
+      retry: 1,
+    },
+  );
+  const inspectCard = useActionMutation("inspect-connect-agent-card");
 
   const target = normalizeConnectUrl(url);
 
@@ -159,7 +162,7 @@ function ConnectAppsContent() {
     setCardError(false);
     setCard(null);
     try {
-      setCard(await fetchConnectAgentCard(target.toString()));
+      setCard(await inspectCard.mutateAsync({ url: target.toString() }));
     } catch {
       setCardError(true);
     } finally {

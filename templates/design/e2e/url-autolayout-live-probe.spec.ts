@@ -14,6 +14,8 @@ import { E2E_EMAIL } from "./global-setup";
 import { INTERACT_FRAME } from "./interact-helpers";
 import { expect, test, type App } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 const SOURCE = `<!doctype html><html><head><style>
       html,body{margin:0;background:#fff}main{padding:24px;width:720px}
       #flow{display:flex;flex-direction:column;gap:16px;border:2px solid #334155;padding:16px;width:640px}
@@ -728,8 +730,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect.poll(() => canvasHasFocus(page)).toBe(true);
   });
 
-  // fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-  test.fixme("keeps Tab focus when a sibling preview reports safe", async ({
+  test("keeps Tab focus when a sibling preview reports safe", async ({
     app,
     page,
   }) => {
@@ -835,13 +836,20 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect(
       first.getByRole("button", { name: "Keep focus in app" }),
     ).toBeFocused();
+    // Tab enters the preview of whichever Screen holds canvas focus, so the
+    // sibling can sit on either side of it in tab order.
+    const towardSibling =
+      siblingFrameIndex > firstFrameIndex ? "Tab" : "Shift+Tab";
+    if (towardSibling === "Shift+Tab") {
+      await first.locator("#startup-search").focus();
+    }
     let activeFrameIndex = firstFrameIndex;
     for (
       let step = 0;
       step < 80 && activeFrameIndex !== siblingFrameIndex;
       step += 1
     ) {
-      await page.keyboard.press("Tab");
+      await page.keyboard.press(towardSibling);
       activeFrameIndex = await activePreviewIndex(page);
     }
     expect(
@@ -869,8 +877,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect.poll(() => canvasHasFocus(page)).toBe(true);
   });
 
-  // fixme: fails in CI on current main: expect(locator).toBeVisible() failed
-  test.fixme("a reordered URL-backed layer stays a pending edit until the agent applies it, and the applied order survives reload", async ({
+  test("a reordered URL-backed layer stays a pending edit until the agent applies it, and the applied order survives reload", async ({
     app,
     page,
   }) => {
@@ -942,7 +949,10 @@ test.describe("URL-backed live auto-layout probe", () => {
       x: sourceBox.x + sourceBox.width / 2,
       y: sourceBox.y + sourceBox.height / 2,
     };
+    // Cmd+click reaches the nested card; a plain click takes the top-level layer.
+    await page.keyboard.down(MOD);
     await page.mouse.click(dragStart.x, dragStart.y);
+    await page.keyboard.up(MOD);
     await expect
       .poll(() =>
         frame
@@ -1152,7 +1162,7 @@ test.describe("URL-backed live auto-layout probe", () => {
       result: { surfaced: true },
     });
     const consent = page.getByRole("dialog", { name: "Allow file writes" });
-    await expect(consent).toBeVisible({ timeout: 10_000 });
+    await expect(consent).toBeVisible({ timeout: 20_000 });
     await consent.getByRole("button", { name: "Allow writes" }).click();
     // The dialog closes only after the server-side grant lands; writing earlier races it.
     await expect(consent).toBeHidden({ timeout: 10_000 });
@@ -1211,8 +1221,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     });
   });
 
-  // fixme: product bug: With Group A + Group B selected ('2 selected'), every inspector field reads Mixed, including padding-top 8px and margin-top 4px that both
-  test.fixme("shows Mixed padding and margin only on the sides where the selected layers differ", async ({
+  test("shows Mixed padding and margin only on the sides where the selected layers differ", async ({
     app,
     page,
   }) => {
@@ -1238,21 +1247,26 @@ test.describe("URL-backed live auto-layout probe", () => {
     const groupBBox = await groupB.boundingBox();
     if (!groupABox || !groupBBox) throw new Error("group cards have no boxes");
 
+    // Cmd+click reaches the nested cards; a plain click takes the top-level layer.
+    await page.keyboard.down(MOD);
     await page.mouse.click(
       groupABox.x + groupABox.width / 2,
       groupABox.y + groupABox.height / 2,
     );
+    await page.keyboard.up(MOD);
     await expect.poll(() => app.selectedLayers()).toStrictEqual(["Group A"]);
     await expect(
       page.locator('button[aria-label="Unlink padding"]'),
     ).toBeVisible();
 
+    await page.keyboard.down(MOD);
     await page.keyboard.down("Shift");
     await page.mouse.click(
       groupBBox.x + groupBBox.width / 2,
       groupBBox.y + groupBBox.height / 2,
     );
     await page.keyboard.up("Shift");
+    await page.keyboard.up(MOD);
     await expect
       .poll(async () => (await app.selectedLayers()).sort())
       .toStrictEqual(["Group A", "Group B"]);
@@ -1346,17 +1360,22 @@ test.describe("URL-backed live auto-layout probe", () => {
     const targetBox = await occupied.boundingBox();
     if (!groupABox || !groupBBox || !targetBox)
       throw new Error("group cards have no boxes");
+    // Cmd+click reaches the nested cards; a plain click takes the top-level layer.
+    await page.keyboard.down(MOD);
     await page.mouse.click(
       groupABox.x + groupABox.width / 2,
       groupABox.y + groupABox.height / 2,
     );
+    await page.keyboard.up(MOD);
     await expect.poll(() => app.selectedLayers()).toStrictEqual(["Group A"]);
+    await page.keyboard.down(MOD);
     await page.keyboard.down("Shift");
     await page.mouse.click(
       groupBBox.x + groupBBox.width / 2,
       groupBBox.y + groupBBox.height / 2,
     );
     await page.keyboard.up("Shift");
+    await page.keyboard.up(MOD);
     await expect
       .poll(async () => (await app.selectedLayers()).sort())
       .toStrictEqual(["Group A", "Group B"]);

@@ -142,7 +142,8 @@ vi.mock("@agent-native/core/db", () => ({
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
       if (/^DELETE FROM identity_sso_bootstrap/i.test(sql)) {
         for (let i = bootstrapRows.length - 1; i >= 0; i--) {
-          if (bootstrapRows[i].expires_at < args[0]) bootstrapRows.splice(i, 1);
+          if ((bootstrapRows[i]?.expires_at ?? Infinity) < args[0])
+            bootstrapRows.splice(i, 1);
         }
         return { rows: [], rowsAffected: 0 };
       }
@@ -1475,6 +1476,43 @@ describe("organization federation endpoint", () => {
     );
 
     expect(response.status).toBe(401);
+    expect(verifyA2ATokenMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ verificationSecret: "test-a2a-secret" }),
+    );
+  });
+
+  it("rejects org-member assertions at the dedicated federation boundary", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "owner@example.test",
+      orgDomain: null,
+      orgId: "dispatch-org-1",
+      claims: {
+        iss: "https://mail.agent-native.com",
+        app_id: "mail",
+        scope: "org-member",
+        org_role: "owner",
+        federation_operation: "remove-member",
+      },
+    });
+
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer org-member-assertion" },
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(verifyA2ATokenMock).toHaveBeenCalledWith(
+      "org-member-assertion",
+      expect.anything(),
+      expect.objectContaining({
+        globalSecretOnly: true,
+        verificationSecret: "test-mail-federation-secret",
+      }),
+    );
     expect(verifyA2ATokenMock).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),

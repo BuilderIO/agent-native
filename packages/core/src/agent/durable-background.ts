@@ -158,9 +158,15 @@ export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
  */
 export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
 
+export const AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD =
+  "__agentChatBackgroundSetupCleanup";
+
 /** Analytics-only source context captured before the run leaves its browser request. */
 export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
   "__agentNativeBrowserSessionId";
+
+/** Captured turn origin; durable workers do not restore loopback trust from this payload. */
+export const AGENT_CHAT_REQUEST_CONTEXT_FIELD = "__agentChatRequestContext";
 
 export function isHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;

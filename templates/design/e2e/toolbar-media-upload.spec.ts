@@ -64,7 +64,7 @@ async function installAssetRoute(
 
 async function addToolbarMedia(page: Page, fixture: string) {
   await page.getByRole("button", { name: "Shapes options" }).click();
-  await page.getByRole("menuitem", { name: "Image/video..." }).click();
+  await page.getByRole("menuitem", { name: "Image/video…" }).click();
   const input = page.locator('[data-design-bottom-toolbar] input[type="file"]');
   await expect(input).toHaveAttribute("accept", "image/*,video/*");
   await input.setInputFiles(fixture);
@@ -134,8 +134,7 @@ function savedMediaLayer(
   return layer;
 }
 
-// fixme: product bug: Once the video's durable URL on this host (http://<loopback>/e2e-assets/…webm) is saved, the inline Screen is reclassified as
-test.fixme("toolbar inserts image and video through preview, upload, save, and reload", async ({
+test("toolbar inserts image and video through preview, upload, save, and reload", async ({
   app,
 }) => {
   test.setTimeout(120_000);
@@ -270,8 +269,7 @@ test.fixme("toolbar inserts image and video through preview, upload, save, and r
     .toHaveAttribute("data-design-source-type", "inline");
 });
 
-// fixme: product bug: Once the video's durable URL on this host (http://<loopback>/e2e-assets/…webm) is saved, the inline Screen is reclassified as
-test.fixme("pasting a desktop video file uploads and persists a playable layer", async ({
+test("pasting a desktop video file uploads and persists a playable layer", async ({
   app,
 }) => {
   test.setTimeout(120_000);

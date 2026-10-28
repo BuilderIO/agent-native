@@ -108,6 +108,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "فتح صفحة الاتصال الكاملة",
   mcpIdentityError: "تعذّر تحميل تفاصيل الاتصال لهذا التطبيق.",
   mcpRetry: "إعادة المحاولة",
+  mcpOAuthBackToApp: "العودة إلى التطبيق",
+  mcpOAuthConnectionDone: "اكتمل الاتصال",
   mcpConnect: mcpConnectMessages,
 };
 

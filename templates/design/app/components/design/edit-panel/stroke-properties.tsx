@@ -10,15 +10,12 @@ import {
   type VectorEndpointStyle,
 } from "@shared/vector-endpoints";
 import {
-  IconAdjustments,
   IconArrowsLeftRight,
   IconBorderStyle,
   IconEye,
   IconEyeOff,
-  IconLayoutGrid,
   IconMinus,
   IconPlus,
-  IconSquare,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -51,6 +48,7 @@ import { ColorInput, PanelSection, SubsectionLabel } from "./panel-primitives";
 import {
   cssColorOrFallback,
   cssLengthNumber,
+  insideStrokeBoxSizing,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
@@ -147,6 +145,12 @@ function StrokeLayerControl({
       [`${nextPrefix}Width`]: width || "1px",
       [`${nextPrefix}Style`]: styleValue || "solid",
     };
+    if (nextPrefix === "border") {
+      Object.assign(
+        patch,
+        insideStrokeBoxSizing(element?.computedStyles ?? {}),
+      );
+    }
     if (nextPrefix === "outline") {
       patch.outlineOffset = outlineOffsetForPosition(
         nextPosition === "center" ? "center" : "outside",
@@ -340,28 +344,27 @@ function StrokeLayerControl({
               ) : null}
             </div>
           </InspectorGridCell>
-          <InspectorGridCell span={4} className="flex justify-center">
-            <SectionIconButton
-              label={"Stroke settings — Coming soon" /* i18n-ignore */}
-              disabled
-              className="disabled:opacity-100"
-            >
-              <IconAdjustments className="size-3.5" />
-            </SectionIconButton>
-          </InspectorGridCell>
-          <InspectorGridCell span={4} className="flex justify-center">
-            <SectionIconButton
-              label={"Individual strokes — Coming soon" /* i18n-ignore */}
-              disabled
-              className="disabled:opacity-100"
-            >
-              <IconSquare className="size-3.5" />
-            </SectionIconButton>
-          </InspectorGridCell>
         </InspectorGrid>
       </div>
     </div>
   );
+}
+
+/** The inside stroke the add-stroke button gives a layer with no border. */
+export function addBorderPatch(
+  styles: Record<string, string>,
+): Record<string, string> {
+  const existingBorderColor = styles.borderColor || styles.color;
+  return {
+    borderWidth: "1px",
+    borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
+    borderColor: cssColorOrFallback(
+      withCssColorOpacity(existingBorderColor || "", 100) ??
+        existingBorderColor,
+      DEFAULT_STROKE_COLOR,
+    ),
+    ...insideStrokeBoxSizing(styles),
+  };
 }
 
 export function StrokeProperties({
@@ -470,6 +473,7 @@ export function StrokeProperties({
           borderColor: DEFAULT_STROKE_COLOR,
           outlineWidth: "0px",
           outlineStyle: "none",
+          ...insideStrokeBoxSizing(styles),
         },
         onStyleChange,
         onStylesChange,
@@ -477,21 +481,7 @@ export function StrokeProperties({
       return;
     }
     if (!borderVisible) {
-      const existingBorderColor = styles.borderColor || styles.color;
-      const borderColor = cssColorOrFallback(
-        withCssColorOpacity(existingBorderColor || "", 100) ??
-          existingBorderColor,
-        DEFAULT_STROKE_COLOR,
-      );
-      commitStylePatch(
-        {
-          borderWidth: "1px",
-          borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
-          borderColor,
-        },
-        onStyleChange,
-        onStylesChange,
-      );
+      commitStylePatch(addBorderPatch(styles), onStyleChange, onStylesChange);
       return;
     }
     if (outlineVisible) {
@@ -535,12 +525,6 @@ export function StrokeProperties({
       emptyTitleActionLabel={t("editPanel.labels.addStroke")}
       actions={
         <>
-          <SectionIconButton
-            label={t("editPanel.labels.stylesComingSoon")}
-            disabled
-          >
-            <IconLayoutGrid className="size-3.5" />
-          </SectionIconButton>
           <SectionIconButton
             label={t("editPanel.labels.addStroke")}
             onClick={addStroke}

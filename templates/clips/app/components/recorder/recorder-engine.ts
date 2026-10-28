@@ -163,6 +163,7 @@ export interface RecorderEngineOptions {
   abortUrl?: string;
   resetUrl?: string;
   uploadMode?: UploadMode;
+  maxUploadBytes?: number;
   onState?: (state: RecorderState, detail?: Record<string, unknown>) => void;
   onChunk?: (info: {
     index: number;
@@ -564,6 +565,7 @@ export class RecorderEngine {
           ? options.uploadUrl.replace(/\/chunk(?:\?.*)?$/, "/reset-chunks")
           : `${appBasePath()}/api/uploads/${options.recordingId}/reset-chunks`),
       ...options,
+      maxUploadBytes: options.maxUploadBytes ?? MAX_UPLOAD_BYTES,
     };
   }
 
@@ -1076,6 +1078,7 @@ export class RecorderEngine {
     abortUrl: string;
     resetUrl?: string;
     uploadMode?: UploadMode;
+    maxUploadBytes?: number;
   }): void {
     this.opts.recordingId = target.recordingId;
     this.opts.uploadUrl = target.uploadUrl;
@@ -1086,6 +1089,7 @@ export class RecorderEngine {
         ? target.uploadUrl.slice(0, -"/chunk".length) + "/reset-chunks"
         : `${appBasePath()}/api/uploads/${target.recordingId}/reset-chunks`);
     this.opts.uploadMode = target.uploadMode ?? "buffered";
+    this.opts.maxUploadBytes = target.maxUploadBytes ?? MAX_UPLOAD_BYTES;
     this.uploadAttemptId = null;
     this.uploadGenerationId = null;
     this.localOnly = false;
@@ -1756,13 +1760,14 @@ export class RecorderEngine {
         );
       }
 
-      if (compressedBytes > MAX_UPLOAD_BYTES) {
+      const maxUploadBytes = this.opts.maxUploadBytes ?? MAX_UPLOAD_BYTES;
+      if (compressedBytes > maxUploadBytes) {
         const detail = compression.compressed
           ? `${formatMb(compressedBytes)} after compression`
           : `${formatMb(compressedBytes)}`;
         throw new Error(
           `Recording is too large to upload (${detail}, limit is ${formatMb(
-            MAX_UPLOAD_BYTES,
+            maxUploadBytes,
           )}) after automatic compression. Try a shorter recording.`,
         );
       }

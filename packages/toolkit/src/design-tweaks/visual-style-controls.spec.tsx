@@ -11,6 +11,7 @@ import {
   VisualSegmentedControl,
   parseScrubExpression,
   parseScrubRelativeExpression,
+  readVisualScrubInputs,
 } from "./visual-style-controls.js";
 
 describe("visual style controls", () => {
@@ -108,6 +109,36 @@ describe("visual style controls", () => {
       );
     },
   );
+
+  it("reads what each mounted scrub input shows until it unmounts", () => {
+    act(() => {
+      root.render(
+        <>
+          <VisualScrubInput
+            label="Opacity"
+            value={91}
+            unit="%"
+            onChange={vi.fn()}
+          />
+          <VisualScrubInput
+            label="Opacity"
+            value={40}
+            unit="%"
+            onChange={vi.fn()}
+          />
+        </>,
+      );
+    });
+
+    expect(readVisualScrubInputs()).toEqual([
+      { label: "Opacity", shown: "91%" },
+      { label: "Opacity", shown: "40%" },
+    ]);
+
+    act(() => root.render(<></>));
+
+    expect(readVisualScrubInputs()).toEqual([]);
+  });
 
   it("starts a base-rate scrub when Option-drag begins on the numeric input", () => {
     const onChange = vi.fn();
@@ -584,6 +615,44 @@ describe("visual style controls", () => {
     );
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(input.value).toBe("0px");
+  });
+
+  it("shows the display unit while still reading typed units", () => {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="W"
+          value={160}
+          unit="px"
+          displayUnit=""
+          onChange={onChange}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    expect(input.value).toBe("160");
+    act(() => input.focus());
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "200px");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onChange).toHaveBeenCalledWith(
+      200,
+      expect.objectContaining({ source: "commit" }),
+    );
+    expect(input.value).toBe("200");
   });
 
   it("releases focus on Enter when the consumer opts in", () => {

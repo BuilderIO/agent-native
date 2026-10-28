@@ -11,6 +11,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { compileMotionTextRuntime } from "../shared/motion-text-code.js";
+
 const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
@@ -206,6 +208,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { readMotionHtmlSource } from "../shared/motion-html-source.js";
 import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
 import action from "./remove-motion-timeline.js";
@@ -259,6 +262,7 @@ describe("remove-motion-timeline", () => {
 
     expect(result.deleted).toBe(true);
     expect(result.htmlPatched).toBe(true);
+    expect(result._receipt).toEqual(designOutputWriteReceipt("design-1", 1));
     const content = lastSavedContent();
     expect(content).not.toContain("data-agent-native-motion");
     expect(content).toBe("<html><body>\n<main></main></body></html>");
@@ -267,12 +271,26 @@ describe("remove-motion-timeline", () => {
 
   it("removes managed Text source and runtime with the CSS from the linked HTML", async () => {
     setTimeline("timeline-1");
+    const textRuntime = compileMotionTextRuntime({
+      version: 1,
+      animations: [
+        {
+          targetNodeId: "node-1",
+          unit: "word",
+          direction: "forward",
+          staggerMs: 0,
+          property: "opacity",
+          durationMs: 400,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    });
     setFile(
       "<html><body><style data-agent-native-motion>.a{}</style>\n" +
-        '<script data-agent-native-motion-text-source="v1" type="application/json">' +
-        '{"version":1,"animations":[{"targetNodeId":"node-1","unit":"word","direction":"forward","staggerMs":0,"property":"opacity","durationMs":400,"keyframes":[{"t":0,"value":"0"},{"t":1,"value":"1"}]}]}' +
-        "</script>\n" +
-        '<script data-agent-native-motion-text-runtime="v1">(function () {})()</script>\n' +
+        `${textRuntime.sourceMarkup}\n${textRuntime.runtimeMarkup}\n` +
         '<h1 data-agent-native-node-id="node-1">Hello</h1></body></html>',
     );
 

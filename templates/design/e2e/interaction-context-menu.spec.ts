@@ -1,5 +1,6 @@
 import { type Page } from "@playwright/test";
 
+import { expandAllLayers } from "./helpers";
 import {
   childrenOf,
   expect,
@@ -40,6 +41,7 @@ const ELEMENT_MENU = [
   "Rename",
   "Frame selection",
   "Add auto layout",
+  "Remove auto layout",
   "Create component",
   "Hide",
   "Lock",
@@ -47,7 +49,12 @@ const ELEMENT_MENU = [
   "Transform",
 ];
 
-const ARRANGE_MENU = ["Bring to front", "Send to back"];
+const ARRANGE_MENU = [
+  "Bring to front",
+  "Bring forward",
+  "Send backward",
+  "Send to back",
+];
 
 async function openFixture(app: App, html: string) {
   const id = await app.seed(html);
@@ -148,6 +155,13 @@ test.describe("interaction: right-click canvas context menu", () => {
 
     await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     expect(await menuLabels(app.page)).toStrictEqual(ELEMENT_MENU);
+    await expect(
+      app.page
+        .getByRole("menu")
+        .last()
+        .getByRole("menuitem", { name: /^Remove auto layout/ }),
+      "Box A has no auto layout to remove",
+    ).toBeDisabled();
     await openArrange(app);
     expect(await menuLabels(app.page)).toStrictEqual(ARRANGE_MENU);
     await app.page
@@ -227,6 +241,14 @@ test.describe("interaction: right-click canvas context menu", () => {
     app,
   }) => {
     await openFixture(app, NAME_MISMATCH_HTML);
+    // A right-click keeps a selection the pointer is inside; a plain one
+    // would take the top-level Stage.
+    await expandAllLayers(app.page);
+    await app.page
+      .getByRole("tree", { name: "Layers" })
+      .getByRole("button", { name: "Frame", exact: true })
+      .click();
+    await expect.poll(() => app.selectedLayers()).toEqual(["Frame"]);
     const menu = await rightClick(app, "card");
     await expect.poll(() => app.selectedLayers()).toEqual(["Frame"]);
 
@@ -337,7 +359,7 @@ test.describe("interaction: right-click canvas context menu", () => {
     ).toBeDisabled();
   });
 
-  test("right-click on empty canvas (no selection) shows Explore with Agent, Copy link, Paste here and Show/Hide UI/comments", async ({
+  test("right-click on empty canvas (no selection) shows Explore with Agent, Paste here and Show/Hide UI/comments", async ({
     app,
   }) => {
     await openFixture(app, TWO_BOX_HTML);
@@ -354,7 +376,6 @@ test.describe("interaction: right-click canvas context menu", () => {
     await expect(app.page.getByRole("menu").last()).toBeVisible();
     expect(await menuLabels(app.page)).toStrictEqual([
       "Explore with Agent",
-      "Copy link",
       "Paste here",
       "Hide UI",
       "Hide comments",

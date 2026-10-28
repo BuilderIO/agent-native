@@ -1,15 +1,32 @@
 import { Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
 import {
   Plugin,
   PluginKey,
   NodeSelection,
+  Selection,
   TextSelection,
+  type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
 import { type EditorView } from "@tiptap/pm/view";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
+import type {
+  XmlElement as YXmlElement,
+  XmlFragment as YXmlFragment,
+  XmlText as YXmlText,
+} from "yjs";
 
 export const DEFAULT_DRAG_HANDLE_WRAPPER_SELECTOR = ".visual-editor-wrapper";
+
+// The block menu and drag act while focus is outside the editor. Apps that
+// skip unfocused changes nobody marked as the user's (Content's collaborative
+// save) would drop these edits without it. Not "drop": that runs paste rules.
+export const DRAG_HANDLE_UI_EVENT = "dragHandle";
+
+function markUserAction(tr: Transaction) {
+  return tr.setMeta("uiEvent", DRAG_HANDLE_UI_EVENT);
+}
 
 export interface DragHandleOptions {
   wrapperSelector: string;
@@ -28,7 +45,31 @@ export interface DragHandleOptions {
     },
   ) => void;
   handleDrop?: (data: unknown, context: DragHandleDropContext) => boolean;
+  /**
+   * Opens the app's own block menu in place of the built-in one. Returns a
+   * function that closes it, or null to open the built-in menu.
+   */
+  openMenu?: (request: DragHandleMenuRequest) => (() => void) | null;
 }
+
+export type DragHandleMenuRequest = {
+  view: EditorView;
+  /** The grip's box, or the block's when the grip has none. */
+  anchorRect: DOMRect;
+  /**
+   * The block as it is now, or null once it's gone. In a collaborative
+   * editor the menu lets go of its block once anything but `dispatch` changes
+   * it, and closes.
+   */
+  getBlock: () => { node: ProseMirrorNode; pos: number } | null;
+  /** Applies the menu's own edit to its block. */
+  dispatch: (tr: Transaction) => void;
+  duplicate: () => void;
+  remove: () => void;
+  insertBelow: () => void;
+  /** Tells the grip the menu closed. */
+  onClose: () => void;
+};
 
 const dragHandleKey = new PluginKey("dragHandle");
 const HOVER_SIDE_OUTSET_REM = 8;
@@ -40,6 +81,7 @@ const DRAG_HANDLE_MENU_STYLE_ID = "an-rich-md-drag-menu-styles";
 const DRAG_HANDLE_MENU_WIDTH = 220;
 const DRAG_HANDLE_MENU_GAP = 6;
 const DRAG_HANDLE_MENU_VIEWPORT_PADDING = 8;
+const MENU_TAP_SLOP_PX = 10;
 
 const tablerIconSvg = (paths: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
@@ -109,7 +151,124 @@ type DragHandleMenuContext = {
   sourceBlock: HTMLElement;
   sourcePos: number;
   sourceNodeSize: number;
+  /** The block's Yjs element, when the editor is collaborative. */
+  yBlock?: YBlock | undefined;
+  /** The open menu, whose block the editor tracks without collaboration. */
+  menu?: object | undefined;
 };
+
+type YBlock = {
+  /** Null while the block has no element yet. */
+  element: YXmlElement | YXmlText | null;
+  /** Set once anything but the menu changes the block. */
+  changedElsewhere: boolean;
+  unwatch: () => void;
+};
+
+type YBinding = {
+  type: YXmlFragment;
+  mapping: Map<unknown, ProseMirrorNode>;
+};
+
+function getYBinding(view: EditorView): YBinding | null {
+  return ySyncPluginKey.getState(view.state)?.binding ?? null;
+}
+
+// In a collaborative editor a block is known by its Yjs element, found by its
+// place among the document's elements. A node can't name it: a duplicate
+// shares its node with the original, and a peer's update draws every block
+// anew, after which ProseMirror can give a deleted block's DOM to the next.
+// Nor can the element alone once something else changes it: y-tiptap writes a
+// move, whether a peer's or a reload of the saved page, by rewriting elements
+// in place, so the element may now hold another block. The menu lets go of
+// its block on any change but its own.
+//
+// A block with no element yet, like a new page's empty first line, is known
+// by its DOM until the document changes at all: a loading document can give
+// its place to another block.
+function watchYBlock(
+  view: EditorView,
+  pos: number,
+  isMenuEdit: () => boolean,
+  onChangedElsewhere: () => void,
+): YBlock | undefined {
+  const binding = getYBinding(view);
+  if (!binding) return undefined;
+  const index = view.state.doc.resolve(pos).index();
+  const candidate =
+    index < binding.type.length ? binding.type.get(index) : null;
+  const element =
+    candidate && binding.mapping.get(candidate) === view.state.doc.child(index)
+      ? candidate
+      : null;
+  const watched = element ?? binding.type;
+  const observe = () => {
+    if (isMenuEdit() || block.changedElsewhere) return;
+    block.changedElsewhere = true;
+    onChangedElsewhere();
+  };
+  const block: YBlock = {
+    element,
+    changedElsewhere: false,
+    unwatch: () => watched.unobserveDeep(observe),
+  };
+  watched.observeDeep(observe);
+  return block;
+}
+
+/** The block an open menu acts on, in an editor without collaboration. */
+type TrackedBlock = { menu: object; pos: number; node: ProseMirrorNode };
+
+type DragHandleMeta = {
+  track?: { menu: object; pos: number };
+  menuEdit?: boolean;
+};
+
+// Without collaboration the menu follows its block's position through each
+// edit, and lets go once anything but the menu touches the block. Its DOM
+// can't name it: ProseMirror can hand a deleted block's DOM to the next block.
+function trackMenuBlock(
+  tr: Transaction,
+  tracked: TrackedBlock | null,
+): TrackedBlock | null {
+  const meta = tr.getMeta(dragHandleKey) as DragHandleMeta | undefined;
+  if (meta?.track) {
+    const node = tr.doc.nodeAt(meta.track.pos);
+    return node ? { ...meta.track, node } : null;
+  }
+  if (!tracked || !tr.docChanged) return tracked;
+  if (meta?.menuEdit) {
+    // The menu's own edit can wrap the block, as a list or a quote, or
+    // delete it, which leaves the next block where it began.
+    const from = tr.mapping.map(tracked.pos, 1);
+    const to = tr.mapping.map(tracked.pos + tracked.node.nodeSize, -1);
+    if (from >= to) return null;
+    const $pos = tr.doc.resolve(tr.mapping.map(tracked.pos, -1));
+    const node = tr.doc.maybeChild($pos.index(0));
+    return node
+      ? { ...tracked, pos: $pos.posAtIndex($pos.index(0), 0), node }
+      : null;
+  }
+  const { pos, deleted } = tr.mapping.mapResult(tracked.pos, 1);
+  return !deleted && tr.doc.nodeAt(pos) === tracked.node
+    ? { ...tracked, pos }
+    : null;
+}
+
+/**
+ * The block's index, -1 once it is gone or something else changed it, or
+ * null while it is known by its DOM.
+ */
+function findYBlockIndex(view: EditorView, block: YBlock) {
+  const binding = getYBinding(view);
+  if (!binding || block.changedElsewhere) return -1;
+  if (!block.element) return null;
+  const index = binding.type.toArray().indexOf(block.element);
+  return index !== -1 &&
+    binding.mapping.get(block.element) === view.state.doc.maybeChild(index)
+    ? index
+    : -1;
+}
 
 type DragHandleRegistration = {
   view: EditorView;
@@ -172,6 +331,86 @@ const collapseAndBlurEditorAfterDrop = (
   }
   view.dom.blur();
 };
+
+const selectNear = (tr: Transaction, pos: number, bias: -1 | 1) =>
+  tr.setSelection(
+    TextSelection.near(
+      tr.doc.resolve(clamp(pos, 0, tr.doc.content.size)),
+      bias,
+    ),
+  );
+
+const dispatchAndFocus = (view: EditorView, tr: Transaction) => {
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+};
+
+/**
+ * The edit that puts a copy of the block at `pos` right after it and selects
+ * the copy, or null when the copy doesn't fit there. A menu asking the page's
+ * filters whether it may duplicate must ask about this edit, not a lookalike.
+ */
+export function duplicateBlockTransaction(
+  state: EditorState,
+  pos: number,
+  node: ProseMirrorNode,
+): Transaction | null {
+  const insertPos = pos + node.nodeSize;
+  const tr = state.tr.insert(insertPos, node);
+  if (!tr.docChanged) return null;
+  try {
+    tr.setSelection(NodeSelection.create(tr.doc, insertPos));
+  } catch {
+    selectNear(tr, insertPos, 1);
+  }
+  return markUserAction(tr);
+}
+
+/**
+ * The edit that deletes the block at `pos` and puts the caret where it was.
+ * The page's last block leaves an empty paragraph.
+ */
+export function deleteBlockTransaction(
+  state: EditorState,
+  pos: number,
+  node: ProseMirrorNode,
+): Transaction {
+  const end = pos + node.nodeSize;
+  // A schema may leave paragraphs out, though its types list every name.
+  const paragraph = state.schema.nodes.paragraph as NodeType | undefined;
+  if (state.doc.childCount <= 1 && paragraph) {
+    const replacement = paragraph.createAndFill() ?? paragraph.create();
+    const tr = state.tr.replaceWith(pos, end, replacement);
+    return markUserAction(selectNear(tr, pos + 1, 1));
+  }
+  const tr = state.tr.delete(pos, end);
+  return markUserAction(
+    selectNear(tr, pos, pos >= tr.doc.content.size ? -1 : 1),
+  );
+}
+
+const duplicateNodeAt = (
+  view: EditorView,
+  pos: number,
+  node: ProseMirrorNode,
+) => {
+  const tr = duplicateBlockTransaction(view.state, pos, node);
+  if (tr) dispatchAndFocus(view, tr);
+};
+
+// A click on one of these may act on the selected block, so it keeps the
+// selection. A click anywhere else on the page lets go of it.
+const KEEPS_BLOCK_SELECTION = [
+  "button",
+  "[role=button]",
+  "[role=dialog]",
+  "[role=alertdialog]",
+  "[role=listbox]",
+  "[role=menu]",
+  "[role=menubar]",
+  "[role=toolbar]",
+  "[data-radix-popper-content-wrapper]",
+].join(", ");
 
 const editorArea = (registration: DragHandleRegistration) => {
   const rect = registration.view.dom.getBoundingClientRect();
@@ -385,15 +624,42 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     };
   },
 
+  addKeyboardShortcuts() {
+    return {
+      "Mod-d": ({ editor }) => {
+        const { selection } = editor.state;
+        if (!(selection instanceof NodeSelection) || !editor.isEditable) {
+          return false;
+        }
+        duplicateNodeAt(editor.view, selection.from, selection.node);
+        // Even a copy the document refuses mustn't open the browser's bookmark
+        // dialog over a selected block.
+        return true;
+      },
+    };
+  },
+
   addProseMirrorPlugins() {
     const editor = this.editor;
     const wrapperSelector = this.options.wrapperSelector;
     const getDragTransferData = this.options.getDragTransferData;
     const receiveDragTransferData = this.options.receiveDragTransferData;
     const handleDrop = this.options.handleDrop;
+    const openHostMenu = this.options.openMenu;
     let handle: HTMLElement | null = null;
     let menu: HTMLElement | null = null;
+    let hostMenu: { close: () => void } | null = null;
     let menuContext: DragHandleMenuContext | null = null;
+    let menuView: EditorView | null = null;
+    // Fingers on the screen while a menu is open: a scroll they drive is a
+    // person's pan, not a keyboard opening. So is a scroll after a touch that
+    // moved farther than a tap, since a flick keeps the page moving once its
+    // finger lifts.
+    let menuTouches = 0;
+    let menuTouchStart: { x: number; y: number } | null = null;
+    let menuPanned = false;
+    let menuYBlock: YBlock | null = null;
+    let menuEditing = false;
     let currentBlock: HTMLElement | null = null;
     let dragStartPos: number | null = null;
     let dragSession: DragSession | null = null;
@@ -488,28 +754,43 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       }
 
       const wrapperRect = wrapper.getBoundingClientRect();
-      const handleLeft = block.rect.left - wrapperRect.left - 24;
+      // A phone-width page leaves less than the grip's width beside the block.
+      const handleLeft = Math.max(
+        block.rect.left - wrapperRect.left - 24,
+        -wrapperRect.left,
+      );
 
       handle.style.display = "flex";
       handle.style.top = `${block.rect.top - wrapperRect.top + 2}px`;
       handle.style.left = `${handleLeft}px`;
     };
 
-    const selectBlockAt = (editorView: EditorView, pos: number) => {
+    const selectBlockAt = (
+      editorView: EditorView,
+      pos: number,
+      menu?: object,
+    ) => {
+      const tr = editorView.state.tr;
+      if (menu) tr.setMeta(dragHandleKey, { track: { menu, pos } });
       try {
-        const sel = NodeSelection.create(editorView.state.doc, pos);
-        editorView.dispatch(editorView.state.tr.setSelection(sel));
-        editorView.focus();
-        return sel;
+        tr.setSelection(NodeSelection.create(tr.doc, pos));
       } catch {
+        if (menu) editorView.dispatch(tr);
         return null;
       }
+      editorView.dispatch(tr);
+      editorView.focus();
+      return tr.selection;
     };
 
     const cleanupDragVisuals = () => {
       dragSession?.preview?.remove();
       dragSession?.dropLine?.remove();
-      dragSession?.sourceBlock.classList.remove("notion-block--dragging");
+      // Even a class write that changes nothing makes ProseMirror read the
+      // block back, which turns the block a click selected into its text.
+      if (dragSession?.dragging) {
+        dragSession.sourceBlock.classList.remove("notion-block--dragging");
+      }
       document.documentElement.classList.remove("notion-editor-is-dragging");
     };
 
@@ -565,9 +846,15 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     };
 
     const closeMenu = ({ hideGrip = false }: { hideGrip?: boolean } = {}) => {
+      const openHost = hostMenu;
+      hostMenu = null;
+      openHost?.close();
       menu?.remove();
       menu = null;
       menuContext = null;
+      menuView = null;
+      menuYBlock?.unwatch();
+      menuYBlock = null;
       handle?.setAttribute("aria-expanded", "false");
       document.removeEventListener("mousedown", handleMenuDocumentMouseDown, {
         capture: true,
@@ -575,79 +862,68 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       document.removeEventListener("keydown", handleMenuKeyDown, {
         capture: true,
       });
-      window.removeEventListener("resize", handleMenuViewportChange);
-      window.removeEventListener("scroll", handleMenuViewportChange, {
-        capture: true,
-      });
+      unwatchMenuViewport();
       if (hideGrip) forceHideHandle();
     };
 
+    // An open app menu resolves its block on every render, so this reads no
+    // layout. The block is found by its identity, not by position: once the
+    // block is gone, its old position holds the next block.
     const resolveMenuContext = (context: DragHandleMenuContext) => {
-      const latestBlock = getTopLevelBlocks(context.view).find(
-        (block) => block.node === context.sourceBlock,
-      );
-      const sourcePos = latestBlock?.pmPos ?? context.sourcePos;
-      const sourceNode = context.view.state.doc.nodeAt(sourcePos);
-      if (!sourceNode) return null;
-
-      return {
-        ...context,
-        sourcePos,
-        sourceNode,
-        sourceNodeSize: sourceNode.nodeSize,
-      };
-    };
-
-    const focusSelectionNear = (
-      view: EditorView,
-      tr: Transaction,
-      pos: number,
-      bias: -1 | 1,
-    ) => {
-      tr.setSelection(
-        TextSelection.near(
-          tr.doc.resolve(clamp(pos, 0, tr.doc.content.size)),
-          bias,
-        ),
-      );
-      view.dispatch(tr.scrollIntoView());
-      view.focus();
+      if (context.menu) {
+        const tracked = dragHandleKey.getState(context.view.state) as
+          | TrackedBlock
+          | null
+          | undefined;
+        return tracked?.menu === context.menu
+          ? {
+              ...context,
+              sourcePos: tracked.pos,
+              sourceNode: tracked.node,
+              sourceNodeSize: tracked.node.nodeSize,
+            }
+          : null;
+      }
+      const { doc } = context.view.state;
+      const yIndex = context.yBlock
+        ? findYBlockIndex(context.view, context.yBlock)
+        : null;
+      if (yIndex === -1) return null;
+      let sourcePos = 0;
+      for (let index = 0; index < doc.childCount; index += 1) {
+        const sourceNode = doc.child(index);
+        if (
+          yIndex === null
+            ? context.view.nodeDOM(sourcePos) === context.sourceBlock
+            : index === yIndex
+        ) {
+          return {
+            ...context,
+            sourcePos,
+            sourceNode,
+            sourceNodeSize: sourceNode.nodeSize,
+          };
+        }
+        sourcePos += sourceNode.nodeSize;
+      }
+      return null;
     };
 
     const duplicateBlock = (context: DragHandleMenuContext) => {
       const resolved = resolveMenuContext(context);
       if (!resolved) return;
-
-      const insertPos = resolved.sourcePos + resolved.sourceNodeSize;
-      const tr = resolved.view.state.tr.insert(insertPos, resolved.sourceNode);
-
-      try {
-        tr.setSelection(NodeSelection.create(tr.doc, insertPos));
-        resolved.view.dispatch(tr.scrollIntoView());
-        resolved.view.focus();
-      } catch {
-        focusSelectionNear(resolved.view, tr, insertPos, 1);
-      }
+      duplicateNodeAt(resolved.view, resolved.sourcePos, resolved.sourceNode);
     };
 
     const deleteBlock = (context: DragHandleMenuContext) => {
       const resolved = resolveMenuContext(context);
       if (!resolved) return;
 
-      const { view, sourcePos, sourceNodeSize } = resolved;
-      const paragraph = view.state.schema.nodes.paragraph;
-      const sourceEnd = sourcePos + sourceNodeSize;
-
-      if (view.state.doc.childCount <= 1 && paragraph) {
-        const replacement = paragraph.createAndFill() ?? paragraph.create();
-        const tr = view.state.tr.replaceWith(sourcePos, sourceEnd, replacement);
-        focusSelectionNear(view, tr, sourcePos + 1, 1);
-        return;
-      }
-
-      const tr = view.state.tr.delete(sourcePos, sourceEnd);
-      const selectionBias = sourcePos >= tr.doc.content.size ? -1 : 1;
-      focusSelectionNear(view, tr, sourcePos, selectionBias);
+      const { view, sourcePos, sourceNode } = resolved;
+      dispatchAndFocus(
+        view,
+        deleteBlockTransaction(view.state, sourcePos, sourceNode),
+      );
     };
 
     const insertParagraphBelow = (context: DragHandleMenuContext) => {
@@ -659,7 +935,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       const paragraphNode = paragraph.createAndFill() ?? paragraph.create();
       const tr = resolved.view.state.tr.insert(insertPos, paragraphNode);
       tr.setSelection(TextSelection.create(tr.doc, insertPos + 1));
-      resolved.view.dispatch(tr.scrollIntoView());
+      resolved.view.dispatch(markUserAction(tr).scrollIntoView());
       resolved.view.focus();
     };
 
@@ -750,7 +1026,65 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       if (!resolved) return;
 
       closeMenu();
-      selectBlockAt(resolved.view, resolved.sourcePos);
+      const yBlock = watchYBlock(
+        resolved.view,
+        resolved.sourcePos,
+        () => menuEditing,
+        () => closeMenu({ hideGrip: true }),
+      );
+      menuYBlock = yBlock ?? null;
+      menuView = resolved.view;
+      const menuToken = yBlock ? undefined : {};
+      selectBlockAt(resolved.view, resolved.sourcePos, menuToken);
+
+      const block: DragHandleMenuContext = {
+        view: resolved.view,
+        sourceBlock: resolved.sourceBlock,
+        sourcePos: resolved.sourcePos,
+        sourceNodeSize: resolved.sourceNodeSize,
+        yBlock,
+        menu: menuToken,
+      };
+
+      if (openHostMenu) {
+        const entry = { close: () => {} };
+        const close = openHostMenu({
+          view: resolved.view,
+          anchorRect,
+          getBlock: () => {
+            const latest = resolveMenuContext(block);
+            return latest
+              ? { node: latest.sourceNode, pos: latest.sourcePos }
+              : null;
+          },
+          dispatch: (tr) => {
+            menuEditing = true;
+            try {
+              resolved.view.dispatch(
+                tr.setMeta(dragHandleKey, { menuEdit: true }),
+              );
+            } finally {
+              menuEditing = false;
+            }
+          },
+          duplicate: () => duplicateBlock(block),
+          remove: () => deleteBlock(block),
+          insertBelow: () => insertParagraphBelow(block),
+          onClose: () => {
+            if (hostMenu !== entry) return;
+            hostMenu = null;
+            closeMenu({ hideGrip: true });
+          },
+        });
+        if (close) {
+          entry.close = close;
+          hostMenu = entry;
+          handle?.setAttribute("aria-expanded", "true");
+          watchMenuViewport();
+          return;
+        }
+      }
+
       ensureDragHandleMenuStyles();
 
       const el = document.createElement("div");
@@ -776,12 +1110,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       );
 
       menu = el;
-      menuContext = {
-        view: resolved.view,
-        sourceBlock: resolved.sourceBlock,
-        sourcePos: resolved.sourcePos,
-        sourceNodeSize: resolved.sourceNodeSize,
-      };
+      menuContext = block;
       document.body.appendChild(el);
       positionMenu(anchorRect);
       handle?.setAttribute("aria-expanded", "true");
@@ -791,10 +1120,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       document.addEventListener("keydown", handleMenuKeyDown, {
         capture: true,
       });
-      window.addEventListener("resize", handleMenuViewportChange);
-      window.addEventListener("scroll", handleMenuViewportChange, {
-        capture: true,
-      });
+      watchMenuViewport();
 
       el.querySelector<HTMLButtonElement>("button")?.focus({
         preventScroll: true,
@@ -986,7 +1312,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     };
 
     const hideHandle = () => {
-      if (menu) return;
+      if (menu || hostMenu) return;
       forceHideHandle();
     };
 
@@ -1045,7 +1371,76 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       buttons[nextIndex]?.focus({ preventScroll: true });
     }
 
-    function handleMenuViewportChange() {
+    function countMenuTouches(event: TouchEvent) {
+      menuTouches = event.touches.length;
+      const touch = event.changedTouches.item(0);
+      if (!touch) return;
+      if (event.type === "touchstart") {
+        // Only the latest touch counts: a pan through the menu's own items,
+        // then a tap on its field, still lets the keyboard open.
+        menuTouchStart = { x: touch.clientX, y: touch.clientY };
+        menuPanned = false;
+      } else if (
+        menuTouchStart &&
+        Math.hypot(
+          touch.clientX - menuTouchStart.x,
+          touch.clientY - menuTouchStart.y,
+        ) > MENU_TAP_SLOP_PX
+      ) {
+        menuPanned = true;
+      }
+    }
+
+    function watchMenuViewport() {
+      window.addEventListener("resize", handleMenuViewportChange);
+      window.addEventListener("scroll", handleMenuViewportChange, {
+        capture: true,
+      });
+      for (const type of ["touchstart", "touchend", "touchcancel"] as const) {
+        document.addEventListener(type, countMenuTouches, {
+          capture: true,
+          passive: true,
+        });
+      }
+    }
+
+    function unwatchMenuViewport() {
+      window.removeEventListener("resize", handleMenuViewportChange);
+      window.removeEventListener("scroll", handleMenuViewportChange, {
+        capture: true,
+      });
+      for (const type of ["touchstart", "touchend", "touchcancel"] as const) {
+        document.removeEventListener(type, countMenuTouches, { capture: true });
+      }
+      menuTouches = 0;
+      menuTouchStart = null;
+      menuPanned = false;
+    }
+
+    function handleMenuViewportChange(event: Event) {
+      // Only a scroll that moves the menu's block closes it: not the menu
+      // scrolling its own items, or a sidebar keeping its current row in view.
+      if (
+        event.target instanceof Element &&
+        menuView &&
+        !event.target.contains(menuView.dom)
+      ) {
+        return;
+      }
+      // A touch screen's keyboard, opening for a field in the menu, resizes
+      // the page and scrolls the field into view.
+      const active = document.activeElement;
+      if (
+        menuTouches === 0 &&
+        !menuPanned &&
+        active instanceof Element &&
+        active.matches("input, textarea") &&
+        active.closest('[role="menu"]') &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(pointer: coarse)").matches
+      ) {
+        return;
+      }
       closeMenu({ hideGrip: true });
     }
 
@@ -1106,7 +1501,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                 .delete(sourceStart, sourceEnd)
                 .insert(insertPos, sourceNode);
 
-              session.view.dispatch(tr.scrollIntoView());
+              session.view.dispatch(markUserAction(tr).scrollIntoView());
               dropCommitted = true;
             } else {
               try {
@@ -1123,13 +1518,13 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                   dropPos,
                   targetNode,
                 );
-                target.view.dispatch(insertTr.scrollIntoView());
+                target.view.dispatch(markUserAction(insertTr).scrollIntoView());
 
                 const deleteTr = session.view.state.tr.delete(
                   sourceStart,
                   sourceEnd,
                 );
-                session.view.dispatch(deleteTr);
+                session.view.dispatch(markUserAction(deleteTr));
                 dropCommitted = true;
               } catch {
                 // If the target schema cannot accept this node, leave the
@@ -1221,6 +1616,10 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     return [
       new Plugin({
         key: dragHandleKey,
+        state: {
+          init: () => null as TrackedBlock | null,
+          apply: trackMenuBlock,
+        },
         view(editorView) {
           const registration: DragHandleRegistration = {
             view: editorView,
@@ -1229,7 +1628,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             receiveDragTransferData,
             handleDrop,
             canHover: () =>
-              !!handle && !menu && !dragSession && editor.isEditable,
+              !!handle &&
+              !menu &&
+              !hostMenu &&
+              !dragSession &&
+              editor.isEditable,
             findHoverBlock: (clientX, clientY) =>
               findForgivingBlock(editorView, clientX, clientY),
             showHoverBlock: (block) => showHandleForBlock(editorView, block),
@@ -1286,6 +1689,35 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             document.addEventListener("keydown", handleDocumentKeyDown);
           });
 
+          // A selected block keeps its outline when the editor loses focus,
+          // so a click on the page beside it has to let go of it.
+          const releaseBlockSelection = (event: PointerEvent) => {
+            const { selection } = editorView.state;
+            if (event.button !== 0 || !(selection instanceof NodeSelection)) {
+              return;
+            }
+            const target = event.target;
+            if (
+              !(target instanceof Element) ||
+              editorView.dom.contains(target) ||
+              handle?.contains(target) ||
+              target.closest(KEEPS_BLOCK_SELECTION)
+            ) {
+              return;
+            }
+            const caret =
+              Selection.findFrom(selection.$from, 1, true) ??
+              Selection.findFrom(selection.$from, -1, true);
+            if (caret)
+              editorView.dispatch(editorView.state.tr.setSelection(caret));
+          };
+          const ownerDocument = editorView.dom.ownerDocument;
+          ownerDocument.addEventListener(
+            "pointerdown",
+            releaseBlockSelection,
+            true,
+          );
+
           handle.addEventListener("keydown", (e) => {
             if (e.key !== "Enter" && e.key !== " ") return;
             e.preventDefault();
@@ -1318,6 +1750,11 @@ export const DragHandle = Extension.create<DragHandleOptions>({
 
           return {
             destroy() {
+              ownerDocument.removeEventListener(
+                "pointerdown",
+                releaseBlockSelection,
+                true,
+              );
               closeMenu({ hideGrip: true });
               finishDragSession(false);
               releaseGlobalHoverListener();

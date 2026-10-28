@@ -1,6 +1,35 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import {
+  copyActionArguments,
+  snapshotActionArguments,
+} from "./action-arguments-identity.js";
+import {
+  actionCallIsRetrySafe,
+  actionCallReadOnly,
+  actionOutputEffect,
+  classifyActionCall,
+  type ActionCallClassification,
+} from "./action-call-classification.js";
+import {
+  ACTION_EXECUTION_KEY,
+  actionExecutionStorage,
+  endInvocationEvidence,
+  holdInvocationEvidence,
+  runOutsideActionInvocation,
+  takeVouchedEvidence,
+  type ActionExecutionFrame,
+  type ActionExecutionRun,
+  type ActionExecutionState,
+} from "./action-frame.js";
 import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
+import {
+  buildActionMcpOutputContract,
+  describeOutputContractIssue,
+  outputSchemaToJsonSchema,
+  type JsonSchemaObject,
+  type ActionMcpOutputContract,
+} from "./action-output-contract.js";
 import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
@@ -17,17 +46,100 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import {
+  writeBoundedJsonValue,
+  type JsonValueWriter,
+} from "./json-schema/json-value.js";
+import { subschemasOf } from "./json-schema/subschemas.js";
+import {
+  jsonTypeOf,
+  plainJsonSnapshot,
+  recordInputSchemaVerdict,
+  UninterpretedSchema,
+  UnusableSchemaError,
+  unusableVerdict,
+} from "./json-schema/unusable-schema.js";
+import { assertUsableSchema } from "./json-schema/usable-schema.js";
+import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
-import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
+export {
+  ACTION_RECEIPT_SCHEMA_VERSION,
+  DOMAIN_EVENT_CONTENT_TYPE,
+  DOMAIN_EVENT_SPEC_VERSION,
+  ActionReceiptValidationError,
+  assertActionDomainEvent,
+  assertActionReceipt,
+  commitAction,
+  createActionDomainEvent,
+  parseActionDomainEvent,
+  parseActionReceipt,
+  serializeActionDomainEvent,
+  serializeActionReceipt,
+} from "./action-receipt.js";
+export type {
+  ActionAtomicAdapter,
+  ActionAtomicContext,
+  ActionAtomicOutcome,
+  ActionDomainEvent,
+  ActionDomainEventDraft,
+  ActionDomainEventReference,
+  ActionJsonPrimitive,
+  ActionJsonValue,
+  ActionReceipt,
+  ActionReceiptProvenance,
+  CommitActionOptions,
+} from "./action-receipt.js";
+export { ACTION_EXECUTION_KEY };
+
 /**
- * Carries an action's execution-frame key across `{ ...entry, run }` wrappers
- * and the registry rebuilds that copy named fields (`preserveActionFlags`).
+ * An action's recorder for a call refused before its run, kept on its
+ * execution key so every copy of the entry that carries the key keeps it, even
+ * one built by another copy of this module.
  */
-export const ACTION_EXECUTION_KEY = Symbol.for(
-  "agent-native.action.executionKey",
+const ACTION_INVALID_CALL_RECORDER = Symbol.for(
+  "agent-native.action.invalidCallRecorder",
 );
+const invalidCallErrors = new WeakMap<object, unknown>();
+
+async function throwInvalidCallError(
+  _args: unknown,
+  ctx?: ActionRunContext,
+): Promise<never> {
+  throw ctx ? invalidCallErrors.get(ctx) : undefined;
+}
+
+/**
+ * Records a call refused before its run, for arguments its caller found
+ * invalid, as the action's own validation failure would be recorded: through
+ * its tracking and audit, with no path to its handler. Returns false, and
+ * logs, when the entry carries no action identity to record it through.
+ */
+export async function recordInvalidActionCall(
+  entry: object,
+  args: unknown,
+  ctx: ActionRunContext,
+  error: unknown,
+): Promise<boolean> {
+  const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  const record =
+    key !== null && typeof key === "object"
+      ? (key as Record<symbol, unknown>)[ACTION_INVALID_CALL_RECORDER]
+      : undefined;
+  if (typeof record !== "function") {
+    console.error(
+      `[action] ${ctx.actionName ?? "An action"} refused invalid arguments before its run, but its entry carries no action identity: its audit and tracking have no record of the call.`,
+    );
+    return false;
+  }
+  try {
+    await runOutsideActionInvocation(() => record(args, ctx, error));
+  } catch {
+    // coercion-ok: the caller reports the validation error it already has.
+  }
+  return true;
+}
 
 export type ActionCaller =
   | "tool"
@@ -47,8 +159,34 @@ export interface ActionAutomationContext {
   policyId?: string;
 }
 
+export const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+
+/**
+ * The most characters of a pretty-printed result the agent keeps for a call:
+ * the action's own limit, else the agent-wide limit, else the default, bounded
+ * by any hard limit. The agent loop and actions that fit their own results
+ * resolve it here so they cannot disagree.
+ */
+export function resolveToolMaxResultChars(
+  action: { maxResultChars?: number },
+  limits?: { maxResultChars?: number; hardMaxResultChars?: number },
+): number {
+  const configured =
+    action.maxResultChars ??
+    limits?.maxResultChars ??
+    DEFAULT_TOOL_RESULT_CHARS;
+  return typeof limits?.hardMaxResultChars === "number"
+    ? Math.min(configured, limits.hardMaxResultChars)
+    : configured;
+}
+
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /**
+   * Result cap the agent loop enforces on this call, from
+   * `resolveToolMaxResultChars`. Absent outside the agent loop.
+   */
+  maxResultChars?: number;
   userEmail?: string;
   /**
    * Request headers for server-only actions that must delegate to an
@@ -88,7 +226,18 @@ export interface ActionRunContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
+  /**
+   * The approval the agent loop ran this call under, for approval gates to
+   * check. Audit rows read approval from the invocation's execution frame,
+   * so a child given this context records none.
+   */
   approvedToolCallKey?: string;
+  /**
+   * The client behind a `caller: "mcp"` call. `name` and `version` are its
+   * self-reported `clientInfo`. `oauthClientId` is the OAuth client its
+   * credential was issued to.
+   */
+  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -151,6 +300,326 @@ export function fail(message: string, options: FailOptions = {}): never {
 }
 
 /**
+ * The closed set of `errorCode`s an action fails with. Its `fail` and
+ * `noWrite` accept only these codes, so a misspelled code is a compile error
+ * and a caller can switch over the action's failures exhaustively. Pass it to
+ * `defineAction` as `errors` to publish the codes on the definition.
+ */
+export interface ActionErrors<TCode extends string> {
+  readonly codes: readonly TCode[];
+  fail(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+  noWrite(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+}
+
+export function defineActionErrors<const TCode extends string>(
+  ...codes: [TCode, ...TCode[]]
+): ActionErrors<TCode> {
+  const errors: ActionErrors<TCode> = {
+    codes: Object.freeze([...new Set(codes)]),
+    fail: (message, errorCode, options = {}) =>
+      fail(message, { ...options, errorCode }),
+    noWrite: (message, errorCode, options = {}) => {
+      throw new NoWriteError(message, { ...options, errorCode });
+    },
+  };
+  return Object.freeze(errors);
+}
+
+/**
+ * A rejection raised before the action's first write: a missing target, an
+ * edit that matches nothing, a patch identical to what is saved. A caller may
+ * then retry with corrected arguments instead of treating the call as
+ * possibly applied. The framework accepts the claim only for the call that
+ * raised it, and only when no write action nested in that call entered its
+ * handler; otherwise it reads as any other failure. It cannot see the
+ * handler's own database or provider writes, so throw it before the first.
+ */
+export class NoWriteError extends ActionContractError {
+  readonly noWrite = true;
+
+  constructor(message: string, options: FailOptions = {}) {
+    super(message, {
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+      ...(options.details === undefined ? {} : { details: options.details }),
+    });
+    this.name = "NoWriteError";
+  }
+}
+
+export function isNoWriteError(error: unknown): error is NoWriteError {
+  return (
+    isActionContractError(error) &&
+    (error as { noWrite?: unknown }).noWrite === true
+  );
+}
+
+/** Each `NoWriteError` the call that raised it was verified to have written nothing in. */
+const verifiedNoWrites = new WeakSet<object>();
+
+export type { ActionMcpOutputContract } from "./action-output-contract.js";
+
+/** What a call that broke its output contract already did. `run` returned
+ *  before the check, so a non-read-only call's changes are applied. */
+export type ActionOutputEffect = "none" | "committed";
+
+export interface ActionOutputContractErrorOptions {
+  actionName?: string;
+  effect: ActionOutputEffect;
+  /** `semantic` is the action's `outputSchema`; `mcp` is the MCP response
+   *  contract derived from it. */
+  contract: "semantic" | "mcp";
+  /** Sanitized `path: code` lines; never values from the output. */
+  issues: readonly string[];
+}
+
+const MAX_REPORTED_OUTPUT_ISSUES = 5;
+const MAX_DETAILED_OUTPUT_ISSUES = 50;
+
+function actionSubject(actionName: string | undefined): string {
+  return actionName ? `"${actionName}"` : "The action";
+}
+
+function effectOutcome(effect: ActionOutputEffect): string {
+  return effect === "committed"
+    ? "Its changes are already applied: do not retry it. Read the current state instead."
+    : "It is read-only and changed nothing.";
+}
+
+/**
+ * A result that broke its declared output contract after `run` returned. It is
+ * typed so no caller mistakes it for a failed call: a write reports `committed`
+ * and tells the caller not to retry.
+ */
+export class ActionOutputContractError extends ActionContractError {
+  readonly outputContractError = true;
+  readonly actionName?: string;
+  readonly effect: ActionOutputEffect;
+  readonly contract: "semantic" | "mcp";
+  readonly issues: readonly string[];
+
+  constructor(options: ActionOutputContractErrorOptions) {
+    const shown = options.issues.slice(0, MAX_REPORTED_OUTPUT_ISSUES);
+    const more = options.issues.length - shown.length;
+    const issueText = `${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""}`;
+    super(
+      `${actionSubject(options.actionName)} returned a result that does not match its declared output contract (${issueText}). ${effectOutcome(options.effect)}`,
+      {
+        errorCode: "output_contract_violation",
+        statusCode: 500,
+        details: {
+          effect: options.effect,
+          contract: options.contract,
+          issues: options.issues.slice(0, MAX_DETAILED_OUTPUT_ISSUES),
+        },
+      },
+    );
+    this.name = "ActionOutputContractError";
+    this.actionName = options.actionName;
+    this.effect = options.effect;
+    this.contract = options.contract;
+    this.issues = options.issues.slice(0, MAX_DETAILED_OUTPUT_ISSUES);
+  }
+}
+
+export function isActionOutputContractError(
+  error: unknown,
+): error is ActionOutputContractError {
+  return (
+    isActionContractError(error) &&
+    (error as { outputContractError?: unknown }).outputContractError === true &&
+    ((error as { effect?: unknown }).effect === "none" ||
+      (error as { effect?: unknown }).effect === "committed")
+  );
+}
+
+/**
+ * What a failed call had already done, when its failure came after `run`
+ * returned: an output-contract error, or a stop or connection signal raised
+ * while its result was checked; or a verified `NoWriteError`. `undefined`
+ * when the failure carries no such evidence, so the caller must not assume
+ * the call changed nothing.
+ */
+export function actionFailureEffect(
+  error: unknown,
+): ActionOutputEffect | undefined {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    verifiedNoWrites.has(error)
+  ) {
+    return "none";
+  }
+  if (isActionOutputContractError(error)) return error.effect;
+  if (!isAgentActionStopError(error)) return undefined;
+  const effect = (error as { effect?: unknown }).effect;
+  return effect === "none" || effect === "committed" ? effect : undefined;
+}
+
+/**
+ * A value an action's schemas, gates or handler threw, as every consumer gets
+ * it. Any read of it may throw, so one that cannot be classified is replaced
+ * by an untyped error that says only that, and its write evidence decides.
+ */
+function readableFailure(error: unknown): unknown {
+  try {
+    actionFailureEffect(error);
+    isAgentConnectionRequiredError(error);
+    return error;
+  } catch {
+    return Object.assign(
+      new Error("The call failed, and its error could not be read."),
+      { errorCode: "error_unreadable" },
+    );
+  }
+}
+
+/** What a dispatched call did, and whether other sessions must refresh. */
+export interface InvocationEffect {
+  /** `unknown`: a write may have run that nothing confirms or rules out. */
+  readonly effect: ActionOutputEffect | "unknown";
+  /** A write that publishes changes entered its handler, or may have. */
+  readonly changed: boolean;
+}
+
+/**
+ * What a dispatched call did, for every transport, from what ran in it by the
+ * time it settled or was abandoned. In order: an action's entry that recorded
+ * no call of the action ran something else, so what it did is unknown; a
+ * write its own declarations cannot speak for (nested in it, or under an
+ * entry that recorded no call) entered its handler, so it may have written;
+ * otherwise the call's own write, from its record or, untracked, its
+ * declaration, which only then a receipt, `retrySafe` or a typed failure the
+ * call raised itself may narrow. A refused call is settled before its error is
+ * read.
+ */
+export function invocationEffect(
+  entry: { changeEvents?: boolean },
+  outcome: ActionExecutionOutcome,
+  settled: {
+    /** The call's classification; `undefined` is a write. */
+    readOnly?: boolean;
+    retrySafe?: boolean;
+    receipt?: { changed: boolean };
+    /**
+     * It failed, with what it threw; `lost` when its result never came;
+     * `reported` when it returned an error result instead, such as an MCP
+     * tool's `isError`, which says the tool did not do its work.
+     */
+    failed?: { error?: unknown; lost?: boolean; reported?: boolean };
+  },
+): InvocationEffect {
+  const { evidence, record } = outcome;
+  const { failed, readOnly } = settled;
+  if (outcome.refused) return { effect: "none", changed: false };
+  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
+  // The report speaks for the tool, not for a write nested in the call.
+  if (failed?.reported && !failed.lost && !evidence?.nestedWriteEntered) {
+    return { effect: "none", changed: false };
+  }
+  // A typed effect speaks for the call that raised it, not for one it passed
+  // through. Untracked, nothing names that call, so it stands.
+  const typed =
+    failed && !failed.lost && (!evidence || evidence.raised === failed.error)
+      ? actionFailureEffect(failed.error)
+      : undefined;
+  if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
+    return {
+      effect: !failed || typed === "committed" ? "committed" : "unknown",
+      changed: evidence.changeEntered,
+    };
+  }
+  const wrote = record ? record.evidence.writeEntered : readOnly !== true;
+  const changed = record
+    ? record.evidence.changeEntered && !(failed && typed === "none")
+    : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
+  const effect = !failed
+    ? (settled.receipt?.changed ?? wrote)
+      ? "committed"
+      : "none"
+    : failed.lost
+      ? wrote || readOnly !== true
+        ? "unknown"
+        : "none"
+      : (typed ?? (wrote && !settled.retrySafe ? "unknown" : "none"));
+  return { effect, changed };
+}
+
+/** Whether a failed call must publish an action change. */
+export function failedCallEmitsChange(
+  entry: { changeEvents?: boolean },
+  error: unknown,
+  outcome: ActionExecutionOutcome,
+): boolean {
+  return invocationEffect(entry, outcome, { failed: { error } }).changed;
+}
+
+/** Whether a call that returned must publish an action change; untracked, by its classification of `args`. */
+export function ranCallEmitsChange(
+  entry: Parameters<typeof actionCallReadOnly>[0] & { changeEvents?: boolean },
+  outcome: ActionExecutionOutcome,
+  args: unknown,
+  fallbackReadOnly: boolean,
+): boolean {
+  const readOnly = actionCallReadOnly(entry, args) ?? fallbackReadOnly;
+  return invocationEffect(entry, outcome, { readOnly }).changed;
+}
+
+/**
+ * PostgreSQL breaks a deadlock (40P01) or a serializable conflict (40001) by
+ * rolling back one whole transaction. Drivers and Drizzle surface that as an
+ * untyped "Failed query", which reads as a bug and hides the rollback, so an
+ * action reports it as a typed conflict. The message must not claim nothing
+ * was saved: an action can commit an earlier transaction or an external write
+ * before the one that rolled back.
+ */
+const TRANSACTION_CONFLICT_SQLSTATES = new Set(["40P01", "40001"]);
+
+/** What a run that threw `error` throws: a transaction conflict as typed. */
+function typedTransactionConflict(error: unknown): unknown {
+  let sqlState: string | null;
+  try {
+    sqlState = transactionConflictSqlState(error);
+  } catch {
+    // Any read of a thrown value may throw. That value goes on as thrown,
+    // so readableFailure reports it as unreadable instead of the read's own
+    // error replacing it.
+    return error;
+  }
+  if (!sqlState) return error;
+  return new ActionContractError(
+    "The database rolled back this action's transaction because it conflicted with another transaction running at the same time. Anything the action saved outside that transaction stays saved, so read the current state and redo only what is missing.",
+    {
+      errorCode: "transaction_conflict",
+      statusCode: 409,
+      details: { sqlState },
+    },
+  );
+}
+
+function transactionConflictSqlState(error: unknown): string | null {
+  if (isActionContractError(error)) return null;
+  let cause = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!cause || typeof cause !== "object") return null;
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === "string" && TRANSACTION_CONFLICT_SQLSTATES.has(code)) {
+      return code;
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/**
  * What a write action verified about its own effect. An action opts in by
  * returning a plain-object result with a reserved `_receipt: WriteReceipt`.
  * The agent loop reads it before the result is stringified and truncated, so
@@ -184,6 +653,9 @@ export class AgentActionStopError extends Error {
   readonly errorCode?: string;
   readonly details?: Record<string, unknown>;
   readonly toolResult?: string;
+  /** Set by the framework only on a signal raised while the result of a call
+   *  that already ran was checked: what that call had done. */
+  readonly effect?: ActionOutputEffect;
 
   constructor(message: string, options: AgentActionStopOptions = {}) {
     super(message);
@@ -249,6 +721,89 @@ export function isAgentConnectionRequiredError(
         .agentConnectionRequired === true,
     )
   );
+}
+
+const postRunSignalOrigins = new WeakMap<
+  AgentActionStopError,
+  { signal: AgentActionStopError; actionName?: string }
+>();
+
+/**
+ * A stop or connection signal raised while the result of a call that already
+ * ran was checked, as the call reports it. It stays a signal of the same kind,
+ * so callers still stop or ask for the connection, but its message, tool
+ * result and details are replaced: they may repeat the result. A connection
+ * keeps its routing (provider, reason, app, source) in its fields, details and
+ * message, since MCP and HTTP callers see only those. It carries the call's
+ * effect, so a write still refreshes other sessions and is not retried.
+ */
+function postRunSignal(
+  signal: AgentActionStopError,
+  failure: { actionName?: string; effect: ActionOutputEffect },
+): AgentActionStopError {
+  const subject = actionSubject(failure.actionName);
+  const outcome = effectOutcome(failure.effect);
+  let copy: AgentActionStopError;
+  let details: Record<string, unknown> = { effect: failure.effect };
+  if (isAgentConnectionRequiredError(signal)) {
+    const routing = {
+      provider: signal.provider,
+      reason: signal.reason,
+      ...(signal.appId ? { appId: signal.appId } : {}),
+      ...(signal.source ? { source: signal.source } : {}),
+    };
+    const target = [
+      `provider ${JSON.stringify(routing.provider)}`,
+      `reason ${JSON.stringify(routing.reason)}`,
+      ...(routing.appId ? [`app ${JSON.stringify(routing.appId)}`] : []),
+      ...(routing.source
+        ? [`source ${JSON.stringify(routing.source.id)}`]
+        : []),
+    ].join(", ");
+    copy = new AgentConnectionRequiredError(
+      `${subject} needs a connection to finish checking its result (${target}). ${outcome}`,
+      routing,
+    );
+    details = { ...details, ...routing };
+  } else {
+    copy = new AgentActionStopError(
+      `${subject} stopped while its result was checked. ${outcome}`,
+      signal.errorCode ? { errorCode: signal.errorCode } : {},
+    );
+  }
+  Object.assign(copy, { effect: failure.effect, details });
+  postRunSignalOrigins.set(copy, { signal, actionName: failure.actionName });
+  return copy;
+}
+
+/**
+ * A failure that left a call nested in this one, as this call reports it once
+ * a write entered its handler somewhere in this call: a nested call that
+ * changed nothing does not undo what ran beside or around it.
+ */
+function withCommittedEffect(error: unknown): unknown {
+  if (actionFailureEffect(error) !== "none") return error;
+  // Its claim holds only for the call that raised it.
+  if (isNoWriteError(error)) {
+    return new ActionContractError(error.message, {
+      errorCode: error.errorCode,
+      statusCode: error.statusCode,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    });
+  }
+  if (isActionOutputContractError(error)) {
+    return new ActionOutputContractError({
+      actionName: error.actionName,
+      effect: "committed",
+      contract: error.contract,
+      issues: error.issues,
+    });
+  }
+  const origin = postRunSignalOrigins.get(error as AgentActionStopError);
+  return postRunSignal(origin?.signal ?? (error as AgentActionStopError), {
+    actionName: origin?.actionName,
+    effect: "committed",
+  });
 }
 
 export interface ActionHttpConfig {
@@ -339,6 +894,7 @@ export interface ActionMcpAppResourceConfig {
   title?: string;
   description?: string;
   html: string | ActionMcpAppHtmlBuilder;
+  requiresEmbedSession?: boolean;
   mimeType?: typeof MCP_APP_MIME_TYPE;
   _meta?: Record<string, unknown>;
   csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
@@ -365,7 +921,27 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     ? { [K in keyof T]?: string }
     : Record<string, string>;
 
+/**
+ * What a result that does not match `outputSchema` does. Defaults to
+ * `"strict"`. `"fallback"` is deprecated: it replaces a broken result with a
+ * value callers cannot tell from a real one.
+ */
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
+
+/**
+ * What an action with `outputSchema` returns under `TStrategy`. `"warn"` can
+ * pass `run`'s unvalidated value through; `"fallback"` returns
+ * `outputFallback` as given, `undefined` when it is unset.
+ */
+export type ActionOutputResult<
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy,
+> = TStrategy extends "strict"
+  ? StandardSchemaV1.InferOutput<TOutputSchema>
+  :
+      | StandardSchemaV1.InferOutput<TOutputSchema>
+      | StandardSchemaV1.InferInput<TOutputSchema>
+      | (TStrategy extends "fallback" ? undefined : never);
 
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
@@ -378,6 +954,7 @@ interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
@@ -385,8 +962,20 @@ interface DefineActionWithSchema<
   parameters?: never;
   agentInputSchema?: StandardSchemaV1;
   outputSchema?: TOutputSchema;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated `outputErrorStrategy: "fallback"` hides a broken result
+   *  behind a plausible one. Fix the result or use `"strict"`. */
   outputFallback?: TReturn;
+  /** The action's closed error-code set, from `defineActionErrors`. */
+  errors?: ActionErrors<string>;
+  /** Advertise `outputSchema` to MCP clients as the tool's `outputSchema`
+   *  and validate every `structuredContent` against it. Set it only after
+   *  auditing that every value `run` can return meets the schema; it requires
+   *  `outputErrorStrategy: "strict"`, because a `"warn"` or `"fallback"`
+   *  action would otherwise advertise a contract it does not enforce.
+   *  `defineAction` throws when the schema has no Standard JSON Schema output
+   *  converter or its root cannot become `structuredContent`. */
+  mcpOutputSchema?: boolean;
   run: (
     args: StandardSchemaV1.InferOutput<TSchema>,
     ctx?: ActionRunContext,
@@ -459,11 +1048,20 @@ interface DefineActionWithSchema<
    * agent loop then lets the model correct its arguments and retry instead of
    * ending the run as `write_tool_outcome_unknown`. Pass a predicate when only
    * some inputs qualify. Do not set it on an action that appends, sends, or
-   * charges.
+   * charges, except for inputs carrying an idempotency key the action answers
+   * with its first result. It covers this action's own write: once a write
+   * nested in it entered its handler, a failure stays an unknown outcome. MCP
+   * approval reads it too: a call it covers gets no "already ran" warning.
    */
   retrySafe?:
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
+  /**
+   * How the action reads an ISO date-time argument that names no zone, so an
+   * approval summary can say so: `"calendar"` means in the calendar's own
+   * time zone. Unset, the summary shows such a time as having no zone given.
+   */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -514,15 +1112,22 @@ interface DefineActionWithParams<
     | Record<string, ParameterSchema>
     | undefined,
   TReturn = any,
+  TOutputSchema extends StandardSchemaV1 | undefined =
+    | StandardSchemaV1
+    | undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
   parameters?: TParams;
   schema?: never;
   agentInputSchema?: never;
-  outputSchema?: StandardSchemaV1;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputSchema?: TOutputSchema;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   outputFallback?: TReturn;
+  errors?: ActionErrors<string>;
+  mcpOutputSchema?: boolean;
   run: (
     args: InferParams<TParams>,
     ctx?: ActionRunContext,
@@ -548,6 +1153,8 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -597,6 +1204,7 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -609,7 +1217,12 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxResultChars?: number;
   readonly outputSchema?: StandardSchemaV1;
   readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   readonly outputFallback?: TReturn;
+  /** Present only when the action declared `errors`. */
+  readonly errorCodes?: readonly string[];
+  /** Present only when the action opted in with `mcpOutputSchema: true`. */
+  readonly mcpOutputContract?: ActionMcpOutputContract;
   readonly needsApproval?:
     | boolean
     | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
@@ -618,71 +1231,156 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly access?: ActionAccessConfig;
 }
 
-export function defineAction<
-  TSchema extends StandardSchemaV1,
-  TReturn,
-  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
->(
-  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
+export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
+  options: DefineActionWithSchema<TSchema, TReturn, undefined>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
   TReturn,
 >(
-  options: DefineActionWithParams<TParams, TReturn>,
+  options: DefineActionWithParams<TParams, TReturn, undefined>,
 ): ActionDefinition<InferParams<TParams>, TReturn>;
+// With an `outputSchema`, `run` must return the schema's input. Under the
+// default strict strategy the action returns the schema's output; `"warn"`
+// can pass `run`'s value through and `"fallback"` returns `outputFallback`,
+// so those also admit the input shape. These come last, so a `run` whose
+// result does not match is reported against them.
+export function defineAction<
+  TParams extends Record<string, ParameterSchema> | undefined,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithParams<
+    TParams,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  InferParams<TParams>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithSchema<
+    TSchema,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  StandardSchemaV1.InferInput<TSchema>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  const tool: ActionTool = {
+    ...(typeof options.title === "string" && options.title.trim()
+      ? { title: options.title.trim() }
+      : {}),
+    description: options.description,
+    ...(!hasSchema && options.parameters
+      ? {
+          parameters: {
+            type: "object" as const,
+            properties: options.parameters,
+          },
+        }
+      : {}),
+  };
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
-  // action-heavy app's cold start, so convert only the schema the agent sees.
-  let toolParameters: ActionTool["parameters"];
+  // action-heavy app's cold start, so convert only the schema the agent sees,
+  // and only when something first reads it. `convertedParameters` is the one
+  // place that converts: it records the verdict against this `tool`, so readers
+  // of the verdict read `parameters` first (`usableInputSchema`, `derivedTool`).
+  let convertedParameters: () => ActionTool["parameters"] = () => undefined;
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(
+    const agentSchema =
       options.agentInputSchema && "~standard" in options.agentInputSchema
         ? options.agentInputSchema
-        : options.schema,
-      options.description,
-    );
-  } else if (options.parameters) {
-    toolParameters = {
-      type: "object" as const,
-      properties: options.parameters,
+        : options.schema;
+    let converted: ConvertedSchema | undefined;
+    convertedParameters = () => {
+      if (!converted) {
+        converted = schemaToJsonSchema(agentSchema, options.description);
+        if (converted.verdict) {
+          recordInputSchemaVerdict(tool, converted.verdict);
+        }
+      }
+      return converted.parameters;
     };
+    Object.defineProperty(tool, "parameters", {
+      enumerable: true,
+      configurable: true,
+      get: convertedParameters,
+      // An assigned schema replaces what the agent sees, as it did when this
+      // was a plain property. The schema's own conversion still runs first, so
+      // its verdict is recorded and validation keeps using it.
+      set(value: ActionTool["parameters"]) {
+        convertedParameters();
+        Object.defineProperty(tool, "parameters", {
+          value,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      },
+    });
   }
 
   const executionKey = {};
-  const handlerRun = async (args: any, ctx?: ActionRunContext) => {
+  const ownFrame = () => {
     const frame = actionExecutionStorage?.getStore()?.frame;
-    if (frame?.key === executionKey) {
+    return frame?.key === executionKey ? frame : undefined;
+  };
+  const handlerRun = async (args: any, ctx?: ActionRunContext) => {
+    const frame = ownFrame();
+    if (frame) {
       frame.handlerEntered = true;
-      if (readOnly !== true) {
-        for (let parent = frame.parent; parent; parent = parent.parent)
-          parent.descendantWriteEntered = true;
+      // Evidence for this call and every call it runs inside, whatever
+      // they were declared to do.
+      if (frame.writes) {
+        for (let f: ActionExecutionFrame | undefined = frame; f; f = f.parent) {
+          f.writeEntered = true;
+          if (f !== frame) f.nestedWriteEntered = true;
+          if (frame.emitsChange) f.changeEntered = true;
+        }
       }
     }
     return options.run(args, ctx);
   };
-  const guardedRun =
+  const accessCheckedRun =
     typeof options.authorize === "function" || options.access
       ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
       : handlerRun;
+  // Access checks query the database too, so they convert the same way.
+  const guardedRun = async (
+    args: any,
+    ctx?: ActionRunContext,
+    gateArgs?: () => unknown,
+  ) => {
+    try {
+      return await accessCheckedRun(args, ctx, gateArgs);
+    } catch (error) {
+      throw typedTransactionConflict(error);
+    }
+  };
   const uiOnlyGuardedRun =
     options.uiOnly === true
-      ? async (args: any, ctx?: ActionRunContext) => {
+      ? async (args: any, ctx?: ActionRunContext, gateArgs?: () => unknown) => {
           if (ctx?.caller !== "frontend") {
             fail("This action can only be called from the signed-in app UI.", {
               errorCode: "ui_only_action",
               statusCode: 403,
             });
           }
-          return guardedRun(args, ctx);
+          return guardedRun(args, ctx, gateArgs);
         }
       : guardedRun;
-
-  const inputValidatedRun = hasSchema
-    ? wrapWithValidation(options.schema, uiOnlyGuardedRun, toolParameters)
-    : uiOnlyGuardedRun;
 
   const hasOutputSchema =
     options.outputSchema && "~standard" in options.outputSchema;
@@ -691,16 +1389,7 @@ export function defineAction(options: any) {
     options.outputErrorStrategy === "warn" ||
     options.outputErrorStrategy === "fallback"
       ? options.outputErrorStrategy
-      : "warn";
-  const run = hasOutputSchema
-    ? wrapWithOutputValidation(
-        options.outputSchema,
-        inputValidatedRun,
-        outputErrorStrategy,
-        options.outputFallback,
-        options.description,
-      )
-    : inputValidatedRun;
+      : "strict";
 
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
@@ -713,6 +1402,98 @@ export function defineAction(options: any) {
       : inferredReadOnly
         ? true
         : undefined;
+
+  const checkOutput = hasOutputSchema
+    ? outputValidator(
+        options.outputSchema,
+        outputErrorStrategy,
+        options.outputFallback,
+        options.description,
+      )
+    : undefined;
+  // Runs inside input validation, so a call is classified from the arguments
+  // `run` receives, defaults applied, and inside audit and tracking, so an
+  // invalid call is still recorded as a failed run.
+  const classifiedRun = async (args: any, ctx?: ActionRunContext) => {
+    // Classify before `run`, which may change `args`: the effect of a call is
+    // what it was asked to do. A prepared call keeps the classification its
+    // gates read.
+    const prepared = takePreparedClassification(ctx, args, executionKey);
+    const callReadOnly = prepared
+      ? prepared.readOnly
+      : actionCallReadOnly({ readOnly, planMode: options.planMode }, args);
+    const frame = ownFrame();
+    if (frame) {
+      frame.writes = callReadOnly !== true;
+      frame.emitsChange = options.changeEvents !== false;
+    }
+    // What the call has done so far: whether a write entered its handler in
+    // it or in a call nested in it. Without a frame nothing tracks that, so
+    // its classification stands in, and a write is assumed to have run.
+    const effect = (): ActionOutputEffect =>
+      frame
+        ? frame.writeEntered
+          ? "committed"
+          : "none"
+        : actionOutputEffect(callReadOnly);
+    // Readers after the run, and the gates before the handler, each get
+    // their own copy of a prepared call: one could change what the next
+    // reads, or what the handler runs.
+    const gateArgs = prepared
+      ? () => preparedCallArguments(prepared)
+      : () => args;
+    // A call nested in another with the same context is not the action the
+    // context names, so its failures do not name it. Untracked, nesting
+    // cannot be told, so none does.
+    let actionName: string | undefined;
+    if (frame) {
+      frame.record = {
+        get args() {
+          return gateArgs();
+        },
+        readOnly: callReadOnly,
+        evidence: frame,
+      };
+      if (frame.outcome) frame.outcome.record = frame.record;
+      frame.context = ctx;
+      let nested = false;
+      for (let f = frame.parent; f && !nested; f = f.parent) {
+        nested = ctx !== undefined && f.context === ctx;
+      }
+      if (!nested) actionName = ctx?.actionName;
+    }
+    let ran = false;
+    try {
+      const output = await uiOnlyGuardedRun(args, ctx, gateArgs);
+      ran = true;
+      return checkOutput
+        ? await checkOutput(output, { actionName, effect: effect() })
+        : output;
+    } catch (thrown) {
+      const error = readableFailure(thrown);
+      // Raised by this handler, not passed up through a nested call's
+      // boundary, with no nested write entered.
+      if (
+        !ran &&
+        frame &&
+        isNoWriteError(error) &&
+        !frame.nestedWriteEntered &&
+        actionExecutionStorage?.getStore()?.failures.get(error) === undefined
+      ) {
+        verifiedNoWrites.add(error);
+        frame.raised = error;
+        throw error;
+      }
+      if (!ran && effect() !== "committed") throw error;
+      const raised = ran ? error : withCommittedEffect(error);
+      if (frame) frame.raised = raised;
+      throw raised;
+    }
+  };
+  const run = hasSchema
+    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
+    : classifiedRun;
+
   const uiOnly: boolean | undefined =
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
@@ -722,6 +1503,12 @@ export function defineAction(options: any) {
     : run;
   const trackedRun = wrapRunWithServicePrincipalGrant(
     wrapRunWithActionTracking(finalRun, readOnly),
+  );
+  const invalidCallRun = wrapRunWithActionTracking(
+    resolveAuditAttach(auditConfig, readOnly)
+      ? wrapRunWithAudit(throwInvalidCallError, auditConfig)
+      : throwInvalidCallError,
+    readOnly,
   );
 
   const toolCallable: boolean | undefined =
@@ -764,6 +1551,8 @@ export function defineAction(options: any) {
       : undefined;
   const endsTurn: boolean | undefined =
     typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
+  const zonelessTimes =
+    options.zonelessTimes === "calendar" ? options.zonelessTimes : undefined;
   const dedupe: boolean | undefined =
     typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
@@ -784,7 +1573,8 @@ export function defineAction(options: any) {
     }
     if (
       (options.mcpApp.compactCatalog === true ||
-        options.mcpApp.structuredContent === true) &&
+        options.mcpApp.structuredContent === true ||
+        Array.isArray(options.mcpApp.visibility)) &&
       !options.mcpApp.resource
     ) {
       return options.mcpApp as ActionMcpAppConfig;
@@ -801,15 +1591,23 @@ export function defineAction(options: any) {
     return undefined;
   })();
   const chatUI = normalizeActionChatUIConfig(options.chatUI);
+  const mcpOutputContract: ActionMcpOutputContract | undefined = (() => {
+    if (options.mcpOutputSchema !== true) return undefined;
+    if (!hasOutputSchema) {
+      throw new TypeError("mcpOutputSchema requires an outputSchema.");
+    }
+    if (outputErrorStrategy !== "strict") {
+      throw new TypeError(
+        'mcpOutputSchema requires outputErrorStrategy: "strict", so the advertised contract is enforced.',
+      );
+    }
+    return buildActionMcpOutputContract(options.outputSchema, {
+      openLink: Boolean(link || mcpApp?.resource),
+    });
+  })();
 
   const entry = {
-    tool: {
-      ...(typeof options.title === "string" && options.title.trim()
-        ? { title: options.title.trim() }
-        : {}),
-      description: options.description,
-      parameters: toolParameters,
-    },
+    tool,
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
@@ -851,6 +1649,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
@@ -877,6 +1676,8 @@ export function defineAction(options: any) {
             : {}),
         }
       : {}),
+    ...(mcpOutputContract ? { mcpOutputContract } : {}),
+    ...(options.errors ? { errorCodes: options.errors.codes } : {}),
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
@@ -895,7 +1696,15 @@ export function defineAction(options: any) {
     value: executionKey,
     enumerable: true,
   });
-  return entry;
+  Object.defineProperty(executionKey, ACTION_INVALID_CALL_RECORDER, {
+    value: (args: unknown, ctx: ActionRunContext, error: unknown) => {
+      invalidCallErrors.set(ctx, error);
+      return invalidCallRun(args, ctx);
+    },
+  });
+  // `never` input keeps the implementation compatible with every overload,
+  // which `exactOptionalPropertyTypes` rejects for the inferred entry type.
+  return entry as ActionDefinition<never, unknown>;
 }
 
 export function isActionExposedToExternalAgents(entry: {
@@ -928,11 +1737,19 @@ function wrapRunWithAccess(
   run: (args: any, ctx?: ActionRunContext) => any,
   access: ActionAccessConfig | undefined,
   authorize: ActionAuthorize<any> | undefined,
-): (args: any, ctx?: ActionRunContext) => Promise<any> {
-  return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
-    if (access) await assertRegisteredActionAccess(access, args, ctx);
+): (
+  args: any,
+  ctx?: ActionRunContext,
+  gateArgs?: () => unknown,
+) => Promise<any> {
+  return async function accessCheckedRun(
+    args: any,
+    ctx?: ActionRunContext,
+    gateArgs: () => unknown = () => args,
+  ) {
+    if (access) await assertRegisteredActionAccess(access, gateArgs(), ctx);
     if (authorize) {
-      const verdict = await authorize(args, ctx);
+      const verdict = await authorize(gateArgs() as any, ctx);
       if (verdict === false) {
         const err = new Error("Not authorized") as Error & {
           statusCode: number;
@@ -963,7 +1780,7 @@ function wrapRunWithServicePrincipalGrant(
           orgId: ctx!.orgId,
           // A missing name only passes an unrestricted grant.
           actionName: ctx!.actionName ?? "",
-          caller: ctx!.caller,
+          ownInvocation: ctx!,
         }),
       )
       .then(() => run(args, ctx));
@@ -975,6 +1792,9 @@ function wrapRunWithAudit(
   auditConfig: ActionAuditConfig | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function auditedRun(args: any, ctx?: ActionRunContext) {
+    // The run consumes the preparation, and its handler may change `args`.
+    const prepared = boundActionCallIntent(ctx, args);
+    const recorded = prepared ? preparedCallArguments(prepared) : args;
     let result: any;
     let error: unknown;
     let threw = false;
@@ -985,11 +1805,20 @@ function wrapRunWithAudit(
       threw = true;
     }
     try {
-      const { recordActionAudit } = await import("./audit/record.js");
+      const [{ recordActionAudit }, { auditAttribution }] = await Promise.all([
+        import("./audit/record.js"),
+        import("./audit/attribution.js"),
+      ]);
+      const call = {
+        config: auditConfig,
+        args: recorded,
+        ctx,
+        attribution: auditAttribution(ctx),
+      };
       await recordActionAudit(
         threw
-          ? { config: auditConfig, args, ctx, status: "error", error }
-          : { config: auditConfig, args, ctx, status: "success", result },
+          ? { ...call, status: "error", error }
+          : { ...call, status: "success", result },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.
@@ -998,30 +1827,6 @@ function wrapRunWithAudit(
     return result;
   };
 }
-
-const SUBSCHEMA_VALUE_KEYS = [
-  "items",
-  "additionalItems",
-  "contains",
-  "additionalProperties",
-  "not",
-  "if",
-  "then",
-  "else",
-] as const;
-const SUBSCHEMA_ARRAY_KEYS = [
-  "allOf",
-  "anyOf",
-  "oneOf",
-  "prefixItems",
-] as const;
-const SUBSCHEMA_MAP_KEYS = [
-  "properties",
-  "patternProperties",
-  "$defs",
-  "definitions",
-  "dependentSchemas",
-] as const;
 
 /**
  * Remove or rewrite JSON Schema keywords that some providers' function-calling
@@ -1057,30 +1862,18 @@ const SUBSCHEMA_MAP_KEYS = [
  * Expressed as a union of concrete JSON types because that shape is already
  * proven against the live validator: `setFilterDefault.value`, a
  * `z.union([string, number, boolean, null])` sitting in the same tool schema,
- * was never flagged while the typeless sibling next to it was. `true` for
- * `additionalProperties` is a boolean, not a subschema, so it needs no type of
- * its own; array items get one bounded level rather than recursing forever.
+ * was never flagged while the typeless sibling next to it was. The default
+ * writer is bounded (see `json-schema/json-value.ts`); MCP passes a writer
+ * that references an unbounded root definition instead.
+ *
+ * Every rewrite here must only widen what the schema accepts: callers advertise
+ * the result, and a host that validates arguments against it would otherwise
+ * reject calls the action accepts. Removing a keyword widens only in a positive
+ * position, so the keywords whose meaning depends on a sibling are handled
+ * together: `patternProperties` exempts keys from `additionalProperties`,
+ * every in-place applicator feeds `unevaluatedProperties`/`unevaluatedItems`,
+ * and loosening `contains` raises the match count `maxContains` caps.
  */
-const JSON_VALUE_BRANCHES: ReadonlyArray<Record<string, unknown>> = [
-  { type: "string" },
-  { type: "number" },
-  { type: "boolean" },
-  { type: "null" },
-  { type: "object", additionalProperties: true },
-  {
-    type: "array",
-    items: {
-      anyOf: [
-        { type: "string" },
-        { type: "number" },
-        { type: "boolean" },
-        { type: "null" },
-        { type: "object", additionalProperties: true },
-      ],
-    },
-  },
-];
-
 const TYPE_SUBSTITUTE_KEYS = [
   "type",
   "anyOf",
@@ -1108,20 +1901,34 @@ const LOOKAROUND_IN_PATTERN = /\(\?<?[=!]/;
 
 const PROVIDER_REJECTED_KEYWORDS = [
   "propertyNames",
-  "patternProperties",
   "dependentSchemas",
   "dependentRequired",
+  "dependencies",
   "if",
   "then",
   "else",
   "not",
 ] as const;
 
-export function stripUnsupportedSchemaKeywords<T>(node: T): T {
+const EVALUATION_DEPENDENT_KEYWORDS = [
+  "unevaluatedProperties",
+  "unevaluatedItems",
+] as const;
+
+export function stripUnsupportedSchemaKeywords<T>(
+  node: T,
+  writeJsonValue: JsonValueWriter = writeBoundedJsonValue,
+): T {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const obj = node as Record<string, unknown>;
 
   for (const keyword of PROVIDER_REJECTED_KEYWORDS) delete obj[keyword];
+  for (const keyword of EVALUATION_DEPENDENT_KEYWORDS) delete obj[keyword];
+  if (obj.patternProperties !== undefined) {
+    delete obj.patternProperties;
+    if (obj.additionalProperties !== true) delete obj.additionalProperties;
+  }
+  if (obj.contains !== undefined) delete obj.maxContains;
   if (
     typeof obj.format === "string" &&
     !PROVIDER_SUPPORTED_FORMATS.has(obj.format)
@@ -1135,64 +1942,134 @@ export function stripUnsupportedSchemaKeywords<T>(node: T): T {
     delete obj.pattern;
   }
 
-  for (const key of SUBSCHEMA_VALUE_KEYS) {
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
-    } else {
-      stripUnsupportedSchemaKeywords(value);
-    }
-  }
-  for (const key of SUBSCHEMA_ARRAY_KEYS) {
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
-    }
-  }
-  for (const key of SUBSCHEMA_MAP_KEYS) {
-    const value = obj[key];
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      for (const sub of Object.values(value)) {
-        stripUnsupportedSchemaKeywords(sub);
-      }
-    }
+  for (const child of subschemasOf(obj)) {
+    stripUnsupportedSchemaKeywords(child.value, writeJsonValue);
   }
   if (Array.isArray(obj.oneOf)) {
     const existing = Array.isArray(obj.anyOf) ? obj.anyOf : [];
     obj.anyOf = [...existing, ...obj.oneOf];
     delete obj.oneOf;
   }
+  if (obj.type === undefined) typeEnumeratedValues(obj);
+  withStringOnlyEnum(obj);
   if (!TYPE_SUBSTITUTE_KEYS.some((key) => obj[key] !== undefined)) {
-    obj.anyOf = JSON_VALUE_BRANCHES.map((branch) => ({ ...branch }));
+    writeJsonValue(obj);
   }
   return node;
+}
+
+/**
+ * Codex lowers `const` to a one-value `enum` and types a typeless `enum` as
+ * "string" (`sanitize_json_schema` in codex-rs/tools/src/json_schema.rs), so
+ * `{ "const": 1 }` reaches the model as a string and a host checking against
+ * it refuses `1`. The values already fix the type, so writing it accepts
+ * exactly what the schema did. Values of several types split into one typed
+ * anyOf branch per type, the shape every provider took for the JSON-value
+ * union.
+ */
+function typeEnumeratedValues(obj: Record<string, unknown>): void {
+  const values =
+    obj.const !== undefined
+      ? [obj.const]
+      : Array.isArray(obj.enum)
+        ? obj.enum
+        : [];
+  const byType = new Map<string, unknown[]>();
+  for (const value of values) {
+    const type = jsonTypeOf(value);
+    byType.set(type, [...(byType.get(type) ?? []), value]);
+  }
+  // An empty `enum` stays untyped, so `defineAction` and the in-app and MCP
+  // converters refuse one (`assertUsableSchema`) before they run this.
+  if (byType.size === 0) return;
+  if (byType.size === 1) {
+    obj.type = [...byType.keys()][0];
+    return;
+  }
+  const branches = [...byType].map(([type, members]) => {
+    if (type === "null") return { type };
+    const branch = { type, enum: members };
+    withStringOnlyEnum(branch);
+    return branch;
+  });
+  delete obj.const;
+  delete obj.enum;
+  if (obj.anyOf === undefined) obj.anyOf = branches;
+  else {
+    const allOf = Array.isArray(obj.allOf) ? obj.allOf : [];
+    obj.allOf = [...allOf, { anyOf: branches }];
+  }
+}
+
+/**
+ * Gemini's `enum` holds strings only
+ * (https://ai.google.dev/api/generate-content#v1beta.Schema), so an enum
+ * listing any other value goes out as its type, with the values in the
+ * description, as MCP does with `maxItems`: the type stays and only the list
+ * goes, which widens. One value is a `const`, which says the same, and a
+ * `const` beside the enum already names the one value both allow. Before they
+ * run this, `defineAction` and the in-app and MCP converters refuse a `const`
+ * its enum does not list and an enum with no value of its type
+ * (`assertUsableSchema`), so what is left accepts a value.
+ */
+function withStringOnlyEnum(obj: Record<string, unknown>): void {
+  const values = obj.enum;
+  if (!Array.isArray(values)) return;
+  if (values.every((value) => typeof value === "string")) return;
+  delete obj.enum;
+  if (obj.const !== undefined) return;
+  if (values.length === 1) {
+    obj.const = values[0];
+    return;
+  }
+  const allowed = `Allowed values: ${values.map((value) => JSON.stringify(value)).join(", ")}.`;
+  obj.description =
+    typeof obj.description === "string" && obj.description
+      ? `${obj.description} ${allowed}`
+      : allowed;
+}
+
+interface ConvertedSchema {
+  parameters: ActionTool["parameters"];
+  verdict?: UnusableSchemaError | UninterpretedSchema;
 }
 
 function schemaToJsonSchema(
   schema: StandardSchemaV1,
   _description?: string,
-): ActionTool["parameters"] {
+): ConvertedSchema {
   const s = schema as any;
-
-  if (s["~standard"]?.jsonSchema?.input) {
-    try {
-      const result = s["~standard"].jsonSchema.input({
-        target: "draft-07",
-      }) as any;
-      if (result && typeof result === "object") {
-        delete result.$schema;
-      }
-      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
-    } catch {
-      // Fall through to manual converter
-    }
+  const anyObject = { type: "object" as const, properties: {} };
+  try {
+    // Finding the emitter is part of converting: a property that throws is a
+    // schema this cannot convert, not one from a library with no emitter.
+    const jsonSchema = s["~standard"]?.jsonSchema;
+    let emitted: unknown;
+    if (jsonSchema?.input) {
+      emitted = jsonSchema.input({ target: "draft-2020-12" });
+    } else if (s._zod?.def) emitted = zodDefToJsonSchema(s._zod.def);
+    else return { parameters: anyObject };
+    // The emitter's result can be cached and shared, so it is never edited.
+    // Checked before stripping, which can hide what the check finds from the
+    // converters that read the parameters: a `const` loses the non-string
+    // `enum` that does not list it, and `oneOf` becomes `anyOf` under a
+    // reference into it unless that reference is rebased.
+    const verdict = assertUsableSchema(plainJsonSnapshot(emitted));
+    const source =
+      verdict instanceof UninterpretedSchema ? verdict.schema : verdict;
+    delete source.$schema;
+    return {
+      parameters: stripUnsupportedSchemaKeywords<unknown>(
+        source,
+      ) as ActionTool["parameters"],
+      ...(verdict instanceof UninterpretedSchema ? { verdict } : {}),
+    };
+  } catch (error) {
+    // Alone, `anyObject` would claim the schema accepts any object. With the
+    // reason beside it, MCP and the in-app agent leave the action out; A2A
+    // cards, the manifest and tool search still read `anyObject`.
+    return { parameters: anyObject, verdict: unusableVerdict(error) };
   }
-
-  if (s._zod?.def) {
-    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
-  }
-
-  return { type: "object" as const, properties: {} };
 }
 
 function zodDefToJsonSchema(def: any): any {
@@ -1256,7 +2133,23 @@ function zodDefToJsonSchema(def: any): any {
   }
 
   if (type === "literal") {
-    return { type: typeof def.value, enum: [def.value] };
+    const values = Array.isArray(def.values)
+      ? def.values
+      : def.values instanceof Set
+        ? [...def.values]
+        : [def.value];
+    const jsonTypeOf = (value: unknown) =>
+      value === null ? "null" : typeof value;
+    const uniqueTypes = [...new Set(values.map(jsonTypeOf))];
+    if (uniqueTypes.length === 1) {
+      return { type: uniqueTypes[0], enum: values };
+    }
+    return {
+      anyOf: values.map((value: unknown) => ({
+        type: jsonTypeOf(value),
+        enum: [value],
+      })),
+    };
   }
 
   if (type === "array") {
@@ -1394,31 +2287,95 @@ export function describeToolParameterSignature(
   return `{ ${sig.length > MAX_SIGNATURE_LENGTH ? `${sig.slice(0, MAX_SIGNATURE_LENGTH)}…` : sig} }`;
 }
 
-const preValidatedForContext = new WeakMap<
-  object,
-  { schema: StandardSchemaV1; value: unknown }
->();
+/**
+ * Arguments already validated for the run that receives them, so it does not
+ * parse them again. A prepared call is held by its arguments object, which a
+ * wrapper that rebuilds the context still passes through; arguments that are
+ * not an object, and `validateActionArgs`, use the context. From
+ * `actionCallIntent`, the call also carries its classification and the action
+ * it was classified for.
+ */
+interface PreparedRun {
+  readonly schema: StandardSchemaV1 | undefined;
+  readonly value: unknown;
+  readonly key?: object;
+  readonly intent?: PreparedActionCall;
+}
+
+const preparedRuns = new WeakMap<object, PreparedRun>();
+
+function preparedRunHolder(ctx: unknown, args: unknown): object | undefined {
+  if (args !== null && typeof args === "object" && preparedRuns.has(args)) {
+    return args;
+  }
+  return ctx !== null && typeof ctx === "object" ? ctx : undefined;
+}
+
+function preparedRunFor(ctx: unknown, args: unknown): PreparedRun | undefined {
+  const holder = preparedRunHolder(ctx, args);
+  const prepared = holder ? preparedRuns.get(holder) : undefined;
+  return prepared && Object.is(prepared.value, args) ? prepared : undefined;
+}
+
+/** A prepared call, consumed by the run of the action it was classified for. */
+function takePreparedClassification(
+  ctx: ActionRunContext | undefined,
+  args: unknown,
+  executionKey: object,
+): PreparedActionCall | undefined {
+  const prepared = preparedRunFor(ctx, args);
+  if (!prepared?.intent || prepared.key !== executionKey) return undefined;
+  preparedRuns.delete(preparedRunHolder(ctx, args)!);
+  return prepared.intent;
+}
+
+/** What a call, and every call nested in it, has done so far. */
+export interface ActionCallEvidence {
+  /** A write entered its handler. */
+  readonly writeEntered: boolean;
+  /** A write whose action publishes changes entered its handler. */
+  readonly changeEntered: boolean;
+  /** One of those writes was nested in the call, not the call's own. */
+  readonly nestedWriteEntered?: boolean;
+  /**
+   * The failure this call raised or rebuilt itself; only its typed effect
+   * speaks for the call. Its own, so another call throwing it again cannot
+   * change it.
+   */
+  readonly raised?: unknown;
+}
+
+/** One `defineAction` call as `run` received it, for the transport that made it. */
+export interface ActionCallRecord {
+  /**
+   * The arguments after input validation applied defaults. For a prepared
+   * call, each read is a fresh copy of the arguments it was prepared with.
+   */
+  readonly args: unknown;
+  /** The call's classification, taken before `run`; `undefined` when undeclared. */
+  readonly readOnly: boolean | undefined;
+  /** Live while the call runs. */
+  readonly evidence: ActionCallEvidence;
+}
+
+/**
+ * What a dispatcher observed of one call, live from before it awaits `run`, so
+ * a caller that stops waiting still reads what has run: whether it was
+ * refused before any handler, and the record of the `defineAction` call it
+ * ran. The record lives on the execution frame, not the context, so a wrapper
+ * that rebuilds the context keeps it.
+ */
+export interface ActionExecutionOutcome {
+  refused: boolean;
+  record?: ActionCallRecord;
+  /** What the call, and every call nested in it, has done; absent untracked. */
+  evidence?: ActionCallEvidence;
+  /** The entry is a `defineAction` action's, so its run records a call of it. */
+  keyed?: boolean;
+}
 
 /** Rejected action input; execution phase determines whether effects are possible. */
 export class ActionInputValidationError extends Error {}
-
-type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
-type ActionExecutionFrame = {
-  key: object;
-  run: ActionExecutionRun;
-  parent?: ActionExecutionFrame;
-  handlerEntered: boolean;
-  descendantWriteEntered: boolean;
-  boundaryPending?: boolean;
-};
-type ActionExecutionState = {
-  frame?: ActionExecutionFrame;
-  failures: WeakMap<object, ActionExecutionFrame>;
-};
-const ActionExecutionStorage = getAsyncLocalStorageCtor();
-const actionExecutionStorage = ActionExecutionStorage
-  ? new ActionExecutionStorage<ActionExecutionState>()
-  : undefined;
 
 function wrapRunWithExecutionBoundary(
   run: ActionExecutionRun,
@@ -1436,7 +2393,8 @@ function wrapRunWithExecutionBoundary(
             run: boundaryRun,
             parent: parent?.frame,
             handlerEntered: false,
-            descendantWriteEntered: false,
+            writeEntered: false,
+            changeEntered: false,
           };
     frame.key = key;
     frame.boundaryPending = false;
@@ -1464,26 +2422,39 @@ export async function runActionWithExecutionOutcome(
   run: ActionExecutionRun,
   args: unknown,
   ctx: ActionRunContext | undefined,
-  outcome: { refused: boolean },
+  outcome: ActionExecutionOutcome,
   entry?: object,
 ): Promise<any> {
   outcome.refused = false;
-  // A mutable async stack cannot safely attribute overlapping invocations.
+  delete outcome.record;
+  delete outcome.evidence;
+  delete outcome.keyed;
+  const vouched = takeVouchedEvidence(outcome);
+  // A mutable async stack cannot safely attribute overlapping invocations,
+  // so without one no row records the evidence vouched for this one.
   if (!actionExecutionStorage) return run(args, ctx);
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
     ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]
     : undefined;
+  const keyed = entryKey !== null && typeof entryKey === "object";
   const frame: ActionExecutionFrame = {
     // The entry's own key lets its boundary adopt this frame when an app has
     // wrapped `run`; an unkeyed entry gets a placeholder nothing can match.
-    key: entryKey !== null && typeof entryKey === "object" ? entryKey : {},
+    key: keyed ? entryKey : {},
     run,
     parent: parent?.frame,
     handlerEntered: true,
-    descendantWriteEntered: false,
+    writeEntered: false,
+    changeEntered: false,
     boundaryPending: true,
+    outcome,
   };
+  holdInvocationEvidence(frame, vouched);
+  outcome.evidence = frame;
+  outcome.keyed = keyed;
+  // Read before the action's boundary takes it.
+  const prepared = preparedRunFor(ctx, args)?.intent;
   const state: ActionExecutionState = {
     frame,
     failures: parent?.failures ?? new WeakMap(),
@@ -1500,18 +2471,52 @@ export async function runActionWithExecutionOutcome(
       // A keyed entry whose boundary was never entered threw in an app
       // wrapper around `run`, before any handler could start.
       outcome.refused =
-        !frame.descendantWriteEntered &&
+        !frame.writeEntered &&
         ((!frame.handlerEntered && failure === frame) ||
-          (frame.key !== undefined &&
-            frame.boundaryPending === true &&
-            entryKey !== null &&
-            typeof entryKey === "object"));
+          (frame.key !== undefined && frame.boundaryPending === true && keyed));
+      // A typed failure from inside speaks only for the call that raised it,
+      // not for a write beside it, a call the entry never recorded, or an
+      // entry's own untracked write; this call reports its own effect.
+      const mayHaveWritten =
+        !outcome.refused &&
+        actionFailureEffect(error) !== undefined &&
+        invocationEffect(entry ?? {}, outcome, {
+          readOnly: prepared?.readOnly,
+          retrySafe:
+            prepared !== undefined &&
+            actionCallIsRetrySafe(entry ?? {}, preparedCallArguments(prepared)),
+          failed: { error },
+        }).effect !== "none";
+      if (mayHaveWritten) {
+        frame.raised = withCommittedEffect(error);
+        throw frame.raised;
+      }
       throw error;
+    } finally {
+      // A boundary entered once the call settled is a call of its own: it
+      // cannot leave its record on this one. The evidence ends here too,
+      // not when a stream or iterator the call returned is consumed: a
+      // timer, an unawaited promise or that later consumption records none.
+      frame.boundaryPending = false;
+      endInvocationEvidence(frame);
     }
   });
 }
 
 export async function validateActionArgs(
+  schema: StandardSchemaV1,
+  args: unknown,
+  toolParameters?: ActionTool["parameters"],
+  ctx?: object,
+): Promise<any> {
+  try {
+    return await validatedActionArgs(schema, args, toolParameters, ctx);
+  } catch (error) {
+    throw readableFailure(error);
+  }
+}
+
+async function validatedActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
   toolParameters?: ActionTool["parameters"],
@@ -1567,42 +2572,265 @@ export async function validateActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (ctx) preValidatedForContext.set(ctx, { schema, value });
+  if (ctx) preparedRuns.set(ctx, { schema, value });
   return value;
+}
+
+declare const preparedActionCallBrand: unique symbol;
+
+/**
+ * One call prepared to run: its arguments as its action will run them, input
+ * validation and defaults applied, and the classification of those arguments.
+ * Only `actionCallIntent` makes one, and `runPreparedActionCall` executes
+ * exactly these arguments with this classification, without parsing or
+ * classifying them again. An entry without an input schema runs its arguments
+ * as given.
+ */
+export type PreparedActionCall = {
+  readonly valid: true;
+  /**
+   * Exact identity of the arguments, which approvals, replays and reuse
+   * bind. Read the arguments with `preparedCallArguments`.
+   */
+  readonly argumentsHash: string;
+  readonly [preparedActionCallBrand]: true;
+} & ActionCallClassification;
+
+/**
+ * A call prepared to run, or the error validation refused it with. Gates that
+ * decide whether, how, or how often a call may run read this, never the raw
+ * arguments, which defaults can turn from a read into a write.
+ */
+export type ActionCallIntent =
+  | PreparedActionCall
+  | { readonly valid: false; readonly error: unknown };
+
+/**
+ * What only `actionCallIntent` can vouch for: the schema and action an intent
+ * was prepared with, and the snapshot of its arguments, which no consumer
+ * holds: each reads its own copy.
+ */
+const preparedIntents = new WeakMap<
+  object,
+  {
+    readonly schema: StandardSchemaV1 | undefined;
+    readonly key?: object;
+    readonly snapshot: unknown;
+  }
+>();
+
+export async function actionCallIntent(
+  entry: {
+    schema?: unknown;
+    tool?: { parameters?: ActionTool["parameters"] };
+    readOnly?: boolean;
+    planMode?: ActionPlanModeConfig<any>;
+  },
+  input: unknown,
+): Promise<ActionCallIntent> {
+  let args = input;
+  const schema =
+    entry.schema &&
+    typeof entry.schema === "object" &&
+    "~standard" in entry.schema
+      ? (entry.schema as StandardSchemaV1)
+      : undefined;
+  let snapshot: ReturnType<typeof snapshotActionArguments>;
+  try {
+    if (schema) {
+      args = await validateActionArgs(schema, input, entry.tool?.parameters);
+    }
+    // Arguments with no exact snapshot (an accessor, a Map, a class
+    // instance) are refused: a gate could not be sure it read what runs.
+    snapshot = snapshotActionArguments(args);
+  } catch (error) {
+    return { valid: false, error };
+  }
+  const intent = {
+    valid: true,
+    argumentsHash: snapshot.hash,
+    ...classifyActionCall(entry, copyActionArguments(snapshot.value)),
+  } as PreparedActionCall;
+  const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  preparedIntents.set(intent, {
+    schema,
+    ...(key !== null && typeof key === "object" ? { key } : {}),
+    snapshot: snapshot.value,
+  });
+  return intent;
+}
+
+/**
+ * A fresh, mutable copy of the arguments `call` was prepared with, for one
+ * consumer: a gate, the handler, or a reader after the run. No two consumers
+ * share one, so none can change what another reads.
+ */
+export function preparedCallArguments(call: PreparedActionCall): unknown {
+  const prepared = preparedIntents.get(call);
+  if (!prepared) {
+    throw new TypeError(
+      "Only a call prepared by actionCallIntent has prepared arguments.",
+    );
+  }
+  return copyActionArguments(prepared.snapshot);
+}
+
+/**
+ * Whether `call` needs a person's approval before it runs, by the action's
+ * `needsApproval`. Every surface that can run an action decides with this, so
+ * a predicate means the same thing to the agent loop, MCP, and HTTP.
+ */
+export async function preparedCallNeedsApproval(
+  entry: {
+    needsApproval?:
+      | boolean
+      | ((args: any, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+): Promise<boolean> {
+  const gate = entry.needsApproval;
+  if (typeof gate !== "function") return gate === true;
+  try {
+    return Boolean(await gate(preparedCallArguments(call), ctx));
+  } catch {
+    // coercion-ok: a predicate that cannot decide fails closed and asks.
+    return true;
+  }
+}
+
+/**
+ * @internal Executes a prepared call: `entry.run` receives its own copy of the
+ * prepared arguments, which the action's input validation and classification
+ * take as prepared instead of repeating. With `outcome`, the run is observed
+ * as `runActionWithExecutionOutcome` observes it.
+ */
+export function runPreparedActionCall(
+  entry: { run(args: any, ctx?: ActionRunContext): unknown },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+  outcome?: ActionExecutionOutcome,
+): Promise<any> {
+  const prepared = preparedIntents.get(call);
+  if (!prepared) {
+    throw new TypeError(
+      "Only a call prepared by actionCallIntent can be run as prepared.",
+    );
+  }
+  const args = copyActionArguments(prepared.snapshot);
+  preparedRuns.set(args !== null && typeof args === "object" ? args : ctx, {
+    schema: prepared.schema,
+    value: args,
+    ...(prepared.key ? { key: prepared.key } : {}),
+    intent: call,
+  });
+  return outcome
+    ? runActionWithExecutionOutcome(
+        entry.run as ActionExecutionRun,
+        args,
+        ctx,
+        outcome,
+        entry,
+      )
+    : Promise.resolve(entry.run(args, ctx));
+}
+
+/** @internal The prepared call a run of these arguments executes, before its action consumes it. */
+export function boundActionCallIntent(
+  ctx: ActionRunContext | undefined,
+  args: unknown,
+): PreparedActionCall | undefined {
+  return preparedRunFor(ctx, args)?.intent;
 }
 
 function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
-  toolParameters?: ActionTool["parameters"],
+  toolParameters: () => ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
-    const cached =
-      ctx && typeof ctx === "object"
-        ? preValidatedForContext.get(ctx)
-        : undefined;
-    if (cached && cached.schema === schema && Object.is(cached.value, args)) {
-      return run(args, ctx);
-    }
-    return run(await validateActionArgs(schema, args, toolParameters), ctx);
+    if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
+    return run(await validateActionArgs(schema, args, toolParameters()), ctx);
   };
 }
 
-function wrapWithOutputValidation(
+function outputValidator(
   outputSchema: StandardSchemaV1,
-  run: (args: any, ctx?: ActionRunContext) => any,
   strategy: ActionOutputErrorStrategy,
   fallback: unknown,
-  description?: string,
-): (args: any, ctx?: ActionRunContext) => any {
-  return async (args: any, ctx?: ActionRunContext) => {
-    const output = await run(args, ctx);
-    const result = await outputSchema["~standard"].validate(output);
+  description: string | undefined,
+): (
+  output: unknown,
+  call: { actionName?: string; effect: ActionOutputEffect },
+) => Promise<unknown> {
+  let semanticSchema: JsonSchemaObject | undefined;
+  const contractSchema = () => {
+    try {
+      semanticSchema ??= outputSchemaToJsonSchema(outputSchema);
+    } catch {
+      // coercion-ok: without a JSON Schema nothing is known to be declared,
+      // so every segment of an issue path is masked.
+    }
+    return semanticSchema;
+  };
+  return async (output, call) => {
+    let result: StandardSchemaV1.Result<unknown>;
+    try {
+      result = await outputSchema["~standard"].validate(output);
+    } catch (error) {
+      // A connection request or stop from a transform is the action's own
+      // signal, not a broken result, so it stops the call under every
+      // strategy: the one way `"warn"` is not non-breaking. `run` already
+      // returned, so it travels as the call's post-run failure.
+      if (
+        isAgentConnectionRequiredError(error) ||
+        isAgentActionStopError(error)
+      ) {
+        throw postRunSignal(error, call);
+      }
+      // A refinement that throws has not judged the output, and its message
+      // may repeat it.
+      if (strategy === "strict") {
+        throw new ActionOutputContractError({
+          actionName: call.actionName,
+          effect: call.effect,
+          contract: "semantic",
+          issues: ["(root): validator_threw"],
+        });
+      }
+      if (strategy === "fallback") return fallback;
+      const label = description ? ` (${description})` : "";
+      console.warn(
+        `Action outputSchema threw while validating the result${label}: ${describeThrownForLog(error)}`,
+      );
+      return output;
+    }
 
     if (!result.issues) {
       return (result as StandardSchemaV1.SuccessResult<any>).value;
     }
 
+    if (strategy === "strict") {
+      const schema = contractSchema();
+      throw new ActionOutputContractError({
+        actionName: call.actionName,
+        effect: call.effect,
+        contract: "semantic",
+        issues: result.issues.map((issue) =>
+          describeOutputContractIssue(
+            (issue.path ?? []).map((p) => {
+              const key = typeof p === "object" ? p.key : p;
+              return typeof key === "number" ? key : String(key);
+            }),
+            (issue as { code?: unknown }).code,
+            schema,
+          ),
+        ),
+      });
+    }
+    if (strategy === "fallback") {
+      return fallback;
+    }
     const issues = result.issues
       .map((issue) => {
         const pathStr = issue.path
@@ -1613,15 +2841,9 @@ function wrapWithOutputValidation(
       })
       .join("; ");
     const label = description ? ` (${description})` : "";
-    const summary = `Action output did not match outputSchema${label}: ${issues}`;
-
-    if (strategy === "strict") {
-      throw new Error(summary);
-    }
-    if (strategy === "fallback") {
-      return fallback;
-    }
-    console.warn(summary);
+    console.warn(
+      `Action output did not match outputSchema${label}: ${describeThrownForLog(issues)}`,
+    );
     return output;
   };
 }

@@ -34,8 +34,12 @@ const messages = {
       newest: "Más recientes",
       priority: "Prioridad",
       priorityFailed: "No se pudo ordenar la bandeja.",
+      priorityProviderRequired:
+        "Conecta un proveedor de IA para ordenar por prioridad.",
+      priorityPartialFailed:
+        "No se pudieron clasificar {{count}} mensajes. Se muestran después de los mensajes puntuados.",
       priorityScoreHelp:
-        "Una puntuación más alta indica que Jev considera el mensaje más importante.",
+        "Una puntuación más alta indica que es más probable que el mensaje sea importante.",
       priorityFeedbackSuggestion:
         "Convierte este patrón en una regla de importancia o archivo automático.",
       priorityFeedbackAskAgent: "Pedir al agente que sugiera reglas",
@@ -314,7 +318,12 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enriquecimiento de contactos y datos de empresa",
       hubspotDescription: "Contactos, negocios y tickets de CRM",
-      gongDescription: "Llamadas recientes e inteligencia conversacional",
+      gongDescription: "Historial de llamadas de Gong",
+      gongAccessCheckFailed:
+        "No se pudo comprobar si tienes permiso para conectar Gong.",
+      gongKeyPlaceholder: "Clave de API de Gong",
+      gongKeyFormatHint:
+        "Introduce la clave de acceso y el secreto con el formato access_key:secret.",
       pylonDescription: "Incidencias de soporte y datos de cuenta",
       gongCalls: "Llamadas de Gong",
       deals: "Negocios",
@@ -438,6 +447,7 @@ const messages = {
       tryDifferentKeywords: "Prueba con otras palabras clave",
       nothingHere: "Nada aquí todavía",
       loadingMore: "Cargando más...",
+      openAllMailForOlder: "Abrir todo el correo para mensajes más antiguos",
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",
@@ -469,6 +479,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",
+      failedToRefreshInbox:
+        "No se pudo actualizar la bandeja de entrada. Inténtalo de nuevo en un momento.",
       failedToDeleteDraft: "No se pudo eliminar el borrador.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -730,12 +742,15 @@ const messages = {
       tagTabsHelp: "Cada etiqueta se convierte en una pestaña de la bandeja",
       addTag: "Añadir etiqueta",
       triageTitle: "Clasificación con IA",
-      connectJev: "Conectar Jev",
-      connectJevToRunTriage: "Conecta Jev para usar el triaje",
+      connectJev: "Conectar un proveedor de IA",
+      connectJevToRunTriage:
+        "Conecta un proveedor de IA para ejecutar el triaje",
       freeBuilderOrApiKey: "Gratis con Builder.io o añade una clave de API.",
-      jevAvailabilityFailed: "No se pudo comprobar si Jev está disponible.",
+      jevAvailabilityFailed:
+        "No se pudo comprobar si hay un proveedor de decisiones de IA disponible.",
       connectBuilder: "Usar Builder.io",
-      addJevApiKey: "Añadir clave de API",
+      addJevApiKey: "Añadir clave de API de Jev",
+      addOpenAiApiKey: "Añadir clave de API de OpenAI",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -777,6 +792,17 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "Borrador de correo - Mail",
+    },
+    draftCard: {
+      loadFailed: "No se pudo cargar este borrador.",
+      notFoundTitle: "No se encontró el borrador",
+      threadUnavailable:
+        "No se pudieron cargar los mensajes anteriores de esta conversación.",
+      threadLookupFailed:
+        "No se encontró la conversación a la que pertenece esta respuesta, así que aún no se puede enviar.",
+      earlierMessages: "Mensajes anteriores ({{count}})",
+      deleted: "Borrador eliminado.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

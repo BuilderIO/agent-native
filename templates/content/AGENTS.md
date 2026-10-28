@@ -34,12 +34,15 @@ Every action has a schema; use `tool-search` for comments, sharing, Collections,
 | `view-screen` / `navigate` / `refresh-list` | Read context, move UI, refresh after out-of-band writes |
 | `list-documents` / `search-documents` / `get-document` / `pull-document` | Browse metadata, search, read, or flush live state before reading |
 | `get-blocks-field-word-count` | Count one exact collection field; omit `propertyId` for primary body |
+| `share-local-file-document` | Create/refresh a shareable copy, possibly already shared; outside-agent calls need approval |
 | `create-document` / `edit-document` / `update-document` / `delete-document` | Create, revision-edit, update, or move a page and children to Trash |
 | `import-content` / `undo-content-import` | Import Markdown as pages; undo trashes unedited imports |
 | `list-content-trash` / `get-trashed-document` | Find/read authorized Trash without restoring |
 | `plan-content-trash-purge` / `get-content-trash-purge-plan` / `execute-content-trash-purge` / `get-content-trash-operation` | Freeze, inspect, execute, and track permanent deletion |
 | `list-content-database-blocks` / `mutate-content-database-block` | Read or mutate stable blocks in one exact collection row/property |
 | `migrate-content-database-rows` | Validate, apply, verify; terminal phases use `manage-content-database-migration` |
+
+A collection row's Blocks fields show on its page as tabs, so people call them tabs, page tabs, document tabs, or sections; `document-editing/references/databases.md` maps those requests to actions.
 
 Permanent deletion requires a frozen plan. Read `document-editing`; report blockers or conflicts instead of claiming Trash is empty. Sidebar order and active Views use the personal view `navigation` patch, never parentage. Recent means foreground visits; paging, active-path lookup, and visit recording are UI-owned.
 

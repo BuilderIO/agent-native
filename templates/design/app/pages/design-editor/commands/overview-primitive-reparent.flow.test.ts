@@ -4,6 +4,7 @@ import { buildCodeLayerProjection } from "@shared/code-layer";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runPublishCanonicalContent } from "@/pages/design-editor/commands/publish-canonical-content";
+import { BOARD_TEXT_AUTO_COLOR_MARKER } from "@/pages/design-editor/cross-screen-text-color";
 import type {
   ContentHistoryEntry,
   ContentHistorySelectionAfterMap,
@@ -53,6 +54,46 @@ function acceptFixture(fileId: string, content: string) {
 afterEach(() => document.body.replaceChildren());
 
 describe("runOverviewPrimitiveReparent: cross-screen flow semantics", () => {
+  it("adapts auto text color when overview reparents it to another screen", () => {
+    const sourceContent = `<html><body><span data-agent-native-node-id="moving" data-an-primitive="text" ${BOARD_TEXT_AUTO_COLOR_MARKER} style="color:#000000">Move</span></body></html>`;
+    const targetContent = `<html><head><style>.dark-surface { background: #111111; }</style></head><body><main data-agent-native-node-id="target" class="dark-surface"></main></body></html>`;
+    mountPreview(sourceContent, SOURCE_ID);
+    mountPreview(targetContent, TARGET_ID);
+    const updates = new Map<string, string>();
+
+    runOverviewPrimitiveReparent(
+      {
+        applyFileContentUpdate: (id, content) => {
+          const publication = acceptFixture(id, content);
+          updates.set(id, publication.content);
+          return publication;
+        },
+        boardFileId: undefined,
+        canEditDesign: true,
+        getScreenContent: (id) =>
+          id === SOURCE_ID ? sourceContent : targetContent,
+        recordContentHistoryEntry: () => {},
+        setSelectedElement: () => {},
+        setSelectedLayerIdsState: () => {},
+        t: (key) => key,
+      },
+      {
+        sourceNodeId: "moving",
+        sourceScreenId: SOURCE_ID,
+        targetNodeId: "target",
+        targetScreenId: TARGET_ID,
+        placement: "inside",
+      },
+    );
+
+    const nextTarget = updates.get(TARGET_ID);
+    expect(nextTarget).toBeTruthy();
+    const moved = new DOMParser()
+      .parseFromString(nextTarget!, "text/html")
+      .querySelector<HTMLElement>('[data-agent-native-node-id="moving"]');
+    expect(moved?.style.color).toBe("#ffffff");
+  });
+
   it("moves a class-positioned freeform child into CSS-authored flow without offsets", () => {
     const sourceContent = `<html><head><style>
 .freeform { display:block; position:relative; }

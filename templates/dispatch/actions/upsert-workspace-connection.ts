@@ -146,6 +146,11 @@ export async function assertWorkspaceConnectionAllowedUserGroups(
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Create or update a shared workspace integration connection and its app access list.",
   chatUI: {
@@ -204,6 +209,10 @@ export default defineAction({
       ),
     lastError: z.string().nullable().optional(),
   }),
+  // It creates, changes, or revokes a credential or who may use one: every
+  // call needs the user's approval, and "always allow" is not offered.
+  needsApproval: true,
+  allowPersistentApproval: false,
   run: async (args, ctx) => {
     await assertWorkspaceConnectionManager(ctx, args.allowedApps);
     const provider = getWorkspaceConnectionProvider(args.provider);
@@ -269,11 +278,20 @@ export default defineAction({
       }
     }
     const result = await upsertWorkspaceConnection({
-      ...args,
+      provider: args.provider,
+      ...(args.id === undefined ? {} : { id: args.id }),
+      ...(args.label === undefined ? {} : { label: args.label }),
+      ...(args.accountId === undefined ? {} : { accountId: args.accountId }),
+      ...(args.accountLabel === undefined
+        ? {}
+        : { accountLabel: args.accountLabel }),
+      ...(args.scopes === undefined ? {} : { scopes: args.scopes }),
+      ...(args.lastError === undefined ? {} : { lastError: args.lastError }),
+      allowedApps: args.allowedApps,
       config,
       status: args.status as WorkspaceConnectionStatus,
-      allowedUsers,
-      allowedUserGroups,
+      ...(allowedUsers === undefined ? {} : { allowedUsers }),
+      ...(allowedUserGroups === undefined ? {} : { allowedUserGroups }),
       credentialRefs: normalizeCredentialRefs(args.credentialRefs, provider),
     });
     const channel = args.provider.trim().toLowerCase();

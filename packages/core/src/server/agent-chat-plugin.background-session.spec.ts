@@ -11,7 +11,10 @@ import {
 
 const harness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
-  requireAgentChatAiSetup: vi.fn(async () => {}),
+  readinessInputs: [] as unknown[],
+  requireAgentChatAiSetup: vi.fn(async (input?: unknown) => {
+    harness.readinessInputs.push(input);
+  }),
 }));
 
 // The real shim also bootstraps every default plugin. This keeps its routing
@@ -99,6 +102,10 @@ vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
 }));
 
 import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_PROCESS_RUN_PATH,
+} from "../agent/durable-background.js";
+import {
   registerAgentEngine,
   unregisterAgentEngine,
 } from "../agent/engine/registry.js";
@@ -107,6 +114,8 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "../agent/engine/types.js";
+import { BACKGROUND_PRECLAIM_HEARTBEAT_MS } from "../agent/production-agent.js";
+import * as runStore from "../agent/run-store.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import {
   createThread,
@@ -117,8 +126,15 @@ import { resetAgentEngineReadinessForTests } from "../client/agent-engine-readin
 import { startBackgroundAgentSession } from "../client/background-agent-session.js";
 import * as fileUploadRegistry from "../file-upload/registry.js";
 import { PDF_BASE64 } from "../file-upload/test-image-fixtures.js";
+import { signInternalToken } from "../integrations/internal-token.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
+import * as processRunFailure from "./agent-chat/process-run-failure.js";
+import * as agentRunContext from "./agent-run-context.js";
 import { seedAgentRunOwnerContext } from "./agent-run-context.js";
+import {
+  registerErrorCaptureProvider,
+  type CaptureErrorContext,
+} from "./capture-error.js";
 
 const OWNER = "owner@example.com";
 const ORIGIN = "http://localhost:3000";
@@ -209,11 +225,32 @@ beforeAll(async () => {
   h3App.use((event) => {
     const anonymous = event.req.headers.get("x-test-anonymous") === "1";
     const ownerless = event.req.headers.get("x-test-ownerless") === "1";
+    const directLoopback =
+      event.req.headers.get("x-test-direct-loopback") === "1";
     seedAgentRunOwnerContext(event, {
       owner: ownerless ? "" : anonymous ? "anonymous-owner@example.com" : OWNER,
       anonymous,
-      orgId: null,
+      orgId: directLoopback ? "test-org" : null,
+      ...(!ownerless && !anonymous && !directLoopback
+        ? { orgScope: "personal" as const }
+        : {}),
     });
+    if (directLoopback) {
+      (event.req as any).context = { clientAddress: "127.0.0.1" };
+      Object.defineProperty(event, "node", {
+        configurable: true,
+        value: {
+          ...event.node,
+          req: {
+            headers: { host: "127.0.0.1:3000" },
+            socket: {
+              remoteAddress: "127.0.0.1",
+              localAddress: "127.0.0.1",
+            },
+          },
+        },
+      });
+    }
   });
   createAgentChatPlugin({
     actions: () => ({}),
@@ -285,6 +322,7 @@ beforeAll(async () => {
 beforeEach(() => {
   resetAgentEngineReadinessForTests();
   harness.requireAgentChatAiSetup.mockClear();
+  harness.readinessInputs.length = 0;
 });
 
 afterAll(async () => {
@@ -294,6 +332,166 @@ afterAll(async () => {
 });
 
 describe("background agent sessions through the agent-chat plugin", () => {
+  it("keeps the process-run error response when finalization also fails", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const runId = "process-run-finalization-failure";
+    const workerError = new Error("worker setup failed");
+    const finalizationError = new Error("claim read failed");
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const seedOwner = vi
+      .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
+      .mockRejectedValue(workerError);
+    const finalizeFailure = vi
+      .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
+      .mockRejectedValue(finalizationError);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const reports: Array<{
+      error: unknown;
+      context: CaptureErrorContext;
+    }> = [];
+    const unregisterCapture = registerErrorCaptureProvider(
+      "agent-chat-process-run-finalization-spec",
+      (error, context) => {
+        reports.push({ error, context });
+      },
+    );
+
+    try {
+      const response = await fetch("/_agent-native/agent-chat/_process-run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${signInternalToken(runId)}`,
+        },
+        body: JSON.stringify({
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "process-run failed" });
+      expect(seedOwner).toHaveBeenCalledOnce();
+      expect(finalizeFailure).toHaveBeenCalledWith(runId, workerError);
+      expect(reports).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            error: finalizationError,
+            context: expect.objectContaining({
+              route: "/_agent-native/agent-chat/_process-run",
+              tags: expect.objectContaining({
+                source: "agent-chat-bg-worker",
+                phase: "process-run-finalization",
+              }),
+              extra: expect.objectContaining({ runId }),
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      unregisterCapture();
+      consoleError.mockRestore();
+      seedOwner.mockRestore();
+      finalizeFailure.mockRestore();
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("finalizes a pre-start worker error and stops its setup heartbeat", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const runId = "process-run-prestart-response-error";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    vi.useFakeTimers();
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
+    const seedOwner = vi
+      .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
+      .mockResolvedValue(undefined);
+    const finalizeFailure = vi
+      .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
+      .mockResolvedValue(true);
+
+    try {
+      const response = await fetch(AGENT_CHAT_PROCESS_RUN_PATH, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${signInternalToken(runId)}`,
+        },
+        body: JSON.stringify({
+          threadId: "prestart-error-thread",
+          turnId: "prestart-error-turn",
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+            runId,
+            turnId: "prestart-error-turn",
+          },
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "message is required" });
+      expect(finalizeFailure).toHaveBeenCalledWith(
+        runId,
+        expect.objectContaining({
+          message: expect.stringContaining("HTTP 400"),
+        }),
+      );
+      const heartbeatCount = updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
+    } finally {
+      finalizeFailure.mockRestore();
+      seedOwner.mockRestore();
+      updateRunHeartbeat.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      isTurnAborted.mockRestore();
+      claimBackgroundRun.mockRestore();
+      vi.useRealTimers();
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("does not pass loopback as an org ChatGPT readiness exception", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";
+    try {
+      const response = await fetch("/_agent-native/agent-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-direct-loopback": "1",
+        },
+        body: JSON.stringify({
+          message: "Local organization send",
+          engine: ENGINE_NAME,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await response.text();
+      expect(harness.readinessInputs).toEqual([undefined]);
+    } finally {
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+    }
+  });
+
   it("accepts a background session and persists its user message", async () => {
     const handle = startBackgroundAgentSession({
       message: "Reply to this comment",

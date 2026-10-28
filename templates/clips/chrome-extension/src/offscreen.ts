@@ -28,7 +28,9 @@ import {
 } from "./native-transcription";
 import {
   createRecordingDurationState,
+  parseClipDurationLimitMs,
   pauseRecordingDuration,
+  reachedClipDurationLimit,
   resumeRecordingDuration,
   startRecordingDuration,
   type RecordingDurationState,
@@ -124,6 +126,7 @@ type BeginMessage = {
   recordingId: string;
   uploadUrl: string;
   uploadMode?: UploadMode;
+  maxClipDurationMs?: number | null;
   hasCamera?: boolean;
   startDelayMs?: number;
   authToken?: string;
@@ -205,6 +208,8 @@ type ActiveRecording = {
   cancelled: boolean;
   restarting: boolean;
   startTimer: ReturnType<typeof setTimeout> | null;
+  maxClipDurationMs: number | null;
+  limitTimer: ReturnType<typeof setInterval> | null;
   stopCompositor: (() => void) | null;
   displaySource: MediaStream | null;
   cameraSource: MediaStream | null;
@@ -1055,6 +1060,10 @@ function disposePrepared(): void {
 }
 
 function cleanup(recording: ActiveRecording): void {
+  if (recording.limitTimer !== null) {
+    clearInterval(recording.limitTimer);
+    recording.limitTimer = null;
+  }
   recording.stopCompositor?.();
   recording.cleanupAudio();
   stopStreams([recording.outputStream, ...recording.sourceStreams]);
@@ -1237,6 +1246,8 @@ async function begin(message: BeginMessage): Promise<{
     cancelled: false,
     restarting: false,
     startTimer: null,
+    maxClipDurationMs: parseClipDurationLimitMs(message.maxClipDurationMs),
+    limitTimer: null,
     stopCompositor: compositor?.stop ?? null,
     displaySource: ready.displayStream,
     cameraSource: ready.cameraStream,
@@ -1333,6 +1344,39 @@ function playStartChime(): void {
   }
 }
 
+// Hosted takes stop at the server's per-clip cap through the same worker path
+// as the user's Stop, so the clip finalizes and uploads instead of running into
+// the byte cap mid-upload. Paused time does not count toward the cap.
+function armClipDurationLimit(recording: ActiveRecording): void {
+  if (recording.limitTimer !== null) clearInterval(recording.limitTimer);
+  recording.limitTimer = null;
+  if (recording.maxClipDurationMs === null) return;
+  recording.limitTimer = setInterval(() => {
+    // A restart reuses the session id, so a superseded take's timer must never
+    // send an end for the replacement take.
+    if (activeRecording !== recording) {
+      if (recording.limitTimer !== null) clearInterval(recording.limitTimer);
+      recording.limitTimer = null;
+      return;
+    }
+    if (
+      !reachedClipDurationLimit(
+        recording.duration,
+        Date.now(),
+        recording.maxClipDurationMs,
+      )
+    ) {
+      return;
+    }
+    if (recording.limitTimer !== null) clearInterval(recording.limitTimer);
+    recording.limitTimer = null;
+    void chrome.runtime.sendMessage({
+      type: "CLIPS_NATIVE_ENDED",
+      sessionId: recording.sessionId,
+    });
+  }, 1000);
+}
+
 function startRecorderNow(recording: ActiveRecording): void {
   if (recording.cancelled) return;
   try {
@@ -1341,6 +1385,7 @@ function startRecorderNow(recording: ActiveRecording): void {
     recording.nativeTranscription.start();
     recording.startedAtMs = Date.now();
     recording.duration = startRecordingDuration(recording.startedAtMs);
+    armClipDurationLimit(recording);
     console.log("[clips-offscreen] recorder.start ok");
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
@@ -1746,6 +1791,8 @@ async function restart(
   }
   recording.restarting = true;
   recording.cancelled = true;
+  if (recording.limitTimer !== null) clearInterval(recording.limitTimer);
+  recording.limitTimer = null;
   recording.nativeTranscription.cancel();
   if (recording.recorder.state !== "inactive") recording.recorder.stop();
   recording.stopCompositor?.();

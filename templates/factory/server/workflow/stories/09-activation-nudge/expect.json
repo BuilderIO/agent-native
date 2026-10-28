@@ -1,0 +1,639 @@
+{
+  "an-inactive-customer-is-nudged-exactly-three-days-later": {
+    "ticks": [
+      {
+        "label": "the first run primes the cursor and takes nothing",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the customer subscribes",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 1, "parked": 1 } },
+        "nodes": {
+          "pause": { "in": 1, "ports": { "parked": 1 } },
+          "subs": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "an hour before the three days are up",
+        "at": "2026-10-22T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "three days after subscribing",
+        "at": "2026-10-22T13:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1, "woke": 1 }
+        },
+        "nodes": {
+          "done": { "in": 1, "ports": {} },
+          "inactive": { "in": 1, "ports": { "match": 1 } },
+          "mail": { "in": 1, "ports": { "out": 1 } },
+          "pause": { "in": 0, "ports": { "done": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "usage": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "stripe.newSubscriptions": 1,
+          "posthog.usage": 1,
+          "email.send": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "mail",
+            "item": "sub_nadia",
+            "operation": "email.send",
+            "fields": {
+              "to": "nadia@acme-labs.example.test",
+              "subject": "Getting started with nadia@acme-labs.example.test",
+              "body": "Hi Nadia, welcome aboard. The quickest way to see value is to create your first project from the dashboard; the docs walk through it in two minutes: https://docs.example.test/getting-started"
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "sub_nadia",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "account-owner@example.test",
+              "text": "Sent an activation nudge to nadia@acme-labs.example.test."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ACCOUNT/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [{ "node": "mail", "mode": "perItem", "items": ["sub_nadia"] }]
+      },
+      {
+        "label": "the hour after the nudge",
+        "at": "2026-10-22T14:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "sub_nadia": "resolved" },
+    "cursors": { "subs": "1760875100" },
+    "journeys": {
+      "sub_nadia": [
+        "parked@pause",
+        "woke@pause:done",
+        "decision@inactive:match",
+        "effect@mail",
+        "effect@tellOwner",
+        "ended@done:done"
+      ]
+    }
+  },
+  "the-wait-is-exactly-three-days": {
+    "ticks": [
+      {
+        "label": "the customer subscribes",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 1, "parked": 1 } },
+        "nodes": {
+          "pause": { "in": 1, "ports": { "parked": 1 } },
+          "subs": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "one minute before the deadline",
+        "at": "2026-10-22T11:59:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [
+      {
+        "item": "sub_nadia",
+        "node": "pause",
+        "wait": "time",
+        "dueAt": "2026-10-22T12:00:00.000Z"
+      }
+    ],
+    "statuses": {},
+    "cursors": { "subs": "1760875100" },
+    "journeys": { "sub_nadia": ["parked@pause"] }
+  },
+  "an-active-customer-gets-nothing": {
+    "ticks": [
+      {
+        "label": "the customer subscribes",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 1, "parked": 1 } },
+        "nodes": {
+          "pause": { "in": 1, "ports": { "parked": 1 } },
+          "subs": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "three days later",
+        "at": "2026-10-22T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "dismissed": 1, "woke": 1 }
+        },
+        "nodes": {
+          "activated": { "in": 1, "ports": {} },
+          "inactive": { "in": 1, "ports": { "otherwise": 1 } },
+          "pause": { "in": 0, "ports": { "done": 1 } },
+          "usage": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1, "posthog.usage": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "Stripe offers the same subscription again",
+        "at": "2026-10-22T13:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "sub_nadia": "dismissed" },
+    "cursors": { "subs": "1760875100" },
+    "journeys": {
+      "sub_nadia": [
+        "parked@pause",
+        "woke@pause:done",
+        "decision@inactive:otherwise",
+        "ended@activated:dismissed"
+      ]
+    }
+  },
+  "one-nudge-per-subscription": {
+    "ticks": [
+      {
+        "label": "the customer subscribes",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 1, "parked": 1 } },
+        "nodes": {
+          "pause": { "in": 1, "ports": { "parked": 1 } },
+          "subs": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "offered again while it waits",
+        "at": "2026-10-19T13:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "three days later",
+        "at": "2026-10-22T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "done": 1, "modelCalls": 1, "woke": 1 }
+        },
+        "nodes": {
+          "done": { "in": 1, "ports": {} },
+          "inactive": { "in": 1, "ports": { "match": 1 } },
+          "mail": { "in": 1, "ports": { "out": 1 } },
+          "pause": { "in": 0, "ports": { "done": 1 } },
+          "tellOwner": { "in": 1, "ports": { "out": 1 } },
+          "usage": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "stripe.newSubscriptions": 1,
+          "posthog.usage": 1,
+          "email.send": 1,
+          "slack.postMessage": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "mail",
+            "item": "sub_nadia",
+            "operation": "email.send",
+            "fields": {
+              "to": "nadia@acme-labs.example.test",
+              "subject": "Getting started with nadia@acme-labs.example.test",
+              "body": "Hi Nadia, welcome aboard. The quickest way to see value is to create your first project from the dashboard; the docs walk through it in two minutes: https://docs.example.test/getting-started"
+            },
+            "receipt": { "status": "done", "externalRef": "msg-1" }
+          },
+          {
+            "node": "tellOwner",
+            "item": "sub_nadia",
+            "operation": "slack.postMessage",
+            "fields": {
+              "to": "account-owner@example.test",
+              "text": "Sent an activation nudge to nadia@acme-labs.example.test."
+            },
+            "receipt": {
+              "status": "done",
+              "externalRef": "1760001000.000001",
+              "url": "https://slack.example.test/archives/D0ACCOUNT/p1760001000000001"
+            }
+          }
+        ],
+        "ai": [{ "node": "mail", "mode": "perItem", "items": ["sub_nadia"] }]
+      },
+      {
+        "label": "offered again after the nudge",
+        "at": "2026-10-22T13:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "sub_nadia": "resolved" },
+    "cursors": { "subs": "1760875100" },
+    "journeys": {
+      "sub_nadia": [
+        "parked@pause",
+        "woke@pause:done",
+        "decision@inactive:match",
+        "effect@mail",
+        "effect@tellOwner",
+        "ended@done:done"
+      ]
+    }
+  },
+  "a-tick-that-dies-after-the-email-never-sends-a-second-one": {
+    "ticks": [
+      {
+        "label": "the customer subscribes",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 1, "parked": 1 } },
+        "nodes": {
+          "pause": { "in": 1, "ports": { "parked": 1 } },
+          "subs": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "three days later, the process dies after the email",
+        "at": "2026-10-22T12:00:00.000Z",
+        "outcome": "crashed",
+        "nodes": {
+          "inactive": { "in": 1, "ports": { "match": 1 } },
+          "pause": { "in": 0, "ports": { "done": 1 } },
+          "usage": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": {
+          "stripe.newSubscriptions": 1,
+          "posthog.usage": 1,
+          "email.send": 1
+        },
+        "windows": {},
+        "effects": [
+          {
+            "node": "mail",
+            "item": "sub_nadia",
+            "operation": "email.send",
+            "fields": {
+              "to": "nadia@acme-labs.example.test",
+              "subject": "Getting started with nadia@acme-labs.example.test",
+              "body": "Hi Nadia, welcome aboard. The quickest way to see value is to create your first project from the dashboard; the docs walk through it in two minutes: https://docs.example.test/getting-started"
+            },
+            "receipt": { "status": "started" }
+          }
+        ],
+        "ai": [{ "node": "mail", "mode": "perItem", "items": ["sub_nadia"] }],
+        "crash": "the process died after the call went out"
+      },
+      {
+        "label": "an hour on, after the dead tick's lease ran out",
+        "at": "2026-10-22T13:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": {
+            "needsManual": 1,
+            "needsCheck": 1,
+            "modelCalls": 1,
+            "woke": 1
+          }
+        },
+        "nodes": {
+          "inactive": { "in": 1, "ports": { "match": 1 } },
+          "mail": {
+            "in": 1,
+            "ports": {},
+            "status": "needs_check",
+            "error": "effect_needs_check"
+          },
+          "pause": { "in": 0, "ports": { "done": 1 } },
+          "usage": { "in": 1, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1, "posthog.usage": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": [{ "node": "mail", "mode": "perItem", "items": ["sub_nadia"] }]
+      }
+    ],
+    "parked": [],
+    "statuses": { "sub_nadia": "needs_manual" },
+    "cursors": { "subs": "1760875100" },
+    "journeys": {
+      "sub_nadia": [
+        "parked@pause",
+        "woke@pause:done",
+        "decision@inactive:match",
+        "woke@pause:done",
+        "decision@inactive:match",
+        "error@mail:effect_needs_check",
+        "ended@mail:needsManual"
+      ]
+    }
+  },
+  "a-failed-usage-lookup-is-never-read-as-inactive": {
+    "ticks": [
+      {
+        "label": "the customer subscribes",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 1, "parked": 1 } },
+        "nodes": {
+          "pause": { "in": 1, "ports": { "parked": 1 } },
+          "subs": { "in": 0, "ports": { "out": 1 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "three days later, PostHog is down",
+        "at": "2026-10-22T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "woke": 1, "retryParked": 1 }
+        },
+        "nodes": {
+          "pause": { "in": 0, "ports": { "done": 1 } },
+          "usage": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "stripe.newSubscriptions": 1, "posthog.usage": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "an hour on, still down",
+        "at": "2026-10-22T13:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "itemFailures": 1, "retryParked": 1, "retried": 1 }
+        },
+        "nodes": {
+          "usage": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "stripe.newSubscriptions": 1, "posthog.usage": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the third failure",
+        "at": "2026-10-22T14:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 1, "itemFailures": 1, "retried": 1 }
+        },
+        "nodes": {
+          "usage": {
+            "in": 1,
+            "ports": {},
+            "status": "failed",
+            "error": "provider_error"
+          }
+        },
+        "calls": { "stripe.newSubscriptions": 1, "posthog.usage": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the hour after",
+        "at": "2026-10-22T15:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": { "sub_nadia": "needs_manual" },
+    "cursors": { "subs": "1760875100" },
+    "journeys": {
+      "sub_nadia": [
+        "parked@pause",
+        "woke@pause:done",
+        "error@usage:provider_error",
+        "parked@usage",
+        "woke@usage:?",
+        "error@usage:provider_error",
+        "parked@usage",
+        "woke@usage:?",
+        "error@usage:provider_error",
+        "ended@usage:needsManual"
+      ]
+    }
+  },
+  "an-answer-with-no-count-fails-the-item-instead-of-matching": {
+    "ticks": [
+      {
+        "label": "three customers subscribe",
+        "at": "2026-10-19T12:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": { "taken": 3, "parked": 3 } },
+        "nodes": {
+          "pause": { "in": 3, "ports": { "parked": 3 } },
+          "subs": { "in": 0, "ports": { "out": 3 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "three days later",
+        "at": "2026-10-22T12:00:00.000Z",
+        "outcome": "ran",
+        "run": {
+          "status": "succeeded",
+          "counts": { "needsManual": 3, "itemFailures": 3, "woke": 3 }
+        },
+        "nodes": {
+          "inactive": {
+            "in": 3,
+            "ports": {},
+            "status": "failed",
+            "error": "expression_failed"
+          },
+          "pause": { "in": 0, "ports": { "done": 3 } },
+          "usage": { "in": 3, "ports": { "out": 3 } }
+        },
+        "calls": { "stripe.newSubscriptions": 1, "posthog.usage": 3 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "an hour on",
+        "at": "2026-10-22T13:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      },
+      {
+        "label": "the third failure",
+        "at": "2026-10-22T14:00:00.000Z",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {},
+        "calls": { "stripe.newSubscriptions": 1 },
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {
+      "sub_empty": "needs_manual",
+      "sub_noresults": "needs_manual",
+      "sub_text": "needs_manual"
+    },
+    "cursors": {},
+    "journeys": {
+      "sub_noresults": [
+        "parked@pause",
+        "woke@pause:done",
+        "error@inactive:expression_failed",
+        "ended@inactive:needsManual"
+      ],
+      "sub_empty": [
+        "parked@pause",
+        "woke@pause:done",
+        "error@inactive:expression_failed",
+        "ended@inactive:needsManual"
+      ],
+      "sub_text": [
+        "parked@pause",
+        "woke@pause:done",
+        "error@inactive:expression_failed",
+        "ended@inactive:needsManual"
+      ]
+    }
+  },
+  "testing-the-filter-on-pinned-samples": {
+    "ticks": [
+      {
+        "label": "test the filter",
+        "at": "2026-10-19T12:00:00.000Z",
+        "mode": "test",
+        "outcome": "ran",
+        "run": { "status": "succeeded", "counts": {} },
+        "nodes": {
+          "inactive": { "in": 2, "ports": { "match": 1, "otherwise": 1 } }
+        },
+        "calls": {},
+        "windows": {},
+        "effects": [],
+        "ai": []
+      }
+    ],
+    "parked": [],
+    "statuses": {},
+    "cursors": {},
+    "journeys": {
+      "sample-quiet": ["decision@inactive:match"],
+      "sample-busy": ["decision@inactive:otherwise"]
+    }
+  }
+}

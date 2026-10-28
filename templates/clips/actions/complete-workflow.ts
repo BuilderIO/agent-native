@@ -6,6 +6,7 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   matchesWorkflowRequest,
   WorkflowKindSchema,
@@ -45,7 +46,9 @@ export default defineAction({
       .describe("Final workflow document in markdown"),
   }),
   run: async ({ recordingId, requestedAt, requestId, content }) => {
-    await assertAccess("recording", recordingId, "viewer");
+    assertRecordingNotExpired(
+      await assertAccess("recording", recordingId, "viewer"),
+    );
 
     const stateKey = `clips-workflow-${recordingId}`;
     const current = await readAppState(stateKey);

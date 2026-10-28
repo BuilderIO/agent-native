@@ -7,7 +7,6 @@ import {
   deleteAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -22,9 +21,11 @@ import {
   type VideoRedaction,
 } from "../app/lib/video-redactions.js";
 import { getDb, schema } from "../server/db/index.js";
+import { deleteStoredAgentFrames } from "../server/lib/agent-frame-store.js";
 import { ensureRecordingThumbnail } from "../server/lib/ensure-recording-thumbnail.js";
 import { loadRecordingMediaBytes } from "../server/lib/public-agent-context.js";
 import { deleteStoredMediaUrl } from "../server/lib/recording-media-cleanup.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   failBurn,
@@ -32,6 +33,7 @@ import {
   setBurnProgress,
   startBurn,
 } from "../server/lib/redaction-burn-progress.js";
+import { uploadRecordingMedia } from "../server/lib/upload-recording-media.js";
 import {
   isFfmpegAvailable,
   probeDurationMs,
@@ -86,7 +88,9 @@ export async function burnRedactionsFor(args: {
   recordingId: string;
   ownerEmail: string;
 }) {
-  await assertAccess("recording", args.recordingId, "editor");
+  assertRecordingNotExpired(
+    await assertAccess("recording", args.recordingId, "editor"),
+  );
 
   const db = getDb();
   const { ownerEmail } = args;
@@ -225,7 +229,11 @@ export async function burnRedactionsFor(args: {
 
   timer.mark("verify");
   setBurnProgress(args.recordingId, 88);
-  const upload = await uploadFile({
+  assertRecordingNotExpired(
+    await assertAccess("recording", args.recordingId, "editor"),
+  );
+  const upload = await uploadRecordingMedia({
+    recordingId: args.recordingId,
     data: burned,
     filename: `${args.recordingId}.mp4`,
     mimeType: "video/mp4",
@@ -237,6 +245,21 @@ export async function burnRedactionsFor(args: {
     failStorageSetupRequired();
   }
 
+  const discardUpload = async () => {
+    if (upload.url !== previousVideoUrl) {
+      try {
+        await deleteStoredMediaUrl(upload.url, {
+          storageMode: existing.storageMode,
+          recordingId: existing.id,
+        });
+      } catch (err) {
+        console.warn("[burn] could not delete the orphaned upload", {
+          url: upload.url,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  };
   timer.mark("upload");
   const burnedAt = new Date().toISOString();
 
@@ -285,6 +308,15 @@ export async function burnRedactionsFor(args: {
     ],
   };
 
+  try {
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
+  } catch (error) {
+    await discardUpload();
+    throw error;
+  }
+
   const updated = await db
     .update(schema.recordings)
     .set({
@@ -317,16 +349,7 @@ export async function burnRedactionsFor(args: {
     .returning({ id: schema.recordings.id });
 
   if (!updated.length) {
-    if (upload.url !== previousVideoUrl) {
-      try {
-        await deleteStoredMediaUrl(upload.url);
-      } catch (err) {
-        console.warn("[burn] could not delete the orphaned upload", {
-          url: upload.url,
-          err: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
+    await discardUpload();
     throw new Error(
       "The recording changed while the redaction was rendering. Nothing was deleted — try again.",
     );
@@ -346,9 +369,24 @@ export async function burnRedactionsFor(args: {
     .filter((url) => !keep.has(url));
 
   const failedDeletes: string[] = [];
+  try {
+    const framesLeft = await deleteStoredAgentFrames(existing);
+    if (framesLeft > 0) {
+      failedDeletes.push(`${framesLeft} agent frame(s) of ${args.recordingId}`);
+    }
+  } catch (err) {
+    failedDeletes.push(`agent frames of ${args.recordingId}`);
+    console.warn(
+      `[burn-recording-redactions] could not delete stored agent frames for ${args.recordingId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   for (const url of stale) {
     try {
-      const deleted = await deleteStoredMediaUrl(url);
+      const deleted = await deleteStoredMediaUrl(url, {
+        storageMode: existing.storageMode,
+        recordingId: existing.id,
+      });
       if (!deleted) failedDeletes.push(url);
     } catch (err) {
       failedDeletes.push(url);
@@ -444,7 +482,9 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
     const ownerEmail = getCurrentOwnerEmail();
 
     const db = getDb();

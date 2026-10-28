@@ -34,8 +34,12 @@ const messages = {
       newest: "नवीनतम",
       priority: "प्राथमिकता",
       priorityFailed: "इनबॉक्स को क्रमित नहीं किया जा सका।",
+      priorityProviderRequired:
+        "प्राथमिकता के अनुसार क्रमित करने के लिए किसी AI प्रदाता को कनेक्ट करें।",
+      priorityPartialFailed:
+        "{{count}} संदेशों की प्राथमिकता तय नहीं हो सकी। वे स्कोर किए गए संदेशों के बाद दिखेंगे।",
       priorityScoreHelp:
-        "ज़्यादा स्कोर का मतलब है कि Jev इस संदेश को अधिक महत्वपूर्ण मानता है।",
+        "ज़्यादा स्कोर का मतलब है कि यह संदेश महत्वपूर्ण होने की अधिक संभावना है।",
       priorityFeedbackSuggestion:
         "इस पैटर्न को महत्व या अपने-आप संग्रह करने के नियम में बदलें।",
       priorityFeedbackAskAgent: "एजेंट से नियम सुझाने को कहें",
@@ -302,7 +306,11 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "कॉन्टैक्ट समृद्धि और कंपनी डेटा",
       hubspotDescription: "CRM कॉन्टैक्ट, डील और टिकट",
-      gongDescription: "हाल की कॉल और बातचीत इंटेलिजेंस",
+      gongDescription: "Gong कॉल इतिहास",
+      gongAccessCheckFailed: "Gong से कनेक्ट करने की अनुमति की जाँच नहीं हो सकी।",
+      gongKeyPlaceholder: "Gong API कुंजी",
+      gongKeyFormatHint:
+        "एक्सेस कुंजी और सीक्रेट को access_key:secret प्रारूप में दर्ज करें।",
       pylonDescription: "सपोर्ट समस्याएं और अकाउंट डेटा",
       gongCalls: "Gong कॉल",
       deals: "डील",
@@ -425,6 +433,7 @@ const messages = {
       tryDifferentKeywords: "अलग कीवर्ड आज़माएँ",
       nothingHere: "अभी यहाँ कुछ नहीं",
       loadingMore: "और लोड हो रहा है...",
+      openAllMailForOlder: "पुराने संदेशों के लिए सभी मेल खोलें",
     },
     toasts: {
       noEmailSelected: "कोई ईमेल चयनित नहीं।",
@@ -455,6 +464,8 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "संदेश भेज दिया गया।",
       failedToSaveDraft: "ड्राफ़्ट सहेजा नहीं जा सका।",
+      failedToRefreshInbox:
+        "इनबॉक्स रीफ़्रेश नहीं हो सका। कुछ देर बाद फिर से प्रयास करें।",
       failedToDeleteDraft: "ड्राफ़्ट हटाया नहीं जा सका।",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -701,12 +712,14 @@ const messages = {
       tagTabsHelp: "हर टैग इनबॉक्स टैब बन जाता है",
       addTag: "टैग जोड़ें",
       triageTitle: "AI ट्रायेज",
-      connectJev: "Jev कनेक्ट करें",
-      connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
+      connectJev: "AI प्रदाता कनेक्ट करें",
+      connectJevToRunTriage: "ट्रायेज चलाने के लिए AI प्रदाता कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
-      jevAvailabilityFailed: "Jev उपलब्ध है या नहीं, इसकी जाँच नहीं हो सकी।",
+      jevAvailabilityFailed:
+        "AI निर्णय प्रदाता उपलब्ध है या नहीं, इसकी जाँच नहीं हो सकी।",
       connectBuilder: "Builder.io इस्तेमाल करें",
-      addJevApiKey: "API कुंजी जोड़ें",
+      addJevApiKey: "Jev API कुंजी जोड़ें",
+      addOpenAiApiKey: "OpenAI API कुंजी जोड़ें",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -748,6 +761,16 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "ईमेल ड्राफ़्ट - Mail",
+    },
+    draftCard: {
+      loadFailed: "यह ड्राफ़्ट लोड नहीं हो सका।",
+      notFoundTitle: "ड्राफ़्ट नहीं मिला",
+      threadUnavailable: "इस बातचीत के पिछले संदेश लोड नहीं हो सके।",
+      threadLookupFailed:
+        "यह जवाब किस बातचीत का है, यह नहीं मिल सका, इसलिए इसे अभी भेजा नहीं जा सकता।",
+      earlierMessages: "पिछले संदेश ({{count}})",
+      deleted: "ड्राफ़्ट हटा दिया गया।",
     },
     agentEngine: {
       activeEngine: "Motor activo",

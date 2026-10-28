@@ -499,6 +499,60 @@ describe("workspace deploy", () => {
     ).toContain('AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated"');
   });
 
+  it("routes embedded HTML and PCK assets without replacing the app root shell", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    execFile.mockImplementation(((_cmd, args) => {
+      const app = String(args[1]);
+      writeAppBuildOutput(tmpDir, app);
+      const publicDir = path.join(tmpDir, "apps", app, "dist", app);
+      const rendererDir = path.join(publicDir, "living-world", "godot");
+      fs.mkdirSync(rendererDir, { recursive: true });
+      fs.writeFileSync(path.join(publicDir, "index.html"), "root shell");
+      fs.writeFileSync(path.join(rendererDir, "index.html"), "renderer entry");
+      fs.writeFileSync(path.join(rendererDir, "index.pck"), "renderer payload");
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const redirects = fs.readFileSync(
+      path.join(tmpDir, "dist", "_redirects"),
+      "utf8",
+    );
+    for (const file of ["index.html", "index.pck"]) {
+      const publicPath = `/dispatch/living-world/godot/${file}`;
+      expect(redirects).toContain(
+        `${publicPath} /_workspace_static${publicPath} 200`,
+      );
+    }
+    expect(redirects).not.toContain(
+      "/dispatch/index.html /_workspace_static/dispatch/index.html 200",
+    );
+
+    const entry = await import(
+      pathToFileURL(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "dispatch-server",
+          "dispatch-server.mjs",
+        ),
+      ).href
+    );
+    expect(entry.config.excludedPath).toContain(
+      "/dispatch/living-world/godot/index.html",
+    );
+    expect(entry.config.excludedPath).toContain(
+      "/dispatch/living-world/godot/index.pck",
+    );
+    expect(entry.config.excludedPath).not.toContain("/dispatch/index.html");
+  });
+
   it.each([
     { app: "assets", mounted: true },
     { app: "starter", mounted: true },
@@ -1011,6 +1065,55 @@ describe("workspace deploy", () => {
     }
   });
 
+  it("renders Tabler icons with varied accents for Community directory apps", async () => {
+    const appIds = [
+      "account-expert",
+      "account-tiering",
+      "call-follow-up-drafter",
+      "churn-early-warning",
+      "demo-clip-library",
+      "linkedin-icp-prospect-tracker",
+      "linkedin-signal-watch",
+      "outbound-in-your-voice",
+      "win-loss-memo",
+    ];
+    for (const appId of appIds) makeWorkspaceApp(tmpDir, appId);
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.mts"),
+      'export default { deployment: { workspace: { rootPage: "directory" } } };\n',
+    );
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const directoryPage = fs.readFileSync(
+      path.join(tmpDir, "dist", "index.html"),
+      "utf-8",
+    );
+    const iconMarks = [
+      ...directoryPage.matchAll(
+        /<span class="app-card__mark"[^>]*>(.*?)<\/span>/gs,
+      ),
+    ];
+    expect(iconMarks).toHaveLength(appIds.length);
+    for (const [, mark] of iconMarks) expect(mark).toContain("<svg ");
+    for (const appId of appIds)
+      expect(directoryPage).toContain(`href="/${appId}/"`);
+    for (const accent of [
+      "AccentColor",
+      "LinkText",
+      "Mark",
+      "Highlight",
+      "ButtonText",
+    ]) {
+      expect(directoryPage).toContain(`--accent:${accent}`);
+    }
+  });
+
   it("routes the root Google OAuth callback without a Dispatch app", async () => {
     makeWorkspaceApp(tmpDir, "alpha", { displayName: "Zulu" });
     makeWorkspaceApp(tmpDir, "beta", { displayName: "Alpha" });
@@ -1158,6 +1261,21 @@ describe("workspace deploy", () => {
   it("collects Vercel static assets, functions, and routing config for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
+    const starterPackagePath = path.join(
+      tmpDir,
+      "apps",
+      "starter",
+      "package.json",
+    );
+    const starterPackage = JSON.parse(
+      fs.readFileSync(starterPackagePath, "utf-8"),
+    );
+    starterPackage.description = "  A focused starter app  ";
+    starterPackage["agent-native"] = {
+      whenToUse: ["  Draft a starter brief  "],
+      aliases: ["  Starter  ", "starter", "Brief Writer"],
+    };
+    fs.writeFileSync(starterPackagePath, JSON.stringify(starterPackage));
 
     await runWorkspaceDeploy({
       workspaceRoot: tmpDir,
@@ -1261,6 +1379,15 @@ describe("workspace deploy", () => {
       "dispatch",
       "starter",
     ]);
+    expect(
+      manifest.apps.find((app: { id: string }) => app.id === "starter"),
+    ).toMatchObject({
+      description: "A focused starter app",
+      "agent-native": {
+        whenToUse: ["Draft a starter brief"],
+        aliases: ["Starter", "Brief Writer"],
+      },
+    });
 
     const starterModule = await import(
       `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`
@@ -1284,24 +1411,53 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
-    expect(config.routes).toContainEqual({
-      src: "/dispatch/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+    const immutableAssetRoutes = config.routes.filter(
+      (route: { headers?: Record<string, string> }) =>
+        route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
+    );
+    expect(immutableAssetRoutes).toEqual([
+      {
+        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
-    expect(config.routes).toContainEqual({
-      src: "/starter/assets/app-aB12_cdE\\.js",
-      headers: {
-        "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
-        "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+      {
+        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
+        headers: {
+          "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+          "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+        },
+        continue: true,
       },
-      continue: true,
-    });
+    ]);
+    expect(immutableAssetRoutes).toHaveLength(2);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/chunks/chunk-12345678.js"),
+      ),
+    ).toEqual([true, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/starter/assets/app-aB12_cdE.js"),
+      ),
+    ).toEqual([false, true]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test("/dispatch/assets/app.js"),
+      ),
+    ).toEqual([false, false]);
+    expect(
+      immutableAssetRoutes.map((route: { src: string }) =>
+        new RegExp(route.src).test(
+          "/dispatch/assets/nested/missing-aB12_cdE.js",
+        ),
+      ),
+    ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(
       expect.objectContaining({ src: "/dispatch/assets/app\\.js" }),
     );
@@ -1372,6 +1528,60 @@ describe("workspace deploy", () => {
       src: "/starter/(.*)",
       dest: "/starter-server",
     });
+  });
+
+  it("drops malformed package profile fields without aborting deploy", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+    const starterPackagePath = path.join(
+      tmpDir,
+      "apps",
+      "starter",
+      "package.json",
+    );
+    const starterPackage = JSON.parse(
+      fs.readFileSync(starterPackagePath, "utf-8"),
+    );
+    starterPackage.description = "A valid description";
+    starterPackage["agent-native"] = {
+      whenToUse: ["x".repeat(141)],
+      aliases: ["Starter"],
+    };
+    fs.writeFileSync(starterPackagePath, JSON.stringify(starterPackage));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        args: ["--preset=vercel", "--build-only"],
+        execFile: execFile as typeof execFileSync,
+      }),
+    ).resolves.toBeUndefined();
+
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tmpDir,
+          ".vercel",
+          "output",
+          "functions",
+          "dispatch-server.func",
+          ".agent-native",
+          "workspace-apps.json",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(
+      manifest.apps.find((app: { id: string }) => app.id === "starter"),
+    ).toMatchObject({
+      description: "A valid description",
+      "agent-native": { aliases: ["Starter"] },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "[workspace] Ignoring invalid agent profile metadata in starter: whenToUse",
+    );
+    warn.mockRestore();
   });
 
   it("keeps Vite assets when the app id is assets", async () => {
@@ -2515,6 +2725,11 @@ function writeVercelAppBuildOutput(
   fs.writeFileSync(path.join(staticDir, "assets", "app.js"), "export {};");
   fs.writeFileSync(
     path.join(staticDir, "assets", "app-aB12_cdE.js"),
+    "export {};",
+  );
+  fs.mkdirSync(path.join(staticDir, "assets", "chunks"), { recursive: true });
+  fs.writeFileSync(
+    path.join(staticDir, "assets", "chunks", "chunk-12345678.js"),
     "export {};",
   );
   fs.writeFileSync(path.join(staticDir, "favicon.ico"), "");

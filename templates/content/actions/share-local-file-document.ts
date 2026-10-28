@@ -1,4 +1,4 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction, embedApp, isOutsideAgentCall } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -10,7 +10,7 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -75,6 +75,14 @@ function serializeDocument(row: typeof schema.documents.$inferSelect) {
 }
 
 export default defineAction({
+  mcpTool: true,
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
   description:
     "Create or refresh a collection-backed shareable copy of a local-file document. Use this before sharing a local file with other users.",
   schema: z.object({
@@ -176,13 +184,17 @@ export default defineAction({
 
     if (existing) {
       await db.transaction(async (tx) => {
+        const legacy = await lockLegacyBodyWrites(tx, [existing.id], {
+          operation: "share-local-file-document",
+          content: localDocument.content,
+        });
         await tx
           .update(schema.documents)
           .set({
             spaceId: existing.spaceId ?? targetSpaceId,
             title: localDocument.title,
             content: localDocument.content,
-            bodyRevision: bodyRevisionForContent(localDocument.content),
+            bodyRevision: legacy.bodyRevision(localDocument.content),
             icon: copiedIcon,
             isFavorite: localDocument.isFavorite ? 1 : 0,
             hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
@@ -216,13 +228,15 @@ export default defineAction({
       });
 
       await ensureDocumentFilesMembership(db, existing.id, now);
-      await setFavoriteMembership({
-        db,
-        userEmail,
-        documentId: existing.id,
-        favorite: localDocument.isFavorite,
-        now,
-      });
+      await db.transaction((tx) =>
+        setFavoriteMembership({
+          db: tx,
+          userEmail,
+          documentId: existing.id,
+          favorite: localDocument.isFavorite,
+          now,
+        }),
+      );
 
       const [row] = await db
         .select()
@@ -293,13 +307,15 @@ export default defineAction({
           );
         });
         await ensureDocumentFilesMembership(db, documentId, now);
-        await setFavoriteMembership({
-          db,
-          userEmail,
-          documentId,
-          favorite: localDocument.isFavorite,
-          now,
-        });
+        await db.transaction((tx) =>
+          setFavoriteMembership({
+            db: tx,
+            userEmail,
+            documentId,
+            favorite: localDocument.isFavorite,
+            now,
+          }),
+        );
       },
     );
 

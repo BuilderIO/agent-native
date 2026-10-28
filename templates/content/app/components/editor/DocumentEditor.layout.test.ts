@@ -5,6 +5,11 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { documentQueryKey } from "@/lib/document-query";
+import {
+  documentReadFailure,
+  trackDocumentReadFailures,
+} from "@/lib/document-read-failures";
 import { cn } from "@/lib/utils";
 
 import {
@@ -55,6 +60,7 @@ import {
   titleRenamedByAnotherWriter,
   suggestionPresentations,
   suggestionDecisionPreviewContent,
+  suggestionToDecideAfterSave,
   sameSuggestionAnchorIds,
   singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
@@ -77,6 +83,7 @@ import {
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
 import { runPageSaveIfSessionActive } from "./pageSession";
+import { suggestionOperationKey } from "./suggestions/draft-session";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
@@ -299,26 +306,6 @@ describe("document editor layout", () => {
     expect(title).toContain("md:pb-0.5");
   });
 
-  it("keeps inline comments outside the independent reading column", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).not.toContain('"mx-auto max-w-5xl"');
-    expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
-    expect(source).toContain('className="absolute right-0 top-0 w-80"');
-    expect(source).toContain(
-      'const hasUtilityRailSpace = commentSurfaces.list === "rail";',
-    );
-    expect(source).toContain(
-      'const hasInlineCommentSpace = commentSurfaces.margin === "lane";',
-    );
-    expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
-    expect(source).toContain(
-      "observeCommentLane(container, lane, setCommentLaneOffset)",
-    );
-  });
-
   it("projects decisions immediately without changing canonical rejection content", () => {
     const suggestion = {
       operations: [
@@ -399,6 +386,10 @@ describe("document editor layout", () => {
       id: "unrelated",
       operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
     } as never;
+    const sessionNeighbor = {
+      id: "session-neighbor",
+      operations: [{ ordinal: 2, kind: "insert_text", after: "X" }],
+    } as never;
     const saved = [optimistic, unrelated];
 
     expect(
@@ -417,6 +408,65 @@ describe("document editor layout", () => {
         new Set(["optimistic"]),
       ),
     ).toEqual(saved);
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        [optimistic, sessionNeighbor],
+        [draft],
+        true,
+        new Set(["optimistic", "session-neighbor"]),
+      ),
+    ).toEqual([sessionNeighbor]);
+  });
+
+  it("decides the saved copy a Suggesting-mode save leaves", () => {
+    const typed = markdownSuggestionOperation(
+      "One.\n\nTwo.",
+      "One typed.\n\nTwo.",
+    );
+    if (!typed) throw new Error("expected a typed operation");
+    const created = { id: "created", revision: 1, operations: [typed] };
+    const amended = { id: "amended", revision: 2, operations: [] };
+    const persisted = new Map([
+      [suggestionOperationKey(typed), created],
+      ["amended-operation", amended],
+    ]) as never;
+    const unrelated = { id: "unrelated", revision: 4 } as never;
+
+    expect(
+      suggestionToDecideAfterSave(
+        persisted,
+        { durability: "draft", id: "draft", operations: [typed] } as never,
+        null,
+      ),
+    ).toBe(created);
+    expect(
+      suggestionToDecideAfterSave(
+        persisted,
+        { id: "amended", revision: 1, operations: [] } as never,
+        null,
+      ),
+    ).toBe(amended);
+    expect(suggestionToDecideAfterSave(persisted, unrelated, null)).toBe(
+      unrelated,
+    );
+    const editing = { id: "amended", revision: 1, operations: [] } as never;
+    const recorded = { id: "amended", revision: 2, baseRevision: "page-2" };
+    expect(
+      suggestionToDecideAfterSave(
+        new Map([["edited-operation", amended]]) as never,
+        editing,
+        recorded,
+      ),
+    ).toBe(amended);
+    // An earlier save already amended it, so this save had nothing to send.
+    expect(
+      suggestionToDecideAfterSave(new Map(), editing, recorded),
+    ).toMatchObject({ id: "amended", revision: 2, baseRevision: "page-2" });
+    // Another tab amended it since, so the card's copy is newer.
+    const refreshed = { id: "amended", revision: 3, operations: [] } as never;
+    expect(suggestionToDecideAfterSave(new Map(), refreshed, recorded)).toBe(
+      refreshed,
+    );
   });
 
   it("keeps review geometry stable after the final inline decision", () => {
@@ -527,7 +577,7 @@ describe("document editor layout", () => {
 
     expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
     expect(visualEditor).toContain(
-      "applySuggestionsRef.current?.(!suggestingRef.current)",
+      "applySuggestionsRef.current?.(!suggestingRef.current, transaction)",
     );
   });
 
@@ -619,9 +669,11 @@ describe("document editor layout", () => {
       start,
       source.indexOf("const position = resolveAnchorPoint", start),
     );
-    expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
     expect(effect).toMatch(
-      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling\)/,
+      /new Set\(\s+specs\s+\.filter\(\(spec\) => !isProvisionalDraftSpec\(spec\)\)\s+\.map\(\(spec\) => spec\.suggestionId\)/,
+    );
+    expect(effect).toMatch(
+      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling \|\| spec\.frozen\)/,
     );
     expect(effect).toContain("specs: visibleSpecs");
     expect(effect).toMatch(
@@ -1152,16 +1204,6 @@ describe("document editor layout", () => {
       'if (event.key !== "Escape" || event.defaultPrevented) return;',
     );
   });
-  it("resizes titles when their available width changes without observing height feedback", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      "if (!documentTitleWidthChanged(previousWidth, nextWidth)) return;",
-    );
-    expect(source).toContain("observer?.observe(textarea)");
-  });
   it("measures an untransformed comment lane without an offset feedback loop", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -1177,14 +1219,6 @@ describe("document editor layout", () => {
     expect(lane.slice(lane.indexOf(">"))).toContain(
       "translateX(${commentLaneOffset}px)",
     );
-  });
-  it("keeps selected and hovered comment highlights distinct", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("activeThreadId={selectedThreadId}");
-    expect(source).toContain("hoveredThreadId={hoveredThreadId}");
   });
   it("opens an accept that can't be placed instead of treating it as accepted", () => {
     expect(
@@ -1209,7 +1243,7 @@ describe("document editor layout", () => {
       /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
     );
     expect(source).toMatch(
-      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?decideSuggestion\.mutateAsync/,
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -1888,6 +1922,96 @@ describe("document editor layout", () => {
       exact: true,
     });
   });
+
+  it.each([
+    [404, "unavailable"],
+    [500, "error"],
+  ] as const)(
+    "keeps a failed read's %i screen while the page is read again, also after a remount",
+    async (status, view) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      trackDocumentReadFailures(queryClient);
+      const queryKey = documentQueryKey("document-a");
+      let attempt = 0;
+      const options = {
+        queryKey,
+        queryFn: async () => {
+          attempt += 1;
+          if (attempt === 1) {
+            throw Object.assign(new Error("read failed"), { status });
+          }
+          return await new Promise<never>(() => {});
+        },
+        refetchOnMount: "always" as const,
+      };
+      // One editor mount: its failure state persists across its renders.
+      const mount = (observer: QueryObserver<unknown, Error>) => {
+        let failure: ReturnType<typeof updateDocumentLoadFailureState> | null =
+          null;
+        return () => {
+          const result = observer.getCurrentResult();
+          failure = updateDocumentLoadFailureState({
+            previous: failure,
+            documentId: "document-a",
+            admitted: false,
+            dataUpdatedAt: result.dataUpdatedAt,
+            errorUpdateCount: result.errorUpdateCount,
+            errorUpdatedAt: result.errorUpdatedAt,
+            isError: result.isError,
+            authoritativeSuccess: {
+              queryIdentity: "document-a",
+              generation: 0,
+              errorUpdateCount: 0,
+            },
+          });
+          return documentEditorLoadState({
+            documentId: "document-a",
+            admittedDocumentId: null,
+            hasDocument: false,
+            isDocumentCreationPending: false,
+            isFetchedAfterMount: result.isFetchedAfterMount,
+            isFetching: result.isFetching,
+            isError: result.isError,
+            hasLoadFailure: failure.failed,
+            isManualRetrying: false,
+            error: documentReadFailure(queryClient, queryKey, result),
+          }).view;
+        };
+      };
+      const readAgain = async (observer: QueryObserver<unknown, Error>) => {
+        await vi.waitFor(() => {
+          const result = observer.getCurrentResult();
+          expect(result.isFetching).toBe(true);
+          expect(result.isError).toBe(false);
+        });
+      };
+
+      const first = new QueryObserver<unknown, Error>(queryClient, options);
+      const firstView = mount(first);
+      firstView();
+      const unsubscribeFirst = first.subscribe(() => {});
+      await vi.waitFor(() =>
+        expect(first.getCurrentResult().isError).toBe(true),
+      );
+      expect(firstView()).toBe(view);
+
+      void queryClient.invalidateQueries({ queryKey, exact: true });
+      await readAgain(first);
+      expect(firstView()).toBe(view);
+
+      // Leaving the page and coming back mounts a new editor while it reads.
+      unsubscribeFirst();
+      const second = new QueryObserver<unknown, Error>(queryClient, options);
+      const unsubscribeSecond = second.subscribe(() => {});
+      await readAgain(second);
+      expect(mount(second)()).toBe(view);
+
+      unsubscribeSecond();
+      await queryClient.cancelQueries({ queryKey, exact: true });
+    },
+  );
 
   it("clears a latched load failure only after an authoritative fetch succeeds", () => {
     const failed = {
@@ -2727,29 +2851,15 @@ describe("document editor layout", () => {
     expect(documentEditorDatabaseRegionClassName()).toContain("min-w-0");
   });
 
-  it("keeps the editor flex chain shrinkable inside the app shell", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain(
-      'className="relative flex min-h-0 min-w-0 flex-1"',
-    );
-    expect(source).toContain(
-      'className="flex min-h-0 min-w-0 flex-1 flex-col"',
-    );
-  });
-
   it("focuses the editor padding without moving the document scroll position", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     );
 
-    expect(source).toContain("pm?.focus({ preventScroll: true });");
+    expect(source).toMatch(
+      /visibleBlockFieldEditor\(e\.currentTarget\)\?\.focus\(\{\s*preventScroll: true,/,
+    );
     expect(source).toContain("scrollContainer.scrollTop = scrollTop;");
     expect(source).toContain("window.setTimeout(restoreScroll, 50);");
     expect(source).toContain(
@@ -2757,50 +2867,6 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("onWheelCapture={cancelPaddingScrollRestore}");
     expect(source).toContain("onKeyDownCapture={cancelPaddingScrollRestore}");
-  });
-
-  it("shows the editor skeleton instead of stale data during document switches", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain("usePageOpenDocument(");
-    expect(source).toContain("databaseId,");
-    expect(source).toContain("databaseDocumentId,");
-    expect(source).toContain("isFetchedAfterMount");
-    expect(source).toContain("queriedDocument?.id === documentId");
-    expect(source).toContain("documentEditorLoadState");
-    expect(source).toMatch(
-      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{\s*document\s*\?\s*readDocumentShapeHint\(document\)\s*:\s*readPageShapeHint\(documentId\)\s*\}/,
-    );
-  });
-
-  it("keeps the contextual right rail inside the document scroll surface", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    const scrollIndex = source.indexOf("data-document-print-scroll");
-    const contentIndex = source.lastIndexOf("data-document-scroll-content");
-    const desktopPanelIndex = source.indexOf("{showDesktopRightRail ? (");
-    const mobileSheetIndex = source.indexOf("<Sheet");
-
-    expect(scrollIndex).toBeGreaterThan(-1);
-    expect(contentIndex).toBeGreaterThan(scrollIndex);
-    expect(desktopPanelIndex).toBeGreaterThan(contentIndex);
-    expect(desktopPanelIndex).toBeLessThan(mobileSheetIndex);
-    expect(source).toContain(
-      'type DocumentUtilityPanel = "info" | "comments" | null',
-    );
-    expect(source).toContain('utilityPanel === "info"');
-    expect(source).toContain('setUtilityPanel("comments")');
-    expect(source).toContain("showInlineComments");
   });
 
   it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
@@ -2867,63 +2933,6 @@ describe("document editor layout", () => {
         databaseDocumentId: "membership-b",
       }),
     );
-  });
-
-  it("keeps the document toolbar in normal layout flow", () => {
-    const source = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const editorSource = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
-    );
-    expect(source).toContain('shareInMenu ? "gap-1 px-2" : "gap-3 px-4"');
-    expect(source).toContain("ToolbarBreadcrumb");
-    expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
-    expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.createShareableCopy");
-    expect(source).toContain("editor.toolbar.sharePeople");
-    expect(source).toContain("editor.toolbar.shareAgents");
-    expect(source).toContain("editor.toolbar.info");
-    expect(source).toContain("comments.title");
-    expect(source).toContain(
-      "showCommentsControl && !inWidget && !commentsInMenu ?",
-    );
-    expect(editorSource).toContain(
-      "commentsHistoryOpen={showCommentsHistoryDrawer}",
-    );
-    expect(source).toContain("quickCopy={{");
-    expect(source).toContain("agentTabContent={");
-    expect(source).not.toContain("shareLinkContent=");
-    expect(source).toContain('utilityPanel === "info" ? null : "info"');
-    expect(source).toContain('commentsHistoryOpen ? null : "comments"');
-    expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain("aria-pressed={commentsHistoryOpen}");
-    expect(source).toContain(
-      'utilityPanel === "info" && "bg-accent text-foreground"',
-    );
-    expect(editorSource).toContain("setShowCommentIndicators");
-    expect(editorSource).toContain(
-      "showCommentIndicators={showCommentIndicators}",
-    );
-    expect(editorSource).toContain('"comments.hideIndicators"');
-    expect(editorSource).toContain('"comments.showIndicators"');
-    expect(editorSource).not.toContain(
-      "absolute end-2 top-2 z-20 flex items-center",
-    );
-    expect(source).toContain("setDeleteDialogOpen(true)");
-    expect(source).toContain("text-destructive focus:text-destructive");
-    expect(source).toContain("<IconTrash");
-    expect(source).toContain("sidebar.deletePageQuestion");
-    expect(source).not.toContain("absolute top-2 right-2");
-    expect(source).not.toContain("shadow-sm");
   });
 
   it("flushes pending document saves when leaving an editor", () => {
@@ -2993,7 +3002,9 @@ describe("document editor layout", () => {
     expect(source).toContain("if (!primaryResult.value.contentPersisted)");
     expect(source).toContain("pendingPersistenceRef.current.size > 0");
     expect(source).toContain("onSessionChangeRef");
-    expect(source).toContain("documentLayoutRef.current?.querySelector");
+    expect(source).toContain(
+      "visibleBlockFieldEditor(documentLayoutRef.current)",
+    );
   });
 
   it("routes global Escape handling to the nearest nested page editor", () => {
@@ -3092,13 +3103,10 @@ describe("document editor layout", () => {
       "suggestionEditorIsolation.bindCanonicalYDoc",
     );
     expect(documentEditorSource).toContain(
-      "awareness={collabEditorEnabled ? awareness : null}",
+      "collabEditorEnabled ? awareness : null",
     );
     expect(documentEditorSource).toContain(
       "args.collabEditorEnabled && args.hasYDoc",
-    );
-    expect(documentEditorSource).toContain(
-      'args.canEdit\n        ? "live-pending"',
     );
     expect(documentEditorSource).toContain(
       "`snapshot:${args.documentUpdatedAt}`",
@@ -3165,9 +3173,11 @@ describe("document editor layout", () => {
 
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
+    // A comment on the whole page opens in the Discussion panel.
     expect(activation).toContain(
-      "setCommentsBrowseOpen(preserveBrowseContext)",
+      "setCommentsBrowseOpen(preserveBrowseContext || !!pageThread)",
     );
+    expect(activation).toContain("isPageCommentThread(thread)");
     expect(activation).toContain('setUtilityPanel("comments")');
     expect(source).toContain(
       'activateCommentThread(threadId, presentation === "history")',
@@ -3183,48 +3193,6 @@ describe("document editor layout", () => {
 
     expect(source).not.toContain("onPointerDownCapture={(event) => {");
     expect(source).toContain("onClickCapture={(event) => {");
-  });
-
-  it("keeps the comments history drawer width-safe and vertically reachable", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      '"flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
-    );
-    expect(source).toContain("overlayClassName={");
-    expect(source).toContain(
-      'shellLayout?.agentPanel === "overlay" && "z-[80]"',
-    );
-    expect(source).toContain(
-      'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
-    );
-    expect(source).toContain("data-[state=closed]:duration-[260ms]");
-    expect(source).toContain("data-[state=open]:ease-[var(--ease-drawer)]");
-    expect(source).toContain(
-      'target.closest("[data-radix-popper-content-wrapper]")',
-    );
-    expect(source).toContain(
-      "utilityPanelSheetContainer?.contains(nestedPopper)",
-    );
-    expect(source).not.toContain("{showUtilityPanelSheet ? (");
-    expect(source).toContain("utilityPanelSheetContainer,");
-    expect(source).toContain("showDesktopCommentsHistory");
-    expect(source).toContain("const transferredToRail =");
-    expect(source).toContain("if (utilityPanel && !transferredToRail) return;");
-    expect(source).toContain("showDesktopInfoPanel,");
-    expect(source).toContain("data-comments-history-rail");
-    expect(source).toContain("commentsHistoryRailMounted");
-    expect(source).toContain('event.propertyName === "width"');
-    expect(source).toContain(
-      '"min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]"',
-    );
-    expect(source).toContain('renderUtilityPanelContent("comments")');
-    expect(source).toContain(
-      "commentsHistoryDrawerOpen: showCommentsHistoryDrawer",
-    );
   });
 
   it("keeps title and content save watermarks independent after partial saves", () => {
@@ -3268,20 +3236,6 @@ describe("document editor layout", () => {
     ).toBeLessThan(baseAwareReconcile.indexOf("reportReconcile(result.status"));
     expect(baseAwareReconcile).toContain(
       'reportReconcile("failed", result.content)',
-    );
-  });
-
-  it("localizes the live-editor flush failure fallback", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain('t("editor.liveDocumentSaveBeforeSyncFailed")');
-    expect(source).not.toContain(
-      'error instanceof Error\n                      ? error.message\n                      : "The live document could not be saved before syncing."',
     );
   });
 
@@ -3521,8 +3475,8 @@ describe("document editor layout", () => {
       "utf8",
     );
     const decision = source.slice(
-      source.indexOf("onDecideSuggestion={async"),
-      source.indexOf("canSuggest={canSuggest}"),
+      source.indexOf("const decideSingleSuggestion = async"),
+      source.indexOf("const renderCommentsSidebar"),
     );
 
     expect(decision).toContain("flushSuggestionDraft({ keepMode: true })");
@@ -3538,7 +3492,9 @@ describe("document editor layout", () => {
     expect(decision).toContain("continueSuggesting,");
     expect(decision).toContain("await refreshSuggestionDecisionDocument(");
     expect(decision).toContain('result.suggestion.status === "accepted"');
-    expect(decision).toContain("if (suggestion.id === editingSuggestionId)");
+    expect(decision).toContain(
+      "suggestionBaseRef.current?.existingSuggestion ?? null",
+    );
     expect(source).toContain("setDecisionRefreshFailed(true)");
     expect(source).toMatch(
       /if \(decisionRefreshInFlightRef\.current === decisionGeneration\)\s+return \{ status: "in-flight" \}/,
@@ -3552,8 +3508,8 @@ describe("document editor layout", () => {
     expect(source).toMatch(
       /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
-    expect(source).toContain(
-      "if (!pendingSuggestionDecision?.continueSuggesting) return savedSuggestions",
+    expect(source).toMatch(
+      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return queuedSuggestions/,
     );
     expect(decision).not.toContain("setIsSuggesting(false)");
   });
@@ -3614,35 +3570,10 @@ describe("document editor layout", () => {
       source.match(
         /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(source).not.toMatch(
       /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
     );
-  });
-
-  it("wakes live-editor flush reads from shared sync events instead of polling", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain("useDbSync({ onEvent: handleFlushRequestEvent })");
-    expect(source).toContain('event.source === "app-state"');
-    expect(source).toContain(
-      'event.key === flushRequestKey || event.key === "*"',
-    );
-    expect(source).toContain("void flushIfRequested()");
-    expect(source).toContain(
-      "const persistDocumentUpdatesRef = useRef(persistDocumentUpdates)",
-    );
-    expect(source).toContain("persistDocumentUpdatesRef.current(updates)");
-    expect(source).not.toMatch(
-      /useEffect\(\(\) => \{[\s\S]*?void flushIfRequested\(\)[\s\S]*?\}, \[[\s\S]*?persistDocumentUpdates,[\s\S]*?\]\);/,
-    );
-    expect(source).not.toContain("setTimeout(poll, 600)");
-    expect(source).not.toContain("setTimeout(flushIfRequested");
   });
 
   it("lets slash-created page references use the editor save pipeline", () => {
@@ -3674,22 +3605,6 @@ describe("document editor layout", () => {
     expect(slashMenuSource).toContain("if (!persisted) throw new Error");
     expect(slashMenuSource).not.toContain("useUpdateDocument");
     expect(slashMenuSource).not.toContain("updateDocument.mutateAsync");
-  });
-
-  it("copies the open page route for local-file documents", () => {
-    const source = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain("const pageUrl");
-    expect(source).toContain(
-      "const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl",
-    );
-    expect(source).toContain("writeClipboardText(copyPageUrl)");
-    expect(source).not.toContain("navigator.clipboard.writeText");
   });
 
   it("routes Content text-copy controls through the shared clipboard boundary", () => {

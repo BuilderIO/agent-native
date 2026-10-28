@@ -602,16 +602,15 @@ const messages = {
     reviewDuplicates: "Revisar duplicados",
     duplicateReviewTitle: "Posibles registros duplicados",
     duplicateReviewDescription:
-      "Compara este registro con candidatos accesibles. Jev envía a TypeSafe nombres, tipos de registro y señales de coincidencia de hasta cinco candidatos. Su probabilidad es orientativa; fusionar exige otra revisión.",
+      "Compara este registro con candidatos accesibles. La revisión semántica envía nombres, tipos de registro y señales de coincidencia de hasta cinco candidatos al proveedor de decisiones de IA configurado. La probabilidad es orientativa; fusionar exige otra revisión.",
     duplicateReviewRun: "Comprobar duplicados",
     duplicateReviewLoading: "Comprobando…",
     duplicateReviewFailed: "No se pudo completar la revisión de duplicados.",
     duplicateReviewUnavailable:
-      "Jev no pudo revisar estos registros. Los candidatos basados en reglas siguen visibles.",
+      "El proveedor de decisiones de IA no pudo revisar estos registros. Los candidatos basados en reglas siguen visibles.",
     duplicateReviewEmpty: "No se encontraron duplicados probables.",
     duplicateRuleConfidence: "Coincidencia por reglas: {{percent}}%",
-    duplicateJevProbability:
-      "Probabilidad de misma entidad según Jev: {{percent}}%",
+    duplicateDecisionProbability: "Probabilidad de misma entidad: {{percent}}%",
     duplicateMatchedOn: "Coincide en: {{values}}",
     evidenceAttached: "Evidencia de llamada adjuntada.",
     evidenceAttachFailed: "No se pudo adjuntar la evidencia.",
@@ -627,11 +626,10 @@ const messages = {
     automate: "Automatizar",
     reviewNewClipsCalls: "Revisar nuevas llamadas de Clips",
     reviewDescription:
-      "Prepara una receta de revisión para este registro de CRM sin copiar archivos multimedia ni transcripciones de Clips.",
-    disabledAutomationDescription:
-      "Esto comienza desactivado y permanece vinculado a {{name}}. Una vez activado explícitamente, cada clip nuevo solo puede adjuntar su referencia de página de grabación con acceso verificado a este registro.",
+      "La configuración de automatizaciones de llamadas de CRM a Clips aún no está disponible.",
+    disabledAutomationDescription: "Registro de CRM seleccionado: {{name}}.",
     handoffDescription:
-      "La transferencia conserva solo un ID de clip opaco, una URL de página {{path}} duradera y la hora de captura. Rechaza URL de eventos, archivos multimedia, tokens de acceso, transcripciones, registros inferidos y escrituras en proveedores.",
+      "No está disponible la incorporación automática de enlaces a páginas {{path}}.",
     manageAutomations: "Administrar automatizaciones",
     configureWithAgent: "Configurar con agente",
     editField: "Editar campo",

@@ -63,6 +63,7 @@ import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ChapterList } from "@/components/player/chapter-list";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
@@ -121,7 +122,6 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
-import { missingShareRetryDelayMs } from "@/lib/missing-share-retry";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import {
   readRecoverableRecordingBackupForServerId,
@@ -140,7 +140,10 @@ import { parseRedactions } from "@/lib/video-redactions";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
-import { isRecordingExpired } from "../../server/lib/recording-page-access";
+import {
+  isRecordingExpired,
+  isRecordingTrashedForViewer,
+} from "../../server/lib/recording-page-access";
 import {
   buildAgentApiUrls,
   buildAgentDiscoveryPayload,
@@ -148,6 +151,7 @@ import {
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   safeJsonForHtml,
 } from "../../shared/agent-context";
+import { recordingEmbedProvider } from "../../shared/embed-provider";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -312,7 +316,13 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       }).ok
     : false;
 
-  if (isRecordingExpired(rec.expiresAt)) {
+  if (
+    isRecordingExpired(rec.expiresAt) ||
+    isRecordingTrashedForViewer({
+      trashedAt: rec.trashedAt,
+      viewerIsOwner: false,
+    })
+  ) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
   }
 
@@ -366,10 +376,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     isLoomEmbedBacked: isLoomEmbedBackedRecording(rec),
   };
   const canExposeAnonymousAgentContext =
-    rec.visibility === "public" &&
-    !rec.password &&
-    !rec.archivedAt &&
-    !rec.trashedAt;
+    rec.visibility === "public" && !rec.password && !rec.archivedAt;
   return shareLoaderData(
     {
       recording,
@@ -773,15 +780,6 @@ export default function ShareRoute() {
     enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
-      const status = (q.state.data as { status?: number } | undefined)?.status;
-      const updateCount =
-        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0;
-      const retryDelay = missingShareRetryDelayMs({
-        status,
-        updateCount,
-        loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
-      });
-      if (retryDelay !== null) return retryDelay;
       const rec = payload?.recording;
       if (!rec) return false;
       // Poll while the recording is still being assembled / transcoded so the
@@ -831,6 +829,13 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const hostedFailureCode = (recording as any)?.failureCode;
+  const localizedHostedFailure =
+    hostedFailureCode === "global_storage_cap"
+      ? t("clipsFinalRaw.hostedStorageFull")
+      : hostedFailureCode === "taken_down"
+        ? t("clipsFinalRaw.hostedRecordingTakenDown")
+        : null;
   useEffect(() => {
     if (recording && !recording.enableComments) {
       // Functional update so this branch doesn't need `panel` as a
@@ -1011,7 +1016,8 @@ export default function ShareRoute() {
   const visibilityLabel = recording
     ? t(`shareUi.visibility.${recording.visibility}.label`)
     : "";
-  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+  const embedProvider = recordingEmbedProvider(recording);
+  const isEmbedBacked = embedProvider !== null;
   const unlockedAgentContextUrl =
     typeof dataQ.data?.data?.agentContextUrl === "string"
       ? dataQ.data.data.agentContextUrl
@@ -1020,7 +1026,7 @@ export default function ShareRoute() {
     <AgentDiscovery
       recording={recording ?? loaderData.recording}
       agentContextUrl={unlockedAgentContextUrl ?? loaderData.agentContextUrl}
-      frameAvailable={Boolean(recording) && !isLoomEmbedBacked}
+      frameAvailable={Boolean(recording) && !isEmbedBacked}
     />
   );
 
@@ -1084,7 +1090,7 @@ export default function ShareRoute() {
     recordingId: shareId ?? "",
     videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
-    trackOpenWithoutVideo: isLoomEmbedBacked,
+    trackOpenWithoutVideo: isEmbedBacked,
   });
 
   const reactToRecording = useCallback(
@@ -1311,19 +1317,7 @@ export default function ShareRoute() {
     retrySession();
   }, [retrySession, sessionStatus, shareNeedsSession]);
 
-  const retryingMissingShare =
-    missingShareRetryDelayMs({
-      status: dataQ.data?.status,
-      updateCount:
-        queryClient.getQueryState(shareQueryKey)?.dataUpdateCount ?? 0,
-      loaderFoundClip: Boolean(loaderData.accessDeniedStatus),
-    }) !== null;
-
-  if (
-    dataQ.isLoading ||
-    retryingMissingShare ||
-    (sessionNeedsRetry && shareNeedsSession)
-  ) {
+  if (dataQ.isLoading || (sessionNeedsRetry && shareNeedsSession)) {
     return (
       <>
         {agentDiscovery}
@@ -1517,7 +1511,9 @@ export default function ShareRoute() {
     const signInHref = buildSignInReturnHref({
       returnTo: appPath(`/r/${recording.id}`),
     });
-    const detail = failureDetail(rawFailureReason);
+    const detail = localizedHostedFailure
+      ? null
+      : failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")
       : stuckFailure
@@ -1538,7 +1534,9 @@ export default function ShareRoute() {
           ? t("sharePage.uploadNotCompleteSession")
           : t("sharePage.uploadNotCompleteSignIn")
         : explicitFailure
-          ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
+          ? (localizedHostedFailure ??
+            rawFailureReason ??
+            t("sharePage.creatorMayRetry"))
           : t("sharePage.uploadingAssembling");
     const canDownloadLocalCopy = isFailure && viewerIsOwner && !isImage;
 
@@ -1642,10 +1640,10 @@ export default function ShareRoute() {
     (isImage
       ? recording.imageUrl || recording.thumbnailUrl
       : recording.videoUrl) &&
-    !isLoomEmbedBacked,
+    !isEmbedBacked,
   );
   const shareVideoUrl =
-    canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
+    canDownloadRecording || isEmbedBacked ? recording.videoUrl : null;
   const shareControl =
     viewerCanEdit || canReshareLink ? (
       <ShareRecordingPopover
@@ -1657,7 +1655,7 @@ export default function ShareRoute() {
         videoUrl={shareVideoUrl}
         thumbnailUrl={recording.thumbnailUrl}
         animatedThumbnailUrl={recording.animatedThumbnailUrl}
-        isLoomRecording={isLoomEmbedBacked}
+        isLoomRecording={isEmbedBacked}
         hasPassword={Boolean(recording.hasPassword)}
         expiresAt={recording.expiresAt}
         viewerReshareOnly={viewerReshareOnly}
@@ -1753,7 +1751,13 @@ export default function ShareRoute() {
                   className="w-full"
                 />
               ) : (
-                <div className="relative aspect-video w-full">
+                <div
+                  className={cn(
+                    "relative w-full",
+                    // YouTube's controls sit below its player, outside the ratio.
+                    embedProvider !== "youtube" && "aspect-video",
+                  )}
+                >
                   <VideoPlayer
                     ref={playerRef}
                     onVideoElementChange={setTrackedVideoEl}
@@ -1765,7 +1769,7 @@ export default function ShareRoute() {
                       null
                     }
                     videoFormat={recording.videoFormat}
-                    embedProvider={isLoomEmbedBacked ? "loom" : null}
+                    embedProvider={embedProvider}
                     durationMs={recording.durationMs}
                     startMs={resolveStartMs(startMs, recording.durationMs)}
                     persistPlaybackPosition={Boolean(session)}
@@ -1968,6 +1972,19 @@ export default function ShareRoute() {
                   ) : null}
                 </div>
               ) : null}
+              {isImage ? null : (
+                <ChapterList
+                  key={recording.id}
+                  recordingId={recording.id}
+                  chapters={chapters}
+                  mediaUpdatedAt={recording.mediaUpdatedAt ?? ""}
+                  updatedAt={recording.updatedAt ?? ""}
+                  editsJson={recording.editsJson}
+                  durationMs={recording.durationMs}
+                  canEdit={false}
+                  onSeek={(ms) => playerRef.current?.seek(ms)}
+                />
+              )}
             </section>
           </div>
         </main>

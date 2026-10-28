@@ -13,9 +13,10 @@ const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const grantThreadUserShareMock = vi.hoisted(() => vi.fn());
 const setThreadSourceIfMissingMock = vi.hoisted(() => vi.fn());
 const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
-const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
+const getJevContextCredentialsMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const filterInitialEngineToolsMock = vi.hoisted(() => vi.fn());
@@ -29,9 +30,15 @@ const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
 const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const insertAuditEventMock = vi.hoisted(() =>
+  vi.fn<typeof import("../audit/store.js").insertAuditEvent>(),
+);
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const flushRunEventsMock = vi.hoisted(() => vi.fn(async () => {}));
+const captureRunControlMock = vi.hoisted(() => vi.fn());
+const captureDirectRunnerControlMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
@@ -47,6 +54,7 @@ const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
 );
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
+const preloadJevContextWithStatusMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -78,7 +86,19 @@ vi.mock("../agent/durable-background.js", () => ({
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   appendDurableContinuationContext: appendDurableContinuationContextMock,
-  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
+  runAgentLoopDirectWithSoftTimeout: (
+    opts: unknown,
+    _softTimeoutMs: unknown,
+    _timeoutOptions: unknown,
+    control: unknown,
+  ) => {
+    captureDirectRunnerControlMock(control);
+    return runAgentLoopMock(opts);
+  },
+}));
+
+vi.mock("../server/agent-chat/prompt-resources.js", () => ({
+  preloadJevContextWithStatus: preloadJevContextWithStatusMock,
 }));
 
 vi.mock("./integration-campaigns-store.js", () => ({
@@ -109,7 +129,7 @@ vi.mock("./integration-durable-dispatch.js", () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgA2ASecret: getOrgA2ASecretMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 function fakeFilterInitialEngineTools(
@@ -132,6 +152,7 @@ function fakeFilterInitialEngineTools(
 }
 
 vi.mock("../agent/production-agent.js", () => ({
+  getJevContextCredentials: getJevContextCredentialsMock,
   resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
@@ -186,6 +207,10 @@ vi.mock("../usage/store.js", () => ({
   recordUsage: vi.fn(),
 }));
 
+vi.mock("../audit/store.js", () => ({
+  insertAuditEvent: insertAuditEventMock,
+}));
+
 vi.mock("../agent/run-manager.js", async () => ({
   ...(await vi.importActual<typeof import("../agent/run-manager.js")>(
     "../agent/run-manager.js",
@@ -193,6 +218,16 @@ vi.mock("../agent/run-manager.js", async () => ({
   startRun: startRunMock.mockImplementation(
     (runId, threadId, runFn, onComplete) => {
       const events: any[] = [];
+      const controller = new AbortController();
+      const control = {
+        turnSignal: controller.signal,
+        chunkSignal: controller.signal,
+        chunkBoundaryReason: () => null,
+        beginChunk: () => controller.signal,
+        flushEvents: flushRunEventsMock,
+      };
+      captureRunControlMock.mockReturnValue(control);
+      captureRunControlMock(control);
       const send = (event: any) => {
         events.push({
           id: `event-${events.length + 1}`,
@@ -201,7 +236,7 @@ vi.mock("../agent/run-manager.js", async () => ({
           createdAt: Date.now(),
         });
       };
-      Promise.resolve(runFn(send, new AbortController().signal))
+      Promise.resolve(runFn(send, controller.signal, control))
         .then(() =>
           onComplete?.({
             runId,
@@ -305,6 +340,15 @@ function pendingTask(
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    flushRunEventsMock.mockReset();
+    flushRunEventsMock.mockResolvedValue(undefined);
+    insertAuditEventMock.mockResolvedValue(undefined);
+    preloadJevContextWithStatusMock.mockResolvedValue({
+      context: "",
+      relevantAppsContext:
+        '<relevant-apps><app id="qr">QR profile</app></relevant-apps>',
+      status: "ok",
+    });
     createIntegrationCampaignMock.mockResolvedValue({
       id: "campaign-qa",
       integrationTaskId: "task-qa",
@@ -343,11 +387,19 @@ describe("integration webhook handler engine resolution", () => {
     grantThreadUserShareMock.mockResolvedValue(undefined);
     setThreadSourceIfMissingMock.mockResolvedValue(false);
     isInBackgroundFunctionRuntimeMock.mockReturnValue(false);
-    resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-qa",
+    });
     getOrgA2ASecretMock.mockResolvedValue(null);
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: undefined,
       apiKeyEnvVar: undefined,
+    });
+    getJevContextCredentialsMock.mockResolvedValue({
+      apiKey: undefined,
+      personalApiKey: undefined,
+      builderAuth: null,
     });
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
@@ -419,6 +471,7 @@ describe("integration webhook handler engine resolution", () => {
         }),
       ).rejects.toThrow("thread setup failed");
 
+      expect(insertAuditEventMock).toHaveBeenCalledOnce();
       expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
       expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({ budgetId: "budget-org" }),
@@ -479,6 +532,52 @@ describe("integration webhook handler engine resolution", () => {
         }),
         expect.anything(),
       );
+    },
+  );
+
+  it(
+    "flushes events before writes and shares run control with the recoverable driver",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const order: string[] = [];
+      flushRunEventsMock.mockImplementationOnce(async () => {
+        order.push("flush");
+      });
+      runAgentLoopMock.mockImplementationOnce(async (opts) => {
+        await opts.beforeWrite();
+        order.push("write");
+        opts.send({ type: "text", text: "done" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const control = captureRunControlMock.mock.results.at(-1)?.value;
+      expect(control).toBeDefined();
+      expect(runAgentLoopMock.mock.calls[0]?.[0].beforeWrite).toBe(
+        control.flushEvents,
+      );
+      expect(captureDirectRunnerControlMock.mock.calls[0]?.[0]).toBe(control);
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        expect.objectContaining({
+          executionLease: true,
+          recoverChunkBoundaries: true,
+        }),
+      );
+      expect(order).toEqual(["flush", "write"]);
+      expect(flushRunEventsMock).toHaveBeenCalledOnce();
     },
   );
 
@@ -683,11 +782,26 @@ describe("integration webhook handler engine resolution", () => {
         updatedAt: Date.now(),
         completedAt: null,
       };
+      getJevContextCredentialsMock.mockResolvedValueOnce({
+        apiKey: "owner-jev-key",
+        personalApiKey: undefined,
+        directApiKey: "owner-jev-key",
+        builderAuth: null,
+      });
 
       await processIntegrationTask(task, {
         adapter: createAdapter(sendResponse),
         systemPrompt: "system",
-        actions: {},
+        actions: {
+          "call-agent": {
+            tool: {
+              name: "call-agent",
+              description: "delegate",
+              inputSchema: {},
+            },
+            run: vi.fn(),
+          },
+        },
         model: "claude-sonnet-4-6",
         apiKey: "",
         ownerEmail: task.ownerEmail,
@@ -709,8 +823,21 @@ describe("integration webhook handler engine resolution", () => {
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
           maxOutputTokens: 64_000,
-          reasoningEffort: "high",
-          systemPrompt: expect.stringContaining("<runtime-context>"),
+          reasoningEffort: undefined,
+          systemPrompt: expect.stringContaining("QR profile"),
+        }),
+      );
+      expect(preloadJevContextWithStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appDiscoveryOnly: true,
+          appRequest: expect.stringContaining("hello from slack"),
+          owner: task.ownerEmail,
+          orgId: "org-qa",
+          workspaceAppsEnabled: true,
+          apiKey: "owner-jev-key",
+          personalApiKey: undefined,
+          directApiKey: "owner-jev-key",
+          builderAuth: null,
         }),
       );
       const engineUserText =
@@ -1588,6 +1715,64 @@ describe("integration webhook handler engine resolution", () => {
         apiKeyEnvVar: "OPENAI_API_KEY",
         model: "gpt-5.2",
       });
+    },
+  );
+
+  it(
+    "preserves confirmed personal scope through the integration engine resolver",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "organization",
+        orgId: "org-after-enqueue",
+      });
+      getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
+        const { getRequestContext } =
+          await import("../server/request-context.js");
+        expect(getRequestContext()).toMatchObject({
+          userEmail: "personal+qa@example.com",
+          orgScope: "personal",
+        });
+        return "anthropic";
+      });
+
+      const task = pendingTask({
+        ownerEmail: "personal+qa@example.com",
+        orgId: null,
+        payload: JSON.stringify({
+          incoming: {
+            platform: "fake",
+            externalThreadId: "thread-personal",
+            text: "hello",
+            platformContext: {},
+            timestamp: 1001,
+          },
+          principalType: "user",
+        }),
+      });
+
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "",
+        ownerEmail: task.ownerEmail,
+      });
+
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "",
+      });
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      const stagedPayload = JSON.parse(
+        stageTaskDeliveryPayloadMock.mock.calls.at(-1)![1],
+      );
+      expect(stagedPayload).toMatchObject({ orgScope: "personal" });
     },
   );
 

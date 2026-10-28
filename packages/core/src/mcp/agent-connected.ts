@@ -4,6 +4,7 @@ import { CLIENTS } from "../cli/mcp-config-writers.js";
 import { mutateSetting } from "../settings/store.js";
 import { normalizeTrackingDimension } from "../shared/analytics-events.js";
 import { resolveMcpConnectHostId } from "../shared/mcp-connect-content.js";
+import { AGENT_NATIVE_ANALYTICS_PROVIDER } from "../tracking/providers.js";
 import {
   isTrackingSuppressed,
   listTrackingProviders,
@@ -29,6 +30,18 @@ export function deviceFlowClients(
   return ids?.every((id) => (CLIENTS as string[]).includes(id)) ? ids : client;
 }
 
+/**
+ * The client key `agent_connected` reports. OAuth funnel events carry the same
+ * key, so a client's starts and finished connections join on it.
+ */
+export function connectionClientKey(name: string): string {
+  return (
+    resolveMcpConnectHostId(name) ??
+    detectVendorClient(name) ??
+    (name.trim().toLowerCase().slice(0, 120) || "unknown")
+  );
+}
+
 export async function trackAgentConnected(input: {
   email: string;
   origin: string;
@@ -39,19 +52,19 @@ export async function trackAgentConnected(input: {
   // Everything runs inside the try: the connection is already committed, so a
   // tracking or configuration failure must not turn it into a failed response.
   try {
+    // The claim is permanent, so take it only when first-party analytics will
+    // receive the event; a vendor-only claim would hide every later reconnect
+    // from first-party analytics once it is enabled.
     if (
-      listTrackingProviders().length === 0 ||
+      !listTrackingProviders().includes(AGENT_NATIVE_ANALYTICS_PROVIDER) ||
       isTrackingSuppressed(input.email)
     )
       return "disabled";
     const app = connectionApp(input.origin, input.appId);
     const raw = input.client;
     const clients = new Set(
-      (typeof raw === "string" ? [raw] : (raw ?? ["unknown"])).map(
-        (name) =>
-          resolveMcpConnectHostId(name) ??
-          detectVendorClient(name) ??
-          (name.trim().toLowerCase().slice(0, 120) || "unknown"),
+      (typeof raw === "string" ? [raw] : (raw ?? ["unknown"])).map((name) =>
+        connectionClientKey(name),
       ),
     );
     let emitted = false;

@@ -1,4 +1,5 @@
 import {
+  bigint,
   table,
   text,
   integer,
@@ -33,6 +34,32 @@ export const dashboards = table("dashboards", {
   ...ownableColumns(),
 });
 
+/**
+ * The deploy pass that moved pre-built-in copies onto built-in dashboards
+ * records each copy it checked here, so a hidden copy can be listed and
+ * restored and no copy is decided twice.
+ */
+export const analyticsBuiltinDashboardChecks = table(
+  "analytics_builtin_dashboard_checks",
+  {
+    dashboardId: text("dashboard_id").primaryKey(),
+    builtinId: text("builtin_id").notNull(),
+    outcome: varchar("outcome", { length: 8 }).notNull(),
+    /** JSON array of reasons a copy was kept. */
+    reasons: text("reasons").notNull().default("[]"),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    rowUpdatedAt: text("row_updated_at").notNull(),
+    checkedAt: text("checked_at").notNull().default(now()),
+    restoredAt: text("restored_at"),
+  },
+  (t) => ({
+    outcomeIdx: index("analytics_builtin_dashboard_checks_outcome_idx").on(
+      t.outcome,
+    ),
+  }),
+);
+
 export const dashboardNameLocks = table("dashboard_name_locks", {
   nameKey: text("name_key").primaryKey(),
   createdAt: text("created_at").notNull().default(now()),
@@ -65,6 +92,7 @@ export const dashboardRevisions = table(
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by"),
     chatContext: text("chat_context"),
+    changeSummary: text("change_summary"),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
   },
@@ -626,6 +654,73 @@ export const analyticsPerformanceCoverage = table(
   },
 );
 
+// Each output an app reported making, from `shared/output-use.ts`, and its
+// first use. A null madeAt means only uses have arrived so far; useBy is
+// madeAt plus the use window, so "used in time" compares two stored values.
+export const analyticsOutputOutcomes = table(
+  "analytics_output_outcomes",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    app: text("app").notNull(),
+    outputType: text("output_type").notNull(),
+    outputId: text("output_id").notNull(),
+    madeAt: text("made_at"),
+    useBy: text("use_by"),
+    madeSessionId: text("made_session_id"),
+    firstUsedAt: text("first_used_at"),
+    usedEvent: text("used_event"),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+  (t) => ({
+    outputOutcomeUnique: uniqueIndex("analytics_output_outcomes_key_idx").on(
+      t.tenantKey,
+      t.app,
+      t.outputId,
+    ),
+    madeSessionIdx: index("analytics_output_outcomes_made_session_idx").on(
+      t.tenantKey,
+      t.madeSessionId,
+    ),
+    lastSeenIdx: index("analytics_output_outcomes_last_seen_idx").on(
+      t.lastSeenAt,
+    ),
+  }),
+);
+
+// Event-time spans in which a failed write may have dropped an output's use,
+// so no output made in or before one can read as unused.
+export const analyticsOutputOutcomeGaps = table(
+  "analytics_output_outcome_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    outputOutcomeGapTenantIdx: index(
+      "analytics_output_outcome_gaps_tenant_idx",
+    ).on(t.tenantKey, t.lastAt),
+  }),
+);
+
+// When each tenant's output outcomes began.
+export const analyticsOutputOutcomeCoverage = table(
+  "analytics_output_outcome_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
 export const analyticsUserDays = table("analytics_user_days", {
   id: text("id").primaryKey(),
   tenantKey: text("tenant_key").notNull(),
@@ -839,6 +934,69 @@ export const externalDashboardMigrations = table(
   }),
 );
 
+/** Named groups of key dates (launches, product changes) shown on every time chart of a dashboard. */
+export const analyticsKeyDateSets = table(
+  "analytics_key_date_sets",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    name: varchar("name", { length: 80 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_key_date_sets_org_idx").on(t.orgId),
+  }),
+);
+
+export const analyticsKeyDates = table(
+  "analytics_key_dates",
+  {
+    id: text("id").primaryKey(),
+    setId: text("set_id").notNull(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    date: varchar("date", { length: 10 }).notNull(),
+    time: varchar("time", { length: 5 }),
+    timeZone: varchar("time_zone", { length: 64 }),
+    label: varchar("label", { length: 120 }).notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    setIdx: index("analytics_key_dates_set_idx").on(t.setId, t.date),
+    orgIdx: index("analytics_key_dates_org_idx").on(t.orgId),
+  }),
+);
+
+export const analyticsDataNotes = table(
+  "analytics_data_notes",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id"),
+    ownerEmail: text("owner_email").notNull(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    title: varchar("title", { length: 120 }).notNull(),
+    note: varchar("note", { length: 1000 }).notNull(),
+    startDate: varchar("start_date", { length: 10 }),
+    endDate: varchar("end_date", { length: 10 }),
+    status: varchar("status", { length: 8 }).notNull().default("open"),
+    fix: varchar("fix", { length: 500 }),
+    /** JSON array of event names. */
+    matchEvents: text("match_events").notNull().default("[]"),
+    /** JSON array of event names. */
+    unlessEvents: text("unless_events").notNull().default("[]"),
+    /** JSON array of { dashboardId, panelId }. */
+    panels: text("panels").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    orgIdx: index("analytics_data_notes_org_idx").on(t.orgId),
+  }),
+);
+
 export const sessionRecordings = table(
   "session_recordings",
   {
@@ -955,5 +1113,109 @@ export const sessionReplayIngests = table(
     recordingIdx: index("session_replay_ingests_recording_idx").on(
       ingest.recordingId,
     ),
+  }),
+);
+
+// Content view: one tenant's collection settings, read by the daily job. The
+// stored owner is the identity whose credentials each step resolves.
+export const analyticsContentCollections = table(
+  "analytics_content_collections",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    enabled: boolean("enabled").notNull().default(false),
+    config: text("config").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const analyticsContentItems = table(
+  "analytics_content_items",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    source: text("source").notNull(),
+    externalId: text("external_id").notNull(),
+    url: text("url"),
+    title: text("title"),
+    author: text("author"),
+    authors: text("authors").notNull().default("[]"),
+    publishedAt: text("published_at"),
+    relevance: text("relevance"),
+    metadata: text("metadata").notNull().default("{}"),
+    firstSeenAt: text("first_seen_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    sourceExternalUnique: uniqueIndex("analytics_content_items_key_idx").on(
+      t.tenantKey,
+      t.source,
+      t.externalId,
+    ),
+    tenantPublishedIdx: index("analytics_content_items_published_idx").on(
+      t.tenantKey,
+      t.publishedAt,
+    ),
+  }),
+);
+
+// A row exists only for a value a succeeded run collected. A missing row is
+// "not collected", never zero; the collection runs say which.
+export const analyticsContentMetricSnapshots = table(
+  "analytics_content_metric_snapshots",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    itemId: text("item_id").notNull(),
+    metricDate: text("metric_date").notNull(),
+    metric: text("metric").notNull(),
+    value: real("value").notNull(),
+    source: text("source").notNull(),
+    runId: text("run_id").notNull(),
+    collectedAt: text("collected_at").notNull(),
+  },
+  (t) => ({
+    snapshotUnique: uniqueIndex(
+      "analytics_content_metric_snapshots_key_idx",
+    ).on(t.tenantKey, t.itemId, t.metricDate, t.metric),
+    tenantDateIdx: index("analytics_content_metric_snapshots_date_idx").on(
+      t.tenantKey,
+      t.metricDate,
+    ),
+  }),
+);
+
+export const analyticsContentCollectionRuns = table(
+  "analytics_content_collection_runs",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    step: text("step").notNull(),
+    trigger: text("trigger").notNull(),
+    status: text("status").notNull(),
+    windowStart: text("window_start"),
+    windowEnd: text("window_end"),
+    configFingerprint: text("config_fingerprint"),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at"),
+    rowCount: integer("row_count"),
+    bytesProcessed: bigint("bytes_processed", { mode: "number" }),
+    bytesCap: bigint("bytes_cap", { mode: "number" }),
+    costUsd: real("cost_usd"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+  },
+  (t) => ({
+    tenantStepStartedIdx: index(
+      "analytics_content_collection_runs_step_idx",
+    ).on(t.tenantKey, t.step, t.startedAt),
   }),
 );

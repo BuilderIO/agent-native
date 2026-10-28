@@ -3,8 +3,24 @@ import { describe, expect, it } from "vitest";
 import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
 import { classifyInitialUploadFailure } from "./create-recording.js";
 import { createRecordingSchema } from "./lib/create-recording-schema";
+import { failStorageSetupRequired } from "./lib/storage-setup-error";
 
 describe("create-recording schema", () => {
+  it("keeps resumable setup failures as typed action errors", () => {
+    let failure: unknown;
+    try {
+      failStorageSetupRequired();
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      statusCode: 503,
+    });
+  });
+
   it("classifies initial multipart startup failures separately", () => {
     expect(
       classifyInitialUploadFailure(new S3MultipartStartError(503)),
@@ -72,6 +88,37 @@ describe("create-recording schema", () => {
     ).toEqual({
       failureCode: "storage_setup_required",
       failureStage: "multipart_start",
+    });
+  });
+
+  it("classifies hosted provider auth failures without changing own-storage behavior", () => {
+    expect(
+      classifyInitialUploadFailure(new S3MultipartStartError(401), {
+        storageMode: "hosted",
+      }),
+    ).toEqual({
+      failureCode: "hosted_storage_unavailable",
+      failureStage: "multipart_start",
+      httpStatus: 401,
+    });
+    expect(
+      classifyInitialUploadFailure(
+        Object.assign(new Error("provider rejected credentials"), {
+          code: "InvalidAccessKeyId",
+        }),
+        { storageMode: "hosted" },
+      ),
+    ).toEqual({
+      failureCode: "hosted_storage_unavailable",
+      failureStage: "multipart_start",
+    });
+    expect(
+      classifyInitialUploadFailure(new S3MultipartStartError(403), {
+        storageMode: "own",
+      }),
+    ).toMatchObject({
+      failureCode: "storage_setup_required",
+      httpStatus: 403,
     });
   });
 

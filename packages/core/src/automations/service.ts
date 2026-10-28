@@ -1,8 +1,10 @@
-import { getDbExec } from "../db/client.js";
+import type { ActionCaller, ActionRunContext } from "../action.js";
+import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   assertDelegatedPolicyId,
+  assertJobRunnerTarget,
   buildJobResourceContent,
   isRecoveredFactoryJob,
   jobBelongsToApp,
@@ -13,18 +15,31 @@ import {
   type JobFrontmatter,
   type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
-import { deleteAutomationRuns } from "../jobs/run-history.js";
+import {
+  deleteAutomationRunsWithDb,
+  ensureAutomationRunHistoryReady,
+  prepareAutomationRunsDelete,
+} from "../jobs/run-history.js";
+import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
+import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
-  resourceDelete,
+  ensureResourceStoreReady,
+  prepareResourceBatchAssertion,
+  prepareResourceCreate,
+  prepareResourceDelete,
+  prepareResourceUpdate,
   resourceGetByPath,
   resourceList,
-  resourcePut,
+  resourcePutWithDb,
+  resourceDelete,
   SHARED_OWNER,
   type Resource,
+  type TransactionScopedResourceWrite,
 } from "../resources/store.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -38,6 +53,21 @@ import {
   createAutomationWebhookToken,
   automationWebhookPath,
 } from "../triggers/webhook.js";
+import {
+  listAccessibleAutomations,
+  resolveAutomationAccess,
+  type AccessibleAutomation,
+} from "./access.js";
+import { isOutsideAutomationOrigin } from "./outside-origin.js";
+import {
+  deleteAutomationSharingStateWithDb,
+  ensureAutomationSharingTables,
+  prepareAutomationSharingDelete,
+  prepareAutomationSharingReplacement,
+  normalizeAutomationSharingEmail,
+  replaceAutomationSharingStateWithDb,
+  type CompleteAutomationSharingState,
+} from "./sharing-store.js";
 
 export type AutomationScope = "personal" | "organization";
 
@@ -45,6 +75,9 @@ export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 
 export interface AutomationActor {
   userEmail: string;
+  caller?: ActionCaller;
+  networkProtocol?: ActionRunContext["networkProtocol"];
+  automation?: ActionRunContext["automation"];
   orgId?: string | null;
   appId?: string | null;
 }
@@ -54,10 +87,27 @@ export interface AutomationDefinition {
   name: string;
   scope: AutomationScope;
   meta: JobFrontmatter & {
-    triggerType: "schedule" | "event" | "webhook";
+    triggerType: "schedule" | "event" | "manual" | "webhook";
     mode: "agentic" | "deterministic";
   };
   body: string;
+  canUpdate: boolean;
+  webhookPath?: string;
+}
+
+/** The updated definition plus what the write changed, for change cards. */
+export interface AutomationUpdateResult extends AutomationDefinition {
+  /** Whether the persisted automation differs from the pre-update file. */
+  changed: boolean;
+  /** The enabled value the file had before the update. */
+  previouslyEnabled: boolean;
+  /** The enabled value the caller asked for, when it asked for one. */
+  requestedEnabled?: boolean;
+}
+
+export interface AccessibleAutomationDefinition extends AccessibleAutomation {
+  scope: AutomationScope;
+  /** Compatibility alias for callers not yet migrated to capabilities.canEdit. */
   canUpdate: boolean;
   webhookPath?: string;
 }
@@ -73,8 +123,9 @@ export interface AutomationDelivery {
 export interface DefineAutomationInput {
   name: string;
   scope: AutomationScope;
-  triggerType: "schedule" | "event" | "webhook";
+  triggerType: "schedule" | "event" | "manual" | "webhook";
   body: string;
+  enabled?: boolean;
   schedule?: string;
   timezone?: string;
   event?: string;
@@ -88,15 +139,22 @@ export interface DefineAutomationInput {
   executionCwd?: string;
   mcpTools?: unknown;
   delivery?: AutomationDelivery;
+  sharing?: CompleteAutomationSharingState;
+  acknowledgeExternalCollaborators?: boolean;
 }
 
-export type DefinedAutomation = Omit<AutomationDefinition, "resource">;
+export type DefinedAutomation = Omit<AutomationDefinition, "resource"> & {
+  resourceId: string;
+};
 
 export interface UpdateAutomationInput {
-  name: string;
-  scope: AutomationScope;
+  resourceId?: string;
+  name?: string;
+  scope?: AutomationScope;
+  triggerType?: "schedule" | "event" | "manual" | "webhook";
   enabled?: boolean;
   body?: string;
+  event?: string;
   condition?: string | null;
   delegatedPolicyId?: string | null;
   schedule?: string;
@@ -107,6 +165,8 @@ export interface UpdateAutomationInput {
   executionEngine?: string | null;
   executionCwd?: string | null;
   mcpTools?: unknown;
+  sharing?: CompleteAutomationSharingState;
+  acknowledgeExternalCollaborators?: boolean;
 }
 
 interface OrganizationMembership {
@@ -179,15 +239,8 @@ async function readOrganizationMembership(
   orgId: string,
   email: string,
 ): Promise<OrganizationMembership | null> {
-  const result = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
-          WHERE org_id = ? AND LOWER(email) = ?
-            AND federation_removal_pending_at IS NULL
-          LIMIT 1`,
-    args: [orgId, email.toLowerCase()],
-  });
-  if (!result.rows.length) return null;
-  return { role: String(result.rows[0]?.role ?? "").toLowerCase() };
+  const role = await readOrgMemberRole(orgId, email);
+  return role ? { role } : null;
 }
 
 async function requireOrganizationMembership(
@@ -213,28 +266,205 @@ function isOrganizationAdmin(membership: OrganizationMembership): boolean {
   return membership.role === "owner" || membership.role === "admin";
 }
 
-async function mutationAccess(
-  actorInput: AutomationActor,
-  resource: Resource,
-  meta: JobFrontmatter,
-): Promise<{ actor: AutomationActor; canUpdate: boolean }> {
-  const actor = normalizeActor(actorInput);
-  const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
-  if (!resourceOrgId) {
-    return {
-      actor,
-      canUpdate: resource.owner.toLowerCase() === actor.userEmail,
-    };
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function validateSharingState(
+  actor: AutomationActor,
+  input: CompleteAutomationSharingState,
+  owningOrganizationId: string | null,
+  acknowledgeExternalCollaborators: boolean | undefined,
+): Promise<CompleteAutomationSharingState> {
+  if (input.kind === "personal") return input;
+
+  const requestedOrganizationId =
+    input.kind === "organization"
+      ? input.organizationId.trim()
+      : input.organizationId?.trim() || null;
+  if (input.kind === "organization" && !requestedOrganizationId) {
+    throw httpError(
+      "An organization is required for organization sharing.",
+      400,
+    );
   }
-  if (actor.orgId !== resourceOrgId) {
-    return { actor, canUpdate: false };
+  if (
+    owningOrganizationId &&
+    requestedOrganizationId &&
+    requestedOrganizationId !== owningOrganizationId
+  ) {
+    throw httpError(
+      "Automation sharing must use the automation's owning organization.",
+      400,
+    );
   }
-  const membership = await requireOrganizationMembership(actor);
-  const isCreator =
-    meta.createdBy?.trim().toLowerCase() === actor.userEmail.toLowerCase();
+  const organizationId = owningOrganizationId ?? requestedOrganizationId;
+  if (organizationId) {
+    if (actor.orgId !== organizationId) {
+      throw httpError(
+        "The automation's organization must be the current organization.",
+        400,
+      );
+    }
+    await requireOrganizationMembership(actor);
+  }
+
+  if (input.kind === "organization") {
+    return { kind: "organization", organizationId: organizationId! };
+  }
+  if (input.kind !== "specific") {
+    throw httpError("Unsupported automation sharing state.", 400);
+  }
+
+  if (!input.grants.length) {
+    throw httpError("Specific sharing requires at least one account.", 400);
+  }
+  const grants = input.grants.map((grant) => {
+    const email = normalizeAutomationSharingEmail(grant.email);
+    if (!EMAIL_RE.test(email)) {
+      throw httpError(`Invalid sharing account email "${email}".`, 400);
+    }
+    if (grant.role !== "view" && grant.role !== "collaborate") {
+      throw httpError("Sharing role must be view or collaborate.", 400);
+    }
+    return { email, role: grant.role };
+  });
+  if (new Set(grants.map((grant) => grant.email)).size !== grants.length) {
+    throw httpError("Sharing accounts must be unique.", 400);
+  }
+
+  const placeholders = grants.map(() => "?").join(", ");
+  const accounts = await getDbExec().execute({
+    sql: `SELECT LOWER(email) AS email FROM "user" WHERE LOWER(email) IN (${placeholders})`,
+    args: grants.map((grant) => grant.email),
+  });
+  const existing = new Set(
+    accounts.rows.map((row) =>
+      String(row.email ?? "")
+        .trim()
+        .toLowerCase(),
+    ),
+  );
+  const missing = grants
+    .map((grant) => grant.email)
+    .filter((email) => !existing.has(email));
+  if (missing.length) {
+    throw httpError(
+      `Sharing accounts do not exist: ${missing.join(", ")}.`,
+      400,
+    );
+  }
+
+  if (organizationId) {
+    const memberships = await getDbExec().execute({
+      sql: `SELECT LOWER(email) AS email FROM org_members WHERE org_id = ? AND LOWER(email) IN (${placeholders})`,
+      args: [organizationId, ...grants.map((grant) => grant.email)],
+    });
+    const memberEmails = new Set(
+      memberships.rows.map((row) =>
+        String(row.email ?? "")
+          .trim()
+          .toLowerCase(),
+      ),
+    );
+    const outsideCollaborators = grants.filter(
+      (grant) => grant.role === "collaborate" && !memberEmails.has(grant.email),
+    );
+    if (outsideCollaborators.length && !acknowledgeExternalCollaborators) {
+      throw httpError(
+        `Acknowledge outside-organization collaborators before sharing with: ${outsideCollaborators.map((grant) => grant.email).join(", ")}.`,
+        400,
+      );
+    }
+  }
+
   return {
-    actor,
-    canUpdate: isCreator || isOrganizationAdmin(membership),
+    kind: "specific",
+    organizationId,
+    grants,
+  };
+}
+
+interface D1AutomationMutation<T> {
+  statements: readonly DbExecStatement[];
+  value: T;
+  successStatementIndex: number;
+  condition: { sql: string; args: readonly unknown[] };
+  conflictError: () => Error;
+}
+
+async function runAtomicAutomationMutation<T>(
+  work: (tx: DbExec) => Promise<T>,
+  d1: D1AutomationMutation<T>,
+): Promise<T> {
+  await Promise.all([
+    ensureResourceStoreReady(),
+    ensureAutomationSharingTables(),
+  ]);
+  const client = getDbExec();
+  if (client.atomicBatch) {
+    const assertion = prepareResourceBatchAssertion(d1.condition);
+    const statements: DbExecStatement[] = [
+      ...assertion.statements,
+      ...d1.statements,
+      assertion.cleanupStatement,
+    ];
+    try {
+      const results = await client.atomicBatch(statements);
+      if (results[d1.successStatementIndex + 2]?.rowsAffected !== 1) {
+        throw d1.conflictError();
+      }
+      return d1.value;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/unique constraint failed:\s*resources\./i.test(message)) {
+        throw d1.conflictError();
+      }
+      if (message !== "This database does not support atomic batches.") {
+        throw error;
+      }
+    }
+  }
+  if (!client.transaction) {
+    throw new Error("Atomic automation writes require transaction support.");
+  }
+  return client.transaction(work);
+}
+
+function resourceGuard(resource: Resource): {
+  sql: string;
+  args: readonly unknown[];
+} {
+  return {
+    sql: "SELECT 1 FROM resources WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ?",
+    args: [
+      resource.id,
+      resource.owner,
+      resource.path,
+      resource.updatedAt,
+      resource.content,
+    ],
+  };
+}
+
+function definitionFromAccess(
+  access: AccessibleAutomation,
+): AutomationDefinition {
+  if (access.classification.kind !== "automation") {
+    throw httpError(
+      `"${access.name}" is a legacy scheduled job. Use manage-jobs for compatibility.`,
+      400,
+    );
+  }
+  return {
+    resource: access.resource,
+    name: access.name,
+    scope: access.owningOrganizationId ? "organization" : "personal",
+    meta: {
+      ...access.meta,
+      triggerType: access.classification.triggerType,
+      mode: access.meta.mode ?? "agentic",
+    },
+    body: access.body,
+    canUpdate: access.capabilities.canEdit,
   };
 }
 
@@ -245,21 +475,21 @@ export async function canUpdateAutomationResource(
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
   if (!jobBelongsToApp(meta, actor.appId)) return false;
-  if (resource.owner === SHARED_OWNER) {
-    if (meta.orgId && actor.orgId !== meta.orgId) return false;
-    if (meta.createdBy?.trim().toLowerCase() === actor.userEmail) return true;
-    const orgId = meta.orgId || actor.orgId;
-    if (!orgId || actor.orgId !== orgId) return false;
-    const membership = await readOrganizationMembership(orgId, actor.userEmail);
-    return membership ? isOrganizationAdmin(membership) : false;
-  }
-  return (await mutationAccess(actor, resource, meta)).canUpdate;
+  const access = await resolveAutomationAccess(actor, resource.id);
+  if (access?.capabilities.canEdit) return true;
+  const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
+  if (resource.owner !== SHARED_OWNER && !resourceOrgId) return false;
+  const orgId = resourceOrgId ?? meta.orgId ?? actor.orgId;
+  if (!orgId || actor.orgId !== orgId) return false;
+  const membership = await readOrganizationMembership(orgId, actor.userEmail);
+  return membership ? isOrganizationAdmin(membership) : false;
 }
 
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
   resource: Resource,
   scope: AutomationScope,
+  additionalJobAppIds?: readonly string[],
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
@@ -269,17 +499,29 @@ export async function canQueueAutomationRunNow(
     actor.appId,
     resource.owner,
   );
-  if (!jobBelongsToApp(meta, actor.appId) && !recoveredFactory) return false;
-  const access = await mutationAccess(actor, resource, meta);
-  if (access.canUpdate) return true;
+  if (
+    !jobBelongsToApp(meta, actor.appId, additionalJobAppIds) &&
+    !recoveredFactory
+  ) {
+    return false;
+  }
+  const access = await resolveAutomationAccess(actor, resource.id);
+  if (access?.capabilities.canOperate) return true;
   const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
-  return (
+  if (
     scope === "organization" &&
     Boolean(resourceOrgId) &&
     actor.orgId === resourceOrgId &&
     actor.appId === "factory" &&
     (meta.domain === "factory" || recoveredFactory)
-  );
+  ) {
+    const membership = await readOrganizationMembership(
+      resourceOrgId!,
+      actor.userEmail,
+    );
+    return membership ? isOrganizationAdmin(membership) : false;
+  }
+  return false;
 }
 
 function assertExplicitAutomation(
@@ -320,20 +562,87 @@ async function readDefinition(
   if (!jobBelongsToApp(definition.meta, actor.appId)) {
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
-  const access = await mutationAccess(actor, resource, definition.meta);
+  const access = await resolveAutomationAccess(actor, resource.id);
+  if (!access) {
+    throw httpError(`Automation "${automationName(path)}" not found.`, 404);
+  }
   const webhookPath =
-    access.canUpdate && definition.meta.triggerType === "webhook"
+    access.capabilities.canEdit && definition.meta.triggerType === "webhook"
       ? await readAutomationWebhookPath(resource, definition.meta)
       : undefined;
   return {
-    ...definition,
-    name: automationName(resource.path),
+    ...definitionFromAccess(access),
     scope,
-    canUpdate: access.canUpdate,
     webhookPath,
   };
 }
 
+async function readDefinitionForUpdate(
+  actorInput: AutomationActor,
+  input: UpdateAutomationInput,
+): Promise<{ definition: AutomationDefinition; access: AccessibleAutomation }> {
+  const actor = normalizeActor(actorInput);
+  let access: AccessibleAutomation | null;
+  if (input.resourceId?.trim()) {
+    access = await resolveAutomationAccess(actor, input.resourceId.trim());
+  } else {
+    if (!input.scope || !input.name) {
+      throw httpError(
+        "Automation resource id or name and scope is required.",
+        400,
+      );
+    }
+    const definition = await readDefinition(actor, input.scope, input.name);
+    access = await resolveAutomationAccess(actor, definition.resource.id);
+  }
+  if (!access || access.classification.kind !== "automation") {
+    throw httpError("Automation not found.", 404);
+  }
+  if (!jobBelongsToApp(access.meta, actor.appId)) {
+    throw httpError("Automation not found.", 404);
+  }
+  const definition = definitionFromAccess(access);
+  const webhookPath =
+    access.capabilities.canEdit && access.meta.triggerType === "webhook"
+      ? await readAutomationWebhookPath(access.resource, access.meta)
+      : undefined;
+  return { definition: { ...definition, webhookPath }, access };
+}
+
+export async function listAccessibleAutomationDefinitions(
+  actorInput: AutomationActor,
+): Promise<AccessibleAutomationDefinition[]> {
+  const actor = normalizeActor(actorInput);
+  const definitions = await listAccessibleAutomations(actor);
+  return Promise.all(
+    definitions.map(async (definition) => ({
+      ...definition,
+      meta: {
+        ...definition.meta,
+        triggerType:
+          definition.classification.kind === "automation"
+            ? definition.classification.triggerType
+            : "schedule",
+      },
+      scope: definition.owningOrganizationId ? "organization" : "personal",
+      canUpdate: definition.capabilities.canEdit,
+      webhookPath:
+        definition.capabilities.canEdit &&
+        definition.classification.triggerType === "webhook"
+          ? await readAutomationWebhookPath(
+              definition.resource,
+              definition.meta,
+            )
+          : undefined,
+    })),
+  );
+}
+
+/**
+ * Scoped explicit-only compatibility wrapper. New list consumers should use
+ * listAccessibleAutomationDefinitions so shared and legacy rows are not split
+ * into parallel authorization paths.
+ */
 export async function listAutomationDefinitions(
   actorInput: AutomationActor,
   scope: AutomationScope,
@@ -391,6 +700,7 @@ export async function defineAutomation(
   input: DefineAutomationInput,
 ): Promise<DefinedAutomation> {
   const actor = normalizeActor(actorInput);
+  const outside = isOutsideAutomationOrigin(actorInput);
   if (input.scope === "organization") {
     await requireOrganizationMembership(actor);
   }
@@ -422,7 +732,11 @@ export async function defineAutomation(
     throw httpError("event is required for event-triggered automations.", 400);
   }
 
-  if (input.timezone && !isValidTimezone(input.timezone)) {
+  if (
+    input.triggerType === "schedule" &&
+    input.timezone &&
+    !isValidTimezone(input.timezone)
+  ) {
     throw httpError(`Unknown timezone "${input.timezone}".`, 400);
   }
   const timezone =
@@ -463,11 +777,13 @@ export async function defineAutomation(
   }
   const meta: JobFrontmatter = {
     schedule: input.triggerType === "schedule" ? schedule : "",
-    timezone,
-    enabled: true,
+    ...(timezone ? { timezone } : {}),
+    enabled: input.enabled ?? true,
     triggerType: input.triggerType,
-    event: input.triggerType === "event" ? event : undefined,
-    condition: input.condition?.trim() || undefined,
+    ...(input.triggerType === "event" ? { event } : {}),
+    ...(input.triggerType === "event" && input.condition?.trim()
+      ? { condition: input.condition.trim() }
+      : {}),
     mode: "agentic",
     domain: input.domain?.trim() || undefined,
     appId: actor.appId || undefined,
@@ -475,10 +791,12 @@ export async function defineAutomation(
     createdBy: actor.userEmail,
     orgId: input.scope === "organization" ? actor.orgId! : undefined,
     runAs: "creator",
-    nextRun:
-      input.triggerType === "schedule"
-        ? nextOccurrence(schedule, undefined, timezone).toISOString()
-        : undefined,
+    ...(outside ? { mcpManaged: true } : {}),
+    ...(input.triggerType === "schedule"
+      ? {
+          nextRun: nextOccurrence(schedule, undefined, timezone).toISOString(),
+        }
+      : {}),
     model: input.model?.trim() || undefined,
     reasoningEffort: input.reasoningEffort,
     executionHostId,
@@ -491,20 +809,82 @@ export async function defineAutomation(
     deliveryThreadRef: input.delivery?.threadRef,
     deliveryTenantId: input.delivery?.tenantId,
   };
+  const sharing = await validateSharingState(
+    actor,
+    input.sharing ??
+      (input.scope === "organization"
+        ? { kind: "organization", organizationId: actor.orgId! }
+        : { kind: "personal" }),
+    input.scope === "organization" ? actor.orgId! : null,
+    input.acknowledgeExternalCollaborators,
+  );
   const content = buildJobResourceContent(meta, body);
-  const resource = await resourcePut(owner, path, content);
+  const preparedWrite = prepareResourceCreate({
+    id: crypto.randomUUID(),
+    owner,
+    path,
+    content,
+  });
+  const preparedSharing = prepareAutomationSharingReplacement(
+    preparedWrite.value.id,
+    sharing,
+    {
+      guard: {
+        sql: "SELECT 1 FROM resources WHERE id = ? AND owner = ? AND path = ?",
+        args: [preparedWrite.value.id, owner, path],
+      },
+    },
+  );
+  let write: TransactionScopedResourceWrite<Resource> = preparedWrite;
+  await runAtomicAutomationMutation(
+    async (tx) => {
+      const existing = await tx.execute({
+        sql: "SELECT id FROM resources WHERE owner = ? AND path = ? LIMIT 1",
+        args: [owner, path],
+      });
+      if (existing.rows.length) {
+        throw httpError(
+          `An automation named "${automationName(path)}" already exists.`,
+          409,
+        );
+      }
+      write = await resourcePutWithDb(tx, owner, path, content);
+      await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
+    },
+    {
+      statements: [...preparedWrite.statements, ...preparedSharing.statements],
+      value: undefined,
+      successStatementIndex: 0,
+      condition: {
+        sql: "NOT EXISTS (SELECT 1 FROM resources WHERE owner = ? AND path = ?)",
+        args: [owner, path],
+      },
+      conflictError: () =>
+        httpError(
+          `An automation named "${automationName(path)}" already exists.`,
+          409,
+        ),
+    },
+  );
+  await write.notifyAfterCommit();
   let webhookPath: string | undefined;
   if (input.triggerType === "webhook") {
     const token = createAutomationWebhookToken();
     try {
-      await saveAutomationWebhookToken(resource, meta, token);
+      await saveAutomationWebhookToken(write.value, meta, token);
     } catch (error) {
-      await resourceDelete(resource.id).catch(() => undefined);
+      await Promise.all([
+        resourceDelete(write.value.id).catch(() => undefined),
+        deleteAutomationSharingStateWithDb(getDbExec(), write.value.id).catch(
+          () => undefined,
+        ),
+      ]);
       throw error;
     }
     webhookPath = automationWebhookPath(token);
   }
   return {
+    resourceId: write.value.id,
     name: automationName(path),
     scope: input.scope,
     meta: { ...meta, triggerType: input.triggerType, mode: "agentic" },
@@ -517,54 +897,142 @@ export async function defineAutomation(
 export async function updateAutomation(
   actorInput: AutomationActor,
   input: UpdateAutomationInput,
-): Promise<AutomationDefinition> {
-  const definition = await readDefinition(actorInput, input.scope, input.name);
-  if (!definition.canUpdate) {
+): Promise<AutomationUpdateResult> {
+  const actor = normalizeActor(actorInput);
+  const outside = isOutsideAutomationOrigin(actorInput);
+  const { definition, access } = await readDefinitionForUpdate(actor, input);
+  if (!access.capabilities.canEdit) {
     throw httpError(
-      "Only the automation's creator or an organization admin can update it.",
+      "Collaborate access is required to update an automation.",
       403,
     );
   }
-  const { meta } = definition;
+  if (input.sharing && !access.capabilities.canManageSharing) {
+    throw httpError("Only the automation owner can change sharing.", 403);
+  }
+
+  const currentMeta = { ...definition.meta };
+  const mcpMessages = outside
+    ? await automationOutcomeMessagesForUser(actor.userEmail)
+    : undefined;
+  const assertMcpTakeoverAllowed = (latest: JobFrontmatter) => {
+    if (mcpMessages && !latest.mcpManaged && latest.lastStatus === "running") {
+      throw httpError(mcpMessages.mcpTakeoverWhileRunning, 409);
+    }
+  };
+  assertMcpTakeoverAllowed(currentMeta);
+  const meta: AutomationDefinition["meta"] = { ...currentMeta };
   const fields: JobFrontmatterPatch = {};
-  if (input.schedule !== undefined) {
-    if (meta.triggerType !== "schedule") {
-      throw httpError("Only scheduled automations have a cron schedule.", 400);
-    }
-    if (!isValidCron(input.schedule)) {
-      throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
-    }
-    meta.schedule = input.schedule;
-    fields.schedule = input.schedule;
+  if (outside) {
+    meta.mcpManaged = true;
+    fields.mcpManaged = true;
   }
-  if (input.timezone !== undefined) {
-    if (!isValidTimezone(input.timezone)) {
-      throw httpError(`Unknown timezone "${input.timezone}".`, 400);
+  const triggerType = input.triggerType ?? meta.triggerType;
+  const triggerChanged = triggerType !== meta.triggerType;
+  const schedule =
+    input.schedule?.trim() ||
+    (triggerChanged && triggerType === "schedule"
+      ? meta.schedule || DEFAULT_AUTOMATION_SCHEDULE
+      : meta.schedule);
+  const event = input.event?.trim() ?? meta.event?.trim() ?? "";
+  let scheduleTimezone: string | undefined;
+
+  if (triggerType === "schedule") {
+    if (input.event !== undefined || input.condition !== undefined) {
+      throw httpError("Scheduled automations do not have event settings.", 400);
     }
-    if (meta.triggerType !== "schedule") {
-      throw httpError("Only scheduled automations have a timezone.", 400);
+    if (!isValidCron(schedule)) {
+      throw httpError(
+        schedule
+          ? `Invalid cron expression "${schedule}".`
+          : "schedule is required for scheduled automations.",
+        400,
+      );
     }
-    meta.timezone = input.timezone;
-    fields.timezone = input.timezone;
-  }
-  if (input.schedule !== undefined || input.timezone !== undefined) {
-    meta.nextRun = nextOccurrence(
-      meta.schedule,
-      undefined,
-      meta.timezone,
-    ).toISOString();
+    const timezone =
+      input.timezone ??
+      meta.timezone ??
+      (await resolveUserSchedulingTimezone(
+        definition.meta.createdBy?.trim() || actor.userEmail,
+      ));
+    if (!isValidTimezone(timezone)) {
+      throw httpError(`Unknown timezone "${timezone}".`, 400);
+    }
+    scheduleTimezone = timezone;
+    meta.triggerType = "schedule";
+    meta.schedule = schedule;
+    meta.timezone = timezone;
+    meta.event = undefined;
+    meta.condition = undefined;
+    meta.nextRun = nextOccurrence(schedule, undefined, timezone).toISOString();
+    fields.triggerType = "schedule";
+    fields.schedule = schedule;
+    fields.timezone = timezone;
+    fields.event = undefined;
+    fields.condition = undefined;
     fields.nextRun = meta.nextRun;
+  } else if (triggerType === "event") {
+    if (input.schedule !== undefined || input.timezone !== undefined) {
+      throw httpError("Event automations do not have schedule settings.", 400);
+    }
+    if (!event) {
+      throw httpError(
+        "event is required for event-triggered automations.",
+        400,
+      );
+    }
+    meta.triggerType = "event";
+    meta.schedule = "";
+    meta.timezone = undefined;
+    meta.event = event;
+    meta.nextRun = undefined;
+    fields.triggerType = "event";
+    fields.schedule = "";
+    fields.timezone = undefined;
+    fields.event = event;
+    fields.nextRun = undefined;
+    if (triggerChanged) {
+      meta.condition = undefined;
+      fields.condition = undefined;
+    }
+    if (input.condition !== undefined) {
+      meta.condition = input.condition?.trim() || undefined;
+      fields.condition = meta.condition;
+    }
+  } else if (triggerType === "manual" || triggerType === "webhook") {
+    if (
+      input.event !== undefined ||
+      input.schedule !== undefined ||
+      input.timezone !== undefined ||
+      input.condition !== undefined
+    ) {
+      throw httpError(
+        `${triggerType === "manual" ? "Manual" : "Webhook"} automations do not have trigger settings.`,
+        400,
+      );
+    }
+    meta.triggerType = triggerType;
+    meta.schedule = "";
+    meta.timezone = undefined;
+    meta.event = undefined;
+    meta.condition = undefined;
+    meta.nextRun = undefined;
+    fields.triggerType = triggerType;
+    fields.schedule = "";
+    fields.timezone = undefined;
+    fields.event = undefined;
+    fields.condition = undefined;
+    fields.nextRun = undefined;
   }
+
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
     fields.enabled = input.enabled;
     if (
       input.enabled &&
-      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
+      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures) &&
+      meta.lastStatus !== "running"
     ) {
-      // Enabling is how an owner lifts a framework pause: start from a clean
-      // failure streak instead of pausing again on the first failure.
-      Object.assign(fields, RESUME_AUTOMATION_PATCH);
       meta.lastStatus = undefined;
       meta.lastError = undefined;
       meta.lastErrorCode = undefined;
@@ -575,7 +1043,8 @@ export async function updateAutomation(
     }
     if (
       input.enabled &&
-      meta.triggerType === "schedule" &&
+      triggerType === "schedule" &&
+      meta.schedule &&
       isValidCron(meta.schedule)
     ) {
       meta.nextRun = nextOccurrence(
@@ -585,10 +1054,6 @@ export async function updateAutomation(
       ).toISOString();
       fields.nextRun = meta.nextRun;
     }
-  }
-  if (input.condition !== undefined) {
-    meta.condition = input.condition?.trim() || undefined;
-    fields.condition = meta.condition;
   }
   if (input.delegatedPolicyId !== undefined) {
     meta.delegatedPolicyId = input.delegatedPolicyId?.trim() || undefined;
@@ -620,7 +1085,7 @@ export async function updateAutomation(
     fields.reasoningEffort = meta.reasoningEffort;
   }
   if (input.executionHostId !== undefined) {
-    if (input.executionHostId && meta.triggerType !== "schedule") {
+    if (input.executionHostId && triggerType !== "schedule") {
       throw httpError(
         "Execution hosts are currently supported for scheduled code automations only.",
         400,
@@ -631,6 +1096,14 @@ export async function updateAutomation(
       "execution_host_id",
       { opaque: true },
     );
+    try {
+      assertJobRunnerTarget(meta);
+    } catch (error) {
+      throw httpError(
+        error instanceof Error ? error.message : String(error),
+        400,
+      );
+    }
     fields.executionHostId = meta.executionHostId;
   }
   if (input.executionEngine !== undefined) {
@@ -653,48 +1126,349 @@ export async function updateAutomation(
     meta.mcpTools = mcpTools?.length ? mcpTools : undefined;
     fields.mcpTools = meta.mcpTools;
   }
-  if (input.scope === "organization") {
-    meta.orgId = organizationIdFromResourceOwner(definition.resource.owner)!;
+
+  const owningOrganizationId = organizationIdFromResourceOwner(
+    definition.resource.owner,
+  );
+  meta.createdBy = currentMeta.createdBy;
+  meta.runAs = currentMeta.runAs;
+  meta.orgId = currentMeta.orgId;
+  if (owningOrganizationId) {
+    meta.orgId = owningOrganizationId;
     meta.runAs = "creator";
     fields.orgId = meta.orgId;
     fields.runAs = meta.runAs;
   }
+
   const body = input.body === undefined ? definition.body : input.body.trim();
   if (!body) throw httpError("Automation body is required.", 400);
-  let content = patchJobFrontmatterFields(definition.resource.content, fields);
-  if (input.body !== undefined) {
-    content = replaceJobResourceBody(content, body);
-  }
-  await resourcePut(
-    definition.resource.owner,
-    definition.resource.path,
-    content,
+  const sharing = input.sharing
+    ? await validateSharingState(
+        actor,
+        input.sharing,
+        owningOrganizationId,
+        input.acknowledgeExternalCollaborators,
+      )
+    : undefined;
+
+  const failureStateOf = (job: JobFrontmatter) =>
+    [
+      job.lastStatus ?? "",
+      job.pausedReason ?? "",
+      job.pausedAt ?? "",
+      job.lastError ?? "",
+      job.lastErrorCode ?? "",
+      job.lastFailedEventId ?? "",
+      job.consecutiveFailures ?? 0,
+    ].join("\u0000");
+  const failureStateBeforeEdit = failureStateOf(currentMeta);
+  const pausedReasonBeforeEdit = currentMeta.pausedReason;
+  const pausedAtBeforeEdit = currentMeta.pausedAt;
+  const liftsPause = Boolean(
+    input.enabled &&
+    (currentMeta.pausedReason ||
+      currentMeta.lastErrorCode ||
+      currentMeta.consecutiveFailures),
   );
-  return { ...definition, meta, body };
+  const liftsFailureState = Boolean(
+    input.enabled &&
+    currentMeta.lastStatus !== "running" &&
+    (currentMeta.pausedReason ||
+      currentMeta.lastErrorCode ||
+      currentMeta.consecutiveFailures),
+  );
+  const deriveFields = (baseContent: string): JobFrontmatterPatch => {
+    const latest = parseJobResource(baseContent).meta;
+    assertMcpTakeoverAllowed(latest);
+    const derived = { ...fields };
+    if (triggerType === "schedule" && fields.nextRun !== undefined) {
+      const writeSchedule = input.schedule !== undefined || triggerChanged;
+      const writeTimezone = input.timezone !== undefined || triggerChanged;
+      const nextSchedule = writeSchedule
+        ? schedule
+        : latest.schedule || schedule;
+      const nextTimezone =
+        writeTimezone || !latest.timezone ? scheduleTimezone : latest.timezone;
+      if (!writeSchedule && latest.schedule) delete derived.schedule;
+      if (!writeTimezone && latest.timezone) delete derived.timezone;
+      derived.nextRun = nextOccurrence(
+        nextSchedule,
+        undefined,
+        nextTimezone,
+      ).toISOString();
+    }
+    if (
+      liftsPause &&
+      (latest.pausedReason ?? "") === (pausedReasonBeforeEdit ?? "") &&
+      (latest.pausedAt ?? "") === (pausedAtBeforeEdit ?? "")
+    ) {
+      derived.pausedReason = undefined;
+      derived.pausedAt = undefined;
+    }
+    if (
+      liftsFailureState &&
+      failureStateOf(latest) === failureStateBeforeEdit
+    ) {
+      Object.assign(derived, RESUME_AUTOMATION_PATCH);
+    }
+    return derived;
+  };
+
+  let newWebhookToken: string | undefined;
+  if (triggerType === "webhook" && currentMeta.triggerType !== "webhook") {
+    newWebhookToken = createAutomationWebhookToken();
+    await saveAutomationWebhookToken(
+      definition.resource,
+      meta,
+      newWebhookToken,
+    );
+  }
+
+  let updated: Resource;
+  let replacedContent: string;
+  try {
+    if (sharing) {
+      const content = replaceJobResourceBody(
+        patchJobFrontmatterFields(
+          definition.resource.content,
+          deriveFields(definition.resource.content),
+        ),
+        input.body === undefined ? definition.body : body,
+      );
+      const preparedWrite = prepareResourceUpdate({
+        current: definition.resource,
+        content,
+      });
+      const preparedSharing = prepareAutomationSharingReplacement(
+        preparedWrite.value.id,
+        sharing,
+        { guard: resourceGuard(preparedWrite.value) },
+      );
+      let write: TransactionScopedResourceWrite<Resource> = preparedWrite;
+      const conflictError = () =>
+        httpError("Automation changed while it was being updated.", 409);
+      await runAtomicAutomationMutation(
+        async (tx) => {
+          const result = await tx.execute(preparedWrite.statements[0]);
+          if (result.rowsAffected !== 1) throw conflictError();
+          await replaceAutomationSharingStateWithDb(
+            tx,
+            preparedWrite.value.id,
+            sharing,
+          );
+          write = preparedWrite;
+        },
+        {
+          statements: [
+            ...preparedWrite.statements,
+            ...preparedSharing.statements,
+          ],
+          value: undefined,
+          successStatementIndex: 0,
+          condition: resourceGuard(definition.resource),
+          conflictError,
+        },
+      );
+      await write.notifyAfterCommit();
+      updated = write.value;
+      replacedContent = definition.resource.content;
+    } else {
+      const result = await applyJobResourceEdit({
+        resource: definition.resource,
+        fields: deriveFields,
+        revalidate: async (base) => {
+          const latest = assertExplicitAutomation(base);
+          if (!jobBelongsToApp(latest.meta, actor.appId)) return false;
+          const latestAccess = await resolveAutomationAccess(actor, base.id);
+          return Boolean(latestAccess?.capabilities.canEdit);
+        },
+        ...(input.body !== undefined ? { body } : {}),
+      });
+      if (!result.ok) {
+        if (result.reason === "missing") {
+          throw httpError(
+            `Automation "${automationName(definition.resource.path)}" not found.`,
+            404,
+          );
+        }
+        if (result.reason === "unauthorized") {
+          throw httpError(
+            "Collaborate access is required to update an automation.",
+            403,
+          );
+        }
+        throw httpError(
+          result.reason === "replaced"
+            ? "The automation was replaced while it was being updated. Try again."
+            : "The automation changed while it was being updated. Try again.",
+          409,
+        );
+      }
+      updated = result.resource;
+      replacedContent = result.replacedContent;
+    }
+  } catch (error) {
+    if (newWebhookToken) {
+      await deleteAutomationWebhookToken(definition.resource, meta).catch(
+        () => undefined,
+      );
+    }
+    throw error;
+  }
+
+  if (currentMeta.triggerType === "webhook" && triggerType !== "webhook") {
+    await deleteAutomationWebhookToken(definition.resource, currentMeta);
+  }
+  const landed = assertExplicitAutomation(updated);
+  const replaced = parseJobResource(replacedContent);
+  const changedField = (before: unknown, after: unknown) => before !== after;
+  const requestedDiff =
+    (outside && !replaced.meta.mcpManaged) ||
+    (input.body !== undefined && changedField(replaced.body, body)) ||
+    (input.enabled !== undefined &&
+      changedField(replaced.meta.enabled, meta.enabled)) ||
+    (input.triggerType !== undefined &&
+      changedField(replaced.classification.triggerType, triggerType)) ||
+    (input.schedule !== undefined &&
+      changedField(replaced.meta.schedule, meta.schedule)) ||
+    (input.timezone !== undefined &&
+      changedField(replaced.meta.timezone, meta.timezone)) ||
+    (input.event !== undefined &&
+      changedField(replaced.meta.event, meta.event)) ||
+    (input.condition !== undefined &&
+      changedField(replaced.meta.condition, meta.condition)) ||
+    (input.delegatedPolicyId !== undefined &&
+      changedField(replaced.meta.delegatedPolicyId, meta.delegatedPolicyId)) ||
+    (input.model !== undefined &&
+      changedField(replaced.meta.model, meta.model)) ||
+    (input.reasoningEffort !== undefined &&
+      changedField(replaced.meta.reasoningEffort, meta.reasoningEffort)) ||
+    (input.executionHostId !== undefined &&
+      changedField(replaced.meta.executionHostId, meta.executionHostId)) ||
+    (input.executionEngine !== undefined &&
+      changedField(replaced.meta.executionEngine, meta.executionEngine)) ||
+    (input.executionCwd !== undefined &&
+      changedField(replaced.meta.executionCwd, meta.executionCwd)) ||
+    (input.mcpTools !== undefined &&
+      changedField(
+        JSON.stringify(replaced.meta.mcpTools ?? []),
+        JSON.stringify(meta.mcpTools ?? []),
+      )) ||
+    (input.scope === "organization" &&
+      (changedField(replaced.meta.orgId, meta.orgId) ||
+        changedField(replaced.meta.runAs, meta.runAs))) ||
+    input.sharing !== undefined;
+  const webhookPath =
+    triggerType === "webhook"
+      ? newWebhookToken
+        ? automationWebhookPath(newWebhookToken)
+        : definition.webhookPath
+      : undefined;
+
+  return {
+    ...definition,
+    resource: updated,
+    meta: landed.meta,
+    body: landed.body,
+    webhookPath,
+    changed: requestedDiff,
+    previouslyEnabled: replaced.meta.enabled,
+    requestedEnabled: input.enabled,
+  };
 }
+
+export type DeleteAutomationInput =
+  | { resourceId: string }
+  | { scope: AutomationScope; name: string };
 
 export async function deleteAutomation(
   actorInput: AutomationActor,
-  scope: AutomationScope,
-  name: string,
+  scopeOrInput: AutomationScope | DeleteAutomationInput,
+  compatibilityName?: string,
 ): Promise<void> {
-  const definition = await readDefinition(actorInput, scope, name);
-  if (!definition.canUpdate) {
-    throw httpError(
-      "Only the automation's creator or an organization admin can delete it.",
-      403,
-    );
+  const actor = normalizeActor(actorInput);
+  const input: DeleteAutomationInput =
+    typeof scopeOrInput === "string"
+      ? { scope: scopeOrInput, name: compatibilityName ?? "" }
+      : scopeOrInput;
+  let access: AccessibleAutomation | null;
+  if ("resourceId" in input) {
+    access = await resolveAutomationAccess(actor, input.resourceId.trim());
+  } else {
+    const definition = await readDefinition(actor, input.scope, input.name);
+    access = await resolveAutomationAccess(actor, definition.resource.id);
   }
+  if (!access || access.classification.kind !== "automation") {
+    throw httpError("Automation not found.", 404);
+  }
+  if (!jobBelongsToApp(access.meta, actor.appId)) {
+    throw httpError("Automation not found.", 404);
+  }
+  const resourceOrgId = organizationIdFromResourceOwner(access.resource.owner);
+  const adminOrgId = resourceOrgId ?? access.meta.orgId ?? actor.orgId;
+  const membership =
+    (access.resource.owner === SHARED_OWNER || resourceOrgId) &&
+    Boolean(adminOrgId) &&
+    adminOrgId === actor.orgId
+      ? await readOrganizationMembership(adminOrgId!, actor.userEmail)
+      : null;
+  const isAdmin = membership ? isOrganizationAdmin(membership) : false;
+  if (!access.capabilities.canDelete && !isAdmin) {
+    throw httpError("Only the automation owner can delete it.", 403);
+  }
+
+  const definition = definitionFromAccess(access);
+  await ensureAutomationRunHistoryReady();
+  const preparedWrite = prepareResourceDelete(definition.resource);
+  const guard = resourceGuard(definition.resource);
+  const preparedSharing = prepareAutomationSharingDelete(
+    definition.resource.id,
+    guard,
+  );
+  const preparedHistory = prepareAutomationRunsDelete(
+    definition.resource.owner,
+    definition.name,
+    guard,
+  );
+  const d1Statements = [
+    ...preparedSharing.statements,
+    preparedHistory,
+    ...preparedWrite.statements,
+  ];
+  let write: TransactionScopedResourceWrite<boolean> = preparedWrite;
+  const deleteConflictError = () =>
+    httpError("Automation changed while it was being deleted.", 409);
+  await runAtomicAutomationMutation(
+    async (tx) => {
+      const result = await tx.execute(preparedWrite.statements[0]);
+      if (result.rowsAffected !== 1) throw deleteConflictError();
+      write = preparedWrite;
+      await deleteAutomationSharingStateWithDb(tx, definition.resource.id);
+      await deleteAutomationRunsWithDb(
+        tx,
+        definition.resource.owner,
+        definition.name,
+      );
+    },
+    {
+      statements: d1Statements,
+      value: undefined,
+      successStatementIndex: d1Statements.length - 1,
+      condition: guard,
+      conflictError: deleteConflictError,
+    },
+  );
+  await write.notifyAfterCommit();
   if (definition.meta.triggerType === "webhook") {
     await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }
-  await resourceDelete(definition.resource.id);
-  await deleteAutomationRuns(definition.resource.owner, name);
 }
 
 export interface AutomationExecutionIdentity {
   userEmail: string;
   orgId?: string;
+  orgScope?: "personal";
+  defaultAgentEngineScope?: "deployment";
   eventOwner: string;
 }
 
@@ -750,7 +1524,10 @@ export async function resolveAutomationExecutionIdentity(
         code: "config_invalid",
       };
     }
-    return { ok: true, identity: { userEmail, eventOwner: userEmail } };
+    return {
+      ok: true,
+      identity: { userEmail, orgScope: "personal", eventOwner: userEmail },
+    };
   }
 
   const userEmail = meta.createdBy?.trim().toLowerCase();

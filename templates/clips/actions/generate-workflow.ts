@@ -11,8 +11,12 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
-import { WorkflowKindSchema } from "../shared/workflow.js";
+import {
+  isRecentWorkflowGeneration,
+  WorkflowKindSchema,
+} from "../shared/workflow.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 const KIND_PROMPTS = {
@@ -44,16 +48,6 @@ Keep it concise, warm, and professional.`,
 
 const workflowGenerationLocks = new Set<string>();
 
-function isRecentGeneration(state: Record<string, unknown> | null): boolean {
-  if (state?.status !== "generating") return false;
-  const requestedAt = Date.parse(
-    typeof state.requestedAt === "string" ? state.requestedAt : "",
-  );
-  return (
-    !Number.isFinite(requestedAt) || Date.now() - requestedAt < 10 * 60_000
-  );
-}
-
 export default defineAction({
   description:
     "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent saves the result with complete-workflow.",
@@ -65,8 +59,10 @@ export default defineAction({
       .optional()
       .describe("Open the user-visible agent chat for this request"),
   }),
-  run: async (args) => {
-    await assertAccess("recording", args.recordingId, "viewer");
+  run: async (args, ctx) => {
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "viewer"),
+    );
 
     const stateKey = `clips-workflow-${args.recordingId}`;
     if (workflowGenerationLocks.has(stateKey)) {
@@ -98,7 +94,7 @@ export default defineAction({
       const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
       const existing = await readAppState(stateKey);
-      if (isRecentGeneration(existing)) {
+      if (isRecentWorkflowGeneration(existing)) {
         return {
           queued: false,
           duplicate: true,
@@ -112,12 +108,14 @@ export default defineAction({
       const existingRequest = await readAppState(requestKey);
       const requestedAt = new Date().toISOString();
       const requestId = randomUUID();
+      const requestedBy = ctx?.userEmail?.trim().toLowerCase();
       const workflowState = {
         kind: args.kind,
         status: "generating",
         recordingId: args.recordingId,
         requestedAt,
         requestId,
+        ...(requestedBy ? { requestedBy } : {}),
       };
 
       const baseMessage =
@@ -136,6 +134,7 @@ export default defineAction({
         recordingId: args.recordingId,
         requestedAt,
         requestId,
+        ...(requestedBy ? { requestedBy } : {}),
         recordingTitle: rec.title,
         recordingDescription: rec.description,
         transcriptStatus: transcript?.status ?? "pending",
@@ -165,7 +164,7 @@ export default defineAction({
       ]);
       if (!claimed) {
         const current = await readAppState(stateKey);
-        if (isRecentGeneration(current)) {
+        if (isRecentWorkflowGeneration(current)) {
           return {
             queued: false,
             duplicate: true,

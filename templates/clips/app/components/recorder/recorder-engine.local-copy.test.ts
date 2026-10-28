@@ -84,8 +84,8 @@ async function startedEngine(
   const engine = new RecorderEngine({
     recordingId: "__pending__",
     mode: "screen",
-    uploadUrl: "",
-    abortUrl: "",
+    uploadUrl: "/api/uploads/pending/chunk",
+    abortUrl: "/api/uploads/pending/abort",
     onLocalCopyFailed,
   });
   engine.setLocalOnlyTarget("local-1");
@@ -247,8 +247,8 @@ describe("RecorderEngine local copy", () => {
       const engine = new RecorderEngine({
         recordingId: "__pending__",
         mode: "screen",
-        uploadUrl: "",
-        abortUrl: "",
+        uploadUrl: "/api/uploads/pending/chunk",
+        abortUrl: "/api/uploads/pending/abort",
         onIncompleteCapture,
       });
       engine.setLocalOnlyTarget("local-1");

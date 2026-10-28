@@ -1,14 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AppSecretDecryptionError } from "../../secrets/errors.js";
+import { runWithRequestContext } from "../../server/request-context.js";
+
 const mocks = vi.hoisted(() => ({
   // `${scope}:${scopeId}` -> key -> value
   secrets: new Map<string, Map<string, string>>(),
+  unreadableSecrets: new Set<string>(),
+  makeDecryptionError: null as
+    | ((scope: "user" | "org" | "workspace", scopeId: string) => Error)
+    | null,
   rejected: new Map<string, number>(),
   rejectionsFail: false,
   roles: new Map<string, string>(),
   restricted: false,
   defaultValue: null as Record<string, unknown> | null,
   defaultSource: "none" as "org" | "user" | "legacy" | "none",
+  defaultReadContext: null as Record<string, unknown> | null,
   authorityAllowed: true,
   deploymentEngines: new Set<string>(),
 }));
@@ -20,6 +28,16 @@ vi.mock("../../secrets/storage.js", () => ({
     scopeId: string;
   }) => {
     const stored = mocks.secrets.get(`${args.scope}:${args.scopeId}`);
+    if (
+      args.keys.some((key) =>
+        mocks.unreadableSecrets.has(`${args.scope}:${args.scopeId}:${key}`),
+      )
+    ) {
+      throw mocks.makeDecryptionError!(
+        args.scope as "user" | "org" | "workspace",
+        args.scopeId,
+      );
+    }
     const rows = new Map<
       string,
       { value: string; last4: string; updatedAt: number }
@@ -35,6 +53,27 @@ vi.mock("../../secrets/storage.js", () => ({
       }
     }
     return rows;
+  },
+  readAppSecret: async (args: {
+    key: string;
+    scope: "user" | "org" | "workspace";
+    scopeId: string;
+  }) => {
+    if (
+      mocks.unreadableSecrets.has(`${args.scope}:${args.scopeId}:${args.key}`)
+    ) {
+      throw mocks.makeDecryptionError!(args.scope, args.scopeId);
+    }
+    const value = mocks.secrets
+      .get(`${args.scope}:${args.scopeId}`)
+      ?.get(args.key);
+    return value
+      ? {
+          value,
+          last4: `••••${value.slice(-4)}`,
+          updatedAt: 1_700_000_000_000,
+        }
+      : null;
   },
 }));
 
@@ -60,10 +99,15 @@ vi.mock("../../server/personal-provider-key-policy.js", () => ({
 }));
 
 vi.mock("../default-agent-engine.js", () => ({
-  readDefaultAgentEngineSettingDetailed: async () => ({
-    value: mocks.defaultValue,
-    source: mocks.defaultSource,
-  }),
+  readDefaultAgentEngineSettingDetailed: async (
+    context: Record<string, unknown>,
+  ) => {
+    mocks.defaultReadContext = context;
+    if (!context.orgId && context.orgScope !== "personal") {
+      throw new Error("Organization scope could not be resolved.");
+    }
+    return { value: mocks.defaultValue, source: mocks.defaultSource };
+  },
   resolveDefaultAgentEngineAuthority: async () =>
     mocks.authorityAllowed
       ? { allowed: true, scope: "org", orgId: "org-1", userEmail: "x" }
@@ -88,13 +132,29 @@ function setSecret(scope: string, scopeId: string, key: string, value: string) {
   mocks.secrets.set(`${scope}:${scopeId}`, bucket);
 }
 
-function run(userEmail: string | undefined, orgId: string | null = "org-1") {
-  return action.run({}, {
-    actionName: "list-model-providers",
-    caller: "frontend",
-    userEmail,
-    orgId,
-  } as never);
+function setUnreadable(scope: string, scopeId: string, key: string) {
+  mocks.unreadableSecrets.add(`${scope}:${scopeId}:${key}`);
+}
+
+function run(
+  userEmail: string | undefined,
+  orgId: string | null = "org-1",
+  orgScope?: "personal",
+) {
+  return runWithRequestContext(
+    {
+      ...(userEmail ? { userEmail } : {}),
+      ...(orgId ? { orgId } : {}),
+      ...(orgScope ? { orgScope } : {}),
+    },
+    () =>
+      action.run({}, {
+        actionName: "list-model-providers",
+        caller: "frontend",
+        userEmail,
+        orgId,
+      } as never),
+  );
 }
 
 function entry(
@@ -108,6 +168,9 @@ function entry(
 
 beforeEach(() => {
   mocks.secrets.clear();
+  mocks.unreadableSecrets.clear();
+  mocks.makeDecryptionError = (scope, scopeId) =>
+    new AppSecretDecryptionError({ scope, scopeId });
   mocks.rejected.clear();
   mocks.rejectionsFail = false;
   mocks.roles.clear();
@@ -116,6 +179,7 @@ beforeEach(() => {
   mocks.restricted = false;
   mocks.defaultValue = null;
   mocks.defaultSource = "none";
+  mocks.defaultReadContext = null;
   mocks.authorityAllowed = true;
   mocks.deploymentEngines.clear();
 });
@@ -142,6 +206,75 @@ describe("list-model-providers", () => {
     );
     expect(listing.providers.every((item) => !item.deploymentConfigured)).toBe(
       true,
+    );
+  });
+
+  it("keeps healthy providers visible and marks only an unreadable provider key", async () => {
+    setSecret(
+      "user",
+      "admin@example.com",
+      "ANTHROPIC_API_KEY",
+      "sk-ant-test-unreadable",
+    );
+    setUnreadable("user", "admin@example.com", "ANTHROPIC_API_KEY");
+    setSecret(
+      "user",
+      "admin@example.com",
+      "OPENAI_API_KEY",
+      "sk-test-healthy-1111",
+    );
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").personal).toEqual({
+      scope: "user",
+      updatedAt: null,
+      unreadable: true,
+      unreadableKey: true,
+    });
+    expect(entry(listing, "openai").personal).toMatchObject({
+      scope: "user",
+      masked: "••••1111",
+    });
+    expect(entry(listing, "google").personal).toBeNull();
+  });
+
+  it("marks an unreadable endpoint-only provider even when its API key is absent", async () => {
+    setSecret(
+      "user",
+      "admin@example.com",
+      "OPENAI_BASE_URL",
+      "https://gateway.example/v1",
+    );
+    setUnreadable("user", "admin@example.com", "OPENAI_BASE_URL");
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "openai").personal).toEqual({
+      scope: "user",
+      updatedAt: null,
+      unreadable: true,
+      unreadableEndpoint: true,
+    });
+    expect(
+      listing.providers.filter((provider) => provider.personal?.unreadable),
+    ).toHaveLength(1);
+    expect(entry(listing, "openrouter").personal).toBeNull();
+  });
+
+  it("passes confirmed personal scope into the saved default reader", async () => {
+    await run("solo@example.com", null, "personal");
+
+    expect(mocks.defaultReadContext).toEqual({
+      userEmail: "solo@example.com",
+      orgId: null,
+      orgScope: "personal",
+    });
+  });
+
+  it("does not infer personal scope from a missing organization", async () => {
+    await expect(run("unknown@example.com", null)).rejects.toThrow(
+      "Organization scope could not be resolved.",
     );
   });
 
@@ -296,7 +429,11 @@ describe("list-model-providers", () => {
       "https://gateway.example/v1",
     );
     for (const orgId of ["org-1", null]) {
-      const listing = await run("member@example.com", orgId);
+      const listing = await run(
+        "member@example.com",
+        orgId,
+        orgId === null ? "personal" : undefined,
+      );
       expect(entry(listing, "openai").personal).toEqual({
         scope: "user",
         masked: "••••9999",
@@ -370,7 +507,7 @@ describe("list-model-providers", () => {
       "OPENROUTER_API_KEY",
       "sk-or-test-fake-7777",
     );
-    const listing = await run("solo@example.com", null);
+    const listing = await run("solo@example.com", null, "personal");
     expect(listing).toMatchObject({
       hasOrganization: false,
       canManageOrg: false,

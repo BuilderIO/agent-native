@@ -33,10 +33,26 @@ import {
 } from "./inspector-grid";
 import {
   normalizeLengthValue,
+  PanelSection,
   propInputKeyRequiresBlurGuard,
 } from "./panel-primitives";
 
 describe("InspectorGrid", () => {
+  it("keeps clickable empty section titles on the inspector title style", () => {
+    const markup = renderToStaticMarkup(
+      createElement(PanelSection, {
+        title: "Stroke",
+        onEmptyTitleClick: vi.fn(),
+        emptyTitleActionLabel: "Add stroke",
+      }),
+    );
+
+    expect(markup).toMatch(
+      /<button[^>]*class="[^"]*design-sidebar-section-title/,
+    );
+    expect(markup).toContain('aria-label="Add stroke"');
+  });
+
   it("keeps the authored 28-column baseline and explicit spans in markup", () => {
     const markup = renderToStaticMarkup(
       createElement(

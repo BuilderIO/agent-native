@@ -1,5 +1,7 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   formatGuidedAnswersForAgent,
+  SETTLED_ANSWERS_INSTRUCTION,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
 } from "@agent-native/toolkit/app/chat/agentkit-chat";
@@ -35,7 +37,22 @@ export interface QuestionFlowGenerationBrief {
 interface UseQuestionFlowOptions {
   enabled?: boolean;
   continuationTabId?: string | null;
-  onContinue?: (tabId: string) => void;
+  onContinue?: (
+    tabId: string,
+    previousRunBaseline?: {
+      runId: string | null;
+      verified: boolean;
+      turnId?: string;
+    } | null,
+  ) => void;
+  getPreviousRunBaseline?: (tabId: string | null | undefined) =>
+    | { runId: string | null; verified: boolean; turnId?: string }
+    | null
+    | Promise<{
+        runId: string | null;
+        verified: boolean;
+        turnId?: string;
+      } | null>;
   getModelSelection?: () => QuestionFlowModelSelection | null | undefined;
   getGenerationBrief?: () => QuestionFlowGenerationBrief | null | undefined;
 }
@@ -87,9 +104,6 @@ function existingDesignContinuationContext(
     : "";
 }
 
-const SETTLED_ANSWERS_INSTRUCTION =
-  "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
-
 function continueDesignInstruction(
   designId: string | undefined,
   brief: QuestionFlowGenerationBrief | null | undefined,
@@ -109,10 +123,12 @@ export function useQuestionFlow(
     enabled = true,
     continuationTabId,
     onContinue,
+    getPreviousRunBaseline,
     getModelSelection,
     getGenerationBrief,
   }: UseQuestionFlowOptions = {},
 ) {
+  const t = useT();
   const stateKey = designQuestionsStateKey(designId);
   const existingDesignContext = existingDesignContinuationContext(designId);
   const flow = useGuidedQuestionFlow({
@@ -120,8 +136,6 @@ export function useQuestionFlow(
     engine: getModelSelection?.()?.engine,
     stateKey,
     queryKey: [stateKey],
-    submitMessage: "Here are my answers — go ahead.",
-    skipMessage: "Skip the questions — decide for me.",
     buildSubmitContext: ({ formattedAnswers }) =>
       [
         "The user answered the pre-generation questions.",
@@ -155,11 +169,14 @@ export function useQuestionFlow(
         flow.clear();
         return;
       }
+      const previousRunBaselinePromise =
+        getPreviousRunBaseline?.(continuationTabId) ?? null;
       flow.clear();
       const designSystemContext =
         brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
           ? await loadDesignSystemGenerationContext(brief.designSystemId)
           : "";
+      const previousRunBaseline = await previousRunBaselinePromise;
       const briefContext = buildGenerationBriefContext(
         brief,
         designSystemContext,
@@ -182,11 +199,12 @@ export function useQuestionFlow(
         ...(engine ? { engine } : {}),
         ...(effort ? { effort } : {}),
       });
-      onContinue?.(tabId);
+      onContinue?.(tabId, previousRunBaseline);
     },
     [
       continuationTabId,
       flow,
+      getPreviousRunBaseline,
       getGenerationBrief,
       getModelSelection,
       onContinue,
@@ -214,7 +232,10 @@ export function useQuestionFlow(
         .filter(Boolean)
         .join("\n");
 
-      void sendContinuation("Here are my answers — go ahead.", context);
+      void sendContinuation(
+        t("agentChat.guided.submitMessage"), // i18n-key-ignore shared framework catalog
+        context,
+      );
     },
     [
       designId,
@@ -222,18 +243,19 @@ export function useQuestionFlow(
       flow.questions,
       getGenerationBrief,
       sendContinuation,
+      t,
     ],
   );
 
   const handleSkip = useCallback(() => {
     if (flow.isSubmissionBlocked) return;
     void sendContinuation(
-      "Skip the questions — decide for me.",
+      t("agentChat.guided.skipMessage"), // i18n-key-ignore shared framework catalog
       designId
         ? `${existingDesignContext} The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.`
         : "The user skipped the pre-generation questions. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.",
     );
-  }, [designId, flow.isSubmissionBlocked, sendContinuation]);
+  }, [designId, flow.isSubmissionBlocked, sendContinuation, t]);
 
   return {
     ...flow,

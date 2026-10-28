@@ -85,6 +85,7 @@ describe("onboarding journey events SQL", () => {
       template?: string;
       date?: string;
       path?: string;
+      hostname?: string;
       properties?: Record<string, unknown>;
       orgId?: string;
     } = {},
@@ -94,7 +95,7 @@ describe("onboarding journey events SQL", () => {
     await client.query(
       `INSERT INTO analytics_events
         (id, event_name, user_id, anonymous_id, session_id, timestamp, received_at, event_date, app, template, hostname, path, properties, org_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10, $11)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, $9, $10, $11, $12)`,
       [
         `ev-${nextId++}`,
         eventName,
@@ -104,6 +105,7 @@ describe("onboarding journey events SQL", () => {
         stamp,
         date,
         options.template ?? "clips",
+        options.hostname ?? "clips.agent-native.com",
         options.path ?? null,
         JSON.stringify(options.properties ?? {}),
         options.orgId ?? SCOPE.orgId,
@@ -242,6 +244,7 @@ describe("onboarding journey events SQL", () => {
       { limit: 10, offset: 0 },
       window,
     );
+    expect(journeySql).toContain("'onboarding_experiment_exposed'");
     const followupSql = buildOnboardingJourneyFollowupSql(
       filters(),
       [
@@ -271,6 +274,34 @@ describe("onboarding journey events SQL", () => {
       expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
       expect(sql).toContain(window.observationCutoff);
     }
+  });
+
+  it("applies host exclusion to both follow-up activity reads", async () => {
+    await setup();
+    const selectedFilters = filters({ excludeNonProductionHosts: true });
+    const window = observation();
+    const terminal = {
+      sessionId: "session-1",
+      stepKey: "step:role",
+      tsMs: Date.parse(`${today}T12:00:00.000Z`),
+    };
+    const sessionSql = buildOnboardingJourneyFollowupSql(
+      selectedFilters,
+      [terminal],
+      window,
+    );
+    const personSql = buildOnboardingJourneyPersonFollowupSql(
+      selectedFilters,
+      [{ ...terminal, app: "clips", authUserId: "person-1" }],
+      window,
+    );
+
+    expect(sessionSql).toContain(
+      "AND NOT (lower(coalesce(NULLIF(e.hostname, ''), ''))",
+    );
+    expect(personSql).toContain(
+      "AND NOT (lower(coalesce(NULLIF(e.hostname, ''), ''))",
+    );
   });
 
   it("reuses one scoped source pass and preserves output uniqueness in BigQuery", async () => {
@@ -1409,6 +1440,9 @@ describe("onboarding journey events SQL", () => {
       "attempt_id",
       "auth_user_id",
       "event_name",
+      "experiment_id",
+      "experiment_variant",
+      "first_touch_path",
       "flow",
       "id",
       "journey_kind",
@@ -1556,5 +1590,46 @@ describe("onboarding journey events SQL", () => {
     expect(() =>
       buildOnboardingJourneyEventsSql(filters(), { limit: 0, offset: 0 }),
     ).toThrow(/limit/);
+  });
+
+  it("can exclude beta and localhost hosts from the event read", async () => {
+    await setup();
+    await insert("production", "signup", 1);
+    await insert("beta", "signup", 2, {
+      hostname: "beta.clips.agent-native.com",
+    });
+    await insert("localhost", "signup", 3, { hostname: "localhost" });
+
+    const rows = await run({ excludeNonProductionHosts: true });
+
+    expect(rows.map((row) => row.session_id)).toEqual(["production"]);
+  });
+
+  it("keeps internal and test identities out of sessionless OAuth signups", async () => {
+    await setup();
+    await insert(null, "signup", 1, {
+      email: "dev@builder.io",
+      template: "design",
+      properties: { first_touch_path: "/mcp/oauth/callback" },
+    });
+    await insert(null, "signup", 2, {
+      email: "qa+autoz1@example.com",
+      template: "design",
+      properties: { first_touch_path: "/mcp/oauth/callback" },
+    });
+    await insert(null, "signup", 3, {
+      email: "person@example.com",
+      template: "design",
+      properties: { first_touch_path: "/mcp/oauth/callback" },
+    });
+
+    const rows = await run({ app: "design" });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      event_name: "signup",
+      journey_kind: "onboarding",
+      first_touch_path: "/mcp/oauth/callback",
+    });
   });
 });

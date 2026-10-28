@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const testString = (value: unknown) =>
@@ -234,6 +236,7 @@ const mocks = vi.hoisted(() => {
     zoomAuditEvents: [] as Row[],
   };
   const orgRoles = new Map<string, string>();
+  const queryStats = { latestRunLateralJoins: 0 };
 
   const insertControls = {
     error: null as Error | null,
@@ -391,7 +394,8 @@ const mocks = vi.hoisted(() => {
     return row[condition.col.name] === condition.val;
   };
 
-  const select = vi.fn((selection?: Row) => {
+  const select = vi.fn((selection?: Row, distinctOnColumn?: Column) => {
+    let hasLatestRunLateralJoin = false;
     const isCountSelection = Object.values(selection ?? {}).some(
       (value) =>
         typeof value === "object" &&
@@ -400,8 +404,64 @@ const mocks = vi.hoisted(() => {
           String((value as { op?: unknown }).op),
         ),
     );
-    const selectedRows = (values: Row[]) =>
-      isCountSelection ? [{ value: values.length }] : values;
+    const selectedRows = (values: Row[]) => {
+      if (hasLatestRunLateralJoin) {
+        return values.map((source) => {
+          const latest = [...rows.syncRuns]
+            .filter((run) => run.sourceId === source.id)
+            .sort((a, b) =>
+              String(b.startedAt).localeCompare(String(a.startedAt)),
+            )[0];
+          return {
+            sourceId: source.id,
+            id: latest?.id ?? null,
+            status: latest?.status ?? null,
+            statsJson: latest?.statsJson ?? null,
+            error: latest?.error ?? null,
+            startedAt: latest?.startedAt ?? null,
+            completedAt: latest?.completedAt ?? null,
+          };
+        });
+      }
+      if (distinctOnColumn) {
+        const seen = new Set<unknown>();
+        values = [...values]
+          .sort((a, b) =>
+            String(b.startedAt).localeCompare(String(a.startedAt)),
+          )
+          .filter((row) => {
+            const value = row[distinctOnColumn.name];
+            if (seen.has(value)) return false;
+            seen.add(value);
+            return true;
+          });
+      }
+      const sourceIdColumn = selection?.sourceId as Column | undefined;
+      if (isCountSelection && sourceIdColumn?.table === "brainRawCaptures") {
+        const counts = new Map<string, Set<string>>();
+        for (const row of values) {
+          const sourceId = String(row.sourceId);
+          const captureIds = counts.get(sourceId) ?? new Set<string>();
+          captureIds.add(String(row.id));
+          counts.set(sourceId, captureIds);
+        }
+        return Array.from(counts, ([sourceId, captureIds]) => ({
+          sourceId,
+          value: captureIds.size,
+        }));
+      }
+      return isCountSelection ? [{ value: values.length }] : values;
+    };
+    const queryResult = (values: Row[]) => ({
+      then: (
+        onFulfilled: (rows: Row[]) => unknown,
+        onRejected?: (reason: unknown) => unknown,
+      ) => Promise.resolve(selectedRows(values)).then(onFulfilled, onRejected),
+      as: (alias: string) =>
+        Object.fromEntries(
+          Object.keys(selection ?? {}).map((name) => [name, col(alias, name)]),
+        ),
+    });
 
     return {
       from: vi.fn((tableRef: Row) => {
@@ -419,13 +479,19 @@ const mocks = vi.hoisted(() => {
               ),
             ),
             orderBy: vi.fn(() => ({
-              limit: vi.fn(async (limit: number) =>
-                selectedRows(
+              limit: vi.fn((limit: number) =>
+                queryResult(
                   tableRows(tableRef)
                     .filter((row) => matches(row, condition))
                     .slice(0, limit),
                 ),
               ),
+              then: (
+                onFulfilled: (rows: Row[]) => unknown,
+                onRejected?: (reason: unknown) => unknown,
+              ) => filteredRows().then(onFulfilled, onRejected),
+            })),
+            groupBy: vi.fn(() => ({
               then: (
                 onFulfilled: (rows: Row[]) => unknown,
                 onRejected?: (reason: unknown) => unknown,
@@ -453,11 +519,17 @@ const mocks = vi.hoisted(() => {
           selectedRows(tableRows(tableRef).slice(0, limit)),
         );
         const innerJoin = vi.fn();
+        const leftJoinLateral = vi.fn(() => {
+          hasLatestRunLateralJoin = true;
+          queryStats.latestRunLateralJoins += 1;
+          return joined;
+        });
         const joined = {
           where,
           orderBy,
           limit,
           innerJoin,
+          leftJoinLateral,
         };
         innerJoin.mockReturnValue(joined);
         return joined;
@@ -539,6 +611,8 @@ const mocks = vi.hoisted(() => {
   const dbBase = {
     select,
     selectDistinct: select,
+    selectDistinctOn: (columns: Column[], fields: Row) =>
+      select(fields, columns[0]),
     insert,
     update,
     delete: deleteRows,
@@ -553,6 +627,7 @@ const mocks = vi.hoisted(() => {
     schema,
     db,
     rows,
+    queryStats,
     insertControls,
     queueClaimRowsAffected,
     audienceHook,
@@ -624,6 +699,7 @@ vi.mock("@agent-native/core/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: Condition[]) => ({ op: "and", conditions }),
+  groupBy: (col: Column) => ({ op: "groupBy", col }),
   asc: (column: Column) => ({ op: "asc", column }),
   count: () => ({ op: "count" }),
   countDistinct: () => ({ op: "countDistinct" }),
@@ -659,6 +735,10 @@ vi.mock("@agent-native/core/server", () => ({
     userEmail: mocks.userEmail,
     orgId: mocks.orgId,
   }),
+  readOrgMemberRole: vi.fn(
+    async (orgId: string, email: string) =>
+      mocks.orgRoles.get(`${orgId}:${email.toLowerCase()}`) ?? null,
+  ),
   resolveSecret: vi.fn(async () => null),
   readBody: vi.fn(async (event: { body?: unknown }) => event.body),
 }));
@@ -738,6 +818,15 @@ vi.mock("./audiences.js", () => ({
     kind: "org",
   })),
   listAccessibleAudienceIds: vi.fn(async () => ["aud_org"]),
+  listAccessibleAudienceIdsBySource: vi.fn(
+    async (sourceIds: string[]) =>
+      new Map(
+        sourceIds.map((sourceId) => [
+          sourceId,
+          [sourceId === "source-2" ? "aud_second" : "aud_org"],
+        ]),
+      ),
+  ),
 }));
 
 vi.mock("./ingest-queue.js", () => ({
@@ -820,7 +909,10 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import { ensureCaptureAudience } from "./audiences.js";
+import {
+  ensureCaptureAudience,
+  listAccessibleAudienceIdsBySource,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -861,6 +953,7 @@ function resetMocks() {
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.orgRoles.clear();
+  mocks.queryStats.latestRunLateralJoins = 0;
   mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
     id: "aud_org",
@@ -1118,6 +1211,69 @@ describe("Brain knowledge quality gates", () => {
     expect(result.sources).toEqual([
       expect.objectContaining({ id: "source-1", recordCount: 1 }),
     ]);
+  });
+
+  it("batches record counts and latest runs across listed sources", async () => {
+    seedSource();
+    seedSource({ id: "source-2", title: "Second source" });
+    seedCapture({ id: "capture-1", sourceId: "source-1" });
+    seedCapture({ id: "capture-2", sourceId: "source-2" });
+    mocks.rows.captureAudiences.find(
+      (row) => row.captureId === "capture-2",
+    )!.audienceId = "aud_second";
+    seedCapture({ id: "capture-3", sourceId: "source-2" });
+    mocks.rows.syncRuns.push(
+      {
+        id: "run-1-old",
+        sourceId: "source-1",
+        status: "error",
+        statsJson: "{}",
+        error: "older run",
+        startedAt: "2026-05-15T09:00:00.000Z",
+        completedAt: "2026-05-15T09:01:00.000Z",
+      },
+      {
+        id: "run-1",
+        sourceId: "source-1",
+        status: "success",
+        statsJson: '{"capturesCreated":1}',
+        error: null,
+        startedAt: "2026-05-15T10:00:00.000Z",
+        completedAt: "2026-05-15T10:01:00.000Z",
+      },
+      {
+        id: "run-2",
+        sourceId: "source-2",
+        status: "success",
+        statsJson: '{"capturesCreated":2}',
+        error: null,
+        startedAt: "2026-05-15T11:00:00.000Z",
+        completedAt: "2026-05-15T11:01:00.000Z",
+      },
+    );
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledTimes(1);
+    expect(listAccessibleAudienceIdsBySource).toHaveBeenCalledWith([
+      "source-1",
+      "source-2",
+    ]);
+    expect(mocks.queryStats.latestRunLateralJoins).toBe(1);
+    expect(result.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "source-1",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-1" }),
+        }),
+        expect.objectContaining({
+          id: "source-2",
+          recordCount: 1,
+          latestRun: expect.objectContaining({ id: "run-2" }),
+        }),
+      ]),
+    );
   });
 
   it("includes canonical health for sources in the source listing", async () => {
@@ -4249,6 +4405,437 @@ describe("Brain connector smoke coverage", () => {
     const retryAt = Date.parse(cursor.transientRetryAt);
     expect(retryAt - before).toBeGreaterThan(9 * 60 * 1000);
     expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
+  });
+
+  it("logs a Zoom run-creation timeout before a run record exists", async () => {
+    const timeout = Object.assign(
+      new Error("DB query timed out after 15000ms (connection terminated)"),
+      { name: "DbTimeoutError" },
+    );
+    mocks.db.update.mockImplementationOnce(() => {
+      throw timeout;
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const source = seedSource({
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    try {
+      await expect(runConnectorSync(source as never)).rejects.toBe(timeout);
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        "[brain] Zoom sync step failed",
+        {
+          sourceId: source.id,
+          runId: null,
+          stage: "sync run creation",
+          elapsedMs: expect.any(Number),
+        },
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mocks.rows.syncRuns).toHaveLength(0);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
+    { stage: "run lease renewal", databaseTimeout: true },
+    { stage: "imported capture lookup", databaseTimeout: true },
+    { stage: "source state update", databaseTimeout: true },
+    { stage: "run lease renewal", databaseTimeout: false },
+  ])(
+    "identifies Zoom $stage failure (database timeout: $databaseTimeout)",
+    async ({ stage, databaseTimeout }) => {
+      const timeout = databaseTimeout
+        ? Object.assign(
+            new Error(
+              "DB query timed out after 15000ms (connection terminated)",
+            ),
+            { name: "DbTimeoutError", code: "CONNECT_TIMEOUT" },
+          )
+        : new Error("Brain source sync lease was lost");
+      const update = mocks.db.update.getMockImplementation();
+      const select = mocks.db.select.getMockImplementation();
+      assert(update);
+      assert(select);
+      const log = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        if (new URL(requestString(input)).pathname === "/oauth/token") {
+          return Response.json({ access_token: "private-token" });
+        }
+        if (stage === "run lease renewal") {
+          mocks.db.update.mockImplementationOnce(() => {
+            throw timeout;
+          });
+        } else if (stage === "imported capture lookup") {
+          mocks.db.select.mockImplementationOnce(() => {
+            throw timeout;
+          });
+        } else {
+          mocks.db.update.mockImplementation((table) => {
+            if (table === mocks.schema.brainSources) {
+              mocks.db.update.mockImplementation(update);
+              throw timeout;
+            }
+            return update(table);
+          });
+        }
+        return Response.json({
+          meetings: [
+            {
+              id: APPROVED_ZOOM_ID,
+              uuid: "approved-occurrence",
+              start_time: "2026-10-19T10:00:00Z",
+              recording_files: [],
+            },
+          ],
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const source = seedSource({
+        id: "zoom-db-timeout-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+        cursorJson: JSON.stringify({
+          from: "2026-10-19",
+          consecutiveTimeouts: 2,
+        }),
+      });
+
+      try {
+        const result = await runConnectorSync(source as never);
+
+        expect(result).toMatchObject({
+          status: "error",
+          capturesCreated: 0,
+          message: databaseTimeout
+            ? `Zoom sync ${stage} failed: ${timeout.message}`
+            : timeout.message,
+          stats: {
+            failureStage: stage,
+            failureStageElapsedMs: expect.any(Number),
+          },
+        });
+        expect(source.lastError).toBe(result.message);
+        const run = mocks.rows.syncRuns[0];
+        assert(run);
+        expect(run.error).toBe(result.message);
+        expect(JSON.parse(run.statsJson as string)).toMatchObject({
+          failureStage: stage,
+          failureStageElapsedMs: expect.any(Number),
+        });
+        const cursor = JSON.parse(source.cursorJson as string);
+        expect(cursor.from).toBe("2026-10-19");
+        expect(cursor.consecutiveTimeouts).toBeUndefined();
+        expect(cursor.transientRetryAt).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(log).toHaveBeenCalledExactlyOnceWith(
+          "[brain] Zoom sync step failed",
+          {
+            sourceId: source.id,
+            runId: result.runId,
+            stage,
+            elapsedMs: expect.any(Number),
+          },
+        );
+        expect(JSON.stringify(log.mock.calls)).not.toContain("private-token");
+      } finally {
+        mocks.db.update.mockImplementation(update);
+        mocks.db.select.mockImplementation(select);
+        log.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    "error run lease renewal",
+    "source error state update",
+    "error sync run completion",
+  ])(
+    "logs a timeout during Zoom %s even when it cannot persist diagnostics",
+    async (stage) => {
+      const timeout = Object.assign(
+        new Error("DB query timed out after 15000ms (connection terminated)"),
+        { name: "DbTimeoutError" },
+      );
+      const update = mocks.db.update.getMockImplementation();
+      assert(update);
+      const log = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          let runWrites = 0;
+          mocks.db.update.mockImplementation((table) => {
+            if (table === mocks.schema.brainSyncRuns) runWrites += 1;
+            if (
+              stage === "error run lease renewal" ||
+              (stage === "source error state update" &&
+                table === mocks.schema.brainSources) ||
+              (stage === "error sync run completion" &&
+                table === mocks.schema.brainSyncRuns &&
+                runWrites === 2)
+            ) {
+              mocks.db.update.mockImplementation(update);
+              throw timeout;
+            }
+            return update(table);
+          });
+          throw new Error("Zoom authentication failed");
+        }),
+      );
+      const source = seedSource({
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+      });
+
+      try {
+        await expect(runConnectorSync(source as never)).rejects.toBe(timeout);
+        expect(log).toHaveBeenCalledExactlyOnceWith(
+          "[brain] Zoom sync step failed",
+          {
+            sourceId: source.id,
+            runId: expect.any(String),
+            stage,
+            elapsedMs: expect.any(Number),
+          },
+        );
+      } finally {
+        mocks.db.update.mockImplementation(update);
+        log.mockRestore();
+      }
+    },
+  );
+
+  it("identifies a failed Zoom refusal audit without calling Zoom", async () => {
+    const timeout = Object.assign(
+      new Error("DB query timed out after 15000ms (connection terminated)"),
+      { name: "DbTimeoutError" },
+    );
+    const insert = mocks.db.insert.getMockImplementation();
+    assert(insert);
+    mocks.db.insert.mockImplementation((table) => {
+      if (table === mocks.schema.brainZoomAuditEvents) {
+        mocks.db.insert.mockImplementation(insert);
+        throw timeout;
+      }
+      return insert(table);
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const source = seedSource({
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: { meetingIds: [] } }),
+    });
+
+    try {
+      const result = await runConnectorSync(source as never);
+      expect(result).toMatchObject({
+        status: "error",
+        stats: { failureStage: "sync refusal audit" },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledExactlyOnceWith(
+        "[brain] Zoom sync step failed",
+        {
+          sourceId: source.id,
+          runId: result.runId,
+          stage: "sync refusal audit",
+          elapsedMs: expect.any(Number),
+        },
+      );
+    } finally {
+      mocks.db.insert.mockImplementation(insert);
+      log.mockRestore();
+    }
+  });
+
+  it.each(["token request", "recording list"])(
+    "persists the Zoom %s timeout in source health and run history",
+    async (step) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const url = new URL(requestString(input));
+          if (step === "recording list" && url.pathname === "/oauth/token") {
+            return Response.json({ access_token: "private-token" });
+          }
+          throw new DOMException("private request details", "TimeoutError");
+        }),
+      );
+      const source = seedSource({
+        id: "zoom-timeout-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+        cursorJson: JSON.stringify({ from: "2026-10-19" }),
+      });
+      const before = Date.now();
+
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({ status: "error", capturesCreated: 0 });
+      expect(result.message).toMatch(
+        new RegExp(
+          `^Zoom ${step} timed out after \\d+ ms \\(limit 30000 ms\\)\\.$`,
+        ),
+      );
+      expect(
+        mocks.rows.sources.find((row) => row.id === source.id)?.lastError,
+      ).toBe(result.message);
+      expect(mocks.rows.syncRuns[0]).toMatchObject({
+        status: "error",
+        error: result.message,
+      });
+      const updated = mocks.rows.sources.find((row) => row.id === source.id);
+      assert(updated);
+      const cursor = JSON.parse(updated.cursorJson as string);
+      expect(cursor.from).toBe("2026-10-19");
+      const retryDelay = Date.parse(cursor.transientRetryAt) - before;
+      expect(retryDelay).toBeGreaterThanOrEqual(5 * 60 * 1000);
+      expect(retryDelay).toBeLessThan(6 * 60 * 1000);
+    },
+  );
+
+  it.each([
+    { previous: 0, delayMinutes: 5, expectedCount: 1 },
+    { previous: 1, delayMinutes: 10, expectedCount: 2 },
+    { previous: 2, delayMinutes: 20, expectedCount: 3 },
+    { previous: 3, delayMinutes: 40, expectedCount: 4 },
+    { previous: 4, delayMinutes: undefined, expectedCount: 5 },
+    { previous: 5, delayMinutes: undefined, expectedCount: 5 },
+  ])(
+    "backs off Zoom timeouts after $previous consecutive failures",
+    async ({ previous, delayMinutes, expectedCount }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockRejectedValue(
+            new DOMException("request timed out", "TimeoutError"),
+          ),
+      );
+      const source = seedSource({
+        id: "zoom-backoff-source",
+        provider: "zoom",
+        configJson: JSON.stringify({ zoom: approvedZoom }),
+        cursorJson: JSON.stringify({
+          from: "2026-10-19",
+          consecutiveTimeouts: previous,
+          transientRetryAt: "2026-10-19T00:00:00.000Z",
+        }),
+      });
+      const before = Date.now();
+
+      const result = await runConnectorSync(source as never);
+
+      expect(result.status).toBe("error");
+      const updated = mocks.rows.sources.find((row) => row.id === source.id);
+      assert(updated);
+      const cursor = JSON.parse(updated.cursorJson as string);
+      expect(cursor).toMatchObject({
+        from: "2026-10-19",
+        consecutiveTimeouts: expectedCount,
+      });
+      if (delayMinutes === undefined) {
+        expect(cursor.transientRetryAt).toBeUndefined();
+      } else {
+        const retryDelay = Date.parse(cursor.transientRetryAt) - before;
+        expect(retryDelay).toBeGreaterThanOrEqual(delayMinutes * 60 * 1000);
+        expect(retryDelay).toBeLessThan((delayMinutes + 1) * 60 * 1000);
+      }
+    },
+  );
+
+  it("resets the Zoom timeout sequence after a non-timeout failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 401 })),
+    );
+    const source = seedSource({
+      id: "zoom-auth-failure-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+      cursorJson: JSON.stringify({ consecutiveTimeouts: 3 }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    const updated = mocks.rows.sources.find((row) => row.id === source.id);
+    assert(updated);
+    const cursor = JSON.parse(updated.cursorJson as string);
+    expect(cursor.consecutiveTimeouts).toBeUndefined();
+    expect(cursor.transientRetryAt).toBeUndefined();
+  });
+
+  it("recovers a Zoom recording-list timeout without failing the sync", async () => {
+    let listAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "private-token" });
+        }
+        listAttempts += 1;
+        if (listAttempts === 1) {
+          throw new DOMException("request timed out", "TimeoutError");
+        }
+        return Response.json({ meetings: [] });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-recovered-source",
+      provider: "zoom",
+      status: "error",
+      lastError: "Previous Zoom timeout",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+      cursorJson: JSON.stringify({
+        consecutiveTimeouts: 4,
+        transientRetryAt: "2026-10-19T00:00:00.000Z",
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(listAttempts).toBe(2);
+    expect(result).toMatchObject({
+      status: "success",
+      stats: { recordingListsScanned: 1 },
+    });
+    const updated = mocks.rows.sources.find((row) => row.id === source.id);
+    assert(updated);
+    expect(updated).toMatchObject({ status: "active", lastError: null });
+    const recoveredCursor = JSON.parse(updated.cursorJson as string);
+    expect(recoveredCursor.transientRetryAt).toBeUndefined();
+    expect(recoveredCursor.consecutiveTimeouts).toBeUndefined();
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValue(
+          new DOMException("request timed out", "TimeoutError"),
+        ),
+    );
+    const before = Date.now();
+    const failed = await runConnectorSync(updated as never);
+
+    expect(failed.status).toBe("error");
+    const failedSource = mocks.rows.sources.find((row) => row.id === source.id);
+    assert(failedSource);
+    const failedCursor = JSON.parse(failedSource.cursorJson as string);
+    expect(failedCursor.consecutiveTimeouts).toBe(1);
+    const retryDelay = Date.parse(failedCursor.transientRetryAt) - before;
+    expect(retryDelay).toBeGreaterThanOrEqual(5 * 60 * 1000);
+    expect(retryDelay).toBeLessThan(6 * 60 * 1000);
   });
 
   it("imports Zoom transcripts from the account-wide recording list", async () => {

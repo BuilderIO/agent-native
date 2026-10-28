@@ -181,7 +181,6 @@ export interface MultiScreenCanvasProps {
   selectedPenPathNodeId?: string | null;
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];
   lockedScreenIds?: ReadonlySet<string> | readonly string[];
-  fullViewScreenIds?: string[];
   pendingReviewScreenIds?: ReadonlySet<string> | readonly string[];
   onReviewPendingScreen?: (screenId: string) => void;
   interactMode?: boolean;
@@ -226,6 +225,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   onSelectForGesture?: (id: string) => void;
   onEdit?: (id: string) => void;
+  onRenameScreen?: (id: string, name: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
   getScreenMetadata?: (screen: ScreenFile) => ScreenMetadata | undefined;
@@ -262,6 +262,14 @@ export interface MultiScreenCanvasProps {
   onPrimitiveCreated?: (
     screenId: string,
     nodeId: string,
+    options?: {
+      nextTool?: "move" | "pen";
+      preserveActiveTool?: boolean;
+    },
+  ) => void;
+  onPrimitivesCreated?: (
+    created: ReadonlyArray<{ screenId: string; nodeId: string }>,
+    selected?: { screenId: string; nodeId: string },
     options?: {
       nextTool?: "move" | "pen";
       preserveActiveTool?: boolean;
@@ -359,10 +367,9 @@ export interface MultiScreenCanvasProps {
       row: number;
       rowEnd: number;
     };
-    targetAnchorRect?: CrossScreenHitTestAnchorRect;
+    targetAbsoluteOrigin?: CrossScreenHitTestOrigin;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
-    targetOutsideBoardContentBounds?: boolean;
     sourcePointerOffset?: Point;
     sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
@@ -511,6 +518,8 @@ export interface MultiScreenCanvasProps {
     fitBounds: FrameBounds;
     canvasZoom?: number;
     paddingScreenPx?: number;
+    /** Pan at the current zoom, and only when no part of `fitBounds` is in view. */
+    revealOnly?: boolean;
     nonce: number;
   } | null;
   suppressLineupRecenter?: {
@@ -633,6 +642,7 @@ export type MultiScreenCanvasCreationProps = Pick<
   | "onActiveToolChange"
   | "onCreatePrimitive"
   | "onPrimitiveCreated"
+  | "onPrimitivesCreated"
   | "onUpdatePenPath"
   | "onPrimitiveReparent"
   | "onCreateScreenFrame"
@@ -866,6 +876,7 @@ export interface ResizeDragState {
   type: "resize";
   originClient: Point;
   originFrames: FrameGeometryById;
+  savedFrames: FrameGeometryById;
   originBounds: FrameGeometry;
   targetIds: string[];
   handle: ResizeHandle;
@@ -1025,6 +1036,11 @@ export interface CrossScreenHitTestAnchorRect {
   height: number;
 }
 
+export interface CrossScreenHitTestOrigin {
+  left: number;
+  top: number;
+}
+
 export interface CrossScreenHitTestResult {
   targetAnchorProvenance?: SourceNodeProvenance;
   anchorNodeId?: string;
@@ -1037,6 +1053,7 @@ export interface CrossScreenHitTestResult {
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
   guideRect?: CrossScreenHitTestAnchorRect;
+  absoluteOrigin?: CrossScreenHitTestOrigin;
   gridPlacement?: {
     column: number;
     columnEnd: number;

@@ -1,4 +1,5 @@
 import { canonicalA2AAudience } from "../a2a/audience.js";
+import { parseAgentProfileMetadataFields } from "../shared/agent-profile.js";
 
 /**
  * Org-directory discovery for the generic cross-app MCP verbs
@@ -23,20 +24,22 @@ import { canonicalA2AAudience } from "../a2a/audience.js";
  *
  * ## Resolution + safety model
  *
- *   - The directory origin is read from env: `AGENT_NATIVE_ORG_DIRECTORY_URL`
- *     (dedicated) or `AGENT_NATIVE_IDENTITY_HUB_URL` (Dispatch is also the
- *     identity hub). When *neither* is set the feature is simply inactive —
- *     `fetchOrgApps()` returns `[]` and nothing changes anywhere (asserted by
- *     a test). This makes the whole feature opt-in and back-compat.
+ *   - A selected org's bound workspace URL wins for org-scoped requests; the
+ *     deployment's `AGENT_NATIVE_ORG_DIRECTORY_URL` or
+ *     `AGENT_NATIVE_IDENTITY_HUB_URL` is the fallback when no binding exists.
+ *     When neither is set the feature is inactive — `fetchOrgApps()` returns
+ *     `[]` and nothing changes anywhere (asserted by a test).
  *   - `fetchOrgAppsResult()` preserves directory availability for callers
  *     that cannot mistake a failed lookup for an empty directory.
  *     `fetchOrgApps()` remains the best-effort compatibility wrapper: on ANY
  *     error it returns `[]` and NEVER throws, so cross-app verbs still degrade
  *     silently to their exact current local-only behavior.
- *   - A short in-memory TTL cache (default 60s) keyed by directory origin and
+ *   - Mounted `/dispatch` requests retry at the host root only after a 404.
+ *     Credentialed requests require HTTPS and use manual redirects. A short
+ *     in-memory TTL cache (default 60s) is keyed by directory origin and
  *     caller identity/org scope so sibling app lists never cross tenants.
- *     Only successful authenticated responses are cached; unavailable results
- *     remain immediately retryable.
+ *     Successful responses are cached for 60s; transient unavailable results
+ *     are cached for 30s to avoid repeating failing directory requests.
  *   - No secrets are ever logged.
  *
  * Bundled alongside `mountMCP` (no Node-only top-level imports). The A2A
@@ -49,21 +52,31 @@ export interface OrgApp {
   url: string;
   a2aUrl: string;
   capabilities?: string[];
+  description?: string;
+  whenToUse?: string[];
+  aliases?: string[];
 }
 
 const SUCCESS_TTL_MS = 60_000;
+const UNAVAILABLE_TTL_MS = 30_000;
+type CacheResult = OrgDirectoryFetchResult;
 interface CacheEntry {
-  apps: OrgApp[];
+  result: CacheResult;
   expiresAt: number;
 }
 
 export type OrgDirectoryUnavailableReason =
   | "not-configured"
   | "authentication"
+  | "unauthorized"
   | "authorization"
+  | "invalid-origin"
+  | "missing-route"
   | "timeout"
   | "network"
   | "invalid-response"
+  | "ssrf-blocked"
+  | "workspace-url-unavailable"
   | "server-error"
   | "http-error";
 
@@ -76,18 +89,29 @@ const cache = new Map<string, CacheEntry>();
 export function resolveOrgDirectoryOrigin(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
-  const raw =
-    env.AGENT_NATIVE_ORG_DIRECTORY_URL || env.AGENT_NATIVE_IDENTITY_HUB_URL;
-  if (!raw || typeof raw !== "string") return null;
+  const raw = configuredOrgDirectoryUrl(env);
+  if (!raw) return null;
   const trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) return null;
   try {
     const u = new URL(trimmed);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (u.protocol !== "https:") return null;
     return trimmed;
   } catch {
+    // coercion-ok: The caller converts malformed configured URLs to invalid-origin.
     return null;
   }
+}
+
+function configuredOrgDirectoryUrl(env: NodeJS.ProcessEnv): string | null {
+  for (const key of [
+    "AGENT_NATIVE_ORG_DIRECTORY_URL",
+    "AGENT_NATIVE_IDENTITY_HUB_URL",
+  ]) {
+    const value = env[key]?.trim();
+    if (value) return value;
+  }
+  return null;
 }
 
 function isAbsoluteHttpUrl(value: string): boolean {
@@ -103,9 +127,19 @@ function isAbsoluteHttpUrl(value: string): boolean {
 function normalizeApp(raw: unknown, strict = false): OrgApp | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
+  const profile = parseAgentProfileMetadataFields({
+    ...(r.description !== undefined ? { description: r.description } : {}),
+    ...(r.whenToUse !== undefined ? { whenToUse: r.whenToUse } : {}),
+    ...(r.aliases !== undefined ? { aliases: r.aliases } : {}),
+  });
   const id = typeof r.id === "string" ? r.id.trim().toLowerCase() : "";
   const url = typeof r.url === "string" ? r.url.trim() : "";
   if (!id || !url || !isAbsoluteHttpUrl(url)) return null;
+  if (strict && profile.invalidFields.length > 0) {
+    console.warn("[org-directory] dropped invalid peer profile fields", {
+      fields: profile.invalidFields,
+    });
+  }
   if (
     strict &&
     ((r.name !== undefined && typeof r.name !== "string") ||
@@ -131,20 +165,29 @@ function normalizeApp(raw: unknown, strict = false): OrgApp | null {
       : Array.isArray(r.capabilities)
         ? r.capabilities.filter((c): c is string => typeof c === "string")
         : undefined;
+  const { description, whenToUse, aliases } = profile.metadata;
   return {
     id,
     name,
     url: url.replace(/\/+$/, ""),
     a2aUrl: a2aUrl.replace(/\/+$/, ""),
     ...(capabilities && capabilities.length ? { capabilities } : {}),
+    ...(description ? { description } : {}),
+    ...(whenToUse?.length ? { whenToUse } : {}),
+    ...(aliases?.length ? { aliases } : {}),
   };
 }
 
-function sameOrigin(a: string, b: string): boolean {
+function sameAppBaseUrl(a: string, b: string): boolean {
   try {
     const ua = new URL(a);
     const ub = new URL(b);
-    return ua.host === ub.host && ua.protocol === ub.protocol;
+    const normalizePath = (pathname: string) =>
+      pathname.replace(/\/+$/, "") || "/";
+    return (
+      ua.origin === ub.origin &&
+      normalizePath(ua.pathname) === normalizePath(ub.pathname)
+    );
   } catch {
     return a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
   }
@@ -195,6 +238,7 @@ function serviceScopedCacheKey(
 export interface FetchOrgAppsOptions {
   selfId?: string;
   selfOrigin?: string;
+  directoryBaseUrl?: string;
   includeDirectoryApp?: boolean;
   serviceOrgId?: string;
   env?: NodeJS.ProcessEnv;
@@ -205,8 +249,122 @@ async function fetchOrgAppsResultInternal(
   strictValidation = true,
 ): Promise<OrgDirectoryFetchResult> {
   const env = opts?.env ?? process.env;
-  const origin = resolveOrgDirectoryOrigin(env);
-  if (!origin) return { status: "unavailable", reason: "not-configured" };
+  const directoryBase = await resolveDirectoryBaseUrl(opts, env);
+  if (!directoryBase.ok) return directoryBase.result;
+  const result = await fetchOrgAppsAtBaseUrl(
+    { ...opts, directoryBaseUrl: directoryBase.url },
+    strictValidation,
+  );
+  if (result.status !== "unavailable" || result.reason !== "missing-route") {
+    return result;
+  }
+
+  const rootUrl = new URL(directoryBase.url).origin;
+  if (rootUrl === directoryBase.url.replace(/\/+$/, "")) return result;
+  return fetchOrgAppsAtBaseUrl(
+    { ...opts, directoryBaseUrl: rootUrl },
+    strictValidation,
+  );
+}
+
+async function resolveDirectoryBaseUrl(
+  opts: FetchOrgAppsOptions | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<
+  | { ok: true; url: string }
+  | {
+      ok: false;
+      result: Extract<OrgDirectoryFetchResult, { status: "unavailable" }>;
+    }
+> {
+  if (opts?.directoryBaseUrl !== undefined) {
+    const url = normalizeDirectoryBaseUrl(opts.directoryBaseUrl);
+    return url
+      ? { ok: true, url }
+      : {
+          ok: false,
+          result: { status: "unavailable", reason: "invalid-origin" },
+        };
+  }
+
+  const serviceOrgId = opts?.serviceOrgId?.trim();
+  let orgId = serviceOrgId || undefined;
+  try {
+    if (!orgId) {
+      const { getRequestOrgId } = await import("../server/request-context.js");
+      orgId = getRequestOrgId();
+    }
+    if (orgId) {
+      const { getOrgWorkspaceUrl } = await import("../org/context.js");
+      const workspaceUrl = await getOrgWorkspaceUrl(orgId);
+      if (workspaceUrl) {
+        const url = normalizeOrgWorkspaceDirectoryBaseUrl(workspaceUrl);
+        return url
+          ? { ok: true, url }
+          : {
+              ok: false,
+              result: { status: "unavailable", reason: "invalid-origin" },
+            };
+      }
+    }
+  } catch {
+    return {
+      ok: false,
+      result: { status: "unavailable", reason: "workspace-url-unavailable" },
+    };
+  }
+
+  const configuredUrl = configuredOrgDirectoryUrl(env);
+  const url = resolveOrgDirectoryOrigin(env);
+  if (url) return { ok: true, url };
+  return {
+    ok: false,
+    result: {
+      status: "unavailable",
+      reason: configuredUrl ? "invalid-origin" : "not-configured",
+    },
+  };
+}
+
+function normalizeOrgWorkspaceDirectoryBaseUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.pathname !== "/" && url.pathname !== "")
+    ) {
+      return null;
+    }
+    return `${url.origin}/dispatch`;
+  } catch {
+    // coercion-ok: Invalid bindings become typed invalid-origin failures above.
+    return null;
+  }
+}
+
+async function fetchOrgAppsAtBaseUrl(
+  opts: FetchOrgAppsOptions | undefined,
+  strictValidation: boolean,
+): Promise<OrgDirectoryFetchResult> {
+  const env = opts?.env ?? process.env;
+  const hasExplicitBaseUrl = opts?.directoryBaseUrl !== undefined;
+  const hasConfiguredEnvUrl = configuredOrgDirectoryUrl(env) !== null;
+  const origin = hasExplicitBaseUrl
+    ? normalizeDirectoryBaseUrl(opts.directoryBaseUrl ?? "")
+    : resolveOrgDirectoryOrigin(env);
+  if (!origin) {
+    return {
+      status: "unavailable",
+      reason:
+        hasExplicitBaseUrl || hasConfiguredEnvUrl
+          ? "invalid-origin"
+          : "not-configured",
+    };
+  }
 
   const selfId = (opts?.selfId ?? "").trim().toLowerCase();
   const selfOrigin = (opts?.selfOrigin ?? "").trim();
@@ -214,7 +372,7 @@ async function fetchOrgAppsResultInternal(
   const stripSelf = (apps: OrgApp[]): OrgApp[] =>
     apps.filter((a) => {
       if (selfId && a.id === selfId) return false;
-      if (selfOrigin && sameOrigin(a.url, selfOrigin)) return false;
+      if (selfOrigin && sameAppBaseUrl(a.url, selfOrigin)) return false;
       return true;
     });
 
@@ -229,7 +387,9 @@ async function fetchOrgAppsResultInternal(
     );
     const cached = cache.get(serviceCacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return { status: "available", apps: stripSelf(cached.apps) };
+      return cached.result.status === "available"
+        ? { status: "available", apps: stripSelf(cached.result.apps) }
+        : cached.result;
     }
     cacheKey = serviceCacheKey;
   }
@@ -253,31 +413,40 @@ async function fetchOrgAppsResultInternal(
       );
       const cached = cache.get(cacheKey);
       if (cached && cached.expiresAt > now) {
-        return { status: "available", apps: stripSelf(cached.apps) };
+        return cached.result.status === "available"
+          ? { status: "available", apps: stripSelf(cached.result.apps) }
+          : cached.result;
       }
     }
 
-    const { resolveVercelDeploymentProtectionHeaders } =
-      await import("../server/credential-provider.js");
+    const [{ resolveVercelDeploymentProtectionHeaders }, { ssrfSafeFetch }] =
+      await Promise.all([
+        import("../server/credential-provider.js"),
+        import("../extensions/url-safety.js"),
+      ]);
     const protectionHeaders =
       resolveVercelDeploymentProtectionHeaders(directoryUrl);
 
     for (let i = 0; i < attempts.length; i++) {
-      const res = await fetch(directoryUrl, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${attempts[i]}`,
-          Accept: "application/json",
-          ...protectionHeaders,
-          ...(opts?.includeDirectoryApp
-            ? { "X-Agent-Native-Include-Directory-App": "1" }
-            : {}),
+      const res = await ssrfSafeFetch(
+        directoryUrl,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${attempts[i]}`,
+            Accept: "application/json",
+            ...protectionHeaders,
+            ...(opts?.includeDirectoryApp
+              ? { "X-Agent-Native-Include-Directory-App": "1" }
+              : {}),
+          },
+          signal: AbortSignal.timeout(4000),
         },
-        ...(protectionHeaders["x-vercel-protection-bypass"]
-          ? { redirect: "manual" as const }
-          : {}),
-        signal: AbortSignal.timeout(4000),
-      });
+        { maxRedirects: 0, followRedirects: false, httpsOnly: true },
+      );
+      if (res.status >= 300 && res.status < 400) {
+        return { status: "unavailable", reason: "http-error" };
+      }
       if (res.ok) {
         const json = (await res.json()) as { apps?: unknown };
         if (!Array.isArray(json?.apps))
@@ -291,36 +460,80 @@ async function fetchOrgAppsResultInternal(
         const apps = normalizedApps.filter((a): a is OrgApp => a !== null);
         if (cacheKey) {
           cache.set(cacheKey, {
-            apps,
+            result: { status: "available", apps },
             expiresAt: Date.now() + SUCCESS_TTL_MS,
           });
         }
         return { status: "available", apps: stripSelf(apps) };
       }
       if (res.status === 401 && i < attempts.length - 1) continue;
-      return {
+      const unavailable: OrgDirectoryFetchResult = {
         status: "unavailable",
         reason:
-          res.status === 401 || res.status === 403
-            ? "authorization"
-            : res.status === 429 || res.status >= 500
-              ? "server-error"
-              : "http-error",
+          res.status === 404
+            ? "missing-route"
+            : res.status === 401
+              ? "unauthorized"
+              : res.status === 403
+                ? "authorization"
+                : res.status === 429 || res.status >= 500
+                  ? "server-error"
+                  : "http-error",
       };
+      if (cacheKey && unavailable.reason === "server-error") {
+        cache.set(cacheKey, {
+          result: unavailable,
+          expiresAt: Date.now() + UNAVAILABLE_TTL_MS,
+        });
+      }
+      return unavailable;
     }
   } catch (error) {
-    return {
+    const unavailable: OrgDirectoryFetchResult = {
       status: "unavailable",
       reason:
         error instanceof Error &&
         (error.name === "TimeoutError" || error.name === "AbortError")
           ? "timeout"
-          : error instanceof SyntaxError
-            ? "invalid-response"
-            : "network",
+          : error instanceof Error && error.message.startsWith("SSRF blocked:")
+            ? "ssrf-blocked"
+            : error instanceof SyntaxError
+              ? "invalid-response"
+              : "network",
     };
+    if (
+      cacheKey &&
+      (unavailable.reason === "timeout" || unavailable.reason === "network")
+    ) {
+      cache.set(cacheKey, {
+        result: unavailable,
+        expiresAt: Date.now() + UNAVAILABLE_TTL_MS,
+      });
+    }
+    return unavailable;
   }
   return { status: "unavailable", reason: "authorization" };
+}
+
+function normalizeDirectoryBaseUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    // coercion-ok: The caller returns this as invalid-origin, not as an empty directory.
+    return null;
+  }
 }
 
 export async function fetchOrgAppsResult(

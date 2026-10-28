@@ -164,13 +164,15 @@ A handful of actions are too consequential to let the agent run on its own, like
 
 When `needsApproval` is omitted, behavior is byte-for-byte unchanged. There is no extra cost on the common path.
 
-This works the same way for legacy `parameters`-style actions and for schema-based actions. It also works the same way for the in-app agent, sub-agents, A2A, and MCP callers, because every agent surface routes through the same loop.
+This works the same way for legacy `parameters`-style actions and for schema-based actions. The in-app agent and sub-agents pause in the agent loop. MCP and A2A use their own approval flows.
+
+Direct calls to the [HTTP API](/docs/http-api) cannot provide human approval. The action route runs a gated call only for the proven app UI or the app's MCP directory widget. Other direct HTTP callers receive a `409` with `errorCode: "approval_required"`, and a service identity cannot approve. The shared client sends a short-lived UI capability with signed-in writes. A call without proof receives `403` with `errorCode: "ui_capability_required"`, then the client mints the capability and retries once. A2A tasks use their own approval flow, not this HTTP response. The task pauses until its owner approves, then replays the approved tool call. The local `pnpm action ...` CLI also evaluates `needsApproval` on prepared parsed/defaulted input with caller `cli`. It requires terminal confirmation or a person-approved rerun with `--approved`. See [CLI approval](/docs/actions-other-surfaces#cli). Treat this field as an approval flow, not an authorization boundary.
 
 ### How the loop pauses {#loop}
 
 When the agent calls a gated action and this specific call has **not** already been approved, the loop does **not** execute `run()`. Instead it:
 
-1. Resolves the gate. For a predicate, the loop calls `needsApproval(input, ctx)`. If that call throws an error, the loop treats it the same as a `true` result, so the action requires approval.
+1. Resolves the gate. The loop first prepares the call: it validates the arguments and applies the schema's defaults and coercions. An invalid call stops here with its validation error, and nobody is asked to approve it. For a predicate, the loop then calls `needsApproval(args, ctx)` with the prepared arguments, the ones `run()` would receive. If that call throws an error, the loop treats it the same as a `true` result, so the action requires approval.
 2. Emits a `tool_start` event (so the UI shows the call) followed immediately by an **`approval_required`** event, then stops the turn. The action's side effect never happens.
 
 The `approval_required` event carries everything the client needs to render an affordance:
@@ -401,12 +403,12 @@ A create action calls neither helper. It only needs to stamp `ownerEmail` (and `
 
 The four mechanisms are not interchangeable:
 
-| Mechanism                         | Question it answers                                   | Applies to                       |
-| --------------------------------- | ----------------------------------------------------- | -------------------------------- |
-| `access`                          | Does the caller hold the declared role or membership? | All six dispatch sites           |
-| `authorize`                       | May this caller perform the operation at all?         | All six dispatch sites           |
-| `needsApproval`                   | Should a human approve this specific permitted call?  | The agent loop only              |
-| `accessFilter()`/`assertAccess()` | Which rows may this permitted caller see or write?    | Inside `run()`, per query or row |
+| Mechanism                         | Question it answers                                   | Applies to                                       |
+| --------------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| `access`                          | Does the caller hold the declared role or membership? | All six dispatch sites                           |
+| `authorize`                       | May this caller perform the operation at all?         | All six dispatch sites                           |
+| `needsApproval`                   | Should a human approve this specific permitted call?  | Agent, MCP, A2A, CLI. HTTP gates unproven calls. |
+| `accessFilter()`/`assertAccess()` | Which rows may this permitted caller see or write?    | Inside `run()`, per query or row                 |
 
 A restricted write action typically needs both `authorize` and a row check. The first keeps non-coaches out of the operation. The second keeps a coach out of another org's plan. The row check is `assertAccess()`, or `access` when the row's id is an input field. `needsApproval` is a separate axis. It never restricts who may call, only whether the agent may proceed unattended.
 

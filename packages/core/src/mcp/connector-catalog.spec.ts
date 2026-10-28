@@ -81,6 +81,13 @@ vi.mock("../org/context.js", () => ({
   getA2ASecretByDomain: vi.fn(async () => null),
 }));
 
+vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/better-auth-instance.js")
+  >()),
+  findBetterAuthUserIdForEmail: vi.fn(async () => undefined),
+}));
+
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
@@ -120,6 +127,12 @@ vi.mock("./oauth-store.js", () => ({
 
 const { handleMcpRequest } = await import("./server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+const { default: listOrganizationMembers } =
+  await import("../org/actions/list-organization-members.js");
+const { default: inviteOrganizationMember } =
+  await import("../org/actions/invite-organization-member.js");
+const { default: setResourceVisibility } =
+  await import("../sharing/actions/set-resource-visibility.js");
 
 const A2A_SECRET = "connector-catalog-a2a-secret";
 const OAUTH_SECRET = "connector-catalog-oauth-secret";
@@ -140,7 +153,7 @@ function makeEvent(opts: {
   const webReq = new Request(reqUrl, { method: "POST", headers });
   return {
     method: "POST",
-    url: { pathname: "/" },
+    url: new URL(reqUrl),
     path: "/",
     req: webReq,
     _headers: headers,
@@ -287,7 +300,8 @@ const connectorConfig = {
   connectorCatalog: CONNECTOR_CATALOG,
 };
 
-vi.mock("h3", () => ({
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
   defineEventHandler: (fn: any) => fn,
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
@@ -392,7 +406,6 @@ describe("connector-catalog tier", () => {
         "open_app",
         "ask_app",
         "ask_app_status",
-        "create_embed_session",
       ].sort();
 
       expect(names).toEqual(expected);
@@ -415,7 +428,6 @@ describe("connector-catalog tier", () => {
           "open_app",
           "ask_app",
           "ask_app_status",
-          "create_embed_session",
         ].sort(),
       );
 
@@ -570,6 +582,45 @@ describe("connector-catalog tier", () => {
   });
 
   describe("action-declared `mcpTool`", () => {
+    it("serves organization member actions through a curated MCP catalog", async () => {
+      const actions = {
+        "list-organization-members": listOrganizationMembers,
+        "invite-organization-member": inviteOrganizationMember,
+        "existing-connector-read": {
+          tool: { description: "Read an existing connector record" },
+          mcpTool: true,
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        },
+      };
+      const token = await signA2AToken("member@example.test");
+      const listed = await call(
+        { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: {
+            ...connectorConfig,
+            connectorCatalog: undefined,
+            externalAgents: { writes: "allowlisted" },
+            actions,
+            productionActions: actions,
+          },
+        },
+      );
+      const names = listed.result.tools
+        .map((tool: any) => tool.name)
+        .filter(
+          (name: string) =>
+            name.endsWith("organization-members") ||
+            name.endsWith("organization-member"),
+        )
+        .sort();
+      expect(names).toEqual([
+        "invite-organization-member",
+        "list-organization-members",
+      ]);
+    });
+
     const declaringActions = {
       ...(fullActions as Record<string, any>),
       "share-plan-externally": {
@@ -858,7 +909,8 @@ describe("connector-catalog tier", () => {
         { headers, mcpConfig: declaringConfig },
       );
       const names: string[] = listed.result.tools.map((t: any) => t.name);
-      expect(names).toContain("db-exec");
+      expect(names).not.toContain("db-exec");
+      expect(names).toContain("public-read");
       expect(names).not.toContain("open-plan-inspector");
 
       const called = await call(
@@ -887,8 +939,10 @@ describe("connector-catalog tier", () => {
       const names: string[] = out.result.tools.map((t: any) => t.name);
 
       expect(names).toContain("create-plan");
-      expect(names).toContain("db-exec");
-      expect(names).toContain("seed-kitchen-sink");
+      expect(names).not.toContain("db-exec");
+      expect(names).toContain("public-read");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).toContain("create-plan");
     });
 
     it("allows non-catalog tool call when catalog_scope: 'full'", async () => {
@@ -899,7 +953,7 @@ describe("connector-catalog tier", () => {
         jsonrpc: "2.0",
         id: 7,
         method: "tools/call",
-        params: { name: "db-exec", arguments: {} },
+        params: { name: "public-read", arguments: {} },
       };
       const out = await call(rpc, {
         headers: { authorization: `Bearer ${token}` },
@@ -926,8 +980,10 @@ describe("connector-catalog tier", () => {
           },
         });
         const names: string[] = out.result.tools.map((t: any) => t.name);
-        expect(names).toContain("db-exec");
-        expect(names).toContain("seed-kitchen-sink");
+        expect(names).not.toContain("db-exec");
+        expect(names).toContain("public-read");
+        expect(names).not.toContain("seed-kitchen-sink");
+        expect(names).toContain("create-plan");
       } finally {
         delete process.env.BETTER_AUTH_SECRET;
       }
@@ -943,8 +999,10 @@ describe("connector-catalog tier", () => {
         headers: { authorization: `Bearer ${token}` },
       });
       const names: string[] = out.result.tools.map((t: any) => t.name);
-      expect(names).toContain("db-exec");
-      expect(names).toContain("seed-kitchen-sink");
+      expect(names).not.toContain("db-exec");
+      expect(names).toContain("public-read");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).toContain("create-plan");
     });
   });
 });
@@ -982,7 +1040,6 @@ describe("connector-catalog tier — env flag not required", () => {
         "open_app",
         "ask_app",
         "ask_app_status",
-        "create_embed_session",
       ].sort(),
     );
     expect(names).not.toContain("db-exec");
@@ -1023,6 +1080,93 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     vi.clearAllMocks();
   });
 
+  it("keeps the default catalog exactly when action declarations add tools", async () => {
+    const read = {
+      tool: { description: "Read a record" },
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    };
+    const write = {
+      tool: { description: "Update a record" },
+      run: async () => ({ ok: true }),
+    };
+    const actions = {
+      "set-resource-visibility": setResourceVisibility,
+      "declared-read": read,
+      "declared-write": write,
+      "unrelated-read": read,
+    };
+    const token = await signA2AToken("member@example.test");
+    const listNames = async (
+      entries: Record<string, unknown>,
+      overrides: Record<string, unknown> = {},
+    ) => {
+      const out = await call(
+        { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: {
+            ...connectorConfig,
+            connectorCatalog: undefined,
+            externalAgents: { writes: "allowlisted" },
+            actions: entries,
+            productionActions: entries,
+            ...overrides,
+          },
+        },
+      );
+      return out.result.tools.map((tool: any) => tool.name).sort();
+    };
+    const before = await listNames(actions);
+    expect(before).toEqual([
+      "ask_app",
+      "ask_app_status",
+      "list_apps",
+      "open_app",
+      "set-resource-visibility",
+    ]);
+    const declaredActions = {
+      ...actions,
+      "declared-read": { ...read, mcpTool: true },
+      "declared-write": { ...write, mcpTool: true },
+    };
+    const after = await listNames(declaredActions);
+    expect(after).toEqual(
+      [...before, "declared-read", "declared-write"].sort(),
+    );
+    expect(
+      await listNames(declaredActions, { connectorCatalog: ["declared-read"] }),
+    ).toEqual(
+      after.filter((name: string) => name !== "set-resource-visibility"),
+    );
+    expect(await listNames(declaredActions, { connectorCatalog: [] })).toEqual(
+      after.filter((name: string) => name !== "set-resource-visibility"),
+    );
+    expect(
+      await listNames(declaredActions, {
+        externalAgents: {
+          writes: "allowlisted",
+          denyActions: ["set-resource-visibility", "declared-read"],
+        },
+      }),
+    ).toEqual(
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "declared-read",
+      ),
+    );
+    expect(
+      await listNames(declaredActions, {
+        externalAgents: { writes: "ask_app_only" },
+      }),
+    ).toEqual(
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "declared-write",
+      ),
+    );
+  });
+
   it("falls back to the compact surface when connectorCatalog is not declared", async () => {
     const configWithoutCatalog = {
       ...connectorConfig,
@@ -1038,7 +1182,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(names).toEqual([
       "ask_app",
       "ask_app_status",
-      "create_embed_session",
       "list_apps",
       "open_app",
     ]);
@@ -1059,8 +1202,10 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       mcpConfig: configWithoutCatalog,
     });
     const names: string[] = out.result.tools.map((t: any) => t.name);
-    expect(names).toContain("db-exec");
-    expect(names).toContain("seed-kitchen-sink");
+    expect(names).not.toContain("db-exec");
+    expect(names).toContain("public-read");
+    expect(names).not.toContain("seed-kitchen-sink");
+    expect(names).toContain("create-plan");
   });
 
   it("auto-advertises authenticated read actions without exposing writes", async () => {
@@ -1121,6 +1266,115 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     );
     const names: string[] = out.result.tools.map((t: any) => t.name);
     expect(names).not.toContain("public-read");
+  });
+
+  describe("externalAgents.denyActions without a connector catalog", () => {
+    const compactAction = (description: string) => ({
+      tool: { description },
+      readOnly: true,
+      mcpApp: { compactCatalog: true },
+      run: async () => ({ ok: true }),
+    });
+    const actions = {
+      ...fullActions,
+      "compact-board": compactAction("Show the compact plan board"),
+      "compact-widget": compactAction("Show the compact plan widget"),
+      "tool-search": {
+        tool: {
+          description: "Discover callable tools",
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string" } },
+          },
+        },
+        readOnly: true,
+        run: async () => ({ results: [] }),
+      },
+    };
+    const denyConfig = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+      actions,
+      productionActions: actions,
+      externalAgents: { denyActions: ["compact-widget", "public-read"] },
+    };
+
+    async function listAndCall(
+      name: string,
+      args = {},
+      mcpConfig: Record<string, unknown> = denyConfig,
+    ) {
+      const token = await signA2AToken("alice@example.com");
+      const listed = await call(
+        { jsonrpc: "2.0", id: 70, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig,
+        },
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 71,
+          method: "tools/call",
+          params: { name, arguments: args },
+        },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig,
+        },
+      );
+      return {
+        names: listed.result.tools.map((t: any) => t.name) as string[],
+        called: called.result,
+      };
+    }
+
+    it("keeps a denied action out of the compact catalog and its calls", async () => {
+      const { names, called } = await listAndCall("compact-widget");
+      expect(names).toContain("compact-board");
+      expect(names).not.toContain("compact-widget");
+      expect(called.isError).toBe(true);
+      expect(called.content[0].text).toContain("Unknown tool");
+    });
+
+    it("keeps a denied action out of tool-search", async () => {
+      const { called } = await listAndCall("tool-search", {
+        query: "compact plan",
+      });
+      expect(called.isError).toBeFalsy();
+      const text = JSON.stringify(called.content);
+      expect(text).toContain("compact-board");
+      expect(text).not.toContain("compact-widget");
+    });
+
+    it("keeps a denied action out of the full catalog and its calls", async () => {
+      process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+      const { names, called } = await listAndCall("public-read");
+      expect(names).not.toContain("seed-kitchen-sink");
+      expect(names).toContain("create-plan");
+      expect(names).toContain("ask-agent");
+      expect(names).not.toContain("public-read");
+      expect(called.isError).toBe(true);
+      expect(called.content[0].text).toContain("Unknown tool");
+    });
+
+    it.each(["ask-agent", "ask_app"])(
+      "keeps ask-agent out of the full catalog and its calls when %s is denied",
+      async (denied) => {
+        process.env.AGENT_NATIVE_MCP_FULL_CATALOG = "1";
+        const { names, called } = await listAndCall(
+          "ask-agent",
+          { message: "hello" },
+          { ...denyConfig, externalAgents: { denyActions: [denied] } },
+        );
+        expect(names).not.toContain("seed-kitchen-sink");
+        expect(names).toContain("create-plan");
+        expect(names).not.toContain("ask-agent");
+        expect(called.isError).toBe(true);
+        expect(called.content[0].text).toContain("Unknown tool");
+      },
+    );
   });
 
   it("keeps explicitly cataloged writes behind ask_app in auto-read mode", async () => {
@@ -1206,7 +1460,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       }
     });
 
-    it("still serves db-query / seed-demo-data when explicitly listed in connectorCatalog", async () => {
+    it("refuses db-query / seed-demo-data even when explicitly listed in connectorCatalog", async () => {
       const explicitConfig = {
         ...connectorConfig,
         connectorCatalog: ["db-query", "seed-demo-data"],
@@ -1223,8 +1477,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
         },
       );
       const names: string[] = listOut.result.tools.map((t: any) => t.name);
-      expect(names).toContain("db-query");
-      expect(names).toContain("seed-demo-data");
+      expect(names).not.toContain("db-query");
+      expect(names).not.toContain("seed-demo-data");
 
       for (const name of ["db-query", "seed-demo-data"]) {
         const callOut = await call(
@@ -1239,7 +1493,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
             mcpConfig: explicitConfig,
           },
         );
-        expect(callOut.result.isError).toBeFalsy();
+        expect(callOut.result.isError).toBe(true);
+        expect(callOut.result.content[0].text).toBe(`Unknown tool: ${name}`);
       }
     });
   });
@@ -1266,7 +1521,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       },
     };
 
-    it("advertises exactly the app's own registry, flat", async () => {
+    it("advertises the app's eligible registry, flat", async () => {
       const token = await signA2AToken("alice@example.com");
       const out = await call(
         { jsonrpc: "2.0", id: 40, method: "tools/list", params: {} },
@@ -1278,10 +1533,16 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
 
       expect(out.error).toBeUndefined();
       const names = out.result.tools.map((t: any) => t.name).sort();
-      expect(names).toEqual(Object.keys(fullActions).sort());
+      expect(names).toEqual([
+        "create-plan",
+        "get-plan",
+        "navigate",
+        "public-read",
+        "public-write",
+      ]);
     });
 
-    it("ignores the declared connectorCatalog and makes excluded tools callable", async () => {
+    it("ignores the connectorCatalog but refuses excluded runtime tools", async () => {
       const token = await signA2AToken("alice@example.com");
       const out = await call(
         {
@@ -1297,7 +1558,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       );
 
       expect(out.error).toBeUndefined();
-      expect(out.result.isError).toBeFalsy();
+      expect(out.result.isError).toBe(true);
+      expect(out.result.content[0].text).toBe("Unknown tool: db-exec");
     });
 
     it("still honors externalAgents.denyActions", async () => {

@@ -1,0 +1,101 @@
+slug: landing-page-prototypes
+app: design
+roles:
+  - marketing
+  - design
+  - founders
+title: 출시 브리프를 랜딩 페이지 프로토타입으로 만들어 보세요
+seo_title: 출시를 위한 AI 랜딩 페이지 프로토타입
+meta_description: "Agent-Native Design에 출시 브리프를 주면, 우리 브랜드로 만든 랜딩 페이지 몇 가지 버전을 클릭해 보고 비교하고 HTML로 내보낼 수 있어요. 무료 오픈 소스예요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Design이 우리 브랜드로 몇 가지 버전을 나란히 만들어 줘요. 고른 버전을 직접 또는 요청해서 고친 뒤, 사이트에 넣을 HTML 파일로 내려받으세요."
+  button:
+    label: 페이지 디자인하기
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b9b61c476d745258cbb0f1b78da71be
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F921c26eb2c474e48b203e069b070269f
+    alt: "Ledgerlane의 당일 계약자 지급 출시 페이지 중 Product-first 버전을 데스크톱과 모바일 프레임으로 연 Design 편집기. 왼쪽 에이전트 채팅에는 출시 브리프, 에이전트가 제안한 세 버전 중 Product-first를 고른 모습, 페이지를 완성했다는 메모가 보여요."
+how_to:
+  heading: AI로 랜딩 페이지 프로토타입을 만드는 방법
+  steps:
+    - title: 출시 내용 설명하기
+      body: "Design 홈 화면의 **새로운 디자인** 상자에 출시 브리프를 붙여 넣으세요. [무엇을 제안하는지, 누구를 위한 것인지, 행동 유도 문구](https://www.agent-native.com/articles/how-do-you-build-a-landing-page-with-ai/)를 담으면 돼요. 브리프를 파일로 첨부하고, 상자 아래에서 브랜드 디자인 시스템을 골라도 돼요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8d189f62f944b3d935b058b826150b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8db8cda1abfe476f954bfa5bc50a7b6d
+        alt: "Design 홈 화면의 New design 상자 확대 화면. Ledgerlane 당일 지급에 대한 출시 브리프가 입력돼 있고, 브리프 PDF가 첨부돼 있으며 Ledgerlane Brand 디자인 시스템이 선택돼 있어요."
+    - title: 여러 버전 비교하기
+      body: "에이전트에게 “세 가지 버전”을 요청하세요. 각 버전이 보드 위에 별도 화면으로 나란히 나타나요. 채팅에서 하나를 고르면, 에이전트가 전체 페이지로 완성하고 나머지는 정리해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F45d7dcdb0a2d473e82e516e2419e21f0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe7aac725b27c4046b57faf5e69a2abf2
+        alt: "당일 지급 출시 페이지의 세 버전 Product-first, Editorial, Proof-led가 보드 위에 나란히 있어요. 에이전트 채팅이 어떤 버전을 완성할지 묻고, 버전마다 버튼이 있어요."
+    - title: 페이지 HTML 내보내기
+      body: "편집기 메뉴에서 **파일**, 그다음 **내보내기**를 고르세요. **HTML 다운로드**는 어떤 브라우저에서든 열리는 파일 하나를 줘요. **에이전트 프롬프트 복사**는 코딩 에이전트가 페이지를 사이트에 넣는 데 필요한 것을 넘겨줘요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F171cf01db5ca44ee8d31ebb6f98a73b3
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd2640c796dc44746ae1c8a622ec49bdc
+        alt: "Product-first 출시 페이지 위로 File과 Export가 열린 편집기 메뉴 확대 화면. Download HTML, Download ZIP, Download for Figma (SVG), Copy agent prompt 같은 옵션이 보여요."
+features:
+  heading: 출시 페이지 디자인에 필요한 모든 것
+  items:
+    - title: 브리프에서 랜딩 페이지까지
+      body: "에이전트는 새 주장을 지어내지 않고 브리프에 있는 주장으로 만들어요. 브리프에 열린 선택이 있으면 물어보거나 어떤 가정을 했는지 말해요."
+    - title: AI 편집과 비주얼 편집
+      body: "헤드라인, 색상, 간격은 직접 바꾸고, 섹션을 다시 짜는 건 에이전트에게 맡기세요. 둘이 같은 페이지를 편집해요."
+    - title: 버전을 나란히
+      body: "버전마다 고유한 스타일과 모바일 레이아웃이 있어, 출시 전에 팀이 실제 방향을 비교할 수 있어요."
+    - title: 모든 출시를 브랜드에 맞게
+      body: "Figma 파일, 웹사이트, 코드로 디자인 시스템을 한 번만 만드세요. 새 출시 페이지마다 우리 색상, 글꼴, 스타일이 적용돼요."
+    - title: 페이지에 고정되는 피드백
+      body: "리뷰어는 정확한 헤드라인이나 버튼에 댓글을 고정해요. 에이전트에게 보내면 그 부분을 바꾸거나 결정을 물어봐요."
+    - title: 개발자에게 넘기는 코드
+      body: "에이전트 프롬프트에는 디자인 토큰, 페이지 파일, 코딩 에이전트가 사이트에 페이지를 넣는 데 필요한 지침이 담겨요."
+integrations:
+  heading: 이미 쓰는 도구와 Design 연결하기
+  cards:
+    - title: 우리 브랜드에서 시작하기
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: "Figma 파일이나 GitHub에 있는 사이트 코드로 디자인 시스템을 만들면, 모든 출시 페이지가 브랜드에 맞게 시작해요."
+    - title: 코딩 에이전트에게 넘기기
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+      body: "에이전트 프롬프트를 Claude Code, Codex, Cursor에 붙여 넣으면, 페이지를 사이트용 코드로 바꿔 줘요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Amplitude
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Design으로 할 수 있는 다른 일
+  cards:
+    - title: 브리프를 클릭할 수 있는 프로토타입으로 만들어 보세요
+      url: https://www.agent-native.com/use-cases/ai-prototype-generator/
+      body: "디자인 브리프로 새 화면이나 제품 흐름의 프로토타입을 만들고, 팀과 함께 클릭해 보세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Design은 무료인가요?
+      a: "네, Agent-Native Design은 무료 오픈 소스예요. 페이지를 만들려면 Builder.io AI 크레딧이나 내 AI 키를 통한 AI 연결이 필요하니, AI 사용량이 무제한은 아니에요. Design은 알파 버전이라 발전하면서 바뀌는 부분이 있을 수 있어요."
+    - q: Design이 랜딩 페이지를 게시하거나 호스팅해 주나요?
+      a: "아니요. Design은 랜딩 페이지를 만들고 내보내기까지 하고, 배포는 지금 쓰는 도구로 해요. HTML이나 파일 ZIP을 내려받거나, 코딩 에이전트가 사이트에 페이지를 추가할 때 쓸 프롬프트를 복사하세요."
+    - q: 우리 브랜드를 쓸 수 있나요?
+      a: "네. Figma 파일, 웹사이트, GitHub 저장소, 업로드한 파일로 디자인 시스템을 만들고, 페이지를 시작할 때 고르세요. 에이전트가 만드는 모든 버전에 그 색상, 글꼴, 스타일이 유지돼요."
+    - q: AI가 만든 랜딩 페이지를 나중에 편집할 수 있나요?
+      a: "네. 페이지에서 텍스트, 색상, 간격, 레이아웃을 직접 바꾸거나, 에이전트에게 섹션 수정을 요청하세요. **버전 기록**에서 언제든 이전 버전을 복원할 수 있어요."
+    - q: 랜딩 페이지를 내보내면 무엇을 받나요?
+      a: "**HTML 다운로드**는 어떤 브라우저에서든 열리고 스타일을 인터넷에서 불러오는 파일 하나를 줘요. **ZIP 다운로드**에는 페이지의 모든 파일이 들어 있고, **Figma용으로 다운로드(SVG)**는 Figma에서 편집할 수 있는 레이어를 줘요. 문서에서 [모든 내보내기 옵션](https://www.agent-native.com/docs/template-design-features/#export)을 확인하세요."
+    - q: Design은 챗봇에게 랜딩 페이지를 요청하는 것과 무엇이 다른가요?
+      a: "챗봇은 페이지를 보기 전에 어딘가에 붙여 넣어야 하는 코드를 줘요. Design에서는 에이전트가 보고 클릭할 수 있는 편집기 안에 여러 버전으로 페이지를 만들어요. 같은 페이지에서 직접 또는 요청해서 바꿀 수 있어요. 그래서 Design은 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."

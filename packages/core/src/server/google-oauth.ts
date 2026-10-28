@@ -10,6 +10,7 @@ import {
 
 import { getAppConfig } from "../app-config/index.js";
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import {
@@ -22,6 +23,7 @@ import {
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
+import { requestAllowsConsentCategory } from "./consent-route.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
@@ -35,6 +37,12 @@ import {
   isNetlifyDeployPermalinkGoogleOAuthClientOrigin,
   isNetlifyDeployPermalinkGoogleOAuthClientRequest,
 } from "./identity-sso-store.js";
+import { filterMcpSignupAttributionByConsent } from "./mcp-signup-attribution.js";
+import {
+  applyMcpSignupAttribution,
+  sanitizeMcpSignupAttribution,
+  type McpSignupAttribution,
+} from "./mcp-signup-attribution.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
@@ -562,6 +570,8 @@ export interface OAuthStatePayload {
   desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
+  signupSessionId?: string;
+  mcpSignupAttribution?: McpSignupAttribution;
 }
 
 let _devStateSigningKey: string | undefined;
@@ -622,6 +632,8 @@ export interface EncodeOAuthStateOptions {
   desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
+  signupSessionId?: string;
+  mcpSignupAttribution?: McpSignupAttribution;
 }
 
 function sanitizeStateAttribution(
@@ -698,6 +710,12 @@ export function encodeOAuthState(
     opts.signupAnonymousId,
   );
   if (signupAnonymousId) payload.ai = signupAnonymousId;
+  const signupSessionId = normalizeAnalyticsSessionId(opts.signupSessionId);
+  if (signupSessionId) payload.si = signupSessionId;
+  const mcpSignupAttribution = sanitizeMcpSignupAttribution(
+    opts.mcpSignupAttribution,
+  );
+  if (mcpSignupAttribution) payload.ms = mcpSignupAttribution;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getOAuthStateSigningKey())
@@ -769,6 +787,8 @@ export function decodeOAuthState(
       desktopWebview: parsed.dw === true,
       signupAttribution: sanitizeStateAttribution(parsed.ft),
       signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
+      signupSessionId: normalizeAnalyticsSessionId(parsed.si),
+      mcpSignupAttribution: sanitizeMcpSignupAttribution(parsed.ms),
     };
   } catch {
     return { ok: false, reason: "malformed-payload", redirectUri: fallbackUri };
@@ -825,6 +845,8 @@ export async function createOAuthSession(
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
+      signupSessionId?: string;
+      mcpSignupAttribution?: McpSignupAttribution;
       isNewUser?: boolean;
     };
   },
@@ -865,19 +887,42 @@ export async function createOAuthSession(
     }
     if (shouldTrackSignup && opts.trackSignup) {
       const signupCookieHeader = getHeader(event, "cookie") ?? null;
-      const attribution =
-        opts.trackSignup.attribution ??
-        signupAttributionFromCookieHeader(signupCookieHeader);
-      const anonymousId =
-        opts.trackSignup.signupAnonymousId ??
-        readAnalyticsAnonymousId(signupCookieHeader);
-      const sessionId = readAnalyticsSessionId(signupCookieHeader);
+      const performanceAllowed = requestAllowsConsentCategory(
+        event,
+        "performance",
+      );
+      const targetingAllowed = requestAllowsConsentCategory(event, "targeting");
+      const baseAttribution = targetingAllowed
+        ? (opts.trackSignup.attribution ??
+          signupAttributionFromCookieHeader(signupCookieHeader))
+        : undefined;
+      const mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+        opts.trackSignup.mcpSignupAttribution,
+        signupCookieHeader,
+        { performance: performanceAllowed, targeting: targetingAllowed },
+      );
+      const attribution = applyMcpSignupAttribution(
+        baseAttribution,
+        mcpSignupAttribution,
+      );
+      const anonymousId = performanceAllowed
+        ? (opts.trackSignup.signupAnonymousId ??
+          mcpSignupAttribution?.anonymousId ??
+          readAnalyticsAnonymousId(signupCookieHeader))
+        : undefined;
+      const sessionId = performanceAllowed
+        ? (opts.trackSignup.signupSessionId ??
+          mcpSignupAttribution?.sessionId ??
+          readAnalyticsSessionId(signupCookieHeader))
+        : undefined;
       const authUserId =
         (await getBetterAuthUserIdForEmail(email)) ??
         opts.trackSignup.canonicalAuthUserId;
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
-        origin: "google_oauth",
+        origin: opts.trackSignup.mcpSignupAttribution
+          ? "mcp_oauth"
+          : "google_oauth",
         signupMethod: "google",
         authUserId,
         email,
@@ -1036,10 +1081,16 @@ export function oauthCallbackResponse(
   return response;
 }
 
-export function oauthErrorPage(message: string, status = 400): Response {
+export function oauthErrorPage(
+  message: string,
+  status = 400,
+  options?: { backHref?: string; backLabel?: string },
+): Response {
   const safe = escapeHtml(message);
+  const backHref = escapeHtml(options?.backHref ?? "/");
+  const backLabel = escapeHtml(options?.backLabel ?? "Back to login");
   return htmlResponse(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>Connection failed</title></head><body style="background:Canvas;color:CanvasText;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0">${safe}</p><p style="font-size:13px;color:GrayText;margin:0"><a href="${backHref}" style="color:inherit;text-decoration:underline;text-underline-offset:3px">${backLabel}</a></p></body></html>`,
     status,
   );
 }

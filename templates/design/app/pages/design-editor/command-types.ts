@@ -7,6 +7,10 @@ import type {
 } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
+import type {
+  DesignClipboardCanvasRect,
+  RelativePositionOffset,
+} from "@/lib/design-import";
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
 
@@ -74,6 +78,12 @@ export interface CanvasLayerClipboardEntry {
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
+  sourceRelativeOffset?: RelativePositionOffset | null;
+  /**
+   * The original's canvas-space box when it was copied. Absent means unknown
+   * (no authored position, a live screen, or an older payload), never 0,0.
+   */
+  sourceCanvasRect?: DesignClipboardCanvasRect;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -122,7 +132,9 @@ export interface RetryablePrompt {
   contextItems?: PromptComposerSubmitOptions["contextItems"];
   designSystemId?: string | null;
   attempt?: number;
+  autoRetry?: boolean;
   source?: string;
   templateId?: string;
+  outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
 }

@@ -4,14 +4,13 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
+import { assertCommentAccess } from "../server/lib/comment-access.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 const mentionSchema = z.object({
@@ -33,7 +32,9 @@ export default defineAction({
       .int()
       .min(0)
       .default(0)
-      .describe("Video time (ms) the comment is attached to"),
+      .describe(
+        "Video time (ms) of the frame the comment is about, stored as given",
+      ),
     threadId: z
       .string()
       .trim()
@@ -56,15 +57,7 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
-    const access = await assertAccess("recording", args.recordingId, "viewer");
-    if (
-      isRecordingExpiredForViewer({
-        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
-        viewerIsOwner: access.role === "owner",
-      })
-    ) {
-      throw new ForbiddenError("Recording has expired");
-    }
+    await assertCommentAccess(args.recordingId);
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {
@@ -126,8 +119,6 @@ export default defineAction({
       rec.organizationId,
     );
 
-    const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
-
     await db.insert(schema.recordingComments).values({
       id,
       recordingId: args.recordingId,
@@ -138,7 +129,7 @@ export default defineAction({
       authorName,
       content: args.content,
       mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-      videoTimestampMs,
+      videoTimestampMs: args.videoTimestampMs,
       createdAt: now,
       updatedAt: now,
     });
@@ -157,7 +148,7 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
-      `Added comment to recording ${args.recordingId} @ ${videoTimestampMs}ms (thread: ${threadId})`,
+      `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
     );
 
     return { id, threadId, notified };

@@ -109,6 +109,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpOpenConnectPage: "Open full connect page",
   mcpIdentityError: "Couldn't load this app's connection details.",
   mcpRetry: "Try again",
+  mcpOAuthBackToApp: "Back to app",
+  mcpOAuthConnectionDone: "Connection done",
   mcpConnect: mcpConnectMessages,
 };
 

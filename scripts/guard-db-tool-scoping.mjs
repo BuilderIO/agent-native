@@ -34,6 +34,12 @@ const SKIP_DIRS = new Set([
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "content:content_database_setup_receipts":
     "actor-scoped retry receipts; access is rechecked through database setup actions",
+  "content:content_database_builder_blob_cleanup":
+    "private payload cleanup outbox processed by Content source actions",
+  "content:document_property_value_tombstones":
+    "property generation bookkeeping written only by a database trigger; holds no content",
+  "content:content_webhook_deliveries":
+    "webhook delivery outbox sent by the Content webhook sweep; list-content-webhooks shows delivery status to admins",
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",
@@ -78,6 +84,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_comments": "child rows scoped through recordings",
   "clips:recording_context_items":
     "child rows scoped through recordings; every action checks access on the parent recording",
+  "clips:recording_content_bindings":
+    "access-granting child rows scoped through recordings; only Content's upload and lifecycle flows write them",
   "clips:recording_ctas": "child rows scoped through recordings",
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_playback_positions":
@@ -85,6 +93,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_reactions": "child rows scoped through recordings",
   "clips:recording_agent_views":
     "agent telemetry is scoped through authorized parent recordings",
+  "clips:recording_agent_frames":
+    "stored agent frames are scoped through authorized parent recordings",
   "clips:recording_tags": "child rows scoped through recordings",
   "clips:recording_views": "append-only child rows scoped through recordings",
   "clips:recording_viewers": "viewer link rows scoped through recordings",
@@ -94,6 +104,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "internal transactional-email worker configuration and cursors",
   "clips:clips_transactional_email_jobs":
     "internal transactional-email queue and delivery history",
+  "clips:clips_hosted_clip_allowances":
+    "anti-abuse and retained-byte ledger accessed only through atomic allowance actions",
   "clips:workspace_members": "membership join rows scoped through workspaces",
   "plan:plan_comments": "child rows scoped through plans",
   "plan:plan_edition_stories": "child rows scoped through plans",
@@ -132,6 +144,15 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "slides:deck_access_request_limits":
     "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
+  "slides-2:deck_share_links":
+    "public share-token snapshots scoped by token and created through authorized deck actions",
+  "slides-2:deck_events":
+    "deck access-request audit rows read and written through scoped actions",
+  "slides-2:deck_access_request_limits":
+    "internal anonymous access-request throttling buckets",
+  "slides-2:slide_comments": "child rows scoped through authorized decks",
+  "slides-2:uploaded_asset_object_lifecycle":
+    "global stored-object identity lifecycle registry, accessed only by the uploaded asset lifecycle helper",
 };
 
 async function* walk(dir) {

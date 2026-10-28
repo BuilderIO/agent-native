@@ -103,6 +103,11 @@ export {
   ActionContractError,
   isActionContractError,
   type ActionContractErrorOptions,
+  ActionOutputContractError,
+  isActionOutputContractError,
+  type ActionOutputContractErrorOptions,
+  type ActionOutputEffect,
+  type ActionMcpOutputContract,
   AgentActionStopError,
   isAgentActionStopError,
   type ActionHttpConfig,
@@ -118,6 +123,7 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export { isOutsideAgentCall } from "./action-caller.js";
 export {
   isEmailDerivedName,
   normalizeUserProfileName,

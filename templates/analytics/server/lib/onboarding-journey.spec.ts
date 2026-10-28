@@ -39,13 +39,17 @@ import {
   onboardingJourneyEventDateRange,
   type OnboardingJourneyEventsFilters,
 } from "./first-party-metric-catalog";
+import type { JourneyEventRow } from "./journey-steps";
 import {
   formatJourneyOutline,
   getOnboardingJourney,
   OnboardingJourneyReadError,
   JourneyRecordingsError,
+  ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENT_READ_DEADLINE_MS,
   parseJourneyEventRow,
   parseJourneyTimestampMs,
+  partitionOnboardingJourneyCohorts,
   type JourneySummary,
   type JourneyTree,
   type OnboardingJourneyArgs,
@@ -65,6 +69,7 @@ const ARGS: OnboardingJourneyArgs = {
   minNodeSessions: 1,
   examplesPerNode: 2,
   maxEventRows: 1000,
+  maxTotalBytesBilled: ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   maxNodes: 60,
   settleMs: 300,
   recency: "newest",
@@ -95,6 +100,21 @@ function eventRow(
     action: null,
     ...extra,
   };
+}
+
+function cohortEvent(
+  sessionId: string | null,
+  eventName: string,
+  offsetSeconds: number,
+  extra: Record<string, unknown> = {},
+): JourneyEventRow {
+  const raw = eventRow(sessionId ?? "sessionless", eventName, offsetSeconds, {
+    ...extra,
+    ...(sessionId === null ? { session_id: null } : {}),
+  });
+  const parsed = parseJourneyEventRow(raw);
+  if (!parsed) throw new Error("The cohort event fixture must be valid.");
+  return parsed;
 }
 
 function journeyRows() {
@@ -263,7 +283,123 @@ describe("parseJourneyEventRow", () => {
   });
 });
 
+describe("partitionOnboardingJourneyCohorts", () => {
+  it("assigns only exposure events and crosses Design first-touch trees with each arm", () => {
+    const rows = [
+      cohortEvent("web-control", "signup", 0, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent("web-control", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+      cohortEvent("oauth-credits", "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+      cohortEvent("oauth-credits", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("conflicting-path-control", "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+      cohortEvent("conflicting-path-control", "signup", 1, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent(
+        "conflicting-path-control",
+        "onboarding_experiment_exposed",
+        2,
+        {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "control",
+        },
+      ),
+      cohortEvent("conflicting-arm", "signup", 0, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent("conflicting-arm", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+      cohortEvent("conflicting-arm", "onboarding_experiment_exposed", 2, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("unexposed", "signup", 0, {
+        first_touch_path: "/signup",
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("unexposed", "onboarding_step_viewed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("invalid-exposure", "signup", 0),
+      cohortEvent("invalid-exposure", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "other",
+      }),
+      cohortEvent(null, "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+    ];
+
+    const partition = partitionOnboardingJourneyCohorts(rows, {
+      experimentId: "first_run_builder_credits",
+      splitDesignFirstTouch: true,
+    });
+
+    expect(partition.experiment).toMatchObject({
+      assignedSessions: 3,
+      exposureSessions: 5,
+      unassignedSessions: 2,
+      conflictingSessions: 1,
+    });
+    expect([...partition.experiment!.arms.control].sort()).toEqual([
+      "conflicting-path-control",
+      "web-control",
+    ]);
+    expect([...partition.experiment!.arms.credits]).toEqual(["oauth-credits"]);
+    expect(partition.designFirstTouch!.cohorts.web.has("unexposed")).toBe(true);
+    expect(
+      partition.designFirstTouch!.cohorts["mcp-oauth"].has("oauth-credits"),
+    ).toBe(true);
+    expect(
+      partition.experiment!.designFirstTouch!.control.cohorts.unknown.has(
+        "conflicting-path-control",
+      ),
+    ).toBe(true);
+    expect(
+      partition.experiment!.designFirstTouch!.control.conflictingSessions,
+    ).toBe(1);
+    expect(partition.sessionlessMcpOauthSignupEvents).toBe(1);
+  });
+});
+
 describe("getOnboardingJourney", () => {
+  it.each([
+    [
+      "experiment arms",
+      { app: "clips", experimentId: "first_run_builder_credits" },
+    ],
+    ["Design first touch", { app: "design", splitDesignFirstTouch: true }],
+  ] as const)(
+    "rejects person follow-up with %s before reading events",
+    async (_label, cohort) => {
+      await expect(
+        getOnboardingJourney(scope, {
+          ...ARGS,
+          ...cohort,
+          followUpMode: "person",
+        }),
+      ).rejects.toThrow(
+        "Person follow-up is not available with cohort splits.",
+      );
+      expect(mocks.queryFirstPartyAnalytics).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns exactly the JourneyTree contract", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: journeyRows(),
@@ -1529,7 +1665,7 @@ describe("getOnboardingJourney", () => {
     expect(single).not.toHaveProperty("notes");
   });
 
-  it("stops large event reads after two bounded pages and nulls follow-up counts", async () => {
+  it("reads all pages through the requested event budget", async () => {
     const pages = [
       Array.from({ length: 4_000 }, (_, index) =>
         eventRow(`budget-a-${index}`, "signup", index),
@@ -1537,6 +1673,7 @@ describe("getOnboardingJourney", () => {
       Array.from({ length: 4_000 }, (_, index) =>
         eventRow(`budget-b-${index}`, "signup", index + 4_000),
       ),
+      [eventRow("budget-c-0", "signup", 8_000)],
     ];
     const now = vi
       .spyOn(Date, "now")
@@ -1554,65 +1691,146 @@ describe("getOnboardingJourney", () => {
       const tree = (await getOnboardingJourney(scope, {
         ...ARGS,
         dateTo: "2026-10-09",
-        maxEventRows: 200_000,
+        maxEventRows: 12_000,
       })) as JourneyTree;
 
-      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(2);
-      expect(tree.coverage.truncated).toBe(true);
-      expect(tree.notes?.join(" ")).toMatch(
-        /stopped after 2 BigQuery pages to bound query cost/,
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
+      expect(mocks.queryFirstPartyAnalytics.mock.calls[2]![0]).toMatch(
+        /LIMIT 4000 OFFSET 8000$/,
       );
-      expect(tree.followUp).toMatchObject({
-        status: "incomplete",
-        incompleteReason: "journey_event_read_truncated",
-        laterRecordedActivityWithinWindow: {
-          total: null,
-          byTerminalStepKey: null,
-        },
-        noLaterRecordedActivityWithinWindow: {
-          total: null,
-          byTerminalStepKey: null,
-        },
-      });
+      expect(tree.rootN).toBe(8_001);
+      expect(tree.coverage.truncated).toBe(false);
+      expect(tree.notes?.join(" ")).toMatch(
+        /3 OFFSET pages.*late-arriving events/,
+      );
     } finally {
       now.mockRestore();
     }
   });
 
-  it("allows bounded Postgres reads beyond the BigQuery page budget", async () => {
-    const rows = Array.from({ length: 8_001 }, (_, index) =>
-      eventRow("postgres-pages", "pageview", index),
-    );
-    mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
-      sink: "postgres",
-      table: null,
-    });
-    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
-      const offset = Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
-      const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 0);
-      return { rows: rows.slice(offset, offset + limit), schema: [] };
+  it("stops BigQuery pages at the aggregate budget and marks the tree partial", async () => {
+    let page = 0;
+    mocks.queryFirstPartyAnalytics.mockImplementation(async () => {
+      const offset = page++ * 4_000;
+      return {
+        rows: Array.from({ length: 4_000 }, (_, index) =>
+          eventRow(`budget-${offset + index}`, "signup", offset + index),
+        ),
+        schema: [],
+      };
     });
 
-    const summary = (await getOnboardingJourney(scope, {
+    const tree = (await getOnboardingJourney(scope, {
       ...ARGS,
-      format: "summary",
-      maxEventRows: 10_000,
-    })) as JourneySummary;
+      format: "tree",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneyTree;
 
-    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
-    expect(summary.followUp).toMatchObject({
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(2);
+    expect(mocks.listJourneyRecordings).not.toHaveBeenCalled();
+    expect(tree.coverage).toMatchObject({
+      sessionsWithReplay: null,
+      truncated: true,
+    });
+    expect(tree.notes?.join(" ")).toMatch(
+      /aggregate maxTotalBytesBilled=50000000000 bytes budget/,
+    );
+    expect(tree.notes?.join(" ")).toMatch(/replay reads were skipped/);
+    const examples = tree.nodes.flatMap((node) => node.examples);
+    expect(examples.length).toBeGreaterThan(0);
+    expect(examples[0]).not.toHaveProperty("recordingId");
+    expect(examples[0]).toMatchObject({ viewportReason: "recording_unknown" });
+    expect(tree.followUp).toMatchObject({
       status: "incomplete",
-      incompleteReason: "journey_event_read_may_have_shifted",
-      coverage: {
-        journeyEventRead: {
-          rows: 8_001,
-          pages: 3,
-          truncated: false,
-          paginationConsistency: "may_have_shifted",
-        },
-      },
+      incompleteReason: "journey_event_read_truncated",
+      coverage: { journeyEventRead: { pages: 2, truncated: true } },
     });
   });
+
+  it("returns completed pages as partial coverage at the event-read deadline", async () => {
+    vi.useFakeTimers();
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      return {
+        rows: Array.from({ length: 4_000 }, (_, index) =>
+          eventRow(`deadline-${index}`, "signup", index),
+        ),
+        schema: [],
+      };
+    });
+
+    try {
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        dateTo: "2026-10-09",
+        format: "summary",
+        maxEventRows: 20_000,
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(1);
+      expect(summary.coverage.truncated).toBe(true);
+      expect(summary.notes?.join(" ")).toMatch(/45-second deadline/);
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "journey_event_read_truncated",
+        coverage: { journeyEventRead: { pages: 1, truncated: true } },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps caller cancellation distinct from internal partial-read limits", async () => {
+    const controller = new AbortController();
+    mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("The operation was aborted", "AbortError");
+    });
+
+    await expect(
+      getOnboardingJourney(scope, ARGS, controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it.each(["postgres", "dual"] as const)(
+    "allows %s-backed reads through the requested row budget",
+    async (sink) => {
+      const rows = Array.from({ length: 8_001 }, (_, index) =>
+        eventRow("postgres-pages", "pageview", index),
+      );
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+        const offset = Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
+        const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 0);
+        return { rows: rows.slice(offset, offset + limit), schema: [] };
+      });
+
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+        maxEventRows: 10_000,
+        maxTotalBytesBilled: 25_000_000_000,
+      })) as JourneySummary;
+
+      expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "journey_event_read_may_have_shifted",
+        coverage: {
+          journeyEventRead: {
+            rows: 8_001,
+            pages: 3,
+            truncated: false,
+            paginationConsistency: "may_have_shifted",
+          },
+        },
+      });
+    },
+  );
 
   it("counts rows it cannot read, and says so", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({

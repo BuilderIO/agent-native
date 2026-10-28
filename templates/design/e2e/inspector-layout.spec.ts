@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { waitForEditorBoot } from "./editor-boot";
 import { appPath, gotoEditor, readSeedDesignId, selectByText } from "./helpers";
 
 test.use({ viewport: { width: 1440, height: 1000 } });
@@ -58,7 +59,6 @@ async function expectHeaderThenSections(page: Page): Promise<void> {
     .toBe(true);
 }
 
-// oracle: none — structural: the tab row is gone and the sections run in the ticket's order.
 test("opens on the element header, then the sections in order, with no tab row", async ({
   page,
 }) => {
@@ -69,23 +69,22 @@ test("opens on the element header, then the sections in order, with no tab row",
 });
 
 for (const tab of ["comments", "tweaks", "code"]) {
-  // oracle: none — a URL that asks for a removed tab lands on the one inspector.
   test(`ignores ?inspector=${tab} and stays on the design inspector`, async ({
     page,
   }) => {
     await page.goto(appPath(`/design/${designId}?inspector=${tab}`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await selectByText(page, "E2E Hero Heading");
 
     await expectHeaderThenSections(page);
   });
 }
 
-// oracle: none — the inspector belongs to Design; Interact has none.
 test("hides the inspector in Interact and brings it back in Design", async ({
   page,
 }) => {
@@ -101,7 +100,6 @@ test("hides the inspector in Interact and brings it back in Design", async ({
   await expect(inspector(page)).toBeVisible();
 });
 
-// oracle: none — structural: header and section headers share one grid box.
 test("puts the header and every section header on one shared grid box", async ({
   page,
 }) => {

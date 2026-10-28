@@ -4,6 +4,7 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -23,7 +24,10 @@ import type {
   TextCommitStatus,
 } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
+import {
+  NOT_A_TEXT_CREATION,
+  type PendingTextCreationFinalization,
+} from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
@@ -40,6 +44,7 @@ import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "./selection-publication";
+import { textCommitSelectionMovedOn } from "./text-content-change";
 
 export interface ScreenTextContentChangeArgs {
   activeFile: DesignFile;
@@ -80,6 +85,7 @@ export interface ScreenTextContentChangeArgs {
       originalHtml?: string;
       routePath?: string;
       relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+      owedTextPending?: boolean;
     },
   ) => TextCommitStatus;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
@@ -142,6 +148,7 @@ export function runScreenTextContentChange(
     originalHtml?: string;
     routePath?: string;
     relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+    owedTextPending?: boolean;
   },
 ): TextCommitStatus {
   const overviewScreen = overviewScreens.find(
@@ -153,13 +160,13 @@ export function runScreenTextContentChange(
   );
   const canEditScreen =
     canEditDesign ||
-    (screenSourceType === "localhost" && canEditLiveScreen?.(screenId));
+    (isRunningAppSourceType(screenSourceType) && canEditLiveScreen?.(screenId));
   if (screenId === activeFile?.id) {
     if (!canEditScreen) return "refused";
     return handleTextContentChange(selector, value, elementInfo, details);
   }
   if (!canEditScreen) return "refused";
-  if (screenSourceType === "localhost") {
+  if (isRunningAppSourceType(screenSourceType)) {
     recordPendingLiveTextEdit(screenId, selector, value, elementInfo, details);
     setActiveFileId(screenId);
     setActiveTool("move");
@@ -253,15 +260,17 @@ export function runScreenTextContentChange(
         defaultTextLayerName(value),
       ) ?? nextContent)
     : nextContent;
-  const finalizedCreation = prepareTextCreationFinalization(
-    screenId,
-    [
-      elementInfo?.sourceId,
-      targetNode?.id,
-      targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
-    ],
-    namedContent,
-  );
+  const finalizedCreation = details?.owedTextPending
+    ? NOT_A_TEXT_CREATION
+    : prepareTextCreationFinalization(
+        screenId,
+        [
+          elementInfo?.sourceId,
+          targetNode?.id,
+          targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
+        ],
+        namedContent,
+      );
   const contentToApply = finalizedCreation.isCreationCommit
     ? namedContent
     : nextContent;
@@ -309,8 +318,23 @@ export function runScreenTextContentChange(
         nextNodeCandidate,
       )
     : nextNodeCandidate;
-  if (nextNode) setSelectedLayerIdsState([nextNode.id]);
+  const followsSelection = !finalizedCreation.isCreationCommit;
+  if (nextNode) {
+    const nextLayerId = nextNode.id;
+    setSelectedLayerIdsState((current) =>
+      followsSelection &&
+      textCommitSelectionMovedOn(projection, targetNode, { layerIds: current })
+        ? current
+        : [nextLayerId],
+    );
+  }
   setSelectedElement((previous) => {
+    if (
+      followsSelection &&
+      textCommitSelectionMovedOn(projection, targetNode, { element: previous })
+    ) {
+      return previous;
+    }
     const base =
       elementInfo ?? (previous?.selector === selector ? previous : undefined);
     return base

@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const initiatingCaller = vi.hoisted(() => ({
+  email: undefined as string | undefined,
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => initiatingCaller.email,
+}));
+
 const mockSignShortLivedToken = vi.hoisted(() =>
   vi.fn(() => "signed-job-token"),
 );
@@ -26,6 +33,7 @@ import {
 
 describe("post-finalize dispatch", () => {
   beforeEach(() => {
+    initiatingCaller.email = undefined;
     vi.stubEnv("APP_URL", "https://clips.example");
     vi.stubGlobal(
       "fetch",
@@ -34,10 +42,36 @@ describe("post-finalize dispatch", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
+
+  it.each(["transcript", "meeting-finalize"] as const)(
+    "binds a %s job token to its initiating caller",
+    async (kind) => {
+      initiatingCaller.email = "editor@example.test";
+      await dispatchPostFinalizeJob({
+        recordingId: "rec-1",
+        kind,
+        delayMs: 5000,
+        retryAttempt: 1,
+      });
+      expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+        resourceId: `clips-post-finalize-job:rec-1:${kind}:caller:editor%40example.test`,
+        ttlSeconds: 600,
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: expect.stringContaining(
+            '"requestedByEmail":"editor@example.test"',
+          ),
+        }),
+      );
+    },
+  );
 
   it("dispatches a signed recording-scoped worker request", async () => {
     await dispatchPostFinalizeJob({
@@ -85,6 +119,7 @@ describe("post-finalize dispatch", () => {
       delayMs: 5_000,
       retryAttempt: 1,
       regenerate: true,
+      replaceImportId: "import-1",
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -96,6 +131,7 @@ describe("post-finalize dispatch", () => {
           delayMs: 5_000,
           retryAttempt: 1,
           regenerate: true,
+          replaceImportId: "import-1",
           token: "signed-job-token",
         }),
       }),
@@ -127,6 +163,126 @@ describe("post-finalize dispatch", () => {
         }),
       }),
     );
+  });
+
+  it("waits for meeting finalization acceptance and propagates a late failure", async () => {
+    let resolveFetch!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+
+    let settled = false;
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-meeting",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    }).finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(settled).toBe(false);
+    resolveFetch(new Response("worker unavailable", { status: 503 }));
+    await expect(dispatch).rejects.toThrow("HTTP 503");
+  });
+
+  it("bounds required worker acceptance and aborts a stalled request", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-meeting-timeout",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    });
+    const rejection = expect(dispatch).rejects.toThrow(
+      "worker acceptance timed out after 10000ms",
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(request?.signal?.aborted).toBe(true);
+  });
+
+  it("waits for slow inline worker completion without aborting it", async () => {
+    vi.useFakeTimers();
+    let resolveFetch!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+
+    let settled = false;
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-inline-slow",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    }).finally(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(settled).toBe(false);
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal).toBeUndefined();
+    resolveFetch(new Response(null, { status: 200 }));
+    await dispatch;
+  });
+
+  it("waits for inline fallback completion after durable dispatch fast-fails", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    let resolveFallback!: (response: Response) => void;
+    let fallbackStarted!: () => void;
+    const fallbackStartedPromise = new Promise<void>((resolve) => {
+      fallbackStarted = resolve;
+    });
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        callCount += 1;
+        if (callCount === 1) {
+          return Promise.resolve(new Response(null, { status: 404 }));
+        }
+        fallbackStarted();
+        return new Promise<Response>((resolve) => {
+          resolveFallback = resolve;
+        });
+      }),
+    );
+
+    let settled = false;
+    const dispatch = dispatchPostFinalizeJob({
+      recordingId: "rec-durable-fallback",
+      kind: "meeting-finalize",
+      requireAccepted: true,
+    }).finally(() => {
+      settled = true;
+    });
+    await fallbackStartedPromise;
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(settled).toBe(false);
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]?.signal).toBeUndefined();
+    resolveFallback(new Response(null, { status: 200 }));
+    await dispatch;
   });
 
   it("routes hosted Netlify work through the durable background function", async () => {

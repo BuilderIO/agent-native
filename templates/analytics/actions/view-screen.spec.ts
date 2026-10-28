@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FIRST_PARTY_BIGQUERY_DASHBOARD_ID } from "../server/lib/canonical-first-party-dashboard-repair";
+import { summarizeDashboardAnnotations } from "../server/lib/dashboard-annotation-summary";
+import { CONNECT_UNDERCOUNT } from "../shared/annotation-fixtures";
+
 const navigationState: { current: unknown } = { current: null };
 const urlState: { current: unknown } = { current: null };
 const selectedObjectState: { current: unknown } = { current: null };
+const rowBreakdownState: { current: unknown } = { current: null };
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppStateForCurrentTab: vi.fn(async (key: string) => {
     if (key === "navigation") return navigationState.current;
     if (key === "__url__") return urlState.current;
     if (key === "selected-object") return selectedObjectState.current;
+    if (key === "row-breakdown") return rowBreakdownState.current;
     return null;
   }),
 }));
@@ -40,7 +46,7 @@ vi.mock("../server/lib/error-capture.js", () => ({
   listErrorIssues,
 }));
 
-const getDashboard = vi.fn(async () => null);
+const getDashboard = vi.fn(async (_id: string, _scope: unknown) => null);
 const listSessionRecordingsPage = vi.fn(async () => ({
   recordings: [] as { id: string }[],
   total: 0,
@@ -50,12 +56,33 @@ const listSessionRecordingsPage = vi.fn(async () => ({
 vi.mock("../server/lib/analytics-alerts", () => ({
   listAnalyticsAlertRules: vi.fn(async () => []),
 }));
+const loadDashboardAnnotationSummary = vi.fn(
+  async (
+    _drawn: unknown,
+    _dashboardId: string,
+    _config: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => ({
+    keyDateSets: [],
+    dataNotes: [],
+  }),
+);
+vi.mock("../server/lib/dashboard-annotation-reads", () => ({
+  loadDashboardAnnotationSummary,
+}));
 vi.mock("../server/lib/dashboard-catalog", () => ({
   listDashboardCatalog: vi.fn(async () => []),
 }));
 vi.mock("../server/lib/dashboards-store", () => ({
   getAnalysis: vi.fn(async () => null),
-  getDashboard,
+}));
+const getBuiltinDashboard = vi.fn();
+vi.mock("../server/lib/open-dashboard", () => ({
+  openDashboard: async (id: string, scope: unknown) => {
+    const builtin = await getBuiltinDashboard(id, scope);
+    if (builtin) return { builtin };
+    const saved = await getDashboard(id, scope);
+    return saved ? { saved } : null;
+  },
 }));
 vi.mock("../server/lib/first-party-analytics.js", () => ({
   listAnalyticsPublicKeys: vi.fn(async () => []),
@@ -68,9 +95,10 @@ const getSessionRecordingPerformance = vi.fn(
     coverageStartedAt: "2026-09-20T00:00:00.000Z" as string | null,
   }),
 );
+const getSessionReplaySummary = vi.fn(async (): Promise<unknown> => null);
 vi.mock("../server/lib/session-replay.js", () => ({
   getSessionRecordingPerformance,
-  getSessionReplaySummary: vi.fn(async () => null),
+  getSessionReplaySummary,
   listSessionRecordings: vi.fn(async () => []),
   listSessionRecordingsPage,
   replayRangeToIso: vi.fn((range: string) =>
@@ -82,8 +110,27 @@ const getSessionFrictionDetails = vi.fn(
   async (_scope: unknown, recordings: Array<{ id: string }>) =>
     new Map(recordings.map((recording) => [recording.id, { score: 3 }])),
 );
+const listRecordingFriction = vi.fn(
+  async (_scope: unknown, recordingIds: string[]) =>
+    Object.fromEntries(recordingIds.map((id) => [id, { score: 2 }])),
+);
 vi.mock("../server/lib/session-friction.js", () => ({
   getSessionFrictionDetails,
+  listRecordingFriction,
+}));
+
+const getSessionRecordingOutputs = vi.fn(
+  async (_scope: unknown, recordingIds: string[]) => ({
+    outputs: Object.fromEntries(recordingIds.map((id) => [id, []])) as Record<
+      string,
+      unknown[] | null
+    >,
+    omittedOutputs: {} as Record<string, number>,
+    coverageStartedAt: null as string | null,
+  }),
+);
+vi.mock("../server/lib/output-outcomes.js", () => ({
+  getSessionRecordingOutputs,
 }));
 
 const isSessionsTriageLabEnabled = vi.fn(async () => false);
@@ -117,6 +164,30 @@ describe("view-screen monitoring status-pages branch", () => {
     getDashboard.mockResolvedValue(null);
     userEmail = "user@example.test";
     selectedObjectState.current = null;
+    rowBreakdownState.current = null;
+  });
+
+  it("shows the row breakdown open on a dashboard, and not on Ask", async () => {
+    rowBreakdownState.current = {
+      dashboardId: "dash-1",
+      panelId: "use-by-role",
+      row: { role: "Engineer" },
+      breakdownColumn: "app",
+    };
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+    expect((await runScreen()).rowBreakdown).toEqual(rowBreakdownState.current);
+
+    setScreen({ view: "adhoc", dashboardId: "dash-1" }, { pathname: "/ask" });
+    expect((await runScreen()).rowBreakdown).toBeUndefined();
+
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-2" },
+      { pathname: "/dashboards/dash-2" },
+    );
+    expect((await runScreen()).rowBreakdown).toBeUndefined();
   });
 
   it("does not surface a stale dashboard selection on Ask", async () => {
@@ -188,6 +259,67 @@ describe("view-screen monitoring status-pages branch", () => {
       email: "user@example.test",
       orgId: "org-1",
     });
+  });
+
+  it("describes the code-backed builtin and caller annotations", async () => {
+    setScreen(
+      { view: "adhoc", dashboardId: "builtin-risk-meeting" },
+      {
+        pathname: "/dashboards/builtin-risk-meeting",
+        searchParams: { f_timeRange: "90d" },
+      },
+    );
+    getBuiltinDashboard.mockResolvedValueOnce({
+      id: "builtin-risk-meeting",
+      title: "Risk Meeting",
+      version: "v2",
+      config: { name: "Risk Meeting", panels: [] },
+    });
+    const out = await runScreen();
+    expect(out.dashboard).toMatchObject({
+      id: "builtin-risk-meeting",
+      kind: "sql",
+      title: "Risk Meeting",
+    });
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      { scope: { email: "user@example.test", orgId: "org-1" }, editable: true },
+      "builtin-risk-meeting",
+      { name: "Risk Meeting", panels: [] },
+      { f_timeRange: "90d" },
+    );
+  });
+
+  it("describes only a SQL dashboard's key dates and data notes", async () => {
+    const dashboard = (kind: string) => ({
+      id: "dash-1",
+      kind,
+      title: "Revenue",
+      config: { name: "Revenue", panels: [] },
+      ownerEmail: "user@example.test",
+      orgId: "org-1",
+      visibility: "private",
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "user@example.test",
+      updatedAt: "2026-06-25T00:00:00.000Z",
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+    });
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+    loadDashboardAnnotationSummary.mockClear();
+
+    getDashboard.mockResolvedValue(dashboard("sql") as never);
+    expect((await runScreen()).dashboard).toHaveProperty("keyDateSets", []);
+
+    getDashboard.mockResolvedValue(dashboard("explorer") as never);
+    const explorer = (await runScreen()).dashboard;
+    expect(explorer).toHaveProperty("kind", "explorer");
+    expect(explorer).not.toHaveProperty("keyDateSets");
+    expect(explorer).not.toHaveProperty("dataNotes");
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledTimes(1);
   });
 
   it("lists status pages in the monitoring surfaces catalog", async () => {
@@ -634,6 +766,96 @@ describe("view-screen Sessions context", () => {
     expect(off.sessionReplayPage.performanceCoverageStartedAt).toBeUndefined();
   });
 
+  it("applies the unused filter from the URL only while the Lab is on, with each row's outputs", async () => {
+    const output = { app: "slides", outputId: "deck-1", status: "unused" };
+    listSessionRecordingsPage.mockResolvedValue({
+      recordings: [{ id: "recording-0" }, { id: "recording-1" }],
+      total: 2,
+      appCounts: [],
+      outputs: { "recording-0": [output], "recording-1": [] },
+      omittedOutputs: { "recording-0": 2 },
+      outputCoverageStartedAt: "2026-10-01T00:00:00.000Z",
+    } as never);
+    const url = { pathname: "/sessions", searchParams: { unused: "slides" } };
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen({ view: "sessions" }, url);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ unused: "slides" }),
+    );
+    expect(
+      on.sessionReplays.map((row: any) => [row.outputs, row.omittedOutputs]),
+    ).toEqual([
+      [[output], 2],
+      [[], undefined],
+    ]);
+    expect(on.activeFilters).toMatchObject({ unused: "slides" });
+    expect(on.sessionReplayPage.outputCoverageStartedAt).toBe(
+      "2026-10-01T00:00:00.000Z",
+    );
+    expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
+      unused: "slides",
+    });
+    expect(on.sessionReplayPage.unusedFilterNotApplied).toBeUndefined();
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    listSessionRecordingsPage.mockResolvedValue({
+      recordings: [],
+      total: 0,
+      appCounts: [],
+    } as never);
+    const off = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ unused: expect.anything() }),
+    );
+    expect(off.sessionReplayPage.unusedFilterNotApplied).toBe("slides");
+    expect(off.sessionReplayPage.outputCoverageStartedAt).toBeUndefined();
+  });
+
+  it("gives a replay the friction, speed, and outputs its page shows while the Lab is on", async () => {
+    const summary = {
+      id: "recording-9",
+      ownerEmail: "user@example.test",
+      orgId: "org-1",
+    };
+    const output = { app: "slides", outputId: "deck-1", status: "unused" };
+    getSessionReplaySummary.mockResolvedValue(summary);
+    getSessionRecordingOutputs.mockResolvedValueOnce({
+      outputs: { "recording-9": [output] },
+      omittedOutputs: {},
+      coverageStartedAt: "2026-10-01T00:00:00.000Z",
+    });
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen(
+      { view: "sessions", recordingId: "recording-9" },
+      { pathname: "/sessions/recording-9" },
+    );
+
+    const on = await runScreen();
+
+    expect(on.page).toBe("session-replay-detail");
+    expect(on.sessionReplay).toEqual({
+      ...summary,
+      friction: { score: 2 },
+      performance: { slowRequests: 1 },
+      performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
+      outputs: [output],
+      outputCoverageStartedAt: "2026-10-01T00:00:00.000Z",
+    });
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(off.sessionReplay).toEqual(summary);
+    getSessionReplaySummary.mockReset();
+    getSessionReplaySummary.mockResolvedValue(null);
+  });
+
   it("reads each row's speed hints beside the list the way the page shows them while the Lab is on", async () => {
     setScreen(
       { view: "sessions" },
@@ -1035,6 +1257,126 @@ describe("view-screen dashboard summary", () => {
     expect(out.dashboard).not.toHaveProperty("ownerEmail");
     expect(out.dashboard.revision).toBe("2026-06-25T00:00:00.000Z");
     expect(out.dashboard.canEdit).toBe(true);
+  });
+
+  it("shows the key dates and data notes the dashboard's charts draw", async () => {
+    const summary = {
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [
+        {
+          id: "note-connect-undercount",
+          kind: "data",
+          title: "Connect clicks undercounted",
+          status: "open",
+          startDate: "2026-10-02",
+          panelIds: ["trend"],
+        },
+      ],
+    };
+    loadDashboardAnnotationSummary.mockResolvedValueOnce(summary);
+    showDashboard([
+      { id: "trend", title: "Trend", chartType: "line", width: 1, sql },
+    ]);
+    const searchParams = { f_timeRange: "90d" };
+    urlState.current = { pathname: "/dashboards/dash-1", searchParams };
+
+    const out = await runScreen();
+
+    // The page's URL filters set the time range its charts list notes from.
+    expect(loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      {
+        scope: { email: "owner@example.test", orgId: "org-1" },
+        editable: true,
+      },
+      "dash-1",
+      expect.objectContaining({ name: "Weekly" }),
+      searchParams,
+    );
+    expect(out.dashboard).toMatchObject(summary);
+  });
+
+  it("places data notes on a first-party dashboard's repaired charts, not its stored SQL", async () => {
+    // The repair widens this stored DAU query to count app_entered too.
+    const storedSql =
+      "SELECT event_date, COUNT(DISTINCT user_key) AS users FROM events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL GROUP BY 1";
+    const appEntered = {
+      ...CONNECT_UNDERCOUNT,
+      matchEvents: ["app_entered"],
+      unlessEvents: [],
+    };
+    loadDashboardAnnotationSummary.mockImplementationOnce(
+      async (_drawn, dashboardId, config) => ({
+        ...summarizeDashboardAnnotations(dashboardId, config, [], [appEntered]),
+      }),
+    );
+    getDashboard.mockReset();
+    getDashboard.mockResolvedValue({
+      ...savedDashboard([
+        {
+          id: "dau-over-time",
+          title: "DAU",
+          source: "bigquery",
+          chartType: "line",
+          width: 1,
+          sql: storedSql,
+        },
+      ]),
+      id: FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+    } as never);
+    selectedObjectState.current = null;
+    setScreen(
+      { view: "adhoc", dashboardId: FIRST_PARTY_BIGQUERY_DASHBOARD_ID },
+      { pathname: `/dashboards/${FIRST_PARTY_BIGQUERY_DASHBOARD_ID}` },
+    );
+
+    const out = await runScreen();
+
+    expect(out.dashboard.dataNotes).toEqual([
+      expect.objectContaining({
+        id: CONNECT_UNDERCOUNT.id,
+        panelIds: ["dau-over-time"],
+      }),
+    ]);
+  });
+
+  it("drops key-date lists before panels when a large dashboard is trimmed", async () => {
+    loadDashboardAnnotationSummary.mockResolvedValueOnce({
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [],
+    });
+    showDashboard(
+      Array.from({ length: 90 }, (_, index) => ({
+        id: `panel-${index}`,
+        title: `Panel number ${index}`,
+        chartType: "line",
+        width: 1,
+        sql,
+        config: { xKey: "week", yKeys: ["value"] },
+      })),
+    );
+
+    const out = await runScreen();
+
+    expect(out.dashboard.trimmed).toBe(true);
+    expect(out.dashboard.keyDateSets).toEqual([
+      { id: "launches", name: "Launches", shown: true, dateCount: 1 },
+    ]);
   });
 
   it("stays valid JSON under the auto-block cap for a large dashboard", async () => {

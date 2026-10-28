@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastError = vi.fn();
 const shaderWrites = vi.hoisted(() => new Set<string>());
-vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+vi.mock("@/components/design/shader-source-coordination", () => ({
   isShaderWriteInFlight: (fileId: string | undefined) =>
     Boolean(fileId && shaderWrites.has(fileId)),
 }));
@@ -207,7 +207,7 @@ function harness(
         origin: next.origin,
       };
     },
-    refreshClipboardFromSystemClipboard: async () => {},
+    refreshClipboardFromSystemClipboard: async () => "unchanged",
     remapMotionTracksForClone: () => {},
     runtimeStructureInsertRevisionRef: ref(0),
     selectInsertedLayers: (screenId, _content, rootNodeIds) => {
@@ -249,19 +249,22 @@ describe("pasting copied layers with no explicit drop point", () => {
     toastError.mockClear();
   });
 
-  it("keeps the copy inside the frame it came from when the board is the active surface", async () => {
-    const { args, writes } = harness();
-    args.historyOrderRef.current = ["selection"];
+  it("pastes free on the board at the original's canvas spot, not back into its source frame, when nothing is selected", async () => {
+    const { args, writes } = harness({
+      frames: { home: { x: 0, y: 0, width: 390, height: 844 } },
+      visibleRect: { x: 0, y: 0, width: 1000, height: 800 },
+    });
+    args.historyOrderRef.current = ["geometry"];
 
     await runPasteSelection(args);
 
     expect(args.historyOrderRef.current).toEqual([
-      "selection",
+      "geometry",
       "clipboard-paste",
     ]);
-    expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
     const acceptedContent = writes[0]!.content;
-    const lineage = args.latestClipboardMutationContentRef.current.get("home");
+    const lineage = args.latestClipboardMutationContentRef.current.get("board");
     const clipboardUndoStack = args.clipboardPasteUndoStackRef.current;
     const clipboardUndo = clipboardUndoStack[clipboardUndoStack.length - 1];
     expect(lineage?.content).toBe(acceptedContent);
@@ -269,31 +272,27 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(clipboardUndo?.after).toBe(acceptedContent);
     const copies = pastedCopies(writes[0]!.content);
     expect(copies).toHaveLength(1);
-    expect(
-      copies[0]!.parentElement?.getAttribute("data-agent-native-node-id"),
-    ).toBe("frame-1");
-    const left = pixels(copies[0]!.style.left);
-    const top = pixels(copies[0]!.style.top);
-    expect(left).toBeGreaterThanOrEqual(0);
-    expect(left).toBeLessThan(390);
-    expect(top).toBeGreaterThanOrEqual(0);
-    expect(top).toBeLessThan(844);
+    expect(copies[0]!.parentElement?.tagName).toBe("BODY");
+    expect([
+      pixels(copies[0]!.style.left),
+      pixels(copies[0]!.style.top),
+    ]).toEqual([40, 120]);
   });
 
   it("does not reserve paste history while the target shader write is active", async () => {
     const { args, writes } = harness();
-    shaderWrites.add("home");
+    shaderWrites.add("board");
     try {
       await runPasteSelection(args);
 
       expect(writes).toEqual([]);
       expect(args.clipboardPasteUndoStackRef.current).toEqual([]);
       expect(args.historyOrderRef.current).toEqual([]);
-      expect(args.latestClipboardMutationContentRef.current.has("home")).toBe(
+      expect(args.latestClipboardMutationContentRef.current.has("board")).toBe(
         false,
       );
     } finally {
-      shaderWrites.delete("home");
+      shaderWrites.delete("board");
     }
   });
 
@@ -312,6 +311,7 @@ describe("pasting copied layers with no explicit drop point", () => {
       ],
     });
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     expect(writes).toHaveLength(1);
@@ -369,6 +369,7 @@ describe("pasting copied layers with no explicit drop point", () => {
     args.remapMotionTracksForClone = remapMotionTracksForClone;
     args.selectionBefore = selectionBefore;
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     expect(writes).toEqual([]);
@@ -413,6 +414,7 @@ describe("pasting copied layers with no explicit drop point", () => {
       ],
     });
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     const doc = new DOMParser().parseFromString(
@@ -428,7 +430,7 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(childIds).toEqual(["original", copyId, "sibling"]);
   });
 
-  it("pastes a transformed layer inside its source group and preserves size", async () => {
+  it("pastes a grouped transformed board layer at its canvas spot, outside the group, and preserves size", async () => {
     const { args, writes } = harness({
       files: [
         designFile("home", "index.html", HOME_HTML),
@@ -447,9 +449,7 @@ describe("pasting copied layers with no explicit drop point", () => {
 
     expect(writes[0]?.fileId).toBe("board");
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
-      "group-1",
-    );
+    expect(copy.parentElement?.tagName).toBe("BODY");
     expect(pixels(copy.style.left)).toBe(40);
     expect(pixels(copy.style.top)).toBe(120);
     expect(copy.style.width).toBe("200px");
@@ -564,6 +564,7 @@ describe("pasting copied layers with no explicit drop point", () => {
       entries: [sourceEntry],
     });
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     expect(runtimeInsertRequests).toHaveLength(1);
@@ -668,7 +669,7 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(rects).toHaveLength(1);
   });
 
-  it("keeps a copied board object inside the group it came from", async () => {
+  it("pastes a grouped board object at its canvas spot, outside the group", async () => {
     const { args, writes } = harness({
       entries: [
         {
@@ -688,11 +689,11 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(copies[0]!.style.height).toBe("60px");
     expect(copies[0]!.style.transform).toBe("rotate(12deg)");
     expect(copies[0]!.style.transformOrigin).toBe("top left");
-    expect(
-      copies[0]!.parentElement?.getAttribute("data-agent-native-node-id"),
-    ).toBe("board-group");
-    expect(pixels(copies[0]!.style.left)).toBeLessThan(600);
-    expect(pixels(copies[0]!.style.top)).toBeLessThan(400);
+    expect(copies[0]!.parentElement?.tagName).toBe("BODY");
+    expect([
+      pixels(copies[0]!.style.left),
+      pixels(copies[0]!.style.top),
+    ]).toEqual([220, 150]);
   });
 
   it("places a transformed copy at the explicit canvas point", async () => {
@@ -709,7 +710,7 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(copy.style.transform).toBe("translateX(100px)");
   });
 
-  it("reports a paste it cannot place instead of dropping it on the board", async () => {
+  it("pastes a copy whose sources cannot all be located at the view center", async () => {
     const { args, writes } = harness({
       entries: [
         { html: RECT_HTML, rootNodeId: "rect-1", sourceFileId: "home" },
@@ -719,12 +720,23 @@ describe("pasting copied layers with no explicit drop point", () => {
           sourceFileId: "gone",
         },
       ],
+      visibleRect: { x: 0, y: 0, width: 1000, height: 800 },
     });
 
     await runPasteSelection(args);
 
-    expect(writes).toEqual([]);
-    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copies = pastedCopies(writes[0]!.content);
+    expect(copies).toHaveLength(2);
+    // Group bounds x 20..240, y 30..220 centered on (500, 400); the rotated
+    // note's left is shifted so its rotated box, not its layout box, lands.
+    expect(
+      copies.map((copy) => [pixels(copy.style.left), pixels(copy.style.top)]),
+    ).toEqual([
+      [410, 395],
+      [402, 305],
+    ]);
   });
 
   it("refuses cross-file paste when snapshot capture failed and leaves the destination untouched", async () => {
@@ -802,6 +814,7 @@ describe("pasting copied layers with no explicit drop point", () => {
       startedAt: 0,
     });
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     expect(writes).toEqual([]);
@@ -897,7 +910,7 @@ describe("pasting copied layers while the original is off-screen", () => {
     ]);
   });
 
-  it("pastes into the screen under the view center at that point", async () => {
+  it("pastes free on the board at the view center even when a screen is under it", async () => {
     const { args, writes } = harness({
       files: viewFiles(),
       activeFileId: "board",
@@ -907,11 +920,11 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     await runPasteSelection(args);
 
-    expect(writes.map((write) => write.fileId)).toEqual(["other"]);
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
     expect(copy.parentElement?.tagName).toBe("BODY");
-    expect(pixels(copy.style.left)).toBe(200);
-    expect(pixels(copy.style.top)).toBe(400);
+    expect(pixels(copy.style.left)).toBe(5100);
+    expect(pixels(copy.style.top)).toBe(350);
   });
 
   it("steps each repeated paste so copies do not stack exactly", async () => {
@@ -927,14 +940,14 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     const copies = pastedCopies(writes[1]!.content);
     expect(copies.map((copy) => pixels(copy.style.left)).sort()).toEqual([
-      3500, 3516,
+      3400, 3416,
     ]);
     expect(copies.map((copy) => pixels(copy.style.top)).sort()).toEqual([
-      3300, 3316,
+      3250, 3266,
     ]);
   });
 
-  it("keeps pasting next to the original while its screen is in view", async () => {
+  it("pastes on the board over the original while its spot is in view", async () => {
     const { args, writes } = harness({
       files: viewFiles(),
       activeFileId: "board",
@@ -944,11 +957,9 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     await runPasteSelection(args);
 
-    expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
-      "frame-1",
-    );
+    expect(copy.parentElement?.tagName).toBe("BODY");
     expect(pixels(copy.style.left)).toBe(40);
     expect(pixels(copy.style.top)).toBe(120);
   });
@@ -969,11 +980,11 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     expect(writes.map((write) => write.fileId)).toEqual(["board"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(pixels(copy.style.left)).toBe(500);
-    expect(pixels(copy.style.top)).toBe(400);
+    expect(pixels(copy.style.left)).toBe(400);
+    expect(pixels(copy.style.top)).toBe(350);
   });
 
-  it("pastes next to the original once its screen has moved into view", async () => {
+  it("pastes on the board over the original once its screen has moved into view", async () => {
     const { args, writes } = harness({
       files: viewFiles(),
       activeFileId: "board",
@@ -987,10 +998,10 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     await runPasteSelection(args);
 
-    expect(writes.map((write) => write.fileId)).toEqual(["home"]);
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(pixels(copy.style.left)).toBe(40);
-    expect(pixels(copy.style.top)).toBe(120);
+    expect(pixels(copy.style.left)).toBe(4990);
+    expect(pixels(copy.style.top)).toBe(370);
   });
 
   it("keeps pasting into a selected screen that is in view", async () => {
@@ -1035,7 +1046,7 @@ describe("pasting copied layers while the original is off-screen", () => {
     );
   });
 
-  it("does not guess for a board object, whose position the clipboard cannot place", async () => {
+  it("centers a grouped board object on the view when its spot is off-screen", async () => {
     const { args, writes } = harness({
       files: viewFiles(),
       entries: [
@@ -1053,9 +1064,11 @@ describe("pasting copied layers while the original is off-screen", () => {
 
     expect(writes.map((write) => write.fileId)).toEqual(["board"]);
     const copy = pastedCopies(writes[0]!.content)[0]!;
-    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
-      "board-group",
-    );
+    expect(copy.parentElement?.tagName).toBe("BODY");
+    // Centered at (3440, 3270); the 12deg rotation shifts the authored left.
+    expect([pixels(copy.style.left), pixels(copy.style.top)]).toEqual([
+      3452, 3270,
+    ]);
   });
 
   it("pastes at an explicit point even when the original is off-screen", async () => {
@@ -1091,7 +1104,286 @@ describe("pasting copied layers while the original is off-screen", () => {
   });
 });
 
+describe("paste targets", () => {
+  beforeEach(() => toastError.mockClear());
+
+  const overflowingRect = `<div data-agent-native-node-id="wide" data-an-primitive="rectangle" style="position:absolute;left:250px;top:120px;width:200px;height:100px"></div>`;
+
+  it("pastes into a selected board frame as its top-most child", async () => {
+    const board = `<!DOCTYPE html>
+<html lang="en"><head></head><body>
+<div data-agent-native-node-id="board-frame" data-an-primitive="frame" data-agent-native-layer-name="Board frame" style="position:absolute;left:1000px;top:1000px;width:400px;height:300px"><div data-agent-native-node-id="inner" style="position:absolute;left:0px;top:0px;width:20px;height:20px"></div></div>
+</body></html>`;
+    const selectedFrame: ElementInfo = {
+      ...selectedRect(),
+      sourceId: "board-frame",
+      selector: '[data-agent-native-node-id="board-frame"]',
+      boundingRect: { x: 1000, y: 1000, width: 400, height: 300 },
+    };
+    const { args, writes } = harness({
+      files: [
+        designFile("home", "index.html", HOME_HTML),
+        designFile("board", "__board__.html", board),
+      ],
+      selectedElement: selectedFrame,
+    });
+    args.selectedCanvasSelector = selectedFrame.selector!;
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const doc = new DOMParser().parseFromString(
+      writes[0]!.content,
+      "text/html",
+    );
+    const frame = doc.querySelector(
+      '[data-agent-native-node-id="board-frame"]',
+    )!;
+    const last = frame.lastElementChild as HTMLElement;
+    expect(last.getAttribute("data-agent-native-node-id")).toMatch(/^copy-/);
+    expect([pixels(last.style.left), pixels(last.style.top)]).toEqual([
+      40, 120,
+    ]);
+  });
+
+  it("centers a copy in the selected frame when its old offset would overflow it", async () => {
+    const selectedBox: ElementInfo = {
+      ...selectedRect(),
+      sourceId: "box",
+      selector: '[data-agent-native-node-id="box"]',
+      boundingRect: { x: 20, y: 20, width: 300, height: 300 },
+    };
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "other",
+      entries: [
+        { html: overflowingRect, rootNodeId: "wide", sourceFileId: "home" },
+      ],
+      selectedElement: selectedBox,
+      pasteCascade: 2,
+    });
+    args.selectedCanvasSelector = selectedBox.selector!;
+
+    await runPasteSelection(args);
+
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.getAttribute("data-agent-native-node-id")).toBe(
+      "box",
+    );
+    expect([pixels(copy.style.left), pixels(copy.style.top)]).toEqual([
+      50, 100,
+    ]);
+  });
+
+  it("centers a copy in a selected screen when its old offset would overflow it", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "other",
+      entries: [
+        {
+          html: overflowingRect.replace("left:250px", "left:300px"),
+          rootNodeId: "wide",
+          sourceFileId: "home",
+        },
+      ],
+      frames: SCREEN_FRAMES,
+      selectedScreenIds: ["other"],
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["other"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.tagName).toBe("BODY");
+    expect([pixels(copy.style.left), pixels(copy.style.top)]).toEqual([
+      95, 372,
+    ]);
+  });
+
+  it("pastes onto the board after an empty-canvas click leaves the last screen active", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      activeFileId: "home",
+      frames: SCREEN_FRAMES,
+      visibleRect: OVER_HOME_VIEW,
+    });
+
+    await runPasteSelection(args);
+
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.tagName).toBe("BODY");
+    expect([pixels(copy.style.left), pixels(copy.style.top)]).toEqual([
+      40, 120,
+    ]);
+  });
+
+  it("pastes a copy from another design onto the board at the view center", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      entries: [
+        {
+          html: RECT_HTML,
+          rootNodeId: "rect-1",
+          sourceFileId: "file-in-another-design",
+        },
+      ],
+      frames: SCREEN_FRAMES,
+      visibleRect: OFF_SCREEN_VIEW,
+    });
+
+    await runPasteSelection(args);
+
+    expect(toastError).not.toHaveBeenCalled();
+    expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect(copy.parentElement?.tagName).toBe("BODY");
+    expect([pixels(copy.style.left), pixels(copy.style.top)]).toEqual([
+      3400, 3250,
+    ]);
+  });
+
+  it.each([
+    [
+      "at its original canvas spot while that spot is in view",
+      3100,
+      [3100, 3100],
+    ],
+    [
+      "at the view center once its original spot is off-screen",
+      0,
+      [3400, 3250],
+    ],
+  ] as const)(
+    "pastes a copy from another design %s",
+    async (_, originalAt, expected) => {
+      const { args, writes } = harness({
+        files: viewFiles(),
+        entries: [
+          {
+            html: RECT_HTML,
+            rootNodeId: "rect-1",
+            sourceFileId: "file-in-another-design",
+            sourceCanvasRect: {
+              x: originalAt,
+              y: originalAt,
+              width: 200,
+              height: 100,
+            },
+          },
+        ],
+        frames: SCREEN_FRAMES,
+        visibleRect: OFF_SCREEN_VIEW,
+      });
+
+      await runPasteSelection(args);
+
+      expect(writes.map((write) => write.fileId)).toEqual(["board"]);
+      const copy = pastedCopies(writes[0]!.content)[0]!;
+      expect(copy.parentElement?.tagName).toBe("BODY");
+      expect([pixels(copy.style.left), pixels(copy.style.top)]).toEqual(
+        expected,
+      );
+    },
+  );
+
+  it("lands a view-centered paste on whole pixels", async () => {
+    const { args, writes } = harness({
+      files: viewFiles(),
+      frames: SCREEN_FRAMES,
+      visibleRect: { x: 3000.25, y: 3000.5, width: 1000, height: 600 },
+    });
+
+    await runPasteSelection(args);
+
+    const copy = pastedCopies(writes[0]!.content)[0]!;
+    expect([copy.style.left, copy.style.top]).toEqual(["3400px", "3251px"]);
+  });
+
+  it.each([
+    ["keeps the copy's old offset", RECT_HTML, [40, 120]],
+    ["centers the copy", overflowingRect, [100, 100]],
+  ] as const)(
+    "pastes beside a selected layer, directly above it, and %s in that parent",
+    async (_, html, expected) => {
+      const content = `<!DOCTYPE html>
+<html lang="en"><head></head><body>
+<div data-agent-native-node-id="group" style="position:absolute;left:0px;top:0px;width:400px;height:300px"><p data-agent-native-node-id="note" style="position:absolute;left:10px;top:10px;width:80px;height:20px">Note</p><p data-agent-native-node-id="later" style="position:absolute;left:10px;top:50px;width:80px;height:20px">Later</p></div>
+</body></html>`;
+      const note: ElementInfo = {
+        ...selectedRect(),
+        tagName: "p",
+        sourceId: "note",
+        selector: '[data-agent-native-node-id="note"]',
+        textContent: "Note",
+        boundingRect: { x: 10, y: 10, width: 80, height: 20 },
+        parentBoundingRect: { x: 0, y: 0, width: 400, height: 300 },
+      };
+      const { args, writes } = harness({
+        files: [
+          designFile("home", "index.html", HOME_HTML),
+          designFile("other", "other.html", content),
+        ],
+        activeFileId: "other",
+        entries: [
+          {
+            html,
+            rootNodeId: html === RECT_HTML ? "rect-1" : "wide",
+            sourceFileId: "home",
+          },
+        ],
+        selectedElement: note,
+      });
+      args.selectedCanvasSelector = note.selector!;
+
+      await runPasteSelection(args);
+
+      const doc = new DOMParser().parseFromString(
+        writes[0]!.content,
+        "text/html",
+      );
+      const group = doc.querySelector('[data-agent-native-node-id="group"]')!;
+      const ids = Array.from(group.children).map((child) =>
+        child.getAttribute("data-agent-native-node-id"),
+      );
+      expect(ids[0]).toBe("note");
+      expect(ids[1]).toMatch(/^copy-/);
+      expect(ids[2]).toBe("later");
+      const copy = group.children[1] as HTMLElement;
+      expect([pixels(copy.style.left), pixels(copy.style.top)]).toEqual(
+        expected,
+      );
+    },
+  );
+
+  it("skips the async clipboard read when the paste event already delivered the payload", async () => {
+    const { args, writes } = harness({ activeFileId: "home" });
+    const refresh = vi.fn(async () => "unchanged" as const);
+    args.refreshClipboardFromSystemClipboard = refresh;
+
+    await runPasteSelection(args, undefined, { payloadFromPasteEvent: true });
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(writes).toHaveLength(1);
+  });
+
+  it("says why a paste did nothing when the clipboard could not be read", async () => {
+    const { args, writes } = harness({ entries: [] });
+    args.refreshClipboardFromSystemClipboard = async () => "unreadable";
+
+    await runPasteSelection(args);
+
+    expect(writes).toEqual([]);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.pasteClipboardUnreadable",
+      expect.anything(),
+    );
+  });
+});
+
 describe("clipboard source placement", () => {
+  beforeEach(() => toastError.mockClear());
+
   const card = `<section data-agent-native-node-id="card" style="position:absolute;left:40px;top:60px;width:260px"><button data-agent-native-node-id="child">Child</button></section>`;
   const source = `<!doctype html><html><body><main data-agent-native-node-id="source-root">${card}<p data-agent-native-node-id="peer">Peer</p></main></body></html>`;
   const selected = (id: string): ElementInfo => ({
@@ -1197,6 +1489,78 @@ describe("clipboard source placement", () => {
       expect(toastError).not.toHaveBeenCalled();
     },
   );
+
+  it("uses captured relative geometry when copied markup omits stylesheet positioning", async () => {
+    const relative =
+      '<div class="relative-offset" data-agent-native-node-id="relative" data-agent-native-layer-name="Relative" style="left:40.25px;right:7.75px;top:12.5px;bottom:9.25px">Relative</div>';
+    const absolute =
+      '<section data-agent-native-node-id="absolute" data-agent-native-layer-name="Absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+    const { args, writes } = harness({
+      files: [
+        designFile(
+          "home",
+          "index.html",
+          `<!doctype html><html><head><style>.relative-offset{position:relative}</style></head><body>${relative}${absolute}</body></html>`,
+        ),
+      ],
+      activeFileId: "home",
+      pasteCascade: 1,
+      entries: [
+        {
+          html: relative,
+          rootNodeId: "relative",
+          sourceFileId: "home",
+          sourceRelativeOffset: { x: -7.75, y: 12.5 },
+        },
+        { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+      ],
+      selectedElement: {
+        ...selected("relative"),
+        computedStyles: {
+          position: "relative",
+          left: "40.25px",
+          right: "7.75px",
+          top: "12.5px",
+          bottom: "9.25px",
+        },
+        relativeContainingBlockDirection: "rtl",
+      },
+    });
+    args.selectedCanvasSelector = args.selectedElement!.selector!;
+
+    await runPasteSelection(args);
+
+    const copies = pastedCopies(writes[0]!.content);
+    const relativeCopy = copies.find(
+      (root) =>
+        root.getAttribute("data-agent-native-layer-name") === "Relative",
+    )!;
+    const absoluteCopy = copies.find(
+      (root) =>
+        root.getAttribute("data-agent-native-layer-name") === "Absolute",
+    )!;
+    expect([
+      relativeCopy.className,
+      relativeCopy.style.position,
+      relativeCopy.style.left,
+      relativeCopy.style.right,
+      relativeCopy.style.top,
+      relativeCopy.style.bottom,
+    ]).toEqual([
+      "relative-offset",
+      "",
+      "40.25px",
+      "7.75px",
+      "12.5px",
+      "9.25px",
+    ]);
+    expect([
+      absoluteCopy.style.position,
+      absoluteCopy.style.left,
+      absoluteCopy.style.top,
+    ]).toEqual(["absolute", "356px", "96px"]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
 
   it("cascades only positioned roots when repasting the original mixed source", async () => {
     const relative =
@@ -1360,6 +1724,7 @@ describe("clipboard source placement", () => {
     const getPreparedPasteVisualOffset = vi.fn(() => ({ x: 0, y: 0 }));
     args.getPreparedPasteVisualOffset = getPreparedPasteVisualOffset;
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     expect(getPreparedPasteVisualOffset).toHaveBeenCalledTimes(2);
@@ -1390,6 +1755,7 @@ describe("clipboard source placement", () => {
     const getPreparedPasteVisualOffset = vi.fn(() => ({ x: 0, y: 0 }));
     args.getPreparedPasteVisualOffset = getPreparedPasteVisualOffset;
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     expect(getPreparedPasteVisualOffset).toHaveBeenCalledWith(
@@ -1416,6 +1782,7 @@ describe("clipboard source placement", () => {
     const getPreparedPasteVisualOffset = vi.fn(() => ({ x: 0, y: 0 }));
     args.getPreparedPasteVisualOffset = getPreparedPasteVisualOffset;
 
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
 
     expect(getPreparedPasteVisualOffset).toHaveBeenCalledWith(
@@ -2003,6 +2370,130 @@ describe("clipboard source placement", () => {
       expect(toastError).not.toHaveBeenCalled();
     },
   );
+
+  it("uses the source baseline and the selected clone's RTL parent when repeating a relative layer", async () => {
+    const relative =
+      '<div data-agent-native-node-id="relative" style="position:relative;left:40.25px;right:7.75px;top:12.5px;bottom:9.25px">Relative</div>';
+    const absolute =
+      '<section data-agent-native-node-id="absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+    const selectedCloneId = "relative-copy";
+    const selector = `[data-agent-native-node-id="${selectedCloneId}"]`;
+    const pastedClipboardLayerSourcesRef = ref(
+      new Map([
+        [
+          JSON.stringify(["live", selectedCloneId]),
+          { sourceFileId: "home", rootNodeId: "relative" },
+        ],
+      ]),
+    );
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [
+        {
+          html: relative,
+          rootNodeId: "relative",
+          sourceFileId: "home",
+          sourceRelativeOffset: { x: -7.75, y: 12.5 },
+        },
+        { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+      ],
+      pastedClipboardLayerSourcesRef,
+      selectedElement: {
+        ...selected(selectedCloneId),
+        runtimeSourceId: selectedCloneId,
+        runtimeSelector: selector,
+        inlineStyles: {
+          position: "relative",
+          left: "40.25px",
+          right: "-8.25px",
+          top: "28.5px",
+          bottom: "9.25px",
+        },
+        computedStyles: {
+          position: "relative",
+          left: "40.25px",
+          right: "-8.25px",
+          top: "28.5px",
+          bottom: "9.25px",
+        },
+        relativeContainingBlockDirection: "rtl",
+      },
+    });
+    args.viewModeRef.current = "single";
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    const copies = [
+      runtimeInsertRequests[0]!.html,
+      ...(runtimeInsertRequests[0]!.additionalHtml ?? []),
+    ].map(
+      (html) =>
+        new DOMParser().parseFromString(html, "text/html").body
+          .firstElementChild as HTMLElement,
+    );
+    expect([
+      copies[0]!.style.position,
+      copies[0]!.style.left,
+      copies[0]!.style.top,
+      copies[0]!.style.right,
+      copies[0]!.style.bottom,
+    ]).toEqual(["relative", "24px", "45px", "auto", "auto"]);
+    expect([
+      copies[1]!.style.position,
+      copies[1]!.style.left,
+      copies[1]!.style.top,
+    ]).toEqual(["absolute", "372px", "112px"]);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("does not repeat a relative source without captured insets", async () => {
+    const relative =
+      '<div data-agent-native-node-id="relative" style="position:relative">Relative</div>';
+    const absolute =
+      '<section data-agent-native-node-id="absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+    const { args, runtimeInsertRequests } = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [
+        { html: relative, rootNodeId: "relative", sourceFileId: "home" },
+        { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+      ],
+    });
+    args.viewModeRef.current = "single";
+    toastError.mockClear();
+
+    await runPasteSelection(args, { x: 200, y: 220 });
+
+    const firstCopy = new DOMParser().parseFromString(
+      runtimeInsertRequests[0]!.html,
+      "text/html",
+    ).body.firstElementChild as HTMLElement;
+    const firstCopyId = firstCopy.getAttribute("data-agent-native-node-id")!;
+    const selector = `[data-agent-native-node-id="${firstCopyId}"]`;
+    args.selectedElement = {
+      ...selected(firstCopyId),
+      runtimeSourceId: firstCopyId,
+      runtimeSelector: selector,
+      computedStyles: {
+        position: "relative",
+        left: "auto",
+        right: "auto",
+        top: "auto",
+        bottom: "auto",
+      },
+    };
+    args.selectedCanvasSelector = selector;
+
+    await runPasteSelection(args);
+
+    expect(runtimeInsertRequests).toHaveLength(1);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.layerMoveFailed",
+      { duration: 4000 },
+    );
+  });
 
   it.each(["absolute", "relative"] as const)(
     "preserves an unmoved relative root when repeating beside an unmoved selected %s clone",
@@ -2610,7 +3101,7 @@ describe("clipboard source placement", () => {
     const previous = pastedCopies(firstPaste.writes[0]!.content).find(
       (node) => node.tagName === "SECTION",
     )!;
-    expect(previous.getAttribute("data-agent-native-clone-root")).toBe("true");
+    expect(previous.hasAttribute("data-agent-native-clone-root")).toBe(false);
     expect(
       previous.hasAttribute("data-agent-native-clone-source-file-id"),
     ).toBe(false);
@@ -2713,7 +3204,10 @@ describe("clipboard source placement", () => {
       ],
       activeFileId: "target",
       entries: [{ html: card, rootNodeId: "card", sourceFileId: "home" }],
-      selectedElement: selected("previous"),
+      selectedElement: {
+        ...selected("previous"),
+        boundingRect: { x: 40, y: 60, width: 400, height: 300 },
+      },
     });
 
     await runPasteSelection(args);
@@ -2777,6 +3271,7 @@ describe("clipboard source placement", () => {
         { html: peer, rootNodeId: "copied-peer", sourceFileId: "home" },
       ],
     });
+    args.viewModeRef.current = "single";
     await runPasteSelection(args);
     const copies = pastedCopies(writes[0]!.content).filter(
       (node) =>
@@ -2788,6 +3283,102 @@ describe("clipboard source placement", () => {
       ["340px", "80px"],
     ]);
   });
+
+  it.each(["saved HTML", "live URL"] as const)(
+    "preserves relative and absolute modes on no-anchor cross-screen %s pastes",
+    async (targetKind) => {
+      const relative =
+        '<div data-agent-native-node-id="relative" data-agent-native-layer-name="Relative" data-note="kept" style="position:relative;left:40px;top:12px;margin:3px 4px">Relative</div>';
+      const absolute =
+        '<section data-agent-native-node-id="absolute" data-agent-native-layer-name="Absolute" style="position:absolute;left:340px;top:80px">Absolute</section>';
+      const targetFileId = "target";
+      const targetContent =
+        targetKind === "saved HTML"
+          ? '<!doctype html><html><body data-agent-native-node-id="target-body"></body></html>'
+          : "https://example.com/live";
+      const { args, writes, runtimeInsertRequests } = harness({
+        files: [
+          designFile(
+            "home",
+            "index.html",
+            `<!doctype html><html><body>${relative}${absolute}</body></html>`,
+          ),
+          designFile(targetFileId, "target.html", targetContent),
+        ],
+        activeFileId: targetFileId,
+        entries: [
+          { html: relative, rootNodeId: "relative", sourceFileId: "home" },
+          { html: absolute, rootNodeId: "absolute", sourceFileId: "home" },
+        ],
+      });
+      args.viewModeRef.current = "single";
+
+      const rootsFromPaste = (pasteIndex: number) => {
+        if (targetKind === "saved HTML") {
+          const content = writes[pasteIndex]!.content;
+          const copies = pastedCopies(content);
+          if (pasteIndex === 0) return copies;
+          const previousIds = new Set(
+            pastedCopies(writes[pasteIndex - 1]!.content).map((root) =>
+              root.getAttribute("data-agent-native-node-id"),
+            ),
+          );
+          return copies.filter(
+            (root) =>
+              !previousIds.has(root.getAttribute("data-agent-native-node-id")),
+          );
+        }
+        const request = runtimeInsertRequests[pasteIndex]!;
+        return [request.html, ...(request.additionalHtml ?? [])].map(
+          (html) =>
+            new DOMParser().parseFromString(html, "text/html").body
+              .firstElementChild as HTMLElement,
+        );
+      };
+      const expectRoots = (
+        roots: HTMLElement[],
+        absoluteLeft: string,
+        absoluteTop: string,
+      ) => {
+        expect(roots).toHaveLength(2);
+        const relativeCopy = roots.find(
+          (root) =>
+            root.getAttribute("data-agent-native-layer-name") === "Relative",
+        )!;
+        const absoluteCopy = roots.find(
+          (root) =>
+            root.getAttribute("data-agent-native-layer-name") === "Absolute",
+        )!;
+        expect([
+          relativeCopy.style.position,
+          relativeCopy.style.left,
+          relativeCopy.style.top,
+          relativeCopy.style.margin,
+          relativeCopy.getAttribute("data-note"),
+          relativeCopy.textContent,
+        ]).toEqual(["relative", "40px", "12px", "3px 4px", "kept", "Relative"]);
+        expect([
+          absoluteCopy.style.position,
+          absoluteCopy.style.left,
+          absoluteCopy.style.top,
+          absoluteCopy.textContent,
+        ]).toEqual(["absolute", absoluteLeft, absoluteTop, "Absolute"]);
+        expect([
+          relativeCopy.getAttribute("data-agent-native-node-id"),
+          absoluteCopy.getAttribute("data-agent-native-node-id"),
+        ]).not.toEqual(["relative", "absolute"]);
+      };
+
+      await runPasteSelection(args);
+
+      expectRoots(rootsFromPaste(0), "340px", "80px");
+
+      await runPasteSelection(args);
+
+      expectRoots(rootsFromPaste(1), "356px", "96px");
+      expect(toastError).not.toHaveBeenCalled();
+    },
+  );
 
   it("applies the current cascade uniformly to source-positioned live roots", async () => {
     const peer = `<button data-agent-native-node-id="runtime-peer" style="position:absolute;left:340px;top:80px">Peer</button>`;
@@ -2851,4 +3442,115 @@ it("pastes an auto-sized flow child as a positioned child of a free frame", asyn
   expect([copy.style.left, copy.style.top]).toEqual(["0px", "0px"]);
   expect(copy.style.width).toBe("");
   expect(copy.style.height).toBe("");
+});
+
+describe("pasting into a selected layer on a live screen", () => {
+  beforeEach(() => toastError.mockClear());
+
+  const OVERFLOWING_RECT = `<div data-agent-native-node-id="wide" data-an-primitive="rectangle" style="position:absolute;left:250px;top:120px;width:200px;height:100px"></div>`;
+
+  function liveCard(overrides: Partial<ElementInfo> = {}): ElementInfo {
+    return {
+      tagName: "div",
+      sourceId: "runtime-card",
+      runtimeSourceId: "runtime-card",
+      selector: '[data-agent-native-node-id="runtime-card"]',
+      runtimeSelector: '[data-agent-native-node-id="runtime-card"]',
+      classes: [],
+      computedStyles: { position: "relative", display: "block" },
+      boundingRect: { x: 100, y: 100, width: 400, height: 300 },
+      childElementCount: 2,
+      textContent: "Card title",
+      isFlexChild: false,
+      isFlexContainer: false,
+      ...overrides,
+    };
+  }
+
+  async function pasteOnLive(selectedElement: ElementInfo, html = RECT_HTML) {
+    const result = harness({
+      files: [designFile("live", "live.html", "https://example.com/live")],
+      activeFileId: "live",
+      entries: [{ html, rootNodeId: "copied", sourceFileId: "live" }],
+      selectedElement,
+    });
+    result.args.selectedCanvasSelector = selectedElement.selector!;
+    await runPasteSelection(result.args);
+    return result.runtimeInsertRequests;
+  }
+
+  function insertedRoot(request: RuntimeStructureInsertRequest) {
+    return new DOMParser().parseFromString(request.html, "text/html").body
+      .firstElementChild as HTMLElement;
+  }
+
+  it("pastes into a selected container as its top-most child at the copy's old offset", async () => {
+    const requests = await pasteOnLive(liveCard());
+
+    expect(toastError).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.placement).toBe("inside");
+    expect(requests[0]!.anchor).toEqual({
+      selector: '[data-agent-native-node-id="runtime-card"]',
+      sourceId: "runtime-card",
+    });
+    const copy = insertedRoot(requests[0]!);
+    expect([copy.style.left, copy.style.top]).toEqual(["40px", "120px"]);
+  });
+
+  it("centers the copy in the selected container when its old offset would overflow it", async () => {
+    const requests = await pasteOnLive(liveCard(), OVERFLOWING_RECT);
+
+    expect(requests[0]!.placement).toBe("inside");
+    const copy = insertedRoot(requests[0]!);
+    expect([copy.style.left, copy.style.top]).toEqual(["100px", "100px"]);
+  });
+
+  it("joins the flow of a selected auto layout container", async () => {
+    const requests = await pasteOnLive(
+      liveCard({ isFlexContainer: true, computedStyles: { display: "flex" } }),
+    );
+
+    expect(requests[0]!.placement).toBe("inside");
+    const copy = insertedRoot(requests[0]!);
+    expect([copy.style.left, copy.style.top]).toEqual(["", ""]);
+  });
+
+  it("pastes directly above a selected text layer instead of inside it", async () => {
+    const requests = await pasteOnLive(
+      liveCard({ tagName: "p", childElementCount: 0, textContent: "Hello" }),
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.placement).toBe("after");
+  });
+
+  it("keeps the copy's old offset beside a selected free layer when it fits that parent", async () => {
+    const requests = await pasteOnLive(
+      liveCard({
+        tagName: "p",
+        childElementCount: 0,
+        textContent: "Hello",
+        computedStyles: { position: "absolute" },
+        parentDisplay: "block",
+        parentBoundingRect: { x: 0, y: 0, width: 400, height: 300 },
+      }),
+    );
+
+    expect(requests[0]!.placement).toBe("after");
+    const copy = insertedRoot(requests[0]!);
+    expect([copy.style.left, copy.style.top]).toEqual(["40px", "120px"]);
+  });
+
+  it("refuses with a toast when the selection cannot say whether it holds children", async () => {
+    const requests = await pasteOnLive(
+      liveCard({ childElementCount: undefined }),
+    );
+
+    expect(requests).toEqual([]);
+    expect(toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.pasteTargetUnmeasured",
+      expect.anything(),
+    );
+  });
 });

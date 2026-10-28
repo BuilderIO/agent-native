@@ -46,8 +46,7 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
-// fixme: fails in CI on current main: expect(received).toStrictEqual(expected) // deep equality
-test.fixme("new Screen W/H commits keep frame and metadata geometry in sync", async ({
+test("new Screen W/H commits keep frame and metadata geometry in sync", async ({
   app,
 }) => {
   const id = await app.seed(ONE_SCREEN);
@@ -100,8 +99,8 @@ test.fixme("new Screen W/H commits keep frame and metadata geometry in sync", as
     width: 360,
     height: 315,
   });
-  await expect(width).toHaveValue("360px");
-  await expect(height).toHaveValue("315px");
+  await expect(width).toHaveValue("360");
+  await expect(height).toHaveValue("315");
   const card = app.page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"] [data-screen-card]`,
   );

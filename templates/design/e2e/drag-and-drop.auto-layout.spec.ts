@@ -7,7 +7,9 @@ import {
   type SavedNode,
 } from "./rails";
 
-test.use({ viewport: { width: 1600, height: 1000 } });
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+test.use({ viewport: { width: 1640, height: 1000 } });
 
 const VERTICAL_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
@@ -110,7 +112,10 @@ async function selectAndGrab(app: App, nodeId: string, layerName: string) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down(MOD);
   await app.page.mouse.click(grab.x, grab.y);
+  await app.page.keyboard.up(MOD);
   await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
   return grab;
 }
@@ -277,8 +282,7 @@ test("dropping a free layer on a grid cell's leading edge inserts it into that c
   });
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-test.fixme("dropping a free layer on an empty frame inside a flex row nests it in the frame, not in the row", async ({
+test("dropping a free layer on an empty frame inside a flex row nests it in the frame, not in the row", async ({
   app,
 }) => {
   const id = await openFixture(app, NEST_FIXTURE);
@@ -326,8 +330,7 @@ test.fixme("dropping a free layer on an empty frame inside a flex row nests it i
   });
 });
 
-// fixme: product bug: After the drop the over-full flex row (300px holding 180+80+64 + gaps) shrinks fixed-width children: Nest Source renders 68x140
-test.fixme("a layer taller than a nested frame drops beside it in the row, not inside, and keeps its size", async ({
+test("a layer taller than a nested frame drops beside it in the row, not inside, and keeps its size", async ({
   app,
 }) => {
   const id = await openFixture(app, OVERSIZED_HEIGHT_NEST_FIXTURE);
@@ -361,10 +364,18 @@ test.fixme("a layer taller than a nested frame drops beside it in the row, not i
     "nested-next",
   ]);
   expect(childrenOf(after, "nested-frame")).toEqual([]);
-  expect(styleOf(after.get("nest-source"))).toEqual(
-    withoutPlacement(styleOf(before.get("nest-source"))),
-  );
-  expectOnlyChanged(before, after, ["nest-source"]);
+  expect(styleOf(after.get("nest-source"))).toEqual({
+    ...withoutPlacement(styleOf(before.get("nest-source"))),
+    "flex-shrink": "0",
+  });
+  const siblings = ["nested-frame", "nested-next"];
+  expectOnlyChanged(before, after, ["nest-source", ...siblings]);
+  for (const sibling of siblings) {
+    expect(
+      styleOf(after.get(sibling)),
+      `${sibling} is pinned at its fixed width in the overfull row`,
+    ).toEqual({ ...styleOf(before.get(sibling)), "flex-shrink": "0" });
+  }
   const dropped = await app.designRect("nest-source");
   expect({ width: dropped.width, height: dropped.height }).toEqual({
     width: 80,
@@ -372,8 +383,7 @@ test.fixme("a layer taller than a nested frame drops beside it in the row, not i
   });
 });
 
-// fixme: product bug: Teleport: the saved style drops position/left/top, so the layer becomes a static body child rendered at the screen's top-left 0,0 over
-test.fixme("a layer wider than an empty auto-layout frame drops beside it and stays where it was released", async ({
+test("a layer wider than an empty auto-layout frame drops beside it and stays where it was released", async ({
   app,
 }) => {
   const id = await openFixture(app, OVERSIZED_PLAIN_DROP_FIXTURE);
@@ -404,8 +414,7 @@ test.fixme("a layer wider than an empty auto-layout frame drops beside it and st
   });
 });
 
-// fixme: product bug: Control+mousedown opens the canvas context menu (Select layer / Edit with AI / Copy ...), and it stays open over the canvas after the
-test.fixme("holding the ignore-auto-layout key drags a child out of its row to the exact drop point without opening a menu", async ({
+test("holding the ignore-auto-layout key drags a child out of its row to the exact drop point without opening a menu", async ({
   app,
 }) => {
   const id = await openFixture(app, IGNORE_AUTO_LAYOUT_FIXTURE);

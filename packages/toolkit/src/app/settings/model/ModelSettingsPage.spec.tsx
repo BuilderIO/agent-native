@@ -588,6 +588,72 @@ describe("ModelSettingsPage", () => {
     });
   });
 
+  it("shows an unreadable organization key and opens its replacement dialog", async () => {
+    state.listing = listing(
+      { canManageOrg: true },
+      {
+        openai: {
+          org: {
+            scope: "org",
+            updatedAt: null,
+            unreadable: true,
+            unreadableKey: true,
+          },
+        },
+      },
+    );
+    await render();
+
+    const unreadable = row("provider-org-openai");
+    expect(unreadable.textContent).toContain(
+      "Saved provider data is unreadable. Replace it to restore access.",
+    );
+    expect(buttons(unreadable)).toEqual(["Replace key"]);
+
+    await act(async () => {
+      (unreadable.querySelector("button") as HTMLElement).click();
+    });
+    expect(dialogProps.last).toMatchObject({
+      open: true,
+      mode: "manage",
+      provider: "openai",
+      scope: "org",
+    });
+  });
+
+  it("shows an unreadable endpoint-only provider and opens endpoint repair", async () => {
+    state.listing = listing(
+      { canManageOrg: true },
+      {
+        openai: {
+          org: {
+            scope: "org",
+            updatedAt: null,
+            unreadable: true,
+            unreadableEndpoint: true,
+          },
+        },
+      },
+    );
+    await render();
+
+    const unreadable = row("provider-org-openai");
+    expect(unreadable.textContent).toContain(
+      "Saved provider data is unreadable. Replace it to restore access.",
+    );
+    expect(buttons(unreadable)).toEqual(["Replace endpoint"]);
+
+    await act(async () => {
+      (unreadable.querySelector("button") as HTMLElement).click();
+    });
+    expect(dialogProps.last).toMatchObject({
+      open: true,
+      mode: "manage",
+      provider: "openai",
+      scope: "org",
+    });
+  });
+
   it("marks a restricted member's personal keys unused with Remove", async () => {
     state.listing = listing(
       { personalKeysRestricted: true },
@@ -1600,6 +1666,44 @@ describe("ModelSettingsPage", () => {
     );
     expect(chatgpt.querySelector("a")).toBeNull();
     expect(buttons(chatgpt)).toEqual([]);
+  });
+
+  it("explains when ChatGPT plan access needs a personal account", async () => {
+    state.chatgpt = {
+      supported: false,
+      supportReason: "requires_personal_scope",
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+    await render();
+
+    expect(row("chatgpt-subscription").textContent).toContain(
+      "Use ChatGPT plan access from a personal account. In local development, set access.autoCreateDefaultOrg to false before signing in.",
+    );
+    expect(buttons(row("chatgpt-subscription"))).toEqual([]);
+  });
+
+  it("explains when the account scope is still unresolved", async () => {
+    state.chatgpt = {
+      supported: false,
+      supportReason: "scope_unresolved",
+      connected: false,
+      reconnectRequired: false,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+    await render();
+
+    expect(row("chatgpt-subscription").textContent).toContain(
+      "The app couldn't confirm your account scope. Finish local setup, then reload settings.",
+    );
+    expect(buttons(row("chatgpt-subscription"))).toEqual([]);
   });
 
   it("saves Max iterations for admins and refuses a value out of range", async () => {

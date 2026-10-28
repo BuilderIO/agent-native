@@ -30,6 +30,7 @@ import {
   LazyChunkErrorBoundary,
   LazyChunkRetryFallback,
 } from "@agent-native/toolkit/app/shared";
+import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
@@ -62,7 +63,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import DeckCard from "@/components/deck/DeckCard";
-import { DeckFilterMenu } from "@/components/deck/DeckFilterMenu";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import { ImportDeckButton } from "@/components/editor/ImportDeckButton";
 import {
@@ -127,6 +127,7 @@ import {
   isSourceImprovementRequest,
   persistDeckGenerationContext,
   requestedSlideCount,
+  SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,
   SLIDE_COUNT_COMPLETION_INSTRUCTION,
   type DeckGenerationContext,
   WEBSITE_STYLE_REFERENCE_DIRECTIVE,
@@ -788,15 +789,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     fallbackHomeSuggestions,
   ]);
   const homeSuggestions =
-    homeSuggestionsSnapshot ??
-    readyHomeSuggestions ??
-    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
-  const homeSuggestionsLoading =
-    isHome &&
-    showNewDeckPrompt &&
-    homeSuggestionsSnapshot === null &&
-    readyHomeSuggestions === null &&
-    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
+    homeSuggestionsSnapshot ?? readyHomeSuggestions ?? fallbackHomeSuggestions;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
@@ -1306,6 +1299,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     const filesForSourceImprovement = filesForGeneration.filter(
       (file) => !referenceFilePaths.has(file.path),
     );
+    const sourceImprovementRequest = isSourceImprovementRequest(
+      prompt,
+      filesForSourceImprovement,
+    );
+    const trimmedPrompt = prompt.trim();
     const selectedDesignSystem = designSystemId
       ? designSystems.find((ds) => ds.id === designSystemId)
       : undefined;
@@ -1328,9 +1326,30 @@ export default function Index({ active = true }: { active?: boolean }) {
     const deckId = deck.id;
     const generationAttemptId = nanoid();
     const generationStartedAt = Date.now();
+    const generationSubmitMessageId = nanoid();
+    const initialGenerationContext: DeckGenerationContext = {
+      originalPrompt: trimmedPrompt,
+      additionalContext,
+      files: filesForGeneration.map((file) => ({
+        path: file.path,
+        ...(file.url ? { url: file.url } : {}),
+        originalName: file.originalName,
+        type: file.type,
+      })),
+      designSystemId,
+      referenceDeckId,
+      composerContext: referenceSelection.composerContext,
+      contextItems: referenceSelection.contextItems,
+      ...(referenceSelection.referenceSource
+        ? { referenceSource: referenceSelection.referenceSource }
+        : {}),
+      mode: "new",
+      targetSlideCount: requestedSlideCount(trimmedPrompt),
+      generationAttemptId,
+      generationStartedAt,
+    };
     let generationFailureTracked = false;
     let sourceImportMayHaveWrittenSlides = false;
-    const generationSubmitMessageId = nanoid();
     trackEvent("generation_started", {
       app_name: "slides",
       template_name: "slides",
@@ -1341,14 +1360,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       source: "new_deck_prompt",
     });
     setNewDeckPromptOpen(false);
-
-    void navigate(
-      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
-      {
-        flushSync: true,
-        state: { generationOriginalPrompt: prompt },
-      },
-    );
 
     const recoverFromGenerationSetupFailure = (
       description: string,
@@ -1405,14 +1416,47 @@ export default function Index({ active = true }: { active?: boolean }) {
           } satisfies DeckGenerationRetryState,
           flushSync: true,
         });
+      } else if (isHome) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+        setNewDeckPromptOpen(true, { clearInitialPrompt: false });
       }
     };
 
-    let importedSourceDeck: ImportedSourceDeck | null = null;
-    const sourceImprovementRequest = isSourceImprovementRequest(
-      prompt,
-      filesForSourceImprovement,
+    if (!sourceImprovementRequest) {
+      updateDeck(deckId, {
+        generationContext: { ...initialGenerationContext },
+      });
+      let persisted: Awaited<ReturnType<typeof ensureDeckPersisted>>;
+      try {
+        persisted = await ensureDeckPersisted(deckId);
+      } catch {
+        recoverFromGenerationSetupFailure(
+          t("home.generationStartFailedDescription"),
+          "deck_persistence_failed",
+        );
+        return;
+      }
+      if (!persisted.persisted) {
+        recoverFromGenerationSetupFailure(
+          describeDeckPersistenceFailure(
+            persisted,
+            t("home.generationStartFailedDescription"),
+          ),
+          "deck_persistence_failed",
+        );
+        return;
+      }
+    }
+
+    void navigate(
+      `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
+      {
+        flushSync: true,
+        state: { generationOriginalPrompt: prompt },
+      },
     );
+
+    let importedSourceDeck: ImportedSourceDeck | null = null;
     let sourceDeckPaths: string[] = [];
     if (sourceImprovementRequest) {
       try {
@@ -1428,8 +1472,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         return;
       }
     }
-    let deckPersisted = false;
-
     let referenceHydration: Awaited<
       ReturnType<typeof hydrateReferenceDocuments>
     >;
@@ -1461,7 +1503,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       referenceHydration.status === "hydrated" &&
       referenceHydration.measuredDesignCount > 0;
 
-    const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
       (value) => value.includes("<google-doc "),
     );
@@ -1535,8 +1576,6 @@ export default function Index({ active = true }: { active?: boolean }) {
         );
         return;
       }
-      deckPersisted = true;
-
       try {
         importedSourceDeck = await importUploadedDeckIntoDeck(
           filesForSourceImprovement,
@@ -1662,6 +1701,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       referenceDocumentContext,
       referenceDeckContext,
       designSystemContext,
+      SLIDE_AUTHORING_OWNERSHIP_INSTRUCTION,
       visualStyleContext,
       referenceSourceContext,
       WEBSITE_STYLE_REFERENCE_DIRECTIVE,
@@ -1680,41 +1720,16 @@ export default function Index({ active = true }: { active?: boolean }) {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
 
-    const generationContext: DeckGenerationContext = {
-      originalPrompt: trimmedPrompt,
-      additionalContext,
-      files: filesForGeneration.map((file) => ({
-        path: file.path,
-        ...(file.url ? { url: file.url } : {}),
-        originalName: file.originalName,
-        type: file.type,
-      })),
-      designSystemId,
-      referenceDeckId,
-      composerContext: referenceSelection.composerContext,
-      contextItems: referenceSelection.contextItems,
-      ...(referenceSource ? { referenceSource } : {}),
-      mode: importedSourceDeck ? "source-preserving" : "new",
-      targetSlideCount:
-        importedSourceDeck?.slideCount ?? requestedSlideCount(trimmedPrompt),
-      generationAttemptId,
-      generationStartedAt,
-    };
+    const generationContext: DeckGenerationContext = importedSourceDeck
+      ? {
+          ...initialGenerationContext,
+          mode: "source-preserving",
+          targetSlideCount: importedSourceDeck.slideCount,
+        }
+      : initialGenerationContext;
 
     try {
-      if (!deckPersisted) {
-        updateDeck(deckId, { generationContext: { ...generationContext } });
-        const persisted = await ensureDeckPersisted(deckId);
-        if (!persisted.persisted) {
-          recoverFromGenerationSetupFailure(
-            describeDeckPersistenceFailure(
-              persisted,
-              t("home.generationStartFailedDescription"),
-            ),
-          );
-          return;
-        }
-      } else {
+      if (sourceImprovementRequest) {
         await persistDeckGenerationContext(deckId, generationContext);
       }
     } catch (error) {
@@ -2845,14 +2860,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome &&
-        showNewDeckPrompt &&
-        (homeSuggestionsLoading ||
-          homeSuggestionsUnavailable ||
-          readyHomeSuggestions !== null ||
-          homeSuggestionsSnapshot !== null) ? (
+        isHome && showNewDeckPrompt ? (
           <AgentSuggestionBar
-            loading={homeSuggestionsLoading}
+            loading={false}
             announceUpdates
             layout="single-line"
             suggestions={homeSuggestions.map((suggestion, index) => ({
@@ -2918,7 +2928,12 @@ export default function Index({ active = true }: { active?: boolean }) {
             />
           }
           recentActions={
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
+            <OwnershipFilter
+              value={deckFilter === "not-mine" ? "shared" : deckFilter}
+              onChange={(value) =>
+                setDeckFilter(value === "shared" ? "not-mine" : value)
+              }
+            />
           }
           templates={<DeckTemplateLibrary enabled={isHome} />}
           recent={

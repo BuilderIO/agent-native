@@ -56,7 +56,7 @@ export interface FrameworkToolsOption {
    *  `check-provider-key`,
    *  `manage-provider-key-policy`, `manage-builder-connection`,
    *  `get-provider-models`, `manage-provider-models`,
-   *  `list-model-providers`. */
+   *  `list-model-providers`, `describe-models`. */
   chat?: boolean;
   email?: boolean;
   emailCatalog?: boolean;
@@ -196,6 +196,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-sign-in-methods": "orgAdministration",
   "explain-access": "orgAdministration",
   "offboard-member": "orgAdministration",
+  "list-organization-members": "orgAdministration",
+  "invite-organization-member": "orgAdministration",
   "get-file-storage": "orgAdministration",
   "manage-file-storage": "orgAdministration",
   "manage-service-providers": "orgAdministration",
@@ -236,6 +238,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-provider-models": "chat",
   "manage-provider-models": "chat",
   "list-model-providers": "chat",
+  "describe-models": "chat",
   "get-experiments": "labs",
   "set-experiment": "labs",
 
@@ -247,6 +250,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "list-automations": "automation",
   "list-automation-events": "automation",
   "manage-automation": "automation",
+  "search-automation-accounts": "automation",
   "get-usage-alerts": "automation",
   "manage-usage-alert": "automation",
   "get-usage-metrics": "automation",
@@ -262,6 +266,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "context-evict": "contextXray",
   "context-restore": "contextXray",
   "context-report": "contextXray",
+  "context-compact": "contextXray",
+  "context-compaction-get": "contextXray",
 
   "get-localization-preference": "localization",
   "set-localization-preference": "localization",
@@ -273,6 +279,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "change-password": "userProfile",
   "request-privacy-right": "userProfile",
   "change-appearance": "userProfile",
+  "get-theme-family": "userProfile",
+  "set-theme-family": "userProfile",
 
   "list-audit-events": "audit",
   "get-audit-event": "audit",

@@ -53,7 +53,7 @@ export default function SlideRoute() {
   const [deckTitle, setDeckTitle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const { designSystem } = useDeckDesignSystem(designSystemId);
+  const { designSystem } = useDeckDesignSystem(designSystemId, deckId);
 
   const slideNumber =
     slideNumberParam !== null ? parseInt(slideNumberParam, 10) : null;

@@ -4,6 +4,7 @@ import {
   useSetOrgDomain,
   useRevealA2ASecret,
   useSetA2ASecret,
+  useSetA2AMemberDelegation,
   useSyncA2ASecret,
   type SyncA2ASecretResult,
 } from "@agent-native/core/client/org";
@@ -18,6 +19,7 @@ import {
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -34,6 +36,7 @@ import {
   IconEye,
   IconEyeOff,
   IconCloudUpload,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -505,6 +508,44 @@ export function A2ASecretSection({ isSet }: { isSet: boolean }) {
   );
 }
 
+export function A2AMemberDelegationSection({ enabled }: { enabled: boolean }) {
+  const t = useT();
+  const setDelegation = useSetA2AMemberDelegation();
+
+  return (
+    <SettingsRow
+      id="a2a-member-delegation"
+      label={
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex items-center gap-1" tabIndex={0}>
+              {t("agentChat.settingsOrg.auth.memberDelegation")}
+              <IconInfoCircle
+                aria-hidden="true"
+                className="size-4 text-muted-foreground"
+              />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {t("agentChat.settingsOrg.auth.memberDelegationHelp")}
+          </TooltipContent>
+        </Tooltip>
+      }
+      control={
+        <div className="flex items-center justify-end gap-3">
+          <ErrorText error={setDelegation.error} />
+          <Switch
+            checked={enabled}
+            onCheckedChange={(value) => setDelegation.mutate(value)}
+            disabled={setDelegation.isPending}
+            aria-label={t("agentChat.settingsOrg.auth.memberDelegation")}
+          />
+        </div>
+      }
+    />
+  );
+}
+
 /**
  * Sign-in policy, SSO, SCIM, and domain auto-join for owners and admins, plus
  * the cross-app secret for owners. Renders nothing for members.
@@ -528,7 +569,12 @@ export function AuthenticationSection({ title }: { title?: string }) {
           requiredAuthProvider={org.requiredAuthProvider}
         />
         {org.role === "owner" && (
-          <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />
+          <>
+            <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />
+            <A2AMemberDelegationSection
+              enabled={Boolean(org.a2aMemberDelegationEnabled)}
+            />
+          </>
         )}
       </SettingsGroup>
     </SectionTooltipProvider>

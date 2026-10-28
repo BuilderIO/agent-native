@@ -12,7 +12,7 @@ import {
   CONTENT_SLASH_VISUALS,
 } from "@shared/labs";
 import { renderMathToHtml } from "@shared/math-rendering";
-import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
+import { collapseExactRepeatedNfm, docToNfm, type PMNode } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconCheck,
@@ -41,6 +41,7 @@ import {
   IconSquareRoot2,
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import React, {
   useState,
   useEffect,
@@ -89,6 +90,8 @@ interface SlashCommandMenuProps {
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   notionPageId?: string | null;
+  /** The page saves no body; its body is the live copy. */
+  bodyIsLiveCopy?: boolean;
 }
 
 interface EditorMenuPosition {
@@ -258,10 +261,80 @@ function getActiveSlashCommandRange(editor: Editor) {
   };
 }
 
+/**
+ * Removes the typed slash query and returns a function that takes the
+ * removal back out of undo history. Undoing a command returns the block as it
+ * was before the slash, so the query must not come back as a separate step.
+ * When a command changes nothing, the removal has to stay the step undo
+ * reverses: Yjs passes over an undo step with nothing left to revert, so
+ * undoing the spent typing of the query would revert the edit before it.
+ * ProseMirror's own history, used without Yjs, cannot drop a step
+ * afterwards, so there the removal stays out of history.
+ */
+function removeSlashQuery(editor: Editor, range: { from: number; to: number }) {
+  const undoManager = yUndoPluginKey.getState(editor.state)?.undoManager;
+  if (!undoManager) {
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      })
+      .deleteRange(range)
+      .run();
+    return () => {};
+  }
+  undoManager.stopCapturing();
+  const depth = undoManager.undoStack.length;
+  editor.chain().focus().deleteRange(range).run();
+  const removal = undoManager.undoStack.slice(depth);
+  undoManager.stopCapturing();
+  return () => {
+    for (const step of removal) {
+      const index = undoManager.undoStack.indexOf(step);
+      if (index >= 0) undoManager.undoStack.splice(index, 1);
+    }
+  };
+}
+
 function waitForEditorUpdateFrame() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
+}
+
+/**
+ * The body to save after an insert, with an exactly repeated body collapsed.
+ * A page whose body is its live copy saves no body, so there the collapse
+ * edits the document and reaches the server as a collab update. Null when the
+ * repeat does not split into two whole copies of the document's blocks.
+ */
+export function bodyAfterInsert(
+  editor: Editor,
+  requiredText: string,
+  bodyIsLiveCopy: boolean,
+): string | null {
+  const json = editor.getJSON() as PMNode;
+  const body = docToNfm(json);
+  const collapsed = collapseExactRepeatedNfm(body, { requiredText });
+  if (!bodyIsLiveCopy || collapsed === body) return collapsed;
+  const blocks = json.content ?? [];
+  const copy = (part: typeof blocks) =>
+    docToNfm({ type: "doc", content: part });
+  const split = blocks.findIndex(
+    (_, index) =>
+      index > 0 &&
+      copy(blocks.slice(0, index)) === collapsed &&
+      copy(blocks.slice(index)) === collapsed,
+  );
+  if (split < 0) return null;
+  const { doc } = editor.state;
+  let from = 0;
+  for (let index = 0; index < split; index += 1)
+    from += doc.child(index).nodeSize;
+  editor.view.dispatch(editor.state.tr.delete(from, doc.content.size));
+  return collapsed;
 }
 
 export interface CommandTemplate extends Omit<
@@ -721,6 +794,7 @@ export function SlashCommandMenu({
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
+  bodyIsLiveCopy = false,
 }: SlashCommandMenuProps) {
   const t = useT();
   const labs = useLabStates();
@@ -912,12 +986,12 @@ export function SlashCommandMenu({
             .run();
         }
         await waitForEditorUpdateFrame();
-        const content = collapseExactRepeatedNfm(
-          docToNfm(editor.getJSON() as any),
-          {
-            requiredText: `id="${pageId}"`,
-          },
+        const content = bodyAfterInsert(
+          editor,
+          `id="${pageId}"`,
+          bodyIsLiveCopy,
         );
+        if (content === null) throw new Error(t("empty.genericError"));
         if (onDraftPersisted) {
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
@@ -981,12 +1055,12 @@ export function SlashCommandMenu({
         );
         if (!inserted) throw new Error(t("empty.genericError"));
         await waitForEditorUpdateFrame();
-        const content = collapseExactRepeatedNfm(
-          docToNfm(editor.getJSON() as any),
-          {
-            requiredText: result.block.ownerBlockId,
-          },
+        const content = bodyAfterInsert(
+          editor,
+          result.block.ownerBlockId,
+          bodyIsLiveCopy,
         );
+        if (content === null) throw new Error(t("empty.genericError"));
         if (onDraftPersisted) {
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
@@ -1080,10 +1154,12 @@ export function SlashCommandMenu({
             .run();
         }
         await waitForEditorUpdateFrame();
-        const content = collapseExactRepeatedNfm(
-          docToNfm(editor.getJSON() as any),
-          { requiredText: `id="${pageId}"` },
+        const content = bodyAfterInsert(
+          editor,
+          `id="${pageId}"`,
+          bodyIsLiveCopy,
         );
+        if (content === null) throw new Error(t("empty.genericError"));
         if (onDraftPersisted) {
           const persisted = await onDraftPersisted(content);
           if (!persisted) throw new Error(t("empty.genericError"));
@@ -1323,15 +1399,18 @@ export function SlashCommandMenu({
         (slashPosRef.current !== null
           ? { from: slashPosRef.current, to: editor.state.selection.from }
           : null);
-      if (slashRange && !cmd.preserveSlashRange) {
-        editor.chain().focus().deleteRange(slashRange).run();
-      }
+      const removeQueryFromHistory =
+        slashRange && !cmd.preserveSlashRange
+          ? removeSlashQuery(editor, slashRange)
+          : null;
+      const docWithoutQuery = editor.state.doc;
       setIsOpen(false);
       setIsTurnInto(false);
       setQuery("");
       slashPosRef.current = null;
       await cmd.action(editor, { slashRange });
       if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
+        if (!editor.state.doc.eq(docWithoutQuery)) removeQueryFromHistory?.();
         const persisted = await onDraftCommitted?.();
         if (persisted === false) {
           toast.error(t("empty.genericError"));

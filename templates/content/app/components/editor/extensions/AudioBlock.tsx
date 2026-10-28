@@ -46,6 +46,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { audioUploadErrorMessage, uploadAudioFile } from "../image-upload";
 import type { ContentAudioOptions } from "./AudioNode";
 
@@ -145,7 +146,6 @@ async function copyAudio(
 export function AudioBlock({
   node,
   editor,
-  deleteNode,
   selected,
   updateAttributes,
   extension,
@@ -173,6 +173,7 @@ export function AudioBlock({
   const options = extension.options as ContentAudioOptions;
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
   const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const isUploading = Boolean(node.attrs.uploadId);
@@ -335,7 +336,7 @@ export function AudioBlock({
   }
 
   function audioResizeMaxWidth() {
-    const wrapper = mediaBlockRef.current?.closest(".notion-editor");
+    const wrapper = mediaBlockRef.current?.closest(".content-editor");
     const maxWidth =
       wrapper?.getBoundingClientRect().width ??
       mediaBlockRef.current?.parentElement?.getBoundingClientRect().width ??

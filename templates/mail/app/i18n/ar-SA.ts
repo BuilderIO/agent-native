@@ -34,7 +34,11 @@ const messages = {
       newest: "الأحدث",
       priority: "الأولوية",
       priorityFailed: "تعذّر ترتيب الوارد.",
-      priorityScoreHelp: "تعني الدرجة الأعلى أن Jev يرى الرسالة أكثر أهمية.",
+      priorityProviderRequired:
+        "اربط موفر ذكاء اصطناعي لاستخدام الفرز حسب الأولوية.",
+      priorityPartialFailed:
+        "تعذّر ترتيب {{count}} من الرسائل. ستظهر بعد الرسائل التي تم تقييمها.",
+      priorityScoreHelp: "تعني الدرجة الأعلى أن احتمال أهمية هذه الرسالة أكبر.",
       priorityFeedbackSuggestion:
         "حوّل هذا النمط إلى قاعدة للأهمية أو للأرشفة التلقائية.",
       priorityFeedbackAskAgent: "اطلب من الوكيل اقتراح قواعد",
@@ -306,7 +310,10 @@ const messages = {
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "إثراء جهات الاتصال وبيانات الشركة",
       hubspotDescription: "جهات اتصال CRM والصفقات والتذاكر",
-      gongDescription: "المكالمات الحديثة وذكاء المحادثات",
+      gongDescription: "سجل مكالمات Gong",
+      gongAccessCheckFailed: "تعذّر التحقق مما إذا كان بإمكانك ربط Gong.",
+      gongKeyPlaceholder: "مفتاح API لـ Gong",
+      gongKeyFormatHint: "أدخل مفتاح الوصول والسر بالتنسيق access_key:secret.",
       pylonDescription: "مشكلات الدعم وبيانات الحساب",
       gongCalls: "مكالمات Gong",
       deals: "الصفقات",
@@ -428,6 +435,7 @@ const messages = {
       tryDifferentKeywords: "جرّب كلمات مفتاحية مختلفة",
       nothingHere: "لا يوجد شيء هنا بعد",
       loadingMore: "جار تحميل المزيد...",
+      openAllMailForOlder: "افتح كل البريد للرسائل الأقدم",
     },
     toasts: {
       noEmailSelected: "لم يتم تحديد بريد.",
@@ -458,6 +466,7 @@ const messages = {
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "تم إرسال الرسالة.",
       failedToSaveDraft: "تعذر حفظ المسودة.",
+      failedToRefreshInbox: "تعذر تحديث صندوق الوارد. حاول مرة أخرى بعد قليل.",
       failedToDeleteDraft: "تعذر حذف المسودة.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -703,12 +712,13 @@ const messages = {
       tagTabsHelp: "وسم توضيحي يصبح علامة تبويب في الوارد",
       addTag: "إضافة وسم",
       triageTitle: "الفرز بالذكاء الاصطناعي",
-      connectJev: "ربط Jev",
-      connectJevToRunTriage: "اربط Jev لتشغيل الفرز",
+      connectJev: "اربط موفر ذكاء اصطناعي",
+      connectJevToRunTriage: "اربط موفر ذكاء اصطناعي لتشغيل الفرز",
       freeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
-      jevAvailabilityFailed: "تعذّر التحقق مما إذا كان Jev متاحًا.",
+      jevAvailabilityFailed: "تعذّر التحقق من توفر مزوّد قرارات ذكاء اصطناعي.",
       connectBuilder: "استخدم Builder.io",
-      addJevApiKey: "إضافة مفتاح API",
+      addJevApiKey: "أضف مفتاح Jev API",
+      addOpenAiApiKey: "أضف مفتاح OpenAI API",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -750,6 +760,16 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "مسودة بريد إلكتروني - Mail",
+    },
+    draftCard: {
+      loadFailed: "تعذّر تحميل هذه المسودة.",
+      notFoundTitle: "لم يتم العثور على المسودة",
+      threadUnavailable: "تعذّر تحميل الرسائل السابقة في هذه المحادثة.",
+      threadLookupFailed:
+        "تعذّر العثور على المحادثة التي ينتمي إليها هذا الرد، لذا لا يمكن إرساله بعد.",
+      earlierMessages: "الرسائل السابقة ({{count}})",
+      deleted: "تم حذف المسودة.",
     },
     agentEngine: {
       activeEngine: "Motor activo",

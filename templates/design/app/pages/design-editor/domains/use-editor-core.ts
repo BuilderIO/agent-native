@@ -3,10 +3,7 @@ import {
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useSession } from "@agent-native/core/client/hooks";
-import {
-  getBuilderParentOrigin,
-  isEmbedAuthActive,
-} from "@agent-native/core/client/host";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useIsMcpAppWidgetEmbed,
@@ -37,11 +34,14 @@ import type {
 } from "@/components/design/types";
 import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import {
   builderSelectionChip,
   sendBuilderSelectionContext,
 } from "@/lib/builder-host-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
+import { leaveCanvasOutcomeDesign } from "@/lib/canvas-load-outcome";
+import { setCanvasOutcomeContext } from "@/lib/canvas-outcome-tracking";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { SHELL_DESIGN_ID } from "@/lib/shell-design";
 
@@ -89,6 +89,13 @@ export function useEditorCore() {
   const isSignedIn = Boolean(session?.email);
   const sessionResolved = !sessionLoading;
   const location = useLocation();
+  useEffect(() => {
+    setCanvasOutcomeContext({
+      designId: id,
+      signedIn: sessionResolved ? isSignedIn : undefined,
+    });
+  }, [id, isSignedIn, sessionResolved]);
+  useEffect(() => leaveCanvasOutcomeDesign, []);
   usePerformanceBufferGuard();
   const initialEditorUrlRef = useRef<{
     designId: string | undefined;
@@ -150,10 +157,10 @@ export function useEditorCore() {
             height: Math.round(box.height),
           }
         : null;
-    window.parent.postMessage(
-      { type: HOST_CHAT_SLOT_MESSAGE, data: { rect } },
-      getBuilderParentOrigin() ?? "*",
-    );
+    getDesignHostChannel().send({
+      type: HOST_CHAT_SLOT_MESSAGE,
+      data: { rect },
+    });
   }, [hostEmbeddedEditor]);
   const attachHostChatSlot = useCallback(
     (node: HTMLDivElement | null) => {
@@ -174,10 +181,10 @@ export function useEditorCore() {
     window.addEventListener("resize", postHostChatSlotRect);
     return () => {
       window.removeEventListener("resize", postHostChatSlotRect);
-      window.parent.postMessage(
-        { type: HOST_CHAT_SLOT_MESSAGE, data: { rect: null } },
-        getBuilderParentOrigin() ?? "*",
-      );
+      getDesignHostChannel().send({
+        type: HOST_CHAT_SLOT_MESSAGE,
+        data: { rect: null },
+      });
     };
   }, [hostEmbeddedEditor, postHostChatSlotRect]);
 

@@ -11,8 +11,8 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: "org-qa", role: "owner" })),
 );
-const resolveOrgIdForEmailMock = vi.hoisted(() =>
-  vi.fn(async () => "org-owner"),
+const resolveOrgScopeForEmailMock = vi.hoisted(() =>
+  vi.fn(async () => ({ status: "organization", orgId: "org-owner" })),
 );
 const runWithRequestContextMock = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
@@ -62,6 +62,11 @@ const recoverDueA2AContinuationsMock = vi.hoisted(() =>
 );
 const processDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => {}));
 const startPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
+const stopPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
+const startRemoteCommandsRetryJobMock = vi.hoisted(() => vi.fn());
+const stopRemoteCommandsRetryJobMock = vi.hoisted(() => vi.fn());
+const startRemotePushDeliveryJobMock = vi.hoisted(() => vi.fn());
+const stopRemotePushDeliveryJobMock = vi.hoisted(() => vi.fn());
 const processA2AContinuationByIdMock = vi.hoisted(() => vi.fn());
 const recoverA2AContinuationAfterProcessorFailureMock = vi.hoisted(() =>
   vi.fn(),
@@ -113,7 +118,7 @@ vi.mock("../server/credential-provider.js", async () => {
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -130,7 +135,18 @@ vi.mock("./config-store.js", () => ({
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
   startPendingTasksRetryJob: startPendingTasksRetryJobMock,
+  stopPendingTasksRetryJob: stopPendingTasksRetryJobMock,
   retryStuckPendingTasks: retryStuckPendingTasksMock,
+}));
+
+vi.mock("./remote-retry-job.js", () => ({
+  startRemoteCommandsRetryJob: startRemoteCommandsRetryJobMock,
+  stopRemoteCommandsRetryJob: stopRemoteCommandsRetryJobMock,
+}));
+
+vi.mock("./remote-push-delivery-job.js", () => ({
+  startRemotePushDeliveryJob: startRemotePushDeliveryJobMock,
+  stopRemotePushDeliveryJob: stopRemotePushDeliveryJobMock,
 }));
 
 vi.mock("./integration-campaign-recovery.js", () => ({
@@ -258,8 +274,25 @@ vi.mock("./identity.js", async () => {
   };
 });
 
-function createNitroApp() {
-  return { h3: { "~middleware": [] as any[] } };
+function createNitroApp(options?: { withCloseHook?: boolean }) {
+  if (!options?.withCloseHook) {
+    return { h3: { "~middleware": [] as any[] } };
+  }
+  const callbacks = new Map<string, Array<() => void | Promise<void>>>();
+  return {
+    h3: { "~middleware": [] as any[] },
+    hooks: {
+      hook(name: string, callback: () => void | Promise<void>) {
+        const registered = callbacks.get(name) ?? [];
+        registered.push(callback);
+        callbacks.set(name, registered);
+      },
+      // Nitro's hooks run one after another in the order they were added.
+      async callHook(name: string) {
+        for (const callback of callbacks.get(name) ?? []) await callback();
+      },
+    },
+  };
 }
 
 async function dispatch(
@@ -417,7 +450,10 @@ describe("integrations plugin routes", () => {
       owner: null,
     }));
     getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
-    resolveOrgIdForEmailMock.mockResolvedValue("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-owner",
+    });
     runWithRequestContextMock.mockImplementation(
       (_ctx: unknown, fn: () => unknown) => fn(),
     );
@@ -453,6 +489,89 @@ describe("integrations plugin routes", () => {
       expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
     },
   );
+
+  it("stops recurring integration jobs when Nitro closes", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    expect(startPendingTasksRetryJobMock).toHaveBeenCalledOnce();
+    expect(startRemoteCommandsRetryJobMock).toHaveBeenCalledOnce();
+    expect(startRemotePushDeliveryJobMock).toHaveBeenCalledOnce();
+
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopPendingTasksRetryJobMock).toHaveBeenCalled();
+    expect(stopRemoteCommandsRetryJobMock).toHaveBeenCalled();
+    expect(stopRemotePushDeliveryJobMock).toHaveBeenCalled();
+    expect(stopGoogleDocsPollerMock).not.toHaveBeenCalled();
+    resumePgliteClientAccess();
+  });
+
+  it("stops the Google Docs poller when Nitro closes but keeps the shared watch", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledWith({
+      shuttingDown: true,
+    });
+    resumePgliteClientAccess();
+  });
+
+  it("awaits Google Docs poller cleanup on Nitro close before resolving", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const order: string[] = [];
+    stopGoogleDocsPollerMock.mockImplementationOnce(async () => {
+      order.push("stop-start");
+      await gate;
+      order.push("stop-done");
+    });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+
+    const closing = nitroApp.hooks.callHook("close").then(() => {
+      order.push("closed");
+    });
+    await vi.waitFor(() => {
+      expect(order).toContain("stop-start");
+    });
+    expect(order).not.toContain("closed");
+
+    release();
+    await closing;
+    expect(order).toEqual(["stop-start", "stop-done", "closed"]);
+    resumePgliteClientAccess();
+  });
+
+  it("stops the Google Docs poller only once when Nitro closes", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const { stopBackgroundJobs } = await import("../server/background-jobs.js");
+    // Earlier tests leave their plugins' stops in the shared registry.
+    await stopBackgroundJobs();
+    stopGoogleDocsPollerMock.mockClear();
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledOnce();
+    resumePgliteClientAccess();
+  });
 
   it("requires a session for integration status", async () => {
     getSessionMock.mockResolvedValueOnce(null);
@@ -687,11 +806,41 @@ describe("integrations plugin routes", () => {
     });
     expect(startGoogleDocsPollerMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        ownerEmail: "integration@google-docs",
+        ownerEmail: "owner@example.test",
         webhookUrl:
           "https://app.test/_agent-native/integrations/google-docs/webhook",
       }),
     );
+  });
+
+  it("keeps a queued personal task in personal request scope", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    task.id = "personal-task";
+    task.ownerEmail = "personal+qa@example.test";
+    task.orgId = null;
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce(undefined);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: task.ownerEmail,
+        orgScope: "personal",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("serializes concurrent Google Docs enable and disable transitions", async () => {
@@ -2478,7 +2627,10 @@ describe("integrations plugin routes", () => {
       configData: { enabled: true },
       owner: "owner+qa@example.com",
     });
-    resolveOrgIdForEmailMock.mockResolvedValueOnce("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValueOnce({
+      status: "organization",
+      orgId: "org-owner",
+    });
     resourceGetByPathMock.mockImplementation(async (owner, path) => {
       if (owner === "shared" && path === "AGENTS.md") {
         return { content: "Shared Dispatch instruction" };
@@ -2537,7 +2689,7 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
+    expect(resolveOrgScopeForEmailMock).toHaveBeenCalledWith(
       "owner+qa@example.com",
     );
     expect(runWithRequestContextMock).toHaveBeenCalledWith(

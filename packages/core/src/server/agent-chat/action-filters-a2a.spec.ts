@@ -1,22 +1,61 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-import type { ActionEntry } from "../../agent/production-agent.js";
+import { actionArgumentsHash } from "../../action-arguments-identity.js";
+import { isOutsideAgentCall } from "../../action-caller.js";
+import { defineAction, type ActionRunContext } from "../../action.js";
+import { approvalKeyWithArguments } from "../../agent/approval-key.js";
+import {
+  toolCallCacheKey,
+  type ActionEntry,
+} from "../../agent/production-agent.js";
+import type { AgentChatEvent } from "../../agent/types.js";
+import type { AuditEvent } from "../../audit/types.js";
 import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
+import { frameworkMcpTool } from "../../mcp/framework-tools.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../request-context.js";
 import {
+  addAgentProfileExamples,
   assembleA2AFinalResponse,
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
+  executeApprovedA2AToolCall,
   filterDelegatedA2ACapabilityActions,
+  filterDelegatedRegistry,
   filterDirectA2AActions,
   filterMcpOnlyActions,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
 } from "./action-filters-a2a.js";
+
+const auditRows = vi.hoisted(() => [] as AuditEvent[]);
+const taskEvents = vi.hoisted(() => new Map<string, AgentChatEvent[]>());
+const runStoreReads = vi.hoisted(() => ({
+  journal: vi.fn(),
+  ledger: vi.fn(),
+}));
+
+vi.mock("../../audit/store.js", () => ({
+  insertAuditEvent: async (event: AuditEvent) => {
+    auditRows.push(event);
+  },
+}));
+vi.mock("../../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../agent/run-store.js")>()),
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
+  getCurrentTurnEventsForThread: async (threadId: string) => {
+    runStoreReads.journal(threadId);
+    return taskEvents.get(threadId) ?? [];
+  },
+  readLedgerEntry: async (threadId: string) => {
+    runStoreReads.ledger(threadId);
+    return null;
+  },
+}));
 
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
   return {
@@ -33,6 +72,220 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
     ...overrides,
   };
 }
+
+describe("executeApprovedA2AToolCall", () => {
+  it("runs the approved call once, under its lease rather than the paused task's journal, and links its row to the task", async () => {
+    const input = { to: "ceo@example.test" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    // The paused task already holds an identical completed call; read as the
+    // replay's journal, it would stand in for the approved one.
+    taskEvents.set("task-1", [
+      { type: "tool_start", id: "call-0", tool: "send-email", input },
+      {
+        type: "tool_done",
+        id: "call-0",
+        tool: "send-email",
+        input,
+        result: "sent earlier",
+        completedSideEffect: true,
+      },
+    ]);
+    auditRows.length = 0;
+    runStoreReads.journal.mockClear();
+    runStoreReads.ledger.mockClear();
+    const sent = vi.fn(async () => "sent");
+    const sendEmail = defineAction({
+      description: "Send an email",
+      schema: z.object({ to: z.string() }),
+      http: { method: "POST" },
+      needsApproval: true,
+      run: async (_args, ctx) => sent(ctx),
+    }) as ActionEntry;
+
+    const result = await executeApprovedA2AToolCall(
+      {
+        id: "approval-1",
+        taskId: "task-1",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+        tool: "send-email",
+        input,
+        // A paused A2A task stores the key bound to the arguments it approved.
+        approvalKey: approvalKeyWithArguments(
+          approvalKey,
+          actionArgumentsHash(input),
+        ),
+        callId: "call-1",
+      },
+      {
+        actions: { "send-email": sendEmail },
+        appId: "mail",
+        // The approval route's execution lease: its own thread, the task's turn.
+        signal: new AbortController().signal,
+        threadId: "a2a-task:task-1",
+        turnId: "task-1",
+      },
+    );
+
+    // The result says whether the call's side effect completed.
+    expect(result).toEqual({
+      status: "completed",
+      output: "sent",
+      completedSideEffect: true,
+    });
+    expect(sent).toHaveBeenCalledOnce();
+    const threadsRead = [
+      ...runStoreReads.journal.mock.calls,
+      ...runStoreReads.ledger.mock.calls,
+    ].map(([threadId]) => threadId);
+    expect(threadsRead).not.toContain("task-1");
+    const ctx = sent.mock.calls[0]![0] as Record<string, unknown>;
+    expect(ctx).toMatchObject({
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      caller: "tool",
+      networkProtocol: "a2a",
+      networkId: "task-1",
+      approvedToolCallKey: approvalKey,
+      threadId: "a2a-task:task-1",
+      turnId: "task-1",
+    });
+    expect(isOutsideAgentCall(ctx as ActionRunContext)).toBe(true);
+    for (const key of ["runId", "auditOverride"]) {
+      expect(ctx[key]).toBeUndefined();
+    }
+    expect(auditRows).toHaveLength(1);
+    // The same network source as the paused task's own rows.
+    expect(auditRows[0]).toMatchObject({
+      action: "send-email",
+      status: "success",
+      caller: "tool",
+      actorEmail: "owner@example.test",
+      threadId: "task-1",
+      turnId: "task-1",
+      runId: "task-1",
+      networkProtocol: "a2a",
+      networkId: "task-1",
+      networkPeer: null,
+      approval: "a2a-review",
+    });
+  });
+});
+
+describe("filterDelegatedRegistry", () => {
+  const named = (names: string[], make: () => ActionEntry = action) =>
+    Object.fromEntries(names.map((name) => [name, make()]));
+
+  it("keeps app actions and the allowlisted framework tools", () => {
+    const registry = {
+      ...named(["list-decks", "create-deck"]),
+      ...named(["share-resource", "manage-automations"], () =>
+        frameworkMcpTool(action()),
+      ),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual(
+      Object.keys(registry),
+    );
+  });
+
+  it("drops runtime tools by name even when an app action reuses the name", () => {
+    const registry = {
+      ...named(["list-decks"]),
+      ...named(["web-request", "call-agent", "bash", "db-exec", "run-code"]),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  it("drops a framework tool the allowlist does not name, whatever its name", () => {
+    const registry = {
+      ...named(["list-decks"]),
+      ...named(["manage-jobs", "save-data-program"], () =>
+        frameworkMcpTool(action()),
+      ),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  const rawInput = (field: string, overrides: Partial<ActionEntry> = {}) =>
+    action({
+      tool: {
+        description: "Raw input",
+        parameters: {
+          type: "object",
+          properties: { [field]: { type: "string" } },
+          required: [field],
+        },
+      },
+      ...overrides,
+    });
+
+  it.each(["sql", "code", "script", "expression"])(
+    "keeps an app action that takes a raw %s string, direct MCP opt-out or not",
+    (field) => {
+      const registry = {
+        raw: rawInput(field),
+        "raw-direct-opt-out": rawInput(field, { mcpTool: false }),
+      };
+
+      expect(Object.keys(filterDelegatedRegistry(registry))).toEqual(
+        Object.keys(registry),
+      );
+    },
+  );
+
+  it("keeps an app action that opted out of direct MCP", () => {
+    const registry = { "list-decks": action({ mcpTool: false }) };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  it("excludes entries the app agent cannot use after the registry merge", () => {
+    const registry = {
+      "ui-only": action({ uiOnly: true }),
+      "agent-hidden": action({ agentTool: false }),
+      "mcp-only": action({ agentTool: false, mcpTool: true }),
+      "app-only": action({ mcpTool: false }),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "app-only",
+    ]);
+  });
+
+  it("drops runtime names whatever their input", () => {
+    const registry = {
+      "list-decks": action(),
+      "web-request": rawInput("code"),
+      bash: rawInput("script"),
+      "run-code": rawInput("code"),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+
+  it("drops db-, provider-api- and seed- names and CLI wrappers", () => {
+    const registry = {
+      "list-decks": action(),
+      ...named(["db-status", "provider-api-request", "seed-demo-data"]),
+      "run-script": action({ cliWrapper: true }),
+    };
+
+    expect(Object.keys(filterDelegatedRegistry(registry))).toEqual([
+      "list-decks",
+    ]);
+  });
+});
 
 describe("delegated agent loops", () => {
   it.each([
@@ -97,6 +350,51 @@ describe("assembleA2AFinalResponse", () => {
 });
 
 describe("filterDirectA2AActions", () => {
+  it("adds each profile example only to a clearly matching skill", () => {
+    const skills = [
+      {
+        id: "generate-qr-code",
+        name: "Generate QR code",
+        description: "Generate a QR code image for a URL or text.",
+      },
+      {
+        id: "update-slide",
+        name: "Update slide",
+        description: "Edit the selected presentation slide.",
+      },
+    ];
+
+    expect(
+      addAgentProfileExamples(skills, {
+        whenToUse: [
+          "Generate a QR code for this link",
+          "Create a QR code for this clip",
+          "Add this QR code to the selected slide",
+        ],
+      }),
+    ).toEqual([
+      {
+        ...skills[0],
+        examples: [
+          "Generate a QR code for this link",
+          "Create a QR code for this clip",
+        ],
+      },
+      skills[1],
+    ]);
+  });
+
+  it("does not assign an example when multiple skills match equally", () => {
+    const skills = [
+      { id: "qr-one", name: "QR code one", description: "Generate QR codes" },
+      { id: "qr-two", name: "QR code two", description: "Generate QR codes" },
+    ];
+
+    expect(
+      addAgentProfileExamples(skills, { whenToUse: ["Generate a QR code"] }),
+    ).toEqual(skills);
+  });
+
   it("publishes input schemas for public and authenticated skill cards", () => {
     const inputSchema = {
       type: "object",
@@ -252,6 +550,45 @@ describe("filterDirectA2AActions", () => {
         filterDirectA2AActions(actions, { connectorCatalog: ["raw-sql"] }),
       ),
     ).toEqual(["raw-sql"]);
+  });
+
+  it("converts the schema of only the actions every other check selects", () => {
+    const exposed = (readOnly: boolean) => {
+      const schema = z.object({ id: z.string() });
+      const convert = vi.spyOn(
+        (schema as any)["~standard"].jsonSchema,
+        "input",
+      );
+      const entry = defineAction({
+        description: "Read",
+        schema,
+        readOnly,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => "ok",
+      });
+      return { entry, convert };
+    };
+    const allowed = exposed(true);
+    const uncataloged = exposed(true);
+    const mutation = exposed(false);
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(
+          {
+            allowed: allowed.entry,
+            uncataloged: uncataloged.entry,
+            mutation: mutation.entry,
+          },
+          { connectorCatalog: ["allowed", "mutation"] },
+        ),
+      ),
+    ).toEqual(["allowed"]);
+    expect(
+      [allowed, uncataloged, mutation].map(
+        ({ convert }) => convert.mock.calls.length,
+      ),
+    ).toEqual([1, 0, 0]);
   });
 
   it("allows only cataloged authenticated reads", () => {

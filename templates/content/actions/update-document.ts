@@ -5,6 +5,7 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { withCommittedActionAudit } from "@agent-native/core/audit";
 import { agentTouchDocument } from "@agent-native/core/collab";
+import { getDbExec } from "@agent-native/core/db";
 import {
   iconValueSchema,
   parseIconValue,
@@ -40,12 +41,10 @@ import {
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
-import {
-  lockDocumentMetadataDatabase,
-  nextDocumentMetadataUpdatedAt,
-} from "../server/lib/document-metadata-updated-at.js";
+import { nextDocumentMetadataUpdatedAt } from "../server/lib/document-metadata-updated-at.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -53,11 +52,20 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import {
+  liveBodyWriterGateForRow,
+  liveBodyWriterPageColumns,
+} from "../server/lib/live-body-writer.js";
+import {
   syncPrivateCalloutReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
-import type { DocumentUpdateResponse } from "../shared/api.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
+import { liveCopyHoldsSave } from "../server/live-copy/holds.js";
+import type {
+  DocumentUpdateResponse,
+  LiveCopyBodySave,
+} from "../shared/api.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
@@ -91,6 +99,7 @@ import {
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
+  assertEditableDocument,
   documentContentHash,
   documentRevisionToken,
   parseDocumentRevisionToken,
@@ -99,7 +108,11 @@ import {
   assertDocumentMutationAccess,
   resolveDocumentAccessForMutation,
 } from "./_document-mutation-access.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import { lockDocumentForSave } from "./_document-save-locks.js";
+import {
+  assertSourceAllowsPageEdit,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   lockPreviewDocumentDraftSettlement,
   readDiscardedPreviewDraftGeneration,
@@ -204,6 +217,13 @@ function documentUpdateResponse(
     source: serializeDocumentSource(doc),
     softDeletedDatabaseIds,
     ...(browserSaveAttempt ? { browserSaveAttempt } : {}),
+    // Only a save the live copy holds keeps a receipt.
+    ...(browserSaveAttempt?.bodySave
+      ? {
+          bodySave: browserSaveAttempt.bodySave,
+          bodyIntentOutcome: { status: "applied" as const },
+        }
+      : {}),
   };
 }
 
@@ -617,6 +637,13 @@ const updateDocumentAction = defineAction({
         "Browser-local edit generation acknowledged by this save; paired with editorSessionId",
       ),
     editorSnapshotTitle: z.string().max(10_000).optional(),
+    editorSnapshotTitleBase: z
+      .string()
+      .max(10_000)
+      .optional()
+      .describe(
+        "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
+      ),
     editorSnapshotContent: z.string().max(500_000).optional(),
     browserSaveAttemptId: z
       .string()
@@ -697,6 +724,15 @@ const updateDocumentAction = defineAction({
       ) {
         throw new ActionContractError(
           "editorSnapshotTitle and editorSnapshotContent must be provided together.",
+          { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
+        );
+      }
+      if (
+        args.editorSnapshotTitleBase !== undefined &&
+        args.editorSnapshotTitle === undefined
+      ) {
+        throw new ActionContractError(
+          "editorSnapshotTitleBase requires editorSnapshotTitle.",
           { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
         );
       }
@@ -936,6 +972,7 @@ const updateDocumentAction = defineAction({
           );
         }
       }
+      if (!favoriteOnly) assertEditableDocument(existing);
 
       const normalizeAuthoredContent = (value: string) => {
         if (args.preserveLeadingTitleHeading) return value;
@@ -955,7 +992,7 @@ const updateDocumentAction = defineAction({
         args.authoredCandidateContent === undefined
           ? undefined
           : normalizeAuthoredContent(args.authoredCandidateContent);
-      let browserSaveContentRejected = false;
+      let staleBodySave: "stale_builder_image" | "stale_empty_body" | undefined;
       if (content !== undefined && !args.preserveLeadingTitleHeading) {
         if (
           content.includes('componentName="Image"') &&
@@ -993,12 +1030,11 @@ const updateDocumentAction = defineAction({
               sourceContent,
             })
           ) {
-            browserSaveContentRejected = true;
-            measurement.reason_code = "stale_builder_image";
-            content = existing.content;
+            staleBodySave = "stale_builder_image";
           }
         }
         if (
+          !staleBodySave &&
           shouldRejectStaleEmptyBodySave({
             incomingContent: content,
             currentContent: existing.content,
@@ -1007,13 +1043,26 @@ const updateDocumentAction = defineAction({
             loadedContentWasEmpty: args.loadedContentWasEmpty,
           })
         ) {
-          browserSaveContentRejected = true;
-          measurement.stale_base = "true";
-          measurement.reason_code = "stale_empty_body";
-          content = existing.content;
+          staleBodySave = "stale_empty_body";
         }
       }
-      if (browserSaveContentRejected && args.browserSaveAttemptId) {
+      // These guard a body write, and a switched page's body may not be
+      // written here at all: the gate, read under the page lock, decides.
+      const staleBodySaveDeferred =
+        ctx?.caller === "frontend" && !!existing.liveBodySwitchedAt;
+      /** Keeps the stored body; true when the save must answer a conflict. */
+      const refuseStaleBodySave = (storedContent: string) => {
+        measurement.reason_code = staleBodySave;
+        if (staleBodySave === "stale_empty_body")
+          measurement.stale_base = "true";
+        content = storedContent;
+        return !!args.browserSaveAttemptId;
+      };
+      if (
+        staleBodySave &&
+        !staleBodySaveDeferred &&
+        refuseStaleBodySave(existing.content)
+      ) {
         measurement.outcome = "conflict";
         return respond(
           documentConflictResponse(existing, access.role, currentFavorite),
@@ -1038,6 +1087,9 @@ const updateDocumentAction = defineAction({
       const descriptionChanged =
         args.description !== undefined &&
         args.description.trim() !== existing.description;
+      if (titleChanged || contentChanged || descriptionChanged) {
+        assertSourceAllowsPageEdit(existing);
+      }
       const anyChange =
         titleChanged ||
         contentChanged ||
@@ -1050,6 +1102,11 @@ const updateDocumentAction = defineAction({
       let browserSaveConfirmation: BrowserSaveAttemptConfirmation | undefined;
       let bodyIntentOutcome: BrowserDocumentUpdateResponse["bodyIntentOutcome"];
       let discardedEditorGeneration: number | undefined;
+      let liveCopyBodySave: LiveCopyBodySave | undefined;
+      // Only a save the live copy already holds settles its draft or keeps a
+      // receipt. A tab whose updates never reached the live copy has nothing
+      // else on the server holding its text.
+      let settlesLiveCopyBody = false;
       let preservationRequired:
         | {
             reason: "structure" | "provenance";
@@ -1095,16 +1152,16 @@ const updateDocumentAction = defineAction({
         const mutate = async (tx: any) => {
           measurement.outcome = "unchanged";
           measurement.history_effect = "none";
-          const lockedDatabaseId = await lockDocumentMetadataDatabase({
-            db: tx as unknown as ReturnType<typeof getDb>,
-            documentId: id,
-            ownerEmail,
-          });
-          await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, id))
-            .for("update");
+          const mayWriteBody =
+            content !== undefined || authoredCandidateContent !== undefined;
+          const {
+            databaseId: lockedDatabaseId,
+            lockedDatabaseIds,
+            lockedMembershipIds,
+          } = await lockDocumentForSave(
+            tx as unknown as ReturnType<typeof getDb>,
+            { documentId: id, ownerEmail, body: mayWriteBody },
+          );
           access = favoriteOnly
             ? await resolveDocumentAccessForMutation(id, "id")
             : await assertDocumentMutationAccess(id, "editor", "id");
@@ -1142,6 +1199,9 @@ const updateDocumentAction = defineAction({
               return;
             }
           }
+          // After the replay check, so a retried save that already landed
+          // still gets its receipt. The page lock above makes this see Trash.
+          if (!favoriteOnly) assertEditableDocument(existing);
           if (settlesPreviewDraft) {
             await lockPreviewDocumentDraftSettlement({
               db: tx,
@@ -1201,15 +1261,85 @@ const updateDocumentAction = defineAction({
             contentCasConflict = true;
             return;
           }
+          if (ctx?.caller === "frontend" && content !== undefined) {
+            const [page] = await tx
+              .select(liveBodyWriterPageColumns())
+              .from(schema.documents)
+              .where(eq(schema.documents.id, id))
+              .limit(1);
+            const gate = await liveBodyWriterGateForRow(page, {
+              transaction: getDbExec(),
+            });
+            if (gate.writePath === "live_copy") {
+              // The editor's updates reach a live copy over collab, so the
+              // body part of its save is not written here. Comparing it with
+              // the stored body would read every peer's live-copy commit as
+              // an unmerged edit and divert this save to History.
+              const saveBodies = new Set(
+                [
+                  args.content,
+                  args.authoredCandidateContent,
+                  args.editorSnapshotContent,
+                ].filter((body): body is string => body !== undefined),
+              );
+              const matchesLiveCopy = [...saveBodies].every(
+                (body) => body === historyBefore.content,
+              );
+              liveCopyBodySave = {
+                status: "live_copy",
+                matchesLiveCopy,
+                bodyRevision: historyBefore.bodyRevision,
+                collabVersion: page.liveCopyVersion as number,
+              };
+              // A tab's body trails peers' commits it hasn't received, so
+              // most saves from two open tabs match no stored body. Old
+              // editors read an unsettled save as unsaved and send its text
+              // to History when the tab reopens.
+              // A receipt acknowledges the submitted body, authored candidate
+              // and recovery snapshot. SQL strips title headings they retain.
+              settlesLiveCopyBody = true;
+              for (const body of saveBodies) {
+                if (body === historyBefore.content) continue;
+                const hold = authoredBase
+                  ? await liveCopyHoldsSave({
+                      base: args.authoredBaseContent as string,
+                      stored: historyBefore.content,
+                      candidate: body,
+                    })
+                  : undefined;
+                if (hold) measurement.reason_code = `live_copy_save_${hold}`;
+                if (hold !== "held") {
+                  settlesLiveCopyBody = false;
+                  break;
+                }
+              }
+              if (settlesLiveCopyBody) {
+                bodyIntentOutcome = { status: "applied" };
+              }
+              content = undefined;
+            } else if (
+              staleBodySave &&
+              staleBodySaveDeferred &&
+              refuseStaleBodySave(historyBefore.content)
+            ) {
+              contentCasConflict = true;
+              return;
+            }
+          }
           const confirmBrowserSave = async (
             snapshot: { title: string; content: string },
             now: string,
           ) => {
+            if (liveCopyBodySave && !settlesLiveCopyBody) return;
             if (
               settlesPreviewDraft &&
               args.editorSnapshotTitle !== undefined &&
               args.editorSnapshotContent !== undefined &&
-              snapshot.title === args.editorSnapshotTitle &&
+              // A title the editor never edited is not lost when a peer's
+              // rename replaced it.
+              (snapshot.title === args.editorSnapshotTitle ||
+                (args.title === undefined &&
+                  args.editorSnapshotTitleBase === args.editorSnapshotTitle)) &&
               (snapshot.content === args.editorSnapshotContent ||
                 bodyIntentOutcome?.status === "applied" ||
                 bodyIntentOutcome?.status === "displaced-preserved")
@@ -1232,17 +1362,23 @@ const updateDocumentAction = defineAction({
                   updatedAt: schema.documents.updatedAt,
                 })
                 .from(schema.documents)
-                .where(eq(schema.documents.id, id))
+                .where(
+                  and(
+                    eq(schema.documents.id, id),
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                  ),
+                )
                 .limit(1);
               const confirmation: BrowserSaveAttemptConfirmation = {
                 attemptId: args.browserSaveAttemptId,
-                result: "applied",
+                result: liveCopyBodySave ? "live_copy" : "applied",
                 revision: documentRevisionToken(
                   confirmed.bodyRevision,
                   confirmed.content,
                 ),
                 updatedAt: confirmed.updatedAt,
                 softDeletedDatabaseIds,
+                ...(liveCopyBodySave ? { bodySave: liveCopyBodySave } : {}),
               };
               await tx.insert(schema.documentBrowserSaveAttempts).values({
                 id: randomUUID(),
@@ -1304,7 +1440,11 @@ const updateDocumentAction = defineAction({
               });
             }
           };
-          if (authoredBase && authoredCandidateContent !== undefined) {
+          if (
+            authoredBase &&
+            authoredCandidateContent !== undefined &&
+            !liveCopyBodySave
+          ) {
             const prior = await findDocumentBodyIntent({
               db: tx as ReturnType<typeof getDb>,
               ownerEmail,
@@ -1353,7 +1493,11 @@ const updateDocumentAction = defineAction({
                 { status: "resolved" }
               >
             | undefined;
-          if (authoredBase && authoredCandidateContent !== undefined) {
+          if (
+            authoredBase &&
+            authoredCandidateContent !== undefined &&
+            !liveCopyBodySave
+          ) {
             const priorIntents = await readDocumentBodyIntents({
               db: tx as ReturnType<typeof getDb>,
               ownerEmail,
@@ -1445,8 +1589,20 @@ const updateDocumentAction = defineAction({
           if (lockedDescriptionChanged)
             updates.description = args.description?.trim();
           if (lockedContentChanged) {
+            assertNoNewlySharedVideoIds(
+              historyBefore.content,
+              content as string,
+            );
+            // Only a browser save takes a switched page's body to its live
+            // copy; it reached here because the gate above chose legacy.
+            const legacy = await lockLegacyBodyWrites(tx, [id], {
+              operation: "update-document",
+              routed: ctx?.caller === "frontend",
+              instead: "Write the body with edit-document.",
+              content: content as string,
+            });
             updates.content = content;
-            updates.bodyRevision = historyBefore.bodyRevision + 1;
+            updates.bodyRevision = legacy.bodyRevision(content as string);
           }
           if (lockedIconChanged)
             updates.icon =
@@ -1460,6 +1616,7 @@ const updateDocumentAction = defineAction({
             ? await lockPrimaryBlocksFields(
                 tx as unknown as ReturnType<typeof getDb>,
                 id,
+                { heldMembershipIds: lockedMembershipIds },
               )
             : [];
           const applied = await commitCanonicalDocumentBodyMutation({
@@ -1467,7 +1624,10 @@ const updateDocumentAction = defineAction({
               if (
                 intentMerge ||
                 (useBodyRevisionCas && lockedContentChanged) ||
-                useDocumentCas
+                // Peers' live-copy commits move updatedAt, so on a live-copy
+                // save the snapshot guards only the fields it still writes.
+                (useDocumentCas &&
+                  (!liveCopyBodySave || lockedDocumentFieldsChanged))
               ) {
                 const rows = await tx
                   .update(schema.documents)
@@ -1566,11 +1726,13 @@ const updateDocumentAction = defineAction({
             );
           }
           committedContentChanged = lockedContentChanged;
-          measurement.outcome = lockedDocumentFieldsChanged
-            ? intentMerge && bodyBaseStale && lockedContentChanged
-              ? "merged"
-              : "written"
-            : "unchanged";
+          measurement.outcome = liveCopyBodySave
+            ? "live_copy_body"
+            : lockedDocumentFieldsChanged
+              ? intentMerge && bodyBaseStale && lockedContentChanged
+                ? "merged"
+                : "written"
+              : "unchanged";
           committedContentBefore = historyBefore.content;
 
           if (lockedTitleChanged && args.title !== undefined) {
@@ -1672,6 +1834,7 @@ const updateDocumentAction = defineAction({
                 content,
                 ownerEmail,
                 now: updatedAt,
+                lockedDatabaseIds,
               });
           }
           if (
@@ -1893,6 +2056,7 @@ const updateDocumentAction = defineAction({
               browserSaveConfirmation,
             ),
             ...(bodyIntentOutcome ? { bodyIntentOutcome } : {}),
+            ...(liveCopyBodySave ? { bodySave: liveCopyBodySave } : {}),
             ...(creativeContext
               ? {
                   contextMode: creativeContext.contextMode,

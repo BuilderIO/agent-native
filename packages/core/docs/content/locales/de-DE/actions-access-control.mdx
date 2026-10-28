@@ -166,13 +166,15 @@ Eine Handvoll Actions sind zu folgenreich, um den Agenten sie allein ausführen 
 
 Wenn `needsApproval` weggelassen wird, bleibt das Verhalten byte-für-byte unverändert. Auf dem üblichen Pfad entstehen keine zusätzlichen Kosten.
 
-Das funktioniert genauso für Actions im alten `parameters`-Stil wie für schemabasierte Actions. Es funktioniert auch genauso für den In-App-Agenten, Sub-Agenten, A2A- und MCP-Aufrufer, da jede Agent-Oberfläche durch dieselbe Schleife läuft.
+Das funktioniert genauso für Actions im alten `parameters`-Stil wie für schema-basierte Actions. Der In-App-Agent und seine Subagenten pausieren in der Agent-Schleife. MCP und A2A nutzen eigene Freigabeabläufe.
+
+Direkte Aufrufe über die [HTTP API](/docs/http-api) können keine menschliche Freigabe erteilen. Die Route führt eine geschützte Aktion nur für die nachgewiesene App-UI oder das MCP-Verzeichnis-Widget der App aus. Andere direkte HTTP-Aufrufe erhalten `409` mit `errorCode: "approval_required"`. Eine Service-Identität kann nicht freigeben. Der gemeinsame Client sendet bei angemeldeten Schreibzugriffen eine kurzlebige UI-Berechtigung mit. Ein Aufruf ohne Nachweis erhält `403` mit `errorCode: "ui_capability_required"`; danach holt der Client die Berechtigung und versucht es einmal erneut. A2A-Aufgaben verwenden einen eigenen Freigabeablauf statt dieser HTTP-Antwort. Die Aufgabe wartet auf die Freigabe ihres Eigentümers und führt den genehmigten Tool-Aufruf danach erneut aus. Der lokale CLI-Befehl `pnpm action ...` prüft `needsApproval` ebenfalls anhand der vorbereiteten, geparsten Eingabe mit Standardwerten und Aufrufer `cli`. Er verlangt eine Terminalbestätigung oder einen von der Person genehmigten erneuten Aufruf mit `--approved`. Siehe [CLI-Freigabe](/docs/actions-other-surfaces#cli). Behandle dieses Feld als Freigabeablauf, nicht als Autorisierungsgrenze.
 
 ### Wie die Schleife pausiert {#loop}
 
 Wenn der Agent eine gesperrte Action aufruft und dieser konkrete Aufruf **noch nicht** genehmigt wurde, führt die Schleife `run()` **nicht** aus. Stattdessen:
 
-1. Löst sie die Sperre auf. Bei einem Prädikat ruft die Schleife `needsApproval(input, ctx)` auf. Wenn dieser Aufruf einen Fehler wirft, behandelt die Schleife ihn wie ein `true`-Ergebnis, sodass die Action eine Genehmigung verlangt.
+1. Löst sie die Sperre auf. Zuerst bereitet die Schleife den Aufruf vor: Sie validiert die Argumente und wendet die Standardwerte und Umwandlungen des Schemas an. Ein ungültiger Aufruf endet hier mit seinem Validierungsfehler, und niemand wird um Genehmigung gebeten. Bei einem Prädikat ruft die Schleife dann `needsApproval(args, ctx)` mit den vorbereiteten Argumenten auf, also denen, die `run()` erhalten würde. Wenn dieser Aufruf einen Fehler wirft, behandelt die Schleife ihn wie ein `true`-Ergebnis, sodass die Action eine Genehmigung verlangt.
 2. Sendet sie ein `tool_start`-Ereignis (damit die UI den Aufruf anzeigt), unmittelbar gefolgt von einem **`approval_required`**-Ereignis, und stoppt dann den Turn. Die Nebenwirkung der Action tritt nie ein.
 
 Das `approval_required`-Ereignis trägt alles, was der Client braucht, um ein Bedienelement darzustellen:
@@ -405,12 +407,12 @@ Eine Create-Action ruft keinen der beiden Helfer auf. Sie muss beim Einfügen de
 
 Die vier Mechanismen sind nicht austauschbar:
 
-| Mechanismus                       | Frage, die er beantwortet                                         | Gilt für                                      |
-| --------------------------------- | ----------------------------------------------------------------- | --------------------------------------------- |
-| `access`                          | Hält der Aufrufer die deklarierte Rolle oder Mitgliedschaft?      | Alle sechs Dispatch-Stellen                   |
-| `authorize`                       | Darf dieser Aufrufer die Operation überhaupt ausführen?           | Alle sechs Dispatch-Stellen                   |
-| `needsApproval`                   | Soll ein Mensch diesen konkreten erlaubten Aufruf genehmigen?     | Nur die Agentenschleife                       |
-| `accessFilter()`/`assertAccess()` | Welche Zeilen darf dieser erlaubte Aufrufer sehen oder schreiben? | Innerhalb von `run()`, pro Abfrage oder Zeile |
+| Mechanismus                       | Frage, die er beantwortet                                         | Gilt für                                                  |
+| --------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------- |
+| `access`                          | Hält der Aufrufer die deklarierte Rolle oder Mitgliedschaft?      | Alle sechs Dispatch-Stellen                               |
+| `authorize`                       | Darf dieser Aufrufer die Operation überhaupt ausführen?           | Alle sechs Dispatch-Stellen                               |
+| `needsApproval`                   | Soll ein Mensch diesen konkreten erlaubten Aufruf genehmigen?     | Agent, MCP, A2A, CLI. HTTP schützt Aufrufe ohne Nachweis. |
+| `accessFilter()`/`assertAccess()` | Welche Zeilen darf dieser erlaubte Aufrufer sehen oder schreiben? | Innerhalb von `run()`, pro Abfrage oder Zeile             |
 
 Eine eingeschränkte Write-Action braucht typischerweise sowohl `authorize` als auch eine Zeilenprüfung. Das eine hält Nicht-Coaches aus der Operation heraus. Das andere hält einen Coach aus dem Plan einer anderen Org heraus. Die Zeilenprüfung ist `assertAccess()`, oder `access`, wenn die ID der Zeile ein Eingabefeld ist. `needsApproval` ist eine separate Achse. Es schränkt nie ein, wer aufrufen darf, sondern nur, ob der Agent unbeaufsichtigt fortfahren darf.
 

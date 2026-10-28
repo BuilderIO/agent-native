@@ -1,8 +1,10 @@
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn());
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
@@ -14,6 +16,9 @@ const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
 const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
+const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
+const mockDeleteStoredMediaUrl = vi.hoisted(() => vi.fn());
+const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
 const mockEqCalls = vi.hoisted(() => [] as unknown[][]);
 const mockUpdateRows = vi.hoisted(() => ({
@@ -47,6 +52,8 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: (...args: unknown[]) =>
+    mockCompareAndSetAppState(...args),
   compareAndSetManyAppState: (...args: unknown[]) =>
     mockCompareAndSetManyAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
@@ -68,6 +75,7 @@ vi.mock("drizzle-orm", () => ({
     return "eq";
   },
   isNull: vi.fn(() => "is-null"),
+  sql: (...args: unknown[]) => args,
 }));
 
 vi.mock("h3", () => ({
@@ -88,14 +96,29 @@ vi.mock("../../../../db/index.js", () => ({
       failureReason: "recordings.failureReason",
       uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
+      storageMode: "recordings.storageMode",
     },
   },
+}));
+
+vi.mock("../../../../lib/recording-media-cleanup.js", () => ({
+  deleteStoredMediaUrl: (...args: unknown[]) =>
+    mockDeleteStoredMediaUrl(...args),
+}));
+
+vi.mock("../../../../lib/video-storage.js", () => ({
+  releaseHostedClipRecording: (...args: unknown[]) =>
+    mockReleaseHostedClipRecording(...args),
 }));
 
 vi.mock("../../../../lib/recordings.js", () => ({
   getEventOwnerContext: (...args: unknown[]) =>
     mockGetEventOwnerContext(...args),
   ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
+}));
+vi.mock("../../../../lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingFailed: (...args: unknown[]) =>
+    mockReconcileMeetingOnRecordingFailed(...args),
 }));
 
 vi.mock("../../../../lib/upload-lease.js", () => ({
@@ -121,7 +144,7 @@ vi.mock("../../../../lib/resumable-upload-provider.js", () => ({
     mockResolveResumableUploadProvider(...args),
 }));
 
-import handler from "./abort.post";
+import handler, { handleAbortRecordingUpload } from "./abort.post";
 
 describe("/api/uploads/:recordingId/abort route", () => {
   beforeEach(() => {
@@ -148,9 +171,12 @@ describe("/api/uploads/:recordingId/abort route", () => {
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockDeleteRecordingChunks.mockResolvedValue(2);
     mockCompareAndSetManyAppState.mockResolvedValue(true);
+    mockCompareAndSetAppState.mockResolvedValue(true);
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockGetResumableSession.mockResolvedValue(null);
     mockAbortSession.mockResolvedValue(undefined);
+    mockDeleteStoredMediaUrl.mockResolvedValue(false);
+    mockReleaseHostedClipRecording.mockResolvedValue({ ok: true });
     mockResolveResumableUploadProvider.mockResolvedValue({
       resumable: { abortSession: mockAbortSession },
     });
@@ -203,6 +229,12 @@ describe("/api/uploads/:recordingId/abort route", () => {
             "Upload was stored-but-unservable: media URL timed out",
         }),
       ]),
+    );
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+      }),
     );
   });
 
@@ -623,6 +655,299 @@ describe("/api/uploads/:recordingId/abort route", () => {
       null,
     );
     expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1", null);
+  });
+
+  it("binds hosted media cleanup to the recording being aborted", async () => {
+    const videoUrl = "https://storage.example.com/clips/rec-1/clip.webm";
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+    });
+
+    expect(mockDeleteStoredMediaUrl).toHaveBeenCalledWith(videoUrl, {
+      storageMode: "hosted",
+      recordingId: "rec-1",
+    });
+  });
+
+  it("keeps the hosted reservation and session when the provider could not abort the session", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+    mockAbortSession.mockRejectedValue(new Error("provider unavailable"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await handler({} as any);
+
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).not.toHaveBeenCalled();
+  });
+
+  it("releases the hosted reservation once the session abort is confirmed", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        storageMode: "hosted",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await handler({} as any);
+
+    expect(mockDeleteResumableSession).toHaveBeenCalled();
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
+  });
+
+  it("takes the request from a caller that read it, and releases the hosted clip", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        storageMode: "hosted",
+      },
+    ];
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "clips-hosted",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await expect(
+      handleAbortRecordingUpload({} as H3Event, {
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        authUserId: "user-1",
+        body: {
+          failureCode: "upload_aborted",
+          reason: "The Content page gave up this upload.",
+          attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true, recordingId: "rec-1" });
+
+    expect(mockReadBody).not.toHaveBeenCalled();
+    expect(mockGetEventOwnerContext).not.toHaveBeenCalled();
+    expect(mockUpdateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "failed",
+          failureCode: "upload_aborted",
+          failureReason: "The Content page gave up this upload.",
+        }),
+      ]),
+    );
+    expect(mockReleaseHostedClipRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
+  });
+
+  describe("for Content's cancel, which changes only an upload still uploading", () => {
+    const uploading = {
+      id: "rec-1",
+      status: "uploading",
+      videoUrl: null,
+      failureReason: null,
+      failureCode: null,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const uploadState = {
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    // What a final chunk holds from before it takes the bytes until it has
+    // recorded where the upload went.
+    const claim = {
+      claimId: "claim-1",
+      claimedAt: new Date().toISOString(),
+    };
+    const claimKey = "recording-upload-final-chunk-rec-1";
+
+    function contentCancel() {
+      return handleAbortRecordingUpload({} as H3Event, {
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        onlyWhileUploading: true,
+        body: {
+          failureCode: "upload_aborted",
+          reason: "The Content page gave up this upload.",
+          attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+      });
+    }
+
+    /** Each read takes the next value, and the last one stays. */
+    function readStates(
+      states: Array<Record<string, unknown>>,
+      claims: Array<Record<string, unknown> | null> = [null],
+    ) {
+      const next = <T>(values: T[]) =>
+        values.length > 1 ? values.shift() : values[0];
+      mockReadAppState.mockImplementation(async (key: string) =>
+        key === "recording-media-verification-rec-1"
+          ? null
+          : key === claimKey
+            ? (next(claims) ?? null)
+            : next(states),
+      );
+    }
+
+    it("changes nothing while a final chunk holds the upload", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates([uploadState], [claim]);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        phase: "finishing",
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+      expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    });
+
+    it("changes nothing once a final chunk claims the upload between the cancel's read and its own claim", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates(
+        [uploadState, { ...uploadState, finalChunkClaimedAt: claim.claimedAt }],
+        [null, claim],
+      );
+      mockCompareAndSetManyAppState.mockResolvedValueOnce(false);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        phase: "finishing",
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetManyAppState).toHaveBeenCalledTimes(1);
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("cancels an upload whose final chunk claim is older than the chunk's longest run", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates(
+        [{ ...uploadState, finalChunkClaimedAt: "2026-10-24T00:00:00.000Z" }],
+        [{ claimId: "claim-1", claimedAt: "2026-10-24T00:00:00.000Z" }],
+      );
+
+      await expect(contentCancel()).resolves.toMatchObject({
+        ok: true,
+        recordingId: "rec-1",
+        chunksCleared: 2,
+      });
+
+      expect(mockUpdateSets).toEqual(
+        expect.arrayContaining([expect.objectContaining({ status: "failed" })]),
+      );
+    });
+
+    it("cancels an upload whose final chunk failed, whatever its state said meanwhile", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates([{ ...uploadState, status: "processing" }]);
+
+      await expect(contentCancel()).resolves.toMatchObject({
+        ok: true,
+        recordingId: "rec-1",
+        chunksCleared: 2,
+      });
+
+      expect(mockUpdateSets).toEqual(
+        expect.arrayContaining([expect.objectContaining({ status: "failed" })]),
+      );
+    });
+
+    it("leaves a recording that finalization moved on before verification starts", async () => {
+      mockSelectRows.rows = [{ ...uploading, status: "processing" }];
+      readStates([uploadState]);
+
+      await expect(contentCancel()).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        phase: "finished",
+        chunksCleared: 0,
+      });
+
+      expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("still cancels while the final chunk isn't in", async () => {
+      mockSelectRows.rows = [uploading];
+      readStates([uploadState]);
+
+      await expect(contentCancel()).resolves.toMatchObject({
+        ok: true,
+        recordingId: "rec-1",
+      });
+
+      expect(mockEqCalls).toContainEqual(["recordings.status", "uploading"]);
+      expect(mockUpdateSets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: "failed",
+            failureCode: "upload_aborted",
+          }),
+        ]),
+      );
+    });
   });
 
   it("aborts provider storage before deleting a resumable session", async () => {

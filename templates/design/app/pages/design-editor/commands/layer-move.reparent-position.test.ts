@@ -185,6 +185,31 @@ function buildArgs(
   return { args, targetId, draggedId };
 }
 
+function stubLiveRects(
+  iframe: HTMLIFrameElement,
+  rects: Record<string, { x: number; y: number }>,
+  unrendered: string[] = [],
+): string[] {
+  const preview = iframe.contentWindow as unknown as typeof window;
+  const measured: string[] = [];
+  const keyFor = (element: Element) =>
+    element.getAttribute("data-agent-native-edit-overlay") === "absolute-origin"
+      ? `probe:${element.parentElement?.getAttribute("data-agent-native-node-id")}`
+      : (element.getAttribute("data-agent-native-node-id") ?? "");
+  preview.HTMLElement.prototype.getBoundingClientRect = function () {
+    const key = keyFor(this);
+    measured.push(key);
+    const at = rects[key] ?? { x: 0, y: 0 };
+    return new DOMRect(at.x, at.y, 0, 0);
+  };
+  preview.HTMLElement.prototype.getClientRects = function () {
+    return (unrendered.includes(keyFor(this))
+      ? []
+      : [new DOMRect()]) as unknown as DOMRectList;
+  };
+  return measured;
+}
+
 describe("runLayerMove: positioning when layers change parents", () => {
   it("rebases left/top into the new parent's coordinate space so on-screen position is unchanged", () => {
     const { args, targetId, draggedId } = buildArgs(FIXTURE);
@@ -220,6 +245,100 @@ describe("runLayerMove: positioning when layers change parents", () => {
     expect(movedSticker).toMatchObject({
       layerName: "Sticker",
       layerNameAttribute: "data-agent-native-layer-name",
+    });
+  });
+
+  it("rebases into a class-positioned parent from the layer's live margin box", () => {
+    const fixture = `<html><head><style>
+.panel-box { left: 200px; top: 100px; width: 300px; height: 200px; border: 4px solid #000; }
+</style></head><body style="margin:0">
+  <div data-agent-native-node-id="panel" class="absolute panel-box"><div data-agent-native-node-id="pin" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div></div>
+  <div data-agent-native-node-id="sticker" style="position:absolute;left:250px;top:150px;margin-top:16px;width:60px;height:40px"></div>
+</body></html>`;
+    const { args, targetId, draggedId } = buildArgs(fixture);
+    const iframe = mountPreview(fixture, "index.html");
+    const measured = stubLiveRects(iframe, {
+      "probe:panel": { x: 204, y: 104 },
+      sticker: { x: 250, y: 166 },
+    });
+
+    runLayerMove({ ...args, canMoveLayer: () => true } as LayerMoveArgs, {
+      draggedIds: [draggedId],
+      targetId,
+      placement: "inside",
+    });
+
+    expect(measured).toEqual(["probe:panel", "sticker"]);
+    expect(
+      iframe.contentDocument!.querySelector("[data-agent-native-edit-overlay]"),
+    ).toBeNull();
+    const updatedContent = (args as any).__getUpdatedContent() as string | null;
+    const sticker = buildCodeLayerProjection(updatedContent!, {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "sticker",
+    );
+    expect(sticker?.parentId).toBe(targetId);
+    expect(sticker?.style).toMatchObject({
+      position: "absolute",
+      left: "46px",
+      top: "46px",
+    });
+  });
+
+  it("keeps the authored rebase for a layer the live preview does not render", () => {
+    const fixture = `<body style="margin:0">
+  <div data-agent-native-node-id="panel" style="position:absolute;left:200px;top:100px;width:300px;height:200px"><div data-agent-native-node-id="pin" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div></div>
+  <div data-agent-native-node-id="sticker" style="position:absolute;left:250px;top:150px;width:60px;height:40px"></div>
+</body>`;
+    const { args, targetId, draggedId } = buildArgs(fixture);
+    const iframe = mountPreview(fixture, "index.html");
+    stubLiveRects(iframe, {}, ["sticker"]);
+
+    runLayerMove({ ...args, canMoveLayer: () => true } as LayerMoveArgs, {
+      draggedIds: [draggedId],
+      targetId,
+      placement: "inside",
+    });
+
+    const updatedContent = (args as any).__getUpdatedContent() as string | null;
+    const sticker = buildCodeLayerProjection(updatedContent!, {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "sticker",
+    );
+    expect(sticker?.parentId).toBe(targetId);
+    expect(sticker?.style).toMatchObject({
+      position: "absolute",
+      left: "50px",
+      top: "50px",
+    });
+  });
+
+  it("rebases inside a positioned parent's border when no live preview is mounted", () => {
+    const fixture = `<body style="margin:0">
+  <div data-agent-native-node-id="panel" style="position:absolute;left:200px;top:100px;width:300px;height:200px;border:4px solid #000"><div data-agent-native-node-id="pin" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div></div>
+  <div data-agent-native-node-id="sticker" style="position:absolute;left:250px;top:150px;width:60px;height:40px"></div>
+</body>`;
+    const { args, targetId, draggedId } = buildArgs(fixture);
+
+    runLayerMove({ ...args, canMoveLayer: () => true } as LayerMoveArgs, {
+      draggedIds: [draggedId],
+      targetId,
+      placement: "inside",
+    });
+
+    const updatedContent = (args as any).__getUpdatedContent() as string | null;
+    const sticker = buildCodeLayerProjection(updatedContent!, {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "sticker",
+    );
+    expect(sticker?.parentId).toBe(targetId);
+    expect(sticker?.style).toMatchObject({
+      position: "absolute",
+      left: "46px",
+      top: "46px",
     });
   });
 

@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => {
 
   const readLiveSourceFile = vi.fn();
   const writeInlineSourceFile = vi.fn();
+  const snapshotDesignBeforeAgentEdit = vi.fn().mockResolvedValue(null);
   const getGenerationCreativeContext = vi.fn().mockResolvedValue(null);
   const recordGenerationCreativeContext = vi.fn().mockResolvedValue(undefined);
   const validateGenerationCreativeContext = vi.fn().mockResolvedValue({
@@ -56,8 +57,11 @@ const mocks = vi.hoisted(() => {
   return {
     db,
     fileRow,
+    makeWhereResult,
+    fileSelectChain,
     readLiveSourceFile,
     writeInlineSourceFile,
+    snapshotDesignBeforeAgentEdit,
     getGenerationCreativeContext,
     recordGenerationCreativeContext,
     validateGenerationCreativeContext,
@@ -77,6 +81,14 @@ vi.mock("../server/db/index.js", () => ({
     designs: { id: "designs.id" },
     designShares: {},
   },
+}));
+
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: mocks.snapshotDesignBeforeAgentEdit,
+}));
+
+vi.mock("../server/lib/design-tracking.js", () => ({
+  trackDesign: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -115,12 +127,17 @@ vi.mock("../server/source-workspace.js", async () => {
 });
 
 import { SourceWorkspaceEditConflictError } from "../server/source-workspace.js";
+import { LockedLayerEditError } from "../shared/locked-layers.js";
 import action from "./edit-design.js";
 
 describe("edit-design conflict retry", () => {
   beforeEach(() => {
+    mocks.fileSelectChain.where.mockImplementation(() =>
+      mocks.makeWhereResult([mocks.fileRow]),
+    );
     mocks.readLiveSourceFile.mockReset();
     mocks.writeInlineSourceFile.mockReset();
+    mocks.snapshotDesignBeforeAgentEdit.mockReset().mockResolvedValue(null);
     mocks.getGenerationCreativeContext.mockReset().mockResolvedValue(null);
     mocks.recordGenerationCreativeContext
       .mockReset()
@@ -171,6 +188,118 @@ describe("edit-design conflict retry", () => {
     expect(mocks.recordGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
+  it("preserves a retry no-match after checkpointing and accepts a corrected call", async () => {
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: "<main>Hello base</main>",
+        versionHash: "h0",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content: "<main>Concurrent update</main>",
+        versionHash: "h1",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content: "<main>Concurrent update</main>",
+        versionHash: "h1",
+        language: "html",
+      });
+    mocks.writeInlineSourceFile
+      .mockRejectedValueOnce(new SourceWorkspaceEditConflictError())
+      .mockResolvedValueOnce({
+        versionHash: "h2",
+        changed: true,
+        updatedAt: "2026-10-26T00:00:00.000Z",
+      });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Hello", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "Error",
+      message: expect.stringContaining("text was not found"),
+    });
+
+    expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+
+    const corrected = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Concurrent update", replace: "Recovered" }],
+    } as never);
+
+    expect(corrected).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(2);
+    expect(mocks.writeInlineSourceFile.mock.calls[1][0].content).toBe(
+      "<main>Recovered</main>",
+    );
+  });
+
+  it("does not label a retry miss as no-write after checkpointing", async () => {
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: "<main>Hello base</main>",
+        versionHash: "h0",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content: "<main>Concurrent replacement</main>",
+        versionHash: "h1",
+        language: "html",
+      });
+    mocks.writeInlineSourceFile.mockRejectedValueOnce(
+      new SourceWorkspaceEditConflictError(),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Hello", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "Error",
+      message: expect.stringContaining("text was not found"),
+    });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+  });
+
+  it("preserves a locked-layer rejection after a checkpointed conflict", async () => {
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: "<main>Legal</main>",
+        versionHash: "h0",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content:
+          '<main><div data-agent-native-node-id="legal" data-agent-native-locked="true">Legal</div></main>',
+        versionHash: "h1",
+        language: "html",
+      });
+    mocks.writeInlineSourceFile.mockRejectedValueOnce(
+      new SourceWorkspaceEditConflictError(),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Legal", replace: "Changed" }],
+      } as never),
+    ).rejects.toBeInstanceOf(LockedLayerEditError);
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+  });
+
   it("does not retry replace-file mode on conflict", async () => {
     mocks.readLiveSourceFile.mockResolvedValueOnce({
       content: "<main>Hello base</main>",
@@ -195,5 +324,124 @@ describe("edit-design conflict retry", () => {
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(1);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["missing text", "<main>Hello base</main>", "Not present"],
+    ["ambiguous text", "<p>Hello</p><p>Hello</p>", "Hello"],
+  ])("reports %s as a no-write rejection", async (_label, content, search) => {
+    mocks.readLiveSourceFile.mockResolvedValueOnce({
+      content,
+      versionHash: "h0",
+      language: "html",
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search, replace: "Updated" }],
+      } as never),
+    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("classifies a locked-layer rejection as no-write and accepts a corrected call", async () => {
+    const lockedContent =
+      '<main><div data-agent-native-node-id="legal" data-agent-native-locked="true">Legal</div><p>Draft</p></main>';
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: lockedContent,
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "h1",
+      changed: true,
+      updatedAt: "2026-10-26T00:00:00.000Z",
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Legal", replace: "Changed" }],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "locked_layer_edit_rejected",
+      statusCode: 409,
+    });
+
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+
+    const corrected = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Draft", replace: "Ready" }],
+    } as never);
+
+    expect(corrected).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+  });
+
+  it("reports a missing file as a no-write rejection", async () => {
+    mocks.fileSelectChain.where.mockImplementationOnce(() =>
+      mocks.makeWhereResult([]),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "missing.html",
+        edits: [{ search: "Hello", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "design_file_not_found",
+      statusCode: 404,
+    });
+
+    expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("lets a corrected call run after a search-replace no-match rejection", async () => {
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: "<main>Hello base</main>",
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "h1",
+      changed: true,
+      updatedAt: "2026-10-26T00:00:00.000Z",
+    });
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search: "Not present", replace: "Hi" }],
+      } as never),
+    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+
+    const result = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      edits: [{ search: "Hello", replace: "Hi" }],
+    } as never);
+
+    expect(result).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
   });
 });

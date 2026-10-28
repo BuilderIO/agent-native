@@ -7,6 +7,7 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { FileStorageStatus } from "@agent-native/core/file-upload/storage-settings";
 import type {
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
 } from "@agent-native/core/onboarding/types";
@@ -148,6 +149,19 @@ const BUILDER_ONLY_SERVICES: Record<
   },
 };
 
+/** Services Builder includes that also have a bring-your-own path. */
+const BUILDER_INCLUDED_SERVICES: Record<
+  WorkspaceBuilderIncludedServiceId,
+  ServiceRowMeta & { rowId: string }
+> = {
+  "web-search": {
+    rowId: "web-search",
+    labelKey: "agentChat.settingsShell.search.webSearch",
+    whyKey: `${K}whyWebSearch`,
+    icon: IconSearch,
+  },
+};
+
 type ServiceKeyDialog =
   | { mode: "add-from-service"; service: ServiceId; provider: AgentProviderId }
   | { mode: "manage"; provider: AgentProviderId };
@@ -277,6 +291,8 @@ function InfrastructurePageContent({
   const builderUnknown = hasOrg && flow.grants === null;
   const tags = infra.data?.setupTags;
   const storageSourceStatus = storage.data ? storageSource(storage.data) : null;
+  const storageProviderStatusUnknown =
+    storage.data?.activeProviderUnavailable === true;
   const storageBuilderGrantMissing =
     storageSourceStatus?.kind === "none" &&
     builderConnected &&
@@ -480,20 +496,24 @@ function InfrastructurePageContent({
         ? fileStorageProviderPreset(source.provider)
         : null;
     const text =
-      source.kind === "bucket"
-        ? t(`${K}storageBucket`, {
-            provider:
-              preset?.name ?? t("agentChat.settings.storage.providerOther"),
-            bucket: source.bucket,
-          })
-        : source.kind === "builder"
-          ? BUILDER_LABEL
-          : t(`${K}notSetUp`);
-    const description = storageBuilderGrantMissing
-      ? t(`${K}storageBuilderGrantMissing`)
-      : storageBuilderStatusUnknown
-        ? t(`${K}storageBuilderStatusUnknown`)
-        : rowDescription(text, t(`${K}useUploads`));
+      source.kind === "unknown"
+        ? t("agentChat.settings.storage.unreadable")
+        : source.kind === "bucket"
+          ? t(`${K}storageBucket`, {
+              provider:
+                preset?.name ?? t("agentChat.settings.storage.providerOther"),
+              bucket: source.bucket,
+            })
+          : source.kind === "builder"
+            ? BUILDER_LABEL
+            : t(`${K}notSetUp`);
+    const description = storageProviderStatusUnknown
+      ? t("agentChat.settings.storage.unreadable")
+      : storageBuilderGrantMissing
+        ? t(`${K}storageBuilderGrantMissing`)
+        : storageBuilderStatusUnknown
+          ? t(`${K}storageBuilderStatusUnknown`)
+          : rowDescription(text, t(`${K}useUploads`));
     const Icon = preset?.icon;
     return {
       icon:
@@ -506,20 +526,21 @@ function InfrastructurePageContent({
         ),
       status: source.kind === "none" ? tag(tags?.storage) : undefined,
       description,
-      control: storageBuilderStatusUnknown ? (
-        <div className="flex flex-wrap gap-2">
-          <RowButton onClick={() => void storage.refetch()}>
-            {t(`${K}retry`)}
-          </RowButton>
+      control:
+        storageBuilderStatusUnknown || storageProviderStatusUnknown ? (
+          <div className="flex flex-wrap gap-2">
+            <RowButton onClick={() => void storage.refetch()}>
+              {t(`${K}retry`)}
+            </RowButton>
+            <RowButton onClick={() => setStorageOpen(true)}>
+              {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
+            </RowButton>
+          </div>
+        ) : (
           <RowButton onClick={() => setStorageOpen(true)}>
-            {t(`${K}setUp`)}
+            {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
           </RowButton>
-        </div>
-      ) : (
-        <RowButton onClick={() => setStorageOpen(true)}>
-          {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
-        </RowButton>
-      ),
+        ),
     };
   })();
 
@@ -575,6 +596,42 @@ function InfrastructurePageContent({
       services.data?.services.find((item) => item.service === serviceOpen)) ||
     null;
   const openServiceMeta = serviceOpen ? PROVIDER_SERVICES[serviceOpen] : null;
+  const builderProvidedServiceRow = (
+    id: string,
+    entry: ServiceRowMeta & { rowId: string },
+    builderOnly: boolean,
+  ) => (
+    <SettingsRow
+      key={id}
+      id={entry.rowId}
+      icon={
+        builderOnly && builderConnected ? (
+          <BrandLogo logoId="builder-cms" />
+        ) : (
+          <entry.icon aria-hidden />
+        )
+      }
+      label={t(entry.labelKey)}
+      status={
+        builderOnly && !builderConnected ? (
+          <Badge variant="outline" data-builder-only="">
+            {t(`${K}builderOnly`)}
+          </Badge>
+        ) : undefined
+      }
+      description={rowDescription(
+        builderOnly && builderConnected
+          ? BUILDER_LABEL
+          : t(`${K}availableWithBuilder`),
+        t(entry.whyKey),
+      )}
+      control={
+        recommendBuilder
+          ? connectBuilder("outline", t("agentChat.setup.connectBuilder"))
+          : undefined
+      }
+    />
+  );
 
   return (
     <div className="flex flex-col gap-8" data-infrastructure-settings="">
@@ -628,43 +685,18 @@ function InfrastructurePageContent({
                 />
               ) : null;
             case "builder-only": {
-              const entry = BUILDER_ONLY_SERVICES[service.id];
-              return (
-                <SettingsRow
-                  key={service.id}
-                  id={entry.rowId}
-                  icon={
-                    builderConnected ? (
-                      <BrandLogo logoId="builder-cms" />
-                    ) : (
-                      <entry.icon aria-hidden />
-                    )
-                  }
-                  label={t(entry.labelKey)}
-                  status={
-                    builderConnected ? undefined : (
-                      <Badge variant="outline" data-builder-only="">
-                        {t(`${K}builderOnly`)}
-                      </Badge>
-                    )
-                  }
-                  description={rowDescription(
-                    builderConnected
-                      ? BUILDER_LABEL
-                      : t(`${K}availableWithBuilder`),
-                    t(entry.whyKey),
-                  )}
-                  control={
-                    recommendBuilder
-                      ? connectBuilder(
-                          "outline",
-                          t("agentChat.setup.connectBuilder"),
-                        )
-                      : undefined
-                  }
-                />
+              return builderProvidedServiceRow(
+                service.id,
+                BUILDER_ONLY_SERVICES[service.id],
+                true,
               );
             }
+            case "builder-included":
+              return builderProvidedServiceRow(
+                service.id,
+                BUILDER_INCLUDED_SERVICES[service.id],
+                false,
+              );
           }
         })}
       </SettingsGroup>
@@ -695,9 +727,11 @@ function InfrastructurePageContent({
                 {t(
                   storageBuilderGrantMissing
                     ? `${K}storageBuilderGrantMissing`
-                    : storageBuilderStatusUnknown
-                      ? `${K}storageBuilderStatusUnknown`
-                      : `${K}storageIntro`,
+                    : storageProviderStatusUnknown
+                      ? "agentChat.settings.storage.unreadable"
+                      : storageBuilderStatusUnknown
+                        ? `${K}storageBuilderStatusUnknown`
+                        : `${K}storageIntro`,
                 )}
               </DialogDescription>
             </DialogHeader>
@@ -740,7 +774,7 @@ function InfrastructurePageContent({
                 ) : null}
               </div>
             ) : null}
-            {storageBuilderStatusUnknown ? (
+            {storageBuilderStatusUnknown || storageProviderStatusUnknown ? (
               <Button
                 type="button"
                 variant="secondary"

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RunChunkControl } from "../agent/run-manager.js";
+import type { CurrentTurnRunEvent } from "../agent/run-store.js";
 import { startIntervalJob } from "../server/interval-job.js";
 import {
   getRequestOrgId,
@@ -13,11 +15,22 @@ import {
   initTriggerDispatcher,
   parseTriggerFrontmatter,
   refreshEventSubscriptions,
+  stopTriggerQueueWorker,
 } from "./dispatcher.js";
 import {
   expireAutomationTriggerEvent,
   MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
 } from "./event-queue.js";
+
+function createRunChunkControl(signal: AbortSignal): RunChunkControl {
+  return {
+    turnSignal: signal,
+    chunkSignal: signal,
+    chunkBoundaryReason: () => null,
+    beginChunk: () => signal,
+    flushEvents: async () => {},
+  };
+}
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceFingerprintAllOwnersMock = vi.hoisted(() => vi.fn());
@@ -37,13 +50,17 @@ const getThreadMock = vi.hoisted(() =>
     messageCount: 0,
   })),
 );
-const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const subscribeAllMock = vi.hoisted(() => vi.fn());
+const intervalWorkerHarness = vi.hoisted(() => ({
+  worker: undefined as ((signal: AbortSignal) => Promise<void>) | undefined,
+}));
 const emitMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const getCurrentTurnRunEventsForThreadMock = vi.hoisted(() => vi.fn());
 const conditionResource = (
   name: string,
   eventName: string,
@@ -315,7 +332,10 @@ vi.mock("../event-bus/index.js", () => ({
   unsubscribe: vi.fn(),
 }));
 vi.mock("../server/interval-job.js", () => ({
-  startIntervalJob: vi.fn(() => ({ stop: vi.fn() })),
+  startIntervalJob: vi.fn((worker) => {
+    intervalWorkerHarness.worker = worker;
+    return { stop: vi.fn() };
+  }),
 }));
 vi.mock("../jobs/sweep-hooks.js", () => ({
   registerRecurringSweepHandler: registerRecurringSweepHandlerMock,
@@ -404,6 +424,11 @@ vi.mock("../usage/store.js", () => ({
   recordUsage: recordUsageMock,
 }));
 
+vi.mock("../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/run-store.js")>()),
+  getCurrentTurnRunEventsForThread: getCurrentTurnRunEventsForThreadMock,
+}));
+
 vi.mock("../agent/run-manager.js", () => ({
   resolveRunSoftTimeoutMs: vi.fn(() => 0),
   resolveBackgroundAutomationSoftTimeoutMs: vi.fn(() => 0),
@@ -446,6 +471,36 @@ function busEventHandler(eventName: string) {
 }
 
 describe("trigger dispatcher", () => {
+  it("does not subscribe to a manual automation even with stale event metadata", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "manual-automation",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/on-demand.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: manual
+event: manual.stale.event
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Run on demand.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: { name: "test-engine", defaultModel: "test-model" } as any,
+      model: "test-model",
+    });
+
+    await expect(hasEventAutomation("manual.stale.event")).resolves.toBe(false);
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("reports when durable event subscriptions cannot be refreshed", async () => {
     resourceListAllOwnersMock.mockRejectedValueOnce(
       new Error("resource store unavailable"),
@@ -1113,12 +1168,46 @@ Respond to the fanout event.`,
     ).toThrow("Delegated automation policy IDs");
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Module-level worker flag survives across tests; clearAllMocks only
+    // resets the startIntervalJob mock, so stop the worker or later inits
+    // early-return and never register a new handle.
+    await stopTriggerQueueWorker();
     isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
     resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
     scanFingerprintMock.mockResolvedValue("fingerprint-unchanged");
+    getCurrentTurnRunEventsForThreadMock.mockImplementation(
+      async (threadId: string, turnId?: string) =>
+        startRunMock.mock.results.flatMap((result, index) => {
+          if (result.type !== "return") return [];
+          const run = result.value as {
+            runId: string;
+            threadId: string;
+            turnId?: string;
+            events?: Array<{
+              seq: number;
+              event: CurrentTurnRunEvent["event"];
+            }>;
+          };
+          const options = startRunMock.mock.calls[index]?.[4] as
+            | { turnId?: string }
+            | undefined;
+          const runTurnId = run.turnId ?? options?.turnId ?? run.runId;
+          if (
+            run.threadId !== threadId ||
+            (turnId !== undefined && runTurnId !== turnId)
+          ) {
+            return [];
+          }
+          return (run.events ?? []).map(({ seq, event }) => ({
+            runId: run.runId,
+            seq,
+            event,
+          }));
+        }),
+    );
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({
       execute: dbExecuteMock,
@@ -1159,7 +1248,12 @@ Respond to the event.`,
     resourcePutIfCurrentMock.mockImplementation(
       async (input: { owner: string; path: string; content: string }) => {
         await resourcePutMock(input.owner, input.path, input.content);
-        return { id: input.owner + input.path };
+        return {
+          id: input.owner + input.path,
+          owner: input.owner,
+          path: input.path,
+          content: input.content,
+        };
       },
     );
     createThreadMock.mockResolvedValue({ id: "thread-1" });
@@ -1179,13 +1273,16 @@ Respond to the event.`,
         runFn: (
           send: (event: unknown) => void,
           signal: AbortSignal,
+          control: RunChunkControl,
         ) => Promise<void>,
         onComplete?: (run: { status: string }) => void | Promise<void>,
+        options?: { turnId?: string },
       ) => {
         const abort = new AbortController();
         const activeRun = {
           runId,
           threadId,
+          turnId: options?.turnId ?? runId,
           status: "running",
           abort,
           events: [
@@ -1200,16 +1297,20 @@ Respond to the event.`,
             },
           ],
         };
-        void Promise.resolve().then(async () => {
+        const finalized = Promise.resolve().then(async () => {
           try {
-            await runFn(vi.fn(), abort.signal);
+            await runFn(
+              vi.fn(),
+              abort.signal,
+              createRunChunkControl(abort.signal),
+            );
             activeRun.status = "completed";
           } catch {
             activeRun.status = "errored";
           }
           await onComplete?.(activeRun);
         });
-        return activeRun;
+        return { ...activeRun, finalized };
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
@@ -1217,9 +1318,10 @@ Respond to the event.`,
 
   async function waitForEvent(eventId: string, status = "completed") {
     await vi.waitFor(() => {
-      expect(
-        triggerQueueMocks.rows.find((row) => row.eventId === eventId)?.status,
-      ).toBe(status);
+      const row = triggerQueueMocks.rows.find(
+        (candidate) => candidate.eventId === eventId,
+      );
+      expect(row?.status, JSON.stringify(row)).toBe(status);
     });
   }
 
@@ -1329,8 +1431,9 @@ Respond to the event.`,
           getActions: () => ({}),
           getSystemPrompt: async () => "system",
         };
-        isProductionServerlessRuntimeMock.mockReturnValueOnce(true);
+        isProductionServerlessRuntimeMock.mockReturnValue(true);
         await initTriggerDispatcher(deps);
+        isProductionServerlessRuntimeMock.mockReturnValue(false);
         if (source === "webhook") {
           webhook = dispatchAutomationWebhookTask({
             kind: "automation-webhook",
@@ -1553,6 +1656,152 @@ Respond to the event.`,
     expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
   });
 
+  it("stops the event-queue recovery interval on shutdown", async () => {
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const handle = vi.mocked(startIntervalJob).mock.results.at(-1)?.value as
+      | { stop: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(handle?.stop).toEqual(expect.any(Function));
+
+    await stopTriggerQueueWorker();
+    expect(handle?.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("awaits in-flight trigger drains when the queue worker stops", async () => {
+    let releaseDrain!: () => void;
+    // Resolve to null so drainTriggerQueue exits after the in-flight claim;
+    // a truthy value would loop forever and OOM the suite.
+    const drainGate = new Promise<null>((resolve) => {
+      releaseDrain = () => resolve(null);
+    });
+    triggerQueueMocks.ready.mockResolvedValueOnce(["trigger-drain-wait"]);
+    triggerQueueMocks.claim.mockImplementationOnce(() => drainGate);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const handle = vi.mocked(startIntervalJob).mock.results.at(-1)?.value as
+      | {
+          stop: ReturnType<typeof vi.fn>;
+          run?: (signal: AbortSignal) => Promise<void>;
+        }
+      | undefined;
+    // Drive one worker tick so startTriggerDrain registers an in-flight promise.
+    const runOnce = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    expect(runOnce).toEqual(expect.any(Function));
+    const tick = runOnce!(new AbortController().signal);
+    await vi.waitFor(() => {
+      expect(triggerQueueMocks.claim).toHaveBeenCalled();
+    });
+
+    let stopped = false;
+    const stopping = stopTriggerQueueWorker().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    releaseDrain();
+    await tick.catch(() => undefined);
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(handle?.stop).toHaveBeenCalled();
+  });
+
+  it("stops claiming further queued events once shutdown begins", async () => {
+    let releaseFirstClaim!: () => void;
+    const firstClaimGate = new Promise<void>((resolve) => {
+      releaseFirstClaim = resolve;
+    });
+    let claims = 0;
+    const defaultClaim = triggerQueueMocks.claim.getMockImplementation();
+    triggerQueueMocks.ready.mockResolvedValueOnce(["trigger-shutdown-bound"]);
+    triggerQueueMocks.claim.mockImplementation(async (...args) => {
+      claims += 1;
+      if (claims === 1) {
+        await firstClaimGate;
+        // Stale mail path expires then loops; the shutdown flag must stop
+        // further claims so stop() cannot hang on a large backlog.
+        return {
+          id: "queue-shutdown-1",
+          triggerId: "trigger-shutdown-bound",
+          triggerPath: "jobs/shutdown-bound.md",
+          appId: "mail",
+          eventName: "mail.message.received",
+          eventId: "shutdown-event-1",
+          payload: { messageId: "shutdown-1" },
+          eventOwner: "alice+triggers@agent-native.test",
+          emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+          status: "processing",
+          attempts: 1,
+          failureAttempts: 0,
+          claimedAt: Date.now(),
+          availableAt: 0,
+        };
+      }
+      return defaultClaim ? defaultClaim(...args) : null;
+    });
+
+    try {
+      await initTriggerDispatcher({
+        appId: "mail",
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+
+      const runOnce = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+      expect(runOnce).toEqual(expect.any(Function));
+      const tick = runOnce!(new AbortController().signal);
+      await vi.waitFor(() => {
+        expect(claims).toBe(1);
+      });
+
+      const stopping = stopTriggerQueueWorker();
+      await Promise.resolve();
+      releaseFirstClaim();
+      await tick.catch(() => undefined);
+      await stopping;
+
+      expect(claims).toBe(1);
+      expect(expireAutomationTriggerEvent).toHaveBeenCalled();
+    } finally {
+      if (defaultClaim) {
+        triggerQueueMocks.claim.mockImplementation(defaultClaim);
+      } else {
+        triggerQueueMocks.claim.mockReset();
+      }
+    }
+  });
+
+  it("takes no queue work after the worker stops until the dispatcher starts again", async () => {
+    const deps = {
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    };
+    await initTriggerDispatcher(deps);
+    const staleTick = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    expect(staleTick).toEqual(expect.any(Function));
+
+    await stopTriggerQueueWorker();
+    // Other jobs can still be stopping when a late tick or event runs.
+    await staleTick!(new AbortController().signal);
+    expect(triggerQueueMocks.ready).not.toHaveBeenCalled();
+
+    await initTriggerDispatcher(deps);
+    const tick = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    await tick!(new AbortController().signal);
+    expect(triggerQueueMocks.ready).toHaveBeenCalledOnce();
+  });
+
   it("backs off the interval worker when no trigger is claimable", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
@@ -1564,7 +1813,7 @@ Respond to the event.`,
         getSystemPrompt: async () => "system",
       });
 
-      const worker = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+      const worker = intervalWorkerHarness.worker;
       expect(worker).toBeTypeOf("function");
       const signal = new AbortController().signal;
 
@@ -3175,6 +3424,289 @@ Respond to the event.`,
     });
   });
 
+  it("uses deployment defaults for a verified no-org shared event", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-1",
+        owner: "__shared__",
+        path: "jobs/shared-inbox-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: qa.event.prompt
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+runAs: creator
+---
+
+Respond to the event.`,
+      },
+    ]);
+    let defaultRead:
+      | {
+          value: Record<string, unknown> | null;
+          source: string;
+        }
+      | undefined;
+    let settingReadKeys: string[] = [];
+    const getSystemPrompt = vi.fn(async () => {
+      const { readDefaultAgentEngineSettingDetailed } =
+        await import("../agent/default-agent-engine.js");
+      settingReadKeys = [];
+      dbExecuteMock.mockImplementation(async (query) => {
+        if (
+          typeof query !== "string" &&
+          query.sql === "SELECT value FROM public.settings WHERE key = ?"
+        ) {
+          const key = query.args?.[0];
+          settingReadKeys.push(String(key));
+          if (key === "agent-engine") {
+            return {
+              rows: [
+                {
+                  value: JSON.stringify({
+                    engine: "openai",
+                    model: "deployment-default",
+                  }),
+                },
+              ],
+              rowsAffected: 0,
+            };
+          }
+          if (String(key).startsWith("u:")) {
+            return {
+              rows: [
+                {
+                  value: JSON.stringify({
+                    engine: "anthropic",
+                    model: "personal-default",
+                  }),
+                },
+              ],
+              rowsAffected: 0,
+            };
+          }
+        }
+        return { rows: [{ "1": 1 }], rowsAffected: 1 };
+      });
+      defaultRead = await readDefaultAgentEngineSettingDetailed();
+      return "system";
+    });
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt,
+      model: "test-model",
+    });
+
+    const handler = busEventHandler("qa.event.prompt");
+    expect(handler).toBeTypeOf("function");
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-1",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-1");
+
+    expect(getSystemPrompt).toHaveBeenCalledWith(
+      "alice+triggers@agent-native.test",
+    );
+    expect(defaultRead).toEqual({
+      source: "legacy",
+      value: { engine: "openai", model: "deployment-default" },
+    });
+    expect(settingReadKeys).toEqual(["agent-engine"]);
+  });
+
+  it("pauses a shared event automation with no creator identity", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-shared-no-creator",
+        owner: "__shared__",
+        path: "jobs/shared-inbox-alert.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          "event: qa.event.no-creator",
+          "mode: agentic",
+          "---",
+          "",
+          "Respond to the event.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    await busEventHandler("qa.event.no-creator")(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-no-creator",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-no-creator");
+
+    const persisted = parseTriggerFrontmatter(
+      resourcePutMock.mock.calls.at(-1)![2],
+    ).meta;
+    expect(persisted).toMatchObject({
+      enabled: false,
+      lastErrorCode: "config_invalid",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("pauses an event automation that names a job runner instead of running its placeholder body as a prompt", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-runner-event",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/runner-event.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          "event: qa.event.runner",
+          "mode: agentic",
+          "runner: workflow",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Runs the saved workflow.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    await busEventHandler("qa.event.runner")(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-runner",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-runner");
+
+    const persisted = parseTriggerFrontmatter(
+      resourcePutMock.mock.calls.at(-1)![2],
+    ).meta;
+    expect(persisted).toMatchObject({
+      enabled: false,
+      runner: "workflow",
+      lastStatus: "paused",
+      lastErrorCode: "config_invalid",
+      lastError: expect.stringContaining('Job runner "workflow"'),
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("settles a webhook for a job runner automation as refused instead of running it as a prompt", async () => {
+    const owner = "alice+triggers@agent-native.test";
+    const path = "jobs/runner-webhook.md";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-runner-webhook",
+        owner,
+        path,
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: webhook",
+          "mode: agentic",
+          "runner: workflow",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Runs the saved workflow.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    await expect(
+      dispatchAutomationWebhookTask({
+        kind: "automation-webhook",
+        automationId: "resource-runner-webhook",
+        owner,
+        path,
+        eventId: "runner-webhook-event",
+        payload: { messageId: "message-1" },
+      }),
+    ).resolves.toBe("completed");
+
+    expect(
+      parseTriggerFrontmatter(resourcePutMock.mock.calls.at(-1)![2]).meta,
+    ).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "config_invalid",
+    });
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("does not run a shared event automation for a mismatched event owner", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-shared-owner-mismatch",
+        owner: "__shared__",
+        path: "jobs/shared-inbox-alert.md",
+        content: [
+          "---",
+          'schedule: ""',
+          "enabled: true",
+          "triggerType: event",
+          "event: qa.event.owner-mismatch",
+          "mode: agentic",
+          "createdBy: alice+triggers@agent-native.test",
+          "---",
+          "",
+          "Respond to the event.",
+        ].join("\n"),
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    await busEventHandler("qa.event.owner-mismatch")(
+      { ok: true },
+      {
+        owner: "bob+triggers@agent-native.test",
+        eventId: "event-owner-mismatch",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    await waitForEvent("event-owner-mismatch");
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("loads prompt resources for the trigger run owner", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -3203,7 +3735,6 @@ Respond to the event.`,
     });
 
     const handler = busEventHandler("qa.event.prompt");
-    expect(handler).toBeTypeOf("function");
     await handler(
       { ok: true },
       {
@@ -3212,8 +3743,8 @@ Respond to the event.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
-    await waitForEvent("event-1");
 
+    await waitForEvent("event-1");
     expect(getSystemPrompt).toHaveBeenCalledWith(
       "alice+triggers@agent-native.test",
     );
@@ -3758,7 +4289,19 @@ Handle the event.`,
     expect(startRunMock).not.toHaveBeenCalled();
   });
 
-  it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {
+  it("routes organization events only to their creator and pauses when membership is missing", async () => {
+    let creatorIsMember = true;
+    dbExecuteMock.mockImplementation(async (query: { sql?: string }) => {
+      if (query.sql?.includes('FROM "user"')) {
+        return { rows: [{ exists: 1 }] };
+      }
+      if (query.sql?.includes("FROM org_members")) {
+        return {
+          rows: creatorIsMember ? [{ role: "member" }] : [],
+        };
+      }
+      return { rows: [{ "1": 1 }] };
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-org-event",
@@ -3799,9 +4342,7 @@ Handle the organization event.`,
     expect(resourcePutMock).not.toHaveBeenCalled();
     expect(startRunMock).not.toHaveBeenCalled();
 
-    dbExecuteMock
-      .mockResolvedValueOnce({ rows: [{ "1": 1 }] })
-      .mockRejectedValueOnce(new Error("connection timeout"));
+    creatorIsMember = false;
     await handler(
       { ok: true },
       {
@@ -3811,14 +4352,17 @@ Handle the organization event.`,
       },
     );
     await vi.waitFor(() => expect(resourcePutMock).toHaveBeenCalled());
+    await waitForEvent("event-org-creator");
 
     expect(startRunMock).not.toHaveBeenCalled();
     const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
-    expect(persisted).toContain("lastStatus: error");
-    expect(persisted).toContain(
-      "Could not verify the automation execution identity",
-    );
-    expect(persisted).toContain('lastErrorCode: "owner_unverifiable"');
+    expect(parseTriggerFrontmatter(persisted).meta).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "owner_missing",
+      pausedReason: "owner_missing",
+    });
+    expect(persisted).toContain("is no longer a member");
   });
 
   it("recovers an event automation left running past the shared stuck window", async () => {

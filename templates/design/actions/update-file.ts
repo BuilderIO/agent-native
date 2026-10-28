@@ -27,7 +27,10 @@ import {
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
+import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
+import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import {
   applySourceContentPatch,
@@ -336,6 +339,10 @@ export default defineAction({
         designId: file.designId,
         updated: true,
         versionHash: write.versionHash,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          write.changed ? 1 : 0,
+        ),
         ...checkpointField,
       };
     }
@@ -368,6 +375,7 @@ export default defineAction({
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
     let exactOperationAlreadyPersisted = false;
+    let outputChanged = false;
     let persistedVersionHash: string | undefined;
     let persistedUpdatedAt: string | undefined;
 
@@ -377,11 +385,13 @@ export default defineAction({
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
           skippedStaleOperation = false;
+          outputChanged = false;
           exactOperationAlreadyPersisted = false;
           persistedUpdatedAt = undefined;
           const [persistedFile] = await tx
             .select({
               content: schema.designFiles.content,
+              filename: schema.designFiles.filename,
               fileType: schema.designFiles.fileType,
               contentOperationSource: schema.designFiles.contentOperationSource,
               contentOperationRevision:
@@ -395,6 +405,10 @@ export default defineAction({
           if (!persistedFile) {
             throw fileNotFound(id);
           }
+
+          outputChanged =
+            (filename !== undefined && filename !== persistedFile.filename) ||
+            (fileType !== undefined && fileType !== persistedFile.fileType);
 
           const persistedContentHash = sourceContentHash(persistedFile.content);
           persistedVersionHash = persistedContentHash;
@@ -429,6 +443,13 @@ export default defineAction({
             contentPatch && expectedVersionHash
               ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
               : requestedContent;
+          assertHubSpotEmailFrameContent({
+            content: content ?? liveContent,
+            fileType: fileType ?? persistedFile.fileType ?? "html",
+            previousContent: isHubSpotEmailHtml(liveContent)
+              ? liveContent
+              : persistedFile.content,
+          });
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -465,20 +486,11 @@ export default defineAction({
               persistedFile.contentOperationResultHash === persistedContentHash;
           }
 
-          // SQL-mirror-only skip path: when the caller explicitly opted OUT of
-          // collab sync (syncCollab: false) and supplied an expectedVersionHash
-          // that no longer matches the LIVE collab text, and a live collab doc
-          // actually exists for this file, the caller's `content` was computed
-          // from a base that a live editor has since moved past. Overwriting the
-          // SQL mirror column with that stale content here would silently regress
-          // it out from under the live document (which stays the source of
-          // truth) the next time it's read back out of SQL. Skip the content
-          // write instead of throwing: filename/fileType updates in the same call
-          // still proceed, and the caller gets `skippedStaleMirror: true` back
-          // instead of a thrown error, because they explicitly said they weren't
-          // trying to sync into collab in the first place. Every other
-          // expectedVersionHash combination (syncCollab true/default, or no live
-          // collab state, or a matching hash, or no hash at all) is UNCHANGED.
+          // A versioned mirror-only save still needs a conflict when a live
+          // editor moved past its base. Returning a successful skipped result
+          // would let the save queue acknowledge content that was never stored.
+          // Keep the legacy unversioned mirror-tip behavior below; queued editor
+          // saves carry an operation source and revision and take the loud path.
           //
           // Own-edit false-positive fix: a single client's own edit reaches the
           // live collab doc via TWO independent, unordered paths — the Yjs
@@ -505,7 +517,11 @@ export default defineAction({
               liveContent !== content &&
               sourceContentHash(liveContent) !== expectedVersionHash
             ) {
-              if (syncCollab === false && collabExists) {
+              if (
+                syncCollab === false &&
+                collabExists &&
+                !hasVersionedContentOperation
+              ) {
                 if (persistedContentHash !== expectedVersionHash) {
                   skipContentWrite = true;
                   skippedStaleMirror = true;
@@ -529,6 +545,9 @@ export default defineAction({
           const updates: Record<string, unknown> = { updatedAt: now };
           if (content !== undefined && !skipContentWrite) {
             updates.content = content;
+            outputChanged =
+              outputChanged ||
+              sourceContentHash(content) !== sourceContentHash(liveContent);
             persistedVersionHash = sourceContentHash(content);
             if (
               operationSource !== undefined &&
@@ -739,6 +758,10 @@ export default defineAction({
         designId: file.designId,
         updated: true,
         skippedStaleMirror: true,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          outputChanged ? 1 : 0,
+        ),
         ...checkpointField,
       };
     }
@@ -749,12 +772,24 @@ export default defineAction({
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
         versionHash: persistedVersionHash,
+        _receipt: designOutputWriteReceipt(
+          file.designId,
+          outputChanged ? 1 : 0,
+        ),
         ...(persistedUpdatedAt ? { updatedAt: persistedUpdatedAt } : {}),
         ...checkpointField,
       };
     }
-    return { id, designId: file.designId, updated: true, ...checkpointField };
+    return {
+      id,
+      designId: file.designId,
+      updated: true,
+      _receipt: designOutputWriteReceipt(file.designId, outputChanged ? 1 : 0),
+      ...checkpointField,
+    };
   },
+  // A call that threw has no result, and the input names only the file, so
+  // its change reaches the caller alone; naming the design would need a read.
   changeResource: (_input, result) =>
-    designChangeResource(result.designId, result),
+    designChangeResource(result?.designId, result),
 });

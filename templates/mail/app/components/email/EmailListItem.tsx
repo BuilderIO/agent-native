@@ -19,7 +19,15 @@ import {
   IconThumbDown,
   IconThumbUp,
 } from "@tabler/icons-react";
-import { memo, useRef, useState, useCallback, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Link } from "react-router";
 
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
@@ -36,8 +44,12 @@ import {
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { getLabelStyle } from "@/lib/label-colors";
 import { mailLabelDisplayName } from "@/lib/label-display";
+import { THREAD_PREFETCH_INTENT_MS } from "@/lib/thread-cache";
 import type { ThreadSummary } from "@/lib/threads";
 import { cn, formatEmailDate } from "@/lib/utils";
+
+const INTERACTIVE_ROW_CONTROL_SELECTOR =
+  'button, a, input, [role="checkbox"], [data-row-action]';
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -70,6 +82,7 @@ interface EmailListItemProps {
     thread: ThreadSummary,
   ) => void;
   onHover: (thread: ThreadSummary) => void;
+  onPrefetch?: (thread: ThreadSummary) => void;
   onSwipeArchive?: (thread: ThreadSummary) => void;
   onSwipeSnooze?: (thread: ThreadSummary) => void;
   highlight?: string;
@@ -151,6 +164,7 @@ export const EmailListItem = memo(function EmailListItem({
   onConfirmUncertainScheduled,
   onRetryUncertainScheduled,
   onHover,
+  onPrefetch,
   onSwipeArchive,
   onSwipeSnooze,
   highlight,
@@ -324,6 +338,41 @@ export const EmailListItem = memo(function EmailListItem({
     if (thread) onHover(thread);
   }, [onHover, thread]);
 
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPrefetch = useCallback(() => {
+    if (prefetchTimerRef.current === null) return;
+    clearTimeout(prefetchTimerRef.current);
+    prefetchTimerRef.current = null;
+  }, []);
+  useEffect(() => cancelPrefetch, [cancelPrefetch]);
+
+  const handleRowPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      // A touch pointer-down is the start of a swipe as often as a tap, and a
+      // swipe must not warm every row the finger crosses. Touch opens go
+      // through the explicit open path.
+      if (event.pointerType === "touch") return;
+      // Pointer-downs from inline controls (star, archive, select) bubble here.
+      // Triage is not a request to open the thread, so they must not prefetch.
+      const control =
+        event.target instanceof Element
+          ? event.target.closest(INTERACTIVE_ROW_CONTROL_SELECTOR)
+          : null;
+      if (control && event.currentTarget.contains(control)) return;
+      if (thread) onPrefetch?.(thread);
+    },
+    [onPrefetch, thread],
+  );
+
+  const handleRowMouseEnter = useCallback(() => {
+    if (!thread || !onPrefetch) return;
+    cancelPrefetch();
+    prefetchTimerRef.current = setTimeout(() => {
+      prefetchTimerRef.current = null;
+      onPrefetch(thread);
+    }, THREAD_PREFETCH_INTENT_MS);
+  }, [cancelPrefetch, onPrefetch, thread]);
+
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (!thread || e.target !== e.currentTarget) return;
@@ -343,6 +392,7 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleToggleMultiSelectClick = useCallback(
     (e: React.SyntheticEvent) => {
+      e.stopPropagation();
       if (thread) onToggleMultiSelect(e, thread);
     },
     [onToggleMultiSelect, thread],
@@ -511,6 +561,9 @@ export const EmailListItem = memo(function EmailListItem({
         aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
         onMouseMove={handleRowHover}
+        onMouseEnter={handleRowMouseEnter}
+        onMouseLeave={cancelPrefetch}
+        onPointerDown={handleRowPointerDown}
         onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
         onTouchMove={canSwipe ? handleTouchMove : undefined}

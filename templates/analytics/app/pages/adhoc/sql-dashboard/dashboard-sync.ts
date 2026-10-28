@@ -56,6 +56,41 @@ export function createDashboardAdoptionHold({
   };
 }
 
+/**
+ * The hold left after a save fails. The save gives up only the hold it placed:
+ * by now a later save, a live collaborative update, or another dashboard may
+ * hold the page instead, and that hold stays.
+ */
+export function releaseDashboardAdoptionHold(
+  current: DashboardAdoptionHold | null,
+  placed: DashboardAdoptionHold | null,
+): DashboardAdoptionHold | null {
+  return current === placed ? null : current;
+}
+
+/**
+ * The page's version after one of its saves lands. A save moves it only on the
+ * dashboard it saved, and only from the version it was sent against. If the
+ * page has moved on since (it adopted someone else's save, undid one, or
+ * switched dashboards), a late result is older news and the page keeps what it
+ * has. Two dashboards can have the same version, so the version alone doesn't
+ * say which one the page is on.
+ */
+export function dashboardVersionAfterSave(
+  page: { dashboardId: string | undefined; updatedAt: string | null },
+  save: {
+    dashboardId: string;
+    sentAgainst: string | undefined;
+    saved: string | undefined;
+  },
+): string | null {
+  return save.saved !== undefined &&
+    page.dashboardId === save.dashboardId &&
+    (page.updatedAt ?? undefined) === save.sentAgainst
+    ? save.saved
+    : page.updatedAt;
+}
+
 export function shouldAdoptDashboardQueryResult({
   dashboardId,
   loaded,
@@ -64,6 +99,7 @@ export function shouldAdoptDashboardQueryResult({
   fetchedUpdatedAt,
   currentUpdatedAt,
   hold,
+  savesPending,
   now = Date.now(),
 }: {
   dashboardId: string | undefined;
@@ -71,8 +107,11 @@ export function shouldAdoptDashboardQueryResult({
   isPlaceholderData: boolean;
   fetchedId: string | null | undefined;
   fetchedUpdatedAt: string | null | undefined;
+  /** The newest version the page knows, including its own saves that landed. */
   currentUpdatedAt: string | null;
   hold: DashboardAdoptionHold | null;
+  /** Whether a save for this dashboard is queued or in flight. */
+  savesPending: boolean;
   now?: number;
 }): { adopt: boolean; clearHold: boolean } {
   if (!dashboardId) return { adopt: false, clearHold: false };
@@ -82,22 +121,22 @@ export function shouldAdoptDashboardQueryResult({
   if (fetchedId && fetchedId !== dashboardId) {
     return { adopt: false, clearHold: false };
   }
+  // No fetch can hold a save that hasn't landed, and adopting one that holds
+  // an earlier queued save drops the later edits on screen.
+  if (savesPending) return { adopt: false, clearHold: false };
 
   const fetchedMs = dashboardUpdatedAtMs(fetchedUpdatedAt);
   const currentMs = dashboardUpdatedAtMs(currentUpdatedAt);
   const activeHold = hold?.dashboardId === dashboardId ? hold : null;
-  const clearHold = !!activeHold && now >= activeHold.expiresAt;
+  const expired = !!activeHold && now >= activeHold.expiresAt;
+  const floorMs = activeHold && !expired ? activeHold.minUpdatedAtMs : null;
 
-  if (activeHold && !clearHold && activeHold.minUpdatedAtMs !== null) {
-    if (fetchedMs === null || fetchedMs <= activeHold.minUpdatedAtMs) {
-      return { adopt: false, clearHold: false };
-    }
-    return { adopt: true, clearHold: true };
+  if (floorMs !== null && (fetchedMs === null || fetchedMs <= floorMs)) {
+    return { adopt: false, clearHold: false };
   }
-
   if (currentMs !== null && fetchedMs !== null && fetchedMs < currentMs) {
-    return { adopt: false, clearHold };
+    return { adopt: false, clearHold: expired };
   }
 
-  return { adopt: true, clearHold };
+  return { adopt: true, clearHold: expired || floorMs !== null };
 }

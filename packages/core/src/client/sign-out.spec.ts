@@ -66,6 +66,47 @@ describe("signOut", () => {
     expect(signingOutDuringRequest).toBe(true);
   });
 
+  it("runs transient client cleanup before revoking the session", async () => {
+    const { signOut } = await loadSignOut();
+    const { registerBeforeSignOutCleanup } = await import("./use-session.js");
+    const order: string[] = [];
+    const unregister = registerBeforeSignOutCleanup(async () => {
+      order.push("clear-presence");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        order.push("revoke-session");
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    try {
+      await signOut();
+      expect(order).toEqual(["clear-presence", "revoke-session"]);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("forgets what the recorder kept before it asks the server to revoke the session", async () => {
+    const { signOut } = await loadSignOut();
+    const { recorder } = await import("./recorder.js");
+    recorder.log("compose.opened", { draftId: "d1" });
+    let eventsDuringRequest: unknown[] | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        eventsDuringRequest = recorder.report().events;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }),
+    );
+
+    await signOut();
+
+    expect(eventsDuringRequest).toEqual([]);
+  });
+
   it("waits for the revoke to land before navigating away", async () => {
     const { signOut } = await loadSignOut();
     let settleRevoke: (() => void) | undefined;

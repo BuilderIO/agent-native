@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import {
   defineAutomation,
+  isOutsideAutomationOrigin,
   listAutomationDefinitions,
   updateAutomation,
 } from "@agent-native/core/triggers";
@@ -26,6 +27,12 @@ const INDEX_RUN_BODY = [
 ].join("\n");
 
 export default defineAction({
+  needsApproval: (_input, ctx) => isOutsideAutomationOrigin(ctx),
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Enable, disable, or reschedule the organization's recurring data index build. Requires an organization owner or admin. Enabling creates or updates one scheduled automation that runs build-data-index. Disabling turns that automation off without deleting it.",
   schema: z.object({
@@ -60,7 +67,14 @@ export default defineAction({
     const current = await readIndexSchedule(admin.orgId);
     const name =
       current.automationName ?? DEFAULT_INDEX_SCHEDULE_AUTOMATION_NAME;
-    const actor = { userEmail: admin.userEmail, orgId: admin.orgId, appId };
+    const actor = {
+      userEmail: admin.userEmail,
+      orgId: admin.orgId,
+      appId,
+      caller: ctx.caller,
+      networkProtocol: ctx.networkProtocol,
+      automation: ctx.automation,
+    };
     const definitions = await listAutomationDefinitions(actor, "organization");
     const exists = definitions.some((definition) => definition.name === name);
 

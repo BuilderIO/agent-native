@@ -91,6 +91,17 @@ interface PendingScrubTextCommit {
 }
 
 const activeScrubCancelCallbacks = new Set<() => void>();
+const mountedScrubInputs = new Set<() => ScrubInputDisplay>();
+
+export interface ScrubInputDisplay {
+  label: string;
+  shown: string;
+}
+
+/** What each mounted scrub input is showing right now. */
+export function readVisualScrubInputs(): ScrubInputDisplay[] {
+  return [...mountedScrubInputs].map((read) => read());
+}
 
 export function cancelActiveScrubInputs() {
   for (const cancel of [...activeScrubCancelCallbacks]) cancel();
@@ -119,6 +130,7 @@ export function VisualScrubInput({
   id,
   step = 1,
   unit,
+  displayUnit,
   min,
   max,
   precision,
@@ -147,7 +159,8 @@ export function VisualScrubInput({
   const [draft, setDraft] = useState(() =>
     mixed
       ? resolvedMixedLabel
-      : (textValue ?? formatScrubValue(value, { unit, precision })),
+      : (textValue ??
+        formatScrubValue(value, { unit, displayUnit, precision })),
   );
   const draftRef = useRef(draft);
   const [focused, setFocused] = useState(false);
@@ -163,7 +176,7 @@ export function VisualScrubInput({
   });
   const dragStartValueRef = useRef(value);
   const dragStartTextRef = useRef(
-    textValue ?? formatScrubValue(value, { unit, precision }),
+    textValue ?? formatScrubValue(value, { unit, displayUnit, precision }),
   );
   const lastScrubValueRef = useRef(value);
   const pendingCommitRef = useRef<PendingScrubCommit | null>(null);
@@ -171,7 +184,7 @@ export function VisualScrubInput({
   const rawDraftChangedRef = useRef(false);
   const unregisterActiveScrubRef = useRef<(() => void) | null>(null);
   const cancelActiveScrubRef = useRef<() => void>(() => {});
-  const options = { unit, min, max, precision };
+  const options = { unit, displayUnit, min, max, precision };
 
   useEffect(
     () => () => {
@@ -182,6 +195,14 @@ export function VisualScrubInput({
   );
 
   useEffect(() => {
+    const read = () => ({ label: ariaLabel ?? label, shown: draftRef.current });
+    mountedScrubInputs.add(read);
+    return () => {
+      mountedScrubInputs.delete(read);
+    };
+  }, [ariaLabel, label]);
+
+  useEffect(() => {
     if (mixed) {
       pendingCommitRef.current = null;
       if (!onTextCommit) pendingTextCommitRef.current = null;
@@ -190,7 +211,7 @@ export function VisualScrubInput({
       textValue ??
       (mixed
         ? resolvedMixedLabel
-        : formatScrubValue(value, { unit, precision }));
+        : formatScrubValue(value, { unit, displayUnit, precision }));
     if (pendingTextCommitRef.current) {
       const pendingText = pendingTextCommitRef.current;
       if (currentTextValue === pendingText.value) {
@@ -216,7 +237,8 @@ export function VisualScrubInput({
     if (!focused) {
       const formatted = mixed
         ? resolvedMixedLabel
-        : (textValue ?? formatScrubValue(value, { unit, precision }));
+        : (textValue ??
+          formatScrubValue(value, { unit, displayUnit, precision }));
       rawDraftChangedRef.current = false;
       draftRef.current = formatted;
       setDraft(formatted);
@@ -231,6 +253,7 @@ export function VisualScrubInput({
     resolvedMixedLabel,
     textValue,
     unit,
+    displayUnit,
     value,
   ]);
 
@@ -410,12 +433,13 @@ export function VisualScrubInput({
       textValue ??
       (mixed
         ? resolvedMixedLabel
-        : formatScrubValue(value, { unit, precision }));
+        : formatScrubValue(value, { unit, displayUnit, precision }));
     const pendingTextCommit = pendingTextCommitRef.current;
     const startText =
       pendingTextCommit && currentTextValue === pendingTextCommit.baseline
         ? pendingTextCommit.value
-        : (textValue ?? formatScrubValue(startValue, { unit, precision }));
+        : (textValue ??
+          formatScrubValue(startValue, { unit, displayUnit, precision }));
     event.preventDefault();
     dragRef.current = {
       pointerId: event.pointerId,

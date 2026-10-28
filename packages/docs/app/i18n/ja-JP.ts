@@ -1,6 +1,62 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const jaJP = {
+  campaign: {
+    recipeWhen: "いつ",
+    howOften: "頻度",
+    filterRole: "役割",
+    filterAll: "すべて",
+    filterEngineering: "エンジニアリング",
+    filterProduct: "プロダクト",
+    filterDesign: "デザイン",
+    filterMarketing: "マーケティング",
+    filterRevops: "RevOps",
+    filterSales: "営業",
+    filterFounders: "創業者",
+    filterFinance: "財務",
+    filterEmpty: "条件に一致するユースケースはありません。",
+    filterClear: "フィルターをクリア",
+    browseArticles: "または、{{articles}}でテンプレートや使い方を探せます。",
+    articlesLink: "記事",
+    whatYouUse: "使用するツール",
+    usedFor: "用途",
+    whereItBreaks: "限界となる点",
+    updatedDate: "更新日：{{date}}",
+    publishedDate: "公開日：{{date}}",
+    allArticles: "すべての記事",
+    useCases: "ユースケース",
+    useCasesDescription: "繰り返しの仕事のためのページをアプリ別に紹介",
+    useCasesTitle:
+      "Agent-Native アプリと AI エージェントで繰り返しの仕事をこなす",
+    useCasesIntro:
+      "何度も繰り返す仕事を選ぶか、{{articles}}でテンプレートや使い方を探してください。",
+    articles: "記事",
+    articlesIntro:
+      "AI エージェントと取り組む繰り返しの仕事についての実践的な回答。個別の仕事をステップごとに解説するページは、{{useCases}}をご覧ください。",
+    useCasesLink: "ユースケース",
+    articleCount_other: "{{count}} 件の記事",
+    moreOnTopic: "{{topic}}についてもっと読む",
+    faqs: "よくある質問",
+    copyPage: "ページをコピー",
+    copyLink: "リンクをコピー",
+    copied: "コピーしました",
+    copyFailed: "コピーできませんでした。もう一度お試しください。",
+    breadcrumb: "パンくずリスト",
+    readTime_other: "読了 {{count}} 分",
+    partOf: "関連するユースケース：",
+    relatedResources: "関連リソース",
+    moreArticles: "{{category}} のその他の記事",
+    genericMore: "その他の記事",
+    showMore: "記事をさらに表示",
+    allTopics: "すべてのトピック",
+    topics: {
+      clips: "AI エージェントが使える画面録画、会議、音声入力",
+      design: "AI エージェントと作るインタラクティブなプロトタイプ",
+      slides: "AI エージェントと作るブランドに合ったプレゼンテーション",
+      plans: "AI コーディングエージェント向けの視覚的な計画と振り返り",
+      analytics: "自然な言葉での質問、チャート、ダッシュボード",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
@@ -650,6 +706,9 @@ const jaJP = {
     waitlistUnavailable:
       "この環境ではまだ待機リストに登録できません。代わりにホストされたドキュメントサイトをお試しください。",
     launchBuilder: "Builderを起動",
+    newAppPrompt: "新しい Agent-Native アプリを作成してください。",
+    customizeTemplatePrompt:
+      "Agent-Native の {{template}} テンプレートを、私の作業に合うようにカスタマイズしてください。",
   },
   templateCard: {
     pasteIntoTerminal: "端末に貼り付けます。",
@@ -2627,6 +2686,7 @@ const jaJP = {
     auditLog: "監査ログ",
     doctorCodeChecks: "Doctor (コードチェック)",
     observability: "可観測性",
+    recorder: "レコーダー",
     observationalMemory: "観測メモリ",
     ciEvalGate: "CI 評価ゲート",
     usingYourAgentOverview: "概要",
@@ -2680,7 +2740,9 @@ const jaJP = {
     blueprintInstaller: "Blueprint インストーラー",
     chat: "チャット",
     chatOverview: "概要",
-    chatFirstEdits: "最初の機能",
+    chatFeatures: "機能",
+    chatAgent: "Agent との対話",
+    chatIntegrations: "クロスアプリ利用",
     chatDevelopers: "開発者ガイド",
     calendar: "カレンダー",
     calendarOverview: "概要",
@@ -2754,6 +2816,6 @@ const jaJP = {
     docsComponents: "Docs Components",
     formsDevelopers: "開発者ガイド",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default jaJP;

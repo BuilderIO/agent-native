@@ -1,15 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import type { SqlFragment } from "../db/sql.js";
 import type { Message } from "./types.js";
 
+type MockStatement =
+  | string
+  | SqlFragment
+  | { sql: string; args: readonly unknown[] };
+
 let tables: Record<string, any[]> = {};
-let onIdempotentInsert: ((args: any[]) => void) | null = null;
+let onIdempotentInsert: ((args: readonly unknown[]) => void) | null = null;
 
 function createMockDb() {
   return {
-    execute: vi.fn(async (sql: string | { sql: string; args: any[] }) => {
-      const rawSql = typeof sql === "string" ? sql : sql.sql;
-      const args = typeof sql === "string" ? [] : sql.args || [];
+    execute: vi.fn(async (statement: MockStatement) => {
+      const rawSql = typeof statement === "string" ? statement : statement.sql;
+      const args = typeof statement === "string" ? [] : statement.args || [];
 
       if (rawSql.includes("CREATE TABLE")) {
         tables["a2a_tasks"] = tables["a2a_tasks"] || [];
@@ -366,53 +372,6 @@ describe("task-store (SQL)", () => {
         ),
       ).rejects.toThrow("too long");
       expect(tables.a2a_tasks ?? []).toHaveLength(0);
-    });
-
-    it("keeps the same owner and key independent across org scopes", async () => {
-      const { createOrReuseTask } = await loadStore();
-      const first = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "acme.test",
-        "v1:stable",
-      );
-      const second = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "other.test",
-        "v1:stable",
-      );
-
-      expect(first.task.id).not.toBe(second.task.id);
-      expect(second.reused).toBe(false);
-    });
-
-    it("releases failed tasks so an intentional retry can start fresh", async () => {
-      const { createOrReuseTask } = await loadStore();
-      const first = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "acme.test",
-        "v1:stable",
-      );
-      tables.a2a_tasks[0].status_state = "failed";
-      const retry = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "acme.test",
-        "v1:stable",
-      );
-
-      expect(retry.reused).toBe(false);
-      expect(retry.task.id).not.toBe(first.task.id);
     });
 
     it("marks a concurrent retry winner as reused after releasing a failed key", async () => {

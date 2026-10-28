@@ -17,9 +17,9 @@ const messages = {
   },
   chat: {
     archiveChat: "Archiver le chat",
-    archiveFailed: "Échec de l’archivage",
+    archiveFailed: "Impossible d'archiver le chat.",
     chats: "Discussions",
-    composerPlaceholder: "Demandez à l’agent...",
+    composerPlaceholder: "Posez votre question",
     emptyState: "Posez-moi une question",
     heroDescription:
       "Demandez à l’agent d’inspecter, d’expliquer ou de modifier cette app.",
@@ -29,7 +29,7 @@ const messages = {
     inspectSuggestionCapabilities: "Que peut faire cette app ?",
     inspectSuggestionHello: "Aidez-moi à démarrer",
     newChat: "Nouveau chat",
-    optionsFor: "Options pour",
+    optionsFor: "Options du chat pour {{title}}",
     pinChat: "Épingler le chat",
     pinned: "Épinglés",
     recents: "Récents",
@@ -42,8 +42,8 @@ const messages = {
     retryAttachmentUnavailable:
       "Chat ne peut pas rouvrir cette pièce jointe pour réessayer. Ajoutez une URL de fichier accessible, puis réessayez.",
     renameChat: "Renommer le chat",
-    renameFailed: "Échec du renommage",
-    renameThread: "Renommer le fil",
+    renameFailed: "Impossible de renommer le chat.",
+    renameThread: "Renommer {{title}}",
     suggestionActions: "Montrez-moi les actions disponibles",
     suggestionCapabilities: "Que peut faire cette app ?",
     suggestionCustomize: "Aidez-moi à personnaliser cette app",
@@ -51,19 +51,12 @@ const messages = {
     untitledChat: "Chat sans titre",
   },
   home: {
-    communityDescription: "Rejoignez la communauté Agent-Native",
-    composerPlaceholder: "Appelle l’action hello pour Alex",
     communityTitle: "Rejoignez-nous",
     docsAddAction: "Ajouter une action",
     docsAddPage: "Ajouter une page",
-    docsDescription: "Guides sur les actions, les pages et les agents",
     docsGettingStarted: "Premiers pas",
     docsKeyConcepts: "Concepts clés",
     docsTitle: "Documentation",
-    editHint:
-      "Modifiez {{file}}, enregistrez, puis redemandez pour voir le nouveau message.",
-    lead: "L’interface de votre app et son agent partagent les mêmes actions.",
-    leadTry: "Demandez à l’agent d’appeler l’action hello.",
     title: "Commencer",
   },
   navigation: {

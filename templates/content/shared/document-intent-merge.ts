@@ -29,6 +29,26 @@ function stableBlock(block: PMNode): string {
   return JSON.stringify(block);
 }
 
+// How many copies of each block there are, so a repeated paragraph doesn't
+// stand in for another copy of it.
+function blockCopies(blocks: readonly PMNode[]): Map<string, number> {
+  const copies = new Map<string, number>();
+  for (const block of blocks) {
+    const key = stableBlock(block);
+    copies.set(key, (copies.get(key) ?? 0) + 1);
+  }
+  return copies;
+}
+
+// Whether a block with text appears more than once. Empty paragraphs don't
+// count: they're blank lines.
+function repeatsParagraph(content: string): boolean {
+  const blocks = (parseStableBlocks(content) ?? []).filter(
+    (block) => block.type !== "paragraph" || Boolean(block.content?.length),
+  );
+  return blockCopies(blocks).size < blocks.length;
+}
+
 function parseStableBlocks(content: string): PMNode[] | null {
   try {
     const parsed = nfmToDoc(content);
@@ -234,6 +254,192 @@ function heldInsertion(left: TextHunk, right: TextHunk): TextHunk | null {
   return null;
 }
 
+function blockSpans(
+  content: string,
+): Array<{ block: PMNode; from: number; to: number }> | null {
+  const blocks = parseStableBlocks(content);
+  if (!blocks) return null;
+  const serialized = blocks.map((block) =>
+    docToNfm({ type: "doc", content: [block] }),
+  );
+  if (serialized.join("\n") !== content) return null;
+  let offset = 0;
+  return blocks.map((block, index) => {
+    const from = offset;
+    offset += serialized[index].length + 1;
+    return { block, from, to: from + serialized[index].length };
+  });
+}
+
+/**
+ * Their text, then the paragraphs of mine that neither theirs nor the base
+ * holds. When mine can't be read as paragraphs, or neither theirs nor the base
+ * can, all of mine goes after theirs, so typing is never dropped.
+ */
+function appendChangedBlocks(
+  baseText: string | null,
+  mineText: string,
+  theirText: string,
+  theirs: string,
+): { content: string; moved: boolean } {
+  const theirBlocks = parseStableBlocks(theirText);
+  const mineBlocks = parseStableBlocks(mineText);
+  const baseBlocks = baseText === null ? null : parseStableBlocks(baseText);
+  if (!mineBlocks || (!theirBlocks && !baseBlocks)) {
+    return { content: `${theirs}\n${mineText}`, moved: true };
+  }
+  const baseCopies = blockCopies(baseBlocks ?? []);
+  const theirCopies = blockCopies(theirBlocks ?? []);
+  const seen = new Map<string, number>();
+  const moved = mineBlocks.filter((block) => {
+    const key = stableBlock(block);
+    const copy = (seen.get(key) ?? 0) + 1;
+    seen.set(key, copy);
+    return copy > Math.max(baseCopies.get(key) ?? 0, theirCopies.get(key) ?? 0);
+  });
+  if (!moved.length) return { content: theirs, moved: false };
+  return {
+    // Their text can't be rebuilt from paragraphs it doesn't have, so mine
+    // follow it as written.
+    content: theirBlocks
+      ? docToNfm({ type: "doc", content: [...theirBlocks, ...moved] })
+      : `${theirs}\n${docToNfm({ type: "doc", content: moved })}`,
+    moved: true,
+  };
+}
+
+/**
+ * Merges a Blocks field's unsaved text with a newer version saved elsewhere,
+ * both edited from `base`. Their changes always land. Mine land too, except
+ * where both changed the same words: their words stay in place, and the
+ * paragraphs holding mine are added at the end of the field (`moved`).
+ */
+export function mergeBlocksFieldEdits(
+  base: string,
+  mine: string,
+  theirs: string,
+): { content: string; moved: boolean } {
+  if (mine === theirs || mine === base)
+    return { content: theirs, moved: false };
+  if (theirs === base) return { content: mine, moved: false };
+  // Mine comes from an editor; the others can be stored Markdown, so all
+  // three compare in the form an editor holds them.
+  const baseText = parsedForm(base);
+  const mineText = parsedForm(mine);
+  const theirText = parsedForm(theirs);
+  if (baseText === null || mineText === null || theirText === null) {
+    return appendChangedBlocks(
+      baseText,
+      mineText ?? mine,
+      theirText ?? theirs,
+      theirs,
+    );
+  }
+  if (mineText === theirText || mineText === baseText) {
+    return { content: theirs, moved: false };
+  }
+  if (theirText === baseText) return { content: mine, moved: false };
+  // One side can already hold the other's changes, such as a save of mine
+  // that landed before its answer reached the editor. A repeated paragraph
+  // can pass for a changed copy of itself there, so it takes the full merge.
+  const repeats = [baseText, mineText, theirText].some(repeatsParagraph);
+  if (!repeats && bodyHoldsChanges(base, mineText, theirs)) {
+    return { content: mine, moved: false };
+  }
+  if (!repeats && bodyHoldsChanges(base, theirText, mine)) {
+    return { content: theirs, moved: false };
+  }
+
+  const theirHunks = textHunks(baseText, theirText);
+  const applied = new Set(theirHunks);
+  const placed: TextHunk[] = [];
+  const unplaced: Array<{ from: number; to: number }> = [];
+  let shift = 0;
+  for (const hunk of textHunks(baseText, mineText)) {
+    const at = hunk.from + shift;
+    shift += hunk.insert.length - (hunk.to - hunk.from);
+    const overlaps = theirHunks.filter((other) =>
+      textHunksOverlap(hunk, other),
+    );
+    const held =
+      overlaps.length === 1 ? heldInsertion(hunk, overlaps[0]) : null;
+    if (held) {
+      if (held === hunk) {
+        applied.delete(overlaps[0]);
+        placed.push(hunk);
+      }
+    } else if (
+      overlaps.length > 0 &&
+      hunk.from === hunk.to &&
+      overlaps.every(
+        (other) => other.from === hunk.from && other.from === other.to,
+      )
+    ) {
+      // Both typed at the same spot: keep both, theirs first, unless theirs
+      // starts a new paragraph there and mine continues the one before it.
+      for (const other of overlaps) applied.delete(other);
+      const their = overlaps.map((other) => other.insert).join("");
+      const mineFirst = their.startsWith("\n") && !hunk.insert.startsWith("\n");
+      placed.push({
+        from: hunk.from,
+        to: hunk.to,
+        insert: mineFirst ? hunk.insert + their : their + hunk.insert,
+      });
+    } else if (
+      overlaps.length > 0 &&
+      overlaps.every(
+        (other) =>
+          other.from === hunk.from &&
+          other.to === hunk.to &&
+          other.insert === hunk.insert,
+      )
+    ) {
+      // The same change on both sides.
+    } else if (overlaps.length > 0) {
+      if (hunk.insert) unplaced.push({ from: at, to: at + hunk.insert.length });
+    } else {
+      placed.push(hunk);
+    }
+  }
+
+  let merged = baseText;
+  for (const hunk of [...applied, ...placed].sort(
+    (left, right) => right.from - left.from || right.to - left.to,
+  )) {
+    merged = `${merged.slice(0, hunk.from)}${hunk.insert}${merged.slice(hunk.to)}`;
+  }
+  // A merge that splits markup the editor can't hold keeps their text and
+  // moves every paragraph of mine that changed.
+  const mergedSpans = parsedForm(merged) === merged ? blockSpans(merged) : null;
+  const mineSpans = blockSpans(mineText);
+  if (!mergedSpans || !mineSpans) {
+    return appendChangedBlocks(baseText, mineText, theirText, theirs);
+  }
+  // A paragraph the merge already holds as often as mine does isn't moved.
+  const held = blockCopies(mergedSpans.map((span) => span.block));
+  const mineCopies = blockCopies(mineSpans.map((span) => span.block));
+  const moved = mineSpans
+    .filter((span) =>
+      unplaced.some((range) => span.from < range.to && range.from < span.to),
+    )
+    .map((span) => span.block)
+    .filter((block) => {
+      const key = stableBlock(block);
+      const copies = held.get(key) ?? 0;
+      if (copies >= (mineCopies.get(key) ?? 0)) return false;
+      held.set(key, copies + 1);
+      return true;
+    });
+  if (!moved.length) return { content: merged, moved: false };
+  return {
+    content: docToNfm({
+      type: "doc",
+      content: [...mergedSpans.map((span) => span.block), ...moved],
+    }),
+    moved: true,
+  };
+}
+
 function plainParagraphText(block: PMNode): string | null {
   if (block.type !== "paragraph" || block.attrs) return null;
   if (!block.content?.length) return "";
@@ -312,6 +518,18 @@ function mergePlainParagraph(
   };
 }
 
+/** The blocks `after` changed from `before`; none when the structure changed. */
+export function changedBlocksBetween(before: string, after: string): number[] {
+  if (before === after) return [];
+  const base = nfmToDoc(before).content;
+  const candidate = nfmToDoc(after).content;
+  return base.length === candidate.length
+    ? base.flatMap((block, index) =>
+        stableBlock(block) !== stableBlock(candidate[index]) ? [index] : [],
+      )
+    : [];
+}
+
 export function mergeDocumentBodyIntents(args: {
   authoredBaseContent: string;
   authoredCandidateContent: string;
@@ -324,18 +542,13 @@ export function mergeDocumentBodyIntents(args: {
     args.currentRevision === args.incoming.authoredBaseRevision &&
     args.currentContent === args.authoredBaseContent
   ) {
-    const base = nfmToDoc(args.authoredBaseContent).content;
-    const candidate = nfmToDoc(args.authoredCandidateContent).content;
-    const changedBlockIndexes =
-      base.length === candidate.length
-        ? base.flatMap((block, index) =>
-            stableBlock(block) !== stableBlock(candidate[index]) ? [index] : [],
-          )
-        : [];
     return {
       status: "resolved",
       content: args.authoredCandidateContent,
-      changedBlockIndexes,
+      changedBlockIndexes: changedBlocksBetween(
+        args.authoredBaseContent,
+        args.authoredCandidateContent,
+      ),
       displaced: false,
     };
   }

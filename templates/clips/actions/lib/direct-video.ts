@@ -57,6 +57,7 @@ export function isCandidateDirectVideoUrl(value: string): boolean {
 
 export async function downloadDirectVideo(
   url: string,
+  options: { maxBytes?: number } = {},
 ): Promise<DirectVideoDownload> {
   const response = await ssrfSafeFetch(
     url,
@@ -88,7 +89,7 @@ export async function downloadDirectVideo(
     );
   }
 
-  const bytes = await readResponseBytesWithLimit(response);
+  const bytes = await readResponseBytesWithLimit(response, options.maxBytes);
   if (bytes.byteLength <= 0) {
     fail("That link returned an empty file.", {
       errorCode: "video_link_empty",

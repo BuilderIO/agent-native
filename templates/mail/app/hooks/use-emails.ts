@@ -1457,7 +1457,10 @@ export function useEmail(
   });
 }
 
-export function useThreadMessages(threadId: string | undefined) {
+export function useThreadMessages(
+  threadId: string | undefined,
+  accountEmail?: string,
+) {
   const qc = useQueryClient();
   const placeholder = (() => {
     if (!threadId) return undefined;
@@ -1467,13 +1470,23 @@ export function useThreadMessages(threadId: string | undefined) {
     for (const [, data] of queries) {
       const flat = flattenInfiniteEmails(data);
       for (const email of flat) {
-        if ((email.threadId || email.id) === threadId) return [email];
+        if (
+          (email.threadId || email.id) === threadId &&
+          (!accountEmail ||
+            email.accountEmail?.toLowerCase() === accountEmail.toLowerCase())
+        ) {
+          return [email];
+        }
       }
     }
     return undefined;
   })();
   const { messages, isFromCache, isLoading, providerSnapshotId } =
-    useThreadCache(threadId, placeholder, placeholder?.[0]?.accountEmail);
+    useThreadCache(
+      threadId,
+      placeholder,
+      accountEmail ?? placeholder?.[0]?.accountEmail,
+    );
   useSyncExternalStore(
     subscribeToOptimisticOverrides,
     () => optimisticOverrideVersion,
@@ -1492,7 +1505,10 @@ export function useThreadMessages(threadId: string | undefined) {
     refetch: () => {
       if (threadId) {
         invalidateCachedThread(threadId);
-        return ensureThread(threadId, placeholder?.[0]?.accountEmail);
+        return ensureThread(
+          threadId,
+          accountEmail ?? placeholder?.[0]?.accountEmail,
+        );
       }
       return Promise.resolve(undefined);
     },

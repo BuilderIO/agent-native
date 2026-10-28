@@ -204,10 +204,10 @@ function layerTree(page: Page) {
 }
 
 async function selectLayerRow(page: Page, name: string) {
-  const input = page.getByPlaceholder("Search layers...");
+  const input = page.getByPlaceholder("Search layers");
   if (!(await input.isVisible().catch(() => false))) {
     await page
-      .getByRole("button", { name: "Search layers...", exact: true })
+      .getByRole("button", { name: "Search layers", exact: true })
       .click();
     await expect(input).toBeVisible();
   }
@@ -239,9 +239,7 @@ test("a board pen shape's fill and stroke paint the shape, not the wrapper box",
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -291,9 +289,7 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -398,9 +394,7 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
   expect(sourceAfterRedo?.stroke).toMatch(/218\s+218\s+218|218,\s*218,\s*218/i);
 });
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
-// fixme: product bug: After the Linear stroke gradient is saved, Cmd+Z leaves gradientCount 1 and the url() reference live. No update-file follows the undo
-test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
+test("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
   app,
   page,
   request,
@@ -410,9 +404,7 @@ test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadab
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -512,9 +504,7 @@ test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadab
   });
 });
 
-// oracle: none — only the paint type controls changed (Gradient button, Type select); no Figma behavior is claimed.
-// fixme: product bug: The PNG export's first POST /_agent-native/actions/render-export-png returns 403 (console error 'Failed to load resource: 403') before
-test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
+test("vector fill gradient renders in the inspector, source, SVG and PNG exports", async ({
   app,
   page,
   request,
@@ -536,9 +526,7 @@ test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG e
     waitUntil: "domcontentloaded",
   });
   await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
+    .poll(async () => page.locator("[data-screen-shell]").count())
     .toBeGreaterThan(1);
   await expect
     .poll(() => boardVectorPaint(page), { timeout: 40_000 })
@@ -794,7 +782,6 @@ test.fixme("vector fill gradient renders in the inspector, source, SVG and PNG e
   });
 });
 
-// oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
 test("converting a vector fill gradient to solid clears source metadata and round-trips through undo", async ({
   app,
   page,
@@ -814,9 +801,7 @@ test("converting a vector fill gradient to solid clears source metadata and roun
       waitUntil: "domcontentloaded",
     });
     await expect
-      .poll(async () => page.locator("[data-screen-shell]").count(), {
-        timeout: 40_000,
-      })
+      .poll(async () => page.locator("[data-screen-shell]").count())
       .toBeGreaterThan(1);
     await expect
       .poll(() => boardVectorPaint(page), { timeout: 40_000 })

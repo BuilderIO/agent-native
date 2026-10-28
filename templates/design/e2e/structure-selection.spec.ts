@@ -1,7 +1,15 @@
 import { type Locator, type Page } from "@playwright/test";
 
 import { DEFAULT_BIG_NUDGE_PX } from "../shared/canvas-math";
-import { e2eBaseURL } from "./base-url";
+import {
+  indexHtml,
+  layerRow,
+  layersTree,
+  openEditor,
+  styleNum,
+  styleOf,
+  toolbar,
+} from "./drag-and-drop.shared";
 import { expandAllLayers } from "./helpers";
 import {
   childrenOf,
@@ -76,51 +84,8 @@ const SOLO_FIXTURE = `<!doctype html>
   <div data-agent-native-node-id="solo-b" data-agent-native-layer-name="Solo B" style="position:absolute;left:750px;top:500px;width:120px;height:80px;background:#ec4899"></div>
 </body></html>`;
 
-let baseURL = "";
-
 async function newDesign(app: App, content = FIXTURE): Promise<string> {
   return app.seed(content, { title: "structure and selection" });
-}
-
-async function indexHtml(page: Page, designId: string): Promise<string> {
-  const result = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  return (
-    (result.files ?? []).find((f: any) => f.filename === "index.html")
-      ?.content ?? ""
-  );
-}
-
-function styleOf(html: string, id: string): string {
-  return (
-    new RegExp(
-      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
-      "i",
-    ).exec(html)?.[1] ?? ""
-  );
-}
-
-function styleNum(style: string, prop: string): number {
-  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
-    style,
-  );
-  return m ? Number(m[1]) : NaN;
-}
-
-function toolbar(page: Page): Locator {
-  return page.locator("[data-design-bottom-toolbar]");
-}
-
-function layersTree(page: Page): Locator {
-  return page.getByRole("tree", { name: "Layers" });
-}
-
-function layerRow(page: Page, name: string): Locator {
-  return layersTree(page)
-    .getByRole("treeitem")
-    .filter({ hasText: name })
-    .first();
 }
 
 function node(page: Page, id: string): Locator {
@@ -138,21 +103,6 @@ async function selectedLayerName(page: Page): Promise<string | null> {
     .textContent()
     .catch(() => null);
   return text?.trim() ?? null;
-}
-
-async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
-    waitUntil: "domcontentloaded",
-  });
-  await toolbar(page)
-    .locator('button[aria-label="Move"]')
-    .waitFor({ timeout: 45_000 });
-  await page
-    .locator("iframe[data-design-preview-iframe]")
-    .first()
-    .waitFor({ timeout: 30_000 });
-  await expandAllLayers(page);
-  await page.waitForTimeout(500);
 }
 
 async function selectViaTree(page: Page, name: string): Promise<void> {
@@ -173,7 +123,15 @@ async function openGroupedSelectionColors(
   page: Page,
   designId: string,
 ): Promise<Locator> {
-  await multiSelect(page, ["Blue 100", "Blue 50"]);
+  return groupAndShowSelectionColors(page, designId, ["Blue 100", "Blue 50"]);
+}
+
+async function groupAndShowSelectionColors(
+  page: Page,
+  designId: string,
+  layers: string[],
+): Promise<Locator> {
+  await multiSelect(page, layers);
   await page.keyboard.press(`${MOD}+g`);
   await expect(layerRow(page, "Group")).toBeVisible();
   await expect
@@ -192,6 +150,21 @@ async function openGroupedSelectionColors(
   await expect(section).toBeVisible();
   await section.getByRole("button", { name: "Show selection colors" }).click();
   return section;
+}
+
+async function recolorSelectionSwatch(
+  page: Page,
+  section: Locator,
+  from: string,
+  toHex: string,
+): Promise<void> {
+  await section
+    .getByRole("button", { name: new RegExp(`^${from}$`, "i") })
+    .click();
+  const hex = page.getByRole("textbox", { name: "Hex", exact: true });
+  await hex.fill(toHex);
+  await hex.press("Enter");
+  await page.keyboard.press("Escape");
 }
 
 async function expandSelectionColors(section: Locator) {
@@ -263,14 +236,7 @@ async function combinedSelectionWidth(app: App) {
     .evaluate((element) => Math.round(element.getBoundingClientRect().width));
 }
 
-test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({ app, page }, testInfo) => {
-  baseURL =
-    (testInfo.project.use.baseURL as string | undefined) ??
-    process.env.E2E_BASE_URL ??
-    e2eBaseURL();
-});
+test.use({ viewport: { width: 1640, height: 1000 } });
 
 test.describe("keyboard selection traversal", () => {
   test("Layers-first selection persists source identity for a later move and reload", async ({
@@ -455,7 +421,7 @@ test.describe("keyboard selection traversal", () => {
 });
 
 test.describe("groups", () => {
-  test("Group Fill recolors a nested rich-text run without flattening it", async ({
+  test("Selection colors recolors a Group's text without flattening a nested rich-text run", async ({
     app,
     page,
   }, testInfo) => {
@@ -468,383 +434,109 @@ test.describe("groups", () => {
     });
     const id = await newDesign(app, GROUP_RICH_TEXT_FIXTURE);
     await openEditor(page, id);
-    await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
-    await page.keyboard.press(`${MOD}+g`);
-    await expect(layerRow(page, "Group")).toBeVisible();
-    await layerRow(page, "Group").click();
-    const fillSection = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "Fill", exact: true }),
-      })
-      .first();
-    await fillSection
-      .getByRole("button", { name: "Open color picker" })
-      .click();
-    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-    await hex.fill("3B82F6");
-    await hex.press("Enter");
-    await page.keyboard.press("Escape");
+    const section = await groupAndShowSelectionColors(page, id, [
+      "Fill A",
+      "Fill B",
+      "Fill Text",
+    ]);
+    await recolorSelectionSwatch(page, section, "#f97316", "3B82F6");
 
-    const rendered = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator("body")
-      .evaluate(() => {
-        const paragraph = document.querySelector<HTMLElement>(
-          '[data-agent-native-node-id="fill-text"]',
-        );
-        const nested = paragraph?.querySelector<HTMLElement>("strong");
-        if (!paragraph || !nested) throw new Error("rich text fixture missing");
-        const parentStyle = getComputedStyle(paragraph);
-        const nestedStyle = getComputedStyle(nested);
+    const readText = () =>
+      node(page, "fill-text").evaluate((paragraph) => {
+        const strong = paragraph.querySelector("strong");
         return {
-          parentColor: parentStyle.color,
-          parentFill: parentStyle.backgroundColor,
-          parentClip: parentStyle.backgroundClip,
-          nestedColor: nestedStyle.color,
-          nestedTextFill: nestedStyle.webkitTextFillColor,
+          color: getComputedStyle(paragraph).color,
+          strongTag: strong?.tagName ?? null,
+          strongText: strong?.textContent ?? null,
+          strongColor: strong ? getComputedStyle(strong).color : null,
         };
       });
-    expect(rendered).toMatchObject({
-      parentColor: "rgba(0, 0, 0, 0)",
-      parentFill: "rgb(59, 130, 246)",
-      parentClip: "text",
-      nestedColor: "rgb(192, 38, 211)",
-      nestedTextFill: "rgba(0, 0, 0, 0)",
-    });
+    const recolored = {
+      color: "rgb(59, 130, 246)",
+      strongTag: "STRONG",
+      strongText: "this",
+      strongColor: "rgb(192, 38, 211)",
+    };
+    await expect.poll(readText).toEqual(recolored);
     const readSavedRichText = async () => {
       const saved = await indexHtml(page, id);
       return page.evaluate((html) => {
         const document = new DOMParser().parseFromString(html, "text/html");
-        const strong = document.querySelector<HTMLElement>(
-          '[data-agent-native-node-id="fill-text"] strong',
+        const paragraph = document.querySelector<HTMLElement>(
+          '[data-agent-native-node-id="fill-text"]',
         );
+        const strong = paragraph?.querySelector<HTMLElement>("strong");
         return {
-          strong: {
-            tagName: strong?.tagName,
-            text: strong?.textContent,
-            color: strong?.style.color,
-          },
-          preservesTextPaint: html.includes(
-            "-webkit-text-fill-color: transparent",
-          ),
+          color: paragraph?.style.color ?? null,
+          strongTag: strong?.tagName ?? null,
+          strongText: strong?.textContent ?? null,
+          strongColor: strong?.style.color ?? null,
         };
       }, saved);
     };
-    await expect.poll(readSavedRichText).toEqual({
-      strong: {
-        tagName: "STRONG",
-        text: "this",
-        color: "rgb(192, 38, 211)",
-      },
-      preservesTextPaint: true,
-    });
+    await expect.poll(readSavedRichText).toEqual(recolored);
     await page
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .screenshot({ path: testInfo.outputPath("group-rich-text.png") });
     await page.reload({ waitUntil: "domcontentloaded" });
     await toolbar(page).locator('button[aria-label="Move"]').waitFor();
-    await expect
-      .poll(async () => (await readSavedRichText()).preservesTextPaint)
-      .toBe(true);
-    const reloadedText = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator('[data-agent-native-node-id="fill-text"]')
-      .evaluate((paragraph) => {
-        const strong = paragraph.querySelector("strong");
-        return {
-          text: getComputedStyle(paragraph).backgroundColor,
-          strongText: strong?.textContent,
-          strongColor: strong ? getComputedStyle(strong).color : null,
-          strongFill: strong
-            ? getComputedStyle(strong).webkitTextFillColor
-            : null,
-        };
-      });
-    expect(reloadedText).toEqual({
-      text: "rgb(59, 130, 246)",
-      strongText: "this",
-      strongColor: "rgb(192, 38, 211)",
-      strongFill: "rgba(0, 0, 0, 0)",
-    });
+    await expect.poll(readText).toEqual(recolored);
     expect(viteUpdates).toEqual([]);
   });
 
-  test("Group Fill recolors a simple inline SVG shape without painting its box", async ({
+  test("Selection colors recolors a simple inline SVG shape without painting its box", async ({
     app,
     page,
   }, testInfo) => {
     const id = await newDesign(app, GROUP_VECTOR_FIXTURE);
     await openEditor(page, id);
-    await multiSelect(page, ["Fill A", "Icon"]);
-    await page.keyboard.press(`${MOD}+g`);
-    await expect(layerRow(page, "Group")).toBeVisible();
-    await layerRow(page, "Group").click();
-    const fillSection = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "Fill", exact: true }),
-      })
-      .first();
-    await fillSection
-      .getByRole("button", { name: "Open color picker" })
-      .click();
-    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-    await hex.fill("3B82F6");
-    await hex.press("Enter");
-    await page.keyboard.press("Escape");
+    const section = await groupAndShowSelectionColors(page, id, [
+      "Fill A",
+      "Icon",
+    ]);
+    await recolorSelectionSwatch(page, section, "#f97316", "3B82F6");
 
-    const rendered = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator("body")
-      .evaluate(() => {
-        const icon = document.querySelector<SVGSVGElement>(
-          '[data-agent-native-node-id="icon"]',
-        );
-        const circle = icon?.querySelector("circle");
-        if (!icon || !circle) throw new Error("SVG fixture missing");
-        return {
-          fill: getComputedStyle(circle).fill,
-          stroke: getComputedStyle(circle).stroke,
-          boxFill: getComputedStyle(icon).fill,
-          background: getComputedStyle(icon).backgroundColor,
-        };
-      });
-    expect(rendered).toEqual({
-      fill: "rgb(59, 130, 246)",
-      stroke: "rgb(17, 24, 39)",
-      boxFill: "rgb(0, 0, 0)",
-      background: "rgba(0, 0, 0, 0)",
-    });
-    const saved = await indexHtml(page, id);
-    expect(saved).toMatch(/<circle[^>]*style="[^"]*fill: #3b82f6/);
-    expect(saved).not.toMatch(/<svg[^>]*style="[^"]*fill: #3b82f6/);
-    await page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .screenshot({ path: testInfo.outputPath("group-inline-svg.png") });
-  });
-
-  // fixme: product bug: Fill Text gains a wrapper child (textChildren 1) and keeps rgba(249,115,22,0.5) on its owner after the opacity returns to 100%.
-  test.fixme("Group Fill commits direct opacity changes from 50% back to 100%", async ({
-    app,
-    page,
-  }) => {
-    const viteUpdates: string[] = [];
-    page.on("console", (message) => {
-      const text = message.text();
-      if (/^\[vite\] (?:hot updated|page reload)/.test(text)) {
-        viteUpdates.push(text);
-      }
-    });
-    const id = await newDesign(app, GROUP_FILL_FIXTURE);
-    await openEditor(page, id);
-    await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
-    await page.keyboard.press(`${MOD}+g`);
-    await expect(layerRow(page, "Group")).toBeVisible();
-    await layerRow(page, "Group").click();
-    const fillSection = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "Fill", exact: true }),
-      })
-      .first();
-    const fillButton = fillSection.getByRole("button", {
-      name: "Open color picker",
-    });
-    const readFill = () =>
-      page
-        .locator("iframe[data-design-preview-iframe]")
-        .first()
-        .contentFrame()
-        .locator('[data-agent-native-node-id="fill-a"]')
-        .evaluate((element) => getComputedStyle(element).backgroundColor);
-    const setOpacity = async (value: number) => {
-      await fillButton.click();
-      const input = page.getByRole("spinbutton", {
-        name: "Opacity",
-        exact: true,
-      });
-      await input.fill(String(value));
-      await input.press("Enter");
-      await page.keyboard.press("Escape");
-      await expect(
-        fillSection.getByRole("textbox", { name: "Paint opacity" }),
-      ).toHaveValue(String(value));
-    };
-
-    await setOpacity(50);
-    await expect.poll(readFill).toBe("rgba(249, 115, 22, 0.5)");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toMatch(/(?:50%|0\.5)/);
-
-    await setOpacity(100);
-    await expect.poll(readFill).toBe("rgb(249, 115, 22)");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .not.toMatch(/0\.5|50%/);
-    const paints = () =>
+    const readVector = () =>
       page
         .locator("iframe[data-design-preview-iframe]")
         .first()
         .contentFrame()
         .locator("body")
-        .evaluate((body) => {
-          const get = (nodeId: string) =>
-            body.querySelector(
-              `[data-agent-native-node-id="${nodeId}"]`,
-            ) as HTMLElement;
+        .evaluate(() => {
+          const icon = document.querySelector<SVGSVGElement>(
+            '[data-agent-native-node-id="icon"]',
+          );
+          const circle = icon?.querySelector("circle");
+          const rect = document.querySelector<HTMLElement>(
+            '[data-agent-native-node-id="fill-a"]',
+          );
+          if (!icon || !circle || !rect) throw new Error("SVG fixture missing");
           return {
-            fillB: getComputedStyle(get("fill-b")).backgroundColor,
-            textChildren: get("fill-text").children.length,
+            fill: getComputedStyle(circle).fill,
+            stroke: getComputedStyle(circle).stroke,
+            boxFill: getComputedStyle(icon).fill,
+            background: getComputedStyle(icon).backgroundColor,
+            rect: getComputedStyle(rect).backgroundColor,
           };
         });
+    await expect.poll(readVector).toEqual({
+      fill: "rgb(59, 130, 246)",
+      stroke: "rgb(17, 24, 39)",
+      boxFill: "rgb(0, 0, 0)",
+      background: "rgba(0, 0, 0, 0)",
+      rect: "rgb(59, 130, 246)",
+    });
     await expect
-      .poll(
-        paints,
-        "every child of the group is back at full opacity, and the text stays a plain text layer",
-      )
-      .toEqual({
-        fillB: "rgb(249, 115, 22)",
-        textChildren: 0,
-      });
-    const savedAt100 = await indexHtml(page, id);
-    expect(styleOf(savedAt100, "fill-b")).not.toMatch(/0\.5|50%/);
-    expect(styleOf(savedAt100, "fill-text")).not.toMatch(/0\.5|50%/);
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await toolbar(page).locator('button[aria-label="Move"]').waitFor();
-    await expandAllLayers(page);
-    await layerRow(page, "Group").click();
-    const reloadedFill = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "Fill", exact: true }),
-      })
+      .poll(() => indexHtml(page, id))
+      .toMatch(/<circle[^>]*fill="#3b82f6"/i);
+    const saved = await indexHtml(page, id);
+    expect(saved).toMatch(/<circle[^>]*stroke="#111827"/i);
+    expect(saved).not.toMatch(/<svg[^>]*#3b82f6/i);
+    await page
+      .locator("iframe[data-design-preview-iframe]")
       .first()
-      .getByRole("textbox", { name: "Paint opacity" });
-    await expect(reloadedFill).toHaveValue("100");
-    await expect.poll(readFill).toBe("rgb(249, 115, 22)");
-
-    await setOpacity(50);
-    await expect.poll(readFill).toBe("rgba(249, 115, 22, 0.5)");
-    await page.keyboard.press(`${MOD}+z`);
-    await expect.poll(readFill).toBe("rgb(249, 115, 22)");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .not.toMatch(/0\.5|50%/);
-    await expect(reloadedFill).toHaveValue("100");
-    expect(viteUpdates).toEqual([]);
-  });
-
-  test("Undo cancels a held Group Fill opacity scrub before undoing the committed color", async ({
-    app,
-    page,
-  }) => {
-    const id = await newDesign(app, GROUP_FILL_FIXTURE);
-    await openEditor(page, id);
-    await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
-    await page.keyboard.press(`${MOD}+g`);
-    await layerRow(page, "Group").click();
-    const fillSection = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "Fill", exact: true }),
-      })
-      .first();
-    const fillButton = fillSection.getByRole("button", {
-      name: "Open color picker",
-    });
-    const readFill = () =>
-      page
-        .locator("iframe[data-design-preview-iframe]")
-        .first()
-        .contentFrame()
-        .locator('[data-agent-native-node-id="fill-a"]')
-        .evaluate((element) => getComputedStyle(element).backgroundColor);
-    await fillButton.click();
-    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-    await hex.fill("3B82F6");
-    await hex.press("Enter");
-    await expect(fillButton).toHaveAttribute("aria-expanded", "true");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toContain("#3b82f6");
-    await expect.poll(readFill).toBe("rgb(59, 130, 246)");
-
-    const opacity = page.getByRole("slider", {
-      name: "Opacity",
-      exact: true,
-    });
-    await expect(opacity).toBeVisible();
-    const box = await opacity.boundingBox();
-    if (!box) throw new Error("Group Fill opacity input is missing");
-    const startX = box.x + box.width * 0.8;
-    const startY = box.y + box.height / 2;
-    await page.mouse.move(startX, startY);
-    const targetIsSlider = await page.evaluate(
-      ({ x, y }) => {
-        const slider = document.querySelector<HTMLElement>(
-          '[role="slider"][aria-label="Opacity"]',
-        );
-        return Boolean(slider?.contains(document.elementFromPoint(x, y)));
-      },
-      { x: startX, y: startY },
-    );
-    expect(targetIsSlider).toBe(true);
-    await page.mouse.down();
-    await page.mouse.move(startX - 40, startY, { steps: 4 });
-    const previewOpacity = await opacity.getAttribute("aria-valuenow");
-    expect(previewOpacity).not.toBe("100");
-    expect(await readFill()).toMatch(/^rgba\(/);
-    await page.keyboard.press(`${MOD}+z`);
-    await expect(opacity).toBeVisible();
-    await expect(opacity).toHaveAttribute("aria-valuenow", "100");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toContain("#3b82f6");
-    await expect.poll(readFill).toBe("rgb(59, 130, 246)");
-
-    await page.mouse.up();
-    await expect.poll(readFill).toBe("rgb(59, 130, 246)");
-    await expect(opacity).toHaveAttribute("aria-valuenow", "100");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toContain("#3b82f6");
-
-    const sliderBox = await opacity.boundingBox();
-    if (!sliderBox) throw new Error("Group Fill opacity input is missing");
-    const middleX = sliderBox.x + sliderBox.width / 2;
-    const middleY = sliderBox.y + sliderBox.height / 2;
-    const highX = sliderBox.x + sliderBox.width * 0.8;
-    await page.mouse.move(highX, middleY);
-    await page.mouse.down();
-    await page.mouse.move(middleX, middleY, { steps: 4 });
-    await page.mouse.up();
-    await expect(opacity).toHaveAttribute("aria-valuenow", "50");
-    await expect.poll(readFill).toBe("rgba(59, 130, 246, 0.5)");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toMatch(/(?:50%|0\.5)/);
-
-    await fillButton.click();
-    await expect(fillButton).toHaveAttribute("aria-expanded", "false");
-    await page.keyboard.press(`${MOD}+z`);
-    await expect.poll(readFill).toBe("rgb(59, 130, 246)");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .not.toMatch(/0\.5|50%/);
-    expect(
-      (await indexHtml(page, id)).includes('data-agent-native-group="true"'),
-    ).toBe(true);
+      .screenshot({ path: testInfo.outputPath("group-inline-svg.png") });
   });
 
   test("Selection colors records a repeated preview as one undo step", async ({
@@ -1291,8 +983,7 @@ test.describe("groups", () => {
     ).toBeVisible();
   });
 
-  // fixme: fails on current main after the merge: Error: expect(received).toMatchObject(expected)
-  test.fixme("Selection Colors keeps an opacity-zero preview attached until gesture release", async ({
+  test("Selection Colors keeps an opacity-zero preview attached until gesture release", async ({
     app,
     page,
   }) => {
@@ -1542,10 +1233,10 @@ test.describe("groups", () => {
     });
   });
 
-  test("Rapid Undo after Group Fill preserves the committed group", async ({
+  test("Rapid Undo after a Selection colors recolor preserves the committed group", async ({
     app,
     page,
-  }, testInfo) => {
+  }) => {
     const viteUpdates: string[] = [];
     page.on("console", (message) => {
       const text = message.text();
@@ -1555,94 +1246,17 @@ test.describe("groups", () => {
     });
     const id = await newDesign(app, GROUP_FILL_FIXTURE);
     await openEditor(page, id);
-    await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
-    await expect(
-      layersTree(page).locator('[role="treeitem"][aria-selected="true"]'),
-    ).toHaveCount(3);
-    await page.keyboard.press(`${MOD}+g`);
-    await expect(
-      layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
-    ).toHaveCount(1);
-    await expect
-      .poll(() => indexHtml(page, id))
-      .toContain('data-agent-native-group="true"');
-    await layerRow(page, "Group").click();
-
-    const fillSection = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "Fill", exact: true }),
-      })
-      .first();
-    await expect(fillSection).toBeVisible();
-    const fillButton = fillSection.getByRole("button", {
-      name: "Open color picker",
-    });
-    const fillOpacity = fillSection.getByRole("textbox", {
-      name: "Paint opacity",
-    });
-    await expect(fillButton).toBeVisible();
-    await expect(fillOpacity).toHaveValue("100");
-    const selectionColors = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", {
-          name: "Selection colors",
-          exact: true,
-        }),
-      })
-      .first();
-    await expect(
-      selectionColors.getByRole("button", { name: "Show selection colors" }),
-    ).toBeVisible();
-    const readPaint = async () =>
-      page
-        .locator("iframe[data-design-preview-iframe]")
-        .first()
-        .contentFrame()
-        .locator("body")
-        .evaluate(() => {
-          const byId = (id: string) =>
-            document.querySelector<HTMLElement>(
-              `[data-agent-native-node-id="${id}"]`,
-            )!;
-          const groupElement = document.querySelector<HTMLElement>(
-            '[data-agent-native-group="true"]',
-          )!;
-          const textOwner = byId("fill-text");
-          const textGlyph =
-            textOwner.querySelector<HTMLElement>("[data-an-text]");
-          const textPaintTarget = textGlyph ?? textOwner;
-          const textPaintStyle = getComputedStyle(textPaintTarget);
-          const textUsesClippedPaint =
-            textPaintStyle.backgroundClip === "text" ||
-            textPaintStyle.webkitBackgroundClip === "text";
-          return {
-            aFill: getComputedStyle(byId("fill-a")).backgroundColor,
-            aStroke: getComputedStyle(byId("fill-a")).borderTopColor,
-            bFill: getComputedStyle(byId("fill-b")).backgroundColor,
-            bStroke: getComputedStyle(byId("fill-b")).borderTopColor,
-            text: textUsesClippedPaint
-              ? textPaintStyle.backgroundColor
-              : textPaintStyle.color,
-            textOwnerBackground: getComputedStyle(textOwner).backgroundColor,
-            textGlyphClip: textPaintStyle.backgroundClip,
-            textGlyphFill: textPaintStyle.webkitTextFillColor,
-            textWrapperCount:
-              textOwner.querySelectorAll("[data-an-text]").length,
-            groupBackground: getComputedStyle(groupElement).backgroundColor,
-            groupRect: groupElement.getBoundingClientRect().toJSON(),
-            bodyBackground: getComputedStyle(document.body).backgroundColor,
-          };
-        });
-    await fillButton.click();
-    const opacity = page.getByRole("spinbutton", {
-      name: "Opacity",
-      exact: true,
-    });
-    await opacity.fill("50");
-    await opacity.press("Enter");
-    await page.keyboard.press("Escape");
+    const section = await groupAndShowSelectionColors(page, id, [
+      "Fill A",
+      "Fill B",
+      "Fill Text",
+    ]);
+    const readFill = () =>
+      node(page, "fill-a").evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+    await recolorSelectionSwatch(page, section, "#f97316", "3B82F6");
+    await expect.poll(readFill).toBe("rgb(59, 130, 246)");
     await page.keyboard.press(`${MOD}+z`);
     await expect
       .poll(async () => {
@@ -1652,28 +1266,26 @@ test.describe("groups", () => {
           style: styleOf(source, "fill-a"),
         };
       })
-      .toMatchObject({
+      .toEqual({
         grouped: true,
-        style: expect.not.stringMatching(/0\.5|50%/),
+        style: expect.stringContaining("#f97316"),
       });
-    await expect
-      .poll(async () => (await readPaint()).aFill)
-      .toBe("rgb(249, 115, 22)");
+    await expect.poll(readFill).toBe("rgb(249, 115, 22)");
     expect(
       viteUpdates,
       "Rapid Undo must be observed without a Vite update or editor reload.",
     ).toEqual([]);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect
-      .poll(() => indexHtml(page, id))
-      .toContain('data-agent-native-group="true"');
+    await toolbar(page).locator('button[aria-label="Move"]').waitFor();
+    const reloaded = await indexHtml(page, id);
+    expect(reloaded).toContain('data-agent-native-group="true"');
+    expect(styleOf(reloaded, "fill-a")).toContain("#f97316");
   });
 
-  // fixme: fails on current main after the merge: TimeoutError: locator.waitFor: Timeout 15000ms exceeded.
-  test.fixme("Group Fill recolors child fills and text, keeps strokes and gaps, and undoes once", async ({
+  test("Selection colors recolors a Group's shared paint across fills, text, and strokes, keeps gaps, and undoes once", async ({
     app,
     page,
-  }, testInfo) => {
+  }) => {
     const viteUpdates: string[] = [];
     page.on("console", (message) => {
       const text = message.text();
@@ -1683,186 +1295,89 @@ test.describe("groups", () => {
     });
     const id = await newDesign(app, GROUP_FILL_FIXTURE);
     await openEditor(page, id);
-    await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
-    await expect(
-      layersTree(page).locator('[role="treeitem"][aria-selected="true"]'),
-    ).toHaveCount(3);
-    await page.keyboard.press(`${MOD}+g`);
-    await expect(
-      layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
-    ).toHaveCount(1);
-    await expect
-      .poll(() => indexHtml(page, id))
-      .toContain('data-agent-native-group="true"');
-    await layerRow(page, "Group").click();
-
-    const fillSection = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", { name: "Fill", exact: true }),
-      })
-      .first();
-    await expect(fillSection).toBeVisible();
-    const fillButton = fillSection.getByRole("button", {
-      name: "Open color picker",
-    });
-    const fillOpacity = fillSection.getByRole("textbox", {
-      name: "Paint opacity",
-    });
-    await expect(fillButton).toBeVisible();
-    await expect(fillOpacity).toHaveValue("100");
-    const selectionColors = page
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", {
-          name: "Selection colors",
-          exact: true,
-        }),
-      })
-      .first();
-    await expect(
-      selectionColors.getByRole("button", { name: "Show selection colors" }),
-    ).toBeVisible();
-    const readPaint = async () =>
+    const section = await groupAndShowSelectionColors(page, id, [
+      "Fill A",
+      "Fill B",
+      "Fill Text",
+    ]);
+    const readPaint = () =>
       page
         .locator("iframe[data-design-preview-iframe]")
         .first()
         .contentFrame()
         .locator("body")
         .evaluate(() => {
-          const byId = (id: string) =>
-            document.querySelector<HTMLElement>(
+          const style = (id: string) => {
+            const element = document.querySelector<HTMLElement>(
               `[data-agent-native-node-id="${id}"]`,
-            )!;
-          const groupElement = document.querySelector<HTMLElement>(
+            );
+            if (!element) throw new Error(`Missing ${id}`);
+            return getComputedStyle(element);
+          };
+          const group = document.querySelector<HTMLElement>(
             '[data-agent-native-group="true"]',
-          )!;
-          const textOwner = byId("fill-text");
-          const textGlyph =
-            textOwner.querySelector<HTMLElement>("[data-an-text]");
-          const textPaintTarget = textGlyph ?? textOwner;
-          const textPaintStyle = getComputedStyle(textPaintTarget);
-          const textUsesClippedPaint =
-            textPaintStyle.backgroundClip === "text" ||
-            textPaintStyle.webkitBackgroundClip === "text";
+          );
+          if (!group) throw new Error("Missing Group wrapper");
+          const groupRect = group.getBoundingClientRect();
           return {
-            aFill: getComputedStyle(byId("fill-a")).backgroundColor,
-            aStroke: getComputedStyle(byId("fill-a")).borderTopColor,
-            bFill: getComputedStyle(byId("fill-b")).backgroundColor,
-            bStroke: getComputedStyle(byId("fill-b")).borderTopColor,
-            text: textUsesClippedPaint
-              ? textPaintStyle.backgroundColor
-              : textPaintStyle.color,
-            textOwnerBackground: getComputedStyle(textOwner).backgroundColor,
-            textGlyphClip: textPaintStyle.backgroundClip,
-            textGlyphFill: textPaintStyle.webkitTextFillColor,
-            textWrapperCount:
-              textOwner.querySelectorAll("[data-an-text]").length,
-            groupBackground: getComputedStyle(groupElement).backgroundColor,
-            groupRect: groupElement.getBoundingClientRect().toJSON(),
+            aFill: style("fill-a").backgroundColor,
+            aStroke: style("fill-a").borderTopColor,
+            bFill: style("fill-b").backgroundColor,
+            bStroke: style("fill-b").borderTopColor,
+            text: style("fill-text").color,
+            textWrapperCount: document
+              .querySelector('[data-agent-native-node-id="fill-text"]')!
+              .querySelectorAll("[data-an-text]").length,
+            groupBackground: getComputedStyle(group).backgroundColor,
+            groupRect: { width: groupRect.width, height: groupRect.height },
             bodyBackground: getComputedStyle(document.body).backgroundColor,
           };
         });
-    await fillButton.click();
+    const authoredSource = await indexHtml(page, id);
+    const authoredStyles = ["fill-a", "fill-b", "fill-text"].map((nodeId) =>
+      styleOf(authoredSource, nodeId),
+    );
     const firstPaintEditViteUpdateIndex = viteUpdates.length;
-    const opacity = page.getByRole("spinbutton", {
-      name: "Opacity",
-      exact: true,
-    });
-    await opacity.fill("50");
-    await opacity.press("Enter");
-    await page.keyboard.press("Escape");
-    await expect(fillOpacity).toHaveValue("50");
-    await expect
-      .poll(async () => (await readPaint()).aFill)
-      .toBe("rgba(249, 115, 22, 0.5)");
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toMatch(/0\.5|50%/);
+    await recolorSelectionSwatch(page, section, "#f97316", "3B82F6");
 
-    await page.keyboard.press(`${MOD}+z`);
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .not.toMatch(/0\.5|50%/);
-    const afterOpacityUndo = await indexHtml(page, id);
-    expect(afterOpacityUndo).toContain('data-agent-native-group="true"');
-    expect(afterOpacityUndo).toContain('data-agent-native-node-id="fill-a"');
-    const livePaintTargets = await page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator("body")
-      .evaluate(() =>
-        ["fill-a", "fill-b", "fill-text"].map(
-          (id) =>
-            document.querySelectorAll(`[data-agent-native-node-id="${id}"]`)
-              .length,
-        ),
-      );
-    expect(livePaintTargets).toEqual([1, 1, 1]);
-    await expect
-      .poll(async () => (await readPaint()).aFill)
-      .toBe("rgb(249, 115, 22)");
-    await expect(fillOpacity).toHaveValue("100");
-
-    await fillButton.click();
-    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-    await hex.fill("3B82F6");
-    await hex.press("Enter");
-    await page.keyboard.press("Escape");
-    await page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .screenshot({
-        path: testInfo.outputPath("group-fill-text-rendered.png"),
-      });
-
-    const group = page
-      .locator("iframe[data-design-preview-iframe]")
-      .first()
-      .contentFrame()
-      .locator('[data-agent-native-layer-name="Group"]')
-      .first();
-    await expect
-      .poll(async () => (await readPaint()).aFill)
-      .toBe("rgb(59, 130, 246)");
-    await expect
-      .poll(async () => (await readPaint()).bFill)
-      .toBe("rgb(59, 130, 246)");
-    await expect
-      .poll(async () => (await readPaint()).text)
-      .toBe("rgb(59, 130, 246)");
-    expect(await readPaint()).toMatchObject({
-      textOwnerBackground: "rgb(59, 130, 246)",
-      textGlyphClip: "text",
-      textGlyphFill: "rgba(0, 0, 0, 0)",
-      textWrapperCount: 0,
-      aStroke: "rgb(249, 115, 22)",
+    await expect.poll(readPaint).toEqual({
+      aFill: "rgb(59, 130, 246)",
+      aStroke: "rgb(59, 130, 246)",
+      bFill: "rgb(59, 130, 246)",
       bStroke: "rgb(17, 24, 39)",
+      text: "rgb(59, 130, 246)",
+      textWrapperCount: 0,
       groupBackground: "rgba(0, 0, 0, 0)",
       groupRect: { width: 260, height: 144 },
       bodyBackground: "rgb(15, 17, 21)",
     });
     await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
+      .poll(async () => styleOf(await indexHtml(page, id), "fill-text"))
       .toContain("#3b82f6");
     const committed = await indexHtml(page, id);
-    expect(styleOf(committed, "fill-a")).toContain("#3b82f6");
+    expect(styleOf(committed, "fill-a")).not.toContain("#f97316");
     expect(styleOf(committed, "fill-b")).toContain("#3b82f6");
-    expect(styleOf(committed, "fill-text")).toContain("#3b82f6");
+    expect(styleOf(committed, "fill-b")).toContain("#111827");
 
     await page.keyboard.press(`${MOD}+z`);
     await expect
-      .poll(async () => (await readPaint()).aFill)
-      .toBe("rgb(249, 115, 22)");
-    await expect
-      .poll(async () => (await readPaint()).text)
-      .toBe("rgb(249, 115, 22)");
-    const undone = await indexHtml(page, id);
-    expect(styleOf(undone, "fill-a")).toContain("#f97316");
-    expect(styleOf(undone, "fill-b")).toContain("#f97316");
-    expect(styleOf(undone, "fill-text")).toContain("#f97316");
-    expect(undone).toContain('data-agent-native-group="true"');
+      .poll(async () => {
+        const source = await indexHtml(page, id);
+        return ["fill-a", "fill-b", "fill-text"].map((nodeId) =>
+          styleOf(source, nodeId),
+        );
+      })
+      .toEqual(authoredStyles);
+    await expect.poll(readPaint).toMatchObject({
+      aFill: "rgb(249, 115, 22)",
+      aStroke: "rgb(249, 115, 22)",
+      bFill: "rgb(249, 115, 22)",
+      text: "rgb(249, 115, 22)",
+    });
+    expect(await indexHtml(page, id)).toContain(
+      'data-agent-native-group="true"',
+    );
+
     const groupRow = layerRow(page, "Group");
     const expandGroup = groupRow.getByRole("button", {
       name: "Expand layer",
@@ -1891,17 +1406,9 @@ test.describe("groups", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await toolbar(page).locator('button[aria-label="Move"]').waitFor();
     await expandAllLayers(page);
-    const reloadedGroupRow = layerRow(page, "Group");
-    const expandReloadedGroup = reloadedGroupRow.getByRole("button", {
-      name: "Expand layer",
-      exact: true,
-    });
-    if ((await expandReloadedGroup.count()) > 0)
-      await expandReloadedGroup.click();
     await expect(layerRow(page, "Fill Text")).toHaveCount(1);
     const reloadedSource = await indexHtml(page, id);
     expect(reloadedSource).toContain('data-agent-native-group="true"');
-    expect(reloadedSource).toContain('data-agent-native-node-id="fill-text"');
     expect(
       await node(page, "fill-text").evaluate((element) => element.tagName),
     ).toBe("DIV");
@@ -1914,178 +1421,39 @@ test.describe("groups", () => {
       .toBe("rgb(249, 115, 22)");
     expect(
       viteUpdates.slice(firstPaintEditViteUpdateIndex),
-      "Group Fill history assertions are invalid if Vite updates or reloads the editor between paint edit and Undo.",
+      "Selection colors history assertions are invalid if Vite updates or reloads the editor between paint edit and Undo.",
     ).toEqual([]);
   });
 
-  // fixme: fails on current main after the merge: TimeoutError: locator.waitFor: Timeout 15000ms exceeded.
-  test.fixme("Group Fill stacks, hides, restores, removes, and replaces shared paints", async ({
+  test("a Group shows Selection colors but no Fill, Stroke, or Corner radius", async ({
     app,
     page,
   }) => {
-    const viteUpdates: string[] = [];
-    page.on("console", (message) => {
-      const text = message.text();
-      if (/^\[vite\] (?:hot updated|page reload)/.test(text)) {
-        viteUpdates.push(text);
-      }
-    });
     const id = await newDesign(app, GROUP_FILL_FIXTURE);
     await openEditor(page, id);
+    const heading = (name: string) =>
+      page.getByRole("heading", { name, exact: true });
+    const cornerRadius = page.getByRole("textbox", {
+      name: "Corner radius",
+      exact: true,
+    });
+
+    await layerRow(page, "Fill A").click();
+    await expect(heading("Fill")).toBeVisible();
+    await expect(heading("Stroke")).toBeVisible();
+    await expect(cornerRadius).toBeVisible();
+
     await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
     await page.keyboard.press(`${MOD}+g`);
     await expect(layerRow(page, "Group")).toBeVisible();
     await layerRow(page, "Group").click();
-
-    const fillSection = page
-      .locator("section")
-      .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
-      .first();
-    const addFill = fillSection.getByRole("button", {
-      name: "Add fill",
-      exact: true,
-    });
-    await addFill.click();
+    await expect(heading("Selection colors")).toBeVisible();
+    await expect(heading("Fill")).toHaveCount(0);
+    await expect(heading("Stroke")).toHaveCount(0);
+    await expect(cornerRadius).toHaveCount(0);
     await expect(
-      page.getByRole("spinbutton", { name: "Opacity", exact: true }),
-    ).toHaveValue("20");
-
-    const readRendered = () =>
-      page
-        .locator("iframe[data-design-preview-iframe]")
-        .first()
-        .contentFrame()
-        .locator("body")
-        .evaluate(() => {
-          const style = (id: string) => {
-            const node = document.querySelector<HTMLElement>(
-              `[data-agent-native-node-id="${id}"]`,
-            );
-            return node ? getComputedStyle(node) : null;
-          };
-          const a = style("fill-a");
-          const b = style("fill-b");
-          const text = style("fill-text");
-          const textOwner = document.querySelector<HTMLElement>(
-            '[data-agent-native-node-id="fill-text"]',
-          );
-          const glyph = textOwner?.querySelector<HTMLElement>("[data-an-text]");
-          const textPaintTarget = glyph ?? textOwner;
-          const textPaintStyle = textPaintTarget
-            ? getComputedStyle(textPaintTarget)
-            : null;
-          return {
-            aImage: a?.backgroundImage ?? "",
-            bImage: b?.backgroundImage ?? "",
-            aFill: a?.backgroundColor ?? "",
-            bFill: b?.backgroundColor ?? "",
-            aStroke: a?.borderTopColor ?? "",
-            bStroke: b?.borderTopColor ?? "",
-            textFillColor: textPaintStyle?.backgroundColor ?? "",
-            textFillImage: textPaintStyle?.backgroundImage ?? "",
-            textFillClip: textPaintStyle?.backgroundClip ?? "",
-            textColor: text?.color ?? "",
-            body: getComputedStyle(document.body).backgroundColor,
-          };
-        });
-    await expect
-      .poll(async () => (await readRendered()).aImage)
-      .toContain("rgba(0, 0, 0, 0.2)");
-    expect(await readRendered()).toMatchObject({
-      aFill: "rgb(249, 115, 22)",
-      aStroke: "rgb(249, 115, 22)",
-      bStroke: "rgb(17, 24, 39)",
-      body: "rgb(15, 17, 21)",
-    });
-    expect((await readRendered()).textFillImage).toContain(
-      "rgba(0, 0, 0, 0.2)",
-    );
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toMatch(/background-image:\s*linear-gradient\(rgba\(0, 0, 0, 0\.2\)/);
-
-    await page.keyboard.press("Escape");
-    await fillSection
-      .getByRole("button", { name: "Hide layer", exact: true })
-      .nth(1)
-      .click();
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toMatch(/background-size:\s*0px 0px/);
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await toolbar(page).locator('button[aria-label="Move"]').waitFor();
-    await expandAllLayers(page);
-    await layerRow(page, "Group").click();
-    const reloadedFillSection = page
-      .locator("section")
-      .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
-      .first();
-    await reloadedFillSection
-      .getByRole("button", { name: "Show layer", exact: true })
-      .click();
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toMatch(/background-size:\s*auto/);
-    await reloadedFillSection
-      .getByRole("button", { name: "Remove layer", exact: true })
-      .nth(1)
-      .click();
-    await expect
-      .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
-      .toMatch(/background-image:\s*none/);
-
-    await layerRow(page, "Fill B").click();
-    const childFillSection = page
-      .locator("section")
-      .filter({ has: page.getByRole("heading", { name: "Fill", exact: true }) })
-      .first();
-    await childFillSection
-      .getByRole("button", { name: "Open color picker" })
-      .click();
-    const hex = page.getByRole("textbox", { name: "Hex", exact: true });
-    await hex.fill("3B82F6");
-    await hex.press("Enter");
-    await page.keyboard.press("Escape");
-    await expect
-      .poll(async () => (await indexHtml(page, id)).includes("#3b82f6"))
-      .toBe(true);
-
-    await layerRow(page, "Group").click();
-    await expect(
-      fillSection.getByText("Click + to replace mixed content", {
-        exact: true,
-      }),
+      page.getByRole("textbox", { name: "Opacity", exact: true }),
     ).toBeVisible();
-    await fillSection
-      .getByRole("button", { name: "Add fill", exact: true })
-      .click();
-    await expect
-      .poll(async () => (await readRendered()).aFill)
-      .toBe("rgb(59, 130, 246)");
-    const mixedAdded = await indexHtml(page, id);
-    expect(styleOf(mixedAdded, "fill-a")).toMatch(
-      /background-color:\s*(?:#3b82f6|rgb\(59, 130, 246\))/,
-    );
-    expect(styleOf(mixedAdded, "fill-text")).toMatch(
-      /background-color:\s*(?:#3b82f6|rgb\(59, 130, 246\))/,
-    );
-    expect(await readRendered()).toMatchObject({
-      textFillColor: "rgb(59, 130, 246)",
-      textFillImage: "none",
-      textFillClip: "text",
-    });
-    expect(styleOf(mixedAdded, "fill-b")).toMatch(
-      /border:\s*8px solid #111827/,
-    );
-
-    await page.keyboard.press(`${MOD}+z`);
-    await expect
-      .poll(async () => (await readRendered()).aFill)
-      .toBe("rgb(249, 115, 22)");
-    await expect
-      .poll(async () => (await readRendered()).bFill)
-      .toBe("rgb(59, 130, 246)");
-    expect(viteUpdates).toEqual([]);
   });
 
   test("Cmd+Shift+G ungroups: the children return to the page at their original positions and stay selected together", async ({
@@ -2144,8 +1512,7 @@ test.describe("groups", () => {
     ).toHaveText("270 × 80");
   });
 
-  // fixme: fails on current main after the merge: Error: expect(locator).toBeVisible() failed
-  test.fixme("nudging a group moves the group, not each child, and both children follow", async ({
+  test("nudging a group moves the group, not each child, and both children follow", async ({
     app,
   }) => {
     const id = await openSeeded(app);

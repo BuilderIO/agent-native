@@ -3,7 +3,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  assert,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 import {
   collectCommentSubtreeIds,
@@ -16,6 +25,7 @@ import { TimestampedCommentBar } from "./timestamped-comment-button";
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
   updateComment: vi.fn(),
+  deleteComment: vi.fn(),
   otherMutation: vi.fn(),
   mutationOptions: new Map<string, any>(),
 }));
@@ -33,7 +43,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             ? actionMocks.addComment
             : name === "update-comment"
               ? actionMocks.updateComment
-              : actionMocks.otherMutation
+              : name === "delete-comment"
+                ? actionMocks.deleteComment
+                : actionMocks.otherMutation
         )(vars);
       },
     };
@@ -187,6 +199,8 @@ describe("CommentsPanel reply composer", () => {
     currentUserEmail = "viewer@example.com",
     comments: Comment[] = [rootComment],
     presentation: "default" | "share" | "inline" = "share",
+    enableComments = true,
+    canDeleteOwnComments?: boolean,
   ) {
     act(() => {
       root.render(
@@ -196,8 +210,9 @@ describe("CommentsPanel reply composer", () => {
             comments={comments}
             currentMs={34_000}
             currentUserEmail={currentUserEmail}
-            enableComments
-            canComment
+            enableComments={enableComments}
+            canComment={enableComments}
+            canDeleteOwnComments={canDeleteOwnComments}
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
             presentation={presentation}
@@ -1041,6 +1056,11 @@ describe("CommentsPanel reply composer", () => {
   });
 
   it("prefills and saves an author's comment inline", async () => {
+    const setSelectionRange = vi.spyOn(
+      HTMLTextAreaElement.prototype,
+      "setSelectionRange",
+    );
+    onTestFinished(() => setSelectionRange.mockRestore());
     renderPanel("author@example.com");
 
     const menuTrigger = container.querySelector<HTMLButtonElement>(
@@ -1062,7 +1082,16 @@ describe("CommentsPanel reply composer", () => {
       'textarea[aria-label="commentsPanel.editComment"]',
     );
     expect(editor?.value).toBe(rootComment.content);
+    // The closing menu hands focus back to its button a tick later; Edit
+    // swaps that button out, so focus stays in the edit box.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     expect(document.activeElement).toBe(editor);
+    // happy-dom moves the caret to the end whenever the value is set, so check
+    // the call a browser needs.
+    expect(setSelectionRange).toHaveBeenCalledWith(
+      rootComment.content.length,
+      rootComment.content.length,
+    );
 
     act(() => {
       if (!editor) return;
@@ -1281,6 +1310,160 @@ describe("CommentsPanel reply composer", () => {
     expect(icon).not.toBeNull();
     expect(svg).not.toBeNull();
     expect(container.textContent).toContain("commentsPanel.beFirst");
+  });
+
+  it.each(["reply", "edit"])(
+    "closes an open %s composer when comments are disabled",
+    async (operation) => {
+      renderPanel("author@example.com");
+      if (operation === "reply") {
+        const reply = Array.from(container.querySelectorAll("button")).find(
+          (button) => button.textContent.trim() === "commentsPanel.reply",
+        );
+        assert.isDefined(reply);
+        act(() => reply.click());
+      } else {
+        await openMenu(
+          container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]'),
+        );
+        const edit = Array.from(
+          document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find(
+          (item) => item.textContent.trim() === "commentsPanel.editComment",
+        );
+        assert.isDefined(edit);
+        await act(async () => {
+          edit.click();
+          await Promise.resolve();
+        });
+      }
+      expect(container.querySelector("textarea")).not.toBeNull();
+      renderPanel("author@example.com", [rootComment], "share", false);
+      expect(container.querySelector("textarea")).toBeNull();
+      expect(container.textContent).toContain(
+        rootComment.content.split(" https:")[0],
+      );
+    },
+  );
+
+  it("shows saved owner comments read-only when comments are disabled", () => {
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <CommentsPanel
+            recordingId="recording-1"
+            comments={[{ ...rootComment, content: "Fake saved comment" }]}
+            currentMs={34_000}
+            currentUserEmail="owner@example.com"
+            enableComments={false}
+            canComment={false}
+            onSeek={vi.fn()}
+            queryKey={["recording", "recording-1"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Fake saved comment");
+    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(container.textContent).not.toContain("commentsPanel.reply");
+  });
+
+  it.each([
+    {
+      viewer: "the author with comments on",
+      email: "author@example.com",
+      enableComments: true,
+      canDeleteOwnComments: undefined,
+      items: ["commentsPanel.editComment", "commentsPanel.delete"],
+    },
+    {
+      viewer: "the author reviewing history with comments off",
+      email: "author@example.com",
+      enableComments: false,
+      canDeleteOwnComments: true,
+      items: ["commentsPanel.delete"],
+    },
+    {
+      viewer: "the recording owner on another author's history",
+      email: "owner@example.com",
+      enableComments: false,
+      canDeleteOwnComments: true,
+      items: null,
+    },
+    {
+      viewer: "the author when the caller grants no deletion",
+      email: "author@example.com",
+      enableComments: false,
+      canDeleteOwnComments: undefined,
+      items: null,
+    },
+  ])(
+    "gives $viewer only the comment menu actions they may take",
+    async ({ email, enableComments, canDeleteOwnComments, items }) => {
+      renderPanel(
+        email,
+        [rootComment],
+        "inline",
+        enableComments,
+        canDeleteOwnComments,
+      );
+      const menuTrigger = container.querySelector<HTMLButtonElement>(
+        '[aria-haspopup="menu"]',
+      );
+      if (items === null) {
+        expect(menuTrigger).toBeNull();
+        return;
+      }
+      await openMenu(menuTrigger);
+      expect(
+        Array.from(
+          document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+          (item) => item.textContent.trim(),
+        ),
+      ).toEqual(items);
+    },
+  );
+
+  it("lets the author delete saved history while comments are off", async () => {
+    renderPanel(
+      "author@example.com",
+      [
+        {
+          ...rootComment,
+          emojiReactionsJson: JSON.stringify({ "👍": ["member@example.com"] }),
+        },
+      ],
+      "inline",
+      false,
+      true,
+    );
+    const buttons = () =>
+      Array.from(container.querySelectorAll("button"), (button) =>
+        (button.getAttribute("aria-label") ?? button.textContent).trim(),
+      );
+    expect(buttons()).not.toContain("commentsPanel.reply");
+    expect(buttons()).not.toContain("commentsPanel.react");
+    expect(buttons()).not.toContain("👍 1");
+    expect(container.textContent).toContain("👍 1");
+    expect(container.textContent).not.toContain("commentsPanel.resolve");
+    expect(container.querySelector("textarea")).toBeNull();
+
+    await openMenu(
+      container.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]'),
+    );
+    const deleteItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent.trim() === "commentsPanel.delete");
+    assert.isDefined(deleteItem);
+    await act(async () => {
+      deleteItem.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(actionMocks.deleteComment).toHaveBeenCalledWith({
+      id: rootComment.id,
+    });
+    expect(container.textContent).not.toContain("Please take a look");
   });
 
   it("renders the shared empty state icon when comments are disabled", () => {

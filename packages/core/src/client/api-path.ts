@@ -5,6 +5,10 @@ import {
   SERVER_ROUTE_PREFIXES,
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
+import {
+  resolveExternalEmbedTargetBasePath,
+  resolveWorkspaceAppMountPath,
+} from "../shared/mcp-app-widget-embed.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
@@ -108,13 +112,6 @@ function frameworkMarkerIndex(pathname: string): number {
   return -1;
 }
 
-function isFrameworkSegment(segment: string): boolean {
-  return (
-    `/${segment}` === FRAMEWORK_INTERNAL_ROUTE_PREFIX ||
-    `/${segment}` === frameworkRoutePrefix()
-  );
-}
-
 function pathDerivedBasePath(): string {
   if (
     typeof window === "undefined" ||
@@ -155,10 +152,14 @@ function workspaceAppConfiguredPath(): string {
 function hasExplicitWorkspaceRootPath(): boolean {
   if (typeof window === "undefined") return false;
   const config = window as Window & {
-    __AGENT_NATIVE_CONFIG__?: { workspaceAppPath?: unknown };
+    __AGENT_NATIVE_CONFIG__?: {
+      explicitRootPath?: unknown;
+      workspaceAppPath?: unknown;
+    };
   };
   const env = clientEnv();
   return (
+    config.__AGENT_NATIVE_CONFIG__?.explicitRootPath === true ||
     isDeclaredRootPath(config.__AGENT_NATIVE_CONFIG__?.workspaceAppPath) ||
     isDeclaredRootPath(env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH)
   );
@@ -187,37 +188,22 @@ function workspacePathBasePath(fallbackPath = ""): string {
   }
   const pathname = window.location?.pathname;
   if (typeof pathname !== "string") return "";
-  const routerBasePath = routerContextBasePath();
-  if (routerBasePath && pathMatchesBasePath(pathname, routerBasePath)) {
-    return routerBasePath;
-  }
-  const configuredWorkspacePath = workspaceAppConfiguredPath();
-  if (
-    configuredWorkspacePath &&
-    pathMatchesBasePath(pathname, configuredWorkspacePath)
-  ) {
-    return configuredWorkspacePath;
-  }
   const segment = pathname.split("/").find(Boolean);
+  const mounts = workspaceAppMountPaths();
+  const resolved = resolveWorkspaceAppMountPath(pathname, {
+    routerBasePath: routerContextBasePath(),
+    workspaceAppPath: workspaceAppConfiguredPath(),
+    workspaceAppMountPaths: mounts ? [...mounts] : undefined,
+    fallbackPath,
+    explicitRootPath: hasExplicitWorkspaceRootPath(),
+    frameworkRoutePrefix: frameworkRoutePrefix(),
+  });
+  if (resolved !== undefined) return resolved;
   if (!segment) {
-    if (hasExplicitWorkspaceRootPath()) return "";
-    if (fallbackPath) return fallbackPath;
     throw new WorkspaceAppMountResolutionError(
       "Cannot resolve workspace app mount path without explicit mount metadata.",
     );
   }
-  if (isFrameworkSegment(segment) || segment === "api") {
-    return fallbackPath;
-  }
-  if (hasExplicitWorkspaceRootPath()) return "";
-  const mounts = workspaceAppMountPaths();
-  const matchingMount = mounts
-    ? [...mounts]
-        .filter((mount) => pathMatchesBasePath(pathname, mount))
-        .sort((a, b) => b.length - a.length)[0]
-    : undefined;
-  if (matchingMount) return matchingMount;
-  if (fallbackPath) return fallbackPath;
   throw new WorkspaceAppMountResolutionError(
     mounts
       ? "Cannot resolve workspace app mount path because the current URL matches no projected mount."
@@ -256,36 +242,89 @@ export function configureClientRouterBasename(): boolean {
   return true;
 }
 
-function externalEmbedTargetBasePath(): string {
-  if (typeof window === "undefined") return "";
-  const target = (
-    window as Window & {
-      __AGENT_NATIVE_EXTERNAL_EMBED?: { target?: unknown };
-    }
-  ).__AGENT_NATIVE_EXTERNAL_EMBED?.target;
-  if (typeof target !== "string" || !target.startsWith("/")) return "";
-  try {
-    const url = new URL(target, "http://agent-native.invalid");
-    const markerIndex = frameworkMarkerIndex(url.pathname);
-    if (markerIndex > 0) {
-      return normalizeBasePath(url.pathname.slice(0, markerIndex));
-    }
-    if (isWorkspaceRuntime()) {
-      const segment = url.pathname.split("/").find(Boolean);
-      if (segment && !isFrameworkSegment(segment) && segment !== "api") {
-        return normalizeBasePath(segment);
-      }
-    }
-  } catch {
-    return "";
-  }
-  return "";
+export function resolveExternalEmbedTargetAppBasePath(
+  target: string,
+): string | undefined {
+  const mounts = workspaceAppMountPaths();
+  return resolveExternalEmbedTargetBasePath(target, {
+    workspaceRuntime: isWorkspaceRuntime(),
+    routerBasePath: routerContextBasePath(),
+    workspaceAppPath: workspaceAppConfiguredPath(),
+    workspaceAppMountPaths: mounts ? [...mounts] : undefined,
+    explicitRootPath: hasExplicitWorkspaceRootPath(),
+    frameworkRoutePrefix: frameworkRoutePrefix(),
+  });
 }
 
-export function appBasePath(): string {
-  initializeAgentNativeClient();
+type ExternalEmbedPathState = {
+  target: string;
+  initialPathname: string;
+  navigated: boolean;
+};
+
+type ExternalEmbedConfig = {
+  target?: unknown;
+  __agentNativePathState?: unknown;
+};
+
+function externalEmbedTargetBasePath(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const externalEmbed = (
+    window as Window & {
+      __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+    }
+  ).__AGENT_NATIVE_EXTERNAL_EMBED;
+  if (!externalEmbed || typeof externalEmbed !== "object") return undefined;
+  const config = externalEmbed as ExternalEmbedConfig;
+  const target = config.target;
+  if (typeof target !== "string" || !target.startsWith("/")) {
+    return undefined;
+  }
+  const basePath = resolveExternalEmbedTargetAppBasePath(target);
+  const pathname = window.location.pathname;
+  if (!pathname.startsWith("/")) {
+    return basePath;
+  }
+
+  const storedPathState = config.__agentNativePathState;
+  let pathState =
+    storedPathState && typeof storedPathState === "object"
+      ? (storedPathState as Partial<ExternalEmbedPathState>)
+      : undefined;
+  if (
+    !pathState ||
+    pathState.target !== target ||
+    typeof pathState.initialPathname !== "string" ||
+    typeof pathState.navigated !== "boolean"
+  ) {
+    const nextPathState: ExternalEmbedPathState = {
+      target,
+      initialPathname: pathname,
+      navigated: false,
+    };
+    config.__agentNativePathState = nextPathState;
+    pathState = nextPathState;
+  } else if (pathState.initialPathname !== pathname) {
+    pathState.navigated = true;
+  }
+  // Keep the target for handoff, then follow later route changes.
+  if (!pathState.navigated || !pathname.startsWith("/")) return basePath;
+
+  const mounts = workspaceAppMountPaths();
+  const currentMount = resolveWorkspaceAppMountPath(pathname, {
+    workspaceAppMountPaths: mounts ? [...mounts] : undefined,
+    frameworkRoutePrefix: frameworkRoutePrefix(),
+  });
+  if (currentMount !== undefined && currentMount !== basePath) {
+    return currentMount;
+  }
+  if (basePath && !pathMatchesBasePath(pathname, basePath)) return undefined;
+  return basePath;
+}
+
+export function resolveAppBasePath(): string {
   const externalEmbed = externalEmbedTargetBasePath();
-  if (externalEmbed) return externalEmbed;
+  if (externalEmbed !== undefined) return externalEmbed;
   const configured = configuredBasePath();
   const derived = pathDerivedBasePath();
   if (!configured) return derived || workspacePathBasePath();
@@ -295,6 +334,11 @@ export function appBasePath(): string {
   if (pathMatchesBasePath(pathname, configured)) return configured;
 
   return derived || workspacePathBasePath(configured);
+}
+
+export function appBasePath(): string {
+  initializeAgentNativeClient();
+  return resolveAppBasePath();
 }
 
 function workspaceAppMountPaths(): Set<string> | null {
@@ -421,6 +465,12 @@ export function appPath(path: string): string {
   if (!basePath) return path;
   if (path === basePath || path.startsWith(`${basePath}/`)) return path;
   return `${basePath}${path}`;
+}
+
+export function appPathFromLocalRoute(path: string): string {
+  if (!path.startsWith("/")) return path;
+  const basePath = appBasePath();
+  return basePath ? `${basePath}${path}` : path;
 }
 
 export function appApiPath(path: string): string {

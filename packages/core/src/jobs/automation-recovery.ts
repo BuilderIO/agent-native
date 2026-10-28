@@ -49,6 +49,17 @@ export class AutomationRecoveryStorageError extends Error {
   }
 }
 
+export class AutomationRecoveryProjectionDeferredError extends Error {
+  readonly errorCode = "automation_recovery_projection_deferred";
+
+  constructor(runId: string) {
+    super(
+      `Automation recovery is waiting for run ${runId} to project its thread`,
+    );
+    this.name = "AutomationRecoveryProjectionDeferredError";
+  }
+}
+
 export async function withAutomationRecoveryStorage<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
@@ -226,6 +237,13 @@ export async function inspectAutomationRecovery(
       history.dispatchPending &&
       Number.isFinite(lastQueueTouch) &&
       lastQueueTouch > now.getTime() - automationRunClaimLeaseMs()
+    )
+      return { state: "active" };
+    // A runner's row never gets a run or thread, so it stays live until its
+    // hard deadline instead of being settled as stopped.
+    if (
+      meta.runner &&
+      now.getTime() < lastRun + resolveBackgroundRunHardTimeoutMs()
     )
       return { state: "active" };
     return {

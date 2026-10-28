@@ -70,7 +70,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
-import { useAiPriority } from "@/hooks/use-ai-priority";
+import { useAiPriority, type AiPriorityResult } from "@/hooks/use-ai-priority";
 import {
   askAgentToDraftImportanceRules,
   useAiPriorityFeedback,
@@ -105,8 +105,13 @@ import {
   useSendScheduledJobNow,
 } from "@/hooks/use-scheduled-jobs";
 import { setUndoAction, setUndoToastId, UNDO_DURATION } from "@/hooks/use-undo";
+import { mailThreadHref } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import {
+  ensureThread,
+  THREAD_PREFETCH_INTENT_MS,
+  warmThreads,
+} from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
@@ -144,10 +149,12 @@ function toPriorityEmail(email: EmailMessage): AiPriorityEmail {
 function priorityEmailCacheKey(
   email: EmailMessage,
   ruleRevision: string,
+  providerIdentity = "",
 ): string {
   const priorityEmail = toPriorityEmail(email);
   return JSON.stringify([
     ruleRevision,
+    providerIdentity,
     priorityEmail.accountEmail,
     priorityEmail.id,
     priorityEmail.date,
@@ -158,9 +165,15 @@ function priorityEmailCacheKey(
   ]);
 }
 
-type CachedPriorityScore = { inputKey: string; score: number };
+type CachedPriorityScore = {
+  inputKey: string;
+  score: number;
+  model?: AiPriorityResult["model"];
+  providerIdentity?: string;
+};
 type FrozenPriorityOrder = {
   ruleRevision: string;
+  providerIdentity: string;
   keys: string[];
   priorityKeys: string[];
   scores: Record<string, number>;
@@ -205,6 +218,8 @@ interface EmailListProps {
   labels?: Label[];
   refetchEmails?: () => unknown;
   hasNextPage?: boolean;
+  /** Paging stopped at the server's offset cap; older mail is out of reach here. */
+  reachedCap?: boolean;
   fetchNextPage?: () => Promise<unknown>;
   isFetchingNextPage?: boolean;
   isFetchNextPageError?: boolean;
@@ -218,9 +233,10 @@ interface EmailListProps {
   ) => void;
   onArchived?: (id: string) => void;
   onDraftOpen?: (email: EmailMessage) => void;
-  onNavigateThread?: (threadId: string) => void;
+  onNavigateThread?: (threadId: string, accountEmail?: string) => void;
   showPrioritySort?: boolean;
   jevConfigured?: boolean;
+  priorityProviderIdentity?: string;
   jevAvailabilityLoading?: boolean;
   jevAvailabilityError?: boolean;
   onJevConnected?: () => void;
@@ -515,6 +531,7 @@ export function EmailList({
   labels: labelsProp,
   refetchEmails,
   hasNextPage: hasNextPageProp,
+  reachedCap = false,
   fetchNextPage: fetchNextPageProp,
   isFetchingNextPage: isFetchingNextPageProp,
   isFetchNextPageError: isFetchNextPageErrorProp,
@@ -528,6 +545,7 @@ export function EmailList({
   onNavigateThread,
   showPrioritySort = false,
   jevConfigured = false,
+  priorityProviderIdentity = "",
   jevAvailabilityLoading = false,
   jevAvailabilityError = false,
   onJevConnected,
@@ -553,9 +571,6 @@ export function EmailList({
     showPrioritySort && view === "inbox" && !searchQuery && !labelParam
       ? sortMode
       : "newest";
-  const routeSearchSuffix = searchParams.toString()
-    ? `?${searchParams.toString()}`
-    : "";
   const [aiFilterDialog, setAiFilterDialog] = useState<{
     action: "filter" | "keep";
     targets: AiFilterTarget[];
@@ -702,7 +717,7 @@ export function EmailList({
   );
   const priorityInputKey = useMemo(
     () =>
-      [priorityRuleRevision]
+      [priorityRuleRevision, priorityProviderIdentity]
         .concat(
           priorityWindowEmails.map(
             (email) =>
@@ -710,7 +725,7 @@ export function EmailList({
           ),
         )
         .join("\u001f"),
-    [priorityRuleRevision, priorityWindowEmails],
+    [priorityRuleRevision, priorityProviderIdentity, priorityWindowEmails],
   );
   const [priorityScores, setPriorityScores] = useState(
     () => new Map(priorityScoreCache(queryClient)),
@@ -726,6 +741,7 @@ export function EmailList({
       const optimisticScore = {
         inputKey: priorityEmailCacheKey(email, priorityRuleRevision),
         score,
+        model: null,
       };
       setPriorityOrder(null);
       rememberPriorityScore(cache, key, optimisticScore);
@@ -798,13 +814,25 @@ export function EmailList({
       const key = aiPriorityEmailKey(email.accountEmail, email.id);
       const score = priorityScores.get(key);
       if (
-        score?.inputKey === priorityEmailCacheKey(email, priorityRuleRevision)
+        (score?.providerIdentity === undefined ||
+          score.providerIdentity === priorityProviderIdentity) &&
+        score?.inputKey ===
+          priorityEmailCacheKey(
+            email,
+            priorityRuleRevision,
+            score?.providerIdentity,
+          )
       ) {
         cached.set(key, score.score);
       }
     }
     return cached;
-  }, [priorityRuleRevision, priorityScores, priorityWindowEmails]);
+  }, [
+    priorityProviderIdentity,
+    priorityRuleRevision,
+    priorityScores,
+    priorityWindowEmails,
+  ]);
   const priorityRequestKeyRef = useRef("");
   const priorityRequestGenerationRef = useRef(0);
   const previousSortModeRef = useRef(currentSortMode);
@@ -846,7 +874,11 @@ export function EmailList({
     const pendingInputKeys = new Map(
       uncachedPriorityEmails.map((email) => [
         aiPriorityEmailKey(email.accountEmail, email.id),
-        priorityEmailCacheKey(email, priorityRuleRevision),
+        priorityEmailCacheKey(
+          email,
+          priorityRuleRevision,
+          priorityProviderIdentity,
+        ),
       ]),
     );
     try {
@@ -857,6 +889,21 @@ export function EmailList({
       const cache = priorityScoreCache(queryClient);
       const next = new Map(cache);
       const scoredKeys = new Set<string>();
+      const failedKeys = new Set<string>();
+      for (const failure of result.failures) {
+        const email =
+          failure.accountEmail === undefined
+            ? uniquePendingEmailById.get(failure.emailId)
+            : pendingEmailsByKey.get(
+                aiPriorityEmailKey(failure.accountEmail, failure.emailId),
+              );
+        if (!email) throw new Error(t("mail.sort.priorityFailed"));
+        const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        if (failedKeys.has(key)) {
+          throw new Error(t("mail.sort.priorityFailed"));
+        }
+        failedKeys.add(key);
+      }
       for (const score of result.scores) {
         const email =
           score.accountEmail === undefined
@@ -865,33 +912,51 @@ export function EmailList({
                 aiPriorityEmailKey(score.accountEmail, score.emailId),
               );
         if (!email) {
-          if (
-            score.accountEmail === undefined &&
-            uniquePendingEmailById.has(score.emailId)
-          ) {
-            throw new Error(t("mail.sort.priorityFailed"));
-          }
-          continue;
+          throw new Error(t("mail.sort.priorityFailed"));
         }
         const key = aiPriorityEmailKey(email.accountEmail, email.id);
+        if (scoredKeys.has(key) || failedKeys.has(key)) {
+          throw new Error(t("mail.sort.priorityFailed"));
+        }
         scoredKeys.add(key);
         const inputKey = pendingInputKeys.get(key);
         if (inputKey) {
-          const cachedScore = { inputKey, score: score.score };
+          const cachedScore = {
+            inputKey,
+            score: score.score,
+            model: result.model,
+            providerIdentity: priorityProviderIdentity,
+          };
           rememberPriorityScore(cache, key, cachedScore);
           rememberPriorityScore(next, key, cachedScore);
         }
       }
-      if (scoredKeys.size !== uncachedPriorityEmails.length) {
+      if (scoredKeys.size + failedKeys.size !== uncachedPriorityEmails.length) {
         throw new Error(t("mail.sort.priorityFailed"));
       }
       setPriorityScores(next);
-    } catch (error) {
+      if (result.failures.length > 0) {
+        toast.error(
+          t("mail.sort.priorityPartialFailed", {
+            count: result.failures.length,
+          }),
+        );
+      }
+    } catch (error: unknown) {
       if (priorityRequestGenerationRef.current !== requestGeneration) return;
       priorityRequestKeyRef.current = "";
       onSortModeChange?.("newest");
+      const errorCode =
+        typeof error === "object" &&
+        error !== null &&
+        "errorCode" in error &&
+        typeof error.errorCode === "string"
+          ? error.errorCode
+          : undefined;
       toast.error(
-        error instanceof Error ? error.message : t("mail.sort.priorityFailed"),
+        errorCode === "jev_not_enabled"
+          ? t("mail.sort.priorityProviderRequired")
+          : t("mail.sort.priorityFailed"),
       );
     }
   }, [
@@ -899,6 +964,7 @@ export function EmailList({
     areAutomationRulesFetching,
     isPriorityPending,
     priorityInputKey,
+    priorityProviderIdentity,
     priorityRuleRevision,
     cachedPriorityScores,
     priorityWindowEmails,
@@ -944,9 +1010,18 @@ export function EmailList({
                 (chronologicalIndexes.get(bKey) ?? 0)
               );
             }
+            const aScore = cachedPriorityScores.get(aKey);
+            const bScore = cachedPriorityScores.get(bKey);
+            if (aScore === undefined && bScore !== undefined) return 1;
+            if (aScore !== undefined && bScore === undefined) return -1;
+            if (
+              aScore !== undefined &&
+              bScore !== undefined &&
+              aScore !== bScore
+            ) {
+              return bScore - aScore;
+            }
             return (
-              (cachedPriorityScores.get(bKey) ?? 0.5) -
-                (cachedPriorityScores.get(aKey) ?? 0.5) ||
               new Date(b.latestMessage.date).getTime() -
                 new Date(a.latestMessage.date).getTime() ||
               b.latestMessage.id.localeCompare(a.latestMessage.id)
@@ -975,12 +1050,14 @@ export function EmailList({
     }
     if (
       priorityOrder?.ruleRevision === priorityRuleRevision &&
+      priorityOrder.providerIdentity === priorityProviderIdentity &&
       priorityOrder.keys.length > 0
     ) {
       return;
     }
     setPriorityOrder({
       ruleRevision: priorityRuleRevision,
+      providerIdentity: priorityProviderIdentity,
       keys: rankedPriorityThreads
         .filter((thread) =>
           priorityWindowIds.has(
@@ -1004,6 +1081,7 @@ export function EmailList({
     currentSortMode,
     priorityOrder,
     priorityWindowIds,
+    priorityProviderIdentity,
     priorityRuleRevision,
     priorityWindowEmails,
     rankedPriorityThreads,
@@ -1012,7 +1090,8 @@ export function EmailList({
     if (
       currentSortMode !== "priority" ||
       !priorityOrder ||
-      priorityOrder.ruleRevision !== priorityRuleRevision
+      priorityOrder.ruleRevision !== priorityRuleRevision ||
+      priorityOrder.providerIdentity !== priorityProviderIdentity
     ) {
       return;
     }
@@ -1037,11 +1116,15 @@ export function EmailList({
     cachedPriorityScores,
     currentSortMode,
     priorityOrder,
+    priorityProviderIdentity,
     priorityRuleRevision,
     priorityWindowEmails,
   ]);
   const activePriorityOrder =
-    priorityOrder?.ruleRevision === priorityRuleRevision ? priorityOrder : null;
+    priorityOrder?.ruleRevision === priorityRuleRevision &&
+    priorityOrder.providerIdentity === priorityProviderIdentity
+      ? priorityOrder
+      : null;
   const threads = useMemo(() => {
     if (currentSortMode !== "priority") return chronologicalThreads;
     if (!activePriorityOrder) return rankedPriorityThreads;
@@ -1153,6 +1236,16 @@ export function EmailList({
     selectThreads((thread) => !thread.hasStarred);
   }, [selectThreads]);
 
+  // Hover is speculative, so it goes through warmThreads: that path skips work
+  // during a rate-limit or auth cooldown. Opening a thread stays on ensureThread.
+  const prefetchThread = useCallback((thread: ThreadSummary) => {
+    const email = thread.latestMessage;
+    if (email.isDraft) return;
+    warmThreads([
+      { id: email.threadId || email.id, accountEmail: email.accountEmail },
+    ]);
+  }, []);
+
   const moveFocus = useCallback(
     (delta: number) => {
       setSelectedIds(new Set());
@@ -1232,8 +1325,15 @@ export function EmailList({
     void ensureThread(targetThreadId, thread.latestMessage.accountEmail).catch(
       () => {},
     );
-    onNavigateThread?.(targetThreadId);
-    void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+    onNavigateThread?.(targetThreadId, thread.latestMessage.accountEmail);
+    void navigate(
+      mailThreadHref(
+        view,
+        targetThreadId,
+        searchParams,
+        thread.latestMessage.accountEmail,
+      ),
+    );
     if (thread.hasUnread) {
       setTimeout(
         () =>
@@ -1249,7 +1349,7 @@ export function EmailList({
     view,
     navigate,
     markThreadRead,
-    routeSearchSuffix,
+    searchParams,
     queryClient,
     setSelectedIds,
   ]);
@@ -1899,15 +1999,20 @@ export function EmailList({
     if (!focusedId || threads.length === 0) return;
     const idx = threads.findIndex((t) => t.latestMessage.id === focusedId);
     if (idx === -1) return;
-    const windowIdx = [idx - 1, idx, idx + 1].filter(
-      (i) => i >= 0 && i < threads.length,
-    );
-    warmThreads(
-      windowIdx.map((i) => ({
-        id: threads[i].latestMessage.threadId || threads[i].latestMessage.id,
-        accountEmail: threads[i].latestMessage.accountEmail,
-      })),
-    );
+    // Warm only once focus rests, so holding J/K does not fetch every row it
+    // passes. Each focus change restarts the timer.
+    const timer = setTimeout(() => {
+      const windowIdx = [idx - 1, idx, idx + 1].filter(
+        (i) => i >= 0 && i < threads.length,
+      );
+      warmThreads(
+        windowIdx.map((i) => ({
+          id: threads[i].latestMessage.threadId || threads[i].latestMessage.id,
+          accountEmail: threads[i].latestMessage.accountEmail,
+        })),
+      );
+    }, THREAD_PREFETCH_INTENT_MS);
+    return () => clearTimeout(timer);
   }, [focusedId, threads]);
 
   const [rowHeightEstimate, setRowHeightEstimate] = useState(() =>
@@ -1995,8 +2100,10 @@ export function EmailList({
         return;
       }
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      onNavigateThread?.(targetThreadId);
-      void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+      onNavigateThread?.(targetThreadId, email.accountEmail);
+      void navigate(
+        mailThreadHref(view, targetThreadId, searchParams, email.accountEmail),
+      );
       if (thread.hasUnread) {
         setTimeout(
           () =>
@@ -2015,7 +2122,7 @@ export function EmailList({
       onNavigateThread,
       navigate,
       view,
-      routeSearchSuffix,
+      searchParams,
       markThreadRead,
     ],
   );
@@ -2804,6 +2911,7 @@ export function EmailList({
                   onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
                   onRetryUncertainScheduled={handleRetryUncertainScheduled}
                   onHover={handleHoverThread}
+                  onPrefetch={prefetchThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}
                   highlight={searchQuery}
@@ -2861,6 +2969,17 @@ export function EmailList({
                 {t("mail.error.tryAgain")}
               </button>
             )}
+          </div>
+        )}
+        {reachedCap && !hasNextPage && (
+          <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => void navigate("/all")}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {t("mail.empty.openAllMailForOlder")}
+            </button>
           </div>
         )}
       </div>

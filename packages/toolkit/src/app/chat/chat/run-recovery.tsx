@@ -20,6 +20,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconLoader2,
@@ -203,6 +204,17 @@ export function runErrorHeadline(
   return info.recoverable === true ? labels.recoverable : labels.terminal;
 }
 
+function isManuallyRetryableProviderError(errorCode?: string): boolean {
+  const code = errorCode?.trim().toLowerCase();
+  // Keep daily/account caps terminal; these codes represent transient rejections.
+  return (
+    code === "http_429" ||
+    code === "http_529" ||
+    code === "provider_rate_limited" ||
+    code === "provider_transient_rejection"
+  );
+}
+
 export function getRequestModeMetadata(
   message: unknown,
 ): "act" | "plan" | null {
@@ -214,6 +226,24 @@ export function getRequestModeMetadata(
     | undefined;
   const requestMode = meta?.custom?.requestMode ?? meta?.requestMode;
   return requestMode === "act" || requestMode === "plan" ? requestMode : null;
+}
+
+export const IMPLEMENT_PLAN_PROMPT = "Implement the plan.";
+
+/**
+ * The mode a reply was written in: its own, else that of the message it
+ * answers, since a streamed or reloaded reply carries no request metadata.
+ */
+export function getReplyRequestMode<T extends { role: string }>(
+  messages: readonly T[],
+  reply: T | undefined,
+): "act" | "plan" | null {
+  const own = getRequestModeMetadata(reply);
+  if (own || !reply) return own;
+  const request = messages
+    .slice(0, Math.max(0, messages.indexOf(reply)))
+    .findLast((message) => message.role === "user");
+  return request ? getRequestModeMetadata(request) : null;
 }
 
 export function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
@@ -313,7 +343,12 @@ export function BuilderConnectCta({
     trackingSource: "assistant_chat_builder_cta",
     onConnected: handleConnected,
   });
-  const { configured, orgName, connecting, error } = flow;
+  const { configured, orgName, connecting } = flow;
+  // A failed status read changes nothing here: the card only shows while AI
+  // is missing, and connecting re-reads status. Its retry lives in Settings.
+  // A newer status read still must not hide the connect failure before it.
+  const error =
+    flow.errorKind === "status-read" ? flow.terminalError : flow.error;
   useEffect(() => {
     const attempt = connectAttemptRef.current;
     if (!attempt) return;
@@ -352,8 +387,14 @@ export function BuilderConnectCta({
   if (variant === "compact") {
     if (configured && !reconnect) {
       return (
-        <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
-          <IconCheck size={11} className="text-emerald-500" />
+        <span
+          data-agent-builder-setup-slot="builder-button"
+          className="inline-flex h-6 items-center gap-1 whitespace-nowrap rounded-md border border-border bg-background px-2 text-xs font-medium text-foreground"
+        >
+          <IconCheck
+            aria-hidden="true"
+            className="size-3 text-[hsl(var(--agent-kit-positive))]"
+          />
           {orgName
             ? t("agentChat.setup.connectedTo", { organization: orgName })
             : t("agentChat.setup.connected")}
@@ -362,13 +403,14 @@ export function BuilderConnectCta({
     }
 
     return (
-      <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
+      <div className="flex min-w-0 flex-col items-end gap-1">
         <DeferredBuilderConnectPopover
           flow={flow}
           onConnect={startBuilderConnect}
         >
-          <button
+          <Button
             type="button"
+            size="xs"
             disabled={connecting}
             onClick={() =>
               trackSetupFunnelEvent(
@@ -378,27 +420,26 @@ export function BuilderConnectCta({
                 "started",
               )
             }
-            className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+            data-agent-builder-setup-slot="builder-button"
+            className="shrink-0"
             aria-busy={connecting}
           >
             {connecting ? (
               <>
-                <IconLoader2 size={10} className="animate-spin" />
+                <Spinner className="size-3" aria-hidden="true" />
                 {t("agentChat.common.waiting")}
               </>
+            ) : reconnect ? (
+              t("agentChat.recovery.reconnectBuilder")
             ) : (
-              <>
-                {reconnect
-                  ? t("agentChat.recovery.reconnectBuilder")
-                  : t("agentChat.setup.connectBuilder")}
-              </>
+              t("agentChat.setup.connectBuilder")
             )}
-          </button>
+          </Button>
         </DeferredBuilderConnectPopover>
         {error && (
           <p
             {...SESSION_REPLAY_MASK_PROPS}
-            className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end"
+            className="max-w-[13rem] text-end text-[10px] leading-snug text-destructive"
           >
             {error}
           </p>
@@ -415,15 +456,15 @@ export function BuilderConnectCta({
       <div className={containerClass}>
         <div className="min-w-0 flex-1">
           <div className="text-xs font-medium text-foreground">Builder.io</div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {orgName
-              ? t("agentChat.setup.connectedOrganization", {
-                  organization: orgName,
-                })
-              : t("agentChat.setup.connected")}
-          </p>
+          {orgName ? (
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {t("agentChat.setup.connectedOrganization", {
+                organization: orgName,
+              })}
+            </p>
+          ) : null}
         </div>
-        <span className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+        <span className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-[hsl(var(--agent-kit-positive)/0.1)] px-2 py-0.5 text-[10px] font-medium text-[hsl(var(--agent-kit-positive))]">
           <IconCheck size={10} />
           {t("agentChat.setup.connected")}
         </span>
@@ -513,26 +554,35 @@ export function BuilderSetupContent({
       "click",
       "started",
     );
+  const customKeysVariant = sidebarLayout ? "ghost" : "outline";
+  // The attached card's panel is tinted, so an outline fill would show as a
+  // separate chip on it.
   const customKeysClassName = cn(
-    "agent-builder-setup-card__key-button inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md text-[11px] font-medium",
-    sidebarLayout
-      ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-      : "h-8 border border-border bg-transparent px-3 text-foreground hover:bg-accent",
+    "shrink-0",
+    !sidebarLayout && "bg-transparent dark:bg-transparent",
   );
 
   const settingsLink = (
-    <Link
-      to={settingsRoute}
-      state={{ providerSetupTrackingFlow: "chat_setup" }}
-      onClick={trackCustomKeysClick}
+    <Button
+      asChild
+      size="xs"
+      variant={customKeysVariant}
+      data-agent-builder-setup-slot="key-button"
       className={customKeysClassName}
     >
-      {t("agentPanel.addOwnKeys", {
-        defaultValue: "Custom keys",
-      })}
-    </Link>
+      <Link
+        to={settingsRoute}
+        state={{ providerSetupTrackingFlow: "chat_setup" }}
+        onClick={trackCustomKeysClick}
+      >
+        {t("agentPanel.addOwnKeys", {
+          defaultValue: "Custom keys",
+        })}
+      </Link>
+    </Button>
   );
 
+  // The buttons name both choices, so the card carries no description.
   return (
     <div
       className={cn(
@@ -540,43 +590,31 @@ export function BuilderSetupContent({
         sidebarLayout && "agent-builder-setup-card--sidebar",
       )}
     >
-      <div
-        className={cn(
-          "agent-builder-setup-card__content flex flex-col sm:flex-row sm:items-center sm:justify-between",
-          sidebarLayout ? "gap-2" : "gap-3",
-        )}
-      >
-        <div className="agent-builder-setup-card__copy min-w-0">
-          <div className="flex items-center gap-1.5">
-            <h3 className="text-[13px] font-medium text-foreground">
-              {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
-            </h3>
-            {onRetry ? (
-              <button
-                type="button"
-                onClick={onRetry}
-                disabled={retryDisabled}
-                aria-label={t("agentChat.common.retry")}
-                title={t("agentChat.common.retry")}
-                className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-60"
-              >
-                <IconRefresh size={13} strokeWidth={1.8} />
-              </button>
-            ) : null}
-          </div>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            {t("agentPanel.builderOrOwnKeys", {
-              defaultValue: "Choose Builder.io or custom keys.",
-            })}
-          </p>
+      {/* Top-aligned so a connect error under one button leaves the row's
+          controls on one line. */}
+      <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5">
+        <div className="agent-builder-setup-card__copy me-auto flex min-h-6 min-w-0 items-center gap-1">
+          <h3 className="truncate text-[13px] font-medium text-foreground">
+            {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
+          </h3>
+          {onRetry ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={onRetry}
+              disabled={retryDisabled}
+              aria-label={t("agentChat.common.retry")}
+              title={t("agentChat.common.retry")}
+              className="text-muted-foreground disabled:cursor-wait"
+            >
+              <IconRefresh aria-hidden="true" />
+            </Button>
+          ) : null}
         </div>
         <div
-          className={cn(
-            "agent-builder-setup-card__actions flex shrink-0",
-            sidebarLayout
-              ? "flex-row items-center gap-1"
-              : "flex-nowrap items-center gap-2",
-          )}
+          data-agent-builder-setup-slot="actions"
+          className="flex shrink-0 flex-row items-start gap-1"
         >
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
           {import.meta.env.DEV ? (
@@ -584,7 +622,9 @@ export function BuilderSetupContent({
               <PopoverTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
+                  size="xs"
+                  variant={customKeysVariant}
+                  data-agent-builder-setup-slot="key-button"
                   className={customKeysClassName}
                 >
                   {t("agentPanel.addOwnKeys", {
@@ -794,6 +834,9 @@ export function RunErrorRecoveryCard({
   // Retrying or continuing sends the rejected attachment again.
   const attachmentRejected = info.errorCode === "invalid_attachment";
   const canRecover = info.recoverable === true && !attachmentRejected;
+  const manuallyRetryableProviderError = isManuallyRetryableProviderError(
+    info.errorCode,
+  );
   const retryWithoutAttachments =
     onRetryWithoutAttachments ?? onRetryWithoutAttachment;
   const canRetryWithoutAttachments =
@@ -840,7 +883,11 @@ export function RunErrorRecoveryCard({
   // credentials. Without this the common case — a rejected workspace or
   // deployment credential the reader cannot see, let alone edit — rendered a
   // "Connected ✓" panel with no action at all.
-  const canRetry = canRecover || isUnblockableExternally || isProviderAuthError;
+  const canRetry =
+    canRecover ||
+    isUnblockableExternally ||
+    isProviderAuthError ||
+    manuallyRetryableProviderError;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -999,9 +1046,9 @@ export function RunErrorRecoveryCard({
   }
 
   return (
-    <div className="min-w-0 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
+    <div className="min-w-0 rounded-lg border border-[hsl(var(--agent-kit-warning)/0.4)] bg-[hsl(var(--agent-kit-warning)/0.1)] p-3 text-sm">
       <div className="flex items-start gap-2">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--agent-kit-warning)/0.1)] text-[hsl(var(--agent-kit-warning))]">
           <IconAlertTriangle size={14} />
         </span>
         <div className="min-w-0 flex-1">
@@ -1158,9 +1205,17 @@ export function RunErrorRecoveryCard({
                   ? t("agentChat.recovery.diagnoseRetry")
                   : t("agentChat.common.retry")
               }
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              className={cn(
+                "inline-flex h-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
+                manuallyRetryableProviderError ? "gap-1.5 px-2" : "w-7",
+              )}
             >
               <IconRefresh size={14} />
+              {manuallyRetryableProviderError && (
+                <span className="text-[11px] font-medium">
+                  {t("agentChat.common.retry")}
+                </span>
+              )}
             </button>
           )}
           {canRecover && isConnectionRecoveryError && (
@@ -1243,7 +1298,10 @@ export function RunErrorRecoveryCard({
         </p>
       )}
       {continueError && (
-        <p className="mt-2 text-xs leading-relaxed text-destructive">
+        <p
+          role="alert"
+          className="mt-2 text-xs leading-relaxed text-foreground"
+        >
           {continueError}
         </p>
       )}
@@ -1360,9 +1418,9 @@ export function LoopLimitContinueCard({
   }, []);
 
   return (
-    <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-3 shadow-sm">
+    <div className="rounded-lg border border-[hsl(var(--agent-kit-warning)/0.4)] bg-[hsl(var(--agent-kit-warning)/0.1)] px-3 py-3 shadow-sm">
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--agent-kit-warning)/0.1)] text-[hsl(var(--agent-kit-warning))]">
           <IconGauge size={14} />
         </span>
         <div className="min-w-0">
@@ -1383,7 +1441,7 @@ export function LoopLimitContinueCard({
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="min-w-[116px] flex-1 space-y-1">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="text-xs font-medium text-muted-foreground">
             {t("agentChat.limit.maxSteps")}
           </span>
           <input
@@ -1399,39 +1457,47 @@ export function LoopLimitContinueCard({
             className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
           />
         </label>
-        <button
+        <Button
           type="button"
+          size="sm"
+          variant="outline"
           onClick={saveLimit}
           disabled={!hasPendingChange || saving}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          aria-busy={saving || undefined}
+          className="text-xs"
         >
           {saving ? (
-            <IconLoader2 size={12} className="animate-spin" />
+            <Spinner className="size-3.5" aria-hidden="true" />
           ) : saved ? (
-            <IconCheck size={12} />
-          ) : (
-            t("agentChat.common.save")
-          )}
-        </button>
-        <button
+            <IconCheck
+              className="text-[hsl(var(--agent-kit-positive))]"
+              aria-hidden="true"
+            />
+          ) : null}
+          {t("agentChat.common.save")}
+        </Button>
+        <Button
           type="button"
+          size="sm"
+          variant="outline"
           onClick={openSettings}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="text-xs"
         >
-          <IconSettings size={12} />
+          <IconSettings aria-hidden="true" />
           {t("agentChat.common.settings")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="sm"
           onClick={handleContinue}
           disabled={saving}
-          className="ms-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
+          className="ms-auto text-xs"
         >
           {hasPendingChange
             ? t("agentChat.limit.saveAndContinue")
             : t("agentChat.limit.keepGoing")}
-          <IconArrowRight size={12} />
-        </button>
+          <IconArrowRight aria-hidden="true" />
+        </Button>
       </div>
 
       {settings && !settings.canUpdate && (
@@ -1452,44 +1518,24 @@ export function LoopLimitContinueCard({
 }
 
 export function PlanModeCallout({
-  canImplementPlan,
   onImplementPlan,
-  onSwitchToAct,
 }: {
-  canImplementPlan: boolean;
   onImplementPlan: () => void;
-  onSwitchToAct: () => void;
 }) {
   const t = useT();
   return (
     <div className="agent-plan-mode-callout shrink-0 px-3">
       <div className="ms-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
         <IconClipboardList size={13} className="shrink-0" />
-        <span className="min-w-0 truncate">
-          {canImplementPlan
-            ? t("agentChat.plan.ready")
-            : t("agentChat.plan.mode")}
-        </span>
-        {canImplementPlan ? (
-          <button
-            type="button"
-            onClick={onImplementPlan}
-            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground px-2.5 text-[11px] font-medium text-background hover:opacity-90"
-          >
-            <IconPlayerPlay size={12} />
-            {t("agentChat.plan.implement")}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onSwitchToAct}
-            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
-            aria-label={t("agentChat.plan.switchToAct")}
-          >
-            {t("agentChat.plan.act")}
-            <IconArrowRight size={12} />
-          </button>
-        )}
+        <span className="min-w-0 truncate">{t("agentChat.plan.ready")}</span>
+        <button
+          type="button"
+          onClick={onImplementPlan}
+          className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground px-2.5 text-[11px] font-medium text-background hover:opacity-90"
+        >
+          <IconPlayerPlay size={12} />
+          {t("agentChat.plan.implement")}
+        </button>
       </div>
     </div>
   );

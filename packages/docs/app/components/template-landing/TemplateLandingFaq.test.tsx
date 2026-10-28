@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { TemplateLandingFaq } from "./TemplateLandingFaq";
@@ -37,6 +38,27 @@ function renderFaq() {
 afterEach(cleanup);
 
 describe("TemplateLandingFaq", () => {
+  it("server-renders every answer, including closed accordion panels", () => {
+    const html = renderToStaticMarkup(
+      <TemplateLandingFaq
+        idPrefix="ssr-faq"
+        eyebrow="FAQs"
+        title="Common questions"
+        items={ITEMS}
+      />,
+    );
+    const document = new DOMParser().parseFromString(html, "text/html");
+    for (const [index, item] of ITEMS.entries()) {
+      const panel = document.getElementById(`ssr-faq-${item.id}-panel`)!;
+      expect(panel.textContent).toBe(item.answer);
+      expect(panel.getAttribute("aria-hidden")).toBe(
+        index === 0 ? "false" : "true",
+      );
+      if (index > 0)
+        expect(panel.classList.contains("grid-rows-[0fr]")).toBe(true);
+    }
+  });
+
   it("opens the first item by default", () => {
     renderFaq();
 

@@ -130,6 +130,30 @@ export interface RuntimeVerificationRequest {
   requestId: number;
 }
 
+/** One direct child of the selected element, as the browser laid it out. */
+export interface ElementChildLayout {
+  nodeId?: string;
+  tagName: string;
+  position: string;
+  display: string;
+  flexGrow: string;
+  alignSelf: string;
+  justifySelf: string;
+  float: string;
+  /** The size before layout resolves it: `auto`, `100%`, `fit-content`, px. */
+  width?: string;
+  height?: string;
+  /** Rendered box relative to the selected element's padding box. */
+  rect: { x: number; y: number; width: number; height: number };
+}
+
+export interface ElementChildLayouts {
+  children: ElementChildLayout[];
+  /** False when the bridge stopped before the last child. */
+  complete: boolean;
+  looseText: boolean;
+}
+
 export interface ElementInfo {
   tagName: string;
   componentName?: string;
@@ -185,11 +209,14 @@ export interface ElementInfo {
     c: number;
     d: number;
   };
+  relativeContainingBlockDirection?: "ltr" | "rtl";
   absoluteSiblingVisualOrigin?: { x: number; y: number };
   textContent?: string;
   textContentTruncated?: boolean;
   htmlContent?: string;
   htmlContentTruncated?: boolean;
+  /** Absent when the payload did not come from a live layout read. */
+  childLayouts?: ElementChildLayouts;
   imageSource?: string;
   childElementCount?: number;
   isFlexChild: boolean;

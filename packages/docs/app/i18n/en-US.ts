@@ -1,4 +1,62 @@
 const enUS = {
+  campaign: {
+    recipeWhen: "When",
+    howOften: "How often",
+    filterRole: "Role",
+    filterAll: "All",
+    filterEngineering: "Engineering",
+    filterProduct: "Product",
+    filterDesign: "Design",
+    filterMarketing: "Marketing",
+    filterRevops: "RevOps",
+    filterSales: "Sales",
+    filterFounders: "Founders",
+    filterFinance: "Finance",
+    filterEmpty: "No use cases match these filters.",
+    filterClear: "Clear filters",
+    browseArticles: "Or browse the {{articles}} for templates and how-tos.",
+    articlesLink: "articles",
+    whatYouUse: "What you use",
+    usedFor: "For",
+    whereItBreaks: "Where it breaks",
+    updatedDate: "Updated {{date}}",
+    publishedDate: "Published {{date}}",
+    allArticles: "All articles",
+    useCases: "Use cases",
+    useCasesDescription: "Pages for recurring jobs, by app",
+    useCasesTitle:
+      "Recurring work, done with an Agent-Native app and your AI agent",
+    useCasesIntro:
+      "Pick the job you do again and again, or browse the {{articles}} for templates and how-tos.",
+    articles: "Articles",
+    articlesIntro:
+      "Practical answers about recurring work with AI agents. For step-by-step pages on a single job, browse the {{useCases}}.",
+    useCasesLink: "use cases",
+    articleCount_one: "{{count}} article",
+    articleCount_other: "{{count}} articles",
+    moreOnTopic: "More on {{topic}}",
+    faqs: "FAQs",
+    copyPage: "Copy page",
+    copyLink: "Copy link",
+    copied: "Copied",
+    copyFailed: "Could not copy. Please try again.",
+    breadcrumb: "Breadcrumb",
+    readTime_one: "{{count}} min read",
+    readTime_other: "{{count}} min read",
+    partOf: "Part of:",
+    relatedResources: "Related resources",
+    moreArticles: "More {{category}} articles",
+    genericMore: "More articles",
+    showMore: "Show more articles",
+    allTopics: "All topics",
+    topics: {
+      clips: "Screen recordings, meetings, and dictation your AI agent can use",
+      design: "Interactive prototypes with your AI agent",
+      slides: "On-brand presentations with your AI agent",
+      plans: "Visual plans and recaps for your AI coding agent",
+      analytics: "Plain-language questions, charts, and dashboards",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
@@ -648,6 +706,9 @@ const enUS = {
     waitlistUnavailable:
       "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
     launchBuilder: "Launch Builder",
+    newAppPrompt: "Create a new Agent-Native app.",
+    customizeTemplatePrompt:
+      "Customize the Agent-Native {{template}} template for my workflow.",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",
@@ -2615,6 +2676,7 @@ const enUS = {
     auditLog: "Audit Log",
     doctorCodeChecks: "Doctor (Code Checks)",
     observability: "Observability",
+    recorder: "Recorder",
     observationalMemory: "Observational Memory",
     ciEvalGate: "CI Eval Gate",
     usingYourAgentOverview: "Overview",
@@ -2671,7 +2733,9 @@ const enUS = {
     blueprintInstaller: "Blueprint Installer",
     chat: "Chat",
     chatOverview: "Overview",
-    chatFirstEdits: "Your First Feature",
+    chatFeatures: "Features",
+    chatAgent: "Talk to the Agent",
+    chatIntegrations: "Cross-App Use",
     chatDevelopers: "Developer Guide",
     calendar: "Calendar",
     calendarOverview: "Overview",
@@ -2744,6 +2808,18 @@ const enUS = {
     formsIntegrations: "Cross-App Use",
     formsDevelopers: "Developer Guide",
   },
+};
+
+type PluralKey =
+  `${string}_${"zero" | "one" | "two" | "few" | "many" | "other"}`;
+
+/** Locales supply only the plural categories their language uses. */
+export type PluralLocaleMessages = Omit<typeof enUS, "campaign"> & {
+  campaign: {
+    [K in keyof typeof enUS.campaign as K extends PluralKey
+      ? never
+      : K]: (typeof enUS.campaign)[K];
+  } & Record<PluralKey, string>;
 };
 
 export default enUS;

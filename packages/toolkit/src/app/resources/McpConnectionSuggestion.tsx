@@ -5,12 +5,9 @@ import {
   saveMcpConnectionResume,
 } from "@agent-native/core/client/resources/mcp-connection-resume";
 import {
-  findMcpIntegrationForText,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isMcpIntegrationUrl,
-  isMcpConnectionFailureText,
-  isMcpConnectionSuggestionText,
   type DefaultMcpIntegration,
 } from "@agent-native/core/client/resources/mcp-integration-catalog";
 import {
@@ -33,9 +30,8 @@ export interface McpConnectionSuggestionProps {
   contextText?: string;
   variant?: McpConnectionSuggestionVariant;
   requestedByAgent?: boolean;
-  /** Offer a composer connection card when the user names a known provider. */
-  requestedByUser?: boolean;
   integrations?: DefaultMcpIntegration[];
+  excludedIntegrationIds?: readonly string[];
   integrationId?: string;
   onConnected?: () => void | Promise<void>;
   onDismiss?: () => void | Promise<void>;
@@ -118,56 +114,100 @@ function visibleUserAuthoredText(text: string): string {
     .trim();
 }
 
+// A request reads "please connect Slack", "you'll need to reconnect Linear",
+// or "Notion isn't connected". Product copy ("Users can connect Slack"), quoted
+// button labels ("Connect Notion"), negations ("no need to connect GitHub"),
+// and links never count: pasted prompts and drafted copy are full of them.
+const CONNECT_REQUEST_LEAD = String.raw`(?:^|[.!?]\s+|\bplease\s+|\b(?:you|you['’]ll|you\s+will)\s+(?:need|have)\s+to\s+|\byou\s+(?:must|should)\s+|\bneed\s+you\s+to\s+|\b(?:can|could|would|will)\s+you(?:\s+please)?\s+|\b(?:if|once|when|after)\s+you\s+|\b(?:to\s+continue|first|then|just),?\s+|,\s+|\b(?:settings|integrations)\s+and\s+|\b(?:i|we)(?:\s+(?:want|need|would\s+like)|['’]d\s+like)\s+to\s+|\bhelp\s+(?:me|us)\s+|\bhow\s+(?:do|can)\s+(?:i|we)\s+|\blet['’]?s\s+)`;
+const CONNECT_REQUEST_VERB = String.raw`(?:re-?)?(?:connect|authori[sz]e)|(?:sign|log)\s+in(?:to|\s+to)`;
+const CONNECTION_MISSING = String.raw`(?:(?:is|has|was)(?:\s+not|n['’]t)(?:\s+(?:been|yet|currently))?\s+connected|(?:access|connection)\s+(?:(?:has\s+)?expired|(?:is\s+)?required))`;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findRequestedMcpIntegration(
+  markdown: string,
+  integrations: readonly DefaultMcpIntegration[],
+): DefaultMcpIntegration | null {
+  // Agents bold or code-format the provider: "please connect **Slack**".
+  const text = markdown.replace(/\*\*|__|`/g, "");
+  if (!/connect|authori[sz]e|sign\s+in|log\s+in|expired|required/i.test(text)) {
+    return null;
+  }
+  const byName = new Map<
+    string,
+    { integration: DefaultMcpIntegration; name: string }
+  >();
+  for (const integration of integrations) {
+    for (const alias of [
+      ...(integration.promptAliases ?? [integration.name]),
+      ...(integration.brandAliases ?? []),
+    ]) {
+      const name = alias.replace(/^connect\s+/i, "");
+      byName.set(name.toLowerCase(), { integration, name });
+    }
+  }
+  if (byName.size === 0) return null;
+  const names = `(${[...byName.values()]
+    .map(({ name }) => name)
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+    .join("|")})(?![\\w-])`;
+  const patterns = [
+    new RegExp(
+      `(?<=${CONNECT_REQUEST_LEAD})(?:${CONNECT_REQUEST_VERB})\\s+(?:to\\s+|with\\s+)?(?:my\\s+|our\\s+|your\\s+|the\\s+)?${names}`,
+      "gi",
+    ),
+  ];
+  if (/\b(?:connected|expired|required)\b/i.test(text)) {
+    patterns.push(
+      new RegExp(`(?<![\\w-])${names}\\s+${CONNECTION_MISSING}`, "gi"),
+    );
+  }
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const found = match.at(1);
+      if (!found) continue;
+      const entry = byName.get(found.toLowerCase());
+      // Brand names are capitalized: "linear gradient" is not Linear.
+      if (entry && found[0] === entry.name[0]) return entry.integration;
+    }
+  }
+  return null;
+}
+
 export function findMcpConnectionSuggestionIntegration({
   text,
-  contextText = "",
   variant = "composer",
   requestedByAgent = false,
-  requestedByUser = false,
   integrations = getDefaultMcpIntegrations(),
+  excludedIntegrationIds,
   integrationId,
 }: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
+  const excludedIds = new Set(
+    excludedIntegrationIds?.map((id) => id.trim().toLowerCase()) ?? [],
+  );
+  const availableIntegrations = integrations.filter(
+    (integration) =>
+      !excludedIds.has(integration.id.toLowerCase()) &&
+      !excludedIds.has(integration.provider.toLowerCase()),
+  );
   if (integrationId) {
     const normalized = integrationId.trim().toLowerCase();
     return (
-      integrations.find(
+      availableIntegrations.find(
         (integration) =>
           integration.id.toLowerCase() === normalized ||
           integration.provider.toLowerCase() === normalized,
       ) ?? null
     );
   }
-  const responseText = visibleUserAuthoredText(text);
-  if (variant !== "response") {
-    if (requestedByUser) {
-      return findMcpIntegrationForText(responseText, integrations);
-    }
-    if (requestedByAgent) {
-      if (
-        !isMcpConnectionSuggestionText(responseText) &&
-        !isMcpConnectionFailureText(responseText)
-      ) {
-        return null;
-      }
-    } else {
-      return null;
-    }
-  }
-
-  if (
-    isMcpConnectionSuggestionText(responseText) ||
-    isMcpConnectionFailureText(responseText)
-  ) {
-    return (
-      findMcpIntegrationForText(responseText, integrations) ??
-      findMcpIntegrationForText(
-        visibleUserAuthoredText(contextText),
-        integrations,
-      )
-    );
-  }
-
-  return null;
+  if (variant !== "response" && !requestedByAgent) return null;
+  return findRequestedMcpIntegration(
+    visibleUserAuthoredText(text),
+    availableIntegrations,
+  );
 }
 
 export function shouldRenderMcpIntegrationFallback(
@@ -199,8 +239,8 @@ export function McpConnectionSuggestion({
   contextText = "",
   variant = "composer",
   requestedByAgent = false,
-  requestedByUser = false,
   integrations: integrationOptions,
+  excludedIntegrationIds,
   integrationId,
   onConnected,
   onDismiss,
@@ -227,19 +267,17 @@ export function McpConnectionSuggestion({
     () =>
       findMcpConnectionSuggestionIntegration({
         text,
-        contextText,
         variant,
         requestedByAgent,
-        requestedByUser,
         integrations,
+        excludedIntegrationIds,
         integrationId,
       }),
     [
-      contextText,
+      excludedIntegrationIds,
       integrationId,
       integrations,
       requestedByAgent,
-      requestedByUser,
       text,
       variant,
     ],
@@ -268,14 +306,7 @@ export function McpConnectionSuggestion({
     dismissedAt !== undefined &&
     Date.now() - dismissedAt < MCP_SUGGESTION_DISMISSAL_WINDOW_MS;
   const shouldSuggest =
-    mcpServersQuery.isSuccess &&
-    integration &&
-    !connected &&
-    !dismissed &&
-    (Boolean(integrationId) ||
-      variant === "composer" ||
-      isMcpConnectionFailureText(text) ||
-      isMcpConnectionSuggestionText(text));
+    mcpServersQuery.isSuccess && integration && !connected && !dismissed;
 
   useEffect(() => {
     if (integration && connected) onConnected?.();
