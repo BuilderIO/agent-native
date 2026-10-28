@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
 import ts from "typescript";
@@ -771,8 +771,10 @@ describe("raw SQL interpolation guard", () => {
   });
 
   it("discovers an unchanged wrapper from a changed SQL helper caller", () => {
+    const fixtureRoot = resolve(process.cwd(), ".tmp");
+    mkdirSync(fixtureRoot, { recursive: true });
     const fixtureDir = mkdtempSync(
-      resolve(process.cwd(), ".tmp/raw-sql-wrapper-discovery-"),
+      resolve(fixtureRoot, "raw-sql-wrapper-discovery-"),
     );
     const helperFile = resolve(fixtureDir, "sql-helpers.ts");
     const callerFile = resolve(fixtureDir, "store.ts");
