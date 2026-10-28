@@ -177,18 +177,18 @@ test("refuses lanes that skip or repeat a core shard", () => {
 
 test("shards a Vitest package heavier than a fair lane share", () => {
   const rest = [
-    { name: "design", files: 900, shardable: true },
+    { name: "heavy", files: 900, shardable: true },
     { name: "a", files: 300 },
     { name: "b", files: 300 },
   ];
   const lanes = partitionWeighted(rest, 6, 900);
-  const designShards = lanes
+  const heavyShards = lanes
     .flatMap((lane) => lane.packageShards)
-    .filter((shard) => shard.name === "design")
+    .filter((shard) => shard.name === "heavy")
     .map((shard) => shard.shard)
     .sort();
-  assert.deepEqual(designShards, ["1/3", "2/3", "3/3"]);
-  assert.ok(lanes.every((lane) => !lane.packages.includes("design")));
+  assert.deepEqual(heavyShards, ["1/3", "2/3", "3/3"]);
+  assert.ok(lanes.every((lane) => !lane.packages.includes("heavy")));
   assert.ok(Math.max(...lanes.map((lane) => lane.files)) <= 450);
   assertFullCoverage(lanes, rest, true);
 });
