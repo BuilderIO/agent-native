@@ -647,6 +647,35 @@ describe("manage-email-rules chat action", () => {
     expect(await validate('[{"type":"star"}]')).toEqual([]);
   });
 
+  it("ignores actions when a mode builds the rule", async () => {
+    const validate = async (input: Record<string, unknown>) =>
+      (
+        await (createManageEmailRulesAction(true) as any).schema[
+          "~standard"
+        ].validate(input)
+      ).issues ?? [];
+
+    for (const actions of ["[]", "[{bad", [], [{ type: "snooze" }]]) {
+      expect(
+        await validate({
+          action: "create",
+          mode: "tag",
+          sentence: "newsletters",
+          tagName: "News",
+          actions,
+        }),
+      ).toEqual([]);
+    }
+    expect(
+      await validate({
+        action: "create",
+        name: "n",
+        condition: "c",
+        actions: [],
+      }),
+    ).toMatchObject([{ path: ["actions"] }]);
+  });
+
   it("keeps the legacy recurring-automation action on plain results", async () => {
     const action = createManageEmailRulesAction(false);
     const result = await action.run({

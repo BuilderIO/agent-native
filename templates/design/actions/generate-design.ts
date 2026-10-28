@@ -537,7 +537,7 @@ const projectTypeField = z
 const tweaksField = tweakDefinitionsSchema
   .optional()
   .describe(
-    "Optional tweak definitions. Omit unless the HTML uses matching CSS variables.",
+    "Optional tweak definitions (color swatches, segments, sliders, toggles) bound to CSS custom properties in the design. Omit unless the HTML uses matching CSS variables. Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font choice); each must reference a CSS var the design's `:root` block actually uses.",
   );
 
 // Reject two placements for the same target in one call. Without this,

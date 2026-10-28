@@ -148,6 +148,54 @@ async function startRecentBackfill(ownerEmail: string, rule: AutomationRule) {
   };
 }
 
+// Read only when `mode` is absent: a mode call builds its own actions and
+// ignores this field, so a placeholder there must not reject the call.
+const actionsInput = z.preprocess(
+  jsonArgument("actions"),
+  z.array(automationActionSchema).min(1),
+);
+
+const actionsDescription =
+  'Actions to run when the rule matches. Label/archive/notify use Mail AI filtering; use labelName "agent-native-important" plus notify to highlight and notify about matching mail, and "agent-native-filtered" plus archive for unwanted mail. mark_read, star, and trash use legacy automations.';
+
+const ruleFields = {
+  action: z
+    .enum(["list", "create", "update", "delete", "enable", "disable"])
+    .optional()
+    .describe("Action to perform"),
+  id: z
+    .string()
+    .optional()
+    .describe("Rule ID (for update/delete/enable/disable)"),
+  name: z.string().optional().describe("Human-readable rule name"),
+  condition: z
+    .string()
+    .optional()
+    .describe("Natural-language condition for matching incoming email"),
+  mode: z
+    .enum(["tag", "important", "notify", "filter", "archive"])
+    .optional()
+    .describe("AI rule mode for a new inbox rule"),
+  sentence: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1_000)
+    .optional()
+    .describe("One-sentence description of the mail to match"),
+  tagName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe("Label name for a tag-mode rule"),
+  enabled: z.coerce
+    .boolean()
+    .optional()
+    .describe("Whether the rule is enabled"),
+};
+
 export const createManageEmailRulesAction = (agentTool: boolean) =>
   defineAction({
     description:
@@ -174,51 +222,23 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
           },
         }
       : {}),
-    schema: z.object({
-      action: z
-        .enum(["list", "create", "update", "delete", "enable", "disable"])
-        .optional()
-        .describe("Action to perform"),
-      id: z
-        .string()
-        .optional()
-        .describe("Rule ID (for update/delete/enable/disable)"),
-      name: z.string().optional().describe("Human-readable rule name"),
-      condition: z
-        .string()
-        .optional()
-        .describe("Natural-language condition for matching incoming email"),
-      mode: z
-        .enum(["tag", "important", "notify", "filter", "archive"])
-        .optional()
-        .describe("AI rule mode for a new inbox rule"),
-      sentence: z
-        .string()
-        .trim()
-        .min(1)
-        .max(1_000)
-        .optional()
-        .describe("One-sentence description of the mail to match"),
-      tagName: z
-        .string()
-        .trim()
-        .min(1)
-        .max(128)
-        .optional()
-        .describe("Label name for a tag-mode rule"),
-      actions: z
-        .preprocess(
-          jsonArgument("actions"),
-          z.array(automationActionSchema).min(1),
-        )
-        .optional()
-        .describe(
-          'Actions to run when the rule matches. Label/archive/notify use Mail AI filtering; use labelName "agent-native-important" plus notify to highlight and notify about matching mail, and "agent-native-filtered" plus archive for unwanted mail. mark_read, star, and trash use legacy automations.',
-        ),
-      enabled: z.coerce
-        .boolean()
-        .optional()
-        .describe("Whether the rule is enabled"),
+    schema: z
+      .object({ ...ruleFields, actions: z.unknown().optional() })
+      .superRefine((args, ctx) => {
+        if (args.mode !== undefined || args.actions === undefined) return;
+        const parsed = actionsInput.safeParse(args.actions);
+        if (parsed.success) return;
+        for (const issue of parsed.error.issues) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["actions", ...issue.path],
+            message: issue.message,
+          });
+        }
+      }),
+    agentInputSchema: z.object({
+      ...ruleFields,
+      actions: actionsInput.optional().describe(actionsDescription),
     }),
     run: async (args) => {
       const ownerEmail = getRequestUserEmail();
@@ -254,7 +274,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
                 "--name, --condition, and --actions are required for create",
               );
             }
-            actions = args.actions;
+            actions = actionsInput.parse(args.actions);
           }
           const kind: "ai-filter" | "automation" = isAiFilterRule(actions)
             ? "ai-filter"
@@ -311,7 +331,7 @@ export const createManageEmailRulesAction = (agentTool: boolean) =>
             patch.condition = args.condition;
           }
           if (args.actions !== undefined && args.mode === undefined) {
-            patch.actions = args.actions;
+            patch.actions = actionsInput.parse(args.actions);
             if (existing?.domain === "mail") {
               patch.kind = isAiFilterRule(patch.actions)
                 ? "ai-filter"
