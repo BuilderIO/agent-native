@@ -194,6 +194,7 @@ export function renderSingleScreenCanvas({
     handleExitFocusedDrawMode,
     focusedAnnotationResetSignal,
     reviewFocusRequest,
+    setOpenReviewThreadId,
     handleDispatchCommentToAgent,
     handleSendReviewThreadToAgent,
   } = editorToolsAndVectors;
@@ -538,6 +539,7 @@ export function renderSingleScreenCanvas({
         reviewCanResolve={canEditDesign}
         reviewCurrentUserEmail={session?.email}
         reviewFocusRequest={reviewFocusRequest}
+        onReviewActiveThreadChange={setOpenReviewThreadId}
         onDispatchCommentToAgent={
           canEditDesign ? handleDispatchCommentToAgent : undefined
         }
