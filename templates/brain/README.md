@@ -7,16 +7,56 @@ from approved company knowledge, with links back to the source.
 **Live app: [brain.agent-native.com](https://brain.agent-native.com?utm_source=github&utm_medium=referral&utm_content=brain-readme)**
 
 Brain ingests approved Slack channels, meetings, transcripts, GitHub issues/PRs,
-and webhook captures, distills them into reviewable knowledge, and answers with
-exact evidence quotes and source links instead of guesses. Messages from public
-channels and explicitly invited private channels are searchable org-wide once
-they pass sensitivity screening; attendee-scoped meetings keep their audience,
-and personal sources stay limited to their owner and shares.
+and webhook captures, then searches allowed evidence to answer with quotes and
+source links. Distillation into reusable knowledge is a separate, optional path.
+Messages from public channels and explicitly invited private channels are
+searchable org-wide once they pass sensitivity screening; attendee-scoped
+meetings keep their audience, and personal sources stay limited to their owner
+and shares.
+
+## Brain at a glance
+
+Brain is the company-knowledge app in this monorepo: **connect → screen → index → ask**.
+
+```mermaid
+flowchart TD
+  sources["Slack · Zoom · Granola · GitHub · Clips · imports / webhooks"]
+  sources --> sync["Sync / import selected sources"]
+  sync --> privacy["Privacy screening: deterministic checks + configured classifier / Jev"]
+  privacy -->|Allowed| captures["Capture evidence in PostgreSQL"]
+  privacy -->|Sensitive / uncertain| blocked["Quarantine / suppress; excluded from search"]
+  captures --> index["Keyword index + OpenAI embeddings / pgvector"]
+  captures -. Optional distillation .-> knowledge["Reusable knowledge"]
+  knowledge --> index
+  index --> search["Search evidence the requester can access"]
+  search --> answer["Policy-eligible answers with quotes, dates and source links"]
+```
+
+**Zoom means cloud-recording transcripts, not AI Companion summaries**; admins
+approve meeting-series IDs before Brain fetches their transcript content.
+Allowed captures can support answers without distillation when retrieval policy
+permits; private sources and attendee-scoped evidence retain their access limits.
+
+### Where it fits in Agent-Native
+
+```mermaid
+flowchart LR
+  ui["Brain UI"] --> actions["Shared Brain actions"]
+  agent["Brain agent / chat"] --> actions
+  actions --> pipeline["Brain ingestion, privacy, search and knowledge"]
+  core["@agent-native/core: action runtime, agent tools, auth, sharing and database"] -. powers .-> actions
+```
+
+| Layer                                    | Code                                                                           |
+| ---------------------------------------- | ------------------------------------------------------------------------------ |
+| Brain app and shared operations          | [`app/`](app/), [`actions/`](actions/)                                         |
+| Ingestion, privacy and retrieval         | [`server/lib/`](server/lib/), [`server/jobs/`](server/jobs/), [`jobs/`](jobs/) |
+| Framework reused by Brain and other apps | [`packages/core`](../../packages/core/)                                        |
 
 ## Features
 
-- Company chat that answers from cited, reviewed knowledge — not hallucinations.
-- Source connectors for Slack, Granola, GitHub, Clips, and generic webhooks,
+- Company chat grounded in cited evidence and source-answer policy.
+- Source connectors for Slack, Zoom, Granola, GitHub, Clips, and generic webhooks,
   including source-owner-published blessed FAQs and docs.
 - Deterministic privacy screening before storage, with an optional approved
   privacy classifier for richer review decisions.
