@@ -6,11 +6,11 @@ import {
   type ActionRunContext,
 } from "../../action.js";
 import { getCredentialContext } from "../../server/request-context.js";
-import {
-  assertAgentProviderRequestAllowed,
-  type ProviderApiDocsOptions,
-  type ProviderApiRequestArgs,
-  type ProviderApiRuntime,
+import { assertAgentProviderRequestAllowed } from "../agent-request-policy.js";
+import type {
+  ProviderApiDocsOptions,
+  ProviderApiRequestArgs,
+  ProviderApiRuntime,
 } from "../index.js";
 import { isReadOnlyProviderPost } from "../read-only-requests.js";
 import { rejectFailedProviderResult } from "../result-outcome.js";

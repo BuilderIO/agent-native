@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import { getCredentialContext } from "../server/request-context.js";
+import { assertAgentProviderRequestAllowed } from "./agent-request-policy.js";
 import {
   appendProviderCorpusJobHits,
   createProviderCorpusJob,
@@ -15,11 +16,7 @@ import {
   type ProviderCorpusJobRecord,
   type ProviderCorpusJobStatus,
 } from "./corpus-jobs-store.js";
-import {
-  assertAgentProviderRequestAllowed,
-  type ProviderApiMethod,
-  type ProviderApiRequestArgs,
-} from "./index.js";
+import type { ProviderApiMethod, ProviderApiRequestArgs } from "./index.js";
 import { setBodyValueAtPath } from "./request-body.js";
 import {
   getStagedDatasetMeta,

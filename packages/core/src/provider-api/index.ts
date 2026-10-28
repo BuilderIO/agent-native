@@ -52,7 +52,6 @@ import {
   type ProviderQuotaIdentity,
   type ProviderQuotaExhaustedDetail,
 } from "./quota-governor.js";
-import { isReadOnlyProviderPost } from "./read-only-requests.js";
 
 export type {
   CustomProviderConfig,
@@ -414,12 +413,6 @@ export interface ProviderApiConfig {
   corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
   bodyOkField?: string;
-  /**
-   * The generic agent request tool may only read this provider. Writes go
-   * through the provider's MCP tools or app-defined actions, which can enforce
-   * their own limits; server code calling `executeRequest` is unaffected.
-   */
-  agentRequestsReadOnly?: boolean;
 }
 
 export interface ProviderApiPlaceholder {
@@ -1479,7 +1472,6 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     docsUrls: ["https://developers.hubspot.com/docs/api/overview"],
-    agentRequestsReadOnly: true,
     templateUses: ["analytics", "brain", "calendar", "mail", "dispatch"],
     examples: [
       {
@@ -1853,40 +1845,6 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
   },
 };
-
-/** Whether agent-supplied provider requests are limited to reads for a provider. */
-export function providerApiAgentRequestsReadOnly(provider: string): boolean {
-  return (
-    mergeProviderApiConfigs([]).find((candidate) => candidate.id === provider)
-      ?.agentRequestsReadOnly === true
-  );
-}
-
-/**
- * Refuse a write in a request an agent supplied for a read-only provider.
- * Every agent-facing action that forwards a caller-built request (request,
- * corpus jobs) calls this before executing or storing it.
- */
-export function assertAgentProviderRequestAllowed(request: {
-  provider: string;
-  method?: string | null;
-  path: string;
-  body?: unknown;
-}): void {
-  if (!providerApiAgentRequestsReadOnly(String(request.provider))) return;
-  const method = String(request.method ?? "GET").toUpperCase();
-  if (
-    method === "GET" ||
-    method === "HEAD" ||
-    isReadOnlyProviderPost(request)
-  ) {
-    return;
-  }
-  fail(
-    `${String(request.provider)} requests from agent tools are read-only. Make the change with the provider's MCP tools or an app action built for it.`,
-    { errorCode: "provider_writes_not_allowed", statusCode: 403 },
-  );
-}
 
 export function getProviderApiConfig(
   provider: ProviderApiId | string,
