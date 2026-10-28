@@ -401,7 +401,9 @@ export default defineAction({
         }
       }
       if (file.fileType === "html") {
-        nextContent = promoteAuthoredSvgArtworkInHtml(nextContent).content;
+        nextContent = promoteAuthoredSvgArtworkInHtml(nextContent, {
+          previousHtml: base,
+        }).content;
       }
       changed = nextContent !== base;
       creativeContext = undefined;

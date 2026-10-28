@@ -5,6 +5,7 @@ const LAYER_NAME_ATTRIBUTE = "data-agent-native-layer-name";
 const NODE_ID_ATTRIBUTE = "data-agent-native-node-id";
 const LOCKED_ATTRIBUTE = "data-agent-native-locked";
 const EDITABLE_SVG_PRIMITIVE = "pasted-svg";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 // Icons stay one layer; anything with an edge at least this long is artwork.
 const MIN_ARTWORK_EDGE = 64;
 const MAX_USE_DEPTH = 8;
@@ -34,6 +35,7 @@ const RESOURCE_TAGS = new Set([
   "filter",
 ]);
 const RAW_TEXT_TAGS = new Set(["style", "script"]);
+const FONT_STYLESHEET = /^https?:\/\/fonts\.(?:googleapis\.com|bunny\.net)\//i;
 const USE_LAYOUT_PROPERTIES = new Set([
   "x",
   "y",
@@ -66,6 +68,7 @@ type HtmlAttribute = { name: string; value: string; prefix?: string };
 
 type HtmlNode = {
   nodeName: string;
+  namespaceURI?: string;
   tagName?: string;
   value?: string;
   attrs?: HtmlAttribute[];
@@ -317,10 +320,13 @@ type CssRule = { selector: string; properties: string[] };
 function cssRules(styleText: string): CssRule[] {
   const rules: CssRule[] = [];
   const text = styleText.replace(/\/\*[\s\S]*?\*\//g, "");
-  for (const [, selector, body] of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  for (const chunk of text.split("}")) {
+    const open = chunk.lastIndexOf("{");
+    if (open < 0) continue;
     rules.push({
-      selector,
-      properties: body
+      selector: chunk.slice(0, open),
+      properties: chunk
+        .slice(open + 1)
         .split(";")
         .map((declaration) =>
           (declaration.split(":")[0] ?? "").trim().toLowerCase(),
@@ -343,12 +349,23 @@ function mayMatchNode(selector: string, node: HtmlNode): boolean {
   if (id && new RegExp(`#${escapeRegExp(id)}(?![\\w-])`).test(selector)) {
     return true;
   }
-  return (attribute(node, "class") ?? "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .some((name) =>
-      new RegExp(`\\.${escapeRegExp(name)}(?![\\w-])`).test(selector),
-    );
+  return classNames(node).some((name) =>
+    new RegExp(`\\.${escapeRegExp(name)}(?![\\w-])`).test(selector),
+  );
+}
+
+function classNames(node: HtmlNode): string[] {
+  return (attribute(node, "class") ?? "").split(/\s+/).filter(Boolean);
+}
+
+const LAYOUT_UTILITY =
+  /^-?(?:w|h|size|min-w|min-h|max-w|max-h|inset|top|right|bottom|left|translate|rotate|scale|skew|origin|overflow|transform)(?:-|$)/;
+const ARBITRARY_LAYOUT_PROPERTY =
+  /^\[(?:width|height|x|y|inset|top|right|bottom|left|transform|translate|rotate|scale|overflow)\s*:/;
+
+function isLayoutUtilityClass(name: string): boolean {
+  if (ARBITRARY_LAYOUT_PROPERTY.test(name)) return true;
+  return LAYOUT_UTILITY.test(name.replace(/^(?:[\w-]+:)+/, ""));
 }
 
 function inlineProperties(node: HtmlNode): string[] {
@@ -370,6 +387,7 @@ class UseExpander {
   constructor(
     private readonly byId: Map<string, HtmlNode>,
     private readonly styleText: string,
+    private readonly hasLinkedStylesheet: boolean,
   ) {
     this.usedIds = new Set(byId.keys());
     this.rules = cssRules(styleText);
@@ -393,7 +411,13 @@ class UseExpander {
   ): string | null {
     const id = hrefTarget(use);
     const target = id ? this.byId.get(id) : undefined;
-    if (!id || !target || chain.includes(id) || chain.length >= MAX_USE_DEPTH) {
+    if (
+      !id ||
+      !target ||
+      target.namespaceURI !== SVG_NAMESPACE ||
+      chain.includes(id) ||
+      chain.length >= MAX_USE_DEPTH
+    ) {
       return null;
     }
     if (this.isSelectedById(target, id)) return null;
@@ -446,7 +470,9 @@ class UseExpander {
         (attr) =>
           !USE_GEOMETRY_ATTRIBUTES.has(attr.name) &&
           attr.name !== "transform" &&
-          attr.name !== NODE_ID_ATTRIBUTE,
+          // The group takes over the use's layer identity; copies nested in a
+          // symbol would duplicate it, so they get new ones on save.
+          (attr.name !== NODE_ID_ATTRIBUTE || chain.length === 0),
       )
       .map(
         (attr) => ` ${qualifiedName(attr)}="${escapeAttribute(attr.value)}"`,
@@ -530,6 +556,23 @@ class UseExpander {
   // places, or transforms the use, would stop applying.
   private stylesheetDependsOnUse(use: HtmlNode, target: HtmlNode): boolean {
     if (inlineProperties(use).some((name) => USE_LAYOUT_PROPERTIES.has(name))) {
+      return true;
+    }
+    // Classes no in-document rule defines come from Tailwind's runtime or a
+    // linked stylesheet, which this can't read.
+    const unresolved = [use, target]
+      .flatMap((node) => classNames(node))
+      .filter(
+        (name) =>
+          !new RegExp(`\\.${escapeRegExp(name)}(?![\\w-])`).test(
+            this.styleText,
+          ),
+      );
+    if (
+      unresolved.some(
+        (name) => this.hasLinkedStylesheet || isLayoutUtilityClass(name),
+      )
+    ) {
       return true;
     }
     return this.rules.some(
@@ -662,7 +705,10 @@ function applyEdits(source: string, edits: SourceEdit[]): string {
  * Icon-sized SVGs and SVGs already owned by an editor primitive are left
  * alone.
  */
-export function promoteAuthoredSvgArtworkInHtml(html: string): {
+export function promoteAuthoredSvgArtworkInHtml(
+  html: string,
+  options: { previousHtml?: string } = {},
+): {
   content: string;
   promoted: number;
 } {
@@ -691,12 +737,27 @@ export function promoteAuthoredSvgArtworkInHtml(html: string): {
         .join(""),
     )
     .join("\n");
-  const expander = new UseExpander(byId, styleText);
+  const hasLinkedStylesheet = elements.some(
+    (element) =>
+      element.tagName === "link" &&
+      /(^|\s)stylesheet(\s|$)/i.test(attribute(element, "rel") ?? "") &&
+      !FONT_STYLESHEET.test(attribute(element, "href") ?? ""),
+  );
+  const expander = new UseExpander(byId, styleText, hasLinkedStylesheet);
   const edits: SourceEdit[] = [];
   let promoted = 0;
   for (const svg of topLevelSvgs) {
     const startTag = svg.sourceCodeLocation?.startTag;
-    if (!startTag || !isArtworkSvg(svg)) continue;
+    const location = svg.sourceCodeLocation;
+    if (!startTag || !location || !isArtworkSvg(svg)) continue;
+    // An edit promotes only the artwork it wrote, not SVGs it left as they were.
+    if (
+      options.previousHtml?.includes(
+        html.slice(location.startOffset, location.endOffset),
+      )
+    ) {
+      continue;
+    }
     const selfClosing = html
       .slice(startTag.startOffset, startTag.endOffset)
       .trimEnd()
@@ -711,14 +772,14 @@ export function promoteAuthoredSvgArtworkInHtml(html: string): {
     });
     for (const use of descendants(svg)) {
       if (use.tagName !== "use" || insideResource(use, svg)) continue;
-      if (hasUseAncestor(use, svg)) continue;
-      const location = use.sourceCodeLocation;
-      if (!location) continue;
+      if (hasUseAncestor(use, svg) || isLocked(use)) continue;
+      const useLocation = use.sourceCodeLocation;
+      if (!useLocation) continue;
       const expanded = expander.expandInPlace(use);
       if (expanded === null) continue;
       edits.push({
-        start: location.startOffset,
-        end: location.endOffset,
+        start: useLocation.startOffset,
+        end: useLocation.endOffset,
         text: expanded,
       });
     }

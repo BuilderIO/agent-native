@@ -226,6 +226,75 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     expect(content).not.toMatch(/<use\b/);
   });
 
+  it("keeps a locked use and a use that points at an HTML element", () => {
+    const html = screen(
+      `<div id="card">Card</div><svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs><g data-agent-native-locked="true"><use href="#dot" width="10" height="10"/></g><use href="#card"/></svg>`,
+    );
+
+    const { content, promoted } = promoteAuthoredSvgArtworkInHtml(html);
+
+    expect(promoted).toBe(1);
+    expect(content).toContain(
+      `<g data-agent-native-locked="true"><use href="#dot" width="10" height="10"/></g>`,
+    );
+    expect(content).toContain(`<use href="#card"/>`);
+  });
+
+  it("gives the group the use's layer id, but not copies nested in a symbol", () => {
+    const html = screen(
+      `<svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol><symbol id="pair" viewBox="0 0 20 10"><use data-agent-native-node-id="inner" href="#dot" width="10" height="10"/></symbol></defs><use data-agent-native-node-id="outer" href="#pair" width="20" height="10"/></svg>`,
+    );
+
+    const { content } = promoteAuthoredSvgArtworkInHtml(html);
+
+    expect(content).toContain(
+      `<g data-agent-native-node-id="outer" data-agent-native-layer-name="pair"`,
+    );
+    expect(content.match(/data-agent-native-node-id="inner"/g)).toHaveLength(1);
+  });
+
+  it("promotes only the artwork an edit wrote", () => {
+    const untouched = `<svg class="kept" viewBox="0 0 100 100" width="100" height="100"><path d="M0 0h10"/></svg>`;
+    const written = `<svg class="new" viewBox="0 0 100 100" width="100" height="100"><path d="M0 0h20"/></svg>`;
+    const before = screen(untouched);
+
+    const { content, promoted } = promoteAuthoredSvgArtworkInHtml(
+      screen(`${untouched}${written}`),
+      { previousHtml: before },
+    );
+
+    expect(promoted).toBe(1);
+    expect(content).toContain(untouched);
+    expect(content).toContain(
+      `<svg class="new" viewBox="0 0 100 100" width="100" height="100" data-an-primitive="pasted-svg">`,
+    );
+  });
+
+  it("keeps a use that utility classes or a linked stylesheet may size", () => {
+    const art = (uses: string) =>
+      `<svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs>${uses}</svg>`;
+    const page = (head: string, uses: string) =>
+      `<!doctype html><html><head>${head}</head><body>${art(uses)}</body></html>`;
+    const fonts = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">`;
+
+    const tailwind = promoteAuthoredSvgArtworkInHtml(
+      page(
+        fonts,
+        `<use class="md:w-6" href="#dot"/><use class="text-emerald-400" href="#dot"/>`,
+      ),
+    ).content;
+    const linked = promoteAuthoredSvgArtworkInHtml(
+      page(
+        `<link rel="stylesheet" href="/site.css">`,
+        `<use class="icon" href="#dot"/>`,
+      ),
+    ).content;
+
+    expect(tailwind).toContain(`<use class="md:w-6" href="#dot"/>`);
+    expect(tailwind).not.toContain(`<use class="text-emerald-400"`);
+    expect(linked).toContain(`<use class="icon" href="#dot"/>`);
+  });
+
   it("is stable when a promoted screen is saved again", () => {
     const once = annotateAgentScreenHtmlForPersist(
       screen(`${kit}${artwork}`),
