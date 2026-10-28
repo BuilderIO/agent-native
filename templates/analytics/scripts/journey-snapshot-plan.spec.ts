@@ -225,9 +225,10 @@ describe("weekly snapshot preset", () => {
 });
 
 describe("weekly snapshot summaries", () => {
-  it("keeps Analytics cohorts even when they have no captured screenshots", () => {
+  it("keeps Analytics cohorts with no sessions or captured screenshots", () => {
     const visibleTree = tree([], 8, "design");
     const screenshotlessTree = tree([], 4, "design");
+    const zeroSessionTree = tree([], 0, "design");
     const bands = snapshotSummaryBands(
       [
         { key: "design-web", label: "First touch · web", tree: visibleTree },
@@ -236,18 +237,32 @@ describe("weekly snapshot summaries", () => {
           label: "First touch · MCP OAuth",
           tree: screenshotlessTree,
         },
+        {
+          key: "design-empty",
+          label: "First touch · no sessions",
+          tree: zeroSessionTree,
+        },
       ],
-      new Map([["design-mcp-oauth", tree([], 6, "design")]]),
+      new Map([
+        ["design-mcp-oauth", tree([], 6, "design")],
+        ["design-empty", tree([], 2, "design")],
+      ]),
     );
 
     expect(bands.map((band) => band.key)).toEqual([
       "design-web",
       "design-mcp-oauth",
+      "design-empty",
     ]);
     expect(bands[1]).toMatchObject({
       label: "First touch · MCP OAuth",
       tree: screenshotlessTree,
       previousTree: { rootN: 6 },
+    });
+    expect(bands[2]).toMatchObject({
+      label: "First touch · no sessions",
+      tree: zeroSessionTree,
+      previousTree: { rootN: 2 },
     });
   });
 });

@@ -1573,16 +1573,9 @@ async function main(argv: string[]): Promise<number> {
       result.experiment?.assignedSessions === 0 &&
       targetBands.length === 0;
     if (hasNoSessionTree || hasNoAssignedExperimentSessions) {
-      for (const target of summaryBandTargets) {
-        if (target.tree.populationGrain !== "signup_events") continue;
-        const previousTree = previousBands.get(target.key);
-        summaryOnlyBands.push({
-          key: target.key,
-          label: target.label,
-          tree: target.tree,
-          ...(previousTree ? { previousTree } : {}),
-        });
-      }
+      summaryOnlyBands.push(
+        ...snapshotSummaryBands(summaryBandTargets, previousBands),
+      );
       continue;
     }
     const budgets = allocateFrameBudgets(targetBands, SNAPSHOT_MAX_FRAMES);
