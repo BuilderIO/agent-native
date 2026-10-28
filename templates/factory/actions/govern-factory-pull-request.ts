@@ -468,6 +468,7 @@ export default defineAction({
               orgFactoryScopedItemWhere(itemId, orgId, factoryId),
               notInArray(triageItems.status, [
                 "auto_approved",
+                "needs_manual",
                 "reconciliation_required",
                 "merged",
                 "resolved",
@@ -1794,6 +1795,11 @@ export default defineAction({
                 AMBIGUOUS_APPROVAL_RESULT_REASON,
               );
             }
+          } else {
+            await reconcileClaim(
+              pullRequest.headSha,
+              AMBIGUOUS_APPROVAL_RESULT_REASON,
+            );
           }
           throw error;
         }

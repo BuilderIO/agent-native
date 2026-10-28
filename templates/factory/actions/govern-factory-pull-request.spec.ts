@@ -492,6 +492,29 @@ describe("govern-factory-pull-request final check evidence", () => {
     },
   );
 
+  it.each([
+    ["closed", { state: "closed" }],
+    ["draft", { draft: true }],
+  ])(
+    "preserves manual handling when the pull request is %s",
+    async (_state, initialSummary) => {
+      await seedItem("needs_manual");
+      const github = governanceGitHub({ initialSummary });
+
+      const result = await runGovernance(github);
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+
+      expect(result).toMatchObject({ ok: true, action: "skipped" });
+      expect(item.status).toBe("needs_manual");
+      expect(github.getPullRequestEvidence).not.toHaveBeenCalled();
+    },
+  );
+
   it("skips duplicate governance only for a current-head BuilderIO member approval", async () => {
     await seedInternalApprovalPath();
     const github = governanceGitHub({
@@ -641,59 +664,73 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(github.getAuthenticatedUser).toHaveBeenCalledTimes(1);
   });
 
-  it("reconciles an ambiguous approval result without posting a duplicate", async () => {
-    await seedInternalApprovalPath();
-    const firstAttempt = governanceGitHub({
-      internalMember: true,
-      passingChecks: true,
-      changedFiles: ["src/change.ts"],
-      approvalError: new GitHubRequestError("approval timed out", true),
-    });
+  it.each([
+    [
+      "provider timeout",
+      () => new GitHubRequestError("approval timed out", true),
+      "approval timed out",
+    ],
+    [
+      "unrecognized response failure",
+      () => new Error("approval response was invalid"),
+      "approval response was invalid",
+    ],
+  ])(
+    "reconciles an ambiguous %s without posting a duplicate",
+    async (_label, createError, message) => {
+      await seedInternalApprovalPath();
+      const firstAttempt = governanceGitHub({
+        internalMember: true,
+        passingChecks: true,
+        changedFiles: ["src/change.ts"],
+        approvalError: createError(),
+      });
 
-    await expect(
-      runGovernance(firstAttempt, DEFAULT_FACTORY_ID, true),
-    ).rejects.toThrow("approval timed out");
+      await expect(
+        runGovernance(firstAttempt, DEFAULT_FACTORY_ID, true),
+      ).rejects.toThrow(message);
 
-    const itemAfterTimeout = (
-      await db
-        .select({ status: triageItems.status })
-        .from(triageItems)
-        .where(eq(triageItems.id, "item-1"))
-    )[0];
-    const decisionAfterTimeout = (
-      await db
-        .select({
-          outcome: triageDecisions.outcome,
-          reason: triageDecisions.reason,
-        })
-        .from(triageDecisions)
-        .where(eq(triageDecisions.id, governanceDecisionId()))
-    )[0];
-    expect(itemAfterTimeout.status).toBe("reconciliation_required");
-    expect(decisionAfterTimeout).toEqual({
-      outcome: "needs_manual",
-      reason:
-        "GitHub approval request outcome is ambiguous; reconciliation is required before retrying.",
-    });
+      const itemAfterError = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+      const decisionAfterError = (
+        await db
+          .select({
+            outcome: triageDecisions.outcome,
+            reason: triageDecisions.reason,
+          })
+          .from(triageDecisions)
+          .where(eq(triageDecisions.id, governanceDecisionId()))
+      )[0];
+      expect(itemAfterError.status).toBe("reconciliation_required");
+      expect(decisionAfterError).toEqual({
+        outcome: "needs_manual",
+        reason:
+          "GitHub approval request outcome is ambiguous; reconciliation is required before retrying.",
+      });
 
-    const retry = governanceGitHub({
-      internalMember: true,
-      passingChecks: true,
-      changedFiles: ["src/change.ts"],
-    });
-    const retryResult = await runGovernance(retry, DEFAULT_FACTORY_ID, true);
-    const itemAfterRetry = (
-      await db
-        .select({ status: triageItems.status })
-        .from(triageItems)
-        .where(eq(triageItems.id, "item-1"))
-    )[0];
+      const retry = governanceGitHub({
+        internalMember: true,
+        passingChecks: true,
+        changedFiles: ["src/change.ts"],
+      });
+      const retryResult = await runGovernance(retry, DEFAULT_FACTORY_ID, true);
+      const itemAfterRetry = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
 
-    expect(retryResult).toMatchObject({ ok: true, action: "needs_manual" });
-    expect(itemAfterRetry.status).toBe("reconciliation_required");
-    expect(firstAttempt.approvePullRequest).toHaveBeenCalledTimes(1);
-    expect(retry.approvePullRequest).not.toHaveBeenCalled();
-  });
+      expect(retryResult).toMatchObject({ ok: true, action: "needs_manual" });
+      expect(itemAfterRetry.status).toBe("reconciliation_required");
+      expect(firstAttempt.approvePullRequest).toHaveBeenCalledTimes(1);
+      expect(retry.approvePullRequest).not.toHaveBeenCalled();
+    },
+  );
 
   it("recovers a late attributed approval after an ambiguous provider result", async () => {
     await seedInternalApprovalPath();
