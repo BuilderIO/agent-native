@@ -68,10 +68,11 @@ export function GeneratingDesignPreview({
     >
       <GeneratingFrame
         status={
-          settling
-            ? "done"
-            : preview?.status === "failed"
-              ? "failed"
+          // A failed call never reads as finished, even while settling.
+          preview?.status === "failed"
+            ? "failed"
+            : settling
+              ? "done"
               : html
                 ? "streaming"
                 : "pending"

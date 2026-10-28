@@ -62,10 +62,25 @@ function frameScript(): string {
   // item unrendered.
   var completed = false;
   var deferredHead = [];
+  // The text each live body script ran with. A later document can add a
+  // script or change one; either runs, as it would on a fresh load.
+  var ranScripts = new WeakMap();
+  var runBodyScript = function (node, source) {
+    var live = liveScript(source);
+    node.parentNode.replaceChild(live, node);
+    ranScripts.set(live, source.text);
+  };
+  var syncBodyScripts = function (parsedBody) {
+    var wanted = parsedBody.querySelectorAll("script");
+    Array.prototype.slice.call(document.body.querySelectorAll("script")).forEach(function (node, index) {
+      var source = wanted[index];
+      if (source && ranScripts.get(node) !== source.text) runBodyScript(node, source);
+    });
+  };
   var complete = function () {
     completed = true;
     Array.prototype.slice.call(document.body.querySelectorAll("script")).forEach(function (inert) {
-      inert.parentNode.replaceChild(liveScript(inert), inert);
+      runBodyScript(inert, inert);
     });
     deferredHead.forEach(function (node) { document.head.appendChild(liveScript(node)); });
     deferredHead = [];
@@ -93,8 +108,10 @@ function frameScript(): string {
     syncAttributes(document.documentElement, parsed.documentElement);
     syncAttributes(document.body, parsed.body);
     var styleIndex = 0;
+    var seenHead = new Set();
     Array.prototype.slice.call(parsed.head.children).forEach(function (node) {
       var key = headKey(node, node.tagName === "STYLE" ? styleIndex++ : 0);
+      seenHead.add(key);
       var applied = appliedHead.get(key);
       if (applied) {
         if (node.tagName === "STYLE" && applied.textContent !== node.textContent) {
@@ -111,8 +128,21 @@ function frameScript(): string {
       document.head.appendChild(copy);
       appliedHead.set(key, copy);
     });
+    // Retire stylesheets and scripts a later document dropped, but only once
+    // its head is whole: a head still streaming in would lose styles that
+    // simply haven't arrived yet.
+    var lower = html.toLowerCase();
+    if (lower.indexOf("</head") !== -1 || lower.indexOf("<body") !== -1) {
+      appliedHead.forEach(function (node, key) {
+        if (seenHead.has(key)) return;
+        if (node.parentNode) node.parentNode.removeChild(node);
+        deferredHead = deferredHead.filter(function (pending) { return pending !== node; });
+        appliedHead.delete(key);
+      });
+    }
     morph(document.body, parsed.body, MARK);
-    if (!completed && html.toLowerCase().indexOf("</html") !== -1) complete();
+    if (completed) syncBodyScripts(parsed.body);
+    else if (lower.indexOf("</html") !== -1) complete();
   };
   window.addEventListener("message", function (event) {
     if (event.source !== window.parent) return;

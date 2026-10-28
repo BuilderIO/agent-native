@@ -21,6 +21,11 @@ export interface ToolDoneEventDetail {
   isError?: boolean;
   completedSideEffect?: boolean;
   tabId?: string;
-  /** The tool call id, when the transport has one. */
+  /** The finished tool call's id, the same id its input streamed under. */
+  toolCallId?: string;
+  /**
+   * The event's own id. On the SSE transport this is the run frame, not the
+   * tool call, so match calls by `toolCallId`.
+   */
   eventId?: string;
 }

@@ -2005,6 +2005,7 @@ export function processEvent(
             isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
             tabId,
+            ...(ev.id ? { toolCallId: ev.id } : {}),
             eventId: ev.eventId ?? ev.id,
           },
         }),

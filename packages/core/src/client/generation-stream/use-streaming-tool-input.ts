@@ -173,10 +173,11 @@ export function useStreamingToolInputs<T>(
       // never streamed is one whose input arrived without an id, so it is the
       // oldest call of that tool still streaming. An id that streamed into
       // another scope or was rejected is not this scope's call.
-      const byId = detail.eventId
-        ? calls.find((candidate) => candidate.id === detail.eventId)
+      const doneId = detail.toolCallId ?? detail.eventId;
+      const byId = doneId
+        ? calls.find((candidate) => candidate.id === doneId)
         : undefined;
-      const unseen = !detail.eventId || !callScopes.has(detail.eventId);
+      const unseen = !doneId || !callScopes.has(doneId);
       const call =
         byId ??
         (unseen

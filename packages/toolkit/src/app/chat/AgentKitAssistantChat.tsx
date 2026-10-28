@@ -7418,6 +7418,7 @@ function dispatchAgentKitCompatibilityEvent(
             isError: tool.status !== "completed",
             completedSideEffect: tool.metadata?.completedSideEffect === true,
             tabId,
+            toolCallId: tool.id,
             eventId: tool.id,
           },
         }),

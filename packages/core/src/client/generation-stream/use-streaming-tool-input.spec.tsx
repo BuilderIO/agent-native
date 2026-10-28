@@ -164,6 +164,32 @@ describe("useStreamingToolInput", () => {
     expect(result.current?.value).toBe("<h1>Hi</h1>");
   });
 
+  it("matches a finished tool by its call id, not the run frame's event id", () => {
+    const { result } = renderHook(() =>
+      useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),
+    );
+    input("call-a", '{"deckId":"deck-a","content":"One"}');
+    input("call-b", '{"deckId":"deck-a","content":"Two"}');
+    flushFrames();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(TOOL_DONE_EVENT, {
+          detail: {
+            tool: "add-slide",
+            toolCallId: "call-b",
+            eventId: "frame-9",
+          },
+        }),
+      );
+    });
+    flushFrames();
+    expect(result.current?.map((call) => [call.callId, call.status])).toEqual([
+      ["call-a", "streaming"],
+      ["call-b", "done"],
+    ]);
+  });
+
   it("finishes a call whose input streamed under a different id", () => {
     const { result } = renderHook(() =>
       useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),
