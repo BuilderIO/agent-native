@@ -12,9 +12,13 @@ export const SERVER_URL_STORAGE_KEY = "clips:server-url";
 // Dev builds point at the local dev server; production builds point at the
 // hosted Clips instance. The user can still override from Settings.
 // Dev points at the Clips dev server (shared-app-config says 8094).
-export const DEFAULT_SERVER_URL = import.meta.env.DEV
-  ? "http://localhost:8094"
-  : "https://clips.agent-native.com";
+// `VITE_CLIPS_SERVER_URL` at build time points a production-mode build (such as
+// the alpha used for testing) at another server without touching Settings.
+export const DEFAULT_SERVER_URL =
+  import.meta.env.VITE_CLIPS_SERVER_URL ||
+  (import.meta.env.DEV
+    ? "http://localhost:8094"
+    : "https://clips.agent-native.com");
 
 /**
  * The server URL the desktop app is connected to, as the popover stored it.

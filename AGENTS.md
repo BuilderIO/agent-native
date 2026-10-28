@@ -43,6 +43,9 @@ contract.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the existing checks — not a codebase survey, unrequested tests, or
   browser automation. Save deep exploration for ambiguous or cross-cutting work.
+- Keep routine replies concise: lead with the answer in 1–2 short sentences.
+  Include only the requested detail and any essential result, blocker, or next
+  step; omit recaps, process narration, and filler unless more detail is needed.
 - Stay on the current git branch. Never create, switch, delete, reset, rebase,
   stash, or otherwise move branches unless the user explicitly asks for that exact
   branch operation in the current task.

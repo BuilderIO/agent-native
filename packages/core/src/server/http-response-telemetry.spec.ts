@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
 import {
+  __resetAgentTracerCache,
+  __setAgentTracerForTests,
+  type AgentSpan,
+} from "../observability/tracing.js";
+import {
   registerTrackingProvider,
   unregisterTrackingProvider,
   type TrackingEvent,
@@ -19,17 +24,53 @@ const processState = (globalThis as any)[
   Symbol.for("@agent-native/core/http-response-telemetry.process-state")
 ] as { requestSequence: number; moduleEvalUptimeMs: number };
 
+interface RecordedSpan {
+  name: string;
+  attributes: Record<string, string | number | boolean>;
+  startTime?: number;
+  status?: { code: number; message?: string };
+  ended: boolean;
+}
+
+let spans: RecordedSpan[];
 let logSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
-  vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "1");
+  spans = [];
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  __setAgentTracerForTests({
+    startSpan(name, options) {
+      const recorded: RecordedSpan = {
+        name,
+        attributes: { ...options?.attributes },
+        startTime: options?.startTime,
+        ended: false,
+      };
+      spans.push(recorded);
+      const span: AgentSpan = {
+        setAttribute(key, value) {
+          recorded.attributes[key] = value;
+        },
+        setAttributes(attributes) {
+          Object.assign(recorded.attributes, attributes);
+        },
+        setStatus(status) {
+          recorded.status = status;
+        },
+        recordException() {},
+        end() {
+          recorded.ended = true;
+        },
+      };
+      return span;
+    },
+  });
 });
 
 afterEach(() => {
   logSpy.mockRestore();
+  __resetAgentTracerCache();
   unregisterTrackingProvider("http-response-telemetry-test");
-  vi.unstubAllEnvs();
 });
 
 function createHooks() {
@@ -46,13 +87,24 @@ function createHooks() {
   return { requestHooks, responseHooks };
 }
 
-function eventFor(path: string) {
+function trackingCollector(): TrackingEvent[] {
+  const tracked: TrackingEvent[] = [];
+  registerTrackingProvider({
+    name: "http-response-telemetry-test",
+    track(event) {
+      tracked.push(event);
+    },
+  });
+  return tracked;
+}
+
+function eventFor(path: string, init: { status?: number } = {}) {
   const url = new URL(`https://plan.agent-native.com${path}`);
   return {
     url,
     context: {},
     req: new Request(url, { method: "GET" }),
-    res: { status: 200, headers: new Headers() },
+    res: { status: init.status ?? 200, headers: new Headers() },
   };
 }
 
@@ -64,7 +116,7 @@ function loggedLines(): Array<Record<string, unknown>> {
 }
 
 describe("http response telemetry", () => {
-  it("normalizes high-cardinality path segments before tracking", () => {
+  it("normalizes high-cardinality path segments before recording", () => {
     expect(
       normalizeHttpTelemetryPath(
         "/design/_agent-native/agent-chat/runs/run-1783002639448-8rptjt/events",
@@ -77,39 +129,13 @@ describe("http response telemetry", () => {
     ).toBe("/api/session-replay/recordings/:id");
   });
 
-  it("tracks Web Response timing with cold-start and DB phase fields", async () => {
-    const requestHooks: Array<(event: any) => unknown> = [];
-    const responseHooks: Array<(response: Response, event: any) => unknown> =
-      [];
-    const nitroApp = {
-      hooks: {
-        hook(name: string, handler: (...args: any[]) => unknown) {
-          if (name === "request") requestHooks.push(handler);
-          if (name === "response") responseHooks.push(handler);
-        },
-      },
-    };
-    const tracked: TrackingEvent[] = [];
-    registerTrackingProvider({
-      name: "http-response-telemetry-test",
-      track(event) {
-        tracked.push(event);
-      },
-    });
-    installHttpResponseTelemetryHooks(nitroApp);
+  it("records an http.server span with DB and cold-start fields and no product event", async () => {
+    const tracked = trackingCollector();
+    const { requestHooks, responseHooks } = createHooks();
 
     await withDbTimeout("connect", async () => undefined, 100);
 
-    const url = new URL(
-      "https://plan.agent-native.com/_agent-native/actions/list-visual-plans",
-    );
-    const event = {
-      url,
-      context: {},
-      req: new Request(url, { method: "GET" }),
-      res: { status: 201, headers: new Headers() },
-    };
-
+    const event = eventFor("/_agent-native/actions/list-visual-plans");
     await requestHooks[0](event);
     await withDbTimeout("connect", async () => undefined, 100);
     await withDbTimeout("query", async () => undefined, 100);
@@ -117,123 +143,74 @@ describe("http response telemetry", () => {
     const response = new Response("{}", { status: 201 });
     await responseHooks[0](response, event);
 
-    const telemetry = tracked.find((entry) => entry.name === "http.response");
-    expect(telemetry?.properties).toMatchObject({
-      status_code: 201,
-      path: "/_agent-native/actions/list-visual-plans",
-      measurement: "nitro_request",
-      framework_ready_wait_ms: 12,
-      db_operation_count: 2,
-      db_query_count: 1,
-      db_connect_count: 1,
-      db_error_count: 0,
-      startup_db_connect_count: 1,
+    await vi.waitFor(() => expect(spans).toHaveLength(1));
+    expect(tracked).toHaveLength(0);
+    expect(spans[0]).toMatchObject({
+      name: "http.server",
+      ended: true,
+      status: { code: 1 },
+      attributes: {
+        "http.request.method": "GET",
+        "http.route": "/_agent-native/actions/list-visual-plans",
+        "http.response.status_code": 201,
+        route_kind: "framework",
+        framework_ready_wait_ms: 12,
+        db_operation_count: 2,
+        db_query_count: 1,
+        db_connect_count: 1,
+        db_error_count: 0,
+        startup_db_connect_count: 1,
+      },
     });
-    expect(telemetry?.properties?.request_id).toEqual(expect.any(String));
-    expect(telemetry?.properties?.request_sequence).toEqual(expect.any(Number));
-    expect(telemetry?.properties?.process_age_ms).toEqual(expect.any(Number));
-    expect(telemetry?.properties?.boot_to_module_ms).toEqual(
-      expect.any(Number),
-    );
-    expect(telemetry?.properties?.module_to_request_ms).toEqual(
+    expect(spans[0]?.attributes.request_sequence).toEqual(expect.any(Number));
+    expect(spans[0]?.attributes.process_age_ms).toEqual(expect.any(Number));
+    expect(spans[0]?.attributes.boot_to_module_ms).toEqual(expect.any(Number));
+    expect(spans[0]?.attributes.module_to_request_ms).toEqual(
       expect.any(Number),
     );
     expect(response.headers.get("server-timing")).toContain("app;dur=");
     expect(response.headers.get("server-timing")).toContain("startup;dur=12");
     expect(response.headers.get("server-timing")).toContain("db;dur=");
     expect(response.headers.get("server-timing")).toContain("startup-db;dur=");
-    expect(response.headers.get("x-agent-native-request-id")).toBe(
-      telemetry?.properties?.request_id,
+    expect(response.headers.get("x-agent-native-request-id")).toEqual(
+      expect.any(String),
     );
   });
 
-  it("always tracks 4xx action routes when success sampling is disabled", async () => {
-    vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "0");
-    const requestHooks: Array<(event: any) => unknown> = [];
-    const responseHooks: Array<(response: Response, event: any) => unknown> =
-      [];
-    const nitroApp = {
-      hooks: {
-        hook(name: string, handler: (...args: any[]) => unknown) {
-          if (name === "request") requestHooks.push(handler);
-          if (name === "response") responseHooks.push(handler);
-        },
-      },
-    };
-    const tracked: TrackingEvent[] = [];
-    registerTrackingProvider({
-      name: "http-response-telemetry-test",
-      track(event) {
-        tracked.push(event);
-      },
-    });
-    installHttpResponseTelemetryHooks(nitroApp);
-
-    const warmupUrl = new URL("https://plan.agent-native.com/");
-    const warmupEvent = {
-      url: warmupUrl,
-      context: {},
-      req: new Request(warmupUrl),
-      res: { status: 200, headers: new Headers() },
-    };
-    await requestHooks[0](warmupEvent);
-    await responseHooks[0](new Response("ok"), warmupEvent);
-    tracked.length = 0;
-
-    const actionUrl = new URL(
-      "https://plan.agent-native.com/_agent-native/actions/get-visual-plan",
-    );
-    const actionEvent = {
-      url: actionUrl,
-      context: {},
-      req: new Request(actionUrl),
-      res: { status: 403, headers: new Headers() },
-    };
-    await requestHooks[0](actionEvent);
-    await responseHooks[0](
-      new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 }),
-      actionEvent,
-    );
-
-    expect(tracked).toHaveLength(1);
-    expect(tracked[0]).toMatchObject({
-      name: "http.response",
-      properties: {
-        path: "/_agent-native/actions/get-visual-plan",
-        status_code: 403,
-        status_class: "4xx",
-      },
-    });
-  });
-
-  it("does not recursively track analytics ingestion requests", async () => {
+  it("marks 4xx and 5xx responses as span errors without product tracking", async () => {
+    const tracked = trackingCollector();
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 5;
 
-    const tracked: TrackingEvent[] = [];
-    registerTrackingProvider({
-      name: "http-response-telemetry-test",
-      track(event) {
-        tracked.push(event);
-      },
+    const forbidden = eventFor("/_agent-native/actions/get-visual-plan", {
+      status: 403,
     });
+    await requestHooks[0](forbidden);
+    await responseHooks[0](
+      new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 }),
+      forbidden,
+    );
 
-    for (const path of [
-      "/track",
-      "/track/",
-      "/api/analytics/track",
-      "/api/analytics/track/",
-      "/api/events/track",
-      "/api/events/track/",
-      "/_agent-native/track",
-      "/_agent-native/track/",
-    ]) {
-      const event = eventFor(path);
-      await requestHooks[0](event);
-      await responseHooks[0](new Response("", { status: 202 }), event);
-    }
+    const failed = eventFor("/api/reports");
+    await requestHooks[0](failed);
+    await responseHooks[0](new Response("boom", { status: 500 }), failed);
 
+    await vi.waitFor(() => expect(spans).toHaveLength(2));
     expect(tracked).toHaveLength(0);
+    expect(spans[0]).toMatchObject({
+      attributes: {
+        "http.route": "/_agent-native/actions/get-visual-plan",
+        "http.response.status_code": 403,
+      },
+      status: { code: 1 },
+    });
+    expect(spans[1]).toMatchObject({
+      attributes: {
+        "http.route": "/api/reports",
+        "http.response.status_code": 500,
+      },
+      status: { code: 2 },
+    });
   });
 
   it("reports the pre-handler boot phases on a cold start", async () => {
@@ -325,5 +302,10 @@ describe("http response telemetry", () => {
       duration_ms: 2_400,
       path: "/reports/:id",
     });
+
+    // The span starts at request start, not at response time, so its duration
+    // covers the whole request.
+    await vi.waitFor(() => expect(spans).toHaveLength(2));
+    expect(spans[1]?.startTime).toBe(startedAt);
   });
 });

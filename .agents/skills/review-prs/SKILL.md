@@ -230,6 +230,21 @@ For a PR that passes the applicable gate, submit one GitHub approval review and
 record the approval URL in the recap. Do not add a tag, assignment, mention,
 or explanatory comment unless the invocation explicitly asks for it.
 
+When a PR needs product, UX, or app-owner review, record that gate only in the
+recap and leave the PR thread alone. Do not comment or reply to ask for, announce,
+or explain that owner review is needed. This silence rule applies even after an
+author update; do not send a thanks-only or status reply while that review gate is
+outstanding.
+
+When a reply is explicitly requested or needed to resolve a review thread, begin
+by thanking the author for the PR, or for their update when they have updated it
+since the last message. If they have not updated since the last message, do not
+reply again. Never write “I have no further feedback” or another vague closing;
+state the disposition and the next actor and action, such as the exact change
+requested, that no changes are requested and the PR is ready for maintainer
+merge, or which named check is still pending. If the next step is a product,
+UX, or app-owner decision, use the silence rule above.
+
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
 

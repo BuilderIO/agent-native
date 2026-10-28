@@ -114,6 +114,15 @@ user explicitly requested that communication. A factual reply needed to
 document a review fix or terminal disposition is allowed when the babysit
 gate requires it.
 
+Begin any such reply by thanking the author for the PR, or for their update if
+they have updated it since the last message. If they have not updated since the
+last message, do not reply again. Never write “I have no further feedback” or
+leave another vague closing: state the disposition and who should take the next
+action, such as making a specific change, recording the required approval, or
+merging once the named gates pass. If a product, UX, or app-owner decision is
+the next step, leave the PR thread silent and report that gate in the ship
+ledger and final recap.
+
 Keep these claims separate in the PR and final report:
 
 - source and focused tests;

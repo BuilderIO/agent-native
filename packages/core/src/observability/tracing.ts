@@ -43,7 +43,10 @@ export const SPAN_STATUS_ERROR = 2;
 interface AgentTracer {
   startSpan(
     name: string,
-    options?: { attributes?: Record<string, string | number | boolean> },
+    options?: {
+      attributes?: Record<string, string | number | boolean>;
+      startTime?: number;
+    },
     context?: unknown,
   ): AgentSpan;
 }
@@ -112,6 +115,7 @@ export async function startAgentSpan(
   name: string,
   attributes: Record<string, string | number | boolean | null | undefined> = {},
   parentSpan: AgentSpan | null = null,
+  startTime?: number,
 ): Promise<AgentSpan | null> {
   const runtime = await resolveRuntime();
   if (!runtime) return null;
@@ -131,6 +135,7 @@ export async function startAgentSpan(
       name,
       {
         attributes: pruneAttributes(attributes),
+        ...(startTime === undefined ? {} : { startTime }),
       },
       parentContext,
     );

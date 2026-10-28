@@ -18,18 +18,9 @@ import {
 } from "../db/request-telemetry.js";
 import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
-import { track } from "../tracking/index.js";
+import { endAgentSpan, startAgentSpan } from "../observability/tracing.js";
 
-const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
-// Provider delivery posts back to these collectors. Recording the collector
-// response would feed another `http.response` event into the same collector.
-const TRACKING_INGEST_PATHS = new Set([
-  "/track",
-  "/api/analytics/track",
-  "/api/events/track",
-  "/_agent-native/track",
-]);
 const SLOW_REQUEST_MS = 1_000;
 const SLOW_REQUEST_LOG_EVENT = "agent-native.slow_request";
 const PROCESS_STATE_KEY = Symbol.for(
@@ -75,29 +66,6 @@ function envValue(key: string): string | undefined {
   return value || undefined;
 }
 
-function boolEnv(key: string): boolean {
-  return ["1", "true", "yes", "on"].includes(
-    (process.env[key] ?? "").trim().toLowerCase(),
-  );
-}
-
-function sampleRate(): number {
-  const raw = envValue("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE");
-  if (!raw) return 0.1;
-  const parsed = Number.parseFloat(raw);
-  if (!Number.isFinite(parsed)) return 0.1;
-  return Math.max(0, Math.min(1, parsed));
-}
-
-function shouldDisableTelemetry(): boolean {
-  return boolEnv("AGENT_NATIVE_HTTP_TELEMETRY_DISABLED");
-}
-
-function isTrackingIngestPath(pathname: string): boolean {
-  const normalized = pathname.replace(/\/+$/, "") || "/";
-  return TRACKING_INGEST_PATHS.has(normalized);
-}
-
 function requestPath(event: H3Event): string {
   const raw =
     event.url?.pathname ??
@@ -128,11 +96,6 @@ export function normalizeHttpTelemetryPath(pathname: string): string {
     .split("/")
     .map((segment, index) => (index === 0 ? "" : normalizeSegment(segment)))
     .join("/");
-}
-
-function statusClass(statusCode: number): string {
-  if (!Number.isFinite(statusCode) || statusCode < 100) return "unknown";
-  return `${Math.floor(statusCode / 100)}xx`;
 }
 
 function routeKind(pathname: string): string {
@@ -168,34 +131,6 @@ function organizationForHost(host: string | undefined): string | undefined {
     : undefined;
 }
 
-function shouldTrack(
-  pathname: string,
-  statusCode: number,
-  state: HttpRequestTelemetryState,
-): boolean {
-  if (shouldDisableTelemetry()) return false;
-  if (isTrackingIngestPath(pathname)) return false;
-  if (pathname.startsWith("/api/analytics/replay")) return false;
-  if (statusCode >= 500) return true;
-  if (
-    statusCode >= 400 &&
-    statusCode < 500 &&
-    /(?:^|\/)_agent-native\/actions(?:\/|$)/.test(pathname)
-  ) {
-    return true;
-  }
-  if (state.requestSequence === 1) return true;
-  if (state.startupDb) return true;
-  if (Date.now() - state.startedAt >= SLOW_REQUEST_MS) return true;
-  if (state.db.errorCount > 0 || state.db.timeoutCount > 0) {
-    return true;
-  }
-  const rate = sampleRate();
-  if (rate <= 0) return false;
-  if (rate >= 1) return true;
-  return Math.random() < rate;
-}
-
 function responseStatusCode(event: H3Event, response?: Response): number {
   const raw =
     response?.status ??
@@ -225,89 +160,92 @@ function moduleToRequestMs(state: HttpRequestTelemetryState): number {
   );
 }
 
-function emitTelemetry(
+/**
+ * One OpenTelemetry server span per request. A no-op until the host registers
+ * a TracerProvider, so request timing never reaches the product event store.
+ */
+async function recordRequestSpan(
   event: H3Event,
   state: HttpRequestTelemetryState,
   response?: Response,
-): void {
-  const statusCode = responseStatusCode(event, response);
-  const pathname = requestPath(event);
-  if (!shouldTrack(pathname, statusCode, state)) return;
-
+): Promise<void> {
   try {
+    const statusCode = responseStatusCode(event, response);
+    const pathname = requestPath(event);
     const host = hostForEvent(event);
     const db = getDatabaseRuntimeFingerprint();
-    track(TELEMETRY_EVENT_NAME, {
-      source: "server",
-      app: getAppConfig().app.name,
-      template: envValue("AGENT_NATIVE_TEMPLATE") ?? getAppConfig().app.name,
-      organization: organizationForHost(host),
-      method: getMethod(event),
-      path: normalizeHttpTelemetryPath(pathname),
-      route_kind: routeKind(pathname),
-      status_code: statusCode,
-      status_class: statusClass(statusCode),
-      duration_ms: Math.max(0, Date.now() - state.startedAt),
-      request_id: state.requestId,
-      measurement: "nitro_request",
-      cold_start: state.requestSequence === 1,
-      request_sequence: state.requestSequence,
-      process_age_ms: state.processAgeAtStartMs,
-      boot_to_module_ms: processState.moduleEvalUptimeMs,
-      module_to_request_ms: moduleToRequestMs(state),
-      framework_ready_wait_ms: state.frameworkReadyWaitMs,
-      runtime_provider: runtimeProvider(),
-      function_name: envValue("AWS_LAMBDA_FUNCTION_NAME"),
-      function_memory_mb: envValue("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"),
-      region: envValue("AWS_REGION") ?? envValue("VERCEL_REGION"),
-      host,
-      environment: envValue("NODE_ENV"),
-      deploy_context: envValue("CONTEXT") ?? envValue("VERCEL_ENV"),
-      deploy_id: envValue("DEPLOY_ID") ?? envValue("VERCEL_DEPLOYMENT_ID"),
-      commit_ref:
-        envValue("COMMIT_REF") ??
-        envValue("NETLIFY_COMMIT_REF") ??
-        envValue("VERCEL_GIT_COMMIT_SHA") ??
-        envValue("GIT_COMMIT_SHA"),
-      db_source: db.source,
-      db_url_hash: db.urlHash,
-      db_neon_endpoint: db.neon?.endpointId,
-      db_neon_pooled: db.neon?.pooled,
-      db_operation_count: state.db.operationCount,
-      db_query_count: state.db.queryCount,
-      db_connect_count: state.db.connectCount,
-      db_retry_count: state.db.retryCount,
-      db_error_count: state.db.errorCount,
-      db_timeout_count: state.db.timeoutCount,
-      db_operation_total_ms: Math.round(state.db.operationTotalMs),
-      db_operation_wall_ms: Math.round(state.db.operationWallMs),
-      db_query_total_ms: Math.round(state.db.queryTotalMs),
-      db_connect_total_ms: Math.round(state.db.connectTotalMs),
-      db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
-      startup_db_operation_count: state.startupDb?.operationCount,
-      startup_db_query_count: state.startupDb?.queryCount,
-      startup_db_connect_count: state.startupDb?.connectCount,
-      startup_db_retry_count: state.startupDb?.retryCount,
-      startup_db_error_count: state.startupDb?.errorCount,
-      startup_db_timeout_count: state.startupDb?.timeoutCount,
-      startup_db_operation_total_ms: state.startupDb
-        ? Math.round(state.startupDb.operationTotalMs)
-        : undefined,
-      startup_db_operation_wall_ms: state.startupDb
-        ? Math.round(state.startupDb.operationWallMs)
-        : undefined,
-      startup_db_query_total_ms: state.startupDb
-        ? Math.round(state.startupDb.queryTotalMs)
-        : undefined,
-      startup_db_connect_total_ms: state.startupDb
-        ? Math.round(state.startupDb.connectTotalMs)
-        : undefined,
-      startup_db_slowest_operation_ms: state.startupDb
-        ? Math.round(state.startupDb.slowestOperationMs)
-        : undefined,
-    });
+    const span = await startAgentSpan(
+      "http.server",
+      {
+        "http.request.method": getMethod(event),
+        "http.route": normalizeHttpTelemetryPath(pathname),
+        "http.response.status_code": statusCode,
+        app: getAppConfig().app.name,
+        template: envValue("AGENT_NATIVE_TEMPLATE") ?? getAppConfig().app.name,
+        organization: organizationForHost(host),
+        route_kind: routeKind(pathname),
+        cold_start: state.requestSequence === 1,
+        request_sequence: state.requestSequence,
+        process_age_ms: state.processAgeAtStartMs,
+        boot_to_module_ms: processState.moduleEvalUptimeMs,
+        module_to_request_ms: moduleToRequestMs(state),
+        framework_ready_wait_ms: state.frameworkReadyWaitMs,
+        runtime_provider: runtimeProvider(),
+        function_name: envValue("AWS_LAMBDA_FUNCTION_NAME"),
+        function_memory_mb: envValue("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"),
+        region: envValue("AWS_REGION") ?? envValue("VERCEL_REGION"),
+        host,
+        environment: envValue("NODE_ENV"),
+        deploy_context: envValue("CONTEXT") ?? envValue("VERCEL_ENV"),
+        deploy_id: envValue("DEPLOY_ID") ?? envValue("VERCEL_DEPLOYMENT_ID"),
+        commit_ref:
+          envValue("COMMIT_REF") ??
+          envValue("NETLIFY_COMMIT_REF") ??
+          envValue("VERCEL_GIT_COMMIT_SHA") ??
+          envValue("GIT_COMMIT_SHA"),
+        db_source: db.source,
+        db_url_hash: db.urlHash,
+        db_neon_endpoint: db.neon?.endpointId,
+        db_neon_pooled: db.neon?.pooled,
+        db_operation_count: state.db.operationCount,
+        db_query_count: state.db.queryCount,
+        db_connect_count: state.db.connectCount,
+        db_retry_count: state.db.retryCount,
+        db_error_count: state.db.errorCount,
+        db_timeout_count: state.db.timeoutCount,
+        db_operation_total_ms: Math.round(state.db.operationTotalMs),
+        db_operation_wall_ms: Math.round(state.db.operationWallMs),
+        db_query_total_ms: Math.round(state.db.queryTotalMs),
+        db_connect_total_ms: Math.round(state.db.connectTotalMs),
+        db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
+        startup_db_operation_count: state.startupDb?.operationCount,
+        startup_db_query_count: state.startupDb?.queryCount,
+        startup_db_connect_count: state.startupDb?.connectCount,
+        startup_db_retry_count: state.startupDb?.retryCount,
+        startup_db_error_count: state.startupDb?.errorCount,
+        startup_db_timeout_count: state.startupDb?.timeoutCount,
+        startup_db_operation_total_ms: state.startupDb
+          ? Math.round(state.startupDb.operationTotalMs)
+          : undefined,
+        startup_db_operation_wall_ms: state.startupDb
+          ? Math.round(state.startupDb.operationWallMs)
+          : undefined,
+        startup_db_query_total_ms: state.startupDb
+          ? Math.round(state.startupDb.queryTotalMs)
+          : undefined,
+        startup_db_connect_total_ms: state.startupDb
+          ? Math.round(state.startupDb.connectTotalMs)
+          : undefined,
+        startup_db_slowest_operation_ms: state.startupDb
+          ? Math.round(state.startupDb.slowestOperationMs)
+          : undefined,
+      },
+      null,
+      state.startedAt,
+    );
+    endAgentSpan(span, { status: statusCode >= 500 ? "error" : "success" });
   } catch {
-    // Response telemetry is best-effort. Never perturb request handling.
+    // coercion-ok: request telemetry is best-effort; a span failure must never fail the request.
   }
 }
 
@@ -319,7 +257,11 @@ function requestTelemetryState(
   ] as HttpRequestTelemetryState | undefined;
 }
 
-/** Return the durable request id while a request is still being handled. */
+/**
+ * Return the request id while a request is still being handled. It correlates
+ * captured errors and the failure log line with the slow-request log; it is not
+ * an analytics join key.
+ */
 export function getHttpRequestTelemetryId(event: H3Event): string | undefined {
   return requestTelemetryState(event)?.requestId;
 }
@@ -346,7 +288,7 @@ function appendServerTiming(
         desc ? { dur: duration, desc } : { dur: duration },
       );
     } catch {
-      // Some adapters finalize headers eagerly. Tracking still runs.
+      // Some adapters finalize headers eagerly. Tracing still runs.
     }
   }
 }
@@ -378,7 +320,7 @@ function isSharedCacheable(response: Response): boolean {
  * leads with the absolute wall-clock time of the render that produced it. Two
  * visitors comparing notes see the identical timestamp, which is what a replay
  * is. The live per-invocation breakdown goes to the slow-request log line and
- * to tracking instead; neither is ever cached.
+ * to the request span instead; neither is ever cached.
  */
 function originSnapshotDesc(state: HttpRequestTelemetryState): string {
   const parts = [new Date(state.startedAt).toISOString()];
@@ -404,8 +346,8 @@ function originSnapshotDesc(state: HttpRequestTelemetryState): string {
 /**
  * One structured line per cold or slow request, straight to stdout.
  *
- * Function logs are the only timing surface readable without a deploy, and
- * `track()` silently no-ops when no tracking provider is registered — which is
+ * Function logs are the only timing surface readable without a deploy, and an
+ * OTel span is invisible until the host registers a TracerProvider — which is
  * the common case. Deliberately NOT wrapped in a catch: a swallowed emit would
  * leave a slow request indistinguishable from a fast one.
  */
@@ -489,7 +431,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
       try {
         setResponseHeader(event, REQUEST_ID_HEADER, state.requestId);
       } catch {
-        // Some adapters finalize headers eagerly. Tracking still has the id.
+        // Some adapters finalize headers eagerly. The id still reaches error capture.
       }
     }
     if (isSharedCacheable(response)) {
@@ -501,7 +443,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         originSnapshotDesc(state),
       );
       logSlowRequest(event, state, response, durationMs, requestPath(event));
-      emitTelemetry(event, state, response);
+      void recordRequestSpan(event, state, response);
       return;
     }
 
@@ -555,6 +497,6 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
     }
 
     logSlowRequest(event, state, response, durationMs, requestPath(event));
-    emitTelemetry(event, state, response);
+    void recordRequestSpan(event, state, response);
   });
 }

@@ -1100,7 +1100,6 @@ export default defineAction({
         chunkKeysToPurge = await listRecordingChunkKeys(ownerEmail, id);
         throw new Error(`Recording not found: ${id}`);
       }
-
       const generationId = args.uploadGenerationId ?? null;
       if ((existing.uploadGenerationId ?? null) !== generationId) {
         throw new Error("Upload generation changed before finalization");

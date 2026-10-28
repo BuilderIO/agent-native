@@ -112,6 +112,32 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
+const VERBOSE_REPLY_RE =
+  /\btoo\s+(?:verbose|wordy|long[- ]?winded)\b[^.!?\n]{0,80}\b(?:repl(?:y|ies)|responses?|messages?|slack|dms?)\b|\bbe\s+(?:way\s+)?more\s+succinct\b|\bmake\s+(?:your\s+)?(?:repl(?:y|ies)|responses?|messages?)\s+(?:much\s+)?more\s+(?:succinct|concise)\b|\b(?:repl(?:y|ies)|responses?|messages?|answers?)\s+(?:are|sound|read|seem)\s+too\s+(?:verbose|wordy|long)\b|\b(?:they|your\s+repl(?:y|ies)|those\s+repl(?:y|ies))\s+(?:say|says)\s+a\s+lot\s+of\s+nothing\b/i;
+
+const VERBOSE_REPLY_REGEX_CASES = [
+  [true, "You are way too verbose in replies."],
+  [true, "They say a lot of nothing; be way more succinct please."],
+  [true, "Make your replies more concise."],
+  [true, "The messages read too wordy."],
+  [true, "These answers are too long. Shorter please."],
+  [false, "The product spec is too verbose."],
+  [false, "The reply explains nothing about the failing feature."],
+];
+
+const FEEDBACK_REACTION_REPLY_RE =
+  /\b(?:don't|do not|stop)\b[^.!?\n]{0,100}\b(?:say|explain|report|post|send|give|include)\b[^.!?\n]{0,100}\b(?:progress|status|ticket|check(?:mark)?\s+emoji|reaction|emoji)\b|\b(?:only|just)\s+(?:report|reply|post|send|update)\b[^.!?\n]{0,120}\b(?:when|if)\b[^.!?\n]{0,60}\b(?:add(?:ed|ing)?|new)\b[^.!?\n]{0,30}\b(?:reaction|emoji)\b|\b(?:only|just)\s+explain\b[^.!?\n]{0,60}\b(?:reaction|emoji)s?\s+added\b/i;
+
+const FEEDBACK_REACTION_REPLY_REGEX_CASES = [
+  [true, "Don't say why there's no ticket or check emoji."],
+  [true, "Don't explain progress; only update us when it's done."],
+  [
+    true,
+    "Only report when we add a reaction, and explain only the ones added.",
+  ],
+  [false, "The check emoji was added after the fix."],
+];
+
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
   [true, "Stop merging main unless there is a real conflict."],
@@ -160,12 +186,23 @@ if (process.argv.includes("--self-test")) {
         DESIGN_FEEDBACK_SCOPE_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...VERBOSE_REPLY_REGEX_CASES.filter(
+      ([expected, message]) => VERBOSE_REPLY_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...FEEDBACK_REACTION_REPLY_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_REACTION_REPLY_RE.test(message) !== expected,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + VERBOSE_REPLY_REGEX_CASES.length + FEEDBACK_REACTION_REPLY_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -204,6 +241,24 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback (design/UX scope, 2026-09-11)",
     re: DESIGN_FEEDBACK_SCOPE_RE,
+  },
+  {
+    // Added 2026-10-16 after feedback that Slack replies were padded and
+    // buried their useful status in too much wording.
+    key: "verbose-replies",
+    label: "Told replies were too verbose or padded with empty wording",
+    fixedBy:
+      "AGENTS.md concise-reply rule + address-feedback-with-replies skill (2026-10-16)",
+    re: VERBOSE_REPLY_RE,
+  },
+  {
+    // Added 2026-10-19 after feedback requested replies only for new reactions,
+    // with no progress updates or explanations for reactions that were absent.
+    key: "feedback-reaction-reply-chatter",
+    label: "Had to stop unnecessary feedback reaction/status replies",
+    fixedBy:
+      ".agents/skills/review-latest-feedback + address-feedback-with-replies (2026-10-19 reaction reply gate)",
+    re: FEEDBACK_REACTION_REPLY_RE,
   },
   {
     key: "false-done",

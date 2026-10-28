@@ -256,21 +256,22 @@ Other framework-level baseline events:
   browser-perceived duration and TTFB, response status/outcome, response size
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
-  This separates server time from CDN/network/body overhead.
-- `http.response` from Nitro request/response hooks, with normalized path,
-  status, request duration, first-request-in-isolate cold marker, process age,
-  framework readiness wait, deploy/runtime fingerprint, database
-  connection/query counts and timings, retries, timeouts, and failures. It also
-  emits `Server-Timing` for `app`, `startup`, `db`, `db-connect`, and
-  `db-slowest` plus an `X-Agent-Native-Request-Id` correlation header where
-  applicable. Query text and parameters are never captured.
-  Database activity that begins during the first two minutes of process/plugin
-  initialization is reported separately as `startup_db_*` on the first
-  framework request that passes the readiness gate.
-  Slow, cold-isolate, server failures, and 4xx action routes are always
-  retained; fast successful requests default to 10% sampling. Override with
-  `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
-  `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
+  This separates server time from CDN/network/body overhead. Thrown errors,
+  4xx responses, calls of 1 s or more, and responses that waited on framework
+  startup are always kept; other successful calls are sampled at 10%. Override
+  the rate with `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
+- Request timing is not a product event. Each request emits an OpenTelemetry
+  `http.server` span (a no-op until the host registers a TracerProvider) with
+  the normalized path, status, cold-isolate marker, process age, framework
+  readiness wait, deploy/runtime fingerprint, and database connection/query
+  counts and timings. Cold-isolate and slow (1 s or more) requests also write
+  one `agent-native.slow_request` log line. Query text and parameters are never
+  captured. Database activity during the first two minutes of process/plugin
+  initialization is reported separately as `startup_db_*` on the first framework
+  request that passes the readiness gate. Responses carry `Server-Timing` and an
+  `X-Agent-Native-Request-Id` header; a response a shared cache can replay gets
+  only an `origin` entry, so a cached shell never repeats another visitor's live
+  phase timings.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
