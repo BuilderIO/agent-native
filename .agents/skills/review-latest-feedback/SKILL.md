@@ -301,7 +301,7 @@ apart from Steve's own 👀.
 
 Put every fix in one PR, and open it once every claimed Fix report has a
 fix or a failed attempt, so CI waits come after the fixing. Don't open one
-PR per item. In the PR body, add a
+PR per item. End the PR body with a
 `## Reports` heading listing the link of every report the PR fixes: the
 Slack thread, or the Sentry, Analytics, or GitHub issue. That list is the
 only set of threads a later `/ship` may close out as fixed.

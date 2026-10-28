@@ -30,40 +30,16 @@ const PROVEN =
   /fix-proof: proven, red at [0-9a-f]+ \(exit \d+\), green at ([0-9a-f]{7,40}): (.+)$/;
 
 export function parseReports(body: string): Report[] | null {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  // Everything after the first Reports heading is the Reports section, so
+  // sweep PRs put it last. No later heading, fence, or other Markdown can
+  // end it early, and a stray link fails as NO PROOF, the safe direction.
+  const start = lines.findIndex((line) =>
+    /^ {0,3}#{1,6}\s+Reports\b/i.test(line),
+  );
+  if (start === -1) return null;
   const reports: Report[] = [];
-  let found = false;
-  // Heading level of the Reports section we're in, or 0 outside one. Every
-  // Reports section counts; subheadings (### Sentry) group reports, and a
-  // heading at the same level or higher ends the section. Fenced code is
-  // tracked from the top, so an example inside a fence is never a heading.
-  let level = 0;
-  // The open fence's marker run (``` or ~~~); only the same character, at
-  // least as long, closes it.
-  let fence = "";
-  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker && !fence) {
-      fence = marker;
-      continue;
-    }
-    if (marker && marker[0] === fence[0] && marker.length >= fence.length) {
-      fence = "";
-      continue;
-    }
-    const heading = fence ? null : /^ {0,3}(#{1,6})\s+(.*)$/.exec(line);
-    const depth = heading?.[1].length ?? 0;
-    // A Reports subheading inside a Reports section is just a subheading.
-    if (
-      heading &&
-      /^Reports\b/i.test(heading[2]) &&
-      (!level || depth <= level)
-    ) {
-      level = depth;
-      found = true;
-      continue;
-    }
-    if (heading && depth <= level) level = 0;
-    if (!level) continue;
+  for (const line of lines.slice(start + 1)) {
     // A line that is only a proof or a visual pair, even as a list item,
     // belongs to the report above it.
     const evidence = line
@@ -92,7 +68,7 @@ export function parseReports(body: string): Report[] | null {
         report.visual = true;
     }
   }
-  return found ? reports : null;
+  return reports;
 }
 
 function main() {

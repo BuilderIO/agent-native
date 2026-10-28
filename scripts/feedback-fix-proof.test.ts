@@ -35,7 +35,7 @@ const gate = (body: string) =>
   });
 
 describe("parseReports", () => {
-  it("reads proof and visual lines under each report until the next heading", () => {
+  it("reads proof and visual lines under each report", () => {
     const reports = parseReports(
       [
         "## Summary",
@@ -46,8 +46,6 @@ describe("parseReports", () => {
         "- https://app.slack.com/archives/C1/p2",
         "  visual: https://example.com/before.png https://example.com/after.png",
         "- https://app.slack.com/archives/C1/p3",
-        "## Verification",
-        proven("ignored"),
       ].join("\r\n"),
     );
     assert.deepEqual(reports, [
@@ -109,57 +107,15 @@ describe("parseReports", () => {
     );
   });
 
-  it("counts every URL on a line, and ignores headings inside code fences", () => {
+  it("counts every URL after the Reports heading, whatever follows it", () => {
     const reports = parseReports(
       [
+        "## Summary",
+        "- https://example.com/not-a-report",
         "## Reports",
         "- https://app.slack.com/a and https://app.slack.com/b",
         "```sh",
-        "# not a heading",
-        "```",
-        "- https://app.slack.com/c",
-      ].join("\n"),
-    );
-    assert.deepEqual(
-      reports?.map((r) => r.link),
-      [
-        "https://app.slack.com/a",
-        "https://app.slack.com/b",
-        "https://app.slack.com/c",
-      ],
-    );
-  });
-
-  it("reads every Reports section and skips Reports examples in fences", () => {
-    const reports = parseReports(
-      [
-        "```md",
-        "## Reports",
-        "- https://example.com/not-a-report",
-        "```",
-        "## Reports",
-        "- https://app.slack.com/a",
         "## Notes",
-        "- https://example.com/also-not",
-        "## Reports",
-        "- https://app.slack.com/b",
-      ].join("\n"),
-    );
-    assert.deepEqual(
-      reports?.map((r) => r.link),
-      ["https://app.slack.com/a", "https://app.slack.com/b"],
-    );
-  });
-
-  it("keeps a Reports subheading inside the section and matches fence markers", () => {
-    const reports = parseReports(
-      [
-        "## Reports",
-        "### Reports from Slack",
-        "- https://app.slack.com/a",
-        "```",
-        "~~~",
-        "## Not a heading inside the fence",
         "```",
         "### Sentry",
         "- https://sentry.io/issues/1",
@@ -167,7 +123,21 @@ describe("parseReports", () => {
     );
     assert.deepEqual(
       reports?.map((r) => r.link),
-      ["https://app.slack.com/a", "https://sentry.io/issues/1"],
+      [
+        "https://app.slack.com/a",
+        "https://app.slack.com/b",
+        "https://sentry.io/issues/1",
+      ],
+    );
+  });
+
+  it("finds the Reports heading after an unclosed fence-like line", () => {
+    const reports = parseReports(
+      "```pnpm test``` was run\n## Reports\n- https://app.slack.com/a",
+    );
+    assert.deepEqual(
+      reports?.map((r) => r.link),
+      ["https://app.slack.com/a"],
     );
   });
 
