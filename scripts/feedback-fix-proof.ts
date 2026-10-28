@@ -36,20 +36,24 @@ export function parseReports(body: string): Report[] | null {
   const reports: Report[] = [];
   for (const line of lines.slice(start + 1)) {
     if (/^#{1,6}\s/.test(line)) break;
+    // Evidence lines may be list items too, so read them before links.
+    const evidence = line
+      .trim()
+      .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
+      .replace(/^`|`$/g, "");
+    const proof = PROVEN.exec(evidence);
+    const visual = /^visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(evidence);
+    const report = reports.at(-1);
+    if (proof || visual) {
+      if (proof) report?.proven.push(`${proof[1]}\t${proof[2].trim()}`);
+      if (visual && report) report.visual = true;
+      continue;
+    }
     // A list item (bulleted or numbered) or a bare URL starts a report.
     const link =
       /^(?:[-*+]|\d+[.)])\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1] ??
       /^(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
-    if (link) {
-      reports.push({ link, proven: [], visual: false });
-      continue;
-    }
-    const report = reports.at(-1);
-    if (!report) continue;
-    const proof = PROVEN.exec(line.trim().replace(/^`|`$/g, ""));
-    if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
-    else if (/^\s*visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(line))
-      report.visual = true;
+    if (link) reports.push({ link, proven: [], visual: false });
   }
   return reports;
 }

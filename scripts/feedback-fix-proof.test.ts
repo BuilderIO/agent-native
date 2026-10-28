@@ -78,7 +78,7 @@ describe("parseReports", () => {
         "https://app.slack.com/b",
         "  visual: https://example.com/after.png",
         "- https://app.slack.com/c",
-        "  visual: https://example.com/before.png https://example.com/after.png",
+        "  - visual: https://example.com/before.png https://example.com/after.png",
       ].join("\n"),
     );
     assert.deepEqual(
