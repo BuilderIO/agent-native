@@ -6163,6 +6163,7 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 
 .rtr-device,
 .rtr-note {
+  display: block;
   margin: 0 0 0 32px;
   overflow: hidden;
   font-size: 12px;

@@ -15,6 +15,7 @@ const state: ReadyToRecordState = {
   source: "full-screen",
   cameraOn: true,
   cameraLabel: "FaceTime HD Camera",
+  cameraError: null,
   micOn: false,
   micLabel: "MacBook Pro Microphone",
   systemAudioOn: true,

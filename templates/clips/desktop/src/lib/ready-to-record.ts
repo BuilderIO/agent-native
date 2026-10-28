@@ -18,6 +18,7 @@ export interface ReadyToRecordState {
   source: CaptureSource;
   cameraOn: boolean;
   cameraLabel: string;
+  cameraError: string | null;
   micOn: boolean;
   micLabel: string;
   systemAudioOn: boolean;

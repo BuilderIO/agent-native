@@ -11,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -24,6 +25,8 @@ import {
   type ReadyToRecordToggle,
 } from "../lib/ready-to-record";
 import { PillLogo } from "./pill-logo";
+
+const PANEL_CLOSE_FALLBACK_MS = 1500;
 
 function StatusValue({ on, dot = false }: { on: boolean; dot?: boolean }) {
   return (
@@ -112,6 +115,14 @@ export function ReadyToRecord() {
     if (closingRef.current) return;
     closingRef.current = true;
     emit(READY_TO_RECORD_EVENTS[outcome]).catch(() => {});
+    // The popover closes this window. If that never happens (the popover
+    // missed the event or the close failed), close it here so the panel
+    // cannot get stuck on screen.
+    window.setTimeout(() => {
+      getCurrentWindow()
+        .close()
+        .catch(() => {});
+    }, PANEL_CLOSE_FALLBACK_MS);
   }, []);
 
   useEffect(() => {
@@ -290,6 +301,11 @@ export function ReadyToRecord() {
             </span>
             {state?.cameraOn && state.cameraLabel ? (
               <span className="rtr-device">{state.cameraLabel}</span>
+            ) : null}
+            {state?.cameraError ? (
+              <span className="rtr-note" title={state.cameraError}>
+                {state.cameraError}
+              </span>
             ) : null}
           </button>
 
