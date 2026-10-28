@@ -569,13 +569,16 @@ export function MessageQueueDrawer({
                     </span>
                   </div>
                   {hasImages ? (
-                    <div className="mt-0.5 flex gap-1">
+                    <div
+                      data-agent-message-queue-images="true"
+                      className="mt-0.5 flex min-w-0 gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain"
+                    >
                       {item.images?.map((src, imageIndex) => (
                         <img
                           key={`${item.id}-image-${imageIndex}`}
                           src={src}
                           alt=""
-                          className="size-8 rounded-md border border-border/60 object-cover"
+                          className="size-8 shrink-0 rounded-md border border-border/60 object-cover"
                         />
                       ))}
                     </div>
