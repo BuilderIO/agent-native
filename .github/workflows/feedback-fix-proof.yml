@@ -17,7 +17,6 @@ permissions:
 jobs:
   proof:
     name: Feedback fix proof
-    if: contains(github.event.pull_request.body, '# Reports')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -29,11 +28,21 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - uses: ./.github/actions/setup-pnpm
+      # The script's own parser decides which PRs need checking, so the
+      # trigger can't disagree with it; most PRs stop here in seconds.
+      - name: Look for a Reports section
+        id: find
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node --experimental-strip-types --no-warnings scripts/feedback-fix-proof.ts --has-reports >> "$GITHUB_OUTPUT"
+
+      - if: steps.find.outputs.has_reports == 'true'
+        uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
 
       - name: Re-run each report's proof
+        if: steps.find.outputs.has_reports == 'true'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

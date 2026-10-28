@@ -131,9 +131,18 @@ describe("feedback-fix-proof", () => {
     assert.match(r.stdout, /NOT IN THIS PR/);
   });
 
-  it("cannot run when Reports is mentioned but not a heading", () => {
-    assert.equal(gate("see # Reports below\n").status, 2);
-    assert.equal(gate("see # reports below\n").status, 2);
+  it("tells the workflow whether to install and re-run", () => {
+    const has = (body: string) =>
+      spawnSync(process.execPath, [SCRIPT, "--has-reports"], {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, PR_BODY: body },
+      }).stdout.trim();
+    assert.equal(
+      has("##\treports\n- https://app.slack.com/a"),
+      "has_reports=true",
+    );
+    assert.equal(has("see # Reports below"), "has_reports=false");
   });
 
   it("cannot run on a Reports section with no links", () => {

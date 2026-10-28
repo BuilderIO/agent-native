@@ -10,6 +10,10 @@
 //     visual: <before screenshot url> <after screenshot url>
 //
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
+//   ... feedback-fix-proof.ts --has-reports   prints has_reports=true|false
+//
+// The workflow runs --has-reports on every PR, before installing anything,
+// so this parser is the only rule for which PRs get checked.
 //
 // Each proof's fix commit must be on this branch and not on its base
 // (BASE_SHA, or the merge-base with origin/main).
@@ -42,7 +46,7 @@ export function parseReports(body: string): Report[] | null {
     }
     const report = reports.at(-1);
     if (!report) continue;
-    const proof = PROVEN.exec(line.replace(/`/g, "").trim());
+    const proof = PROVEN.exec(line.trim().replace(/^`|`$/g, ""));
     if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
     else if (/^\s*visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(line))
       report.visual = true;
@@ -57,14 +61,9 @@ function main() {
     process.exit(2);
   }
   const reports = parseReports(body);
-  // The workflow runs on this same substring (Actions' contains() ignores
-  // case), so it never skips a heading the parser reads, and a near miss
-  // fails instead of passing.
-  if (!reports && body.toLowerCase().includes("# reports")) {
-    console.error(
-      "feedback-fix-proof: could not run: the body mentions `# Reports` but has no `Reports` heading line",
-    );
-    process.exit(2);
+  if (process.argv.includes("--has-reports")) {
+    console.log(`has_reports=${reports !== null}`);
+    return;
   }
   if (!reports) {
     console.log("feedback-fix-proof: no `Reports` heading; nothing to check");
@@ -72,7 +71,7 @@ function main() {
   }
   if (reports.length === 0) {
     console.error(
-      "feedback-fix-proof: could not run: `## Reports` lists no report links",
+      "feedback-fix-proof: could not run: the `Reports` heading lists no report links",
     );
     process.exit(2);
   }
