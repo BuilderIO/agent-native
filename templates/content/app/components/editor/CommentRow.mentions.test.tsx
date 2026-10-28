@@ -289,6 +289,11 @@ describe("comment formatting", () => {
 
     expect(host.querySelector("ul, ol, li, blockquote, div, p p")).toBeNull();
     expect(
+      spokenText(host)
+        .trim()
+        .split(/\s*\n\s*/),
+    ).toEqual(["ask @Sam", "then ship", "quoted"]);
+    expect(
       [...host.querySelectorAll("[data-comment-mention]")].map((pill) =>
         spokenText(pill),
       ),

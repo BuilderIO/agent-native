@@ -136,8 +136,9 @@ export function InlineMarkdown({
         {children}
       </blockquote>
     ),
+    // Wraps rather than scrolls sideways, which a keyboard can't reach.
     pre: ({ children }) => (
-      <pre className="overflow-x-auto rounded bg-muted p-2 [&>code]:bg-transparent [&>code]:p-0">
+      <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 [&>code]:bg-transparent [&>code]:p-0">
         {children}
       </pre>
     ),
