@@ -398,9 +398,10 @@ blanket instruction, the approval may proceed only after the full diff and
 safety review above. A non-waivable gate always blocks approval, even under the
 blanket instruction; if one applies, do not submit an approval and flag the
 exact concern and evidence needed to resolve it. External or unverified authors
-never receive an approval review, but outside Factory governance their PRs can
-still be merged when they meet the readiness gate below. Confirmed external PRs
-must also pass the external-contribution scope gate; external work that needs a
+never receive an approval review. Outside Factory governance, their PRs may
+still be assessed for code readiness, but merging requires Steve's explicit
+request for that PR and all readiness gates below. Confirmed external PRs must
+also pass the external-contribution scope gate; external work that needs a
 major product call or a new framework API remains stopped at Steve's approval
 gate. For unknown membership, do not apply the external scope gate solely
 because verification failed; preserve the no-approval outcome, assess readiness
