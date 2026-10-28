@@ -18,27 +18,52 @@ function safeDiagnosticToken(value: unknown): string | undefined {
     : undefined;
 }
 
-function routeFailureEvidence(err: unknown, message: string): string {
-  const error = err as Record<string, unknown> | null | undefined;
-  const cause = error?.cause as Record<string, unknown> | null | undefined;
-  const errorName = safeDiagnosticToken(error?.name) ?? "NonError";
-  const errorCode =
-    safeDiagnosticToken(error?.code) ?? safeDiagnosticToken(cause?.code);
-  const causeName = safeDiagnosticToken(cause?.name);
-  const errorMessage =
-    /^Background worker returned HTTP ([45]\d\d)(?: code=([A-Za-z0-9_]{1,64}))?$/.exec(
-      message,
-    );
-  const evidence = [
-    `errorName=${errorName}`,
-    ...(errorCode ? [`errorCode=${errorCode}`] : []),
-    ...(errorMessage?.[1] ? [`httpStatus=${errorMessage[1]}`] : []),
-    ...(!errorCode && errorMessage?.[2]
-      ? [`errorCode=${errorMessage[2]}`]
-      : []),
-    ...(causeName ? [`causeName=${causeName}`] : []),
-  ];
-  return `${evidence.join(" ")} failure=${message}`;
+function readFailureMessage(err: unknown): {
+  message: string;
+  readable: boolean;
+} {
+  try {
+    return {
+      message: err instanceof Error ? err.message : String(err),
+      readable: true,
+    };
+  } catch {
+    return { message: "unreadable thrown value", readable: false };
+  }
+}
+
+function routeFailureEvidence(
+  err: unknown,
+  message: string,
+  messageReadable: boolean,
+): string {
+  try {
+    const error = err as Record<string, unknown> | null | undefined;
+    const cause = error?.cause as Record<string, unknown> | null | undefined;
+    const errorName =
+      safeDiagnosticToken(error?.name) ??
+      (err instanceof Error ? "unknown" : "NonError");
+    const errorCode =
+      safeDiagnosticToken(error?.code) ?? safeDiagnosticToken(cause?.code);
+    const causeName = safeDiagnosticToken(cause?.name);
+    const errorMessage =
+      /^Background worker returned HTTP ([45]\d\d)(?: code=([A-Za-z0-9_]{1,64}))?$/.exec(
+        message,
+      );
+    const evidence = [
+      ...(!messageReadable ? ["errorMetadata=unreadable"] : []),
+      `errorName=${errorName}`,
+      ...(errorCode ? [`errorCode=${errorCode}`] : []),
+      ...(errorMessage?.[1] ? [`httpStatus=${errorMessage[1]}`] : []),
+      ...(!errorCode && errorMessage?.[2]
+        ? [`errorCode=${errorMessage[2]}`]
+        : []),
+      ...(causeName ? [`causeName=${causeName}`] : []),
+    ];
+    return `${evidence.join(" ")} failure=${message}`;
+  } catch {
+    return `errorMetadata=unreadable failure=${message}`;
+  }
 }
 
 export async function finalizeClaimedAgentChatProcessRunFailure(
@@ -51,12 +76,12 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
   const finalizeFailure =
     deps.finalizeClaimedBackgroundRunFailure ??
     finalizeClaimedBackgroundRunFailure;
-  const message = err instanceof Error ? err.message : String(err);
+  const { message, readable } = readFailureMessage(err);
 
   await record(
     runId,
     RUN_DIAG_STAGE.routeThrew,
-    routeFailureEvidence(err, message),
+    routeFailureEvidence(err, message, readable),
   ).catch(() => {});
 
   const claim = await readClaim(runId);

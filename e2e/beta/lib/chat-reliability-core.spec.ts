@@ -1105,19 +1105,34 @@ test("active-run diagnostics omit token-shaped raw failure detail", () => {
     diagStage: JSON.stringify({
       stage: "route_threw",
       detail:
-        "errorName=Error errorCode=dispatch_timeout httpStatus=503 failure=PRIVATE_DETAIL errorCode=customer_secret httpStatus=500 causeName=PrivateError",
+        "errorMetadata=unreadable errorName=Error errorCode=dispatch_timeout httpStatus=503 failure=PRIVATE_DETAIL errorCode=customer_secret httpStatus=500 causeName=PrivateError",
     }),
   });
 
   const detail = JSON.parse(view.detail);
   assert.equal(
     detail.diagEvidence,
-    "errorName=Error errorCode=dispatch_timeout httpStatus=503",
+    "errorMetadata=unreadable errorName=Error errorCode=dispatch_timeout httpStatus=503",
   );
   assert.doesNotMatch(
     view.detail,
     /PRIVATE_DETAIL|customer_secret|PrivateError/,
   );
+});
+
+test("legacy route failures without an evidence boundary expose no tokens", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "route_threw",
+      detail: "legacy failure errorCode=customer_secret httpStatus=500",
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(detail.diagEvidence, null);
+  assert.doesNotMatch(view.detail, /customer_secret|httpStatus=500/);
 });
 
 test("text helpers", () => {

@@ -847,7 +847,7 @@ describe("agent chat process-run failure finalization", () => {
     expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-claimed",
       "route_threw",
-      expect.stringContaining("setup exploded"),
+      "errorName=Error errorCode=missing_execution_fence failure=setup exploded",
     );
     expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalledWith(
       "run-claimed",

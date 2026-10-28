@@ -101,6 +101,23 @@ describe("claimed agent chat process-run failure diagnostics", () => {
     );
   });
 
+  it("does not label an error with an unsafe name as a non-error", async () => {
+    const d = deps();
+    const error = Object.assign(new Error("setup exploded"), {
+      name: "Private Error",
+    });
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure("run-12", error, d),
+    ).resolves.toBe(true);
+
+    expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-12",
+      "route_threw",
+      "errorName=unknown failure=setup exploded",
+    );
+  });
+
   it("omits non-string error codes", async () => {
     const d = deps();
     const error = Object.assign(new Error("setup exploded"), { code: 503 });
@@ -157,5 +174,47 @@ describe("claimed agent chat process-run failure diagnostics", () => {
       "route_threw",
       "errorName=Error failure=Background worker returned HTTP 503 code=dispatch_timeout extra",
     );
+  });
+
+  it("keeps unreadable error metadata from interrupting failure finalization", async () => {
+    const d = deps();
+    const error = new Error("setup exploded");
+    Object.defineProperty(error, "cause", {
+      get() {
+        throw new Error("private getter detail");
+      },
+    });
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure("run-10", error, d),
+    ).resolves.toBe(true);
+
+    expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-10",
+      "route_threw",
+      "errorMetadata=unreadable failure=setup exploded",
+    );
+    expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalled();
+  });
+
+  it("marks unreadable failure messages in diagnostics", async () => {
+    const d = deps();
+    const error = new Error();
+    Object.defineProperty(error, "message", {
+      get() {
+        throw new Error("private getter detail");
+      },
+    });
+
+    await expect(
+      finalizeClaimedAgentChatProcessRunFailure("run-11", error, d),
+    ).resolves.toBe(true);
+
+    expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-11",
+      "route_threw",
+      "errorMetadata=unreadable errorName=Error failure=unreadable thrown value",
+    );
+    expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalled();
   });
 });
