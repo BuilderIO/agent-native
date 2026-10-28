@@ -4280,6 +4280,46 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("drops a cleared draft back to the last completed tool", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          { type: "text", text: "Checking the forms." },
+          { type: "tool_start", id: "tool-1", tool: "list-forms", input: {} },
+          { type: "tool_done", id: "tool-1", tool: "list-forms", result: "ok" },
+          { type: "thinking", text: "Drafting the answer." },
+          { type: "text", text: "You have three forms." },
+          { type: "clear" },
+          { type: "thinking", text: "Checking the receipts." },
+          { type: "text", text: "You have two forms." },
+          { type: "done" },
+        ]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-cleared-draft",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: "How many forms?" });
+    const events = await drain(turn.events);
+
+    expect(events.find((event) => event.type === "message-done")).toMatchObject(
+      {
+        message: {
+          content: [
+            { type: "text", text: "Checking the forms." },
+            { type: "reasoning", text: "Checking the receipts." },
+            { type: "text", text: "You have two forms." },
+          ],
+        },
+      },
+    );
+  });
+
   it("forwards queued promotion identity with a stable turn ID", async () => {
     const fetchMock = vi
       .fn()

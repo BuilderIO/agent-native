@@ -28,6 +28,7 @@ import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
   appendMissingFinalResponseWarning,
+  clearAssistantDraftContent,
   findApprovalToolCallIndex,
   type ContentPart,
   type SSEEvent,
@@ -4120,6 +4121,13 @@ function mapAgentNativeEvent(
   };
   if (ev.type === "auto_continue") {
     return [{ type: "continuation", ...base }];
+  }
+  // No protocol event removes streamed text, so the cleared draft reaches the
+  // screen through message-done; skipping this leaves the saved reply as a
+  // suffix of the live one, and reload renders it as a second reply.
+  if (ev.type === "clear") {
+    clearAssistantDraftContent(input.message.content);
+    return [];
   }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
