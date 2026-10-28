@@ -552,10 +552,16 @@ export async function resolveOAuthCredentialAccess<
         options.legacyAccountKey === true,
       );
       state = await readStoredOAuthCredentialState<T>(identity, {
-        allowLegacy: options.allowLegacy,
-        legacyAccountKey: options.legacyAccountKey,
+        ...(options.allowLegacy !== undefined
+          ? { allowLegacy: options.allowLegacy }
+          : {}),
+        ...(options.legacyAccountKey !== undefined
+          ? { legacyAccountKey: options.legacyAccountKey }
+          : {}),
         now: dependencies.now(),
-        validateCredential: options.validateCredential,
+        ...(options.validateCredential
+          ? { validateCredential: options.validateCredential }
+          : {}),
       });
       return {
         state,
@@ -567,10 +573,7 @@ export async function resolveOAuthCredentialAccess<
     }
     return {
       state,
-      accessToken:
-        state.kind === "connected" && !options.forceRefresh
-          ? state.credential.tokens.access_token
-          : null,
+      accessToken: state.credential.tokens.access_token,
     };
   }
 
@@ -741,10 +744,16 @@ export async function resolveOAuthCredentialAccess<
               const reconnect = await readStoredOAuthCredentialState<T>(
                 identity,
                 {
-                  allowLegacy: options.allowLegacy,
-                  legacyAccountKey: options.legacyAccountKey,
+                  ...(options.allowLegacy !== undefined
+                    ? { allowLegacy: options.allowLegacy }
+                    : {}),
+                  ...(options.legacyAccountKey !== undefined
+                    ? { legacyAccountKey: options.legacyAccountKey }
+                    : {}),
                   now: dependencies.now(),
-                  validateCredential: options.validateCredential,
+                  ...(options.validateCredential
+                    ? { validateCredential: options.validateCredential }
+                    : {}),
                 },
               );
               return { state: reconnect, accessToken: null };

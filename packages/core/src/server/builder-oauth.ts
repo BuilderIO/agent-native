@@ -450,7 +450,9 @@ export async function getBuilderOAuthSession(
     try {
       accessToken = await getMcpOAuthAccessToken({
         ...options,
-        forceRefresh: access.forceRefresh,
+        ...(access.forceRefresh !== undefined
+          ? { forceRefresh: access.forceRefresh }
+          : {}),
         throwOnTransientRefreshFailure: true,
         shouldMarkReconnectRequiredOnRefreshFailure:
           shouldMarkBuilderReconnectRequiredOnRefreshFailure,
