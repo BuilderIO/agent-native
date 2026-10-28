@@ -10,7 +10,10 @@ describe("recording chapter scrolling", () => {
   it.each([680, 900])(
     "reaches the last chapter at %spx height",
     async (height) => {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await chromium.launch({
+        headless: true,
+        ...(process.env.CI ? { channel: "chrome" } : {}),
+      });
       try {
         const page = await browser.newPage({
           viewport: { width: 1440, height },
