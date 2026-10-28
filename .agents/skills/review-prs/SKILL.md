@@ -29,8 +29,9 @@ final decision; readiness alone does not authorize a merge. Factory governance
 never performs or invokes a merge: only the
 designated Factory workflow may merge a Builder PR after its merge gate. Outside
 Factory governance, merge only when Steve explicitly requests the merge for that
-PR, using the applicable merge path below. Factory governance skips confirmed
-external authors. Other invocations apply the external-contribution gate below;
+PR, using the applicable merge path below. Factory governance records a manual
+disposition for confirmed external authors through its action and never
+approves them. Other invocations apply the external-contribution gate below;
 external authors are never eligible for an approval review. Surface external
 work that needs a major product call or a new framework API for Steve's
 explicit approval before a full review or merge; a scheduled or manual sweep is
@@ -58,8 +59,10 @@ author and draft state:
    them to the end-of-run recap.
 
  - Verify each remaining human author's current BuilderIO membership using the
-   organization membership API below. For a confirmed nonmember in Factory
-   governance, skip the PR completely. In other invocations, apply the
+   organization membership API below. In Factory governance, still call
+   `govern-factory-pull-request` for a confirmed nonmember so it records a
+   manual disposition. Do not use the manual external-scope or reply path for
+   that PR, and never approve it. In other invocations, apply the
    external-contribution scope gate before reading review summaries or entering
    the evidence sweep. For all PRs that pass that gate, read the current review
    summary to determine whether the PR already has a current, non-dismissed
@@ -158,7 +161,11 @@ review findings, and current check results needed to identify non-waivable
 safety concerns. The approval can serve as code-review evidence in a later
 readiness pass only because this path requires that full diff review; it remains
 reusable only under the reviewer eligibility, current-head, and no-newer-event
-rules above. Do not infer a code assessment from the blanket instruction alone.
+rules above. It cannot satisfy a required independent-review gate: when that
+gate applies, require a separate, non-dismissed, current-head `APPROVED` review
+from a verified current BuilderIO member other than the blanket approver. Do
+not count or reuse the blanket approval as independent-review evidence. Do not
+infer a code assessment from the blanket instruction alone.
 
 For each eligible PR, record the head whose complete diff was reviewed. Re-read
 the live head immediately before acting. If it changed during or after review,
