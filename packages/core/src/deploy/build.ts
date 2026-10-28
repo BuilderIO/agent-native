@@ -4535,12 +4535,17 @@ export function collectNamedImportsFrom(code: string, mod: string): string[] {
   );
   const names: string[] = [];
   for (const m of code.matchAll(re)) {
-    for (const part of m[1].split(",")) {
+    const clause = m[1];
+    if (!clause) continue;
+    for (const part of clause.split(",")) {
       const name = part
         .trim()
         .split(/\s+as\s+/)[0]
-        .trim();
-      if (name && /^[a-zA-Z_$]/.test(name)) names.push(name);
+        ?.trim();
+      // `default` is re-exported on its own and can't be an `export const`.
+      if (name && name !== "default" && /^[a-zA-Z_$]/.test(name)) {
+        names.push(name);
+      }
     }
   }
   return names;
@@ -4569,14 +4574,22 @@ export function cloudflareExternalBundleEntry(
   neededExports: Iterable<string>,
 ): string {
   const names = Array.from(neededExports);
+  // The entry's own bindings must not collide with an exported name.
+  const localName = (base: string) => {
+    let name = base;
+    while (names.includes(name)) name = `_${name}`;
+    return name;
+  };
+  const ns = localName("_ns");
+  const mod = localName("_mod");
   return [
-    `import * as _ns from "${resolvedMod}";`,
-    `const _mod = _ns.default ?? _ns;`,
-    `export default _mod;`,
+    `import * as ${ns} from "${resolvedMod}";`,
+    `const ${mod} = ${ns}.default ?? ${ns};`,
+    `export default ${mod};`,
     ...(names.length > 0
       ? names.map(
           (n) =>
-            `export const ${n} = ${JSON.stringify(n)} in _ns ? _ns.${n} : _mod?.${n};`,
+            `export const ${n} = ${JSON.stringify(n)} in ${ns} ? ${ns}.${n} : ${mod}?.${n};`,
         )
       : [`export * from "${resolvedMod}";`]),
   ].join("\n");

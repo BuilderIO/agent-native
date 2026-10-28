@@ -1337,6 +1337,12 @@ describe("Cloudflare module bare externals", () => {
     ).toEqual(["a", "d"]);
   });
 
+  it("leaves out a default export imported by name", () => {
+    expect(
+      collectNamedImportsFrom('import{default as d,a}from"pkg";', "pkg"),
+    ).toEqual(["a"]);
+  });
+
   it("still matches minified imports", () => {
     const code = 'import{a,b as c}from"pkg";export*from"pkg";';
 
@@ -1384,6 +1390,39 @@ describe("Cloudflare module bare externals", () => {
     );
     expect(legacy.run()).toBe("cjs");
     expect(legacy.default.run()).toBe("cjs");
+  });
+
+  it("bundles a module whose exports share names with the entry's own bindings", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "colliding.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const _ns = 'ns';\nexport const _mod = 'mod';\nexport const __ns = 'ns2';\n",
+    );
+    const outFile = path.join(dir, "colliding-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["_ns", "_mod", "__ns"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod._ns).toBe("ns");
+    expect(mod._mod).toBe("mod");
+    expect(mod.__ns).toBe("ns2");
   });
 
   it("keeps a named export whose value is null instead of the default export's property", async () => {
