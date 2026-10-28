@@ -97,6 +97,22 @@ export interface CommentThreadBlock {
   blockType: string;
 }
 
+/**
+ * A thread on a Clip placed in the page, saved in Clips rather than with the
+ * page's own comments.
+ */
+export interface CommentThreadClip {
+  recordingId: string;
+  /** The thread's id in Clips. */
+  threadId: string;
+  /** The moment of the Clip's video the thread is at. */
+  videoTimestampMs: number;
+  /** Clips takes replies on this Clip from the reader. */
+  canComment: boolean;
+  /** Clips lets the reader resolve it: they wrote it, or own the Clip. */
+  canResolve: boolean;
+}
+
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
@@ -108,6 +124,7 @@ export interface CommentThread {
   /** Set when the thread is in a Blocks field tab other than the body. */
   field?: CommentThreadField | null;
   block?: CommentThreadBlock | null;
+  clip?: CommentThreadClip | null;
   resolved: boolean;
   comments: Comment[];
 }

@@ -15,6 +15,11 @@ import {
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import {
+  seekClip,
+  useClipCommentHost,
+  type ClipCommentHost,
+} from "./clip-comments";
 import type { ClipUpload } from "./clip-uploads";
 import { ClipEmbed, ClipEmbedRead } from "./ClipEmbedBlock";
 
@@ -122,14 +127,27 @@ function playback(overrides?: {
   };
 }
 
-const markers = [
+const threads = [
   {
     id: "c1",
     videoTimestampMs: 4_000,
     content: "Look here",
     authorName: "Ada Example",
+    authorEmail: "ada@example.test",
+    createdAt: "2026-10-23T12:00:00.000Z",
+    replyCount: 0,
+    replies: [],
   },
-  { id: "c2", videoTimestampMs: 9_500, content: "And here", authorName: null },
+  {
+    id: "c2",
+    videoTimestampMs: 9_500,
+    content: "And here",
+    authorName: null,
+    authorEmail: null,
+    createdAt: "2026-10-23T12:01:00.000Z",
+    replyCount: 0,
+    replies: [],
+  },
 ];
 
 let root: Root | null = null;
@@ -152,7 +170,7 @@ beforeEach(() => {
   toasts.success.mockReset();
   queries.byName = {
     "get-clip-playback": fakeQuery(playback()),
-    "list-clip-comments": fakeQuery({ markers, truncated: false }),
+    "list-clip-comments": fakeQuery({ threads, truncated: false }),
     "get-clips-links": fakeQuery({
       appUrl: "https://clips.example.test",
       linkOrigins: ["https://clips.example.test"],
@@ -238,7 +256,7 @@ describe("ClipEmbed", () => {
     expect(container.textContent).not.toContain("clipEmbed.commentsTruncated");
 
     queries.byName["list-clip-comments"] = fakeQuery({
-      markers,
+      threads,
       truncated: true,
     });
     render();
@@ -252,7 +270,7 @@ describe("ClipEmbed", () => {
 
   it("keeps the markers it had when a later comment read fails, and says so", () => {
     queries.byName["list-clip-comments"] = fakeQuery(
-      { markers },
+      { threads, truncated: false },
       refusal("clips_unreachable"),
     );
     render();
@@ -408,6 +426,108 @@ describe("ClipEmbed", () => {
     expect(container.querySelector("video, iframe")).toBeNull();
     expect(container.textContent).toContain("clipEmbed.playsInClipsOnly");
     expect(container.textContent).toContain("clipEmbed.openInClips");
+  });
+});
+
+describe("ClipEmbed beside the page's comment margin", () => {
+  function margin(overrides?: Partial<ClipCommentHost>): ClipCommentHost {
+    return {
+      canCompose: true,
+      compose: vi.fn(),
+      openThread: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  function renderBeside(host: ClipCommentHost) {
+    function Margin() {
+      useClipCommentHost("doc_1", host);
+      return null;
+    }
+    act(() =>
+      defined(root).render(
+        <TooltipProvider>
+          <Margin />
+          <ClipEmbed documentId="doc_1" recordingId="rec_1" />
+        </TooltipProvider>,
+      ),
+    );
+  }
+
+  const commentButton = () =>
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="clipEmbed.comment"]',
+    );
+
+  it("starts a comment in the margin at the paused playhead", async () => {
+    const host = margin();
+    renderBeside(host);
+    const video = defined(container.querySelector("video"));
+    await act(async () => {
+      video.currentTime = 6.25;
+      await video.play();
+    });
+    act(() => defined(commentButton()).click());
+    expect(video.paused).toBe(true);
+    expect(host.compose).toHaveBeenCalledWith("rec_1", 6_250);
+  });
+
+  it("offers Comment only when the page and Clips both take the reader's comment", () => {
+    render();
+    expect(commentButton()).toBeNull();
+
+    renderBeside(margin({ canCompose: false }));
+    expect(commentButton()).toBeNull();
+
+    // A player keeps the grant it started with, so this one starts over.
+    act(() => defined(root).unmount());
+    root = createRoot(container);
+    queries.byName["get-clip-playback"] = fakeQuery({
+      ...playback(),
+      viewer: { isOwner: false, canComment: false },
+    });
+    renderBeside(margin());
+    expect(commentButton()).toBeNull();
+  });
+
+  it("opens a marker's thread in the margin and seeks to it", () => {
+    const host = margin();
+    renderBeside(host);
+    const video = defined(container.querySelector("video"));
+    act(() =>
+      defined(
+        container.querySelector<HTMLButtonElement>(
+          '[data-player-comment-marker][aria-label^="clipEmbed.commentsAtOne"]',
+        ),
+      ).click(),
+    );
+    expect(host.openThread).toHaveBeenCalledWith("clip:rec_1:c1");
+    expect(video.currentTime).toBe(4);
+  });
+
+  it("names its threads for the margin to place beside it, and moves when a card asks", () => {
+    renderBeside(margin());
+    expect(
+      container
+        .querySelector("[data-clip-comment-threads]")
+        ?.getAttribute("data-clip-comment-threads"),
+    ).toBe("clip:rec_1:c1 clip:rec_1:c2");
+
+    act(() => void seekClip("doc_1", "rec_1", 9_500));
+    expect(defined(container.querySelector("video")).currentTime).toBe(9.5);
+  });
+
+  it("shows its owner the comments it has while they're off, with no Comment button", () => {
+    queries.byName["get-clip-playback"] = fakeQuery({
+      ...playback({ recording: { enableComments: false } }),
+      viewer: { isOwner: true, canComment: false },
+    });
+    renderBeside(margin());
+    expect(queries.options["list-clip-comments"]?.enabled).toBe(true);
+    expect(
+      container.querySelectorAll("[data-player-comment-marker]"),
+    ).toHaveLength(2);
+    expect(commentButton()).toBeNull();
   });
 });
 

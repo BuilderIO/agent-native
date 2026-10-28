@@ -1,7 +1,6 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import {
   isClipPlaybackErrorCode,
-  type ClipCommentMarker,
   type ClipPlayback,
   type ClipPlaybackErrorCode,
 } from "@shared/clips-peer-contract";
@@ -12,9 +11,11 @@ import {
   grantRefreshDelay,
   youtubeEmbedSrc,
 } from "./clip-media";
+import type { ClipCommentList } from "./use-clip-comment-writes";
+import type { ClipThreadView } from "./clip-comments";
 
 /** No write changes a grant, so Clip queries refetch only when asked. */
-const CLIP_PLAYBACK_RESOURCE = "clip-playback";
+export const CLIP_PLAYBACK_RESOURCE = "clip-playback";
 
 /**
  * How a tab asks about a Clip still being made while it shows it: `first`,
@@ -320,21 +321,21 @@ export function useClipPlayback(
   };
 }
 
-export type ClipMarkersState =
+export type ClipCommentsState =
   | { status: "loading" }
   /** `truncated`: Clips has more threads than the first ones listed. */
-  | { status: "ready"; markers: ClipCommentMarker[]; truncated: boolean }
+  | { status: "ready"; threads: ClipThreadView[]; truncated: boolean }
   | { status: "off" }
-  /** Markers from an earlier answer may still be there to show. */
-  | { status: "failed"; markers: ClipCommentMarker[] };
+  /** Threads from an earlier answer may still be there to show. */
+  | { status: "failed"; threads: ClipThreadView[] };
 
-/** The Clip's comment threads for the scrubber, when its comments are on. */
-export function useClipMarkers(
+/** The Clip's open comment threads, when the reader may see them. */
+export function useClipComments(
   documentId: string,
   recordingId: string,
   commentsOn: boolean,
-): ClipMarkersState {
-  const query = useActionQuery(
+): ClipCommentsState {
+  const query = useActionQuery<ClipCommentList>(
     "list-clip-comments",
     { documentId, recordingId },
     {
@@ -350,12 +351,12 @@ export function useClipMarkers(
     // Comments turned off after the grant was issued: same as off.
     return errorCodeOf(query.error) === "clip_comments_disabled"
       ? { status: "off" }
-      : { status: "failed", markers: query.data?.markers ?? [] };
+      : { status: "failed", threads: query.data?.threads ?? [] };
   }
   if (query.data) {
     return {
       status: "ready",
-      markers: query.data.markers,
+      threads: query.data.threads,
       truncated: query.data.truncated,
     };
   }
