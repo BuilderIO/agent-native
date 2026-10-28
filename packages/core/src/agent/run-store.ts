@@ -426,12 +426,6 @@ export const agentRunsStore = defineStore({
       name: "thread-projection-retry-quarantine-runtime-schema",
       run: async (exec) => {
         await exec.execute({
-          sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
-        });
-        await exec.execute({
-          sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
-        });
-        await exec.execute({
           sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT",
         });
         await exec.execute({

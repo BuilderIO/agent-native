@@ -425,10 +425,6 @@
     {
       "name": "viewer-state",
       "checksum": "12d60e0fc4587fc5"
-    },
-    {
-      "name": "submission-inbox-runtime-schema",
-      "checksum": null
     }
   ],
   "checkpoints": [
