@@ -101,6 +101,8 @@ export interface GitHubIssue {
 }
 
 export interface GitHubPullRequestSummary extends GitHubPullRequest {
+  /** Current GitHub assignees, identified by immutable user ID and login. */
+  assignees: readonly GitHubPullRequestAssignee[];
   /** `owner/name` of the repository the branch is pushed to; null once GitHub no longer has it (a deleted fork). */
   headRepository: string | null;
   /** `owner/name` of the repository the pull request merges into. */
@@ -113,6 +115,11 @@ export interface GitHubPullRequestSummary extends GitHubPullRequest {
   mergeable: boolean | null;
   mergeableState: string | null;
   reviewComments: number;
+}
+
+export interface GitHubPullRequestAssignee {
+  id: number;
+  login: string;
 }
 
 export interface GitHubMemberCheck {
@@ -324,6 +331,24 @@ function parsePullRequestRepositories(
       "pull request base default branch",
     ),
   };
+}
+
+function parsePullRequestAssignees(
+  value: unknown,
+): GitHubPullRequestAssignee[] {
+  return requireArray(value, "pull request assignees").map((assignee) => {
+    const item = record(assignee);
+    const id = requiredNumber(item.id, "pull request assignee ID");
+    if (!Number.isInteger(id) || id < 1) {
+      throw new Error(
+        "GitHub response has an invalid pull request assignee ID",
+      );
+    }
+    return {
+      id,
+      login: requiredString(item.login, "pull request assignee login"),
+    };
+  });
 }
 
 function requireArray(value: unknown, field: string): unknown[] {
@@ -1050,6 +1075,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       const pullRequest = parsePullRequest(item);
       return {
         ...pullRequest,
+        assignees: parsePullRequestAssignees(item.assignees),
         ...parsePullRequestRepositories(item),
         additions: requiredNumber(item.additions, "pull request additions"),
         deletions: requiredNumber(item.deletions, "pull request deletions"),

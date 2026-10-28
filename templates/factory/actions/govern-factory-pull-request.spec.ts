@@ -189,6 +189,9 @@ async function seedItem(
 function governanceGitHub(input: {
   currentApproval?: boolean;
   changedFiles?: string[];
+  headRepository?: string | null;
+  assignees?: Array<{ id: number; login: string }>;
+  assigneeMember?: boolean;
   internalMember?: boolean;
   passingChecks?: boolean;
   revalidatedSummary?: Record<string, unknown>;
@@ -199,7 +202,12 @@ function governanceGitHub(input: {
     number: 42,
     userId: 123,
     userLogin: input.internalMember ? "internal-author" : "external-author",
-    headRepository: "BuilderIO/agent-native",
+    headRepository:
+      input.headRepository === undefined
+        ? "BuilderIO/agent-native"
+        : input.headRepository,
+    baseRepository: "BuilderIO/agent-native",
+    assignees: input.assignees ?? [],
     ...(input.internalMember
       ? { body: "Factory item: item-1", headRef: "factory/item-1" }
       : {}),
@@ -231,9 +239,14 @@ function governanceGitHub(input: {
     listPullRequestChangedFiles: vi
       .fn()
       .mockResolvedValue(input.changedFiles ?? []),
-    checkOrganizationMemberById: vi.fn().mockResolvedValue({
-      isMember: input.internalMember ?? false,
-    }),
+    checkOrganizationMemberById: vi.fn(
+      async (_organization: string, userId: number) => ({
+        isMember:
+          userId === 123
+            ? (input.internalMember ?? false)
+            : (input.assigneeMember ?? false),
+      }),
+    ),
     createPullRequestReview: vi.fn(),
     approvePullRequest: vi.fn(async () => {
       await input.beforeApprovalReturn?.();
@@ -381,6 +394,102 @@ describe("govern-factory-pull-request final check evidence", () => {
       reason: expect.stringContaining("does not approve external authors"),
     });
     expect(github.createPullRequestReview).not.toHaveBeenCalled();
+  });
+
+  it("skips an external fork assigned to a verified BuilderIO member before fetching evidence", async () => {
+    await seedItem("pr_observed");
+    const github = governanceGitHub({
+      headRepository: "contributor/fork",
+      assignees: [{ id: 456, login: "builder-assignee" }],
+      assigneeMember: true,
+      changedFiles: ["src/change.ts"],
+    });
+
+    const result = await runGovernance(github);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decisions = await db
+      .select({ id: triageDecisions.id })
+      .from(triageDecisions);
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: "skipped",
+      reason: expect.stringContaining(
+        "assigned to a verified BuilderIO member",
+      ),
+    });
+    expect(github.checkOrganizationMemberById).toHaveBeenCalledTimes(2);
+    expect(github.checkOrganizationMemberById).toHaveBeenNthCalledWith(
+      1,
+      "BuilderIO",
+      123,
+      "external-author",
+    );
+    expect(github.checkOrganizationMemberById).toHaveBeenNthCalledWith(
+      2,
+      "BuilderIO",
+      456,
+      "builder-assignee",
+    );
+    expect(github.getPullRequestEvidence).not.toHaveBeenCalled();
+    expect(github.listPullRequestChangedFiles).not.toHaveBeenCalled();
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+    expect(recordFactoryAuditMock).not.toHaveBeenCalled();
+    expect(decisions).toEqual([]);
+    expect(item.status).toBe("pr_observed");
+  });
+
+  it.each(["merged", "resolved", "dismissed"] as const)(
+    "reports a terminal %s item as skipped when changed-file evidence is missing",
+    async (status) => {
+      await seedItem(status);
+      const result = await runGovernance(
+        governanceGitHub({ changedFiles: [] }),
+      );
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+      const decisions = await db
+        .select({ id: triageDecisions.id })
+        .from(triageDecisions);
+
+      expect(result).toMatchObject({
+        ok: true,
+        action: "skipped",
+        reason: expect.stringContaining(`already ${status}`),
+      });
+      expect(item.status).toBe(status);
+      expect(decisions).toEqual([]);
+    },
+  );
+
+  it("does not report a terminal external item as needing disposition", async () => {
+    await seedItem("merged");
+    const result = await runGovernance(
+      governanceGitHub({
+        currentApproval: true,
+        changedFiles: ["src/change.ts"],
+      }),
+    );
+    const decisions = await db
+      .select({ id: triageDecisions.id })
+      .from(triageDecisions);
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: "skipped",
+      reason: expect.stringContaining("already merged"),
+    });
+    expect(recordFactoryAuditMock).not.toHaveBeenCalled();
+    expect(decisions).toEqual([]);
   });
 
   it.each([

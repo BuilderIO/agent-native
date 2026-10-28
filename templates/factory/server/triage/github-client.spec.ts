@@ -1064,6 +1064,7 @@ describe("GitHub client reads and merges for workflows", () => {
           mergeable: null,
           mergeable_state: null,
           review_comments: 0,
+          assignees: [],
         }),
       ),
     });
@@ -1095,6 +1096,7 @@ describe("getPullRequestSummary: where the pull request comes from", () => {
     mergeable: true,
     mergeable_state: "clean",
     review_comments: 0,
+    assignees: [],
   });
   const summaryOf = (body: unknown) =>
     createGitHubClient({
@@ -1111,6 +1113,48 @@ describe("getPullRequestSummary: where the pull request comes from", () => {
       baseRepository: "acme/app",
       baseDefaultBranch: "trunk",
     });
+  });
+
+  it("reads assignee identities from the live pull request", async () => {
+    await expect(
+      summaryOf(payload({ full_name: "someone/app" }, base)),
+    ).resolves.toMatchObject({ assignees: [] });
+
+    await expect(
+      summaryOf({
+        ...payload({ full_name: "someone/app" }, base),
+        assignees: [{ id: 1001, login: "builder-member" }],
+      }),
+    ).resolves.toMatchObject({
+      assignees: [{ id: 1001, login: "builder-member" }],
+    });
+  });
+
+  it.each([undefined, null, {}])(
+    "rejects missing or malformed assignee collections: %s",
+    async (assignees) => {
+      await expect(
+        summaryOf({
+          ...payload({ full_name: "someone/app" }, base),
+          assignees,
+        }),
+      ).rejects.toThrow(
+        "GitHub pull request assignees response was not an array",
+      );
+    },
+  );
+
+  it.each([
+    [{ login: "builder-member" }, /missing pull request assignee ID/],
+    [{ id: 1001 }, /missing pull request assignee login/],
+    [{ id: 0, login: "builder-member" }, /invalid pull request assignee ID/],
+  ])("rejects malformed assignee identities: %s", async (assignee, error) => {
+    await expect(
+      summaryOf({
+        ...payload({ full_name: "someone/app" }, base),
+        assignees: [assignee],
+      }),
+    ).rejects.toThrow(error);
   });
 
   it("reads a deleted fork as no head repository, and an unreadable answer as an error", async () => {

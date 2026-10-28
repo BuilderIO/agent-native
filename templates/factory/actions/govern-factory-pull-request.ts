@@ -78,6 +78,10 @@ export function hasSafeFinalApprovalGateEvidence(
   );
 }
 
+type ManualDispositionResult =
+  | { kind: "recorded" }
+  | { kind: "terminal"; status: "merged" | "resolved" | "dismissed" };
+
 async function recordManualPullRequestDisposition(input: {
   factoryId: string;
   headSha: string;
@@ -85,7 +89,7 @@ async function recordManualPullRequestDisposition(input: {
   orgId: string;
   ownerEmail: string;
   reason: string;
-}): Promise<void> {
+}): Promise<ManualDispositionResult> {
   const now = new Date().toISOString();
   const decisionId = stableId(
     "pr-governance-manual",
@@ -93,7 +97,7 @@ async function recordManualPullRequestDisposition(input: {
     input.itemId,
     input.headSha,
   );
-  await getDb().transaction(async (tx) => {
+  return getDb().transaction(async (tx) => {
     const updatedItems = await tx
       .update(triageItems)
       .set({ status: "needs_manual", updatedAt: now })
@@ -135,7 +139,7 @@ async function recordManualPullRequestDisposition(input: {
         case "merged":
         case "resolved":
         case "dismissed":
-          return;
+          return { kind: "terminal", status: existingItem.status };
         default:
           fail("Factory item changed while recording PR disposition.", {
             errorCode: "factory_item_status_changed",
@@ -170,6 +174,7 @@ async function recordManualPullRequestDisposition(input: {
           ownerEmail: input.ownerEmail,
         },
       });
+    return { kind: "recorded" };
   });
 }
 
@@ -233,7 +238,7 @@ async function hasVerifiedFactoryRun(input: {
 
 export default defineAction({
   description:
-    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Shomix (shomix, GitHub user ID 100691266, BuilderIO/agent-native), Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. External authors are left for manual disposition even when an approval already exists. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
+    "Govern one pull request in the configured Factory repository using bounded GitHub evidence. Approve only under the current review-prs membership, Shomix (shomix, GitHub ID 100691266), Liam (liamdebeasi), owner, evidence, and ultra-scary gates. Route eligible external authors to manual disposition, skip external fork pull requests assigned to verified BuilderIO members, and keep Clips, Design, and Content feedback owner-managed with verified PR-owner exceptions. Never merge.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
@@ -336,6 +341,35 @@ export default defineAction({
           : "Pull request is not open and is excluded before evidence review.",
       };
     }
+    let internalMember:
+      | Awaited<ReturnType<typeof github.checkOrganizationMemberById>>
+      | undefined;
+    if (pullRequest.headRepository !== pullRequest.baseRepository) {
+      internalMember = await github.checkOrganizationMemberById(
+        "BuilderIO",
+        pullRequest.userId,
+        pullRequest.userLogin,
+      );
+      if (!internalMember.isMember) {
+        const assigneeMembership = await Promise.all(
+          pullRequest.assignees.map((assignee) =>
+            github.checkOrganizationMemberById(
+              "BuilderIO",
+              assignee.id,
+              assignee.login,
+            ),
+          ),
+        );
+        if (assigneeMembership.some((assignee) => assignee.isMember)) {
+          return {
+            ok: true,
+            action: "skipped",
+            reason:
+              "This external fork pull request is assigned to a verified BuilderIO member and is excluded from Factory governance.",
+          };
+        }
+      }
+    }
     const reconcileClaim = async (headSha: string, reason: string) => {
       if (!itemId) return;
       await getDb().transaction(async (tx) => {
@@ -413,7 +447,7 @@ export default defineAction({
       const missingFilesReason =
         "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
       await reconcileClaim(pullRequest.headSha, missingFilesReason);
-      await recordManualPullRequestDisposition({
+      const disposition = await recordManualPullRequestDisposition({
         factoryId,
         headSha: pullRequest.headSha,
         itemId,
@@ -421,9 +455,16 @@ export default defineAction({
         ownerEmail: userEmail,
         reason: missingFilesReason,
       });
+      if (disposition.kind === "terminal") {
+        return {
+          ok: true,
+          action: "skipped",
+          reason: `Changed-file evidence is missing or invalid, but the Factory item is already ${disposition.status}; no manual disposition was recorded.`,
+        };
+      }
       return { ok: true, action: "needs_manual", reason: missingFilesReason };
     }
-    const internalMember = await github.checkOrganizationMemberById(
+    internalMember ??= await github.checkOrganizationMemberById(
       "BuilderIO",
       pullRequest.userId,
       pullRequest.userLogin,
@@ -459,7 +500,7 @@ export default defineAction({
         return { ok: true, action: "needs_manual", reason: staleReason };
       }
       await reconcileClaim(pullRequest.headSha, manualReason);
-      await recordManualPullRequestDisposition({
+      const disposition = await recordManualPullRequestDisposition({
         factoryId,
         headSha: pullRequest.headSha,
         itemId,
@@ -467,6 +508,13 @@ export default defineAction({
         ownerEmail: userEmail,
         reason: manualReason,
       });
+      if (disposition.kind === "terminal") {
+        return {
+          ok: true,
+          action: "skipped",
+          reason: `The external pull request requires manual disposition, but the Factory item is already ${disposition.status}; no manual disposition was recorded.`,
+        };
+      }
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
