@@ -31,8 +31,11 @@ import {
   CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
+  parseSsrCacheSetting,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
+  ssrCacheHeadersWithin,
 } from "../shared/cache-control.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -3283,6 +3286,54 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
     expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
+  it.each([
+    [undefined, "20"],
+    [undefined, "0"],
+    [undefined, "999999999999"],
+    ["30s", "60"],
+    ["off", "20"],
+  ])(
+    "shortens the window a route asks for like the Nitro handler (AGENT_NATIVE_SSR_CACHE=%s, route %s)",
+    async (setting, routeSeconds) => {
+      if (setting) vi.stubEnv("AGENT_NATIVE_SSR_CACHE", setting);
+      const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+        responseHeaders: { [SSR_MAX_AGE_HEADER]: routeSeconds },
+      });
+
+      const response = await worker.fetch(
+        new Request("https://app.test/redirect"),
+        {},
+        {},
+      );
+
+      const expected = ssrCacheHeadersWithin(
+        parseSsrCacheSetting(setting),
+        Number(routeSeconds),
+      );
+      for (const [name, value] of Object.entries(expected)) {
+        expect(response.headers.get(name)).toBe(value);
+      }
+      expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
+    },
+  );
+
+  it("keeps the deployment window when a route's max age is malformed", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []), {
+      responseHeaders: { [SSR_MAX_AGE_HEADER]: "soon" },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/redirect"),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(response.headers.get(SSR_MAX_AGE_HEADER)).toBeNull();
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {

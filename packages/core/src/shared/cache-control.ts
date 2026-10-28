@@ -142,6 +142,24 @@ export function parseSsrMaxAge(raw: string | null | undefined): number | null {
 }
 
 /**
+ * The longest shared-cache windows a route's `SSR_MAX_AGE_HEADER` can ask for
+ * under `policy`, or null when the deployment stores nothing. The generated
+ * edge worker inlines these at build time.
+ */
+export function ssrRouteCacheLimits(
+  policy: SsrCachePolicy,
+): { maxAge: number; stale: number } | null {
+  if (policy.kind === "disabled") return null;
+  if (policy.kind === "maxAge") {
+    return { maxAge: policy.seconds, stale: policy.seconds };
+  }
+  return {
+    maxAge: DEFAULT_SSR_SHARED_MAX_AGE_SECONDS,
+    stale: DEFAULT_SSR_SHARED_STALE_SECONDS,
+  };
+}
+
+/**
  * The deployment's policy with every window cut to at most `seconds`, for a
  * route that set `SSR_MAX_AGE_HEADER`. Browsers revalidate on each visit, so
  * shared caches alone bound how old a copy gets: fresh for `seconds`, then
@@ -153,21 +171,10 @@ export function ssrCacheHeadersWithin(
   policy: SsrCachePolicy,
   seconds: number,
 ): SsrCacheHeaders {
-  if (policy.kind === "disabled" || seconds <= 0) {
-    return { ...DISABLED_SSR_CACHE_HEADERS };
-  }
-  const maxAge = Math.min(
-    seconds,
-    policy.kind === "maxAge"
-      ? policy.seconds
-      : DEFAULT_SSR_SHARED_MAX_AGE_SECONDS,
-  );
-  const stale = Math.min(
-    seconds,
-    policy.kind === "maxAge"
-      ? policy.seconds
-      : DEFAULT_SSR_SHARED_STALE_SECONDS,
-  );
+  const limits = ssrRouteCacheLimits(policy);
+  if (!limits || seconds <= 0) return { ...DISABLED_SSR_CACHE_HEADERS };
+  const maxAge = Math.min(seconds, limits.maxAge);
+  const stale = Math.min(seconds, limits.stale);
   const shared = `s-maxage=${maxAge}, stale-while-revalidate=${stale}`;
   return {
     "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,

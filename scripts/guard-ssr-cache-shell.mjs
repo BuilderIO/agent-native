@@ -34,9 +34,10 @@
  * `SSR_MAX_AGE_HEADER` response header (`x-agent-native-ssr-max-age`, whole
  * seconds). The handler strips it and passes it to `ssrCacheHeadersWithin`,
  * which can only lower the deployment policy (or turn storage off with 0) and
- * still emits `public` headers. A route uses it for content that can change or
- * be taken down, such as a public share page; the value names one duration for
- * every visitor of that route, so it is not per-user variation either.
+ * still emits `public` headers; the generated edge worker in build.ts mirrors
+ * the same rule. A route uses it for content that can change or be taken
+ * down, such as a public share page; the value names one duration for every
+ * visitor of that route, so it is not per-user variation either.
  *
  * Detection logic:
  *
