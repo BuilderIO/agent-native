@@ -4639,18 +4639,34 @@ export function App({
   }
 
   function openReadyToRecord(revealPopoverOnCancel: boolean) {
-    readyToRecordRef.current = { revealPopoverOnCancel };
+    // Opening it again (say, from the record shortcut) keeps where Cancel
+    // returns to from the first open.
+    readyToRecordRef.current ??= { revealPopoverOnCancel };
     hidePopover();
     invoke("show_ready_to_record").catch((error) => {
       console.error("[clips] ready-to-record panel failed to open:", error);
       readyToRecordRef.current = null;
       // Nobody saw the panel, so keep the mic-off prompt. It lives in the
       // popover, which was just hidden.
-      void beginRecording(undefined, {
-        skipReadyPanel: true,
-        revealPopoverIfMicOff: true,
-      });
+      revealPopoverUnlessStarted(
+        beginRecording(undefined, {
+          skipReadyPanel: true,
+          revealPopoverIfMicOff: true,
+        }),
+      );
     });
+  }
+
+  // A failed start writes its recovery steps to the popover, which the panel
+  // hid, so bring the popover back when no recording began.
+  function revealPopoverUnlessStarted(
+    start: Promise<RecorderHandle | null> | undefined,
+  ) {
+    void start
+      ?.catch(() => null)
+      .then((handle) => {
+        if (!handle) invoke("show_popover").catch(() => {});
+      });
   }
 
   function closeReadyToRecord() {
@@ -4669,13 +4685,9 @@ export function App({
     },
     start: () => {
       if (!closeReadyToRecord()) return;
-      // A failed start writes its recovery steps to the popover, which the
-      // panel hid, so bring the popover back when no recording began.
-      void beginRecording(undefined, { confirmedInReadyPanel: true })
-        ?.catch(() => null)
-        .then((handle) => {
-          if (!handle) invoke("show_popover").catch(() => {});
-        });
+      revealPopoverUnlessStarted(
+        beginRecording(undefined, { confirmedInReadyPanel: true }),
+      );
     },
     cancel: () => {
       const panel = closeReadyToRecord();
