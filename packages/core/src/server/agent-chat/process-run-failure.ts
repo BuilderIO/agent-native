@@ -19,15 +19,12 @@ function safeDiagnosticToken(value: unknown): string | undefined {
 }
 
 function routeFailureEvidence(err: unknown, message: string): string {
-  const error =
-    err && typeof err === "object" ? (err as Record<string, unknown>) : null;
-  const cause =
-    error?.cause && typeof error.cause === "object"
-      ? (error.cause as Record<string, unknown>)
-      : null;
+  const error = err as Record<string, unknown> | null | undefined;
+  const cause = error?.cause as Record<string, unknown> | null | undefined;
   const errorName = safeDiagnosticToken(error?.name) ?? "NonError";
   const errorCode =
     safeDiagnosticToken(error?.code) ?? safeDiagnosticToken(cause?.code);
+  const causeName = safeDiagnosticToken(cause?.name);
   const errorMessage =
     /^Background worker returned HTTP ([45]\d\d)(?: code=([A-Za-z0-9_]{1,64}))?$/.exec(
       message,
@@ -39,9 +36,7 @@ function routeFailureEvidence(err: unknown, message: string): string {
     ...(!errorCode && errorMessage?.[2]
       ? [`errorCode=${errorMessage[2]}`]
       : []),
-    ...(safeDiagnosticToken(cause?.name)
-      ? [`causeName=${safeDiagnosticToken(cause?.name)}`]
-      : []),
+    ...(causeName ? [`causeName=${causeName}`] : []),
   ];
   return `${evidence.join(" ")} failure=${message}`;
 }
