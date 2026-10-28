@@ -53,6 +53,11 @@ vi.mock("./auth.js", async (importOriginal) => ({
     orgId: session.orgId,
     token: "approval-session",
   }),
+  getBrowserCookieSession: async () => ({
+    email: session.email,
+    orgId: session.orgId,
+    token: "approval-session",
+  }),
 }));
 
 vi.mock("../agent/run-store.js", async (importOriginal) => ({

@@ -16,6 +16,7 @@ import type {
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
 } from "../shared/api.js";
+import { isBuilderCmsWriteEffect } from "../shared/api.js";
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
@@ -184,17 +185,12 @@ export function buildBuilderSourceReviewPayload(args: {
       changeSet.fieldChanges.find((field) => field.localFieldKey === "title")
         ?.proposedValue ?? null;
     const plannedEffect = latestExecution?.payload.effect;
-    const effect =
-      plannedEffect === "autosave" ||
-      plannedEffect === "update_in_place" ||
-      plannedEffect === "create_draft" ||
-      plannedEffect === "publish" ||
-      plannedEffect === "unpublish"
-        ? plannedEffect
-        : resolveBuilderCmsWriteEffect({
-            source: args.source,
-            changeSet,
-          });
+    const effect = isBuilderCmsWriteEffect(plannedEffect)
+      ? plannedEffect
+      : resolveBuilderCmsWriteEffect({
+          source: args.source,
+          changeSet,
+        });
 
     return {
       changeSetId: changeSet.id,

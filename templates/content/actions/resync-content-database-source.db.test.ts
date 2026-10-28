@@ -8,15 +8,23 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, ne, or } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 
-import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
+import {
+  BUILDER_CMS_SAFE_WRITE_MODEL,
+  type ContentDatabaseItem,
+} from "../shared/api";
 import { builderBlocksHash } from "../shared/builder-mdx";
 import {
+  BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
 } from "./_builder-cms-source-adapter";
+import {
+  BUILDER_CMS_UNPUBLISHED_CHANGES_KEY,
+  readBuilderCmsUnpublishedChanges,
+} from "./_builder-cms-unpublished-changes";
 import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter";
 
 const builderReadMock = vi.hoisted(() => ({
@@ -78,9 +86,35 @@ vi.mock("./_builder-cms-read-client.js", async () => {
           model !== "collection-canonical-hash-repair" &&
           model !== "collection-same-version-conflict" &&
           model !== "collection-hydration-empty-terminal" &&
-          model !== "collection-explicit-retry"
+          model !== "collection-explicit-retry" &&
+          model !== "collection-saved-empty-body" &&
+          model !== "collection-published-empty-body"
         ) {
           return null;
+        }
+        if (model === "collection-published-empty-body") {
+          const lastUpdated = "2026-01-02T00:00:00.000Z";
+          return {
+            id: entryId,
+            model,
+            title: "Published empty body",
+            urlPath: "/blog/published-empty-body",
+            updatedAt: lastUpdated,
+            sourceValues: {
+              "data.title": "Published empty body",
+              "data.url": "/blog/published-empty-body",
+              lastUpdated,
+              published: "published",
+              [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+            },
+            rawEntry: {
+              id: entryId,
+              model,
+              lastUpdated,
+              published: "published",
+              data: { title: "Published empty body", blocks: [] },
+            },
+          };
         }
         if (model === "collection-large-597") {
           const index = Number(entryId.replace("entry-large-", ""));
@@ -3754,6 +3788,128 @@ it("hydrates a queued full Builder body when the current body has multiline empt
   expect(after.queued).toBeNull();
 });
 
+it("records the hydration time when a queued Builder body has no update time", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_untimed_hydration";
+  const databaseDocId = "doc_db_untimed_hydration";
+  const documentId = "doc_untimed_hydration";
+  const itemId = "item_untimed_hydration";
+  const sourceId = "src_untimed_hydration";
+  const sourceRowId = "entry_untimed_hydration";
+  const fullBody = "A queued Builder body without an update time.";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB untimed hydration",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Untimed hydration",
+      content: "<empty-block/>\n<empty-block/>",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB untimed hydration",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-untimed-hydration",
+    sourceTable: "collection-untimed-hydration",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_untimed_hydration",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-untimed-hydration/${sourceRowId}`,
+    sourceDisplayKey: "Untimed hydration",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Untimed hydration",
+      "data.url": "/blog/untimed-hydration",
+    }),
+    provenance: "Builder CMS read adapter",
+    lastSourceUpdatedAt: "2026-01-01T00:00:00.000Z",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_untimed_hydration",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-untimed-hydration",
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model: "collection-untimed-hydration",
+      title: "Untimed hydration",
+      urlPath: "/blog/untimed-hydration",
+      updatedAt: null,
+      sourceValues: {
+        "data.title": "Untimed hydration",
+        "data.url": "/blog/untimed-hydration",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: fullBody,
+      },
+    }),
+    priority: 10,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await hydrateQueuedBodies({ sourceId, documentId, limit: 1 });
+
+  const [after = null] = await db
+    .select({
+      content: schema.documents.content,
+      lastSourceUpdatedAt: schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(schema.contentDatabaseSourceRows.documentId, schema.documents.id),
+    )
+    .where(eq(schema.documents.id, documentId));
+  expect(after?.content).toBe(fullBody);
+  expect((after?.lastSourceUpdatedAt ?? "") >= now).toBe(true);
+});
+
 it("fetches a live Builder body when an opened row only has stored body metadata", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
@@ -5128,6 +5284,608 @@ it("hydrates a provider-confirmed empty Builder body with terminal evidence", as
   expect(after.attemptCount).toBe(1);
   expect(after.retryable).toBe(0);
   expect(after.queued).toBeNull();
+});
+
+it("leaves an empty Builder body pending when a save changes the row during the read", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const model = "collection-hydration-empty-terminal";
+  const databaseId = "db_hydration_empty_raced";
+  const databaseDocId = "doc_db_hydration_empty_raced";
+  const documentId = "doc_hydration_empty_raced";
+  const itemId = "item_hydration_empty_raced";
+  const sourceId = "src_hydration_empty_raced";
+  const sourceRowId = "entry_hydration_empty_raced";
+  const readValues = {
+    "data.title": "Hydration empty raced",
+    "data.url": "/blog/hydration-empty-raced",
+    lastUpdated: "2026-01-01T00:00:00.000Z",
+    published: "published",
+  };
+  const savedValuesJson = JSON.stringify({
+    ...readValues,
+    "data.title": "Saved during the read",
+    [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+      liveValues: { "data.title": "Hydration empty raced" },
+      liveLastUpdated: Date.parse(readValues.lastUpdated),
+    }),
+  });
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration empty raced",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration empty raced",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration empty raced",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: model,
+    sourceTable: model,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_empty_raced",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://${model}/${sourceRowId}`,
+    sourceDisplayKey: "Hydration empty raced",
+    sourceValuesJson: JSON.stringify(readValues),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_hydration_empty_raced",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: model,
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model,
+      title: "Hydration empty raced",
+      urlPath: "/blog/hydration-empty-raced",
+      updatedAt: readValues.lastUpdated,
+      sourceValues: readValues,
+    }),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  // A save from Content lands while the body read is in flight.
+  builderReadMock.beforeSingleEntryRead = async ({ entryId }) => {
+    if (entryId !== sourceRowId) return;
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({ sourceValuesJson: savedValuesJson })
+      .where(
+        eq(schema.contentDatabaseSourceRows.id, "row_hydration_empty_raced"),
+      );
+  };
+
+  await hydrateQueuedBodies({ sourceId, limit: 1, preloadBodies: true });
+
+  expect(builderReadMock.singleEntryCalls).toContainEqual({
+    model,
+    entryId: sourceRowId,
+  });
+  const [after] = await db
+    .select({
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.id, itemId));
+
+  expect(after.sourceValuesJson).toBe(savedValuesJson);
+  expect(after.status).toBe("pending");
+  expect(after.error).toBe(
+    "Skipped Builder body hydration because the source row changed during sync.",
+  );
+  expect(after.queued).toBe("queue_hydration_empty_raced");
+});
+
+it("keeps an empty body Content saved over a published entry through hydration", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const model = "collection-saved-empty-body";
+  const databaseId = "db_saved_empty_body";
+  const databaseDocId = "doc_db_saved_empty_body";
+  const documentId = "doc_saved_empty_body";
+  const itemId = "item_saved_empty_body";
+  const sourceId = "src_saved_empty_body";
+  const sourceRowId = "entry_saved_empty_body";
+  const lastUpdated = "2026-01-01T00:00:00.000Z";
+  // The live body the read mock returns for this model.
+  const live = await withBuilderBodyValues({
+    id: sourceRowId,
+    model,
+    title: "Open live hydration",
+    urlPath: "/blog/open-live-hydration",
+    updatedAt: lastUpdated,
+    sourceValues: {
+      "data.title": "Open live hydration",
+      "data.url": "/blog/open-live-hydration",
+      lastUpdated,
+    },
+    rawEntry: {
+      id: sourceRowId,
+      model,
+      lastUpdated,
+      data: {
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-open-live",
+            component: {
+              name: "Text",
+              options: { text: "<p>Live opened row body from Builder.</p>" },
+            },
+          },
+        ],
+      },
+    },
+  });
+  const liveHash = live.sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY];
+  expect(live.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]).toEqual(
+    expect.any(String),
+  );
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB saved empty body",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Open live hydration",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB saved empty body",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: model,
+    sourceTable: model,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  // Content autosaved an empty body; the stored lossless copy is still the
+  // live body it saved over.
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_saved_empty_body",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://${model}/${sourceRowId}`,
+    sourceDisplayKey: "Open live hydration",
+    sourceValuesJson: JSON.stringify({
+      ...live.sourceValues,
+      published: "published",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: builderBlocksHash([]),
+      [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: {},
+        liveLastUpdated: Date.parse(lastUpdated),
+        liveBlocksHash: liveHash,
+        liveBodyLastUpdated: Date.parse(lastUpdated),
+      }),
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_saved_empty_body",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: model,
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model,
+      title: "Open live hydration",
+      urlPath: "/blog/open-live-hydration",
+      updatedAt: lastUpdated,
+      sourceValues: {
+        "data.title": "Open live hydration",
+        "data.url": "/blog/open-live-hydration",
+        lastUpdated,
+        published: "published",
+      },
+    }),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await hydrateQueuedBodies({ sourceId, limit: 1, preloadBodies: true });
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      reason: schema.contentDatabaseItems.bodyHydrationReason,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(after.content).toBe("");
+  expect(after.status).toBe("hydrated");
+  expect(after.reason).toBe("empty_body");
+  expect(after.queued).toBeNull();
+  const values = JSON.parse(after.sourceValuesJson);
+  expect(values[BUILDER_CMS_BODY_CONTENT_KEY]).toBe("");
+  expect(values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+  expect(readBuilderCmsUnpublishedChanges(values)).toMatchObject({
+    state: "pending",
+    changes: { liveBlocksHash: liveHash },
+  });
+
+  // The next refresh reads the live body again and must not queue it.
+  const { enqueueBuilderBodyHydrationForItems } =
+    await import("./_database-source-utils.js");
+  await enqueueBuilderBodyHydrationForItems({
+    sourceId,
+    ownerEmail: OWNER,
+    orgId: null,
+    sourceTable: model,
+    items: [
+      {
+        id: itemId,
+        databaseId,
+        document: { id: documentId } as ContentDatabaseItem["document"],
+        position: 0,
+        properties: [],
+      },
+    ],
+    builderEntriesByDocumentId: new Map([[documentId, live]]),
+    now: new Date().toISOString(),
+    processInBackground: false,
+  });
+  const requeued = await db
+    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.databaseItemId, itemId));
+  expect(requeued).toEqual([]);
+});
+
+it("lets an empty body Builder published replace a saved body through hydration", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const model = "collection-published-empty-body";
+  const databaseId = "db_published_empty_body";
+  const databaseDocId = "doc_db_published_empty_body";
+  const documentId = "doc_published_empty_body";
+  const itemId = "item_published_empty_body";
+  const sourceId = "src_published_empty_body";
+  const sourceRowId = "entry_published_empty_body";
+  const savedAt = "2026-01-01T00:00:00.000Z";
+  const publishedAt = "2026-01-02T00:00:00.000Z";
+  const live = await withBuilderBodyValues({
+    id: sourceRowId,
+    model,
+    title: "Published empty body",
+    urlPath: "/blog/published-empty-body",
+    updatedAt: savedAt,
+    sourceValues: {
+      "data.title": "Published empty body",
+      "data.url": "/blog/published-empty-body",
+      lastUpdated: savedAt,
+    },
+    rawEntry: {
+      id: sourceRowId,
+      model,
+      lastUpdated: savedAt,
+      data: {
+        blocks: [
+          {
+            "@type": "@builder.io/sdk:Element",
+            "@version": 2,
+            id: "text-published-empty",
+            component: {
+              name: "Text",
+              options: { text: "<p>Live body before the save.</p>" },
+            },
+          },
+        ],
+      },
+    },
+  });
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB published empty body",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Published empty body",
+      content: "Saved Content body.",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB published empty body",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: model,
+    sourceTable: model,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  // Content autosaved a body over the live one; the stored lossless copy is
+  // still the live body.
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_published_empty_body",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://${model}/${sourceRowId}`,
+    sourceDisplayKey: "Published empty body",
+    sourceValuesJson: JSON.stringify({
+      ...live.sourceValues,
+      published: "published",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Saved Content body.",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "saved-body-hash",
+      [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 1,
+      [BUILDER_CMS_UNPUBLISHED_CHANGES_KEY]: JSON.stringify({
+        liveValues: {},
+        liveLastUpdated: Date.parse(savedAt),
+        liveBlocksHash: live.sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY],
+        liveBodyLastUpdated: Date.parse(savedAt),
+      }),
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  // Builder then published an empty body.
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_published_empty_body",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: model,
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model,
+      title: "Published empty body",
+      urlPath: "/blog/published-empty-body",
+      updatedAt: publishedAt,
+      sourceValues: {
+        "data.title": "Published empty body",
+        "data.url": "/blog/published-empty-body",
+        lastUpdated: publishedAt,
+        published: "published",
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
+      rawEntry: {
+        id: sourceRowId,
+        model,
+        lastUpdated: publishedAt,
+        data: { blocks: [] },
+      },
+    }),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const {
+    builderStatusPropertyId,
+    ensureBuilderStatusProperty,
+    writeBuilderStatusValues,
+  } = await import("./_builder-status-property.js");
+  const builderStatus = async () => {
+    const [value] = await db
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.propertyId,
+            builderStatusPropertyId(databaseId),
+          ),
+          eq(schema.documentPropertyValues.documentId, documentId),
+        ),
+      );
+    return value ? JSON.parse(value.valueJson) : null;
+  };
+  const [savedRow] = await db
+    .select({
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.id, "row_published_empty_body"));
+  await ensureBuilderStatusProperty({ sourceId, now });
+  await writeBuilderStatusValues(db, {
+    sourceId,
+    rows: [{ documentId, sourceValues: JSON.parse(savedRow.sourceValuesJson) }],
+    now,
+  });
+  expect(await builderStatus()).toBe("unpublished_changes");
+
+  await hydrateQueuedBodies({ sourceId, limit: 1 });
+  // Builder's publish replaced Content's saved changes.
+  expect(await builderStatus()).toBe("published");
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      reason: schema.contentDatabaseItems.bodyHydrationReason,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(after.content).toBe("");
+  expect(after.status).toBe("hydrated");
+  expect(after.reason).toBe("empty_body");
+  const values = JSON.parse(after.sourceValuesJson);
+  expect(values[BUILDER_CMS_BODY_CONTENT_KEY] ?? "").toBe("");
+  expect(values[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+  expect(values).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
 });
 
 it("explicitly retries a terminal retryable Builder hydration while preserving evidence until processing", async () => {

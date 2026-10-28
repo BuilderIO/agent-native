@@ -2203,9 +2203,12 @@ function copyScaffoldGuidanceSkills(
     fs.rmSync(targetSkillDir, { recursive: true, force: true });
     fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
       recursive: true,
+      dereference: true,
     });
   }
 }
+
+export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };
 
 function updateScaffoldGuidanceStates(
   states: ScaffoldGuidanceState[],
