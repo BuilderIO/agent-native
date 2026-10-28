@@ -121,6 +121,13 @@ the patch looks safe or the issue is obviously valid.
 
 ## Explicit blanket approval instruction
 
+Identify the invocation before applying this override. Factory governance is the
+run launched by the Factory's `factory-pr-governance` automation with the active
+prompt heading `# Factory pull-request governance`. A manual invocation is a
+direct Steve request outside that automation. If the source or active prompt
+cannot be verified, do not apply the override or submit an approval; report the
+invocation context as unknown.
+
 This override applies only to manual, non-Factory review invocations. Factory
 governance follows its code-defined action gates; this skill's blanket
 instruction cannot waive them.
@@ -372,11 +379,16 @@ the major product/UX decision above.
 
 ## Review actions
 
-For a PR that passes the applicable gate and lacks a current-head approval,
-submit one GitHub approval review pinned to the exact SHA whose complete diff
-you reviewed, and record the approval URL in the recap. Create it with the
-`commit_id` field on GitHub's create-review endpoint; do not omit that field or
-use an approval flow that defaults to the latest head:
+Factory governance submits approvals only through
+`govern-factory-pull-request`, which claims and reconciles the decision and
+revalidates evidence. Never call GitHub write endpoints directly from Factory
+governance. If the invocation context is unknown, do not submit an approval.
+
+For a manual, non-Factory invocation, if a PR passes the applicable gate and
+lacks a current-head approval, submit one GitHub approval review pinned to the
+exact SHA whose complete diff you reviewed, and record the approval URL in the
+recap. Create it with the `commit_id` field on GitHub's create-review endpoint;
+do not omit that field or use an approval flow that defaults to the latest head:
 
 ```bash
 gh api "repos/BuilderIO/agent-native/pulls/$PR_NUMBER/reviews" \
@@ -424,11 +436,12 @@ unknown, do not treat the author as external or draft a reply.
 Classify the PR as **Ready for your final approval**,
 **Needs updates**, **Needs Steve's product/UX decision**, or **Cannot assess**.
 Ready means the current head is sound, implementation is complete, every
-required check and status context has passed, any required product or UX
-decision is complete, and actionable human or automated findings have a
-verified fix or evidence-backed terminal disposition. Steve retains the final
-decision. PRs still waiting on a required check or product/UX decision are not
-ready.
+required check and status context has passed, any required independent review
+above is present on the current head, any required product or UX decision is
+complete, and actionable human or automated findings have a verified fix or
+evidence-backed terminal disposition. Steve retains the final decision. PRs
+still waiting on a required check, independent review, or product/UX decision
+are not ready.
 An active human `CHANGES_REQUESTED` review or unresolved actionable request
 blocks readiness; resolved, superseded, or non-actionable threads do not.
 Missing approval or `reviewDecision: REVIEW_REQUIRED` alone does not make the
@@ -438,12 +451,15 @@ checks, active actionable bot findings, credible safety concerns, or a material
 code issue mean **Needs updates** or **Cannot assess**. Report skipped, unknown,
 and non-required checks accurately; never describe them as passing.
 
-Independent-review requirements above govern approval actions and reuse of
-existing approvals. They do not add a separate GitHub review requirement to a
-manual, non-Factory merge after Steve's direct request. Factory governance must
-follow its own merge gate and never use this skill's admin or queue commands. If
-no eligible current-head approval supplies the existing code assessment,
-inspect the complete diff and decide readiness from that evidence.
+Independent-review requirements above govern approval actions, reuse of
+existing approvals, code readiness, and merge. When they apply, the required
+separate approval from a verified current BuilderIO member must be present on
+the current head before the PR is ready or can merge. Steve's direct merge
+request and a GitHub admin bypass do not replace that evidence. Factory
+governance must follow its own merge gate and never use this skill's admin or
+queue commands. If no eligible current-head approval supplies the existing
+code assessment, inspect the complete diff and decide readiness from that
+evidence.
 
 A ready disposition is a private handoff for Steve's final decision, not an
 instruction to merge. Do not merge based on readiness alone. The merge gate
@@ -472,7 +488,8 @@ never use `--admin`; follow `community-prs` for human approval and ordinary
 merge requirements, and leave the PR unmerged while any required approval is
 missing. For verified internal-member PRs only, GitHub's `--admin` merge is a
 broad protection bypass, not one scoped to human approval. Use it only after
-verifying that missing human approval or
+verifying that any required independent review above is already satisfied and
+that missing human approval or
 `REVIEW_REQUIRED` is the sole unsatisfied requirement, all other applicable
 protections are satisfied, and no merge queue is required. Revalidate the
 exact live head and all requirements immediately before invoking it. If any
