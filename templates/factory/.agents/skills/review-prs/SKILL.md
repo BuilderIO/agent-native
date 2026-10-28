@@ -121,12 +121,15 @@ the patch looks safe or the issue is obviously valid.
 
 ## Explicit blanket approval instruction
 
-Identify the invocation before applying this override. Factory governance is the
-run launched by the Factory's `factory-pr-governance` automation with the active
-prompt heading `# Factory pull-request governance`. A manual invocation is a
-direct Steve request outside that automation. If the source or active prompt
-cannot be verified, do not apply the override or submit an approval; report the
-invocation context as unknown.
+Identify the invocation before applying this override. A Factory governance run
+is launched by the `factory-pr-governance` automation and includes the
+server-injected `<!-- factory-skill-alignment:start -->` and
+`<!-- factory-skill-alignment:end -->` markers in its active prompt. The
+automation composes this block independently of its editable prompt text; do
+not rely on a user-editable heading. A manual invocation is a direct Steve
+request outside that automation. If the source or injected markers cannot be
+verified, do not apply the override or submit an approval; report the invocation
+context as unknown.
 
 This override applies only to manual, non-Factory review invocations. Factory
 governance follows its code-defined action gates; this skill's blanket
