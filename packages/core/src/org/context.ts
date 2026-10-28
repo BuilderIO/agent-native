@@ -12,6 +12,7 @@ import {
 } from "../db/client.js";
 import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js";
 import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
+import { getEmbeddedHostOrgScope } from "../server/embedded-org-scope.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
   effectiveOrgMemberRole,
@@ -347,6 +348,9 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   if (!isDelegatedOrgMember && hasExplicitPersonalOrgScope(event)) {
     return { email, orgId: null, orgName: null, role: null };
   }
+  const hostScope =
+    !isDelegatedOrgMember && getEmbeddedHostOrgScope(event, session);
+  if (hostScope) return hostScope;
   const sessionOrgId =
     delegatedOrgId ??
     (typeof session.orgId === "string" && session.orgId.trim()
