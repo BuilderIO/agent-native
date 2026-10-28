@@ -358,12 +358,26 @@ the major product/UX decision above.
 ## Review actions
 
 For a PR that passes the applicable gate and lacks a current-head approval,
-submit one GitHub approval review and record the approval URL in the recap.
-Do not duplicate an existing current-head approval. This skill reviews other
-people's PRs: do not add a tag, assignment, mention, or explanatory comment
-unless the current invocation explicitly authorizes that communication on the
-exact PR. This does not add a separate authorization step for replies required
-on the active user's own PR under `/ship`, `/ship-now`, or `/babysit-pr`.
+submit one GitHub approval review pinned to the exact SHA whose complete diff
+you reviewed, and record the approval URL in the recap. Create it with the
+`commit_id` field on GitHub's create-review endpoint; do not omit that field or
+use an approval flow that defaults to the latest head:
+
+```bash
+gh api "repos/BuilderIO/agent-native/pulls/$PR_NUMBER/reviews" \
+  -f event=APPROVE \
+  -f commit_id="$reviewed_head_sha"
+```
+
+Read the response and require its `commit_id` to equal
+`$reviewed_head_sha`. If the request fails, the returned SHA differs, or the
+live head moved after review, do not count that review as current-head evidence;
+review the new head completely before retrying with its SHA. Do not duplicate
+an existing current-head approval. This skill reviews other people's PRs: do
+not add a tag, assignment, mention, or explanatory comment unless the current
+invocation explicitly authorizes that communication on the exact PR. This does
+not add a separate authorization step for replies required on the active
+user's own PR under `/ship`, `/ship-now`, or `/babysit-pr`.
 
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
