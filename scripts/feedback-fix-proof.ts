@@ -35,9 +35,13 @@ export function parseReports(body: string): Report[] | null {
     /^ {0,3}#{1,6}\s+Reports\b/i.test(line),
   );
   if (start === -1) return null;
+  // Subheadings (### Sentry) group reports; only a heading at the same level
+  // or higher ends the section.
+  const level = /#+/.exec(lines[start])![0].length;
   const reports: Report[] = [];
   for (const line of lines.slice(start + 1)) {
-    if (/^ {0,3}#{1,6}\s/.test(line)) break;
+    const heading = /^ {0,3}(#{1,6})\s/.exec(line);
+    if (heading && heading[1].length <= level) break;
     // Evidence lines may be list items too, so read them before links.
     const evidence = line
       .trim()

@@ -72,7 +72,8 @@ describe("parseReports", () => {
   it("reads numbered and bare-URL reports under a decorated heading", () => {
     const reports = parseReports(
       [
-        "### Reports (3)",
+        "## Reports (3)",
+        "### Slack",
         "1. https://app.slack.com/a",
         "  visual: n/a",
         "  https://app.slack.com/b",
