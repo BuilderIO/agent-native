@@ -529,7 +529,9 @@ In first-party SQL, which can also run on BigQuery:
 `('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
 An agent dashboard write that adds or changes a template with a `:list`
 variable is refused with these patterns, and one with a `{{?…}}` block is
-refused with the `CASE` advice above. The other rules
+refused with the `CASE` advice above. A template saved earlier with `:list`
+fails every click, even with values selected, until it is rewritten to one of
+these patterns. The other rules
 above are checked only when someone clicks, and a failed click shows just
 "Couldn't load records".
 
