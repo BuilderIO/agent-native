@@ -108,12 +108,28 @@ async function readTree(
   root: string,
   gitdir: string,
   oid: string,
-): Promise<Awaited<ReturnType<typeof git.readTree>>> {
-  await readVerifiedObject(gitApi, root, gitdir, oid, "tree");
+  maxEntries: number,
+): Promise<{
+  tree: Awaited<ReturnType<typeof git.readTree>>;
+  entryCount: number;
+}> {
+  const rawTree = await readVerifiedObject(gitApi, root, gitdir, oid, "tree");
+  let entryCount = 0;
+  for (let offset = 0; offset < rawTree.byteLength; ) {
+    const nameEnd = rawTree.indexOf(0, offset);
+    if (nameEnd <= offset || nameEnd + 21 > rawTree.byteLength) {
+      fail("integrity_failed");
+    }
+    entryCount++;
+    if (entryCount > maxEntries) fail("integrity_failed");
+    offset = nameEnd + 21;
+  }
   try {
     const tree = await gitApi.readTree({ fs, dir: root, gitdir, oid });
-    if (tree.oid !== oid) fail("integrity_failed");
-    return tree;
+    if (tree.oid !== oid || tree.tree.length !== entryCount) {
+      fail("integrity_failed");
+    }
+    return { tree, entryCount };
   } catch {
     fail("integrity_failed");
   }
@@ -125,11 +141,21 @@ async function findTargetTree(
   gitdir: string,
   rootTreeOid: string,
   appPath: string,
-): Promise<string> {
+): Promise<{ treeOid: string; entryCount: number }> {
   let treeOid = rootTreeOid;
+  let traversedEntries = 0;
   for (const segment of appPath.split("/")) {
-    const current = await readTree(gitApi, root, gitdir, treeOid);
-    const matching = current.tree.filter((entry) => entry.path === segment);
+    const current = await readTree(
+      gitApi,
+      root,
+      gitdir,
+      treeOid,
+      MAX_TREE_ENTRIES - traversedEntries,
+    );
+    traversedEntries += current.entryCount;
+    const matching = current.tree.tree.filter(
+      (entry) => entry.path === segment,
+    );
     if (matching.length !== 1) fail("integrity_failed");
     const entry = matching.at(0);
     if (
@@ -142,7 +168,7 @@ async function findTargetTree(
     }
     treeOid = entry.oid;
   }
-  return treeOid;
+  return { treeOid, entryCount: traversedEntries };
 }
 
 export async function readBuilderGitBundle(input: {
@@ -227,7 +253,7 @@ export async function readBuilderGitBundle(input: {
       fail("integrity_failed");
     }
 
-    const appTreeOid = await findTargetTree(
+    const targetTree = await findTargetTree(
       gitApi,
       tempRoot,
       gitdir,
@@ -238,7 +264,7 @@ export async function readBuilderGitBundle(input: {
       [];
     const seen = new Set<string>();
     let totalBytes = 0;
-    let traversedEntries = 0;
+    let traversedEntries = targetTree.entryCount;
 
     const visitTree = async (
       treeOid: string,
@@ -246,11 +272,17 @@ export async function readBuilderGitBundle(input: {
       depth: number,
     ): Promise<void> => {
       if (depth > MAX_TREE_DEPTH) fail("integrity_failed");
-      const tree = await readTree(gitApi, tempRoot, gitdir, treeOid);
+      const boundedTree = await readTree(
+        gitApi,
+        tempRoot,
+        gitdir,
+        treeOid,
+        MAX_TREE_ENTRIES - traversedEntries,
+      );
+      traversedEntries += boundedTree.entryCount;
+      const tree = boundedTree.tree;
       const siblingNames = new Set<string>();
       for (const entry of tree.tree) {
-        traversedEntries++;
-        if (traversedEntries > MAX_TREE_ENTRIES) fail("integrity_failed");
         if (!canonicalTreeName(entry.path) || siblingNames.has(entry.path)) {
           fail("integrity_failed");
         }
@@ -297,7 +329,7 @@ export async function readBuilderGitBundle(input: {
       }
     };
 
-    await visitTree(appTreeOid, input.appPath, 0);
+    await visitTree(targetTree.treeOid, input.appPath, 0);
     if (files.length === 0) fail("integrity_failed");
     return { commitSha: input.commitSha, files };
   } catch (error) {

@@ -74,6 +74,14 @@ function blobObject(content: Uint8Array, declaredSize = content.byteLength) {
   ]);
 }
 
+function refDeltaObject(delta: Uint8Array) {
+  return Buffer.concat([
+    packObjectHeader(7, delta.byteLength),
+    Buffer.alloc(20),
+    deflateSync(delta),
+  ]);
+}
+
 async function realGitBundle(): Promise<Buffer> {
   const root = await mkdtemp(path.join(tmpdir(), "builder-git-pack-test-"));
   roots.push(root);
@@ -146,16 +154,87 @@ describe("assertBoundedBuilderGitBundle", () => {
     ).toThrow(expect.objectContaining({ code: "resource_limit" }));
   });
 
-  it("caps aggregate inflated delta bodies even when each target is tiny", () => {
-    const deltaBody = Buffer.alloc(MAX_OBJECT_BYTES);
-    deltaBody[0] = 1;
-    deltaBody[1] = 1;
-    const refDeltas = Array.from({ length: 17 }, () =>
+  it.each([
+    [
+      "zero opcode",
+      Buffer.concat([deltaVarint(0), deltaVarint(0), Buffer.from([0])]),
+    ],
+    [
+      "truncated insert",
+      Buffer.concat([deltaVarint(0), deltaVarint(2), Buffer.from([2, 0x61])]),
+    ],
+    [
+      "truncated copy operand",
+      Buffer.concat([deltaVarint(4), deltaVarint(4), Buffer.from([0x91, 0])]),
+    ],
+    [
+      "output shorter than target",
+      Buffer.concat([deltaVarint(4), deltaVarint(1)]),
+    ],
+    [
+      "copy beyond source",
       Buffer.concat([
-        packObjectHeader(7, deltaBody.byteLength),
-        Buffer.alloc(20),
-        deflateSync(deltaBody),
+        deltaVarint(4),
+        deltaVarint(2),
+        Buffer.from([0x91, 3, 2]),
       ]),
+    ],
+    [
+      "noncanonical source size",
+      Buffer.concat([Buffer.from([0x84, 0]), deltaVarint(0)]),
+    ],
+    [
+      "noncanonical target size",
+      Buffer.concat([deltaVarint(4), Buffer.from([0x81, 0])]),
+    ],
+  ])("rejects malformed delta stream: %s", (_case, delta) => {
+    expect(() =>
+      assertBoundedBuilderGitBundle(
+        bundleFromPackObjects([refDeltaObject(delta)]),
+      ),
+    ).toThrow(BuilderGitPackError);
+  });
+
+  it("bounds delta instruction count across the whole pack", () => {
+    const operationCount = 60_000;
+    const insertions = Buffer.alloc(operationCount * 2);
+    for (let index = 0; index < operationCount; index++) {
+      insertions[index * 2] = 1;
+      insertions[index * 2 + 1] = 0x61;
+    }
+    const delta = Buffer.concat([
+      deltaVarint(0),
+      deltaVarint(operationCount),
+      insertions,
+    ]);
+    expect(() =>
+      assertBoundedBuilderGitBundle(
+        bundleFromPackObjects([refDeltaObject(delta), refDeltaObject(delta)]),
+      ),
+    ).toThrow(expect.objectContaining({ code: "resource_limit" }));
+  });
+
+  it("accepts a delta with a bounded insert followed by a valid copy", () => {
+    const delta = Buffer.concat([
+      deltaVarint(4),
+      deltaVarint(5),
+      Buffer.from([1, 0x21, 0x91, 0, 4]),
+    ]);
+    expect(() =>
+      assertBoundedBuilderGitBundle(
+        bundleFromPackObjects([refDeltaObject(delta)]),
+      ),
+    ).not.toThrow();
+  });
+
+  it("caps aggregate reconstructed delta output", () => {
+    const deltaBody = Buffer.concat([
+      deltaVarint(MAX_OBJECT_BYTES),
+      deltaVarint(MAX_OBJECT_BYTES),
+      Buffer.alloc(MAX_OBJECT_BYTES / 0x10000, 0x80),
+    ]);
+    const refDeltas = Array.from({ length: 17 }, () =>
+      refDeltaObject(deltaBody),
     );
 
     expect(() =>

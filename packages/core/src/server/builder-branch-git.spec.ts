@@ -55,7 +55,10 @@ async function fixture(files: Record<string, string>) {
   };
 }
 
-async function emptyTreeDagBundle(fanout: number) {
+async function emptyTreeDagBundle(
+  fanout: number,
+  oversizedTree: "app" | "root" | "apps" = "app",
+) {
   const root = await mkdtemp(
     path.join(tmpdir(), "builder-git-empty-tree-test-"),
   );
@@ -63,14 +66,21 @@ async function emptyTreeDagBundle(fanout: number) {
   const repo = path.join(root, "repo");
   await execFile("git", ["init", "--quiet", repo]);
   const git = (...args: string[]) => execFile("git", ["-C", repo, ...args]);
-  const hashTree = async (name: string, content: Uint8Array) => {
+  const hashObject = async (
+    name: string,
+    content: Uint8Array,
+    type: "blob" | "tree" = "tree",
+  ) => {
     const filename = path.join(root, name);
     await writeFile(filename, content);
-    const { stdout } = await git("hash-object", "-w", "-t", "tree", filename);
+    const { stdout } = await git("hash-object", "-w", "-t", type, filename);
     return stdout.trim();
   };
+  const hashTree = (name: string, content: Uint8Array) =>
+    hashObject(name, content, "tree");
 
   const emptyTreeOid = await hashTree("empty-tree", new Uint8Array());
+  const fileBlobOid = await hashObject("file-blob", Buffer.from("ok"), "blob");
   const repeatedTreeEntries = Array.from({ length: fanout }, (_, index) =>
     Buffer.concat([
       Buffer.from(`40000 child-${index.toString().padStart(4, "0")}\0`),
@@ -79,11 +89,16 @@ async function emptyTreeDagBundle(fanout: number) {
   );
   const appTreeOid = await hashTree(
     "app-tree",
-    Buffer.concat(repeatedTreeEntries),
+    Buffer.concat(
+      oversizedTree === "app"
+        ? repeatedTreeEntries
+        : [Buffer.from("100644 file.txt\0"), Buffer.from(fileBlobOid, "hex")],
+    ),
   );
   const appsTreeOid = await hashTree(
     "apps-tree",
     Buffer.concat([
+      ...(oversizedTree === "apps" ? repeatedTreeEntries : []),
       Buffer.from("40000 example\0"),
       Buffer.from(appTreeOid, "hex"),
     ]),
@@ -93,6 +108,7 @@ async function emptyTreeDagBundle(fanout: number) {
     Buffer.concat([
       Buffer.from("40000 apps\0"),
       Buffer.from(appsTreeOid, "hex"),
+      ...(oversizedTree === "root" ? repeatedTreeEntries : []),
     ]),
   );
   const commitPath = path.join(root, "commit");
@@ -355,6 +371,19 @@ describe("readBuilderGitBundle", () => {
     await expect(
       readBuilderGitBundle({ bundle, commitSha, appPath: "apps/example" }),
     ).rejects.toMatchObject({ code: "integrity_failed" });
+  });
+
+  it("bounds root and apps trees before parsing them", async () => {
+    for (const oversizedTree of ["root", "apps"] as const) {
+      const { commitSha, bundle } = await emptyTreeDagBundle(
+        1024,
+        oversizedTree,
+      );
+
+      await expect(
+        readBuilderGitBundle({ bundle, commitSha, appPath: "apps/example" }),
+      ).rejects.toMatchObject({ code: "integrity_failed" });
+    }
   });
 
   it("reads files from a real delta-compressed Git bundle", async () => {

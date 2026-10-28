@@ -6,6 +6,7 @@ const MAX_BUNDLE_BYTES = 32 * 1024 * 1024;
 const MAX_OBJECT_COUNT = 50_000;
 const MAX_OBJECT_BYTES = 8 * 1024 * 1024;
 const MAX_AGGREGATE_OBJECT_BYTES = 128 * 1024 * 1024;
+const MAX_DELTA_OPERATION_COUNT = 100_000;
 const PACK_TRAILER_BYTES = 20;
 
 export type BuilderGitPackErrorCode = "invalid_bundle" | "resource_limit";
@@ -81,11 +82,67 @@ function readDeltaVarint(
     value |= BigInt(byte & 0x7f) << shift;
     if ((byte & 0x80) === 0) {
       if (value > BigInt(Number.MAX_SAFE_INTEGER)) fail("resource_limit");
+      if (count > 0 && (byte & 0x7f) === 0) fail("invalid_bundle");
+      if (count >= 4) {
+        if (value > BigInt(MAX_OBJECT_BYTES)) fail("resource_limit");
+        fail("invalid_bundle");
+      }
       return { value: Number(value), next: cursor };
     }
     shift += 7n;
   }
   fail("invalid_bundle");
+}
+
+function verifyDeltaInstructions(
+  delta: Uint8Array,
+  cursor: number,
+  sourceSize: number,
+  targetSize: number,
+  remainingOperationCount: number,
+): number {
+  let outputSize = 0;
+  let operationCount = 0;
+
+  while (cursor < delta.byteLength) {
+    operationCount++;
+    if (operationCount > remainingOperationCount) fail("resource_limit");
+
+    const opcode = readByte(delta, cursor++);
+    if (opcode === 0) fail("invalid_bundle");
+
+    let operationSize: number;
+    if ((opcode & 0x80) !== 0) {
+      let sourceOffset = 0;
+      let copySize = 0;
+      for (let byteIndex = 0; byteIndex < 4; byteIndex++) {
+        if ((opcode & (1 << byteIndex)) !== 0) {
+          sourceOffset += readByte(delta, cursor++) * 2 ** (byteIndex * 8);
+        }
+      }
+      for (let byteIndex = 0; byteIndex < 3; byteIndex++) {
+        if ((opcode & (1 << (byteIndex + 4))) !== 0) {
+          copySize += readByte(delta, cursor++) * 2 ** (byteIndex * 8);
+        }
+      }
+      operationSize = copySize || 0x10000;
+      if (sourceOffset + operationSize > sourceSize) fail("invalid_bundle");
+    } else {
+      operationSize = opcode;
+      if (cursor + operationSize > delta.byteLength) fail("invalid_bundle");
+      cursor += operationSize;
+    }
+
+    outputSize += operationSize;
+    if (outputSize > targetSize || outputSize > MAX_OBJECT_BYTES) {
+      fail(outputSize > MAX_OBJECT_BYTES ? "resource_limit" : "invalid_bundle");
+    }
+  }
+
+  if (!Number.isSafeInteger(outputSize) || outputSize !== targetSize) {
+    fail("invalid_bundle");
+  }
+  return operationCount;
 }
 
 function skipOffsetDeltaBase(
@@ -183,6 +240,7 @@ function verifyPack(bundle: Uint8Array, packOffset: number): void {
   let cursor = packOffset + 12;
   let aggregateObjectBytes = 0;
   let aggregateInflatedBytes = 0;
+  let aggregateDeltaOperationCount = 0;
   for (let index = 0; index < objectCount; index++) {
     const objectOffset = cursor - packOffset;
     const header = readPackObjectHeader(bundle, cursor, packEnd);
@@ -231,6 +289,13 @@ function verifyPack(bundle: Uint8Array, packOffset: number): void {
       ) {
         fail("resource_limit");
       }
+      aggregateDeltaOperationCount += verifyDeltaInstructions(
+        inflated,
+        targetSize.next,
+        sourceSize.value,
+        targetSize.value,
+        MAX_DELTA_OPERATION_COUNT - aggregateDeltaOperationCount,
+      );
       outputSize = targetSize.value;
     }
     aggregateObjectBytes += outputSize;
