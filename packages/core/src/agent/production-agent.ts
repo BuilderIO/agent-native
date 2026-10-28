@@ -1355,6 +1355,7 @@ export interface ActionEntry {
    *  decision, so they never count as the action declaring its hints. */
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  eagerInputStreaming?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
@@ -5828,6 +5829,7 @@ export function actionsToEngineTools(
       name,
       description: entry.tool.description,
       inputSchema,
+      ...(entry.eagerInputStreaming ? { eagerInputStreaming: true } : {}),
     });
   }
   return tools;

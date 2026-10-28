@@ -1018,6 +1018,7 @@ interface DefineActionWithSchema<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  eagerInputStreaming?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -1142,6 +1143,7 @@ interface DefineActionWithParams<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  eagerInputStreaming?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -1194,6 +1196,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
+  readonly eagerInputStreaming?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
@@ -1624,6 +1627,9 @@ export function defineAction(options: any) {
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
+    ...(typeof options.eagerInputStreaming === "boolean"
+      ? { eagerInputStreaming: options.eagerInputStreaming }
+      : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }

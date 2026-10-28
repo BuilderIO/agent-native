@@ -773,6 +773,7 @@ const generateDesignAction = defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  eagerInputStreaming: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
       designId,
