@@ -501,8 +501,8 @@ declare `config.drilldown: { sql: "…" }`
 to open records for a clicked point instead of aggregate rows. The template
 receives the dashboard filters plus `{{drillX}}` (raw x-axis value) and
 `{{drillSeries}}` (raw series key, or empty when absent), escaped for the source.
-In declared BigQuery templates, scalar variables must be inside ordinary quoted strings, and `:list` variables
-must be standalone SQL tokens, such as inside `IN ({{appFilter:list}})`.
+In declared BigQuery templates, scalar variables must be inside ordinary quoted strings, and `:list` variables,
+which record templates should avoid (see below), must be standalone SQL tokens.
 Lookup rejects variables in raw literals, identifiers or comments, variables
 right after a string's backslash escape, variables touching a quote other than
 a triple-quoted string's own delimiters (an empty value could join the quotes),
@@ -517,7 +517,18 @@ backticks or `#` outside strings, and nested block comments.
 Declared record templates do not support `{{?variable}}…{{/variable}}`
 blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
-Its SQL can return `COUNT(*) OVER () AS total_matching` alongside a bounded
+
+**Avoid `:list` variables in record templates.** With nothing selected,
+as under the default "All apps", `{{appFilter:list}}` renders as the bare name
+`__empty_list_filter__`. BigQuery and PostgreSQL reject that name even inside a
+`CASE` branch that never runs, so `IN ({{appFilter:list}})` fails every click
+until someone picks a value. Match the comma-joined scalar instead, which is
+empty when nothing is selected. In BigQuery:
+`('{{appFilter}}' = '' OR app IN UNNEST(SPLIT('{{appFilter}}', ',')))`. In
+first-party SQL, which can also run on BigQuery:
+`('{{appFilter}}' = '' OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
+
+A record template can return `COUNT(*) OVER () AS total_matching` alongside a bounded
 record list such as `LIMIT 500`; the dialog hides that count column and reports
 truncation. Without a valid count, the total and export completeness remain
 unknown. Provider partial results also have unknown totals, even if a count is
