@@ -17,6 +17,15 @@
   max-width: 43.75rem;
 }
 
+.agent-prompt-home-input {
+  margin-block-start: 0.5rem;
+  transition: margin-block-start 225ms ease-out;
+}
+
+.agent-prompt-home-input[data-connection-visible] {
+  margin-block-start: 1rem;
+}
+
 .agent-prompt-home-connection {
   display: grid;
   grid-template-rows: 0fr;
@@ -113,6 +122,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-prompt-home-input,
   .agent-prompt-home-connection {
     transition: none;
   }

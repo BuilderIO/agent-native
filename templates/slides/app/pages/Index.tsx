@@ -803,13 +803,16 @@ export default function Index({ active = true }: { active?: boolean }) {
     const composer = homeComposerRef.current;
     if (!composer) return;
     firstPaintSubmitRevisionRef.current = firstPaintPrompt.revision;
-    void composer.submitSource(firstPaintPrompt.text, []).then((accepted) => {
-      if (!accepted) toast.error(t("home.context.notReady"));
-    });
+    void composer
+      .submitSource(firstPaintPrompt.text, firstPaintPrompt.files ?? [])
+      .then((accepted) => {
+        if (!accepted) toast.error(t("home.context.notReady"));
+      });
   }, [
     firstPaintPrompt?.revision,
     firstPaintPrompt?.submitted,
     firstPaintPrompt?.text,
+    firstPaintPrompt?.files,
     firstRunOwnsSurface,
     homeComposerReady,
     isHome,

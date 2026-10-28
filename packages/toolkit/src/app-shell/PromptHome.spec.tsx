@@ -126,6 +126,8 @@ describe("prompt home and library", () => {
 
     render(home(false));
     const slot = container.querySelector(".agent-prompt-home-connection")!;
+    const input = container.querySelector(".agent-prompt-home-input")!;
+    expect(input.hasAttribute("data-connection-visible")).toBe(false);
     expect(slot.hasAttribute("data-visible")).toBe(false);
     expect(slot.children).toHaveLength(0);
     expect(
@@ -134,6 +136,7 @@ describe("prompt home and library", () => {
 
     render(home(true));
     expect(container.querySelector(".agent-prompt-home-connection")).toBe(slot);
+    expect(input.getAttribute("data-connection-visible")).toBe("true");
     expect(slot.getAttribute("data-visible")).toBe("true");
     expect(slot.textContent).toContain("Connect AI");
     expect(

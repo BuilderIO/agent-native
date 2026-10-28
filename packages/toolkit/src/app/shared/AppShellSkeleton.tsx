@@ -475,10 +475,11 @@ function FirstPaintPromptLibrary({
           : {}),
       });
     },
-    onSubmit: (text) => {
+    onSubmit: (text, files) => {
       if (!text.trim()) return;
       submittedRef.current = true;
       writeFirstPaintPromptDraft(config.appId, text, sourceRef.current, {
+        files,
         submitted: true,
         ...(config.promptHandoffScope
           ? { scope: config.promptHandoffScope }

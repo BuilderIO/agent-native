@@ -35,6 +35,21 @@ describe("first paint prompt drafts", () => {
     });
   });
 
+  it("keeps selected files in the in-page submit handoff", () => {
+    const appId = `files-${crypto.randomUUID()}`;
+    const files = [new File(["reference"], "reference.txt")];
+    writeFirstPaintPromptDraft(appId, "Use these references", "composer", {
+      files,
+      submitted: true,
+    });
+
+    const result = consumeFirstPaintPromptDraft(appId);
+    expect(result.status).toBe("present");
+    if (result.status !== "present") throw new Error("Expected prompt draft.");
+    expect(result.draft.files).toEqual(files);
+    expect(result.draft.files?.[0]).toBe(files[0]);
+  });
+
   it("ignores and clears a legacy persisted prompt", () => {
     const appId = `legacy-${crypto.randomUUID()}`;
     const key = `agent-native:first-paint-prompt-draft:${appId}`;

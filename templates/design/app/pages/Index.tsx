@@ -505,26 +505,29 @@ export default function Index() {
     if (!composer) return;
     firstPaintSubmitRevisionRef.current = firstPaintPrompt.revision;
     submissionErrorRef.current = false;
-    void composer
-      .submitWithText(firstPaintPrompt.text)
-      .then((accepted) => {
+    void (async () => {
+      try {
+        for (const file of firstPaintPrompt.files ?? []) {
+          await composer.addAttachment(file);
+        }
+        const accepted = await composer.submitWithText(firstPaintPrompt.text);
         if (!accepted && !submissionErrorRef.current) {
           toast.error(t("homeContext.notReady"));
         }
-      })
-      .catch(() => {
+      } catch {
         if (!submissionErrorRef.current) {
           toast.error(t("home.failedToCreateDesign"));
         }
-      })
-      .finally(() => {
+      } finally {
         homeSuggestionPromptSourceRef.current = false;
         homeSuggestionPromptTextRef.current = null;
-      });
+      }
+    })();
   }, [
     firstPaintPrompt?.revision,
     firstPaintPrompt?.submitted,
     firstPaintPrompt?.text,
+    firstPaintPrompt?.files,
     firstRunOwnsSurface,
     quickActionsEnabled,
     t,

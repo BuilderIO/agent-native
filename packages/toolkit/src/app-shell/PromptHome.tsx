@@ -90,9 +90,10 @@ export function PromptHome({
           {title}
         </h2>
         <div
-          className={`agent-prompt-home-composer mt-4 text-start${
+          className={`agent-prompt-home-composer agent-prompt-home-input text-start${
             connectionAttached ? " agent-composer-area--attached-above" : ""
           }`}
+          data-connection-visible={connection ? "true" : undefined}
         >
           <div
             className="agent-prompt-home-connection"

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 export interface FirstPaintPromptDraft {
   text: string;
+  files?: File[];
   source: "composer" | "home_suggestion";
   suggestionId?: string;
   submitted?: boolean;
@@ -34,6 +35,7 @@ export function writeFirstPaintPromptDraft(
   text: string,
   source: FirstPaintPromptDraft["source"] = "composer",
   options: {
+    files?: readonly File[];
     suggestionId?: string;
     submitted?: boolean;
     scope?: string;
@@ -41,6 +43,7 @@ export function writeFirstPaintPromptDraft(
 ): void {
   const draft: FirstPaintPromptDraft = {
     text,
+    ...(options.files?.length ? { files: [...options.files] } : {}),
     source,
     ...(options.suggestionId ? { suggestionId: options.suggestionId } : {}),
     ...(options.submitted ? { submitted: true } : {}),
