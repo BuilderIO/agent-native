@@ -99,6 +99,16 @@ describe("parseReports", () => {
     );
   });
 
+  it("counts any line with a URL as a report, whatever its format", () => {
+    const reports = parseReports(
+      "## Reports\nReport 1: https://app.slack.com/a\n        https://app.slack.com/b",
+    );
+    assert.deepEqual(
+      reports?.map((r) => r.link),
+      ["https://app.slack.com/a", "https://app.slack.com/b"],
+    );
+  });
+
   it("reads a proof written on the report's own line", () => {
     const [report] = parseReports(
       `## Reports\n- https://app.slack.com/a ${proven("grep -q fixed app.txt").trim()}`,

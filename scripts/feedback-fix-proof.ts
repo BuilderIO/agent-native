@@ -48,12 +48,12 @@ export function parseReports(body: string): Report[] | null {
       .trim()
       .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
       .replace(/^`/, "");
-    // Otherwise a list item (bulleted or numbered) or a bare URL starts a
-    // report, and may carry its proof on the same line.
+    // Any other line with a URL starts a report, whatever its format, and
+    // may carry its proof on the same line. A detail link read as a report
+    // fails as NO PROOF, which is the safe direction.
     const link = /^(fix-proof|visual):/.test(evidence)
       ? undefined
-      : (/^ {0,3}(?:[-*+]|\d+[.)])\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1] ??
-        /^ {0,3}(https?:\/\/[^\s)>]+)/.exec(line)?.[1]);
+      : /(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
     if (link) reports.push({ link, proven: [], visual: false });
     const report = reports.at(-1);
     if (!report) continue;
