@@ -37,19 +37,32 @@ export function parseReports(body: string): Report[] | null {
   // heading at the same level or higher ends the section. Fenced code is
   // tracked from the top, so an example inside a fence is never a heading.
   let level = 0;
-  let fenced = false;
+  // The open fence's marker run (``` or ~~~); only the same character, at
+  // least as long, closes it.
+  let fence = "";
   for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
-    if (/^ {0,3}(```|~~~)/.test(line)) {
-      fenced = !fenced;
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker && !fence) {
+      fence = marker;
       continue;
     }
-    const heading = fenced ? null : /^ {0,3}(#{1,6})\s+(.*)$/.exec(line);
-    if (heading && /^Reports\b/i.test(heading[2])) {
-      level = heading[1].length;
+    if (marker && marker[0] === fence[0] && marker.length >= fence.length) {
+      fence = "";
+      continue;
+    }
+    const heading = fence ? null : /^ {0,3}(#{1,6})\s+(.*)$/.exec(line);
+    const depth = heading?.[1].length ?? 0;
+    // A Reports subheading inside a Reports section is just a subheading.
+    if (
+      heading &&
+      /^Reports\b/i.test(heading[2]) &&
+      (!level || depth <= level)
+    ) {
+      level = depth;
       found = true;
       continue;
     }
-    if (heading && heading[1].length <= level) level = 0;
+    if (heading && depth <= level) level = 0;
     if (!level) continue;
     // A line that is only a proof or a visual pair, even as a list item,
     // belongs to the report above it.

@@ -151,6 +151,26 @@ describe("parseReports", () => {
     );
   });
 
+  it("keeps a Reports subheading inside the section and matches fence markers", () => {
+    const reports = parseReports(
+      [
+        "## Reports",
+        "### Reports from Slack",
+        "- https://app.slack.com/a",
+        "```",
+        "~~~",
+        "## Not a heading inside the fence",
+        "```",
+        "### Sentry",
+        "- https://sentry.io/issues/1",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      reports?.map((r) => r.link),
+      ["https://app.slack.com/a", "https://sentry.io/issues/1"],
+    );
+  });
+
   it("reads a proof written on the report's own line", () => {
     const [report] = parseReports(
       `## Reports\n- https://app.slack.com/a ${proven("grep -q fixed app.txt").trim()}`,
