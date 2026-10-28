@@ -436,7 +436,9 @@ function shortestWidths(measure: TableMeasure, start: number[]) {
   let budget = BALANCE_BUDGET;
   const cache = new Map<string, number[]>();
   const linesAt = (column: number, width: number) => {
-    const key = `${column} ${Math.round(width * 2)}`;
+    // To the 1/64 px browsers lay text out in, so a width that comes back
+    // with rounding error still finds its count.
+    const key = `${column} ${Math.round(width * 64)}`;
     let lines = cache.get(key);
     if (!lines) {
       budget -= at(columnCost, column) ?? 0;
@@ -538,18 +540,11 @@ export function planColumns(
 }
 
 /**
- * Labels each body cell with its column's header, for cards, and marks empty
- * cells, as TablePresentation's decorations do in the editor. For tables
- * drawn without an editor.
+ * Labels each body cell with its column's header, for cards, as
+ * TablePresentation's decorations do in the editor. For tables drawn without
+ * an editor.
  */
 export function labelTableCells(table: HTMLTableElement) {
-  for (const row of Array.from(table.rows)) {
-    for (const cell of Array.from(row.cells)) {
-      if (!cell.textContent.trim() && !cell.querySelector("img, video")) {
-        cell.setAttribute("data-empty", "");
-      }
-    }
-  }
   const header = table.rows.item(0);
   if (!header || !isHeaderRow(header)) return;
   const labels: string[] = [];

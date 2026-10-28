@@ -63,7 +63,8 @@ function decorateTable(
   });
 }
 
-function isEmptyCell(cell: ProseMirrorNode) {
+/** Whether a cell holds only one empty paragraph, heading or code block. */
+export function isEmptyCell(cell: ProseMirrorNode) {
   const only = cell.childCount === 1 ? cell.firstChild : null;
   return !!only?.isTextblock && only.content.size === 0;
 }

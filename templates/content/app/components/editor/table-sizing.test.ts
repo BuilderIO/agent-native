@@ -222,7 +222,7 @@ describe("cellLines", () => {
 });
 
 describe("labelTableCells", () => {
-  it("labels each value with its header and marks empty cells", () => {
+  it("labels each value with its header", () => {
     const table = document.createElement("table");
     table.innerHTML =
       "<tbody>" +
@@ -242,8 +242,8 @@ describe("labelTableCells", () => {
       null,
       "Notes",
     ]);
-    expect(nth(row, 3).hasAttribute("data-empty")).toBe(true);
-    expect(nth(row, 0).hasAttribute("data-empty")).toBe(false);
+    // oracle-change: the static body marks empty cells as it draws them, by
+    // the editor's own check (StaticDocumentBody.test covers it).
   });
 
   it("labels the cells after one that spans rows by the columns they sit in", () => {

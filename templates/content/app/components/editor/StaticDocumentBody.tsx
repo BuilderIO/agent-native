@@ -23,6 +23,7 @@ import {
   parseAttrsJson,
   safeExternalPageUrl,
 } from "./extensions/NotionExtensions";
+import { isEmptyCell } from "./extensions/TablePresentation";
 import {
   noteStoredBodyImageFailed,
   storedBodyOnScreen,
@@ -645,6 +646,14 @@ export function renderStaticDocumentBody(
           dom.setAttribute("contenteditable", "false");
         }
         return { dom };
+      }
+      // The editor marks empty cells with a decoration, by the cell's node. A
+      // cell's element is its own content hole.
+      if (
+        (name === "tableCell" || name === "tableHeader") &&
+        isEmptyCell(node)
+      ) {
+        contentDOM.setAttribute("data-empty", "");
       }
       if (!node.isTextblock) return { dom, contentDOM };
       // The break has to follow the content, so the textblock is filled here
