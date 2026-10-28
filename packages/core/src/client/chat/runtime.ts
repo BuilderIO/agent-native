@@ -4133,24 +4133,26 @@ function mapAgentNativeEvent(
   if (ev.type === "clear") {
     clearAssistantDraftContent(input.message.content);
     if (!input.message.started) return [];
+    const content: AgentChatRuntimeKnownContentPart[] = input.message.content
+      .filter(
+        (
+          part,
+        ): part is Exclude<
+          AgentNativeMessageContentState,
+          { type: "tool-call" }
+        > => part.type === "text" || part.type === "reasoning",
+      )
+      .map((part) => ({ ...part }));
+    // Text the retry writes after a kept tool call is a new paragraph. The
+    // replacement carries no tool calls, so an empty part marks that break.
+    if (input.message.content.at(-1)?.type === "tool-call") {
+      content.push({ type: "text", text: "" });
+    }
     return [
       {
         type: "message-replace",
         ...base,
-        message: {
-          id: input.messageId,
-          role: "assistant",
-          content: input.message.content
-            .filter(
-              (
-                part,
-              ): part is Exclude<
-                AgentNativeMessageContentState,
-                { type: "tool-call" }
-              > => part.type === "text" || part.type === "reasoning",
-            )
-            .map((part) => ({ ...part })),
-        },
+        message: { id: input.messageId, role: "assistant", content },
       },
     ];
   }

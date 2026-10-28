@@ -4310,7 +4310,12 @@ describe("createAgentNativeChatRuntime", () => {
     expect(
       events.find((event) => event.type === "message-replace"),
     ).toMatchObject({
-      message: { content: [{ type: "text", text: "Checking the forms." }] },
+      message: {
+        content: [
+          { type: "text", text: "Checking the forms." },
+          { type: "text", text: "" },
+        ],
+      },
     });
     expect(events.find((event) => event.type === "message-done")).toMatchObject(
       {

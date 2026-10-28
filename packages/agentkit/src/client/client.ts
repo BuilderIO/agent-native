@@ -1916,6 +1916,7 @@ function bodyPrefixMatching(
   const targets: Array<{ type: "text" | "reasoning"; text: string }> = [];
   for (const part of parts) {
     if (part.type !== "text" && part.type !== "reasoning") return undefined;
+    if (!part.text) continue;
     const previous = targets.at(-1);
     if (previous?.type === part.type) previous.text += part.text;
     else targets.push({ type: part.type, text: part.text });

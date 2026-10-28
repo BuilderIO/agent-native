@@ -249,6 +249,23 @@ describe("a cleared draft", () => {
     expect(parts.final).toEqual(answer);
   });
 
+  it("starts the rewrite after a kept tool call as its own paragraph", async () => {
+    const parts = await replyParts([
+      { type: "text", text: "Checking." },
+      { type: "tool_start", id: "tool-1", tool: "search", input: { q: "a" } },
+      { type: "tool_done", id: "tool-1", tool: "search", result: "ok" },
+      { type: "text", text: "Answer A." },
+      { type: "clear" },
+      { type: "text", text: "Answer B." },
+      { type: "done" },
+    ]);
+
+    expect(parts.beforeCompletion).toEqual([
+      expect.objectContaining({ type: "text", text: "Checking." }),
+      expect.objectContaining({ type: "text", text: "Answer B." }),
+    ]);
+  });
+
   it("does not come back when the run then fails", async () => {
     const parts = await replyParts([
       ...draft,

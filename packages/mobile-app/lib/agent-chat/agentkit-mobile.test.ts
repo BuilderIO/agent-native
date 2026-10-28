@@ -157,6 +157,19 @@ describe("mobile AgentKit adapter", () => {
     }
   });
 
+  it("maps a replaced reply onto a clear", () => {
+    const event: AgentEvent = {
+      type: "message.replaced",
+      id: "event-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      sequence: 1,
+      occurredAt: "2026-09-25T12:00:00.000Z",
+      message: { id: "reply", role: "assistant", parts: [] },
+    };
+    expect(mobileAgentKitEventToWireEvent(event)).toEqual({ type: "clear" });
+  });
+
   it("maps setup failures to the friendly native recovery state", () => {
     const event: AgentEvent = {
       type: "run.failed",
