@@ -130,6 +130,27 @@ describe("parseReports", () => {
     );
   });
 
+  it("reads every Reports section and skips Reports examples in fences", () => {
+    const reports = parseReports(
+      [
+        "```md",
+        "## Reports",
+        "- https://example.com/not-a-report",
+        "```",
+        "## Reports",
+        "- https://app.slack.com/a",
+        "## Notes",
+        "- https://example.com/also-not",
+        "## Reports",
+        "- https://app.slack.com/b",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      reports?.map((r) => r.link),
+      ["https://app.slack.com/a", "https://app.slack.com/b"],
+    );
+  });
+
   it("reads a proof written on the report's own line", () => {
     const [report] = parseReports(
       `## Reports\n- https://app.slack.com/a ${proven("grep -q fixed app.txt").trim()}`,

@@ -30,20 +30,27 @@ const PROVEN =
   /fix-proof: proven, red at [0-9a-f]+ \(exit \d+\), green at ([0-9a-f]{7,40}): (.+)$/;
 
 export function parseReports(body: string): Report[] | null {
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) =>
-    /^ {0,3}#{1,6}\s+Reports\b/i.test(line),
-  );
-  if (start === -1) return null;
-  // Subheadings (### Sentry) group reports; only a heading at the same level
-  // or higher ends the section.
-  const level = /#+/.exec(lines[start])![0].length;
   const reports: Report[] = [];
+  let found = false;
+  // Heading level of the Reports section we're in, or 0 outside one. Every
+  // Reports section counts; subheadings (### Sentry) group reports, and a
+  // heading at the same level or higher ends the section. Fenced code is
+  // tracked from the top, so an example inside a fence is never a heading.
+  let level = 0;
   let fenced = false;
-  for (const line of lines.slice(start + 1)) {
-    if (/^ {0,3}(```|~~~)/.test(line)) fenced = !fenced;
-    const heading = fenced ? null : /^ {0,3}(#{1,6})\s/.exec(line);
-    if (heading && heading[1].length <= level) break;
+  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
+    if (/^ {0,3}(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    const heading = fenced ? null : /^ {0,3}(#{1,6})\s+(.*)$/.exec(line);
+    if (heading && /^Reports\b/i.test(heading[2])) {
+      level = heading[1].length;
+      found = true;
+      continue;
+    }
+    if (heading && heading[1].length <= level) level = 0;
+    if (!level) continue;
     // A line that is only a proof or a visual pair, even as a list item,
     // belongs to the report above it.
     const evidence = line
@@ -72,7 +79,7 @@ export function parseReports(body: string): Report[] | null {
         report.visual = true;
     }
   }
-  return reports;
+  return found ? reports : null;
 }
 
 function main() {

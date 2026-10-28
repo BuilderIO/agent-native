@@ -299,7 +299,7 @@ a one-line lesson in the recap and Steve will decide whether it goes in.
 This step is the only place a claimed report gets its closing reply. Run it
 after the merge for the threads in the PR's `Reports` section. If the merge
 happened outside this run, the next sweep runs it: when you collect, list the
-sweep PRs merged in the window (`gh pr list --state merged --search
+sweep PRs merged in the window (`gh pr list --state merged --limit 100 --search
 "merged:>=<date>"`) and close out every report in their `Reports` sections
 that still lacks its ✅, however old the report is.
 Entries that aren't Slack threads get no Slack action: GitHub issues follow
