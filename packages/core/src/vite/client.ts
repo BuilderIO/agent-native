@@ -1110,7 +1110,6 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/api-path",
   "@agent-native/core/client/clipboard",
   "@agent-native/core/client/zoom-gesture",
-  "@agent-native/core/client/generation-stream",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -1702,10 +1701,6 @@ function getCoreSourceAliases(
     "@agent-native/core/client/zoom-gesture": path.join(
       coreSrc,
       "client/zoom-gesture.ts",
-    ),
-    "@agent-native/core/client/generation-stream": path.join(
-      coreSrc,
-      "client/generation-stream/index.ts",
     ),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
