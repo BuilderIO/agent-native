@@ -40,6 +40,7 @@ import {
   hasCompletePassingChecks,
   reconcileBabysitState,
 } from "../server/triage/pr-babysit.js";
+import type { PullRequestReviewObservation } from "../server/triage/pr-monitor.js";
 import {
   decidePullRequestGovernance,
   hasActiveCredibleSafetyFinding,
@@ -60,6 +61,106 @@ function hasUsableChangedFiles(
       (file) => typeof file === "string" && file.trim().length > 0,
     )
   );
+}
+
+type CurrentPullRequestApproval = ReturnType<
+  typeof currentPullRequestApprovals
+>[number] &
+  Pick<PullRequestReviewObservation, "authorId" | "authorType"> & {
+    reviewerUsername: string;
+  };
+
+function currentPullRequestApprovalsWithIdentity(
+  reviews: readonly PullRequestReviewObservation[],
+  headSha: string,
+): CurrentPullRequestApproval[] {
+  const latestCurrentHeadApprovalByAuthor = new Map<
+    string,
+    PullRequestReviewObservation
+  >();
+  reviews
+    .map((review, order) => ({ review, order }))
+    .sort(
+      (left, right) =>
+        Date.parse(left.review.observedAt) -
+          Date.parse(right.review.observedAt) || left.order - right.order,
+    )
+    .forEach(({ review }) => {
+      const author = review.author.trim().toLowerCase();
+      if (
+        author &&
+        review.state === "approved" &&
+        review.commitSha === headSha
+      ) {
+        latestCurrentHeadApprovalByAuthor.set(author, review);
+      }
+    });
+
+  return currentPullRequestApprovals(reviews, headSha).map((approval) => {
+    const review = latestCurrentHeadApprovalByAuthor.get(
+      approval.reviewerLogin,
+    );
+    if (!review) {
+      fail(
+        `Current approval by ${approval.reviewerLogin} has no matching review event; reconciliation is required before relying on it.`,
+        { errorCode: "github_response_invalid", statusCode: 424 },
+      );
+    }
+    return {
+      ...approval,
+      ...(review.authorId === undefined ? {} : { authorId: review.authorId }),
+      ...(review.authorType === undefined
+        ? {}
+        : { authorType: review.authorType }),
+      reviewerUsername: review.author.trim(),
+    };
+  });
+}
+
+async function eligibleBuilderMemberApprovals(
+  approvals: readonly CurrentPullRequestApproval[],
+  pullRequestAuthor: string,
+  github: Pick<
+    ReturnType<typeof createGitHubClient>,
+    "checkOrganizationMemberById"
+  >,
+): Promise<CurrentPullRequestApproval[]> {
+  const authorLogin = pullRequestAuthor.trim().toLowerCase();
+  const candidates = approvals.filter(
+    (approval) =>
+      approval.reviewerLogin !== authorLogin &&
+      approval.authorType?.trim().toLowerCase() === "user",
+  );
+  let missingReviewerId: string | null = null;
+  for (const approval of candidates) {
+    const reviewerId = approval.authorId;
+    if (
+      typeof reviewerId !== "number" ||
+      !Number.isSafeInteger(reviewerId) ||
+      reviewerId <= 0
+    ) {
+      missingReviewerId ??= approval.reviewerLogin;
+      continue;
+    }
+    const membership = await github.checkOrganizationMemberById(
+      "BuilderIO",
+      reviewerId,
+      approval.reviewerUsername,
+    );
+    if (
+      membership.isMember &&
+      membership.username.trim().toLowerCase() === approval.reviewerLogin
+    ) {
+      return [approval];
+    }
+  }
+  if (missingReviewerId) {
+    fail(
+      `Current approval by ${missingReviewerId} is missing a verified GitHub user ID; reconciliation is required before relying on it.`,
+      { errorCode: "github_response_invalid", statusCode: 424 },
+    );
+  }
+  return [];
 }
 
 export function hasSafeFinalApprovalGateEvidence(
@@ -313,6 +414,22 @@ export default defineAction({
       repository,
       pullRequestNumber,
     );
+    const pullRequestAuthor = pullRequest.userLogin.trim().toLowerCase();
+    const pullRequestAuthorType = pullRequest.userType?.trim().toLowerCase();
+    if (pullRequestAuthor === "steve8708" || pullRequestAuthorType === "bot") {
+      return {
+        ok: true,
+        action: "skipped",
+        reason:
+          "Bot-authored and steve8708 pull requests are excluded before evidence review.",
+      };
+    }
+    if (pullRequestAuthorType !== "user") {
+      fail(
+        "GitHub pull request author type is missing or unsupported; governance cannot continue without verifying the author before evidence review.",
+        { errorCode: "github_response_invalid", statusCode: 424 },
+      );
+    }
     if (pullRequest.state !== "open" || pullRequest.draft) {
       if (itemId) {
         await getDb()
@@ -325,6 +442,7 @@ export default defineAction({
             and(
               orgFactoryScopedItemWhere(itemId, orgId, factoryId),
               notInArray(triageItems.status, [
+                "auto_approved",
                 "reconciliation_required",
                 "merged",
                 "resolved",
@@ -426,7 +544,7 @@ export default defineAction({
       !hasActiveCredibleSafetyFinding(snapshot.reviews, snapshot.comments);
     let currentApprovals;
     try {
-      currentApprovals = currentPullRequestApprovals(
+      currentApprovals = currentPullRequestApprovalsWithIdentity(
         snapshot.reviews,
         pullRequest.headSha,
       );
@@ -441,8 +559,62 @@ export default defineAction({
       );
       throw error;
     }
-    const currentApproval =
-      currentApprovals.length > 0 ? currentApprovals[0] : null;
+    let eligibleCurrentApprovals;
+    try {
+      eligibleCurrentApprovals = await eligibleBuilderMemberApprovals(
+        currentApprovals,
+        pullRequest.userLogin,
+        github,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "unknown membership error";
+      await reconcileClaim(
+        pullRequest.headSha,
+        `Current approval membership could not be verified: ${message}. Reconciliation is required before approval.`,
+      );
+      throw error;
+    }
+    const currentApproval: CurrentPullRequestApproval | null =
+      eligibleCurrentApprovals.length === 0
+        ? null
+        : (eligibleCurrentApprovals[0] ?? null);
+    let attributedFactoryApproval: CurrentPullRequestApproval | null = null;
+    if (itemId) {
+      const decisionId = stableId(
+        "pr-governance",
+        orgId,
+        itemId,
+        pullRequest.headSha,
+      );
+      const marker = `${FACTORY_APPROVAL_BODY_MARKER}${decisionId};`;
+      const markedApprovals = currentApprovals.filter((approval) =>
+        approval.body?.startsWith(marker),
+      );
+      if (markedApprovals.length > 0) {
+        let authenticatedUser: Awaited<
+          ReturnType<typeof github.getAuthenticatedUser>
+        >;
+        try {
+          authenticatedUser = await github.getAuthenticatedUser();
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown authenticated-user error";
+          await reconcileClaim(
+            pullRequest.headSha,
+            `Factory approval identity could not be verified: ${message}. Reconciliation is required before recovery.`,
+          );
+          throw error;
+        }
+        const authenticatedLogin = authenticatedUser.login.trim().toLowerCase();
+        attributedFactoryApproval =
+          markedApprovals.find(
+            (approval) => approval.reviewerLogin === authenticatedLogin,
+          ) ?? null;
+      }
+    }
     if (!hasUsableChangedFiles(changedFiles)) {
       const missingFilesReason =
         "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
@@ -469,7 +641,10 @@ export default defineAction({
       pullRequest.userId,
       pullRequest.userLogin,
     );
-    if (currentApproval && !internalMember.isMember) {
+    if (
+      (currentApproval || attributedFactoryApproval) &&
+      !internalMember.isMember
+    ) {
       const manualReason =
         "Factory governance does not approve external authors; the existing current-head approval does not change that, so this pull request needs a manual disposition.";
       let livePullRequest: Awaited<
@@ -537,7 +712,7 @@ export default defineAction({
       );
       return { ok: true, action: "needs_manual", reason: manualReason };
     }
-    if (currentApproval) {
+    if (currentApproval || attributedFactoryApproval) {
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -626,15 +801,7 @@ export default defineAction({
               ),
             );
         }
-        const authenticatedUser = await github.getAuthenticatedUser();
-        const attributedApproval = currentApprovals.find(
-          (approval) =>
-            approval.reviewerLogin ===
-              authenticatedUser.login.trim().toLowerCase() &&
-            approval.body?.startsWith(
-              `${FACTORY_APPROVAL_BODY_MARKER}${decisionId};`,
-            ),
-        );
+        const attributedApproval = attributedFactoryApproval;
         const attributedApprovalUrl =
           attributedApproval?.htmlUrl ?? pullRequest.htmlUrl;
         if (
@@ -1087,9 +1254,13 @@ export default defineAction({
       }
       let postClaimApprovals;
       try {
-        postClaimApprovals = currentPullRequestApprovals(
-          postClaimSnapshot.reviews,
-          pullRequest.headSha,
+        postClaimApprovals = await eligibleBuilderMemberApprovals(
+          currentPullRequestApprovalsWithIdentity(
+            postClaimSnapshot.reviews,
+            pullRequest.headSha,
+          ),
+          pullRequest.userLogin,
+          github,
         );
       } catch (error) {
         const message =
@@ -1229,9 +1400,13 @@ export default defineAction({
         }
         let finalApprovals;
         try {
-          finalApprovals = currentPullRequestApprovals(
-            finalReviewSnapshot.reviews,
-            pullRequest.headSha,
+          finalApprovals = await eligibleBuilderMemberApprovals(
+            currentPullRequestApprovalsWithIdentity(
+              finalReviewSnapshot.reviews,
+              pullRequest.headSha,
+            ),
+            pullRequest.userLogin,
+            github,
           );
         } catch (error) {
           const message =

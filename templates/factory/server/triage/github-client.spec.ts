@@ -404,6 +404,7 @@ describe("GitHub triage client", () => {
     expect(evidence.reviews).toEqual([
       {
         author: "reviewer",
+        authorId: 2,
         state: "changes_requested",
         observedAt: "2026-08-28T12:00:00Z",
       },
@@ -544,6 +545,7 @@ describe("GitHub triage client", () => {
     });
     expect(reviews[100]).toEqual({
       author: "maintainer",
+      authorId: 2,
       state: "approved",
       authorAssociation: "MEMBER",
       authorType: "User",
@@ -554,6 +556,7 @@ describe("GitHub triage client", () => {
     // A review GitHub gives no association for is passed on without one, never with a made-up value.
     expect(reviews[101]).not.toHaveProperty("authorAssociation");
     expect(reviews[101]).not.toHaveProperty("authorType");
+    expect(reviews[101]).toHaveProperty("authorId", 3);
     expect(reviews[101]).not.toHaveProperty("commitSha");
   });
 
@@ -1085,7 +1088,7 @@ describe("getPullRequestSummary: where the pull request comes from", () => {
     state: "open",
     draft: false,
     html_url: "https://github.test/pr/7",
-    user: { id: 1, login: "builder-io-integration[bot]" },
+    user: { id: 1, login: "builder-io-integration[bot]", type: "Bot" },
     head: { sha: "h", ref: "r", repo: head },
     base: { ref: "main", repo: base },
     created_at: "2026-08-28T10:00:00Z",
@@ -1112,6 +1115,7 @@ describe("getPullRequestSummary: where the pull request comes from", () => {
       headRepository: "someone/app",
       baseRepository: "acme/app",
       baseDefaultBranch: "trunk",
+      userType: "Bot",
     });
   });
 

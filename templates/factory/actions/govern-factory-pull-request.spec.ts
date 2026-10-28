@@ -11,6 +11,8 @@ const { PGlite } = createRequire(new URL("../package.json", import.meta.url))(
 import { triageDecisions, triageItems } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
 import { stableId } from "../server/triage/ids.js";
+import type { PullRequestReviewObservation } from "../server/triage/pr-monitor.js";
+import { FACTORY_APPROVAL_BODY_MARKER } from "../server/triage/pr-policy.js";
 
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
@@ -31,6 +33,12 @@ const manualDispositionId = (headSha = "head-sha-1") =>
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  fail: (
+    message: string,
+    options?: { errorCode?: string; statusCode?: number },
+  ) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 vi.mock("../server/db/index.js", () => ({ getDb: getDbMock }));
 vi.mock("../server/lib/factory-repository-scope.js", () => ({
@@ -55,10 +63,7 @@ vi.mock("../server/triage/metadata.js", () => ({
   serializeTriageMetadata: serializeTriageMetadataMock,
 }));
 
-import {
-  approvedReview,
-  pullRequestSummary,
-} from "../server/lib/factory-pull-request.fixture.js";
+import { pullRequestSummary } from "../server/lib/factory-pull-request.fixture.js";
 import action, {
   hasSafeFinalApprovalGateEvidence,
 } from "./govern-factory-pull-request.js";
@@ -182,18 +187,22 @@ async function seedItem(
     createdAt: "2026-10-28T12:00:00.000Z",
     ownerEmail: "owner@example.test",
     orgId: "org-1",
-    factoryId: "factory-1",
+    factoryId,
   });
 }
 
 function governanceGitHub(input: {
   currentApproval?: boolean;
+  reviewEvents?: readonly PullRequestReviewObservation[];
   changedFiles?: string[];
   headRepository?: string | null;
   assignees?: Array<{ id: number; login: string }>;
   assigneeMember?: boolean;
+  reviewerMembership?: boolean;
+  reviewerIdentityMismatch?: boolean;
   internalMember?: boolean;
   passingChecks?: boolean;
+  initialSummary?: Record<string, unknown>;
   revalidatedSummary?: Record<string, unknown>;
   postApprovalSummary?: Record<string, unknown>;
   beforeApprovalReturn?: () => Promise<void>;
@@ -201,6 +210,7 @@ function governanceGitHub(input: {
   const initialSummary = pullRequestSummary({
     number: 42,
     userId: 123,
+    userType: "User",
     userLogin: input.internalMember ? "internal-author" : "external-author",
     headRepository:
       input.headRepository === undefined
@@ -211,7 +221,11 @@ function governanceGitHub(input: {
     ...(input.internalMember
       ? { body: "Factory item: item-1", headRef: "factory/item-1" }
       : {}),
+    ...(input.initialSummary ?? {}),
   });
+  const reviewEvents =
+    input.reviewEvents ??
+    (input.currentApproval ? [memberApprovalReview()] : []);
   let summaryCalls = 0;
   return {
     getPullRequestSummary: vi.fn(async () => {
@@ -229,7 +243,7 @@ function governanceGitHub(input: {
     getPullRequestEvidence: vi.fn().mockResolvedValue({
       comments: [],
       commentsTruncated: false,
-      reviews: input.currentApproval ? [approvedReview()] : [],
+      reviews: reviewEvents,
       reviewsTruncated: false,
       checks: input.passingChecks
         ? [{ name: "CI", state: "passed", observedAt: "now" }]
@@ -240,18 +254,45 @@ function governanceGitHub(input: {
       .fn()
       .mockResolvedValue(input.changedFiles ?? []),
     checkOrganizationMemberById: vi.fn(
-      async (_organization: string, userId: number) => ({
-        isMember:
-          userId === 123
-            ? (input.internalMember ?? false)
-            : (input.assigneeMember ?? false),
-      }),
+      async (_organization: string, userId: number, username: string) => {
+        const reviewer = reviewEvents.find(
+          (review) => review.authorId === userId,
+        );
+        return {
+          username:
+            reviewer && input.reviewerIdentityMismatch
+              ? `${username}-different`
+              : username,
+          isMember:
+            userId === 123
+              ? (input.internalMember ?? false)
+              : reviewer
+                ? (input.reviewerMembership ?? true)
+                : (input.assigneeMember ?? false),
+        };
+      },
     ),
+    getAuthenticatedUser: vi.fn().mockResolvedValue({ login: "factory-bot" }),
     createPullRequestReview: vi.fn(),
     approvePullRequest: vi.fn(async () => {
       await input.beforeApprovalReturn?.();
       return { htmlUrl: "https://github.test/BuilderIO/agent-native/pull/42" };
     }),
+  };
+}
+
+function memberApprovalReview(
+  overrides: Partial<PullRequestReviewObservation> = {},
+): PullRequestReviewObservation {
+  return {
+    author: "maintainer",
+    authorId: 789,
+    state: "approved",
+    commitSha: "head-sha-1",
+    authorAssociation: "MEMBER",
+    authorType: "User",
+    observedAt: "2026-10-28T12:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -275,8 +316,8 @@ async function runGovernance(
   );
 }
 
-async function seedInternalApprovalPath() {
-  await seedItem("pr_observed", false, DEFAULT_FACTORY_ID);
+async function seedInternalApprovalPath(includeClaim = false) {
+  await seedItem("pr_observed", includeClaim, DEFAULT_FACTORY_ID);
   await client.exec(`
     INSERT INTO factory_runs (item_id, provider, provider_task_id, status, org_id, factory_id)
     VALUES ('item-1', 'builder-http', 'task-1', 'completed', 'org-1', '${DEFAULT_FACTORY_ID}')
@@ -288,6 +329,60 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(governanceDecisionId("head-sha-2")).not.toBe(governanceDecisionId());
     expect(manualDispositionId("head-sha-2")).not.toBe(manualDispositionId());
   });
+
+  it.each([
+    ["a bot-authored pull request", { userType: "Bot" }],
+    ["the exact steve8708 login", { userLogin: "steve8708" }],
+  ])("skips %s before evidence or state changes", async (_label, author) => {
+    await seedItem("pr_observed");
+    const github = governanceGitHub({ initialSummary: author });
+
+    const result = await runGovernance(github);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decisions = await db
+      .select({ id: triageDecisions.id })
+      .from(triageDecisions)
+      .where(eq(triageDecisions.itemId, "item-1"));
+
+    expect(result).toMatchObject({ ok: true, action: "skipped" });
+    expect(item.status).toBe("pr_observed");
+    expect(decisions).toEqual([]);
+    expect(github.getPullRequestEvidence).not.toHaveBeenCalled();
+    expect(github.listPullRequestChangedFiles).not.toHaveBeenCalled();
+    expect(github.checkOrganizationMemberById).not.toHaveBeenCalled();
+    expect(recordFactoryAuditMock).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "", "Organization"])(
+    "fails closed before evidence when the author type is missing or unsupported: %s",
+    async (userType) => {
+      await seedItem("pr_observed");
+      const github = governanceGitHub({
+        initialSummary: { userType },
+      });
+
+      await expect(runGovernance(github)).rejects.toThrow(
+        "author type is missing or unsupported",
+      );
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+
+      expect(item.status).toBe("pr_observed");
+      expect(github.getPullRequestEvidence).not.toHaveBeenCalled();
+      expect(github.listPullRequestChangedFiles).not.toHaveBeenCalled();
+      expect(github.checkOrganizationMemberById).not.toHaveBeenCalled();
+      expect(recordFactoryAuditMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("requires membership at both gates and complete check coverage", () => {
     const membership = { afterClaim: true, beforeApproval: true };
@@ -328,6 +423,271 @@ describe("govern-factory-pull-request final check evidence", () => {
         { afterClaim: true, beforeApproval: false },
       ),
     ).toBe(false);
+  });
+
+  it.each([
+    ["closed", { state: "closed" }],
+    ["draft", { draft: true }],
+  ])(
+    "preserves finalized auto-approved state when the pull request is %s",
+    async (_state, initialSummary) => {
+      await seedItem("auto_approved");
+      const github = governanceGitHub({ initialSummary });
+
+      const result = await runGovernance(github);
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+
+      expect(result).toMatchObject({ ok: true, action: "skipped" });
+      expect(item.status).toBe("auto_approved");
+      expect(github.getPullRequestEvidence).not.toHaveBeenCalled();
+    },
+  );
+
+  it("skips duplicate governance only for a current-head BuilderIO member approval", async () => {
+    await seedInternalApprovalPath();
+    const github = governanceGitHub({
+      internalMember: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [memberApprovalReview()],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+
+    expect(result).toMatchObject({
+      ok: true,
+      action: "skipped",
+      reason: expect.stringContaining("current non-dismissed approval"),
+    });
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+    expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
+      "BuilderIO",
+      789,
+      "maintainer",
+    );
+  });
+
+  it("recovers an attributed Factory approval without requiring it to be a human member approval", async () => {
+    await seedInternalApprovalPath(true);
+    const github = governanceGitHub({
+      internalMember: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [
+        memberApprovalReview({
+          author: "factory-bot",
+          authorType: "Bot",
+          body: `${FACTORY_APPROVAL_BODY_MARKER}${governanceDecisionId()}; recovered`,
+        }),
+      ],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decision = (
+      await db
+        .select({ outcome: triageDecisions.outcome })
+        .from(triageDecisions)
+        .where(eq(triageDecisions.id, governanceDecisionId()))
+    )[0];
+
+    expect(result).toMatchObject({ ok: true, action: "skipped" });
+    expect(item.status).toBe("auto_approved");
+    expect(decision.outcome).toBe("auto_approve");
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+    expect(github.getAuthenticatedUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("records an external Factory-bot approval as manual instead of recovering it", async () => {
+    await seedItem("pr_observed", true);
+    const github = governanceGitHub({
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [
+        memberApprovalReview({
+          author: "factory-bot",
+          authorType: "Bot",
+          body: `${FACTORY_APPROVAL_BODY_MARKER}${governanceDecisionId()}; recovered`,
+        }),
+      ],
+    });
+
+    const result = await runGovernance(github);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decisions = await db
+      .select({ id: triageDecisions.id, outcome: triageDecisions.outcome })
+      .from(triageDecisions)
+      .where(eq(triageDecisions.itemId, "item-1"));
+
+    expect(result).toMatchObject({ ok: true, action: "needs_manual" });
+    expect(item.status).toBe("reconciliation_required");
+    expect(decisions).toContainEqual({
+      id: governanceDecisionId(),
+      outcome: "needs_manual",
+    });
+    expect(decisions).toContainEqual({
+      id: manualDispositionId(),
+      outcome: "needs_manual",
+    });
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+    expect(github.getAuthenticatedUser).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      label: "a non-member",
+      reviewOverrides: { authorAssociation: "NONE" },
+      reviewerMembership: false,
+    },
+    {
+      label: "a bot",
+      reviewOverrides: { authorType: "Bot" },
+      reviewerMembership: true,
+    },
+    {
+      label: "a reviewer with an unknown account type",
+      reviewOverrides: { authorType: "Unknown" },
+      reviewerMembership: true,
+    },
+    {
+      label: "the pull-request author",
+      reviewOverrides: { author: "internal-author" },
+      reviewerMembership: true,
+    },
+  ])(
+    "does not treat a current-head approval from $label as sufficient",
+    async ({ reviewOverrides, reviewerMembership }) => {
+      await seedInternalApprovalPath();
+      const github = governanceGitHub({
+        internalMember: true,
+        reviewerMembership,
+        passingChecks: true,
+        changedFiles: ["src/change.ts"],
+        reviewEvents: [memberApprovalReview(reviewOverrides)],
+      });
+
+      const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+
+      expect(result).toMatchObject({ ok: true, action: "approved" });
+      expect(github.approvePullRequest).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("relies on live membership when a BuilderIO member is listed as a collaborator", async () => {
+    await seedInternalApprovalPath();
+    const github = governanceGitHub({
+      internalMember: true,
+      reviewerMembership: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [
+        memberApprovalReview({
+          author: "Maintainer",
+          authorAssociation: "COLLABORATOR",
+        }),
+      ],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+
+    expect(result).toMatchObject({ ok: true, action: "skipped" });
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+    expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
+      "BuilderIO",
+      789,
+      "Maintainer",
+    );
+  });
+
+  it("does not rely on reviewer membership when the verified login differs", async () => {
+    await seedInternalApprovalPath();
+    const github = governanceGitHub({
+      internalMember: true,
+      reviewerMembership: true,
+      reviewerIdentityMismatch: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [memberApprovalReview()],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+
+    expect(result).toMatchObject({ ok: true, action: "approved" });
+    expect(github.checkOrganizationMemberById).toHaveBeenCalledWith(
+      "BuilderIO",
+      789,
+      "maintainer",
+    );
+    expect(github.approvePullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a current approval has no reviewer ID", async () => {
+    await seedInternalApprovalPath();
+    const missingIdReview = memberApprovalReview();
+    delete missingIdReview.authorId;
+    const github = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [missingIdReview],
+    });
+
+    await expect(
+      runGovernance(github, DEFAULT_FACTORY_ID, true),
+    ).rejects.toThrow("missing a verified GitHub user ID");
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
+  });
+
+  it("uses a later dismissal to invalidate an older member approval", async () => {
+    await seedInternalApprovalPath();
+    const github = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [
+        memberApprovalReview({
+          state: "dismissed",
+          observedAt: "2026-10-28T13:00:00.000Z",
+        }),
+        memberApprovalReview({ observedAt: "2026-10-28T12:00:00.000Z" }),
+      ],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+
+    expect(result).toMatchObject({ ok: true, action: "approved" });
+    expect(github.approvePullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a current member approval after a later comment by the same reviewer", async () => {
+    await seedInternalApprovalPath();
+    const github = governanceGitHub({
+      internalMember: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [
+        memberApprovalReview({
+          state: "commented",
+          observedAt: "2026-10-28T13:00:00.000Z",
+        }),
+        memberApprovalReview({ observedAt: "2026-10-28T12:00:00.000Z" }),
+      ],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+
+    expect(result).toMatchObject({ ok: true, action: "skipped" });
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
   });
 
   it("records a decision for an existing reconciliation-required item with an external approval", async () => {

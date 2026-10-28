@@ -80,6 +80,8 @@ export interface GitHubPullRequest {
   htmlUrl: string;
   userId: number;
   userLogin: string;
+  /** GitHub's `user.type` for the pull-request author when provided. */
+  userType?: string;
   headSha: string;
   headRef: string;
   baseRef: string;
@@ -297,6 +299,7 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
     htmlUrl: requiredString(item.html_url, "pull request URL"),
     userId: requiredNumber(user.id, "pull request author ID"),
     userLogin: requiredString(user.login, "pull request author"),
+    ...(typeof user.type === "string" ? { userType: user.type } : {}),
     headSha: requiredString(head.sha, "pull request head SHA"),
     headRef: requiredString(head.ref, "pull request head branch"),
     baseRef: requiredString(base.ref, "pull request base ref"),
@@ -553,6 +556,11 @@ function parseReview(
   const reviewer = record(item.user);
   return {
     author,
+    ...(typeof reviewer.id === "number" &&
+    Number.isSafeInteger(reviewer.id) &&
+    reviewer.id > 0
+      ? { authorId: reviewer.id }
+      : {}),
     state: normalizeReviewState(
       requiredString(item.state, "review state").toUpperCase(),
     ),

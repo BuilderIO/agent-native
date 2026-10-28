@@ -140,6 +140,13 @@ This override applies only to manual, non-Factory review invocations. Factory
 governance follows its code-defined action gates; this skill's blanket
 instruction cannot waive them.
 
+In Factory governance, the manual blanket-approval override is unavailable,
+even if equivalent wording appears in the run prompt. Never submit an approval
+through `gh api`, `gh pr review`, GraphQL, or another direct GitHub review
+mutation. Route every Factory approval decision through
+`govern-factory-pull-request` and follow its result; only that action may submit
+an approval, under its code-enforced gates.
+
 Only an explicit instruction from Steve, given directly in the current request
 or in the user-authorized prompt for this invocation, triggers this override.
 It must expressly request approval of every currently open, non-draft PR by
