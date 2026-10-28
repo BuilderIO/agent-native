@@ -263,8 +263,8 @@ apart from Steve's own 👀.
   `Reports` section.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
-  `node scripts/fix-proof.ts -- <the check>`; only its `fix-proof: proven`
-  line counts as proof.
+  `node scripts/fix-proof.ts -- <the check>` from the repo root. For any fix
+  that isn't purely visual, only its `fix-proof: proven` line counts.
 <!-- framework-repo-only:end -->
 - **Two misses, then stop guessing.** If two attempts don't turn the check
   green, stop editing and capture the real failure first (stack, logs, the

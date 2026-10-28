@@ -18,7 +18,7 @@ const MAIN_TEMPLATES = (() => {
       { cwd: HERE, encoding: "utf8" },
     ).trim();
     const main = resolve(dirname(common), "templates");
-    return main === TEMPLATES ? null : main;
+    return main === TEMPLATES || !existsSync(main) ? null : main;
   } catch {
     return null;
   }
