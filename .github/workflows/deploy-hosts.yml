@@ -31,12 +31,19 @@ on:
         type: string
         required: false
         default: latest
+      exercise_chat_durability:
+        description: "Run the isolated authenticated Chat reliability proof on the disposable Netlify deployment"
+        type: boolean
+        required: false
+        default: false
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: false
       VERCEL_TOKEN:
         required: false
       DEPLOY_CHECK_DATABASE_URL:
+        required: false
+      BETA_E2E_OPENAI_API_KEY:
         required: false
   workflow_dispatch:
     inputs:
@@ -52,6 +59,11 @@ on:
         type: string
         required: false
         default: latest
+      exercise_chat_durability:
+        description: "Run the isolated authenticated Chat reliability proof on the disposable Netlify deployment"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -78,10 +90,12 @@ jobs:
         env:
           input_source: ${{ inputs.source }}
           input_npm_tag: ${{ inputs.npm_tag }}
+          exercise_chat_durability: ${{ inputs.exercise_chat_durability }}
           host: ${{ matrix.host }}
           NETLIFY_AUTH_TOKEN: ${{ matrix.host == 'netlify' && secrets.NETLIFY_AUTH_TOKEN || '' }}
           VERCEL_TOKEN: ${{ matrix.host == 'vercel' && secrets.VERCEL_TOKEN || '' }}
           DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
+          BETA_E2E_OPENAI_API_KEY: ${{ matrix.host == 'netlify' && secrets.BETA_E2E_OPENAI_API_KEY || '' }}
         run: |
           set -euo pipefail
           case "$input_source" in
@@ -113,26 +127,51 @@ jobs:
             fi
           done
           [ "$missing" = 0 ] || exit 1
-          echo "source=$input_source" >> "$GITHUB_OUTPUT"
-          echo "npm_tag=$input_npm_tag" >> "$GITHUB_OUTPUT"
+          if [ "$exercise_chat_durability" = "true" ] && [ "$host" = "netlify" ]; then
+            if [ "$input_source" != "local" ]; then
+              echo "::error::exercise_chat_durability requires source=local"
+              exit 1
+            fi
+            if [ -z "$BETA_E2E_OPENAI_API_KEY" ]; then
+              echo "::error::The BETA_E2E_OPENAI_API_KEY secret is not available to this run."
+              exit 1
+            fi
+          fi
+          {
+            printf 'source=%s\n' "$input_source"
+            printf 'npm_tag=%s\n' "$input_npm_tag"
+            printf 'exercise_chat_durability=%s\n' "$exercise_chat_durability"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/setup-pnpm
         with:
           install: ${{ steps.inputs.outputs.source == 'local' && 'full' || 'no-scripts' }}
           restore-dist-cache: ${{ steps.inputs.outputs.source == 'local' && 'true' || 'false' }}
 
+      - name: Install Chromium for isolated Chat proof
+        if: ${{ steps.inputs.outputs.exercise_chat_durability == 'true' && matrix.host == 'netlify' }}
+        run: pnpm exec playwright install --only-shell chromium
+
       - name: Prove the ${{ matrix.host }} path
         env:
           NETLIFY_AUTH_TOKEN: ${{ matrix.host == 'netlify' && secrets.NETLIFY_AUTH_TOKEN || '' }}
           VERCEL_TOKEN: ${{ matrix.host == 'vercel' && secrets.VERCEL_TOKEN || '' }}
           DEPLOY_CHECK_DATABASE_URL: ${{ secrets.DEPLOY_CHECK_DATABASE_URL }}
-        run: >-
-          pnpm qa:deploy-paths
-          --target ${{ matrix.host }}
-          --source ${{ steps.inputs.outputs.source }}
-          --npm-tag ${{ steps.inputs.outputs.npm_tag }}
-          --netlify-account-slug builder-io
-          --vercel-scope builder-io
+          BETA_E2E_OPENAI_API_KEY: ${{ matrix.host == 'netlify' && steps.inputs.outputs.exercise_chat_durability == 'true' && secrets.BETA_E2E_OPENAI_API_KEY || '' }}
+          EXERCISE_CHAT_DURABILITY: ${{ steps.inputs.outputs.exercise_chat_durability }}
+        run: |
+          set -euo pipefail
+          args=(
+            --target "${{ matrix.host }}"
+            --source "${{ steps.inputs.outputs.source }}"
+            --npm-tag "${{ steps.inputs.outputs.npm_tag }}"
+            --netlify-account-slug builder-io
+            --vercel-scope builder-io
+          )
+          if [[ "$EXERCISE_CHAT_DURABILITY" == "true" && "${{ matrix.host }}" == "netlify" ]]; then
+            args+=(--exercise-chat-durability)
+          fi
+          pnpm qa:deploy-paths "${args[@]}"
 
       - name: Upload the step timings and result
         if: ${{ !cancelled() }}
