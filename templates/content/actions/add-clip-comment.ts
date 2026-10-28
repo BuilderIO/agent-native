@@ -1,7 +1,10 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { writeClipComment } from "../server/lib/clips-peer.js";
+import {
+  type ClipCommentWrite,
+  writeClipComment,
+} from "../server/lib/clips-peer.js";
 import {
   CLIP_PLAYBACK_ERRORS,
   CONTENT_CLIP_MAX_COMMENT_CHARS,
@@ -14,6 +17,9 @@ import {
 } from "./_clip-embed-access.js";
 
 const answerSchema = z.object({ id: z.string(), threadId: z.string() });
+
+const ONE_TARGET =
+  "Pass videoTimestampMs to start a thread or threadId to reply, not both";
 
 export default defineAction({
   description:
@@ -48,7 +54,7 @@ export default defineAction({
     .refine(
       (args) =>
         (args.videoTimestampMs === undefined) !== (args.threadId === undefined),
-      "Pass videoTimestampMs to start a thread or threadId to reply, not both",
+      ONE_TARGET,
     ),
   outputSchema: answerSchema,
   run: async ({
@@ -58,15 +64,19 @@ export default defineAction({
     videoTimestampMs,
     threadId,
   }) => {
+    const write: ClipCommentWrite | null =
+      threadId !== undefined
+        ? { operation: "reply", commentId: threadId, content }
+        : videoTimestampMs !== undefined
+          ? { operation: "add", content, videoTimestampMs }
+          : null;
+    if (!write) fail(ONE_TARGET, { errorCode: "clip_comment_target" });
     const reader = await authorizeClipCommenter(documentId);
     const result = await writeClipComment({
       reader,
       documentId,
       recordingId,
-      write:
-        threadId === undefined
-          ? { operation: "add", content, videoTimestampMs: videoTimestampMs! }
-          : { operation: "reply", commentId: threadId, content },
+      write,
     });
     if (!result.ok) failClip(result.code);
     const parsed = answerSchema.safeParse(result.body);

@@ -451,7 +451,10 @@ function ClipEmbedPlayer({
   const threads = listed ? comments.threads : NO_THREADS;
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const fieldId = useMemo(() => blockFieldIdOf(frame), [frame]);
-  const canComment = Boolean(grant?.viewer.canComment);
+  // A grant outlives a change to the Clip's settings; the comment list
+  // doesn't.
+  const canComment =
+    Boolean(grant?.viewer.canComment) && comments.status !== "off";
   const isOwner = Boolean(grant?.viewer.isOwner);
   const source = useMemo<ClipCommentSource | null>(
     () =>

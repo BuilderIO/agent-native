@@ -490,6 +490,19 @@ describe("ClipEmbed beside the page's comment margin", () => {
     expect(commentButton()).toBeNull();
   });
 
+  it("stops offering Comment once Clips says its comments were turned off", () => {
+    renderBeside(margin());
+    expect(commentButton()).not.toBeNull();
+
+    // The grant still says the reader may comment; the comment list knows better.
+    queries.byName["list-clip-comments"] = fakeQuery(
+      { threads, truncated: false },
+      refusal("clip_comments_disabled"),
+    );
+    renderBeside(margin());
+    expect(commentButton()).toBeNull();
+  });
+
   it("opens a marker's thread in the margin and seeks to it", () => {
     const host = margin();
     renderBeside(host);

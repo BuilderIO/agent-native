@@ -2262,7 +2262,7 @@ export function CommentsSidebar({
             documentId,
             content: replyText.trim(),
             threadId,
-            parentId: thread?.comments[0]?.id,
+            parentId: thread.comments[0]?.id,
             mentions: mentionsJsonFor(replyText, replyMentions, agent),
           });
       replyDrafts.clearRetry(threadId, clientOperationId);
@@ -3221,7 +3221,9 @@ export function CommentsSidebar({
           ) : undefined
         }
         onAiSubmit={
-          commentAi && !thread.field && !thread.clip ? submitAi : undefined
+          commentAi && !thread.field && !thread.clip
+            ? (selection) => void submitAi(selection)
+            : undefined
         }
         aiModelStorageKey={
           commentAi && !thread.field ? aiModelStorageKey : undefined

@@ -249,8 +249,8 @@ function clipPlayhead(documentId: string, recordingId: string) {
 
 /**
  * The thread the Clip's playhead last passed: the last at or before it, in
- * the order of their moments. Of several at that moment, `preferred` if it is
- * one of them.
+ * the order of their moments, or the first while the playhead is before them
+ * all. Of several at that moment, `preferred` if it is one of them.
  */
 export function clipThreadPassed<T extends Pick<CommentThread, "threadId">>(
   threads: readonly (T & { clip?: CommentThread["clip"] })[],
@@ -258,17 +258,20 @@ export function clipThreadPassed<T extends Pick<CommentThread, "threadId">>(
   preferred?: string | null,
 ): T | null {
   let passedMs = -1;
+  let firstMs = Infinity;
   for (const thread of threads) {
     const ms = thread.clip?.videoTimestampMs;
-    if (ms !== undefined && ms <= playheadMs && ms > passedMs) passedMs = ms;
+    if (ms === undefined) continue;
+    firstMs = Math.min(firstMs, ms);
+    if (ms <= playheadMs && ms > passedMs) passedMs = ms;
   }
+  const frontMs = passedMs < 0 ? firstMs : passedMs;
   const atPassed = threads.filter(
-    (thread) => thread.clip?.videoTimestampMs === passedMs,
+    (thread) => thread.clip?.videoTimestampMs === frontMs,
   );
   return (
     atPassed.find((thread) => thread.threadId === preferred) ??
-    atPassed[atPassed.length - 1] ??
-    null
+    (atPassed.length ? atPassed[atPassed.length - 1] : null)
   );
 }
 

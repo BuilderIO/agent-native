@@ -74,12 +74,12 @@ describe("clipCommentThreads", () => {
       },
     });
     expect(
-      margin?.comments.map((comment) => [comment.id, comment.parent_id]),
+      margin.comments.map((comment) => [comment.id, comment.parent_id]),
     ).toEqual([
       ["c1", null],
       ["r1", "c1"],
     ]);
-    expect(margin?.comments[0]?.thread_id).toBe("clip:rec_1:c1");
+    expect(margin.comments[0].thread_id).toBe("clip:rec_1:c1");
   });
 
   it("lets a thread's author and the Clip's owner resolve it, if Clips takes their comments", () => {
@@ -121,7 +121,7 @@ describe("clipCommentThreads", () => {
       ],
       null,
     );
-    expect(margin?.comments[0]?.mutation).toEqual({
+    expect(margin.comments[0].mutation).toEqual({
       operationId: "op1",
       kind: "create",
       status: "pending",
@@ -148,11 +148,24 @@ describe("clipThreadPassed", () => {
     clipThreadPassed(threads, ms, preferred)?.clip?.threadId ?? null;
 
   it("is the last thread at or before the playhead", () => {
-    expect(passed(1_999)).toBeNull();
     expect(passed(2_000)).toBe("a");
     expect(passed(4_999)).toBe("a");
     expect(passed(9_000)).toBe("d");
     expect(passed(60_000)).toBe("d");
+  });
+
+  it("is the first thread while the playhead is before them all", () => {
+    expect(passed(0)).toBe("a");
+    expect(passed(1_999)).toBe("a");
+    const later = clipCommentThreads(
+      "doc_1",
+      [source({ threads: [thread("b", 5_000), thread("c", 5_000)] })],
+      null,
+    );
+    expect(clipThreadPassed(later, 0)?.clip?.threadId).toBe("c");
+    expect(clipThreadPassed(later, 0, "clip:rec_1:b")?.clip?.threadId).toBe(
+      "b",
+    );
   });
 
   it("keeps the preferred thread of several at the passed moment", () => {

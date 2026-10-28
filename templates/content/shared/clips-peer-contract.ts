@@ -34,11 +34,10 @@ export const CONTENT_CLIP_CLAIMS = {
 export const CONTENT_CLIP_MAX_COMMENT_THREADS = 500;
 
 /**
- * Clips cuts a listed thread start's text to this many characters, and its
- * author's name and email to `CONTENT_CLIP_COMMENT_AUTHOR_CHARS`, so the
+ * Clips cuts a listed comment's author name and email to this many
+ * characters, and its text to `CONTENT_CLIP_COMMENT_TEXT_CHARS`, so the
  * longest comment list has a known size.
  */
-export const CONTENT_CLIP_COMMENT_PREVIEW_CHARS = 280;
 export const CONTENT_CLIP_COMMENT_AUTHOR_CHARS = 320;
 
 /**

@@ -12,7 +12,10 @@ import {
   grantRefreshDelay,
   youtubeEmbedSrc,
 } from "./clip-media";
-import type { ClipCommentList } from "./use-clip-comment-writes";
+import {
+  useClipThreadsWithWrites,
+  type ClipCommentList,
+} from "./use-clip-comment-writes";
 
 /** No write changes a grant, so Clip queries refetch only when asked. */
 export const CLIP_PLAYBACK_RESOURCE = "clip-playback";
@@ -345,20 +348,21 @@ export function useClipComments(
       resources: [CLIP_PLAYBACK_RESOURCE],
     },
   );
+  const threads = useClipThreadsWithWrites(
+    documentId,
+    recordingId,
+    query.data?.threads,
+  );
   if (!commentsOn) return { status: "off" };
   // A failed refetch keeps the earlier answer's data, so check the error first.
   if (query.isError) {
     // Comments turned off after the grant was issued: same as off.
     return errorCodeOf(query.error) === "clip_comments_disabled"
       ? { status: "off" }
-      : { status: "failed", threads: query.data?.threads ?? [] };
+      : { status: "failed", threads: threads ?? [] };
   }
-  if (query.data) {
-    return {
-      status: "ready",
-      threads: query.data.threads,
-      truncated: query.data.truncated,
-    };
+  if (query.data && threads) {
+    return { status: "ready", threads, truncated: query.data.truncated };
   }
   return { status: "loading" };
 }

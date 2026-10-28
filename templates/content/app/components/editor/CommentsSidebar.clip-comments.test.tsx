@@ -73,7 +73,7 @@ function clipThread(
     replyCount: 0,
     replies: [],
   };
-  const [thread] = clipCommentThreads(
+  const threads = clipCommentThreads(
     DOC,
     [
       {
@@ -86,8 +86,14 @@ function clipThread(
     ],
     "bo@example.test",
   );
-  if (!thread) throw new Error("No thread");
-  return thread;
+  expect(threads).toHaveLength(1);
+  return threads[0];
+}
+
+/** The element a step needs, or a failed test naming the one missing. */
+function found<T>(value: T | null | undefined, name: string): T {
+  if (value == null) throw new Error(`No ${name}`);
+  return value;
 }
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -193,8 +199,11 @@ describe("a Clip comment in the margin", () => {
       'clipEmbed.commentMoment {"time":"0:06"}',
     );
 
-    await setRichEditorValue(richEditor(container)!, "Cut this pause");
-    await act(async () => submitButton()!.click());
+    await setRichEditorValue(
+      found(richEditor(container), "composer"),
+      "Cut this pause",
+    );
+    await act(async () => found(submitButton(), "submit button").click());
     expect(lastRequest().url).toContain("add-clip-comment");
     expect(lastRequest().body).toMatchObject({
       documentId: DOC,
@@ -236,12 +245,17 @@ describe("a Clip comment in the margin", () => {
       }),
     );
     await settle();
-    await setRichEditorValue(richEditor(container)!, "Cut this pause");
-    await act(async () => submitButton()!.click());
+    await setRichEditorValue(
+      found(richEditor(container), "composer"),
+      "Cut this pause",
+    );
+    await act(async () => found(submitButton(), "submit button").click());
 
     await respond(403, { error: "clip_comments_disabled" });
     expect(completed).not.toHaveBeenCalled();
-    expect(richEditorValue(richEditor(container)!)).toBe("Cut this pause");
+    expect(richEditorValue(found(richEditor(container), "composer"))).toBe(
+      "Cut this pause",
+    );
   });
 
   it("moves the video to a thread's moment, and replies to it in Clips", async () => {
@@ -266,20 +280,26 @@ describe("a Clip comment in the margin", () => {
       "button[data-comment-quote]",
     );
     expect(quote?.textContent).toBe('clipEmbed.commentMoment {"time":"0:04"}');
-    await act(async () => quote!.click());
+    await act(async () => found(quote, "moment").click());
     expect(seek).toHaveBeenCalledWith(4_000);
     // Clips lets the thread's author or the Clip's owner resolve it.
     expect(container.querySelector("[data-comment-resolve]")).toBeNull();
 
     await act(async () => replies.setOpenReply(thread.threadId));
     await setRichEditorValue(
-      container.querySelector<HTMLElement>(
-        "[data-comment-reply-composer] .ProseMirror",
-      )!,
+      found(
+        container.querySelector<HTMLElement>(
+          "[data-comment-reply-composer] .ProseMirror",
+        ),
+        "reply composer",
+      ),
       "Agreed",
     );
     await act(async () =>
-      submitButton("[data-comment-reply-composer]")!.click(),
+      found(
+        submitButton("[data-comment-reply-composer]"),
+        "reply button",
+      ).click(),
     );
     expect(lastRequest().url).toContain("add-clip-comment");
     expect(lastRequest().body).toMatchObject({
@@ -306,9 +326,10 @@ describe("a Clip comment in the margin", () => {
     }
     await show(<Margin />);
     await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>("[data-comment-resolve]")!
-        .click(),
+      found(
+        container.querySelector<HTMLButtonElement>("[data-comment-resolve]"),
+        "Resolve",
+      ).click(),
     );
     expect(lastRequest().url).toContain("resolve-clip-comment");
     expect(lastRequest().body).toMatchObject({
