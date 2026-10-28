@@ -81,9 +81,11 @@ export function useGeneratingSlidePreviews({
   deckId: string;
   generating: boolean;
 }): GeneratingSlidePreviews {
+  // Subscribed while the deck is open, not only while the run is: a slide
+  // that lands as the run ends still has its settle (or failure) hold to show.
   const calls = useStreamingToolInputs<string[]>({
     tools: ["create-deck", "add-slide"],
-    enabled: generating && !!deckId,
+    enabled: !!deckId,
     scope: deckId,
     matches: (input) =>
       isJsonStringComplete(input, ["deckId"])
@@ -102,6 +104,21 @@ export function useGeneratingSlidePreviews({
       })),
     };
   });
+
+  // A call still streaming when the run ends was cut off, not finished.
+  const [abandoned, setAbandoned] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [wasGenerating, setWasGenerating] = useState(generating);
+  if (wasGenerating !== generating) {
+    setWasGenerating(generating);
+    const cutOff = keyed.filter((call) => call.status === "streaming");
+    if (!generating && cutOff.length > 0) {
+      setAbandoned(
+        new Set([...abandoned, ...cutOff.map((call) => call.callKey)]),
+      );
+    }
+  }
 
   const [timings, setTimings] = useState<ReadonlyMap<string, Timing>>(
     () => new Map(),
@@ -141,6 +158,7 @@ export function useGeneratingSlidePreviews({
 
   // A call is finished once its last slide has landed and drawn.
   const finishedAt = keyed.map((call) => {
+    if (abandoned.has(call.callKey)) return Number.NEGATIVE_INFINITY;
     const hold =
       call.status === "failed"
         ? FAILED_SLIDE_HOLD_MS
@@ -182,7 +200,9 @@ export function useGeneratingSlidePreviews({
   }, [wakeAt]);
 
   if (firstActive === -1) return NO_PREVIEWS;
-  const shown = keyed.slice(firstActive);
+  const shown = keyed
+    .slice(firstActive)
+    .filter((call) => !abandoned.has(call.callKey));
   const slides = shown.flatMap((call) =>
     call.slides.flatMap(({ key, content }) => {
       const timing = timings.get(key);

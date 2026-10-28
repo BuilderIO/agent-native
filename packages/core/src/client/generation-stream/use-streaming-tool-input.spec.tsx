@@ -145,6 +145,25 @@ describe("useStreamingToolInput", () => {
     expect(result.current?.value).toBe("New");
   });
 
+  it("builds the arguments from delta text when the sender sends no running total", () => {
+    const { result } = renderHook(() => useSlidePreview("deck-a", 1));
+    act(() => {
+      for (const text of [
+        '{"deckId":"deck-a",',
+        '"content":"<h1>Hi',
+        "</h1>",
+      ]) {
+        window.dispatchEvent(
+          new CustomEvent(TOOL_INPUT_EVENT, {
+            detail: { tool: "add-slide", phase: "delta", text },
+          }),
+        );
+      }
+    });
+    flushFrames();
+    expect(result.current?.value).toBe("<h1>Hi</h1>");
+  });
+
   it("finishes a call whose input streamed under a different id", () => {
     const { result } = renderHook(() =>
       useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),

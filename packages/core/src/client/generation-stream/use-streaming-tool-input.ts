@@ -154,8 +154,13 @@ export function useStreamingToolInputs<T>(
         };
         calls.push(call);
       }
+      // A sender that tracks the call passes the arguments so far; one that
+      // does not (a repeated id-less call) passes only this delta's text.
       if (typeof detail.argsText === "string") {
         call.argsText = detail.argsText;
+        call.dirty = true;
+      } else if (typeof detail.text === "string" && detail.text) {
+        call.argsText += detail.text;
         call.dirty = true;
       }
       schedule();
