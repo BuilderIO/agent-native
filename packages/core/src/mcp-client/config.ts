@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { findWorkspaceRoot } from "../scripts/workspace-root.js";
+import type { McpWorkspaceConnectionAuth } from "./workspace-connection-servers.js";
 
 export interface McpStdioServerConfig {
   type?: "stdio";
@@ -23,6 +24,11 @@ export interface McpHttpServerConfig {
   firstPartyAppId?: string;
   firstPartyOrgId?: string;
   description?: string;
+  /**
+   * Authenticate each request with this owner's workspace connection instead
+   * of stored headers. Holds identifiers only; the token is never stored here.
+   */
+  workspaceConnection?: McpWorkspaceConnectionAuth;
 }
 
 export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig;

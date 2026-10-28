@@ -413,6 +413,12 @@ export interface ProviderApiConfig {
   corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
   bodyOkField?: string;
+  /**
+   * The generic agent request tool may only read this provider. Writes go
+   * through the provider's MCP tools or app-defined actions, which can enforce
+   * their own limits; server code calling `executeRequest` is unaffected.
+   */
+  agentRequestsReadOnly?: boolean;
 }
 
 export interface ProviderApiPlaceholder {
@@ -1472,6 +1478,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     docsUrls: ["https://developers.hubspot.com/docs/api/overview"],
+    agentRequestsReadOnly: true,
     templateUses: ["analytics", "brain", "calendar", "mail", "dispatch"],
     examples: [
       {
@@ -1845,6 +1852,14 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
   },
 };
+
+/** Whether the generic agent request tool is limited to reads for a provider. */
+export function providerApiAgentRequestsReadOnly(provider: string): boolean {
+  return (
+    mergeProviderApiConfigs([]).find((candidate) => candidate.id === provider)
+      ?.agentRequestsReadOnly === true
+  );
+}
 
 export function getProviderApiConfig(
   provider: ProviderApiId | string,
@@ -2488,7 +2503,10 @@ function providerAccessErrorGuidance(
 /**
  * Resolve a provider OAuth token for a trusted server-side integration bridge
  * such as a CRM adapter or Google Picker. Callers must keep the result out of
- * agent, MCP, A2A, logs, persistence, and extension/tool surfaces.
+ * agent, MCP, A2A, logs, persistence, and extension/tool surfaces. The one
+ * exception is the provider's own remote MCP endpoint, which may receive it as
+ * a per-request bearer (`mcp-client/workspace-connection-servers.ts`); it is
+ * still never stored on the server config or shown to the agent.
  */
 export async function resolveProviderApiOAuthAccessToken(
   args: {
