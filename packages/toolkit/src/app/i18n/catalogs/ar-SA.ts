@@ -141,7 +141,7 @@ const messages: ToolkitAgentChatTranslation = {
     "مضمّنة مع أرصدة Builder.io المجانية النشطة",
   "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
   "onboarding.builderIncludedFreeWithAccount": "مُضمّن مجانًا مع حساب Builder.io",
-  "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
+  "onboarding.builderMonthlyCredits": "15 رصيدًا مجانيًا يوميًا، حتى 60 شهريًا",
   "onboarding.builderIncludedFree": "مُضمّن مجانًا",
   "onboarding.builderMoreServices": "+ {{count}} خدمات أخرى",
   "onboarding.builderLlmCredits": "أرصدة لنماذج اللغة الكبيرة (LLM)",
@@ -171,9 +171,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
-  "onboarding.creditsTitle": "جرّبه مع 60 من أرصدة Agent المجانية شهريًا",
+  "onboarding.creditsTitle": "جرّبه مع 15 رصيدًا مجانيًا يوميًا، حتى 60 شهريًا",
   "onboarding.creditsTitleClips":
-    "جرّبه مع تخزين فيديو مجاني و60 من أرصدة Agent شهريًا",
+    "جرّبه مع تخزين فيديو مجاني و15 رصيدًا يوميًا، حتى 60 شهريًا",
   "onboarding.creditsActivate": "تفعيل الأرصدة المجانية",
   "onboarding.creditsFinePrint":
     "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",

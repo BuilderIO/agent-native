@@ -143,7 +143,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Incluído nos créditos gratuitos do Builder.io",
   "onboarding.builderIncludedFreeWithAccount":
     "Incluído gratuitamente em uma conta do Builder.io",
-  "onboarding.builderMonthlyCredits": "60 Agent Credits por mês",
+  "onboarding.builderMonthlyCredits":
+    "15 créditos gratuitos por dia, até 60 por mês",
   "onboarding.builderIncludedFree": "Incluído grátis",
   "onboarding.builderMoreServices": "+ {{count}} serviços adicionais",
   "onboarding.builderLlmCredits": "Créditos para LLM",
@@ -176,9 +177,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "e",
   "onboarding.builderExistingAccount": "Tenho uma conta Builder.io",
   "onboarding.creditsTitle":
-    "Experimente com 60 créditos Agent gratuitos por mês",
+    "Experimente com 15 créditos gratuitos por dia, até 60 por mês",
   "onboarding.creditsTitleClips":
-    "Experimente com armazenamento de vídeo grátis e 60 créditos Agent por mês",
+    "Experimente com armazenamento de vídeo grátis e 15 créditos por dia, até 60 por mês",
   "onboarding.creditsActivate": "Ativar créditos gratuitos",
   "onboarding.creditsFinePrint":
     "Isto criará uma conta Builder.io gratuita. Ao continuar, você concorda com nossos",

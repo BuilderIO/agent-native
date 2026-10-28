@@ -3417,7 +3417,9 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
       const offer = q("first-run-credits-offer")?.textContent;
-      expect(offer).toContain("Try it with 60 free Agent Credits a month");
+      expect(offer).toContain(
+        "Try it with 15 free credits a day, up to 60 a month",
+      );
       expect(offer).not.toContain("Free and open source");
       expect(offer).toContain("This will create a free Builder.io account.");
       expect(q("first-run-credits-activate")?.textContent).toBe(
@@ -3431,7 +3433,7 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openClipsChoice();
       expect(q("first-run-credits-offer")?.textContent).toContain(
-        "Try it with free video storage and 60 Agent Credits a month",
+        "Try it with free video storage and 15 credits a day, up to 60 a month",
       );
       expect(q("first-run-setup-skip")).toBeNull();
     });
