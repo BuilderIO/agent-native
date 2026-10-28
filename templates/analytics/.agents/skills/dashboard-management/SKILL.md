@@ -519,12 +519,12 @@ blocks, which could assemble new literal contexts after validation. Use SQL
 `CASE` expressions with ordinary variables for optional filters.
 
 **Avoid `:list` variables in record templates.** With nothing selected,
-as under the default "All apps", `{{appFilter:list}}` renders as the bare name
-`__empty_list_filter__`. BigQuery and PostgreSQL reject that name even inside a
-`CASE` branch that never runs, so `IN ({{appFilter:list}})` fails every click
-until someone picks a value. Match the comma-joined scalar instead, and treat
-both an empty value and the `all` option, which the first-party app filter
-defaults to, as every app. In BigQuery:
+`{{appFilter:list}}` renders as the bare name `__empty_list_filter__`. BigQuery
+and PostgreSQL reject that name even inside a `CASE` branch that never runs, so
+`IN ({{appFilter:list}})` fails every click until someone picks a value. Under
+an `all` option, such as the first-party app filter's default, it renders as
+`'all'` and matches no rows. Match the comma-joined scalar instead, and treat
+both an empty value and `all` as every app. In BigQuery:
 `('{{appFilter}}' IN ('', 'all') OR app IN UNNEST(SPLIT('{{appFilter}}', ',')))`.
 In first-party SQL, which can also run on BigQuery:
 `('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
