@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Proves a fix: the given command passes on HEAD and fails with this branch's
-// non-test changes put back to their merge-base versions.
+// Proves a fix: the given command passes on HEAD and fails with the fix's
+// non-test changes put back to what they were before it.
 //
-//   node scripts/fix-proof.ts [--base <ref>] -- <command...>
+//   node scripts/fix-proof.ts --fix <commit> -- <command...>   one report's fix
+//   node scripts/fix-proof.ts [--base <ref>] -- <command...>   the whole branch
 //
 // Run from the repo root. A check helper this branch adds and the command
 // runs (`node scripts/check-x.ts`) stays at HEAD, like tests.
@@ -21,6 +22,7 @@ const dash = argv.indexOf("--");
 const opts = dash === -1 ? argv : argv.slice(0, dash);
 const command = dash === -1 ? [] : argv.slice(dash + 1);
 const baseFlag = opts.indexOf("--base");
+const fixFlag = opts.indexOf("--fix");
 
 function couldNotRun(message: string): never {
   console.error(`fix-proof: could not run: ${message}`);
@@ -59,13 +61,16 @@ const trackedChanges = () => git("status", "--porcelain", "-uno").trim();
 if (trackedChanges()) couldNotRun("commit or set aside local changes first");
 
 const head = git("rev-parse", "HEAD").trim();
-const base =
-  baseFlag === -1
+const fix = fixFlag === -1 ? null : git("rev-parse", opts[fixFlag + 1]).trim();
+// With --fix, only that commit's files go back, to their state before it.
+const base = fix
+  ? git("rev-parse", `${fix}^`).trim()
+  : baseFlag === -1
     ? git("merge-base", "HEAD", "origin/main").trim()
     : git("rev-parse", opts[baseFlag + 1]).trim();
 // --no-renames reports a rename as an add plus a delete, so the old path
 // comes back on the red run too.
-const changes = git("diff", "--name-status", "--no-renames", base, head)
+const changes = git("diff", "--name-status", "--no-renames", base, fix ?? head)
   .split("\n")
   .filter(Boolean)
   .map((line) => {
@@ -75,11 +80,12 @@ const changes = git("diff", "--name-status", "--no-renames", base, head)
 const added = new Set(
   changes.filter(({ status }) => status === "A").map(({ path }) => path),
 );
-// Only the command's entry point, the first argument this branch adds, stays
-// at HEAD; any later argument is input to the check and must be reverted.
+// Only the script the command runs (its first or second word, when the fix
+// adds it) stays at HEAD; any other argument is input and must be reverted.
 const entryPoint = command
+  .slice(0, 2)
   .map((arg) => arg.replace(/^\.\//, ""))
-  .find((arg) => added.has(arg));
+  .find((arg) => added.has(arg) && /\.([cm]?[jt]sx?|sh|py)$/.test(arg));
 const source = changes.filter(
   ({ path }) => !TEST_PATH.test(path) && path !== entryPoint,
 );
@@ -107,14 +113,24 @@ const step = (...args: string[]) => {
 };
 const atBase = pathsWhere((s) => s !== "A");
 const addedOnBranch = pathsWhere((s) => s === "A");
+// A signal during the red run reaches the check, not this process, so the
+// restore below still runs. Only SIGKILL can skip it.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
+  process.on(signal, () => {});
 const reverted =
   (!atBase.length || step("checkout", base, "--", ...atBase)) &&
-  (!addedOnBranch.length || step("rm", "-q", "-f", "--", ...addedOnBranch));
+  (!addedOnBranch.length ||
+    step("rm", "-q", "-f", "--ignore-unmatch", "--", ...addedOnBranch));
 const red = reverted ? run() : undefined;
-const atHead = pathsWhere((s) => s !== "D");
-const deletedOnBranch = pathsWhere((s) => s === "D");
-if (atHead.length) step("checkout", head, "--", ...atHead);
-if (deletedOnBranch.length) step("rm", "-q", "-f", "--", ...deletedOnBranch);
+const all = source.map(({ path }) => path);
+const listed = tryGit("ls-tree", "-r", "--name-only", head, "--", ...all);
+if (listed.status !== 0) gitErrors.push(`git ls-tree: ${listed.stderr.trim()}`);
+const atHead = new Set(listed.status === 0 ? listed.stdout.split("\n") : all);
+const restore = all.filter((path) => atHead.has(path));
+const absentAtHead = all.filter((path) => !atHead.has(path));
+if (restore.length) step("checkout", head, "--", ...restore);
+if (absentAtHead.length)
+  step("rm", "-q", "-f", "--ignore-unmatch", "--", ...absentAtHead);
 const left = trackedChanges();
 if (gitErrors.length || left)
   couldNotRun(

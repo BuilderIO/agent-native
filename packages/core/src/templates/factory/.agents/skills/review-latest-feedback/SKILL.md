@@ -223,9 +223,9 @@ Put each report in one bucket:
   reaction and no reply.
 
 Take the Fix reports in order of how many people they hurt, and claim as
-many as the run can finish. A bug-like root you leave unclaimed gets no
-reaction, only one line in the recap saying why, so nothing is dropped
-silently.
+many as the run can finish. Any Fix, Build, or Needs-a-person root you leave
+unclaimed gets no reaction, only one line in the recap saying why, so
+nothing is dropped silently.
 
 Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
 pass, before you investigate. In an automation run, immediately list those roots (channel and

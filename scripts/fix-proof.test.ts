@@ -49,6 +49,9 @@ write("input.txt", "fixed\n");
 write("app.test.ts", "check\n");
 sh("git", "add", "-A");
 sh("git", "commit", "-qm", "fix");
+write("other.txt", "second fix\n");
+sh("git", "add", "-A");
+sh("git", "commit", "-qm", "second fix");
 
 function assertBackAtHead() {
   assert.equal(sh("git", "status", "--porcelain").stdout, "");
@@ -93,6 +96,33 @@ describe("fix-proof", () => {
     const r = proof("sh", "-c", "touch out.log; grep -q fixed app.txt");
     rmSync(join(repo, "out.log"));
     assert.equal(r.status, 0, r.stdout + r.stderr);
+  });
+
+  it("with --fix, reverts only that commit", () => {
+    const own = sh(
+      "node",
+      SCRIPT,
+      "--fix",
+      "HEAD",
+      "--",
+      "test",
+      "-f",
+      "other.txt",
+    );
+    assert.equal(own.status, 0, own.stdout + own.stderr);
+    const other = sh(
+      "node",
+      SCRIPT,
+      "--fix",
+      "HEAD",
+      "--",
+      "grep",
+      "-q",
+      "fixed",
+      "app.txt",
+    );
+    assert.equal(other.status, 1, other.stdout + other.stderr);
+    assertBackAtHead();
   });
 
   it("rejects a check that passes without the fix", () => {
