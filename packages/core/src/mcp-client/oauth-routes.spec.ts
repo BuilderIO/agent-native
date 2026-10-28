@@ -654,12 +654,30 @@ describe("MCP OAuth callback flow validation", () => {
     expect(resolveMcpOAuthReturnPath(false, { ...baseFlow })).toBe(
       "/settings/integrations",
     );
+  });
+
+  it("preserves a supplied return route after a successful OAuth connection", () => {
     expect(
       resolveMcpOAuthReturnPath(true, {
         ...baseFlow,
         returnUrl: "/chat?thread=meeting-actions",
       }),
     ).toBe("/chat?thread=meeting-actions");
+    expect(resolveMcpOAuthReturnPath(true, { ...baseFlow })).toBe(
+      "/settings/integrations?connected=mcp-linear",
+    );
+  });
+
+  it("preserves the connection completion page for popup OAuth flows", () => {
+    expect(
+      resolveMcpOAuthReturnPath(true, {
+        ...baseFlow,
+        returnUrl:
+          "/_agent-native/oauth/popup?complete=workspace-connection&resume=8d1bd7cf-419e-4ff0-8545-19dedb819154",
+      }),
+    ).toBe(
+      "/_agent-native/oauth/popup?complete=workspace-connection&resume=8d1bd7cf-419e-4ff0-8545-19dedb819154",
+    );
   });
 
   it("carries staged cookies on native redirects", () => {

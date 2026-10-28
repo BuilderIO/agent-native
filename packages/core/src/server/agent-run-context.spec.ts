@@ -55,6 +55,7 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "./request-context.js";
+import { markSessionResolutionUnavailable } from "./session-resolution-unavailable.js";
 
 function makeEvent(
   headers: Record<string, string> = {},
@@ -131,6 +132,31 @@ describe("server/agent-run-context", () => {
       resolveAgentRunOwnerContext(makeEvent()),
     ).rejects.toMatchObject({
       statusCode: 401,
+    });
+  });
+
+  it("throws a typed retryable 503, not 401 or an anonymous owner, when the session lookup failed", async () => {
+    const event = makeEvent();
+    markSessionResolutionUnavailable(event, "better-auth", new Error("boom"));
+
+    await expect(
+      resolveAgentRunOwnerContext(event, {
+        anonymousOwner: () => "anon-visitor",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "session_unavailable",
+    });
+  });
+
+  it("uses the session when a fallback lookup recovered from a failed one", async () => {
+    getSessionMock.mockResolvedValue({ email: "person@example.test" });
+    const event = makeEvent();
+    markSessionResolutionUnavailable(event, "better-auth", new Error("boom"));
+
+    await expect(resolveAgentRunOwnerContext(event)).resolves.toMatchObject({
+      owner: "person@example.test",
+      anonymous: false,
     });
   });
 

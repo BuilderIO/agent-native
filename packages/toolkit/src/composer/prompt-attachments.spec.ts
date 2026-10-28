@@ -10,6 +10,7 @@ import {
   probeAgentPromptAttachment,
   readAgentPromptAttachment,
 } from "./prompt-attachments.js";
+import { createChatAttachmentAdapter } from "./PromptComposer.js";
 
 function pngBytes(width: number, height: number, byteLength = 24): Uint8Array {
   const bytes = new Uint8Array(byteLength);
@@ -485,5 +486,15 @@ describe("prompt attachment helpers", () => {
     expect(formatted).toContain("<attached-file");
     expect(formatted).toContain("<attached-image");
     expect(formatted).toContain("data:image/png;base64,abc");
+  });
+
+  it("refuses an image past the browser shrink limits at attach time", async () => {
+    const file = new File([pngBytes(10_000, 5_000)], "poster.png", {
+      type: "image/png",
+    });
+
+    await expect(createChatAttachmentAdapter().add({ file })).rejects.toThrow(
+      "40 megapixels",
+    );
   });
 });

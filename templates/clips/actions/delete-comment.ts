@@ -10,6 +10,7 @@ import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
 } from "../server/lib/recording-page-access.js";
+import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -27,7 +28,7 @@ export default defineAction({
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
     const userEmail = getRequestUserEmail();
-    const isAuthor = !!userEmail && existing.authorEmail === userEmail;
+    const isAuthor = sameOwnerEmail(existing.authorEmail, userEmail);
 
     const access = await assertAccess(
       "recording",

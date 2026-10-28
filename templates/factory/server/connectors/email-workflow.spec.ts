@@ -244,6 +244,85 @@ describe("sendWorkflowEmail", () => {
     });
   });
 
+  describe("the provider's reason", () => {
+    const withBody = (status: number, provider: string, body: string) =>
+      Object.assign(providerError(status), { provider, responseBody: body });
+
+    it("names the provider's error and message, without an address or a key", async () => {
+      sendEmailMock.mockRejectedValueOnce(
+        withBody(
+          403,
+          "resend",
+          JSON.stringify({
+            statusCode: 403,
+            name: "validation_error",
+            message:
+              "You can only send testing emails to your own email address (owner@example.test). Verify a domain at resend.com/domains. Key re_FAKE0000aaaaaaaaaaaaaaaaaaaa",
+          }),
+        ),
+      );
+
+      const failure = await sendWorkflowEmail(message).then(
+        () => {
+          throw new Error("Expected the send to fail.");
+        },
+        (error: Error) => error,
+      );
+
+      expect(failure).toMatchObject({
+        errorCode: "email_rejected",
+        details: {
+          status: 403,
+          provider: "resend",
+          providerError: "validation_error",
+        },
+      });
+      expect(failure.message).toContain("HTTP 403");
+      expect(failure.message).toContain("The provider (resend) said");
+      expect(failure.message).toContain("validation_error");
+      expect(failure.message).toContain("You can only send testing emails");
+      expect(JSON.stringify(failure)).not.toContain("owner@example.test");
+      expect(JSON.stringify(failure)).not.toContain("re_FAKE0000");
+      expect(failure.message).not.toContain("owner@example.test");
+      expect(failure.message).not.toContain("re_FAKE0000");
+    });
+
+    it("reads SendGrid's first error, and keeps the reason on an unknown outcome", async () => {
+      sendEmailMock.mockRejectedValueOnce(
+        withBody(
+          503,
+          "sendgrid",
+          JSON.stringify({
+            errors: [
+              { field: "from", message: "The from address is not verified" },
+            ],
+          }),
+        ),
+      );
+
+      await expect(sendWorkflowEmail(message)).rejects.toMatchObject({
+        errorCode: "email_outcome_unknown",
+        message: expect.stringContaining(
+          "(sendgrid) said from: The from address is not verified.",
+        ),
+        details: { providerError: "from" },
+      });
+    });
+
+    it("says there was no readable reason when the body is not one", async () => {
+      sendEmailMock.mockRejectedValueOnce(
+        withBody(403, "resend", "<html>forbidden</html>"),
+      );
+
+      await expect(sendWorkflowEmail(message)).rejects.toMatchObject({
+        errorCode: "email_rejected",
+        message: expect.stringContaining(
+          "The provider gave no readable reason",
+        ),
+      });
+    });
+  });
+
   it("says it is unknown, and who got it, when a later recipient fails", async () => {
     sendEmailMock
       .mockResolvedValueOnce({ status: "sent", provider: "resend" })

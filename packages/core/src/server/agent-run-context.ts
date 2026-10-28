@@ -28,6 +28,10 @@ import {
   type RequestContext,
 } from "./request-context.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  isSessionResolutionUnavailable,
+  sessionResolutionUnavailableError,
+} from "./session-resolution-unavailable.js";
 
 const resolveOrgScopeForEmail: (typeof import("../org/context.js"))["resolveOrgScopeForEmail"] =
   (...args) =>
@@ -236,6 +240,9 @@ export async function resolveAgentRunOwnerContext(
       message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
       headers: { "Retry-After": "5" },
     });
+  }
+  if (!session?.email && isSessionResolutionUnavailable(event)) {
+    throw sessionResolutionUnavailableError();
   }
   if (session?.email) {
     const orgScope = getRequestContext()?.orgScope;

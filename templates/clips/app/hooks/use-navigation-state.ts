@@ -13,6 +13,7 @@ export type ClipsView =
   | "shared"
   | "spaces"
   | "space"
+  | "from-content"
   | "archive"
   | "trash"
   | "record"
@@ -156,6 +157,7 @@ export function stateFromLocation(
   if (p === "/screenshots") return { view: "screenshots" };
   if (p === "/spaces") return { view: "spaces" };
   if (p === "/shared") return { view: "shared" };
+  if (p === "/from-content") return { view: "from-content" };
   if (p === "/archive") return { view: "archive" };
   if (p === "/trash") return { view: "trash" };
   if (p === "/record") return { view: "record" };
@@ -214,6 +216,8 @@ export function pathFromCommand(cmd: NavigateCommand): string {
       return "/spaces";
     case "shared":
       return "/shared";
+    case "from-content":
+      return "/from-content";
     case "archive":
       return "/archive";
     case "trash":

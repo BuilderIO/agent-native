@@ -97,6 +97,8 @@ import {
 import { uploadFile } from "../file-upload/index.js";
 import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import { getFileUploadStatusForRequest } from "../file-upload/status.js";
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -2976,14 +2978,52 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
 
 const OAUTH_POPUP_WAITING_HTML =
   '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title></title></head><body></body></html>';
-const OAUTH_POPUP_COMPLETE_HTML =
-  '<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>window.opener?.postMessage({type:"agent-native:workspace-connection-complete"},window.location.origin);window.close();</script></body></html>';
 const OAUTH_POPUP_RESUME_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-function oauthPopupCompletionHtml(completionId: string): string {
-  const storageKey = `agent-native:mcp-connection-completion:${completionId}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>try{localStorage.setItem("${storageKey}","1")}catch(error){console.error("Could not persist OAuth completion",error)}window.opener?.postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin);window.close();</script></body></html>`;
+function oauthPopupCompletionHtml(
+  locale: string,
+  connectionDoneMessage: string,
+  completionId?: string,
+): string {
+  const persistCompletion = completionId
+    ? `try{localStorage.setItem("agent-native:mcp-connection-completion:${completionId}","1")}catch(error){console.error("Could not persist OAuth completion",error)}`
+    : "";
+  const completionMessage = completionId
+    ? `{type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}`
+    : '{type:"agent-native:workspace-connection-complete"}';
+  const direction = locale === "ar-SA" ? "rtl" : "ltr";
+  return `<!doctype html>
+<html lang="${locale}" dir="${direction}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>${connectionDoneMessage}</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: Canvas; color: CanvasText; }
+      main { display: grid; justify-items: center; gap: 16px; padding: 24px; text-align: center; }
+      /* guard:allow-raw-color — standalone OAuth completion page has no app theme tokens. */
+      svg { width: 80px; height: 80px; color: #22c55e; }
+      h1 { margin: 0; font-size: 20px; line-height: 1.25; }
+    </style>
+  </head>
+  <body>
+    <main role="status" aria-live="polite">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="m9 12 2 2 4-4" />
+      </svg>
+      <h1>${connectionDoneMessage}</h1>
+    </main>
+    <script>
+      ${persistCompletion}
+      setTimeout(() => window.close(), 2000);
+      window.opener?.postMessage(${completionMessage}, window.location.origin);
+    </script>
+  </body>
+</html>`;
 }
 
 export function createOpenAiAppsChallengeHandler(
@@ -3027,6 +3067,12 @@ export function createOAuthPopupWaitingHandler() {
       getRequestURL(event).searchParams.get("complete") ===
       "workspace-connection";
     const resumeId = getRequestURL(event).searchParams.get("resume");
+    const acceptLanguage = getHeader(event, "accept-language");
+    const locale = resolveLocaleFromRequest(
+      acceptLanguage ? { acceptLanguage } : {},
+    ).locale;
+    const connectionDoneMessage =
+      mcpSettingsMessagesForLocale(locale).mcpOAuthConnectionDone;
     setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
     setResponseHeader(
       event,
@@ -3037,19 +3083,26 @@ export function createOAuthPopupWaitingHandler() {
       event,
       "Content-Security-Policy",
       completingWorkspaceConnection
-        ? "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'"
+        ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'"
         : "default-src 'none'; frame-ancestors 'none'",
     );
     setResponseHeader(event, "X-Frame-Options", "DENY");
+    if (completingWorkspaceConnection) {
+      setResponseHeader(event, "Content-Language", locale);
+    }
     // Keep the opener alive until the client replaces this inert page with the
     // provider URL. This only works while every opener document sends no COOP
     // or `same-origin-allow-popups` (security-headers.ts); an opener sending
     // `same-origin` severs the popup here and leaves it blank.
     setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
     return completingWorkspaceConnection
-      ? resumeId && OAUTH_POPUP_RESUME_ID.test(resumeId)
-        ? oauthPopupCompletionHtml(resumeId)
-        : OAUTH_POPUP_COMPLETE_HTML
+      ? oauthPopupCompletionHtml(
+          locale,
+          connectionDoneMessage,
+          resumeId && OAUTH_POPUP_RESUME_ID.test(resumeId)
+            ? resumeId
+            : undefined,
+        )
       : OAUTH_POPUP_WAITING_HTML;
   });
 }

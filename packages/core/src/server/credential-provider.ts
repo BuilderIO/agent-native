@@ -171,6 +171,12 @@ export function assertCredentialStoreReadable(result: {
 }): void {
   if (result.cause instanceof ForbiddenError) throw result.cause;
   if (result.lookupFailed) {
+    if (
+      result.cause instanceof CredentialStoreUnavailableError ||
+      result.cause instanceof CredentialStoreLookupError
+    ) {
+      throw result.cause;
+    }
     throw isTransientDatabaseError(result.cause)
       ? new CredentialStoreUnavailableError(result.cause)
       : new CredentialStoreLookupError(result.cause);
@@ -543,6 +549,8 @@ interface ScopedCredentialResult {
   source: "user" | "org" | "workspace" | null;
   cause?: unknown;
   lookupFailed: boolean;
+  /** A host-managed user with no credential: no fallback may stand in. */
+  hostManagedWithoutCredential?: boolean;
 }
 
 const NOT_FOUND: ScopedCredentialResult = {
@@ -567,18 +575,38 @@ export interface DelegatedBuilderCredentials {
   userId?: string;
 }
 
-let delegatedBuilderCredentials:
-  | ((email: string) => DelegatedBuilderCredentials | null)
-  | null = null;
+/**
+ * What a host's provider says about a user:
+ * - credentials: the caller's own Builder credential, used for every Builder
+ *   feature;
+ * - `null`: not a host-managed user, so ordinary stored credentials apply;
+ * - `"none"`: a host-managed user with no usable credential right now (it
+ *   expired, or was never exchanged). Lookup stops: a shared or stored
+ *   credential must never stand in for the user's own, and the host asks them
+ *   to sign in again.
+ * A provider that throws is an outage, reported as a failed lookup rather than
+ * as the absence of a credential.
+ * It may answer asynchronously, so a host on serverless can keep the
+ * credential in shared storage rather than per-instance memory.
+ */
+export type DelegatedBuilderCredentialsResult =
+  | DelegatedBuilderCredentials
+  | null
+  | "none";
+
+type DelegatedBuilderCredentialsProvider = (
+  email: string,
+) =>
+  | DelegatedBuilderCredentialsResult
+  | Promise<DelegatedBuilderCredentialsResult>;
+
+let delegatedBuilderCredentials: DelegatedBuilderCredentialsProvider | null =
+  null;
 
 export function registerDelegatedBuilderCredentials(
-  provider: ((email: string) => DelegatedBuilderCredentials | null) | null,
+  provider: DelegatedBuilderCredentialsProvider | null,
 ): void {
   delegatedBuilderCredentials = provider;
-}
-
-function delegatedFor(email: string): DelegatedBuilderCredentials | null {
-  return delegatedBuilderCredentials?.(email) ?? null;
 }
 
 async function resolveScopedBuilderCredential(
@@ -588,7 +616,30 @@ async function resolveScopedBuilderCredential(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return NOT_FOUND;
-  const delegated = delegatedFor(email);
+  // Without a provider (nearly every deployment) this stays synchronous.
+  let delegated: DelegatedBuilderCredentialsResult = null;
+  if (delegatedBuilderCredentials) {
+    try {
+      delegated = await delegatedBuilderCredentials(email);
+    } catch (cause) {
+      // A host's provider failing is an unreadable store like any other: no
+      // deployment credential may stand in for the user's own.
+      return {
+        value: null,
+        source: null,
+        cause: new CredentialStoreUnavailableError(cause),
+        lookupFailed: true,
+      };
+    }
+  }
+  if (delegated === "none") {
+    return {
+      value: null,
+      source: null,
+      lookupFailed: false,
+      hostManagedWithoutCredential: true,
+    };
+  }
   if (delegated) {
     if (key === "BUILDER_PRIVATE_KEY") {
       return { value: delegated.token, source: "user", lookupFailed: false };
@@ -799,6 +850,8 @@ interface ScopedBuilderCredentialsResult {
   cause?: unknown;
   /** True when a lookup failed, rather than answering cleanly with "no row". */
   lookupFailed: boolean;
+  /** A host-managed user with no credential: no fallback may stand in. */
+  hostManagedWithoutCredential?: boolean;
 }
 
 export interface BuilderCredentialLookupIdentity {
@@ -812,7 +865,25 @@ async function resolveScopedBuilderCredentials(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return { creds: null, lookupFailed: false };
-  const delegated = delegatedFor(email);
+  let delegated: DelegatedBuilderCredentialsResult = null;
+  if (delegatedBuilderCredentials) {
+    try {
+      delegated = await delegatedBuilderCredentials(email);
+    } catch (cause) {
+      return {
+        creds: null,
+        cause: new CredentialStoreUnavailableError(cause),
+        lookupFailed: true,
+      };
+    }
+  }
+  if (delegated === "none") {
+    return {
+      creds: null,
+      lookupFailed: false,
+      hostManagedWithoutCredential: true,
+    };
+  }
   if (delegated) {
     return {
       creds: {
@@ -996,6 +1067,7 @@ export async function resolveBuilderCredential(
   if (scoped.lookupFailed)
     throw new CredentialStoreUnavailableError(scoped.cause);
   if (scoped.value) return scoped.value;
+  if (scoped.hostManagedWithoutCredential) return null;
   const storageOnly =
     identity === undefined && getRequestBuilderCredentialScope().storageOnly;
   const envValue =
@@ -1056,6 +1128,8 @@ export interface BuilderCredentialsDetailed {
   /** Optional Builder profile metadata failed after the required key pair was read. */
   optionalMetadataLookupFailure?: "unreadable" | "unavailable";
   cause?: unknown;
+  /** A host-managed user with no credential: no fallback may stand in. */
+  hostManagedWithoutCredential?: boolean;
 }
 
 export async function resolveBuilderCredentialsDetailed(
@@ -1065,6 +1139,7 @@ export async function resolveBuilderCredentialsDetailed(
     creds: scoped,
     lookupFailed,
     cause,
+    hostManagedWithoutCredential,
   } = await resolveScopedBuilderCredentials(identity);
   if (scoped) {
     const {
@@ -1115,6 +1190,23 @@ export async function resolveBuilderCredentialsDetailed(
       source: null,
       lookupFailed: true,
       cause,
+    };
+  }
+  if (hostManagedWithoutCredential) {
+    return {
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: false,
+      hostManagedWithoutCredential: true,
     };
   }
   const canUseEnv =
@@ -1295,6 +1387,9 @@ export async function resolveBuilderGatewayCredentialsDetailed(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<BuilderGatewayCredentialsDetailed> {
   const scoped = await resolveBuilderCredentialsDetailed(identity);
+  // A host-managed user with no credential gets none: the shared gateway
+  // deploy credential must not act in their place.
+  if (scoped.hostManagedWithoutCredential) return { ...scoped, lane: null };
   if (scoped.source && scoped.source !== "env") {
     return { ...scoped, lane: "identity" };
   }

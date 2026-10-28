@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as dbSync from "../client/use-db-sync.js";
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import {
   _resetCollabDocRegistryForTests,
@@ -49,8 +50,19 @@ function slowPollFetch() {
   return { mock, polls };
 }
 
-function Probe({ docId }: { docId: string }) {
-  useCollaborativeDoc({ docId });
+function Probe({
+  docId,
+  withUser = false,
+}: {
+  docId: string;
+  withUser?: boolean;
+}) {
+  useCollaborativeDoc({
+    docId,
+    user: withUser
+      ? { name: "Ada", email: "ada@example.com", color: "#123456" }
+      : undefined,
+  });
   return null;
 }
 
@@ -73,6 +85,7 @@ describe("collab polling while a poll is in flight", () => {
     container = null;
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -142,4 +155,76 @@ describe("collab polling while a poll is in flight", () => {
     });
     expect(polls).toBeGreaterThanOrEqual(hung + 2);
   });
+
+  it.each(["request", "body"] as const)(
+    "resumes polling after an awareness %s stalls without failing document sync",
+    async (boundary) => {
+      vi.spyOn(dbSync, "subscribeSyncEvents").mockReturnValue(() => {});
+      let polls = 0;
+      let awarenessRequests = 0;
+      let awarenessSignal: AbortSignal | null | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (/\/collab\/[^/]+\/state/.test(url)) {
+            return new Response(
+              JSON.stringify({ state: "AQGw+tWiDgAEAQdjb250ZW50BHNlZWQA" }),
+            );
+          }
+          if (url.includes("/_agent-native/poll")) {
+            polls += 1;
+            return new Response(JSON.stringify({ version: 1, events: [] }));
+          }
+          if (url.endsWith("/awareness")) {
+            awarenessRequests += 1;
+            if (awarenessRequests === 1) {
+              awarenessSignal = init?.signal;
+              if (boundary === "request") {
+                return new Promise<Response>((_resolve, reject) => {
+                  init?.signal?.addEventListener("abort", () =>
+                    reject(new DOMException("Aborted", "AbortError")),
+                  );
+                });
+              }
+              return new Response(
+                new ReadableStream({
+                  start(controller) {
+                    init?.signal?.addEventListener("abort", () =>
+                      controller.error(
+                        new DOMException("Aborted", "AbortError"),
+                      ),
+                    );
+                  },
+                }),
+              );
+            }
+          }
+          return new Response(JSON.stringify({ states: [] }));
+        }),
+      );
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      act(() => root!.render(<Probe docId="awareness-hang-doc" withUser />));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(polls).toBe(1);
+      expect(awarenessRequests).toBe(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(17_000);
+      });
+      expect(polls).toBe(7);
+      expect(awarenessRequests).toBe(7);
+      expect(awarenessSignal?.aborted).toBe(true);
+
+      act(() => window.dispatchEvent(new Event("focus")));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(polls).toBe(8);
+    },
+  );
 });

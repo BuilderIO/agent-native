@@ -1,6 +1,6 @@
 ---
 slug: what-goes-in-a-technical-design-document
-use_case: see-what-your-coding-agent-plans
+use_case: visual-plan-mode
 job_id: job-agent-plan-review
 title: "What goes in a technical design document?"
 meta_description: "A technical design document explains what you'll build and why before you build it. A copy-and-paste template, and how to review one with your coding agent."

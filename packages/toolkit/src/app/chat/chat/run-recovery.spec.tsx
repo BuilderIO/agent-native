@@ -1247,6 +1247,51 @@ describe("run recovery surfaces", () => {
     );
   });
 
+  it("hides a failed Builder status read on the card but keeps connect errors", async () => {
+    const renderCard = () => (
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <BuilderSetupCard />
+      </AgentNativeI18nProvider>
+    );
+    builderFlowMock.state.statusUnavailable = true;
+    builderFlowMock.state.errorKind = "status-read";
+    builderFlowMock.state.error = "Connection status is unavailable.";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(container.textContent).not.toContain(
+      "Connection status is unavailable.",
+    );
+
+    builderFlowMock.state.statusUnavailable = false;
+    builderFlowMock.state.errorKind = "connection";
+    builderFlowMock.state.error = "Builder.io sign-in was cancelled.";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(container.textContent).toContain(
+      "Builder.io sign-in was cancelled.",
+    );
+
+    builderFlowMock.state.statusUnavailable = true;
+    builderFlowMock.state.errorKind = "status-read";
+    builderFlowMock.state.error = "Connection status is unavailable.";
+    builderFlowMock.state.terminalError = "Builder.io sign-in was cancelled.";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(container.textContent).toContain(
+      "Builder.io sign-in was cancelled.",
+    );
+    expect(container.textContent).not.toContain(
+      "Connection status is unavailable.",
+    );
+  });
+
   it("records bounded Builder failure outcomes after a setup attempt", async () => {
     const renderCard = () => (
       <AgentNativeI18nProvider

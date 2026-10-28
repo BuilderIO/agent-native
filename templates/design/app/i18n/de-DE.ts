@@ -65,7 +65,7 @@ export default {
     appBandHeading: "{app} · {count} Sitzungen",
     journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
     journeyTitleAppBandsSummary:
-      "{from} bis {to} · getrennte Kohorten je App{partial}",
+      "{from} bis {to} · getrennte Kohorten{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
     otherBranchesShown: "{shown} von {total} Zweigen angezeigt",
@@ -320,6 +320,10 @@ export default {
       chooseFrame: "Frame wählen",
       inspect: "Prüfen",
       exportSvg: "SVG exportieren",
+      moreActions: "Weitere Aktionen",
+      askAboutFile: "Zu dieser Datei fragen",
+      askAboutFilePrompt:
+        "Stelle Fragen zu dieser verknüpften Designdatei. {{url}}",
       actionsPrefill: "Prüfen und senden",
       retry: "Erneut versuchen",
       currentDesign: "das aktuelle Design",

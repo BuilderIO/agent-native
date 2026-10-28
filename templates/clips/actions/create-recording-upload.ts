@@ -3,17 +3,11 @@ import {
   getAppProductionUrl,
   getRequestContext,
 } from "@agent-native/core/server";
-import { UPLOAD_SLICE_BYTES } from "@shared/recording-core.js";
 import { formatUploadBytes, MAX_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { z } from "zod";
 
 import { getServerAppBasePath } from "../server/lib/public-agent-context.js";
-import {
-  createRecordingUploadTicket,
-  releaseRecordingUploadTicket,
-} from "../server/lib/recording-upload-ticket.js";
-import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
-import createRecording from "./create-recording.js";
+import { startRecordingUpload } from "../server/lib/recording-upload-start.js";
 
 const MAX_UPLOAD_SIZE = formatUploadBytes(MAX_UPLOAD_BYTES, "down");
 
@@ -78,78 +72,35 @@ export default defineAction({
       .describe("Video height in pixels."),
   }),
   run: async (args, actionContext) => {
-    const ownerEmail = getCurrentOwnerEmail();
-    // The ticket comes first: if it is refused or fails to save, no recording
-    // is left stranded in "uploading" with nothing able to finish it.
-    const recordingId = nanoid();
-    const ticket = await createRecordingUploadTicket(
-      ownerEmail,
-      recordingId,
-      getRequestContext()?.authUserId,
+    const upload = await startRecordingUpload(
+      {
+        title: args.title,
+        visibility: args.visibility,
+        mimeType: args.mimeType,
+        sizeBytes: args.sizeBytes,
+        durationMs: args.durationMs,
+        width: args.width,
+        height: args.height,
+        recordingSource: "agent_upload",
+      },
+      actionContext,
     );
-    let created: Awaited<ReturnType<typeof createRecording.run>>;
-    try {
-      created = await createRecording.run(
-        {
-          id: recordingId,
-          title: args.title,
-          visibility: args.visibility,
-          mimeType: args.mimeType,
-          sizeBytes: args.sizeBytes,
-          width: args.width,
-          height: args.height,
-          hasAudio: true,
-          hasCamera: false,
-          recordingSource: "agent_upload",
-          requestStreaming: true,
-        },
-        actionContext,
-      );
-    } catch (error) {
-      // create-recording fails its own half-made row, or the lease reaper does;
-      // only the ticket, which the agent never received, is ours to release.
-      await releaseRecordingUploadTicket(ownerEmail, recordingId).catch(
-        (releaseError) => {
-          console.warn("[create-recording-upload] ticket release failed", {
-            recordingId,
-            error:
-              releaseError instanceof Error
-                ? releaseError.message
-                : String(releaseError),
-          });
-        },
-      );
-      throw error;
-    }
-
+    const { recordingId, totalChunks } = upload;
     const appUrl = `${new URL(getRequestContext()?.requestOrigin || getAppProductionUrl()).origin}${getServerAppBasePath()}`;
-    const totalChunks = Math.max(
-      1,
-      Math.ceil(args.sizeBytes / UPLOAD_SLICE_BYTES),
-    );
-    const query = new URLSearchParams({
-      mimeType: args.mimeType,
-      total: String(totalChunks),
-      hasAudio: "1",
-      hasCamera: "0",
-    });
-    if (args.durationMs) query.set("durationMs", String(args.durationMs));
-    if (args.width) query.set("width", String(args.width));
-    if (args.height) query.set("height", String(args.height));
 
     return {
-      recordingId: created.id,
+      recordingId,
       visibility: args.visibility,
-      shareUrl: `${appUrl}/share/${encodeURIComponent(created.id)}`,
+      shareUrl: `${appUrl}/share/${encodeURIComponent(recordingId)}`,
       method: "POST" as const,
-      chunkUrl: `${appUrl}/api/uploads/${encodeURIComponent(created.id)}/agent-chunk?${query.toString()}`,
+      chunkUrl: `${appUrl}/api/uploads/${encodeURIComponent(recordingId)}/agent-chunk?${upload.chunkQuery.toString()}`,
       headers: {
-        Authorization: `Bearer ${ticket.token}`,
+        Authorization: `Bearer ${upload.ticket}`,
         "Content-Type": args.mimeType,
       },
-      chunkSizeBytes: UPLOAD_SLICE_BYTES,
+      chunkSizeBytes: upload.chunkSizeBytes,
       totalChunks,
-      expiresAt: new Date(ticket.expiresAt).toISOString(),
+      expiresAt: upload.expiresAt,
       next: `Split the file into ${totalChunks} chunk(s) of chunkSizeBytes (the last may be shorter). POST them one at a time, in order, as the raw request body to chunkUrl + "&index=N&isFinal=0" with the returned headers, N counting from 0. Send the last chunk with "&isFinal=1": that request finalizes the recording, so do not call finalize-recording. Retry a failed chunk with the same index. The upload URL stops working once the last chunk is accepted (a retried last chunk then gets 409 saying so; read the clip with get-recording-player-data rather than uploading again) or at expiresAt. Then give the user shareUrl; transcription, and a title when none was given, follow in the background.`,
     };
   },

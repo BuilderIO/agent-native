@@ -11,6 +11,7 @@ import {
   formatSeriesLabelForPanel,
   reorderColumnConfigs,
   sortTableRows,
+  type TableSort,
 } from "./SqlChart";
 
 describe("SqlChart table helpers", () => {
@@ -126,6 +127,51 @@ describe("SqlChart table helpers", () => {
     expect(
       sortTableRows(percents, [{ key: "rate", direction: "asc" }]),
     ).toEqual([{ rate: "9%" }, { rate: "12.5%" }, { rate: "100%" }]);
+  });
+
+  it("sorts durations and abbreviated numbers written as text by their size", () => {
+    const waits = ["9.9 days", "75 days", "18 hours", "10 days", "1m 42s"].map(
+      (waiting) => ({ waiting }),
+    );
+    expect(
+      sortTableRows(waits, [{ key: "waiting", direction: "desc" }]).map(
+        (row) => row.waiting,
+      ),
+    ).toEqual(["75 days", "10 days", "9.9 days", "18 hours", "1m 42s"]);
+
+    const views = ["1.2K", "980", "3.4M", "15K"].map((count) => ({ count }));
+    expect(
+      sortTableRows(views, [{ key: "count", direction: "asc" }]).map(
+        (row) => row.count,
+      ),
+    ).toEqual(["980", "1.2K", "15K", "3.4M"]);
+  });
+
+  it("sorts counts by number, but text whose units differ as text", () => {
+    const prs = ["12 PRs", "3 PRs", "40 PRs"].map((open) => ({ open }));
+    expect(
+      sortTableRows(prs, [{ key: "open", direction: "asc" }]).map(
+        (row) => row.open,
+      ),
+    ).toEqual(["3 PRs", "12 PRs", "40 PRs"]);
+
+    const days = ["3 Feb", "12 Jan", "28 Feb"].map((day) => ({ day }));
+    expect(
+      sortTableRows(days, [{ key: "day", direction: "asc" }]).map(
+        (row) => row.day,
+      ),
+    ).toEqual(["12 Jan", "28 Feb", "3 Feb"]);
+  });
+
+  it("uses the number columns a caller passes in", () => {
+    const prs = ["12 PRs", "3 PRs"].map((open) => ({ open }));
+    const sorts: TableSort[] = [{ key: "open", direction: "asc" }];
+    expect(
+      sortTableRows(prs, sorts, [], new Set(["open"])).map((row) => row.open),
+    ).toEqual(["3 PRs", "12 PRs"]);
+    expect(
+      sortTableRows(prs, sorts, [], new Set()).map((row) => row.open),
+    ).toEqual(["12 PRs", "3 PRs"]);
   });
 
   it("sorts unparseable values after numeric ones in a mixed column, regardless of direction", () => {

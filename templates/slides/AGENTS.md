@@ -71,3 +71,9 @@ Google Slides export produces a PPTX for the user to import; a native Slides fil
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
+
+## Actions for outside agents
+
+| Action | Purpose |
+| --- | --- |
+| `clone-context-slide` | Copy a pinned native library slide into an editable deck, preserving provenance |

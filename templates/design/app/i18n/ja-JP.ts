@@ -63,8 +63,7 @@ export default {
     appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:
       "{app} · {from} から {to} · {count} セッション{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} から {to} · アプリごとの別コホート{partial}",
+    journeyTitleAppBandsSummary: "{from} から {to} · 別々のコホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
     otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",
@@ -321,6 +320,10 @@ export default {
       chooseFrame: "フレームを選択",
       inspect: "確認",
       exportSvg: "SVG をエクスポート",
+      moreActions: "その他の操作",
+      askAboutFile: "このファイルについて質問",
+      askAboutFilePrompt:
+        "このリンクされたデザインファイルについて質問してください。{{url}}",
       actionsPrefill: "確認して送信",
       retry: "再試行",
       currentDesign: "現在のDesign",
