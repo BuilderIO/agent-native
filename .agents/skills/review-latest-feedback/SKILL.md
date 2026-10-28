@@ -320,6 +320,9 @@ This step is the only place a claimed report gets its closing reply. Run it
 after the merge for the threads in the PR's `Reports` section. If the merge
 happened outside this run, the next sweep runs it: when you collect, check
 each open item's sweep PR, and close out the reports of any that have merged.
+Entries that aren't Slack threads get no Slack action: GitHub issues follow
+the issue rule below, and Sentry and Analytics issues are only listed in the
+recap.
 <!-- framework-repo-only:start -->
 In the framework repo, `/ship` step 6 runs this step after its merge, and
 `address-feedback-with-replies` runs it for its own threads.
