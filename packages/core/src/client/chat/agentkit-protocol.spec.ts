@@ -321,6 +321,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 name: "get_document",
                 input: { documentId: "doc-1" },
                 approvalKey: "get_document:approved",
+                approvalAskId: "agent-tool-approval-doc-1",
               },
             },
             {
@@ -331,6 +332,7 @@ describe("createAgentKitProtocolAdapter", () => {
                 name: "get_document",
                 resultText: "Document title: Project Brief",
                 approvalPause: true,
+                approvalAskId: "agent-tool-approval-doc-1",
               },
             },
             {

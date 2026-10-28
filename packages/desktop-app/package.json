@@ -67,7 +67,7 @@
     "tailwindcss": "^4.3.0",
     "typescript-7": "catalog:",
     "vite": "catalog:",
-    "vitest": "^4.1.10"
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.29.1",
   "productName": "Agent-Native"

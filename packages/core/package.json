@@ -791,7 +791,7 @@
     "@types/ws": "^8.18.1",
     "@typesafe-ai/sdk": "0.6.0",
     "@vitejs/plugin-react-swc": "^4.3.3",
-    "@vitest/coverage-v8": "4.1.5",
+    "@vitest/coverage-v8": "catalog:",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
@@ -817,7 +817,7 @@
     "ts-morph": "^28.0.0",
     "typescript-7": "catalog:",
     "vite": "catalog:",
-    "vitest": "^4.1.5",
+    "vitest": "catalog:",
     "xlsx": "^0.18.5"
   },
   "peerDependencies": {

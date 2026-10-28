@@ -266,7 +266,10 @@ it("does not write an authorized pre-bind user A query into user B's cache", asy
     await Promise.all([bindingA, bindingB]);
     const queryHash = query!.queryHash;
     client.setQueryData(["action", "cache-write-trigger"], { written: true });
-    await expect.poll(() => records.has(SCOPE_B)).toBe(true);
+    // The write is debounced by WRITE_DELAY_MS (1s); the poll must outwait it.
+    await expect
+      .poll(() => records.has(SCOPE_B), { timeout: 5_000 })
+      .toBe(true);
     const userBQueries = records.get(SCOPE_B)!.clientState.queries;
     expect
       .soft(userBQueries.some((entry) => entry.queryHash === queryHash))

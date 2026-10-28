@@ -47,7 +47,7 @@
     "@agent-native/core": "workspace:*",
     "@types/node": "^24.2.1",
     "typescript-7": "catalog:",
-    "vitest": "^4.1.5"
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "@agent-native/core": ">=0.200.0"
