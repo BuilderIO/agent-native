@@ -4601,8 +4601,12 @@ export function App({
       skipReadyPanel?: boolean;
     },
   ) {
+    // The panel relays Record through an event, which loses the click's user
+    // activation. WebKit's getDisplayMedia needs that activation, so only
+    // native captures (and camera-only clips) go through the panel.
     if (
       isMacPlatform() &&
+      (mode === "camera" || nativeCaptureRecordingActive) &&
       !options?.resumeCapture &&
       !beginOptions?.confirmedInReadyPanel &&
       !beginOptions?.skipReadyPanel

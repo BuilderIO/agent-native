@@ -79,6 +79,9 @@ export function ReadyToRecord() {
   );
   const [cursorOptionsOpen, setCursorOptionsOpen] = useState(false);
   const [cursorError, setCursorError] = useState<string | null>(null);
+  // Edits wait for the saved settings, so an early click cannot save the
+  // defaults over them.
+  const [cursorLoaded, setCursorLoaded] = useState(false);
   const closingRef = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -103,10 +106,14 @@ export function ReadyToRecord() {
         if (cancelled) return;
         savedCursorRef.current = config;
         setCursor(config);
+        setCursorLoaded(true);
       })
       .catch((error) => {
         console.error("[clips-ready] cursor effects load failed:", error);
-        if (!cancelled) setCursorError(String(error));
+        if (cancelled) return;
+        // An unreadable file is reported; saving replaces it with a backup.
+        setCursorError(String(error));
+        setCursorLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -175,6 +182,7 @@ export function ReadyToRecord() {
     ? cursorEffectsAvailability(state)
     : { available: true as const };
   const effectsDisabled = !availability.available;
+  const cursorLocked = effectsDisabled || !cursorLoaded;
   const highlightOn = !effectsDisabled && cursor.highlightEnabled;
   const clickOn = !effectsDisabled && cursor.clickEnabled;
 
@@ -203,7 +211,7 @@ export function ReadyToRecord() {
             <button
               type="button"
               className="rtr-sub"
-              disabled={effectsDisabled}
+              disabled={cursorLocked}
               aria-pressed={highlightOn}
               onClick={() =>
                 updateCursor({ highlightEnabled: !cursor.highlightEnabled })
@@ -215,7 +223,7 @@ export function ReadyToRecord() {
             <button
               type="button"
               className="rtr-sub"
-              disabled={effectsDisabled}
+              disabled={cursorLocked}
               aria-pressed={clickOn}
               onClick={() =>
                 updateCursor({ clickEnabled: !cursor.clickEnabled })
@@ -247,7 +255,7 @@ export function ReadyToRecord() {
                   label="Highlight"
                   tooltip="Highlight color"
                   value={cursor.highlightColor}
-                  disabled={!cursor.highlightEnabled}
+                  disabled={!cursorLoaded || !cursor.highlightEnabled}
                   onChange={(highlightColor) =>
                     updateCursor({ highlightColor })
                   }
@@ -256,14 +264,14 @@ export function ReadyToRecord() {
                   label="Left"
                   tooltip="Left-click color"
                   value={cursor.clickColor}
-                  disabled={!cursor.clickEnabled}
+                  disabled={!cursorLoaded || !cursor.clickEnabled}
                   onChange={(clickColor) => updateCursor({ clickColor })}
                 />
                 <ColorField
                   label="Right"
                   tooltip="Right-click color"
                   value={cursor.secondaryClickColor}
-                  disabled={!cursor.clickEnabled}
+                  disabled={!cursorLoaded || !cursor.clickEnabled}
                   onChange={(secondaryClickColor) =>
                     updateCursor({ secondaryClickColor })
                   }
