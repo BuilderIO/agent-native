@@ -3,12 +3,12 @@ import { afterAll, expect, it } from "vitest";
 import { agentRunsStore } from "../agent/run-store.js";
 import { chatThreadsStore } from "../chat-threads/store.js";
 import { closeDbExec, getDbExec } from "./client.js";
-// Relevant tables and ledger entries from the published 0.210.0 schema snapshot.
-import oldSnapshot from "./tests/fixtures/core-0.210.0-stores.json";
 import {
   __setSchemaSnapshotForTests,
   type SchemaSnapshot,
 } from "./store-registry.js";
+// Relevant tables and ledger entries from the published 0.210.0 schema snapshot.
+import oldSnapshot from "./tests/fixtures/core-0.210.0-stores.json";
 
 const previousUrl = process.env.DATABASE_URL;
 

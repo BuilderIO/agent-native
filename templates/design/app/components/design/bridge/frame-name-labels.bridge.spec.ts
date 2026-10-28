@@ -20,7 +20,7 @@ function hydratedEditorChromeBridgeScript(boardSurface: boolean): string {
 function launchBrowser() {
   return chromium.launch({
     headless: true,
-    channel: process.env.GITHUB_ACTIONS === "true" ? "chrome" : undefined,
+    ...(process.env.GITHUB_ACTIONS === "true" ? { channel: "chrome" } : {}),
   });
 }
 
