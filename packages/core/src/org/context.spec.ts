@@ -160,10 +160,12 @@ describe("getOrgContext", () => {
       orgName: null,
       role: null,
     });
-    expect(mockExecute).toHaveBeenCalledWith({
-      sql: expect.stringContaining("FROM org_members"),
-      args: ["svc-pr-recap@service.org-1"],
-    });
+    expect(
+      mockExecute.mock.calls.map(([query]) => [query.sql, query.args]),
+    ).toContainEqual([
+      expect.stringContaining("FROM org_members"),
+      ["svc-pr-recap@service.org-1"],
+    ]);
   });
 
   it("denies a verified service identity for a federated org", async () => {

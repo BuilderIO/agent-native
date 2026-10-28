@@ -41,3 +41,5 @@ Recognize network outages at known automation database lookup boundaries without
 Preserve database transport retryability through known session, organization, MCP identity and credential lookup boundaries without treating mixed host or provider callbacks as database failures.
 
 Reject unresolved organization lookups before starting an agent run instead of producing an ambiguous orgless context. Preserve classified lookup failures and allow only confirmed Personal scope or a successful organization lookup.
+
+Compose organization membership ordering and optional identity columns with typed SQL fragments and bound values.

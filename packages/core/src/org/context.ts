@@ -11,6 +11,7 @@ import {
   isUniqueViolation,
 } from "../db/client.js";
 import { withDatabaseErrorProvenance } from "../db/errors.js";
+import { sql } from "../db/sql.js";
 import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js";
 import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { getEmbeddedHostOrgScope } from "../server/embedded-org-scope.js";
@@ -89,10 +90,10 @@ function markOrgScopeResolutionUnavailable(
 
 export async function queryOrgMembers(query: {
   sql: string;
-  args: unknown[];
+  args: readonly unknown[];
 }): Promise<Record<string, unknown>[]> {
   const { rows } = await withDatabaseErrorProvenance(async () =>
-    getDbExec().execute(query),
+    getDbExec().execute({ ...query, args: [...query.args] }),
   );
   return rows as Record<string, unknown>[];
 }
@@ -605,7 +606,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   };
 }
 
-const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
+const MEMBERSHIP_FALLBACK_ORDER_BY = sql`ORDER BY joined_at ASC, org_id ASC`;
 
 async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
   return cachedMemberships(email, () => loadMembershipsUncached(email));
@@ -647,18 +648,16 @@ export async function getActiveOrgSettingForEvent(
 async function loadMembershipsUncached(
   email: string,
 ): Promise<MembershipRow[] | null> {
-  const rows = await queryOrgMembers({
-    sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
+  const rows =
+    await queryOrgMembers(sql`SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
                  o.allowed_domain AS "allowedDomain",
                  o.identity_authority AS "identityAuthority",
                  o.identity_id AS "identityId"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE LOWER(m.email) = ?
+          WHERE LOWER(m.email) = ${sql.value(email.toLowerCase())}
             AND m.federation_removal_pending_at IS NULL
-          ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
-    args: [email.toLowerCase()],
-  });
+          ${MEMBERSHIP_FALLBACK_ORDER_BY}`);
   return (
     rows?.map((r: any) => {
       const domain = r.allowedDomain ?? r.allowed_domain;
@@ -697,13 +696,10 @@ export async function resolveOrgScopeForEmail(
   try {
     ids = await requestMemberOrgIds(email, async () => {
       const { rows } = await withDatabaseErrorProvenance(async () =>
-        getDbExec().execute({
-          sql: `SELECT org_id FROM org_members
-            WHERE LOWER(email) = ?
+        getDbExec().execute(sql`SELECT org_id FROM org_members
+            WHERE LOWER(email) = ${sql.value(email.toLowerCase())}
               AND federation_removal_pending_at IS NULL
-            ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
-          args: [email.toLowerCase()],
-        }),
+            ${MEMBERSHIP_FALLBACK_ORDER_BY}`),
       );
       return rows.map((r: Record<string, unknown>) => String(r.org_id));
     });
@@ -846,18 +842,15 @@ export async function createOrganization(
   const { randomBytes } = await import("node:crypto");
   const a2aSecret = randomBytes(32).toString("base64url");
   const identityColumns = options.identityAuthority
-    ? ", identity_authority, identity_id"
-    : "";
-  const identityPlaceholders = options.identityAuthority ? ", ?, ?" : "";
-  const identityArgs = options.identityAuthority
-    ? [options.identityAuthority, options.identityId]
-    : [];
+    ? sql`, identity_authority, identity_id`
+    : sql``;
+  const identityValues = options.identityAuthority
+    ? sql`, ${sql.value(options.identityAuthority)}, ${sql.value(options.identityId)}`
+    : sql``;
 
   await withDatabaseErrorProvenance(async () =>
-    exec.execute({
-      sql: `INSERT INTO organizations (id, name, created_by, created_at, a2a_secret${identityColumns}) VALUES (?, ?, ?, ?, ?${identityPlaceholders})`,
-      args: [id, trimmedName, email, createdAt, a2aSecret, ...identityArgs],
-    }),
+    exec.execute(sql`INSERT INTO organizations (id, name, created_by, created_at, a2a_secret${identityColumns})
+      VALUES (${sql.value(id)}, ${sql.value(trimmedName)}, ${sql.value(email)}, ${sql.value(createdAt)}, ${sql.value(a2aSecret)}${identityValues})`),
   );
 
   await withDatabaseErrorProvenance(async () =>

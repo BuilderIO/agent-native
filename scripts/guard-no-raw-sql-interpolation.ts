@@ -38,6 +38,12 @@ function isSqlPropertyName(name: ts.PropertyName): boolean {
   );
 }
 
+function mayNameSqlProperty(name: ts.PropertyName): boolean {
+  if (!ts.isComputedPropertyName(name)) return isSqlPropertyName(name);
+  const value = staticStringPropertyName(name.expression);
+  return value === undefined || value === "sql";
+}
+
 function isExecuteCall(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -2132,9 +2138,17 @@ function findUnsafeSqlSources(
   }
   if (ts.isObjectLiteralExpression(current)) {
     if (isStaticSqlValue(current)) return new Set();
+    const hasSqlProperty = current.properties.some(
+      (property) =>
+        (ts.isPropertyAssignment(property) &&
+          isSqlPropertyName(property.name)) ||
+        (ts.isShorthandPropertyAssignment(property) &&
+          property.name.text === "sql"),
+    );
     return unionSources(
       ...current.properties.flatMap((property) => {
         if (ts.isPropertyAssignment(property)) {
+          if (hasSqlProperty && !mayNameSqlProperty(property.name)) return [];
           return [
             findUnsafeSqlSources(
               property.initializer,
@@ -2145,6 +2159,7 @@ function findUnsafeSqlSources(
           ];
         }
         if (ts.isShorthandPropertyAssignment(property)) {
+          if (hasSqlProperty && property.name.text !== "sql") return [];
           return [
             findUnsafeSqlSources(
               property.name,
@@ -2254,7 +2269,7 @@ function callableDeclarations(
 interface ExecuteWrapperDependencyTemplate {
   declaration: ts.FunctionLikeDeclaration;
   analysis: SqlAnalysis;
-  argumentIndexes: Map<number, Set<number>>;
+  argumentIndexes: (index: number) => ReadonlySet<number>;
 }
 
 interface ExecuteWrapperSummaryTemplate {
@@ -2268,7 +2283,7 @@ interface ExecuteWrapperSummary {
   indexes: Set<number>;
   dependencies: Array<{
     target: ExecuteWrapperSummary;
-    argumentIndexes: Map<number, Set<number>>;
+    argumentIndexes: (index: number) => ReadonlySet<number>;
   }>;
 }
 
@@ -2368,8 +2383,11 @@ function executeWrapperSummaryTemplate(
               wrapperAnalysis.relatedAnalyses?.get(
                 nestedDeclaration.getSourceFile(),
               ) ?? wrapperAnalysis;
-            const argumentIndexes = new Map<number, Set<number>>();
-            nestedDeclaration.parameters.forEach((parameter, nestedIndex) => {
+            const argumentIndexCache = new Map<number, Set<number>>();
+            const argumentIndexes = (nestedIndex: number): Set<number> => {
+              const cached = argumentIndexCache.get(nestedIndex);
+              if (cached) return cached;
+              const parameter = nestedDeclaration.parameters[nestedIndex];
               const nestedArgumentIndexes = parameter?.dotDotDotToken
                 ? node.arguments.flatMap((_, index) =>
                     index >= nestedIndex ? [index] : [],
@@ -2383,15 +2401,14 @@ function executeWrapperSummaryTemplate(
                   indexes.add(index);
                 }
               }
-              if (indexes.size > 0) argumentIndexes.set(nestedIndex, indexes);
+              argumentIndexCache.set(nestedIndex, indexes);
+              return indexes;
+            };
+            template.dependencies.push({
+              declaration: nestedDeclaration,
+              analysis: nestedAnalysis,
+              argumentIndexes,
             });
-            if (argumentIndexes.size > 0) {
-              template.dependencies.push({
-                declaration: nestedDeclaration,
-                analysis: nestedAnalysis,
-                argumentIndexes,
-              });
-            }
           }
         }
       }
@@ -2464,22 +2481,19 @@ function executeWrapperArgumentIndexes(
 
       const dependents = new Map<
         ExecuteWrapperSummary,
-        Map<number, ExecuteWrapperFlow[]>
+        Array<{
+          summary: ExecuteWrapperSummary;
+          argumentIndexes: (index: number) => ReadonlySet<number>;
+        }>
       >();
       for (const summary of summaries.values()) {
         for (const dependency of summary.dependencies) {
-          for (const [
-            targetIndex,
-            parentIndexes,
-          ] of dependency.argumentIndexes) {
-            const byIndex = dependents.get(dependency.target) ?? new Map();
-            const flows = byIndex.get(targetIndex) ?? [];
-            parentIndexes.forEach((index) => {
-              flows.push({ summary, index });
-            });
-            byIndex.set(targetIndex, flows);
-            dependents.set(dependency.target, byIndex);
-          }
+          const callers = dependents.get(dependency.target) ?? [];
+          callers.push({
+            summary,
+            argumentIndexes: dependency.argumentIndexes,
+          });
+          dependents.set(dependency.target, callers);
         }
       }
 
@@ -2490,12 +2504,12 @@ function executeWrapperArgumentIndexes(
       while (flows.length > 0) {
         const flow = flows.pop();
         if (!flow) continue;
-        const dependentsByIndex = dependents.get(flow.summary)?.get(flow.index);
-        if (!dependentsByIndex) continue;
-        for (const dependent of dependentsByIndex) {
-          if (!dependent.summary.indexes.has(dependent.index)) {
-            dependent.summary.indexes.add(dependent.index);
-            flows.push(dependent);
+        for (const dependent of dependents.get(flow.summary) ?? []) {
+          for (const index of dependent.argumentIndexes(flow.index)) {
+            if (!dependent.summary.indexes.has(index)) {
+              dependent.summary.indexes.add(index);
+              flows.push({ summary: dependent.summary, index });
+            }
           }
         }
       }
@@ -2977,25 +2991,28 @@ export function findRawSqlInterpolationViolationsInSources(
           analysis.executeAliases,
         )
       ) {
-        const callChanged = touchesChangedLines(node);
-        const hasChangedSqlSource = node.arguments.some((argument) => {
-          if (isStaticSqlValue(argument)) return false;
-          const unsafeSqlSources = findUnsafeSqlSources(
-            argument,
-            analysis,
-            new Set(),
-            new Set(),
-            true,
-          );
-          return (
-            unsafeSqlSources.size > 0 &&
-            (callChanged || [...unsafeSqlSources].some(touchesChangedLines))
-          );
-        });
-        if (hasChangedSqlSource) {
-          for (const index of executeWrapperArgumentIndexes(node, analysis)) {
-            const argument = node.arguments[index];
-            if (argument) reportUnsafeSqlValue(analysis, node, argument);
+        const wrapperIndexes = executeWrapperArgumentIndexes(node, analysis);
+        if (wrapperIndexes.length > 0) {
+          const callChanged = touchesChangedLines(node);
+          const hasChangedSqlSource = node.arguments.some((argument) => {
+            if (isStaticSqlValue(argument)) return false;
+            const unsafeSqlSources = findUnsafeSqlSources(
+              argument,
+              analysis,
+              new Set(),
+              new Set(),
+              true,
+            );
+            return (
+              unsafeSqlSources.size > 0 &&
+              (callChanged || [...unsafeSqlSources].some(touchesChangedLines))
+            );
+          });
+          if (hasChangedSqlSource) {
+            for (const index of wrapperIndexes) {
+              const argument = node.arguments[index];
+              if (argument) reportUnsafeSqlValue(analysis, node, argument);
+            }
           }
         }
       }
@@ -3691,48 +3708,117 @@ function addChangedSqlHelperCallers(
   }
   if (helperNames.size === 0) return;
 
-  const names = [...helperNames];
-  const candidateFiles = new Set<string>();
-  for (let offset = 0; offset < names.length; offset += 80) {
-    const batch = names.slice(offset, offset + 80);
-    for (const file of findCallerFiles(batch)) {
-      candidateFiles.add(path.resolve(rootDir, file));
+  const candidates = new Map(
+    [...sources].map(([file, input]) => [file, input.source]),
+  );
+  const searchedNames = new Set<string>();
+  for (;;) {
+    const names = [...helperNames].filter((name) => !searchedNames.has(name));
+    if (names.length === 0) break;
+    names.forEach((name) => searchedNames.add(name));
+    for (let offset = 0; offset < names.length; offset += 80) {
+      for (const candidate of findCallerFiles(
+        names.slice(offset, offset + 80),
+      )) {
+        const file = path.resolve(rootDir, candidate);
+        if (
+          generatedPath.test(
+            path.relative(rootDir, file).replace(/\\/g, "/"),
+          ) ||
+          candidates.has(file)
+        ) {
+          continue;
+        }
+        try {
+          candidates.set(file, readFileSync(file, "utf8"));
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `could not read ${path.relative(rootDir, file)}: ${message}`,
+          );
+        }
+      }
+    }
+    for (const [file, source] of candidates) {
+      for (const alias of exportedSqlHelperAliases(source, file, helperNames)) {
+        helperNames.add(alias);
+      }
     }
   }
 
-  for (const file of candidateFiles) {
-    if (
-      generatedPath.test(path.relative(rootDir, file).replace(/\\/g, "/")) ||
-      sources.has(file)
-    ) {
-      continue;
-    }
-    let source: string;
-    try {
-      source = readFileSync(file, "utf8");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `could not read ${path.relative(rootDir, file)}: ${message}`,
-      );
-    }
+  for (const [file, source] of candidates) {
+    if (sources.has(file)) continue;
+    const traceSqlCallLines = changedSqlHelperCallsiteLines(
+      source,
+      file,
+      helperNames,
+    );
+    if (!traceSqlCallLines) continue;
     sources.set(file, {
       source,
       addedLines: new Set(),
-      traceSqlCallLines: changedSqlHelperCallsiteLines(
-        source,
-        file,
-        new Set(helperNames),
-      ),
+      traceSqlCallLines,
     });
   }
+}
+
+function exportedSqlHelperAliases(
+  source: string,
+  file: string,
+  helperNames: ReadonlySet<string>,
+): Set<string> {
+  const sourceFile = ts.createSourceFile(
+    path.resolve(file),
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const localNames = new Set(helperNames);
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportEqualsDeclaration(statement)) {
+      localNames.add(statement.name.text);
+    }
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
+    if (statement.importClause.name)
+      localNames.add(statement.importClause.name.text);
+    const bindings = statement.importClause.namedBindings;
+    if (!bindings) continue;
+    if (ts.isNamespaceImport(bindings)) {
+      localNames.add(bindings.name.text);
+    } else {
+      for (const element of bindings.elements) {
+        if (helperNames.has(element.propertyName?.text ?? element.name.text)) {
+          localNames.add(element.name.text);
+        }
+      }
+    }
+  }
+  const aliases = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.exportClause) continue;
+    if (ts.isNamespaceExport(statement.exportClause)) {
+      aliases.add(statement.exportClause.name.text);
+      continue;
+    }
+    for (const element of statement.exportClause.elements) {
+      if (
+        localNames.has(element.propertyName?.text ?? element.name.text) &&
+        element.name.text !== "default"
+      ) {
+        aliases.add(element.name.text);
+      }
+    }
+  }
+  return aliases;
 }
 
 function changedSqlHelperCallsiteLines(
   source: string,
   file: string,
   helperNames: ReadonlySet<string>,
-): Set<number> {
+): Set<number> | undefined {
   const sourceFile = ts.createSourceFile(
     path.resolve(file),
     source,
@@ -3743,13 +3829,16 @@ function changedSqlHelperCallsiteLines(
   const importedNames = new Set<string>();
   const namespaceImports = new Set<string>();
   for (const statement of sourceFile.statements) {
-    if (
-      !ts.isImportDeclaration(statement) ||
-      !statement.importClause?.namedBindings
-    ) {
+    if (ts.isImportEqualsDeclaration(statement)) {
+      namespaceImports.add(statement.name.text);
       continue;
     }
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
+    if (statement.importClause.name) {
+      importedNames.add(statement.importClause.name.text);
+    }
     const bindings = statement.importClause.namedBindings;
+    if (!bindings) continue;
     if (ts.isNamespaceImport(bindings)) {
       namespaceImports.add(bindings.name.text);
       continue;
@@ -3758,6 +3847,15 @@ function changedSqlHelperCallsiteLines(
       const importedName = element.propertyName?.text ?? element.name.text;
       if (helperNames.has(importedName)) importedNames.add(element.name.text);
     }
+  }
+
+  // Import-only and re-export modules can bind a different caller's helper.
+  if (
+    importedNames.size === 0 &&
+    namespaceImports.size === 0 &&
+    !sourceFile.statements.some(ts.isExportDeclaration)
+  ) {
+    return undefined;
   }
 
   const changedLines = new Set<number>();
