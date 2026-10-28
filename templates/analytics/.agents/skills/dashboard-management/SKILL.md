@@ -522,11 +522,12 @@ blocks, which could assemble new literal contexts after validation. Use SQL
 as under the default "All apps", `{{appFilter:list}}` renders as the bare name
 `__empty_list_filter__`. BigQuery and PostgreSQL reject that name even inside a
 `CASE` branch that never runs, so `IN ({{appFilter:list}})` fails every click
-until someone picks a value. Match the comma-joined scalar instead, which is
-empty when nothing is selected. In BigQuery:
-`('{{appFilter}}' = '' OR app IN UNNEST(SPLIT('{{appFilter}}', ',')))`. In
-first-party SQL, which can also run on BigQuery:
-`('{{appFilter}}' = '' OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
+until someone picks a value. Match the comma-joined scalar instead, and treat
+both an empty value and the `all` option, which the first-party app filter
+defaults to, as every app. In BigQuery:
+`('{{appFilter}}' IN ('', 'all') OR app IN UNNEST(SPLIT('{{appFilter}}', ',')))`.
+In first-party SQL, which can also run on BigQuery:
+`('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || app || ',') > 0)`.
 
 A record template can return `COUNT(*) OVER () AS total_matching` alongside a bounded
 record list such as `LIMIT 500`; the dialog hides that count column and reports
