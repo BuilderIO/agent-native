@@ -46,7 +46,20 @@ export function isConnectionError(value: unknown): boolean {
   );
 }
 
-export function isTransientDatabaseError(err: unknown): boolean {
+const DATABASE_NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENETDOWN",
+  "ECONNABORTED",
+]);
+
+// Query boundaries can establish database origin when a transport error has no driver frames.
+export function isTransientDatabaseError(
+  err: unknown,
+  context?: { source: "database" },
+): boolean {
   const error = err as
     | {
         code?: unknown;
@@ -93,9 +106,10 @@ export function isTransientDatabaseError(err: unknown): boolean {
     .filter((value): value is string => typeof value === "string")
     .join(" ");
   return (
-    isConnectionError(error) &&
-    /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
-      databaseSurface,
-    )
+    (isConnectionError(error) || DATABASE_NETWORK_ERROR_CODES.has(code)) &&
+    (context?.source === "database" ||
+      /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
+        databaseSurface,
+      ))
   );
 }

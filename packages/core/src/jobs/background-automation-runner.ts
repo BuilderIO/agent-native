@@ -275,7 +275,7 @@ function identityLookupFailure(
   return {
     ok: false,
     reason,
-    code: isTransientDatabaseError(cause)
+    code: isTransientDatabaseError(cause, { source: "database" })
       ? "owner_unverifiable"
       : CONFIG_INVALID_ERROR_CODE,
     cause,
@@ -630,7 +630,9 @@ export async function startBackgroundAutomationHistory(
       cause instanceof BackgroundAutomationRunError
         ? cause.message
         : `Could not resolve the alert recipient for automation "${automation.name}"${orgId ? ` in org "${orgId}"` : ""}`;
-    lookupFailure = isTransientDatabaseError(lookupCause)
+    lookupFailure = isTransientDatabaseError(lookupCause, {
+      source: "database",
+    })
       ? new BackgroundAutomationRunError(
           message,
           "automation_recipient_lookup_unavailable",

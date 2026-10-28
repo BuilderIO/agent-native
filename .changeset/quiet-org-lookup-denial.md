@@ -35,3 +35,5 @@ Propagate verified organization lookup failures through realtime tokens, extensi
 Preserve embedded-host organization authority from the server callback that authenticated the selected session in that request. Bind scope to the normalized identity and organization, validate organization roles, preserve explicit Personal selection, and keep delegated membership and resource-share checks intact without requiring hosts to mirror their roster.
 
 Keep deliberately untracked creator accounts distinct from failed account or membership reads when choosing automation alert recipients. Use a verified organization admin fallback only after membership lookup succeeds. Preserve original lookup causes, retry transient identity failures, and stop scheduled retries for permanent identity lookup failures through the existing configuration-error policy; unverified creators remain unable to execute organization automations.
+
+Recognize network outages at known automation database lookup boundaries without requiring driver stack frames, while leaving unrelated provider failures and permanent lookup errors nonretryable.

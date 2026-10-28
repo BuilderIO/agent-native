@@ -107,6 +107,40 @@ test("skips specs that read source text or import outside Core, which fail in St
   );
 });
 
+// oracle-change: workspace discovery supports catalog consumers inside the mutation sandbox.
+test("retains catalog consumers after sandbox workspace discovery", () => {
+  const listing = ["plugin.spec.ts", "plugin.inventory.spec.ts", "plugin.ts"];
+  const files = {
+    "src/plugin.spec.ts": `import { start } from "./plugin";`,
+    "src/plugin.inventory.spec.ts": `import { repoRoot } from "./mcp/advertised-catalog.harness.js";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/plugin.ts:1-2"], () => listing, readFrom(files)),
+    {
+      include: ["src/plugin.inventory.spec.ts", "src/plugin.spec.ts"],
+      missing: [],
+    },
+  );
+});
+
+test("selects catalog harness importers for mutations of the harness itself", () => {
+  const listing = [
+    "action-eligibility.spec.ts",
+    "advertised-catalog.harness.ts",
+  ];
+  const files = {
+    "src/mcp/action-eligibility.spec.ts": `import { withCatalogClient } from "./advertised-catalog.harness.js";`,
+  };
+  assert.deepEqual(
+    namedSpecs(
+      ["src/mcp/advertised-catalog.harness.ts:9-9"],
+      () => listing,
+      readFrom(files),
+    ),
+    { include: ["src/mcp/action-eligibility.spec.ts"], missing: [] },
+  );
+});
+
 test("reports a file whose only specs cannot run in the sandbox as missing", () => {
   const listing = ["plugin.surface.spec.ts", "plugin.ts"];
   const files = {

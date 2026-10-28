@@ -53,6 +53,43 @@ describe("isTransientDatabaseError", () => {
     ).toBe(true);
   });
 
+  it.each([
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ENETDOWN",
+    "ECONNABORTED",
+    "CONNECT_TIMEOUT",
+    "ETIMEDOUT",
+  ])("classifies %s only with database provenance", async (code) => {
+    const { isTransientDatabaseError } = await import("./errors.js");
+    const error = Object.assign(new Error("Fake connection failure"), { code });
+
+    expect(isTransientDatabaseError(error)).toBe(false);
+    expect(isTransientDatabaseError(error, { source: "database" })).toBe(true);
+    expect(
+      isTransientDatabaseError({ cause: error }, { source: "database" }),
+    ).toBe(true);
+    expect(
+      isTransientDatabaseError({
+        code,
+        stack: "Error: fake outage\n at postgres/connection.js",
+      }),
+    ).toBe(true);
+  });
+
+  it.each(["42501", "42P01", undefined])(
+    "keeps permanent and unexpected failures nonretryable with database provenance: %s",
+    async (code) => {
+      const { isTransientDatabaseError } = await import("./errors.js");
+      const error = Object.assign(new Error("Fake database failure"), { code });
+      expect(isTransientDatabaseError(error, { source: "database" })).toBe(
+        false,
+      );
+    },
+  );
+
   it("does not classify ordinary database errors as transient", async () => {
     const { isTransientDatabaseError } = await import("./errors.js");
 

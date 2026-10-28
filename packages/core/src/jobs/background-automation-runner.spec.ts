@@ -2948,7 +2948,16 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
       if (!execute) throw new Error("Missing fixture executor");
       try {
         for (const stage of ["account", "membership"] as const) {
-          for (const code of ["57014", "42501", "42P01", undefined]) {
+          for (const code of [
+            "57014",
+            "ECONNREFUSED",
+            "EAI_AGAIN",
+            "CONNECT_TIMEOUT",
+            "ETIMEDOUT",
+            "42501",
+            "42P01",
+            undefined,
+          ]) {
             const cause = Object.assign(
               new Error("Fake private identity diagnostics"),
               { code },
@@ -2972,7 +2981,10 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
                 : await resolveBackgroundAutomationIdentity(automation);
             expect(result).toMatchObject({
               ok: false,
-              code: code === "57014" ? "owner_unverifiable" : "config_invalid",
+              code:
+                code !== "42501" && code !== "42P01" && code !== undefined
+                  ? "owner_unverifiable"
+                  : "config_invalid",
               cause,
             });
             expect(JSON.stringify(result)).not.toContain(cause.message);
