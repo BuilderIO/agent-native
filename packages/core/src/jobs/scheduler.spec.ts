@@ -1310,7 +1310,9 @@ Run job ${index}.`,
           typeof email === "string" &&
           email.startsWith("blocked-")
         ) {
-          throw new Error("connection terminated");
+          throw Object.assign(new Error("connection terminated"), {
+            code: "08006",
+          });
         }
         return { rows: [{ "1": 1 }], rowsAffected: 1 };
       },

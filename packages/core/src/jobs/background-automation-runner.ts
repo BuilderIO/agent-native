@@ -241,8 +241,8 @@ export type BackgroundAutomationRunResult = BackgroundAutomationRunOutput &
 
 /**
  * `owner_missing` is permanent (the user or membership is gone);
- * `owner_unverifiable` means the lookup itself failed and must be retried, not
- * recorded as the owner being gone.
+ * Permanent lookup errors are `config_invalid`, not evidence that the owner
+ * is gone. Transient failures and untracked execution remain retryable.
  */
 export type AutomationIdentityFailureCode =
   | typeof OWNER_MISSING_ERROR_CODE
@@ -256,11 +256,31 @@ export type AutomationIdentityValidation =
       reason: string;
       code: AutomationIdentityFailureCode;
       cause?: unknown;
+      accountStatus?: "untracked";
     };
 
 export type BackgroundAutomationIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
-  | { ok: false; reason: string; code?: AutomationIdentityFailureCode };
+  | {
+      ok: false;
+      reason: string;
+      code?: AutomationIdentityFailureCode;
+      cause?: unknown;
+    };
+
+function identityLookupFailure(
+  reason: string,
+  cause: unknown,
+): Extract<AutomationIdentityValidation, { ok: false }> {
+  return {
+    ok: false,
+    reason,
+    code: isTransientDatabaseError(cause)
+      ? "owner_unverifiable"
+      : CONFIG_INVALID_ERROR_CODE,
+    cause,
+  };
+}
 
 export async function validateAutomationRunIdentity(
   ownerEmail: string,
@@ -273,6 +293,7 @@ export async function validateAutomationRunIdentity(
     return { ok: true };
   }
 
+  let accountUntracked = false;
   try {
     const account = await lookupOwnerAccount(ownerEmail);
     if (account === "missing") {
@@ -282,15 +303,7 @@ export async function validateAutomationRunIdentity(
         code: OWNER_MISSING_ERROR_CODE,
       };
     }
-    // No built-in accounts: like unconfigured auth tables, a personal owner
-    // cannot be checked here; an org member's standing cannot be proven.
-    if (account === "untracked" && orgId) {
-      return {
-        ok: false,
-        reason: `could not verify user "${ownerEmail}": this deployment keeps no built-in user accounts`,
-        code: "owner_unverifiable",
-      };
-    }
+    accountUntracked = account === "untracked";
   } catch (error) {
     const message =
       error instanceof Error ? error.message.toLowerCase() : String(error);
@@ -299,12 +312,10 @@ export async function validateAutomationRunIdentity(
       (message.includes("does not exist") ||
         message.includes("undefined table"));
     if (authTablesAreUnconfigured) return { ok: true };
-    return {
-      ok: false,
-      reason: `could not verify user "${ownerEmail}" for this run`,
-      code: "owner_unverifiable",
-      cause: error,
-    };
+    return identityLookupFailure(
+      `could not verify user "${ownerEmail}" for this run`,
+      error,
+    );
   }
 
   if (!orgId) return { ok: true };
@@ -317,6 +328,14 @@ export async function validateAutomationRunIdentity(
             LIMIT 1`,
       args: [orgId, ownerEmail],
     });
+    if (accountUntracked) {
+      return {
+        ok: false,
+        reason: `could not verify user "${ownerEmail}": this deployment keeps no built-in user accounts`,
+        code: "owner_unverifiable",
+        accountStatus: "untracked",
+      };
+    }
     if (memberRows.length === 0) {
       return {
         ok: false,
@@ -326,13 +345,10 @@ export async function validateAutomationRunIdentity(
     }
     return { ok: true };
   } catch (cause) {
-    // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
-    return {
-      ok: false,
-      reason: `could not verify membership in org "${orgId}"`,
-      code: "owner_unverifiable",
+    return identityLookupFailure(
+      `could not verify membership in org "${orgId}"`,
       cause,
-    };
+    );
   }
 }
 
@@ -348,13 +364,11 @@ export async function resolveBackgroundAutomationIdentity(
         automation.resource.owner,
         automation.meta,
       );
-    } catch {
-      // coercion-ok: reported as `owner_unverifiable`, which the scheduler retries instead of treating the owner as gone.
-      return {
-        ok: false,
-        reason: "Could not verify the automation execution identity.",
-        code: "owner_unverifiable",
-      };
+    } catch (cause) {
+      return identityLookupFailure(
+        "Could not verify the automation execution identity.",
+        cause,
+      );
     }
     if (!resolved.ok) return resolved;
     // The service verifies an organization creator exists; a personal
@@ -554,7 +568,10 @@ async function notificationEmailFor(
   if (creator?.includes("@") && automationOwnerKind(creator) === "user") {
     const validity = await validateAutomationRunIdentity(creator, orgId);
     if (validity.ok) return creator;
-    if (validity.code === "owner_unverifiable") {
+    if (
+      validity.code !== OWNER_MISSING_ERROR_CODE &&
+      validity.accountStatus !== "untracked"
+    ) {
       throw new BackgroundAutomationRunError(
         validity.reason,
         validity.code,

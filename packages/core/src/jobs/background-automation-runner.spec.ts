@@ -131,6 +131,7 @@ const {
   BACKGROUND_RUN_HARD_TIMEOUT_MS,
   backgroundRunTerminalError,
   resolveBackgroundAutomationIdentity,
+  validateAutomationRunIdentity,
   runBackgroundAutomation,
   runJobRunner,
 } = await import("./background-automation-runner.js");
@@ -2867,15 +2868,168 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
     return history.notification_email;
   }
 
+  function untrackedAccountReads() {
+    const execute = rawClient.execute.getMockImplementation();
+    if (!execute) throw new Error("Missing fixture executor");
+    rawClient.execute.mockImplementation(async (input) => {
+      if (typeof input !== "string" && input.sql.includes('FROM "user"'))
+        return { rows: [], rowsAffected: 0 };
+      return execute(input);
+    });
+    return () => rawClient.execute.mockImplementation(execute);
+  }
+
+  it.each([true, false])(
+    "alerts an admin for an untracked creator with current membership=%s",
+    async (isMember) => {
+      await seedOrg([
+        ["bob@agent-native.test", "owner"],
+        ...(isMember
+          ? [["alice@agent-native.test", "member"] as [string, string]]
+          : []),
+      ]);
+      const restoreAccounts = untrackedAccountReads();
+      try {
+        expect(await orgJobAlertRecipient(`untracked-admin-${isMember}`)).toBe(
+          "bob@agent-native.test",
+        );
+      } finally {
+        restoreAccounts();
+      }
+    },
+  );
+
   it.each([
-    { deniedAt: "membership", transient: false, nonError: false },
-    { deniedAt: "admin", transient: false, nonError: false },
-    { deniedAt: "admin", transient: false, nonError: true },
-    { deniedAt: "membership", transient: true, nonError: false },
-    { deniedAt: "admin", transient: true, nonError: false },
+    { surface: "validation", isMember: true },
+    { surface: "validation", isMember: false },
+    { surface: "scheduled", isMember: true },
+    { surface: "scheduled", isMember: false },
+    { surface: "trigger", isMember: true },
+    { surface: "trigger", isMember: false },
+  ] as const)(
+    "keeps untracked creator execution blocked and retryable in $surface with membership=$isMember",
+    async ({ surface, isMember }) => {
+      await seedOrg(isMember ? [["alice@agent-native.test", "member"]] : []);
+      const restoreAccounts = untrackedAccountReads();
+      const automation = precondition(`untracked-${surface}`, {
+        createdBy: "alice@agent-native.test",
+        orgId: "acme",
+        runAs: "creator",
+        ...(surface === "trigger" ? { triggerType: "schedule" } : {}),
+      });
+      automation.resource.owner = "__organization__:acme";
+      try {
+        const result =
+          surface === "validation"
+            ? await validateAutomationRunIdentity(
+                "alice@agent-native.test",
+                "acme",
+              )
+            : await resolveBackgroundAutomationIdentity(automation);
+        expect(result).toMatchObject({ ok: false, code: "owner_unverifiable" });
+      } finally {
+        restoreAccounts();
+      }
+    },
+  );
+
+  it.each(["validation", "scheduled", "trigger"] as const)(
+    "classifies actual lookup failures through %s",
+    async (surface) => {
+      await seedOrg([["alice@agent-native.test", "member"]]);
+      const automation = precondition(`identity-${surface}`, {
+        createdBy: "alice@agent-native.test",
+        orgId: "acme",
+        runAs: "creator",
+        ...(surface === "trigger" ? { triggerType: "schedule" } : {}),
+      });
+      automation.resource.owner = "__organization__:acme";
+      const execute = rawClient.execute.getMockImplementation();
+      if (!execute) throw new Error("Missing fixture executor");
+      try {
+        for (const stage of ["account", "membership"] as const) {
+          for (const code of ["57014", "42501", "42P01", undefined]) {
+            const cause = Object.assign(
+              new Error("Fake private identity diagnostics"),
+              { code },
+            );
+            rawClient.execute.mockImplementation(async (input) => {
+              if (
+                typeof input !== "string" &&
+                input.sql.includes(
+                  stage === "account" ? 'FROM "user"' : "FROM org_members",
+                )
+              )
+                throw cause;
+              return execute(input);
+            });
+            const result =
+              surface === "validation"
+                ? await validateAutomationRunIdentity(
+                    "alice@agent-native.test",
+                    "acme",
+                  )
+                : await resolveBackgroundAutomationIdentity(automation);
+            expect(result).toMatchObject({
+              ok: false,
+              code: code === "57014" ? "owner_unverifiable" : "config_invalid",
+              cause,
+            });
+            expect(JSON.stringify(result)).not.toContain(cause.message);
+          }
+        }
+      } finally {
+        rawClient.execute.mockImplementation(execute);
+      }
+    },
+  );
+
+  it.each([
+    {
+      deniedAt: "membership",
+      transient: false,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "admin",
+      transient: false,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "admin",
+      transient: false,
+      nonError: true,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "membership",
+      transient: true,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "admin",
+      transient: true,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "membership",
+      transient: true,
+      nonError: false,
+      accountUntracked: true,
+    },
+    {
+      deniedAt: "membership",
+      transient: false,
+      nonError: false,
+      accountUntracked: true,
+    },
   ])(
     "records a safe failed $deniedAt lookup with transient=$transient and nonError=$nonError",
-    async ({ deniedAt, transient, nonError }) => {
+    async ({ deniedAt, transient, nonError, accountUntracked }) => {
       await seedOrg([["bob@agent-native.test", "owner"]]);
       const { ensureTable } = await import("./run-history.js");
       await ensureTable();
@@ -2883,7 +3037,7 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
         await import("../agent/production-agent.js");
       const { runAgentLoopDirectWithSoftTimeout } =
         await import("../agent/run-loop-with-resume.js");
-      const name = `recipient-denied-${deniedAt}-${transient}-${nonError}`;
+      const name = `recipient-denied-${deniedAt}-${transient}-${nonError}-${accountUntracked}`;
       const automation = precondition(name, {
         runAs: "shared",
         orgId: "acme",
@@ -2899,6 +3053,12 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
       const execute = rawClient.execute.getMockImplementation()!;
       const queries: string[] = [];
       rawClient.execute.mockImplementation(async (input) => {
+        if (
+          accountUntracked &&
+          typeof input !== "string" &&
+          input.sql.includes('FROM "user"')
+        )
+          return { rows: [], rowsAffected: 0 };
         if (typeof input !== "string" && /FROM org_members/.test(input.sql)) {
           queries.push(input.sql);
           if (
@@ -2935,7 +3095,7 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
         const errorCode = transient
           ? "automation_recipient_lookup_unavailable"
           : deniedAt === "membership"
-            ? "owner_unverifiable"
+            ? "config_invalid"
             : "automation_notification_recipient_unavailable";
         expect(history[0]).toMatchObject({
           owner: "__organization__:acme",
@@ -3060,14 +3220,14 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
             .BackgroundAutomationRunError,
         );
         expect(error).toMatchObject({
-          errorCode: "owner_unverifiable",
+          errorCode: "config_invalid",
         });
         expect((error as Error).message).not.toContain(denied.message);
         expect((error as Error).message).not.toContain(historyFailure.message);
         expect((error as Error).cause).toBeInstanceOf(AggregateError);
         expect(((error as Error).cause as AggregateError).errors).toEqual([
           expect.objectContaining({
-            errorCode: "owner_unverifiable",
+            errorCode: "config_invalid",
             cause: denied,
           }),
           historyFailure,
