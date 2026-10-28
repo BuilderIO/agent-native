@@ -12,6 +12,7 @@ import {
   ALWAYS_ON_CORE_ACTIONS,
   autoDiscoverActions,
   CORE_ACTION_GROUPS,
+  listDevActionFiles,
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
 } from "./action-discovery.js";
@@ -844,5 +845,42 @@ describe("action discovery", () => {
         group,
       ).toBe(false);
     }
+  });
+});
+
+describe("listDevActionFiles", () => {
+  it("lists runnable action files from actions/ and never from scripts/", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-actions-"));
+    tmpDirs.push(cwd);
+    fs.mkdirSync(path.join(cwd, "actions"));
+    fs.mkdirSync(path.join(cwd, "scripts"));
+    for (const name of [
+      "actions/list-things.ts",
+      "actions/_private.ts",
+      "actions/_utils.ts",
+      "actions/run.ts",
+      "actions/migrate-production.ts",
+      "actions/list-things.spec.ts",
+      "actions/list-things.test.ts",
+      "actions/helpers.ts",
+      "actions/list-things.ts.bak",
+      "actions/notes.md",
+      "scripts/takedown.ts",
+    ]) {
+      fs.writeFileSync(path.join(cwd, name), "export {};\n");
+    }
+
+    expect(await listDevActionFiles(cwd)).toEqual([
+      path.join(cwd, "actions", "list-things.ts"),
+    ]);
+  });
+
+  it("returns nothing for an app without an actions directory", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-actions-"));
+    tmpDirs.push(cwd);
+    fs.mkdirSync(path.join(cwd, "scripts"));
+    fs.writeFileSync(path.join(cwd, "scripts", "takedown.ts"), "export {};\n");
+
+    expect(await listDevActionFiles(cwd)).toEqual([]);
   });
 });

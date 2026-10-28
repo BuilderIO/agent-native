@@ -896,6 +896,7 @@ export interface ActionMcpAppResourceConfig {
   title?: string;
   description?: string;
   html: string | ActionMcpAppHtmlBuilder;
+  requiresEmbedSession?: boolean;
   mimeType?: typeof MCP_APP_MIME_TYPE;
   _meta?: Record<string, unknown>;
   csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;

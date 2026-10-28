@@ -18,6 +18,11 @@
  *   - non-public: caller must have a share grant (owner / viewer / editor /
  *     admin) via `resolveAccess`. Password is still enforced on top.
  *   - expired recordings 410.
+ *   - a Content playback grant (`content_grant`, from the Content playback
+ *     route) names the reader in place of the browser session and never
+ *     unlocks a password; a grant that does not verify for this recording,
+ *     including an empty one, is a 404, and an expired one is a 403 with
+ *     code `content_grant_expired`.
  *   - earlier-screen-time footage is a private recording of its own that is
  *     shared with the clip it is attached to: every rule above is evaluated
  *     against that clip, and the footage's bytes are served on its behalf.
@@ -72,6 +77,11 @@ import {
   youtubeWatchUrl,
 } from "../../../../shared/youtube.js";
 import { getDb, schema } from "../../../db/index.js";
+import {
+  readContentPlaybackGrant,
+  refusedContentPlayback,
+  runWithContentPlayback,
+} from "../../../lib/content-playback-grant.js";
 import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
 import {
@@ -333,13 +343,35 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing recordingId" };
   }
 
+  const contentGrant = await readContentPlaybackGrant(event, recordingId);
+  const refused = refusedContentPlayback(contentGrant);
+  if (refused) {
+    setResponseStatus(event, refused.status);
+    return refused.body;
+  }
+
   const session = await getSession(event).catch(() => null);
   const orgCtx = await getOrgContext(event).catch(() => null);
-  const orgId = orgCtx?.orgId ?? session?.orgId ?? undefined;
+  // A Content grant names the reader in place of the browser's own session.
+  const granted = contentGrant.status === "granted";
+  const orgId = granted
+    ? contentGrant.orgId
+    : (orgCtx?.orgId ?? session?.orgId ?? undefined);
+  const viewerEmail = granted
+    ? (contentGrant.viewerEmail ?? undefined)
+    : session?.email;
+  // Under a grant a 403 means only that the grant expired, so a media URL the
+  // server blocks is the 502 any other unfetchable source gets.
+  const notGrantExpiry = (status: number) =>
+    granted && status === 403 ? 502 : status;
 
-  return runWithRequestContext(
-    { userEmail: session?.email, orgId },
-    async () => {
+  const requestContext = {
+    ...(viewerEmail !== undefined ? { userEmail: viewerEmail } : {}),
+    ...(orgId !== undefined ? { orgId } : {}),
+  };
+
+  return runWithRequestContext(requestContext, () =>
+    runWithContentPlayback(contentGrant, async () => {
       const clipId = await contextClipIdForFootage(recordingId);
       // Access, expiry, redaction, and password are the clip's, not the footage's.
       const gateId = clipId ?? recordingId;
@@ -360,11 +392,11 @@ export default defineEventHandler(async (event: H3Event) => {
           return { error: "Not found" };
         }
         let viewerIsOrgMember = false;
-        if (session?.email && row.visibility === "org" && row.organizationId) {
+        if (viewerEmail && row.visibility === "org" && row.organizationId) {
           try {
             const orgRole = await getOrganizationRoleForEmail(
               row.organizationId,
-              session.email,
+              viewerEmail,
             );
             viewerIsOrgMember = Boolean(orgRole);
           } catch {
@@ -372,8 +404,10 @@ export default defineEventHandler(async (event: H3Event) => {
           }
         }
         if (row.visibility !== "public" && !viewerIsOrgMember) {
-          setResponseStatus(event, 403);
-          return { error: "Forbidden" };
+          // A Content reader gets the 404 a missing Clip gets; under a grant
+          // a 403 means only that the grant expired.
+          setResponseStatus(event, granted ? 404 : 403);
+          return { error: granted ? "Not found" : "Forbidden" };
         }
         recRow = row as RecordingRow;
         role = "viewer";
@@ -407,7 +441,10 @@ export default defineEventHandler(async (event: H3Event) => {
         rec = footage as RecordingRow;
       }
 
-      if (rec.failureCode === "taken_down") {
+      if (
+        gate.failureCode === "taken_down" ||
+        rec.failureCode === "taken_down"
+      ) {
         setResponseStatus(event, 404);
         return { error: "Not found" };
       }
@@ -444,6 +481,12 @@ export default defineEventHandler(async (event: H3Event) => {
         t?: string;
       };
       if (gate.password && role !== "owner") {
+        // A document cannot supply a password, so nothing unlocks one for a
+        // Content reader; the Content playback route refuses it the same way.
+        if (granted) {
+          setResponseStatus(event, 401);
+          return { error: "Password required", passwordRequired: true };
+        }
         const token = typeof q.t === "string" ? q.t : "";
         const cookieToken =
           getCookie(event, protectedMediaCookieName(recordingId)) ?? "";
@@ -586,14 +629,17 @@ export default defineEventHandler(async (event: H3Event) => {
             upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
           }
         } catch (err) {
-          setResponseStatus(event, statusCodeForProviderFetchError(err));
+          setResponseStatus(
+            event,
+            notGrantExpiry(statusCodeForProviderFetchError(err)),
+          );
           return { error: messageForProviderFetchError(err) };
         }
         if (!(upstream instanceof Response)) {
-          setResponseStatus(event, upstream.status);
+          setResponseStatus(event, notGrantExpiry(upstream.status));
           return { error: upstream.error };
         }
-        if (upstream.status >= 500) {
+        if (notGrantExpiry(upstream.status) >= 500) {
           captureRouteError(
             new Error(
               `Storage provider returned ${upstream.status} for recording media`,
@@ -696,6 +742,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
       setResponseHeader(event, "Content-Length", String(total));
       return bytes;
-    },
+    }),
   );
 });

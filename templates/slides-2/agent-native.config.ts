@@ -1,6 +1,10 @@
 import { defineAgentNativeConfig } from "@agent-native/core/config";
 
 export default defineAgentNativeConfig({
+  themeFamily: {
+    families: ["original", "agent-native"],
+    defaultFamily: "agent-native",
+  },
   changelog: { enabled: true },
   translations: {
     locales: [

@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
     content: string;
     version: number;
     baseDocumentUpdatedAt: string | null;
+    baseContentHash?: string | null;
     loadedContentWasEmpty: number;
     editorSessionId: string | null;
     editGeneration: number | null;
@@ -98,6 +99,7 @@ describe("Page draft recovery", () => {
     canEdit: true,
     updatedAt: "v2",
     revision: "saved-body-revision",
+    contentHash: "sha256:saved-body",
   } as Document;
   const render = () =>
     root.render(
@@ -159,6 +161,7 @@ describe("Page draft recovery", () => {
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       editorSessionId: "tab:page",
       editGeneration: 4,
@@ -185,6 +188,7 @@ describe("Page draft recovery", () => {
       content: "Draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       editorSessionId: "tab:page",
       editGeneration: 4,
@@ -211,6 +215,7 @@ describe("Page draft recovery", () => {
       content: "Discarded draft body",
       version: 3,
       baseDocumentUpdatedAt: "v2",
+      baseContentHash: "sha256:saved-body",
       loadedContentWasEmpty: 0,
       editorSessionId: "tab:page",
       editGeneration: 4,
@@ -258,6 +263,37 @@ describe("Page draft recovery", () => {
       container.querySelector('[role="status"]')?.textContent ?? "",
     ).not.toContain("editor.previewDraftConflict");
   });
+
+  it.each([
+    [
+      "was written on another body at the page's timestamp",
+      "sha256:other-body",
+    ],
+    ["cannot name the body it was written on", null],
+  ])(
+    "preserves a draft in History when it %s",
+    async (_case, baseContentHash) => {
+      state.draft = {
+        title: "Draft",
+        content: "Draft body",
+        version: 3,
+        baseDocumentUpdatedAt: "v2",
+        baseContentHash,
+        loadedContentWasEmpty: 0,
+        editorSessionId: "tab:page",
+        editGeneration: 4,
+      };
+      await act(async () => render());
+      expect(state.update).not.toHaveBeenCalled();
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          choice: "use_saved",
+          expectedDraftContent: "Draft body",
+          expectedDocumentUpdatedAt: "v2",
+        }),
+      );
+    },
+  );
 
   it("discards a newer-base draft the saved page already holds", async () => {
     state.draft = {
@@ -383,5 +419,65 @@ describe("Page draft recovery", () => {
     expect(state.resolve).toHaveBeenLastCalledWith(
       expect.objectContaining({ choice: "keep_mine" }),
     );
+  });
+
+  describe("on a page whose body is written through its live copy", () => {
+    const identified = {
+      title: "Draft",
+      content: "Draft body",
+      version: 3,
+      baseDocumentUpdatedAt: "v2",
+      baseContentHash: page.contentHash,
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    const renderPage = (writePath: NonNullable<Document["writePath"]>) =>
+      root.render(
+        <PageDraftRecovery document={{ ...page, writePath }}>
+          <textarea defaultValue="Live editor" />
+        </PageDraftRecovery>,
+      );
+
+    it("files a draft to History instead of saving it over the page", async () => {
+      state.draft = identified;
+      await act(async () => renderPage("live_copy"));
+      expect(state.update).not.toHaveBeenCalled();
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          choice: "use_saved",
+          expectedDraftVersion: 3,
+          expectedDraftContent: "Draft body",
+        }),
+      );
+    });
+
+    it("offers only a retry when filing the draft fails", async () => {
+      state.draft = identified;
+      state.resolve.mockRejectedValueOnce(new Error("offline"));
+      await act(async () => renderPage("live_copy"));
+      expect(
+        container.querySelector('[data-testid="recovery-comparison"]'),
+      ).toBeNull();
+      expect(container.textContent).toContain("empty.genericError");
+
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>("button")?.click();
+      });
+      expect(state.resolve).toHaveBeenCalledTimes(2);
+      expect(state.resolve).toHaveBeenLastCalledWith(
+        expect.objectContaining({ choice: "use_saved" }),
+      );
+      expect(state.update).not.toHaveBeenCalled();
+    });
+
+    it("still restores a draft over a page that writes the legacy way", async () => {
+      state.draft = identified;
+      await act(async () => renderPage("legacy"));
+      expect(state.update).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "Draft body" }),
+      );
+      expect(state.resolve).not.toHaveBeenCalled();
+    });
   });
 });

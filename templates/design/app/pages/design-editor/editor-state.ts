@@ -428,6 +428,7 @@ export interface PendingLocalFileContent {
   identityMigrationSourceContent?: string;
   identityMigrationStoredContent?: string;
   identityMigrationStoredUpdatedAt?: string | null;
+  identityMigrationRefused?: true;
 }
 
 export function createPendingLocalFileContent(args: {
@@ -437,6 +438,7 @@ export function createPendingLocalFileContent(args: {
   baseUpdatedAt?: string | null;
   identityMigrationSourceContent?: string;
   deferCollabReconcile?: boolean;
+  identityMigrationRefused?: boolean;
 }): PendingLocalFileContent {
   const {
     current,
@@ -445,6 +447,7 @@ export function createPendingLocalFileContent(args: {
     baseUpdatedAt,
     identityMigrationSourceContent,
     deferCollabReconcile,
+    identityMigrationRefused,
   } = args;
   const sameContent = current?.content === content;
   const sameMigration =
@@ -477,6 +480,9 @@ export function createPendingLocalFileContent(args: {
         : sameContent && sameMigration
           ? current.identityMigrationStoredUpdatedAt
           : (file?.updatedAt ?? null),
+    ...(identityMigrationRefused && identityMigrationSourceContent !== undefined
+      ? { identityMigrationRefused: true }
+      : {}),
   };
 }
 

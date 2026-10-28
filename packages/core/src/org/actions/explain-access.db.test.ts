@@ -93,7 +93,7 @@ beforeAll(async () => {
     execute: async (statement) => {
       const result = await pglite.query(
         typeof statement === "string" ? statement : statement.sql,
-        typeof statement === "string" ? [] : statement.args,
+        typeof statement === "string" ? [] : Array.from(statement.args ?? []),
       );
       return {
         rows: result.rows as Record<string, unknown>[],

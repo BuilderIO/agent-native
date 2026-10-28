@@ -1348,6 +1348,47 @@ export const migrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_frames_recording_at_unique_idx
         ON recording_agent_frames (recording_id, at_ms)`,
     },
+    {
+      version: 95,
+      name: "recording-content-bindings",
+      // Mirrors `recordingContentBindings` in server/db/schema.ts. `state` has
+      // no CHECK so later lifecycle states need no migration.
+      sql: `CREATE TABLE IF NOT EXISTS recording_content_bindings (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        content_app TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        block_id TEXT,
+        origin TEXT NOT NULL CHECK (origin IN ('upload', 'link')),
+        state TEXT NOT NULL DEFAULT 'active',
+        state_changed_at TEXT,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_content_bindings_recording_document_unique_idx
+        ON recording_content_bindings (recording_id, content_app, document_id);
+      CREATE INDEX IF NOT EXISTS recording_content_bindings_document_idx
+        ON recording_content_bindings (content_app, document_id)`,
+    },
+    {
+      version: 96,
+      name: "recording-content-binding-upload-key",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_content_bindings_upload_key_unique_idx
+        ON recording_content_bindings (content_app, document_id, created_by, upload_key)`,
+    },
+    {
+      version: 97,
+      name: "recording-content-binding-upload-file",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_mime_type TEXT;
+      ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_size_bytes BIGINT`,
+    },
+    {
+      version: 98,
+      name: "recording-content-binding-upload-start-failed",
+      sql: `ALTER TABLE recording_content_bindings ADD COLUMN IF NOT EXISTS upload_start_failed_at TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );

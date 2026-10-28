@@ -1,0 +1,104 @@
+slug: ai-dictation
+app: clips
+roles:
+  - engineering
+  - product
+title: Dictate your prompts instead of typing them
+seo_title: AI dictation that types into any app
+meta_description: Use AI dictation to talk into Claude Code, Slack or a doc and get clean text at your cursor. Agent-Native Clips saves every dictation to search later.
+updated: 2026-10-26
+hero:
+  body: Your spoken prompts, tickets and replies land as clean text at your cursor, from Claude Code to Slack. Agent-Native Clips saves every dictation, and its agent reworks one when you ask.
+  button:
+    label: Start dictating
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb42e201ec33f4acf8f8b6d39f67a2503
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3b0e34d91eee4240a0211ba4ca9b0859
+    alt: "The Clips Dictate page with today's dictations: a long prompt for a coding agent, a bug ticket and a Slack update. The prompt's card is open with its Original and Cleaned text."
+how_to:
+  heading: How to use AI dictation
+  steps:
+    - title: Dictate into any app
+      body: Install Clips Desktop, click into Claude Code, Linear or Slack, and hold your shortcut (Fn by default, or one you pick in Settings) while you talk. Let go, and Clips puts your words at the cursor.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F493f3728ed1246bb841a651e3aa76300
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb3785ba8ec804690836d94e31ff92e17
+        alt: "A coding agent's chat: a dictated prompt about webhook retries was sent, and the agent made the change. The cursor waits in the message box while the Clips pill below listens to the next prompt, its green waveform up."
+    - title: Teach Clips your words
+      body: Open Dictionary on the Dictate page and add your product, library and colleagues' names, or "term → replacement" for a word Clips keeps mishearing. Import a CSV file to add a whole list at once.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F855c88996488417e8dc3a532a0fd21a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff4e9c0557a1344f6a55e7e9c4356a5ab
+        alt: The Dictionary panel in Clips, with Add terms, Import and Export CSV. Below are terms like Agent-Native, "web hooks → webhooks" and "kube control → kubectl".
+    - title: Find a past dictation
+      body: Press Cmd+K in Clips and type a word you said, and the matching dictations show up with the app you said them in. Pick one to open it on the Dictate page.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
+        alt: 'The Clips search menu with "webhook" typed, listing two past dictations under Dictate: a prompt dictated into Cursor and a message dictated into Slack.'
+features:
+  heading: Everything you need to dictate instead of type
+  items:
+    - title: Your clipboard stays put
+      body: Clips pastes into apps and puts your clipboard back, so the link you copied is still there. In terminals, it types instead.
+    - title: AI cleanup you can undo
+      body: "Clips fixes misheard words, commas and capitals and cuts false starts: automatically with a cloud engine, or in one click. The original stays."
+    - title: Learns from your fixes
+      body: Fix a misheard word right after Clips pastes it, and the desktop app adds that fix to your Dictionary, so the next dictation gets it right.
+    - title: Hands-free for long prompts
+      body: Tap your shortcut twice to keep listening while you think out loud, and tap once more to stop. Press Esc to throw a dictation away.
+    - title: Paste it again
+      body: Press Cmd+Ctrl+V to paste your last dictation again into another text field, handy when the cursor was in the wrong place.
+    - title: Ask the agent about it
+      body: Ask "What did I say about the Q3 budget?" or "Turn that ramble into bullet points", and the agent works from your history.
+integrations:
+  heading: Connect Clips to the tools you already use
+  cards:
+    - title: Prompt your coding agent
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "Say the whole task to Claude Code, Cursor or Codex: the files, the edge cases and the test to run."
+    - title: Write where you already work
+      logos:
+        - name: Slack
+        - name: Gmail
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8a604ea4db60420eaa356fa7821e0b57
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+      body: Dictate updates, replies and drafts straight into the message or doc. In Slack, Clips drops the trailing period.
+    - title: Connect anything through MCP
+      logos:
+        - name: Linear
+        - name: GitHub
+        - name: Notion
+      more: true
+      body: Connect the tools your team uses through MCP, or add any MCP server by its URL.
+other_uses:
+  heading: Other things you can do with Agent-Native Clips
+  cards:
+    - title: Get meeting notes without a bot in the call
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: Record your meetings from your own computer and get a summary, notes and action items.
+    - title: Record bugs with their console and network logs
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: Show the bug once in Chrome, and your coding agent gets the recording and what the page logged.
+faqs:
+  heading: Questions? We have answers
+  items:
+    - q: Is Agent-Native Clips free?
+      a: Yes. Agent-Native Clips is free and open source, and voice dictation is on by default in the desktop app. AI cleanup runs on Builder.io AI credits or your own key, so it isn't unlimited. Clips is in alpha, so expect changes as it grows.
+    - q: How is Clips different from the dictation built into my computer?
+      a: Built-in dictation needs no setup, but it doesn't keep a [searchable history of what you said](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/). Clips saves every dictation with its original and cleaned text, learns your words and tidies the text with AI. The Clips agent can find what you said and rework it, like turning a ramble into bullet points.
+    - q: Will Clips spell my team's jargon right?
+      a: Yes, once the terms are in your Dictionary. Add them one per line, or as "term → replacement" for a word it keeps mishearing. You can also import a CSV file of terms. When you fix a word right after Clips pastes it, the desktop app saves that fix to your Dictionary for next time.
+    - q: Are my dictations saved, and can I find an old one?
+      a: Every dictation is saved with its original and cleaned text, time and length, and shows up on the Dictate page, grouped by day. Press Cmd+K to search them by what you said, or ask the [Clips agent](https://www.agent-native.com/docs/template-clips-agent/), for example "Show me what I dictated yesterday". You can delete any dictation.
+    - q: Does my voice leave my computer?
+      a: It doesn't have to. Clips Desktop can transcribe on your device, with built-in speech recognition or Local Whisper ([transcription engines in Clips](https://www.agent-native.com/docs/template-clips-features/)). With Builder.io or your own key, Clips sends your dictation to that AI service for cleanup. Each dictation's text is saved to your Clips account.

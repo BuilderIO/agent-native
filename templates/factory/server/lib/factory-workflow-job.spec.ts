@@ -1,7 +1,4 @@
-import {
-  parseJobResource,
-  recoveredFactoryOwnerOrgId,
-} from "@agent-native/core/jobs/frontmatter";
+import { parseJobResource } from "@agent-native/core/jobs/frontmatter";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/resources", async () => {
@@ -30,6 +27,7 @@ import {
   syncWorkflowJob,
   type WorkflowJobPlan,
 } from "./factory-workflow-job.js";
+import { WORKFLOW_JOB_APP_ID } from "./factory-workflow-runner.js";
 
 const NEW_YORK = "America/New_York";
 
@@ -93,8 +91,11 @@ const slackPoll = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+const noFallback = { sentryFallbackConfigured: false };
+const withFallback = { sentryFallbackConfigured: true };
+
 function planOf(graph: ReturnType<typeof graphWith>): WorkflowJobPlan {
-  const { plan, issues } = planWorkflowJob(graph);
+  const { plan, issues } = planWorkflowJob(graph, noFallback);
   expect(issues).toEqual([]);
   if (!plan) throw new Error("expected a plan");
   return plan;
@@ -108,7 +109,7 @@ describe("planWorkflowJob", () => {
   it.each(Object.entries(STORY_GRAPHS))(
     "plans the %s story with no issues",
     (_key, graph) => {
-      const { plan, issues } = planWorkflowJob(graph);
+      const { plan, issues } = planWorkflowJob(graph, noFallback);
       expect(issues).toEqual([]);
       expect(plan?.schedule.cron).toMatch(/^\S+ \S+ \S+ \S+ \S+$/);
     },
@@ -222,6 +223,16 @@ describe("planWorkflowJob", () => {
       "source_scope_unsupported",
     ],
     [
+      "a Sentry organization with no project",
+      {
+        source: "inbox-poll",
+        poller: "sentry",
+        takeLimit: 3,
+        filter: { scopes: ["builder/"] },
+      },
+      "source_scope_unsupported",
+    ],
+    [
       "an author filter on Sentry",
       {
         source: "inbox-poll",
@@ -232,16 +243,87 @@ describe("planWorkflowJob", () => {
       "source_filter_invalid",
     ],
   ])("refuses %s", (_label, source, code) => {
-    const { plan, issues } = planWorkflowJob(graphWith([source]));
+    const { plan, issues } = planWorkflowJob(graphWith([source]), withFallback);
     expect(plan).toBeNull();
     expect(issues).toEqual([
       expect.objectContaining({ code, nodeId: "poll1" }),
     ]);
   });
 
+  describe("a Sentry source", () => {
+    const sentry = (filter?: Record<string, unknown>) => [
+      { source: "inbox-poll", poller: "sentry", takeLimit: 3, filter },
+    ];
+
+    it("polls the project it names, with or without a factory setting", () => {
+      for (const options of [noFallback, withFallback]) {
+        const { plan, issues } = planWorkflowJob(
+          graphWith(sentry({ scopes: ["acme/web"] })),
+          options,
+        );
+        expect(issues).toEqual([]);
+        expect(plan?.config).toMatchObject({
+          sentryOrgSlug: "acme",
+          sentryProjectSlug: "web",
+        });
+      }
+    });
+
+    it.each([
+      ["no filter", undefined],
+      ["an empty scope list", { scopes: [] }],
+    ])(
+      "with %s falls back on the factory's Sentry settings when they exist",
+      (_label, filter) => {
+        const { plan, issues } = planWorkflowJob(
+          graphWith(sentry(filter)),
+          withFallback,
+        );
+        expect(issues).toEqual([]);
+        expect(plan?.config.sentryOrgSlug).toBeUndefined();
+        expect(plan?.config.sentryProjectSlug).toBeUndefined();
+      },
+    );
+
+    it.each([
+      ["no filter", undefined],
+      ["an empty scope list", { scopes: [] }],
+    ])(
+      "with %s is refused when the factory has no Sentry settings",
+      (_label, filter) => {
+        const { plan, issues } = planWorkflowJob(
+          graphWith(sentry(filter)),
+          noFallback,
+        );
+        expect(plan).toBeNull();
+        expect(issues).toEqual([
+          expect.objectContaining({
+            code: "source_scope_unsupported",
+            nodeId: "poll1",
+            detail: expect.stringContaining('"organization/project"'),
+          }),
+        ]);
+      },
+    );
+
+    it("refuses an organization with no project even when the factory has settings", () => {
+      const { plan, issues } = planWorkflowJob(
+        graphWith(sentry({ scopes: ["builder/"] })),
+        withFallback,
+      );
+      expect(plan).toBeNull();
+      expect(issues).toEqual([
+        expect.objectContaining({
+          code: "source_scope_unsupported",
+          detail: expect.stringContaining('"acme/web"'),
+        }),
+      ]);
+    });
+  });
+
   it("refuses two polls of the same kind and two different author filters", () => {
     expect(
-      planWorkflowJob(graphWith([slackPoll(), slackPoll()])).issues,
+      planWorkflowJob(graphWith([slackPoll(), slackPoll()]), noFallback).issues,
     ).toEqual([
       expect.objectContaining({
         code: "source_poller_duplicate",
@@ -259,6 +341,7 @@ describe("planWorkflowJob", () => {
             filter: { excludeAuthors: ["12345"] },
           },
         ]),
+        noFallback,
       ).issues,
     ).toEqual([
       expect.objectContaining({
@@ -270,7 +353,10 @@ describe("planWorkflowJob", () => {
 
   it("reports schedule problems as issues instead of guessing", () => {
     expect(
-      planWorkflowJob(graphWith([], { schedule: { daily: { at: "08:00" } } })),
+      planWorkflowJob(
+        graphWith([], { schedule: { daily: { at: "08:00" } } }),
+        noFallback,
+      ),
     ).toEqual({
       plan: null,
       issues: [
@@ -283,6 +369,7 @@ describe("planWorkflowJob", () => {
     expect(
       planWorkflowJob(
         graphWith([], { wait: true, settings: { checkCadenceMinutes: 45 } }),
+        noFallback,
       ).issues,
     ).toEqual([
       expect.objectContaining({ code: "schedule_cadence_unsupported" }),
@@ -291,7 +378,10 @@ describe("planWorkflowJob", () => {
 
   it("leaves a missing or doubled Trigger to the graph validator", () => {
     const none = buildGraph({ nodes: [], edges: [] });
-    expect(planWorkflowJob(none)).toEqual({ plan: null, issues: [] });
+    expect(planWorkflowJob(none, noFallback)).toEqual({
+      plan: null,
+      issues: [],
+    });
   });
 });
 
@@ -322,7 +412,7 @@ describe("createWorkflowJob", () => {
       enabled: false,
       triggerType: "schedule",
       domain: "factory",
-      appId: "factory",
+      appId: "factory-workflows",
       orgId: kit.ORG_ID,
       createdBy: kit.USER_EMAIL,
       runAs: "creator",
@@ -347,13 +437,7 @@ describe("createWorkflowJob", () => {
     expect(definition?.name).toMatch(
       /^factories\/support-triage\/workflow-bug-report-to-builder-/,
     );
-    expect(
-      recoveredFactoryOwnerOrgId(
-        definition!.meta,
-        path,
-        definition!.resource.owner,
-      ),
-    ).toBe(kit.ORG_ID);
+    expect(definition?.meta.appId).toBe(WORKFLOW_JOB_APP_ID);
   });
 
   it("puts a workflow in the default Factory under the factory folder too", async () => {
@@ -424,6 +508,69 @@ describe("syncWorkflowJob", () => {
       runner: "workflow",
     });
     expect(Date.parse(meta.nextRun as string)).toBeGreaterThan(Date.now());
+  });
+
+  describe("a job file written before the workflow app id", () => {
+    const strip = (content: string, ...keys: string[]) =>
+      keys.reduce(
+        (next, key) => next.replace(new RegExp(`^${key}:.*\\n`, "m"), ""),
+        content,
+      );
+    const shapes: Array<[string, (content: string) => string]> = [
+      [
+        "an appId of factory",
+        (content) =>
+          content.replace('appId: "factory-workflows"', 'appId: "factory"'),
+      ],
+      ["no appId", (content) => strip(content, "appId")],
+      [
+        "no appId, trigger type, domain or organization",
+        (content) => strip(content, "appId", "triggerType", "domain", "orgId"),
+      ],
+    ];
+
+    it.each(shapes)(
+      "is still found with %s, reports the appId drift, and is migrated by a save",
+      async (_label, legacy) => {
+        const job = await setUp();
+        kit.seedJob(job.path, legacy(kit.readJob(job.path) as string));
+
+        const found = await findFactoryAutomationDefinition(
+          kit.ORG_ID,
+          kit.FACTORY_ID,
+          job.id,
+        );
+        expect(found?.meta.runner).toBe("workflow");
+        expect(summarizeWorkflowJob(found, { enabled: false }).drift).toContain(
+          "appId",
+        );
+
+        expect(await job.sync(undefined, true)).toMatchObject({
+          changed: true,
+        });
+        expect(metaOf(job.path)).toMatchObject({
+          appId: "factory-workflows",
+          triggerType: "schedule",
+          domain: "factory",
+          orgId: kit.ORG_ID,
+          runner: "workflow",
+          enabled: true,
+        });
+        expect(
+          summarizeWorkflowJob(
+            await findFactoryAutomationDefinition(
+              kit.ORG_ID,
+              kit.FACTORY_ID,
+              job.id,
+            ),
+            { enabled: true },
+          ).drift,
+        ).toEqual([]);
+        expect(await job.sync(undefined, true)).toMatchObject({
+          changed: false,
+        });
+      },
+    );
   });
 
   it("keeps the next run alone when nothing about the schedule moved", async () => {

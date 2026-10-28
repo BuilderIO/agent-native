@@ -178,6 +178,10 @@ vi.mock("../server/db/index.js", () => ({
     folders: TABLES.folders,
     recordings: TABLES.recordings,
     recordingShares: "recordingShares",
+    recordingContentBindings: {
+      recordingId: "bindings.recordingId",
+      origin: "bindings.origin",
+    },
     recordingViewers: "recordingViewers",
     recordingComments: "recordingComments",
     recordingTranscripts: { recordingId: "transcripts.recordingId" },

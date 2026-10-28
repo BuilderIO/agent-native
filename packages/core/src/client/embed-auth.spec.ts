@@ -9,11 +9,28 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
 } from "../shared/embed-auth.js";
+import { embedTokenStorageKey } from "../shared/mcp-app-widget-embed.js";
 
 const STORAGE_KEY = "agent-native:embed-auth-token";
 const BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
 type EmbedAuthModule = typeof import("./embed-auth.js");
 let lastEmbedAuthModule: EmbedAuthModule | undefined;
+
+function embedTokenForTarget(
+  targetPath: string,
+  audienceBasePath?: string,
+): string {
+  const payload = btoa(
+    JSON.stringify({
+      targetPath,
+      ...(audienceBasePath !== undefined ? { audienceBasePath } : {}),
+    }),
+  )
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `${payload}.signature`;
+}
 
 async function loadEmbedAuth() {
   lastEmbedAuthModule?._resetEmbedAuthForTests();
@@ -29,6 +46,10 @@ describe("embed auth client", () => {
     vi.useRealTimers();
     sessionStorage.clear();
     window.history.replaceState(null, "", "/");
+    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+      .__AGENT_NATIVE_CONFIG__;
+    delete (window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown })
+      .__AGENT_NATIVE_EXTERNAL_EMBED;
     Object.defineProperty(window, "fetch", {
       configurable: true,
       writable: true,
@@ -53,6 +74,249 @@ describe("embed auth client", () => {
 
     const reloadedModule = await loadEmbedAuth();
     expect(reloadedModule.getEmbedAuthToken()).toBe("signed-token");
+  });
+
+  it("isolates embed tokens by workspace app mount and preserves same-app reloads", async () => {
+    const childToken = embedTokenForTarget("/inbox", "/event-finder");
+    const appConfig = window as Window & {
+      __AGENT_NATIVE_CONFIG__?: unknown;
+    };
+    appConfig.__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/event-finder",
+      workspaceAppMountPaths: ["/dispatch", "/event-finder"],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/event-finder/inbox?${EMBED_TOKEN_QUERY_PARAM}=${childToken}`,
+    );
+
+    const child = await loadEmbedAuth();
+    child.ensureEmbedAuthFetchInterceptor();
+    const childStorageKey = embedTokenStorageKey("/event-finder", true);
+    expect(sessionStorage.getItem(childStorageKey)).toBe(childToken);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+
+    window.history.replaceState(null, "", "/event-finder/inbox");
+    expect(child.getEmbedAuthToken()).toBe(childToken);
+
+    appConfig.__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/dispatch",
+      workspaceAppMountPaths: ["/dispatch", "/event-finder"],
+    };
+    // Older signed tokens stored only the route after stripping the app mount,
+    // so this unscoped value cannot be assigned safely to the current app.
+    const legacyPayload = btoa(JSON.stringify({ targetPath: "/inbox" }));
+    sessionStorage.setItem(STORAGE_KEY, `${legacyPayload}.signature`);
+    window.history.replaceState(null, "", "/dispatch/home");
+    expect(child.getEmbedAuthToken()).toBeNull();
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/dispatch", true)),
+    ).toBeNull();
+
+    appConfig.__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/event-finder",
+      workspaceAppMountPaths: ["/dispatch", "/event-finder"],
+    };
+    window.history.replaceState(null, "", "/event-finder/inbox");
+    const reloadedChild = await loadEmbedAuth();
+    expect(reloadedChild.getEmbedAuthToken()).toBe(childToken);
+  });
+
+  it("keeps in-memory fallback tokens isolated and available per workspace mount", async () => {
+    const dispatchToken = embedTokenForTarget("/inbox", "/dispatch");
+    const eventFinderToken = embedTokenForTarget("/inbox", "/event-finder");
+    const appConfig = window as Window & {
+      __AGENT_NATIVE_CONFIG__?: unknown;
+    };
+    appConfig.__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/dispatch", "/event-finder"],
+    };
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const removeItem = vi
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+
+    try {
+      window.history.replaceState(
+        null,
+        "",
+        `/dispatch/inbox?${EMBED_TOKEN_QUERY_PARAM}=${dispatchToken}`,
+      );
+      const auth = await loadEmbedAuth();
+      expect(auth.getEmbedAuthToken()).toBe(dispatchToken);
+
+      window.history.replaceState(null, "", "/event-finder/inbox");
+      expect(auth.getEmbedAuthToken()).toBeNull();
+      window.history.replaceState(
+        null,
+        "",
+        `/event-finder/inbox?${EMBED_TOKEN_QUERY_PARAM}=${eventFinderToken}`,
+      );
+      expect(auth.getEmbedAuthToken()).toBe(eventFinderToken);
+
+      window.history.replaceState(null, "", "/dispatch/inbox");
+      expect(auth.getEmbedAuthToken()).toBe(dispatchToken);
+      window.history.replaceState(null, "", "/event-finder/inbox");
+      expect(auth.getEmbedAuthToken()).toBe(eventFinderToken);
+    } finally {
+      setItem.mockRestore();
+      getItem.mockRestore();
+      removeItem.mockRestore();
+    }
+  });
+
+  it("persists a transplanted embed token under the target app mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/dispatch",
+      workspaceAppMountPaths: ["/dispatch", "/event-finder", "/calendar"],
+    };
+    (
+      window as Window & {
+        __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+      }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      target: "/event-finder/inbox",
+      token: "transplanted-token",
+    };
+    window.history.replaceState(null, "", "/dispatch/home");
+
+    const auth = await loadEmbedAuth();
+    expect(auth.getEmbedAuthToken()).toBe("transplanted-token");
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/event-finder", true)),
+    ).toBe("transplanted-token");
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+
+    window.history.replaceState(null, "", "/calendar/overview");
+    expect(auth.getEmbedAuthToken()).toBeNull();
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/calendar", true)),
+    ).toBeNull();
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/event-finder", true)),
+    ).toBe("transplanted-token");
+  });
+
+  it("does not reuse an external token when its workspace target has no mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/mail",
+      workspaceAppMountPaths: ["/mail"],
+    };
+    (
+      window as Window & { __AGENT_NATIVE_EXTERNAL_EMBED?: unknown }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      target: "/reports/detail",
+      token: "unresolved-target-token",
+    };
+    window.history.replaceState(null, "", "/mail/inbox");
+
+    const auth = await loadEmbedAuth();
+
+    expect(auth.getEmbedAuthToken()).toBeNull();
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(embedTokenStorageKey("", true))).toBeNull();
+  });
+
+  it("uses projected explicit-root metadata for a transplanted workspace token", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      explicitRootPath: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    (
+      window as Window & {
+        __AGENT_NATIVE_EXTERNAL_EMBED?: unknown;
+      }
+    ).__AGENT_NATIVE_EXTERNAL_EMBED = {
+      target: "/reports/detail",
+      token: "root-mount-token",
+    };
+    window.history.replaceState(null, "", "/reports/detail");
+
+    const auth = await loadEmbedAuth();
+
+    expect(auth.getEmbedAuthToken()).toBe("root-mount-token");
+    expect(sessionStorage.getItem(embedTokenStorageKey("", true))).toBe(
+      "root-mount-token",
+    );
+    expect(
+      sessionStorage.getItem(embedTokenStorageKey("/reports", true)),
+    ).toBeNull();
+  });
+
+  it("forwards requests when the current workspace route has no mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState(null, "", "/reports/overview");
+    const fetch = vi.mocked(window.fetch);
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    const response = await window.fetch("/api/health");
+
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a URL token until the workspace mount can be resolved", async () => {
+    const token = embedTokenForTarget("/inbox", "/mail");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/reports/overview?${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+    );
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    expect(auth.getEmbedAuthToken()).toBeNull();
+    expect(window.location.search).toBe(`?${EMBED_TOKEN_QUERY_PARAM}=${token}`);
+
+    window.history.replaceState(
+      null,
+      "",
+      `/mail/inbox?${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+    );
+
+    expect(auth.getEmbedAuthToken()).toBe(token);
+    expect(sessionStorage.getItem(embedTokenStorageKey("/mail", true))).toBe(
+      token,
+    );
   });
 
   it("keeps the URL token in opaque-origin frames so document reloads stay authenticated", async () => {
@@ -88,6 +352,83 @@ describe("embed auth client", () => {
       } else {
         delete (window.location as unknown as { origin?: string }).origin;
       }
+    }
+  });
+
+  it("keeps an opaque URL token bound to its original workspace mount", async () => {
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/mail",
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    const token = embedTokenForTarget("/inbox", "/mail");
+    const originalUrl = `/mail/inbox?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`;
+    window.history.replaceState(null, "", originalUrl);
+    const originalOrigin = Object.getOwnPropertyDescriptor(
+      window.location,
+      "origin",
+    );
+    const setOpaqueOrigin = () =>
+      Object.defineProperty(window.location, "origin", {
+        configurable: true,
+        get: () => "null",
+      });
+    const restoreOrigin = () => {
+      if (originalOrigin) {
+        Object.defineProperty(window.location, "origin", originalOrigin);
+      } else {
+        delete (window.location as unknown as { origin?: string }).origin;
+      }
+    };
+
+    try {
+      setOpaqueOrigin();
+      const auth = await loadEmbedAuth();
+      auth.ensureEmbedAuthFetchInterceptor();
+
+      expect(auth.getEmbedAuthToken()).toBe(token);
+      expect(window.location.search).toContain(
+        `${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+      );
+      expect(sessionStorage.getItem(embedTokenStorageKey("/mail", true))).toBe(
+        token,
+      );
+
+      restoreOrigin();
+      window.history.replaceState(
+        null,
+        "",
+        `/calendar/month?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+      );
+
+      expect(auth.getEmbedAuthToken()).toBeNull();
+      expect(
+        sessionStorage.getItem(embedTokenStorageKey("/calendar", true)),
+      ).toBeNull();
+      expect(sessionStorage.getItem(embedTokenStorageKey("/mail", true))).toBe(
+        token,
+      );
+
+      const unscopedToken = embedTokenForTarget("/inbox");
+      window.history.replaceState(
+        null,
+        "",
+        `/calendar/month?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=${unscopedToken}`,
+      );
+      expect(auth.getEmbedAuthToken()).toBeNull();
+      expect(
+        sessionStorage.getItem(embedTokenStorageKey("/calendar", true)),
+      ).toBeNull();
+
+      window.history.replaceState(null, "", originalUrl);
+      setOpaqueOrigin();
+      const reloaded = await loadEmbedAuth();
+      reloaded.ensureEmbedAuthFetchInterceptor();
+      expect(reloaded.getEmbedAuthToken()).toBe(token);
+    } finally {
+      restoreOrigin();
     }
   });
 
@@ -193,6 +534,70 @@ describe("embed auth client", () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
 
     expect(first.isEmbedMcpChatBridgeActive()).toBe(true);
+  });
+
+  it("preserves an enrolled chat bridge while the route has no workspace mount", async () => {
+    const token = embedTokenForTarget("/inbox", "/mail");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail", "/calendar"],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+    );
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+
+    window.history.replaceState(null, "", "/reports/overview?embedded=1");
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+
+    window.history.replaceState(null, "", "/calendar/month?embedded=1");
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(false);
+  });
+
+  it("adopts a chat bridge URL flag when an unmatched route resolves to a mount", async () => {
+    const token = embedTokenForTarget("/inbox", "/mail");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/mail"],
+    };
+    window.history.replaceState(
+      null,
+      "",
+      `/opening?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+    );
+
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+    expect(window.location.search).toContain(
+      `${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+    );
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBeNull();
+
+    window.history.replaceState(
+      null,
+      "",
+      `/mail/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=${token}`,
+    );
+    auth.ensureEmbedAuthFetchInterceptor();
+
+    expect(auth.isEmbedMcpChatBridgeActive()).toBe(true);
+    expect(sessionStorage.getItem(`${BRIDGE_STORAGE_KEY}:/mail`)).toBe(token);
+    expect(sessionStorage.getItem(`${STORAGE_KEY}:/mail`)).toBe(token);
+    expect(window.location.search).toBe(
+      `?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1`,
+    );
+    expect(sessionStorage.getItem(BRIDGE_STORAGE_KEY)).toBeNull();
   });
 
   it("clears the MCP chat bridge when the embed token actually changes", async () => {

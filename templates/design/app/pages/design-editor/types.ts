@@ -96,5 +96,6 @@ export interface DesignData {
   visibility?: "private" | "org" | "public";
   data?: string | null;
   accessRole?: DesignAccessRole;
+  canPersistSource?: boolean;
   files: DesignFile[];
 }

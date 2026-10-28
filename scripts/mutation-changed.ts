@@ -145,6 +145,10 @@ export function survivingMutants(report: MutationReport): string[] {
 
 const VITEST_CONFIG = "vitest.mutation.generated.mts";
 const TEST_FILE = /\.(spec|test)\.tsx?$/;
+// Mirrors the fast-test lanes' --exclude list in ci.yml: these specs need a
+// database or other service the mutation job does not start.
+const SERVICE_TEST_FILE =
+  /\.(?:integration|e2e|live|perf)\.(?:spec|test)\.tsx?$|\.db\.test\.tsx?$/;
 
 /** The file part of a `file:start-end` spec. */
 function specFile(spec: string): string {
@@ -178,6 +182,9 @@ function importsModule(text: string, base: string): boolean {
 
 const SOURCE_TEXT_READ =
   /new URL\(\s*["'][^"']+\.tsx?["']\s*,\s*import\.meta\.url/;
+// The harness resolves the monorepo's `templates/` from its own location; the
+// sandbox holds only Core, so a spec importing it dies on ENOENT.
+const REPO_ROOT_HARNESS = /advertised-catalog\.harness/;
 const RELATIVE_SPECIFIER =
   /(?:\bfrom|\bimport)\s*\(?\s*["'](\.\.?\/[^"']+)["']/g;
 
@@ -186,9 +193,12 @@ const RELATIVE_SPECIFIER =
  * reads a source file's text sees the instrumented rewrite, and a relative
  * import that leaves Core (`../../../agentkit/src/...`) does not resolve from
  * the sandbox; either fails the dry run, which aborts every mutant.
+ * Self-imports of `@agent-native/core/*` resolve through the sandbox's
+ * package.json exports to its `dist/`, so stryker.config.json must not list
+ * `/dist` in `ignorePatterns`.
  */
 function runsInSandbox(text: string, directory: string): boolean {
-  if (SOURCE_TEXT_READ.test(text)) return false;
+  if (SOURCE_TEXT_READ.test(text) || REPO_ROOT_HARNESS.test(text)) return false;
   for (const [, specifier] of text.matchAll(RELATIVE_SPECIFIER)) {
     if (specifier === undefined) continue;
     if (path.posix.join(directory, specifier).startsWith("../")) return false;
@@ -206,8 +216,9 @@ function runsInSandbox(text: string, directory: string): boolean {
  * re-exports `./task-store` (optionally `.js` or `.ts`). `readFile` takes a
  * path relative to Core and must throw on failure: an empty string would look
  * like a spec that does not import the module. Specs that cannot run in the
- * sandbox are never selected. Returns the mutated files with no such spec
- * under `missing`.
+ * sandbox, or that need a service (`*.integration.spec.ts` and the other
+ * fast-test exclusions), are never selected. Returns the mutated files with
+ * no such spec under `missing`.
  */
 export function namedSpecs(
   specs: readonly string[],
@@ -229,7 +240,9 @@ export function namedSpecs(
       ),
     );
     const tests = entries
-      .filter((entry) => TEST_FILE.test(entry))
+      .filter(
+        (entry) => TEST_FILE.test(entry) && !SERVICE_TEST_FILE.test(entry),
+      )
       .map((entry) => ({ entry, text: readFile(`${directory}/${entry}`) }))
       .filter(({ text }) => runsInSandbox(text, directory));
     let selected = tests
@@ -253,9 +266,8 @@ export function namedSpecs(
 /**
  * Mutants run against the specs named after their file rather than vitest's
  * import-graph `related` set or the whole directory. Those reach unrelated
- * specs (worker builds, docs scans, self-imports of `@agent-native/core/*`)
- * that cannot run inside Stryker's sandbox copy, and one failing dry-run test
- * aborts the whole run.
+ * specs (worker builds, docs scans) that cannot run inside Stryker's sandbox
+ * copy, and one failing dry-run test aborts the whole run.
  */
 function writeVitestConfig(specs: readonly string[]): string | null {
   const { include, missing } = namedSpecs(
@@ -264,7 +276,7 @@ function writeVitestConfig(specs: readonly string[]): string | null {
     (file) => readFileSync(path.join(CORE_ROOT, file), "utf8"),
   );
   if (missing.length > 0) {
-    return `no spec named after or importing ${missing.map((file) => `${CORE_DIR}/${file}`).join(", ")}, so no test can kill a mutant there`;
+    return `no fast spec named after or importing ${missing.map((file) => `${CORE_DIR}/${file}`).join(", ")}, so no test can kill a mutant there`;
   }
   writeFileSync(
     path.join(CORE_ROOT, VITEST_CONFIG),

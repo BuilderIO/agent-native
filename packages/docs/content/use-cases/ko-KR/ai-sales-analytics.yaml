@@ -1,0 +1,101 @@
+slug: ai-sales-analytics
+app: analytics
+roles:
+  - revops
+  - sales
+title: HubSpot과 Gong 데이터로 영업 파이프라인을 검토하세요
+seo_title: HubSpot과 Gong을 위한 AI 영업 분석
+meta_description: "파이프라인 리뷰 전에 어떤 딜이 왜 멈췄는지 확인하세요. Agent-Native Analytics에 HubSpot과 Gong에 대해 평소 말로 묻고, 답을 대시보드로 남기세요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics는 HubSpot 딜과 Gong 통화를 파이프라인 리뷰마다 쓸 대시보드로 만들어 줘요. 어떤 딜이 왜 멈췄는지 평소 말로 물으면, 에이전트가 두 곳의 데이터로 답해요."
+  button:
+    label: 파이프라인에 질문하기
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe534007e491840cc86570110b7d00de4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4780c6d1885541bcaf3d949dbdbc1eb7
+    alt: "Analytics의 Weekly pipeline review 대시보드. 단계별 진행 중 파이프라인, 담당자별 딜, 30일째 멈춘 딜 패널이 있어요. 오른쪽 에이전트 채팅은 멈춘 딜 하나가 왜 멈췄는지 HubSpot 단계 기록과 마지막 Gong 통화로 답해요."
+how_to:
+  heading: AI로 영업 파이프라인을 분석하는 방법
+  steps:
+    - title: CRM과 통화 데이터 연결하기
+      body: "**데이터 소스**를 열고 **CRM & Sales** 아래 HubSpot 옆의 **연결**를 클릭하세요. HubSpot 설정에서 만든 비공개 앱의 토큰을 붙여 넣고 **자격 증명 저장**을 클릭하세요. Gong도 액세스 키와 시크릿으로 똑같이 연결해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
+        alt: "Connected 아래 HubSpot, CRM & Sales 아래 Gong이 있는 Data Sources 페이지. Gong 설정 시트가 Access Key Secret 단계에서 열려 있고, 값이 붙여 넣어진 채 Save Credentials 위에 있어요."
+    - title: 파이프라인에 대해 질문하기
+      body: "**질문**에서 평소 말로 물어보세요. “30일 넘게 같은 단계에 머문 진행 중 딜은 어떤 게 있어?” 에이전트가 HubSpot 딜을 찾아, 정렬하고 이어서 물어볼 수 있는 표로 답해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a
+        alt: "30일째 멈춘 딜에 대한 질문이 담긴 Ask 채팅. 에이전트가 진행 중 딜 6개를 단계, 담당자, 금액, 단계 체류 일수와 함께 표로 답해요."
+    - title: 답을 대시보드로 저장하기
+      body: "에이전트에게 “파이프라인 리뷰용 대시보드로 저장해 줘”라고 하세요. 답마다 패널이 생기고, HubSpot의 새 데이터로 새로 고쳐져요. 파이프라인 리뷰 전에 팀과 대시보드를 공유하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F69b61731b5b74d61ad0e510f57522796
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2720d0e5fd8f40bfa3b72c056270f174
+        alt: "Weekly pipeline review 대시보드를 저장했다고 알리는 에이전트 채팅과, 멈춘 딜 표와 단계별 파이프라인 차트가 있는 새 대시보드."
+features:
+  heading: 파이프라인 리뷰에 필요한 모든 것
+  items:
+    - title: 딜과 통화를 함께
+      body: "질문 하나로 HubSpot의 딜 단계와 담당자, Gong 통화에서 구매자가 한 말을 함께 가져올 수 있어요."
+    - title: 에이전트가 고치는 대시보드
+      body: "새 패널, 담당자별 필터, 다른 차트를 요청하면 에이전트가 팀이 함께 보는 대시보드를 업데이트해요."
+    - title: 확인할 수 있는 답
+      body: "실시간 HubSpot이나 Gong 쿼리에서 나오지 않은 수치는 에이전트가 Unverified로 표시하니, 무엇을 확인할지 알 수 있어요."
+    - title: 파이프라인과 매출을 나란히
+      body: "Stripe와 BigQuery도 연결하면, 같은 채팅에서 딜과 함께 매출과 제품 사용에 대한 질문에도 답해요."
+    - title: 우리 팀의 파이프라인 정의
+      body: "관리자가 **시맨틱 레이어** 페이지에 멈춘 딜이나 적격 파이프라인의 뜻을 적어 두면, 에이전트가 답하기 전에 읽어요."
+    - title: 매일 받는 파이프라인 리포트
+      body: "앱을 열지 않아도 매일 대시보드를 최대 다섯 명에게 이메일로, 또는 Slack 채널로 받아 보세요."
+integrations:
+  heading: 이미 쓰는 도구와 Analytics 연결하기
+  cards:
+    - title: CRM과 통화 데이터
+      logos:
+        - name: HubSpot
+        - name: Gong
+      body: "Analytics는 HubSpot에서 딜, 파이프라인, 단계, 담당자를, Gong에서 통화 녹음과 전사를 읽어요."
+    - title: 팀이 보는 곳에 공유하기
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: "대시보드를 Slack 채널에 올리거나, 딜 표를 연결된 Google 계정의 새 Google Sheet로 내보내세요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Exa
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Analytics로 할 수 있는 다른 일
+  cards:
+    - title: 스타트업 KPI 대시보드를 만들어 보세요
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "스타트업이 추적하는 차트를 요청하고, 대시보드 하나에 모아 두세요."
+    - title: 스프레드시트 없이 주간 마케팅 리포트를 만들어 보세요
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "Google Analytics와 HubSpot에 이번 주가 어땠는지 묻고, 리포트로 남기세요."
+    - title: 신규 사용자가 이탈하는 지점을 찾아보세요
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "신규 사용자가 어디서 멈추는지 보고, 세션을 보며 이유를 찾아보세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Analytics는 무료인가요?
+      a: "네, Agent-Native Analytics는 무료 오픈 소스예요. 에이전트는 Builder.io AI 크레딧이나 내 AI 키로 실행되니, AI 사용량이 무제한은 아니에요. 통화에 대한 질문은 Gong API 크레딧도 쓸 수 있고, 관리자가 이를 끌 수 있어요. Analytics는 알파 버전이에요."
+    - q: Agent-Native Analytics는 어떤 CRM과 통화 도구에 연결되나요?
+      a: "Analytics는 CRM으로 HubSpot, 영업 통화로 Gong에 연결돼요. 연락처와 회사 데이터를 위해 Apollo와 Clay도 연결할 수 있어요. 각 도구는 [데이터 소스 페이지에서](https://www.agent-native.com/docs/template-analytics-connectors/) 자체 키로 연결하고, 질문 하나로 HubSpot과 Gong을 함께 볼 수 있어요."
+    - q: SQL을 써야 하나요?
+      a: "아니요. 평소 말로 물으면 에이전트가 HubSpot이나 Gong에서 데이터를 찾아 쿼리를 실행하고, 숫자, 표, 차트로 답해요. 답을 대시보드에 저장하면 에이전트가 패널마다 새 데이터를 가져오는 방법을 설정해요."
+    - q: 숫자를 믿어도 되나요?
+      a: "네, 확인을 거친다면요. 에이전트는 실시간 HubSpot과 Gong 데이터로 답하고, 실시간 쿼리에서 나오지 않은 수치는 Unverified로 표시해요. 또 팀이 [시맨틱 레이어 페이지에 적은 정의](https://www.agent-native.com/docs/template-analytics-dashboards/)를 따라요. 처음 몇 번의 답은 HubSpot과 비교해 본 뒤에 믿으세요."
+    - q: Agent-Native Analytics는 HubSpot이나 Gong에 들어 있는 AI와 무엇이 다른가요?
+      a: "HubSpot이나 Gong의 AI는 그 도구 하나에 들어 있어요. Analytics는 질문 하나에 HubSpot과 Gong을 함께 써서 답하고, Stripe와 BigQuery도 읽으며, 그 답을 팀이 매주 다시 여는 대시보드로 남겨요. HubSpot과 Gong은 지금처럼 쓰고, Analytics는 두 곳에서 데이터를 읽기만 해요."
+    - q: 내 대시보드는 누가 볼 수 있나요?
+      a: "공유하기 전까지는 나만 볼 수 있어요. 팀원이나 조직 전체와 보기, 편집, 관리자 권한으로 대시보드를 공유하세요. 팀원은 자신의 연결이나 관리자가 조직용으로 설정한 연결로 HubSpot과 Gong 데이터를 봐요. 둘 다 없으면 해당 패널에 오류가 표시돼요."

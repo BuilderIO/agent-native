@@ -33,6 +33,7 @@ export interface ExecuteBuilderSourceBatchDeps {
     args: Pick<ExecuteBuilderSourceBatchRequest, "databaseId" | "documentId">,
   ) => Promise<DatabaseRecord | null>;
   assertEditor: (database: DatabaseRecord) => Promise<void>;
+  assertPageEditor: (documentId: string) => Promise<void>;
   getSourceSnapshot: (
     database: DatabaseRecord,
   ) => Promise<ContentDatabaseSource | null>;
@@ -52,6 +53,9 @@ function realBatchDeps(
     resolveDatabase: (request) => resolveDatabaseForSourceMutation(request),
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
+    },
+    assertPageEditor: async (documentId) => {
+      await assertAccess("document", documentId, "editor");
     },
     getSourceSnapshot: (database) =>
       getContentDatabaseSourceSnapshotForWrite(database, args.sourceId),
@@ -235,6 +239,17 @@ export async function executeBuilderSourceBatchWithDeps(
     const changeSetsById = new Map(
       source.changeSets.map((changeSet) => [changeSet.id, changeSet]),
     );
+    // Publishing or unpublishing an entry needs edit access to its page, so
+    // one the caller can only view refuses the batch before anything is sent.
+    for (const changeSetId of ids) {
+      const documentId = changeSetsById.get(changeSetId)?.documentId;
+      if (
+        args.transitions?.[changeSetId]?.publicationTransition &&
+        documentId
+      ) {
+        await deps.assertPageEditor(documentId);
+      }
+    }
     const maxConcurrency = clampConcurrency(args.maxConcurrency);
     const results = await timing.measure("batch_dispatch", () =>
       runBoundedPool(ids, maxConcurrency, async (changeSetId) => {

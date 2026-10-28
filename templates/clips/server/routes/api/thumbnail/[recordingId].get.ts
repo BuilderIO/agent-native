@@ -29,6 +29,11 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../db/index.js";
+import {
+  readContentPlaybackGrant,
+  refusedContentPlayback,
+  runWithContentPlayback,
+} from "../../../lib/content-playback-grant.js";
 import { contextClipIdForFootage } from "../../../lib/context-footage.js";
 import {
   isHeldForRedaction,
@@ -356,7 +361,10 @@ async function bucketImageResponse(upstream: Response): Promise<Response> {
   return imageResponse(upstream.body, contentType, upstream.status);
 }
 
-async function loadRecording(recordingId: string, event: H3Event) {
+async function loadRecording(
+  recordingId: string,
+  viewerEmail: string | undefined,
+) {
   // Earlier-screen-time footage is served under its Clip's access, expiry,
   // redaction, Trash, and password rules, never its own row's.
   const clipId = await contextClipIdForFootage(recordingId);
@@ -364,7 +372,6 @@ async function loadRecording(recordingId: string, event: H3Event) {
   const access = await resolveAccess("recording", gateId);
   let gate = (access?.resource as ThumbnailRecording | undefined) ?? null;
   const role = access?.role ?? null;
-  const session = await getSession(event).catch(() => null);
 
   if (!gate) {
     const [row] = await getDb()
@@ -392,10 +399,10 @@ async function loadRecording(recordingId: string, event: H3Event) {
     if (!row) return { error: "Not found", status: 404 } as const;
 
     let viewerIsOrgMember = false;
-    if (session?.email && row.visibility === "org" && row.organizationId) {
+    if (viewerEmail && row.visibility === "org" && row.organizationId) {
       const orgRole = await getOrganizationRoleForEmail(
         row.organizationId,
-        session.email,
+        viewerEmail,
       ).catch(() => null);
       viewerIsOrgMember = Boolean(orgRole);
     }
@@ -415,17 +422,22 @@ async function loadRecording(recordingId: string, event: H3Event) {
     return { error: "Not found", status: 404 } as const;
   }
   if (!clipId) return { recording: gate, role, gateId } as const;
-  const [footage] = await getDb()
+  const footageRows = await getDb()
     .select({
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       storageMode: schema.recordings.storageMode,
       trashedAt: schema.recordings.trashedAt,
+      failureCode: schema.recordings.failureCode,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
     .limit(1);
-  if (!footage || footage.trashedAt) {
+  const footage = footageRows.shift();
+  if (!footage) {
+    return { error: "Not found", status: 404 } as const;
+  }
+  if (footage.trashedAt || footage.failureCode === "taken_down") {
     return { error: "Not found", status: 404 } as const;
   }
 
@@ -452,13 +464,32 @@ export default defineEventHandler(async (event: H3Event) => {
     return { error: "Missing recordingId" };
   }
 
+  const contentGrant = await readContentPlaybackGrant(event, recordingId);
+  const refused = refusedContentPlayback(contentGrant);
+  if (refused) {
+    setResponseStatus(event, refused.status);
+    return refused.body;
+  }
+
   const session = await getSession(event).catch(() => null);
   const orgCtx = await getOrgContext(event).catch(() => null);
+  // A Content grant names the reader in place of the browser's own session.
+  const granted = contentGrant.status === "granted";
+  const orgId = granted
+    ? contentGrant.orgId
+    : (orgCtx?.orgId ?? session?.orgId);
+  const viewerEmail = granted
+    ? (contentGrant.viewerEmail ?? undefined)
+    : session?.email;
 
-  return runWithRequestContext(
-    { userEmail: session?.email, orgId: orgCtx?.orgId ?? session?.orgId },
-    async () => {
-      const loaded = await loadRecording(recordingId, event);
+  const requestContext = {
+    ...(viewerEmail !== undefined ? { userEmail: viewerEmail } : {}),
+    ...(orgId !== undefined ? { orgId } : {}),
+  };
+
+  return runWithRequestContext(requestContext, () =>
+    runWithContentPlayback(contentGrant, async () => {
+      const loaded = await loadRecording(recordingId, viewerEmail);
       if ("error" in loaded) {
         setResponseStatus(event, loaded.status);
         return { error: loaded.error };
@@ -505,6 +536,12 @@ export default defineEventHandler(async (event: H3Event) => {
         }
       }
       if (recording.password && loaded.role !== "owner") {
+        // A document cannot supply a password, so nothing unlocks one for a
+        // Content reader; the Content playback route refuses it the same way.
+        if (granted) {
+          setResponseStatus(event, 401);
+          return { error: "Password required", passwordRequired: true };
+        }
         const queryToken = typeof query.t === "string" ? query.t : "";
         const cookieToken = getCookie(event, cookieName(recordingId)) ?? "";
         const scopedRecordingId = getRecordingAccessTokenResourceId(
@@ -596,6 +633,6 @@ export default defineEventHandler(async (event: H3Event) => {
         });
         return defaultSocialImageResponse();
       }
-    },
+    }),
   );
 });

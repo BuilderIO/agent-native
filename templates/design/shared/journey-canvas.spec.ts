@@ -755,7 +755,37 @@ describe("create-journey-canvas input", () => {
     const crossAppParent = appBandsInput();
     crossAppParent.tree.nodes[1]!.parentKey = "design::root";
     expect(problems(crossAppParent).join("\n")).toMatch(
-      /App-band parent links must stay within the same app cohort/,
+      /App-band parent links must stay within the same source app and cohort/,
+    );
+
+    const base = rawInput();
+    const sameNamedCrossAppParent = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 20,
+        appRootN: { "clips::web": 10, "design::web": 10 },
+        nodes: [
+          node("clips::web::root", null, 10, {
+            cohortKey: "web",
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+          node("design::web::child", "clips::web::root", 5, {
+            cohortKey: "web",
+            pctOfRoot: 50,
+            pctOfParent: 50,
+          }),
+        ],
+      },
+      frames: [
+        frame("clips::web::root", 0, { sourceApp: "clips" }),
+        frame("design::web::child", 0, { sourceApp: "design" }),
+      ],
+    });
+    expect(problems(sameNamedCrossAppParent).join("\n")).toMatch(
+      /App-band parent links must stay within the same source app and cohort/,
     );
 
     const missingPrefix = appBandsInput();
@@ -772,6 +802,95 @@ describe("create-journey-canvas input", () => {
     expect(problems(inheritedDenominator).join("\n")).toMatch(
       /Pass the root denominator for the constructor cohort/,
     );
+
+    const legacyTripleKey = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 1,
+        appRootN: { design: 1 },
+        nodes: [
+          node("design::step::variant", null, 1, {
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+        ],
+      },
+      frames: [frame("design::step::variant", 0, { sourceApp: "design" })],
+    });
+    expect(problems(legacyTripleKey)).toEqual([]);
+
+    const mismatchedCohortKey = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 1,
+        appRootN: { "design::control": 1 },
+        nodes: [
+          node("design::control::step", null, 1, {
+            cohortKey: "credits",
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+        ],
+      },
+      frames: [frame("design::control::step", 0, { sourceApp: "design" })],
+    });
+    expect(problems(mismatchedCohortKey).join("\n")).toContain(
+      "The cohortKey must match the app::cohort prefix in the node key.",
+    );
+  });
+
+  it("supports independent cohort bands from one source app", () => {
+    const base = rawInput();
+    const controlRoot = node("design::control::root", null, 60, {
+      cohortKey: "control",
+      pctOfRoot: 100,
+      pctOfParent: 100,
+    });
+    const controlChild = node(
+      "design::control::child",
+      "design::control::root",
+      30,
+      { cohortKey: "control", pctOfRoot: 50, pctOfParent: 50 },
+    );
+    const creditsRoot = node("design::credits::root", null, 40, {
+      cohortKey: "credits",
+      pctOfRoot: 100,
+      pctOfParent: 100,
+    });
+    const input = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 100,
+        appRootN: { "design::control": 60, "design::credits": 40 },
+        nodes: [controlRoot, controlChild, creditsRoot],
+      },
+      frames: [
+        frame(controlRoot.key, 0, { sourceApp: "design" }),
+        frame(controlChild.key, 0, { sourceApp: "design" }),
+        frame(creditsRoot.key, 0, { sourceApp: "design" }),
+      ],
+    });
+
+    expect(problems(input)).toEqual([]);
+    const result = planJourneyCanvas(parse(input), "design-cohort-bands");
+    const screen = (key: string) =>
+      result.screens.find((candidate) => candidate.nodeKey === key)!;
+    const fragments = result.boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(screen(controlRoot.key).html).toContain(
+      "60 sessions · 100% of Control cohort (n=60)",
+    );
+    expect(screen(creditsRoot.key).html).toContain(
+      "40 sessions · 100% of Credits cohort (n=40)",
+    );
+    expect(fragments).toContain("Design Control · 60 sessions");
+    expect(fragments).toContain("Design Credits · 40 sessions");
   });
 
   it("rejects data: and non-https image URLs with a clear message", () => {
@@ -1691,7 +1810,7 @@ describe("planJourneyCanvas", () => {
     expect(
       fragments.match(/data-agent-native-layer-name="Journey edge"/g),
     ).toHaveLength(2);
-    expect(fragments).toContain("separate per-app cohorts");
+    expect(fragments).toContain("separate cohorts");
     expect(fragments).not.toContain("140 sessions");
   });
 

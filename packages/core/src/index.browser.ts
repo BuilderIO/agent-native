@@ -123,6 +123,7 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export { isOutsideAgentCall } from "./action-caller.js";
 export {
   isEmailDerivedName,
   normalizeUserProfileName,

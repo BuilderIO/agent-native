@@ -3,6 +3,35 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-27
+
+### Fixed
+
+- Configured Mail labels now show archived messages, and checkbox selection keeps the email list open.
+- Priority sort refreshes scores when its AI provider changes.
+
+## 2026-10-26
+
+### Improved
+
+- Mail AI rules and Priority sort can use OpenAI when Jev is unavailable.
+
+## 2026-10-22
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
+## 2026-10-21
+
+### Added
+
+- Connected agents can create and update email drafts for review in Mail.
+
+### Improved
+
+- When an agent in Claude or ChatGPT drafts an email, Mail shows a compact card with the conversation and the editable draft, ready to send.
+
 ## 2026-10-20
 
 ### Improved

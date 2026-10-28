@@ -63,8 +63,7 @@ export default {
     appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:
       "{app} · {from} から {to} · {count} セッション{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} から {to} · アプリごとの別コホート{partial}",
+    journeyTitleAppBandsSummary: "{from} から {to} · 別々のコホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
     otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",
@@ -321,6 +320,10 @@ export default {
       chooseFrame: "フレームを選択",
       inspect: "確認",
       exportSvg: "SVG をエクスポート",
+      moreActions: "その他の操作",
+      askAboutFile: "このファイルについて質問",
+      askAboutFilePrompt:
+        "このリンクされたデザインファイルについて質問してください。{{url}}",
       actionsPrefill: "確認して送信",
       retry: "再試行",
       currentDesign: "現在のDesign",
@@ -2215,6 +2218,20 @@ export default {
       viewportMobile: "モバイル",
       added: "画面を追加しました",
       addFailed: "画面を追加できませんでした",
+    },
+    localhostConsent: {
+      approvedTitle: "承認済み — 編集をもう一度実行してください",
+      approvedDescription:
+        "ファイルの書き込みは 8 時間許可されます。アクセスを求めた編集は保存されていません。",
+      retryInChat: "チャットで再実行",
+      retryPrompt:
+        "{{rootPath}} へのファイル書き込みが承認されました。これを必要とした編集をもう一度実行してください。",
+      unavailableTitle: "この書き込みリクエストは保留中ではなくなりました",
+      unavailableDescription:
+        "アクセスを求めるには、編集をもう一度実行してください。",
+      close: "閉じる",
+      prepareSignInError:
+        "サインイン前にこのリクエストを保存できませんでした。もう一度お試しください。",
     },
     nodeRewrite: {
       composerTitle: "選択範囲について質問または変更",

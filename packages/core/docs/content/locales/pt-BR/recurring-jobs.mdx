@@ -62,6 +62,7 @@ Os trabalhos ficam no [Recursos do Agente](/docs/agent-resources) em `jobs/<name
 | `runAs`      | `"creator"` \| `"shared"`          | `"creator"`     | `"creator"` é executado com a identidade do proprietário do trabalho e `ANTHROPIC_API_KEY`. `"shared"` usa a chave da organização. |
 | `createdBy`  | e-mail                             | _(automático)_  | Preenchido quando o trabalho é criado por meio do recursos do agente UI ou pelo agente.                                            |
 | `orgId`      | string                             | _(automático)_  | Escopo da organização; herdado da organização ativa do criador.                                                                    |
+| `appId`      | string                             | _(automático)_  | O aplicativo cujo agendador executa o trabalho. O agendador ignora trabalhos que citam outro aplicativo.                           |
 | `lastRun`    | Carimbo de data e hora ISO         | _(gerenciado)_  | Escrito pelo agendador após cada execução.                                                                                         |
 | `lastStatus` | `"success"` \| `"error"` \| …      | _(gerenciado)_  | Resultado mais recente.                                                                                                            |
 | `lastError`  | string                             | _(gerenciado)_  | Mensagem de erro se a última execução falhou.                                                                                      |
@@ -238,6 +239,20 @@ disparar agendamentos, a página **Automations** avisa e informa o motivo.
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS` é lido em dois escopos.** Na Netlify, na Vercel e no Cloudflare, quem decide é o ambiente de **build**: o gatilho da plataforma continua disparando para esvaziar a fila de automações por evento e limpar execuções, mas um build com a chave ligada pula os trabalhos agendados, independentemente do que diga o ambiente implantado. Em um servidor de longa duração, o ambiente de **runtime** controla o temporizador em processo. Defina-o onde o seu host o lê. O build registra sua decisão, então a página **Automations** pode dizer que os agendamentos nunca serão executados, em vez de mostrar uma data de próxima execução que nada vai cumprir.
 
 </Callout>
+
+### Executar trabalhos sob outro `appId` {#additional-job-app-ids}
+
+Um agendador executa um trabalho quando o `appId` do trabalho é igual ao `appId` do próprio aplicativo. Para executar também arquivos de trabalho com outro `appId`, liste os rótulos extras em `additionalJobAppIds`:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+Um build que não inclua o rótulo ignora esses arquivos sem reivindicá-los, executá-los nem gravá-los, o que permite que duas implantações em um mesmo banco de dados dividam seus trabalhos. A opção apenas amplia quais arquivos este aplicativo processa. O lease do agendador, o histórico de execuções e as linhas de saúde permanecem sob `appId`, então as implantações que compartilham um banco de dados continuam se revezando em um mesmo lease. Se o aplicativo enfileirar o **Run now** para esses trabalhos, passe a mesma lista como `additionalJobAppIds` para `queueAutomationRunNow`.
 
 ## Depurando um trabalho {#debugging}
 

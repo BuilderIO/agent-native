@@ -1,0 +1,93 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`explicit connector inline apps > advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target 1`] = `
+{
+  "analytics": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Open traffic dashboard",
+      },
+      "name": "open-traffic-dashboard",
+    },
+  ],
+  "calendar": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Manage event draft",
+      },
+      "name": "manage-event-draft",
+    },
+  ],
+  "content": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Share local file document",
+      },
+      "name": "share-local-file-document",
+    },
+  ],
+  "design": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Generate screens",
+      },
+      "name": "generate-screens",
+    },
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Export coding handoff",
+      },
+      "name": "export-coding-handoff",
+    },
+  ],
+  "slides": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Clone context slide",
+      },
+      "name": "clone-context-slide",
+    },
+  ],
+  "slides-2": [
+    {
+      "_meta": undefined,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Clone context slide",
+      },
+      "name": "clone-context-slide",
+    },
+  ],
+}
+`;

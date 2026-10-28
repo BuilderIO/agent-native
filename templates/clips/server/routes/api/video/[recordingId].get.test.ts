@@ -33,6 +33,10 @@ vi.mock("h3", () => ({
   setCookie: (...args: unknown[]) => mockSetCookie(...args),
 }));
 
+vi.mock("@agent-native/core/a2a", () => ({
+  getGlobalA2ASecret: vi.fn(() => undefined),
+}));
+
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
 }));
@@ -906,6 +910,70 @@ describe("/api/video/:recordingId route", () => {
       expect(result).toEqual({ error: "Forbidden" });
       expect(fetch).not.toHaveBeenCalled();
     });
+
+    it.each([null, "viewer", "editor", "admin", "owner"])(
+      "does not serve footage from a taken-down Clip to %s",
+      async (role) => {
+        const clip = {
+          visibility: "public",
+          password: null,
+          failureCode: "taken_down",
+        };
+        mockGetDb.mockReturnValue(
+          createDbWithSelectSequence(
+            [{ recordingId: "clip-1" }],
+            ...(role ? [] : [[clip]]),
+            [footageRow],
+          ),
+        );
+        mockResolveAccess.mockResolvedValue(
+          role ? { role, resource: clip } : null,
+        );
+        vi.mocked(fetch).mockResolvedValue(
+          new Response("media", {
+            headers: { "content-type": "video/mp4" },
+          }),
+        );
+
+        const event = makeEvent();
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
+
+        expect(event.status).toBe(404);
+        expect(result).toEqual({ error: "Not found" });
+        expect(mockReadAppState).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["viewer", "owner"])(
+      "does not serve taken-down footage under a healthy Clip to a %s",
+      async (role) => {
+        mockGetDb.mockReturnValue(
+          createDbWithSelectSequence(
+            [{ recordingId: "clip-1" }],
+            [{ ...footageRow, failureCode: "taken_down" }],
+          ),
+        );
+        mockResolveAccess.mockResolvedValue({
+          role,
+          resource: { visibility: "public", password: null },
+        });
+
+        const event = makeEvent();
+        const result = await handler(
+          event as unknown as Parameters<typeof handler>[0],
+        );
+
+        expect(event.status).toBe(404);
+        expect(result).toEqual({ error: "Not found" });
+        expect(mockReadAppState).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+      },
+    );
 
     it("requires the clip's password, not the footage's", async () => {
       mockGetDb.mockReturnValue(

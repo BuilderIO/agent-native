@@ -193,6 +193,51 @@ function warnWorkspaceAppsGatewayDenial(
   );
 }
 
+interface WorkspaceAppsGatewayAttempt {
+  startedAt: number;
+  gateway: string;
+  upstream?: { status: number; requestId?: string };
+}
+
+function noteWorkspaceAppsGatewayResponse(
+  attempt: WorkspaceAppsGatewayAttempt,
+  response: Response,
+): void {
+  const requestId = response.headers.get("x-agent-native-request-id");
+  attempt.upstream = {
+    status: response.status,
+    ...(requestId ? { requestId } : {}),
+  };
+}
+
+// The action route returns a typed contract error without capturing it, so a
+// refusal, a timeout and an outage would all read as one 503 with no trace.
+// `upstreamRequestId` is the id the workspace stamped on its own answer: it
+// opens that side's log for the same read.
+function logWorkspaceAppsGatewayFailure(
+  failure: ActionContractError,
+  attempt: WorkspaceAppsGatewayAttempt,
+  cause: unknown,
+): void {
+  const requestId = getRequestContext()?.requestId;
+  console.warn("[dispatch] workspace apps gateway read failed:", {
+    errorCode: failure.errorCode,
+    status: failure.statusCode,
+    ...(requestId ? { requestId } : {}),
+    gateway: attempt.gateway,
+    elapsedMs: Date.now() - attempt.startedAt,
+    ...(attempt.upstream
+      ? {
+          upstreamStatus: attempt.upstream.status,
+          ...(attempt.upstream.requestId
+            ? { upstreamRequestId: attempt.upstream.requestId }
+            : {}),
+        }
+      : {}),
+    ...(cause === undefined ? {} : { cause: describeErrorWithCauses(cause) }),
+  });
+}
+
 type WorkspaceAppAudience = "internal" | "public";
 type WorkspaceAppVisibility = "private" | "org";
 
@@ -2112,6 +2157,10 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     () => controller.abort(),
     WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
   );
+  const attempt: WorkspaceAppsGatewayAttempt = {
+    startedAt: Date.now(),
+    gateway: `${baseUrl.origin}${baseUrl.pathname.replace(/\/+$/, "")}`,
+  };
 
   const gatewayUrl = (pathname: string): URL => {
     const url = new URL(baseUrl.toString());
@@ -2169,6 +2218,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
           signal: controller.signal,
         },
       );
+      noteWorkspaceAppsGatewayResponse(attempt, localResponse);
       if (localResponse.status === 401 || localResponse.status === 403) {
         throw new WorkspaceAppsGatewayAuthorizationError(
           localResponse.status,
@@ -2198,6 +2248,7 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       ...protectedRedirect,
       signal: controller.signal,
     });
+    noteWorkspaceAppsGatewayResponse(attempt, actionResponse);
     if (actionResponse.status === 401 || actionResponse.status === 403) {
       throw new WorkspaceAppsGatewayAuthorizationError(
         actionResponse.status,
@@ -2216,14 +2267,24 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     }
     return await readAppsResponse(actionResponse);
   } catch (error) {
-    if (error instanceof ActionContractError) throw error;
-    throw new ActionContractError(
-      "Workspace apps gateway could not be reached.",
+    if (error instanceof ActionContractError) {
+      logWorkspaceAppsGatewayFailure(error, attempt, undefined);
+      throw error;
+    }
+    const timedOut = controller.signal.aborted;
+    const failure = new ActionContractError(
+      timedOut
+        ? "Workspace apps gateway did not answer in time."
+        : "Workspace apps gateway could not be reached.",
       {
         statusCode: 503,
-        errorCode: "workspace_gateway_unavailable",
+        errorCode: timedOut
+          ? "workspace_gateway_timeout"
+          : "workspace_gateway_unavailable",
       },
     );
+    logWorkspaceAppsGatewayFailure(failure, attempt, error);
+    throw failure;
   } finally {
     clearTimeout(timeout);
   }

@@ -338,6 +338,8 @@ export default createAuthPlugin({
 });
 ```
 
+自定义身份验证还必须配置可选回调 `AuthOptions.getBrowserSession`，用于 UI 功能和浏览器审批。它接收 `H3Event` 并返回 `AuthSession | null`，与 `getSession` 相同，但只能读取浏览器 Cookie，绝不能读取 bearer token、查询 token 或其他标头。没有此显式 hook 时，这些仅限浏览器的操作会返回 `401`。
+
 ## 公共工作区应用 {#public-workspace-apps}
 
 工作区应用程序默认为内部应用程序。让匿名访问者加载公共

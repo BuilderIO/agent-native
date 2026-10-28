@@ -2,8 +2,10 @@ import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
 import { writeAppState } from "../../application-state/script-helpers.js";
+import { injectedAgentNativeConfig } from "../../client/app-config.js";
 import { putUserSetting } from "../../settings/user-settings.js";
 import {
+  resolveThemeFamilyConfig,
   THEME_FAMILIES,
   themeFamilyAppStateKey,
   themeFamilySettingKey,
@@ -24,8 +26,27 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async ({ family }, ctx) => {
-    const email = ctx?.userEmail;
+    const email = ctx?.userEmail?.trim();
     if (!email) fail("Not authenticated.", { statusCode: 401 });
+    if (!email.toLowerCase().endsWith("@builder.io")) {
+      fail(
+        "This theme-family preference is only available to Builder accounts.",
+        {
+          errorCode: "theme_family_builder_account_required",
+          statusCode: 403,
+        },
+      );
+    }
+
+    const { families } = resolveThemeFamilyConfig(
+      injectedAgentNativeConfig().themeFamily,
+    );
+    if (!families.includes(family)) {
+      fail("This theme family is not enabled for the current app.", {
+        errorCode: "theme_family_not_enabled",
+        statusCode: 400,
+      });
+    }
 
     const settingKey = themeFamilySettingKey(ctx?.appId);
     await putUserSetting(email, settingKey, { family });

@@ -1,6 +1,10 @@
 import { createRequire } from "node:module";
 
 import {
+  actionCallIntent,
+  preparedCallNeedsApproval,
+} from "@agent-native/core/action";
+import {
   createMCPServerForRequest,
   type MCPConfig,
 } from "@agent-native/core/mcp";
@@ -29,6 +33,10 @@ const mocks = vi.hoisted(() => ({
   rsvpEvent: vi.fn(),
   getUserSetting: vi.fn(),
   approval: vi.fn(),
+  deleteDrafts: vi.fn(),
+  drafts: new Map<string, unknown>(),
+  // Drafts another caller saves right after this call's existence check.
+  racingDrafts: new Map<string, unknown>(),
 }));
 
 const { approvalAuth, approvalStore, userSettings } = vi.hoisted(() => ({
@@ -84,6 +92,32 @@ vi.mock("@agent-native/core/event-bus", () => ({
   registerEvent: vi.fn(),
 }));
 vi.mock("@agent-native/core/tracking", () => ({ track: vi.fn() }));
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
+  readAppState: async (key: string) => {
+    const value = mocks.drafts.get(key) ?? null;
+    if (mocks.racingDrafts.has(key)) {
+      mocks.drafts.set(key, mocks.racingDrafts.get(key));
+      mocks.racingDrafts.delete(key);
+    }
+    return value;
+  },
+  writeAppState: async (key: string, value: unknown) => {
+    mocks.drafts.set(key, value);
+  },
+  compareAndSetAppState: async (
+    key: string,
+    expected: unknown,
+    next: unknown,
+  ) => {
+    if (expected !== null || mocks.drafts.has(key)) return false;
+    mocks.drafts.set(key, next);
+    return true;
+  },
+  deleteAppStateByPrefix: mocks.deleteDrafts,
+}));
 vi.mock("../onboarding.js", () => ({}));
 vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
 vi.mock("./google-calendar.js", () => ({
@@ -102,12 +136,14 @@ vi.mock("./event-video-conferencing.js", () => ({
 import createEvent from "../../actions/create-event.js";
 import deleteEvent from "../../actions/delete-event.js";
 import listEvents from "../../actions/list-events.js";
+import manageEventDraft from "../../actions/manage-event-draft.js";
 import respondToEvent from "../../actions/respond-to-event.js";
 import rsvpEvent from "../../actions/rsvp-event.js";
 import updateEvent from "../../actions/update-event.js";
 import "../plugins/agent-chat.js";
 
 const actions = {
+  "manage-event-draft": manageEventDraft,
   "list-events": listEvents,
   "create-event": createEvent,
   "update-event": updateEvent,
@@ -143,6 +179,7 @@ type ListedTool = {
 async function clientFor(
   userEmail = ownerEmail,
   oauthScopes = ["mcp:read", "mcp:write"],
+  supportsApproval = true,
 ) {
   const server = await createMCPServerForRequest(
     {
@@ -168,8 +205,10 @@ async function clientFor(
     { name: "calendar-write-test", version: "1.0.0" },
     { versionNegotiation: { mode: "auto" } },
   );
-  client.registerCapabilities({ elicitation: { form: {} } });
-  client.setRequestHandler("elicitation/create", mocks.approval);
+  if (supportsApproval) {
+    client.registerCapabilities({ elicitation: { form: {} } });
+    client.setRequestHandler("elicitation/create", mocks.approval);
+  }
   closeClients.push(async () => {
     await client.close();
     await server.close();
@@ -202,6 +241,9 @@ describe("Calendar direct MCP writes", () => {
     mocks.createEvent.mockResolvedValue({ id: "event-1" });
     mocks.updateEvent.mockResolvedValue({});
     mocks.rsvpEvent.mockResolvedValue(undefined);
+    mocks.deleteDrafts.mockResolvedValue(3);
+    mocks.drafts.clear();
+    mocks.racingDrafts.clear();
     mocks.approval.mockResolvedValue({
       action: "accept",
       content: { decision: "deny" },
@@ -218,9 +260,9 @@ describe("Calendar direct MCP writes", () => {
       "ask_app",
       "ask_app_status",
       "create-event",
-      "create_embed_session",
       "list-events",
       "list_apps",
+      "manage-event-draft",
       "open_app",
       "respond-to-event",
       "update-event",
@@ -268,6 +310,103 @@ describe("Calendar direct MCP writes", () => {
     );
     expect(mocks.getAuthStatus).toHaveBeenCalledWith(ownerEmail, undefined);
     expect(askAgent).not.toHaveBeenCalled();
+  });
+
+  it("sends bulk draft deletion to the review page when the MCP host cannot request approval", async () => {
+    const client = await clientFor(ownerEmail, undefined, false);
+    const result = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "delete-all" },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain(
+      "manage-event-draft needs the user's approval before it runs",
+    );
+    expect(JSON.stringify(result.content)).toContain(
+      "/_agent-native/mcp/approvals/",
+    );
+    expect(mocks.deleteDrafts).not.toHaveBeenCalled();
+  });
+
+  it("limits draft approval to outside bulk deletion", async () => {
+    for (const action of ["create", "update", "delete", "delete-all"]) {
+      const call = await actionCallIntent(manageEventDraft, {
+        action,
+        id: "draft-test",
+      });
+      if (!call.valid) throw call.error;
+      expect(
+        await preparedCallNeedsApproval(manageEventDraft, call, {
+          caller: "tool",
+        }),
+      ).toBe(false);
+      expect(
+        await preparedCallNeedsApproval(manageEventDraft, call, {
+          caller: "mcp",
+        }),
+      ).toBe(action === "delete-all");
+    }
+  });
+
+  it("refuses to create a draft over one that already uses the ID", async () => {
+    const existing = { id: "draft-taken", title: "Edited by the user" };
+    mocks.drafts.set("calendar-draft-draft-taken", existing);
+    const client = await clientFor();
+    const refused = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "create", id: "draft-taken", title: "Replacement" },
+    });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toContain("already exists");
+    expect(mocks.drafts.get("calendar-draft-draft-taken")).toBe(existing);
+
+    const created = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "create", id: "draft-new", title: "Planning" },
+    });
+    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    expect(mocks.drafts.get("calendar-draft-draft-new")).toMatchObject({
+      id: "draft-new",
+      title: "Planning",
+    });
+  });
+
+  it("refuses a create that loses a race for the same draft ID", async () => {
+    const winner = { id: "draft-race", title: "Saved first" };
+    mocks.racingDrafts.set("calendar-draft-draft-race", winner);
+    const client = await clientFor();
+    const refused = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "create", id: "draft-race", title: "Saved second" },
+    });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toContain("already exists");
+    expect(mocks.drafts.get("calendar-draft-draft-race")).toBe(winner);
+  });
+
+  it("deletes all drafts only after the MCP client approves the call", async () => {
+    mocks.approval.mockResolvedValue({
+      action: "accept",
+      content: { decision: "approve" },
+    });
+    const client = await clientFor();
+    const result = await client.callTool({
+      name: "manage-event-draft",
+      arguments: { action: "delete-all" },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(mocks.approval).toHaveBeenCalledOnce();
+    expect(mocks.deleteDrafts).toHaveBeenCalledWith("calendar-draft-");
+    expect(result.content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Deleted 3 calendar event draft(s)"),
+      }),
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Open calendar"),
+      }),
+    ]);
   });
 
   it.each([undefined, "single", "all"] as const)(

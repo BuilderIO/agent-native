@@ -1,5 +1,64 @@
 # @agent-native/scheduling
 
+## 0.2.46
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 2e8f454: Compile with `noImplicitOverride` and `noFallthroughCasesInSwitch`, and, where the code already passes them, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Optional fields that legitimately hold `undefined` are now typed `T | undefined`. No runtime behavior changes.
+- Updated dependencies [94dab1c]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [f717042]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [9a61c1d]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [99c97eb]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [9c559ff]
+- Updated dependencies [9fd95b5]
+- Updated dependencies [2938b17]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0c8b261]
+- Updated dependencies [cc341a4]
+- Updated dependencies [180ecbe]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [723fac2]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [c2a6e7e]
+- Updated dependencies [656b02e]
+- Updated dependencies [1cd201c]
+- Updated dependencies [c2a6e7e]
+- Updated dependencies [bdfea6d]
+- Updated dependencies [4173583]
+- Updated dependencies [4173583]
+- Updated dependencies [369ceab]
+- Updated dependencies [d569c61]
+- Updated dependencies [e086032]
+- Updated dependencies [ee67a21]
+- Updated dependencies [ef8111a]
+- Updated dependencies [0ab7e59]
+- Updated dependencies
+- Updated dependencies [7199312]
+- Updated dependencies [12a91c6]
+- Updated dependencies [8254996]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [f20824d]
+- Updated dependencies [ef46f92]
+- Updated dependencies [b14bed7]
+- Updated dependencies [f83c054]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [a9c0fa9]
+- Updated dependencies [eaa780a]
+- Updated dependencies [d9cfcd4]
+- Updated dependencies [82efd47]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [2e8f454]
+- Updated dependencies [90395b3]
+- Updated dependencies [7ee0542]
+  - @agent-native/toolkit@0.221.0
+
 ## 0.2.45
 
 ### Patch Changes
@@ -1149,12 +1208,5 @@
 ### Patch Changes
 
 - 86697e9: Depend on `@agent-native/toolkit` via `workspace:^` instead of `workspace:*`. Publishing now pins a caret range (e.g. `^0.4.3`) rather than an exact version, so an app that scaffolds `@agent-native/toolkit@latest` separately can dedupe against it through normal semver resolution instead of installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`).
-
-## 0.1.22
-
-### Patch Changes
-
-- Updated dependencies [680b1eb]
-  - @agent-native/toolkit@0.4.4
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

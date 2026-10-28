@@ -61,7 +61,7 @@ export default {
     recordingStarted: "錄製開始時間",
     appBandHeading: "{app} · {count} 個工作階段",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 個工作階段{partial}",
-    journeyTitleAppBandsSummary: "{from} 至 {to} · 各應用程式獨立群組{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 獨立群組{partial}",
     sessionCount: "{count} 個工作階段",
     otherPaths: "其他路徑",
     otherBranchesShown: "已顯示 {shown}/{total} 個分支",
@@ -394,6 +394,9 @@ export default {
       chooseFrame: "選擇畫框",
       inspect: "檢查",
       exportSvg: "匯出 SVG",
+      moreActions: "更多操作",
+      askAboutFile: "詢問這個檔案",
+      askAboutFilePrompt: "詢問這個連結設計檔案的相關問題。{{url}}",
       actionsPrefill: "檢閱後再傳送",
       retry: "重試",
       currentDesign: "目前的 Design",
@@ -2127,6 +2130,18 @@ export default {
       viewportMobile: "行動版",
       added: "已新增畫面",
       addFailed: "無法新增畫面",
+    },
+    localhostConsent: {
+      approvedTitle: "已核准 — 請重新執行編輯",
+      approvedDescription:
+        "檔案寫入權限有效期為 8 小時。要求存取權的那次編輯未儲存。",
+      retryInChat: "在聊天中重新執行",
+      retryPrompt:
+        "已核准對 {{rootPath}} 的檔案寫入。請重新執行需要此權限的編輯。",
+      unavailableTitle: "此寫入要求已不再待處理",
+      unavailableDescription: "重新執行編輯以要求存取權。",
+      close: "關閉",
+      prepareSignInError: "無法在登入前儲存此要求。請再試一次。",
     },
     capabilities: {
       "deterministic-style-edit": "安全樣式編輯",

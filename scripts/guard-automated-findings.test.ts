@@ -69,9 +69,22 @@ test("the deploy canary and reaper are in the complete Slack reporter inventory"
     const source = workflows[workflowPath]!;
     assert.match(source, new RegExp(`name: ${artifact}`));
     assert.match(source, /retention-days: 90/);
-    assert.match(source, /SLACK_CHANNEL: C0C4U4XRT6X/);
+    assert.match(source, /SLACK_CHANNEL: C0C7A1Y2EF6/);
     assert.equal(source.match(/method: chat\.postMessage/g)?.length, 1);
   }
+});
+
+test("the guard rejects deploy-path alerts routed to the QA channel", () => {
+  const workflows = currentWorkflows();
+  const canary = ".github/workflows/deploy-canary.yml";
+  workflows[canary] = workflows[canary]!.replace(
+    "SLACK_CHANNEL: C0C7A1Y2EF6",
+    "SLACK_CHANNEL: C0C4U4XRT6X",
+  );
+  assert.match(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /must route its report to #dev-agent-native-alerts/,
+  );
 });
 
 test("issue creation, edits, closes, and comments are forbidden in source files", () => {
