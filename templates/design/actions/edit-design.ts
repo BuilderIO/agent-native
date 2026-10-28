@@ -29,6 +29,7 @@ import {
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
+import { promoteAuthoredSvgArtworkInHtml } from "../shared/authored-svg-layers.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import {
   assertLockedLayersPreserved,
@@ -398,6 +399,11 @@ export default defineAction({
             error instanceof Error ? error.message : "Design edit failed",
           );
         }
+      }
+      if (file.fileType === "html") {
+        nextContent = promoteAuthoredSvgArtworkInHtml(nextContent, {
+          previousHtml: base,
+        }).content;
       }
       changed = nextContent !== base;
       creativeContext = undefined;

@@ -1220,3 +1220,17 @@ tokened SVG/CSS, not photos.
   to place the chosen image, then do one `edit-design` pass (using
   `get-design-snapshot` first) to adjust surrounding layout/spacing if the
   inserted figure doesn't sit flush with the rest of the design.
+- **Vector illustrations stay inline `<svg>`.** When `generate-design`,
+  `present-design-variants`, or `edit-design` saves an `<svg>` with an edge of
+  64px or more, each shape and `<text>` becomes its own layer, and each `<use>`
+  is replaced by a copy of the shapes it points to. Users can then select,
+  move, recolor, and retype each part. Icons smaller than that stay one layer.
+  A `<use>` stays one layer when a stylesheet selects it by tag, sizes or
+  transforms it, or selects its symbol's parts by `#id`, so style artwork
+  with attributes and classes.
+  Never rebuild an illustration as divs or export a PNG to make it editable.
+  To convert an SVG saved before this, rewrite it with `edit-design`.
+- **A moved SVG part keeps its `translate`.** The editor moves a shape inside
+  an SVG with an inline CSS `translate` in the SVG's own units, applied
+  outside the shape's `transform`. Keep it when you edit the shape. Remove it
+  only to fold the same offset into the shape's geometry or `transform`.

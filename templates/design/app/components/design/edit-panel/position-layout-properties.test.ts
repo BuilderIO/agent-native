@@ -9,6 +9,7 @@ import {
   measuredPositionValue,
   measuredPositionOffset,
   positionFieldMode,
+  svgShapePositionPatch,
 } from "./position-layout-properties";
 
 function element(overrides: Partial<ElementInfo> = {}): ElementInfo {
@@ -315,6 +316,42 @@ describe("positionFieldMode", () => {
     });
 
     expect(positionFieldMode(operand)).toEqual({ kind: "out-of-flow" });
+  });
+
+  it("moves a shape inside an SVG by its translate, never by CSS insets", () => {
+    const group = element({
+      tagName: "g",
+      computedStyles: { position: "static" },
+      childElementCount: 2,
+      svgShapeOffset: { x: 4, y: 0 },
+    });
+    expect(positionFieldMode(group)).toEqual({
+      kind: "svg-shape",
+      offset: { x: 4, y: 0 },
+    });
+    expect(positionFieldMode({ ...group, svgShapeOffset: null })).toEqual({
+      kind: "read-only",
+    });
+  });
+});
+
+describe("svgShapePositionPatch", () => {
+  it("lands a typed X on the canvas through the SVG's scale", () => {
+    // The shape sits at X 640 in an SVG drawn at twice its viewBox size.
+    const shape = element({
+      tagName: "rect",
+      boundingRect: { x: 640, y: 120, width: 120, height: 60 },
+      positionReferenceRect: { x: 0, y: 0, width: 1440, height: 900 },
+      positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 2 },
+      svgShapeOffset: { x: 10, y: 0 },
+    });
+
+    expect(svgShapePositionPatch(shape, { x: 10, y: 0 }, "x", 700)).toEqual({
+      translate: "40px 0px",
+    });
+    expect(svgShapePositionPatch(shape, { x: 10, y: 0 }, "y", 119)).toEqual({
+      translate: "10px -0.5px",
+    });
   });
 });
 
