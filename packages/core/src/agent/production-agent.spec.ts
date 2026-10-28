@@ -14961,11 +14961,12 @@ describe("runAgentLoop", () => {
 
     it("declines another POST after one that may have written, and stops an exact repeat", async () => {
       const executeRequest = vi.fn().mockResolvedValue(rejected);
-      const create = (email: string) => ({
-        provider: "hubspot",
+      // GitHub, not HubSpot: raw HubSpot writes are refused before any retry.
+      const create = (title: string) => ({
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email } },
+        path: "/repos/acme/app/issues",
+        body: { title },
       });
 
       const events = await runToolCallSequence(
@@ -15002,10 +15003,10 @@ describe("runAgentLoop", () => {
     it("runs the write again when the user replies continue in a new turn", async () => {
       const executeRequest = vi.fn().mockResolvedValue(accepted);
       const input = {
-        provider: "hubspot",
+        provider: "github",
         method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: { properties: { email: "a@example.com" } },
+        path: "/repos/acme/app/issues",
+        body: { title: "a@example.com" },
       };
       const messages: EngineMessage[] = [
         { role: "user", content: [{ type: "text", text: "add the contact" }] },

@@ -56,7 +56,10 @@ export async function addWorkspaceConnectionMcpServers(
     let connectionId: string | null = null;
     try {
       const resolved = await runWithRequestContext(
-        { userEmail: principal.userEmail, orgId: principal.orgId ?? undefined },
+        {
+          userEmail: principal.userEmail,
+          ...(principal.orgId ? { orgId: principal.orgId } : {}),
+        },
         () =>
           resolveWorkspaceConnectionForApp({
             appId,
@@ -114,7 +117,10 @@ export async function resolveWorkspaceConnectionMcpBearer(
   const { createProviderApiRuntime } = await import("../provider-api/index.js");
   const runtime = createProviderApiRuntime({ appId: auth.appId });
   const token = await runWithRequestContext(
-    { userEmail: auth.ownerEmail, orgId: auth.orgId ?? undefined },
+    {
+      userEmail: auth.ownerEmail,
+      ...(auth.orgId ? { orgId: auth.orgId } : {}),
+    },
     () =>
       runtime.resolveOAuthAccessToken({
         provider: auth.provider,
