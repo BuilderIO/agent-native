@@ -2,7 +2,6 @@
 
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
-  dispatchAgentChatRunning,
   reportAgentChatSubmitTarget,
 } from "@agent-native/core/client/agent-chat";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -844,19 +843,10 @@ describe("DeckEditor generation signal wiring", () => {
   it("waits on a question asked by a run that ended before the editor mounted", async () => {
     // The deck route loads lazily, so Home's submission can be routed, run,
     // and end on a question before this editor listens for any chat event.
-    reportAgentChatSubmitTarget("submit-before-mount", "generation-tab");
-    dispatchAgentChatRunning({
-      isRunning: true,
-      threadId: "generation-tab",
-      tabId: "generation-tab",
+    reportAgentChatSubmitTarget("submit-before-mount", "generation-tab", {
+      threadId: "generation-thread",
     });
-    dispatchAgentChatRunning({
-      isRunning: false,
-      threadId: "generation-tab",
-      tabId: "generation-tab",
-      reason: "run.completed",
-    });
-    mocks.guidedQuestionAskerThreadId = "generation-tab";
+    mocks.guidedQuestionAskerThreadId = "generation-thread";
     mocks.guidedQuestionQuestions = [
       { id: "q1", question: "Which story should the deck tell?" },
     ];

@@ -36,67 +36,10 @@ export function resolveAgentChatRunningThreadId(
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-export interface AgentChatSubmitRoute {
-  tabId: string;
-  /** The first thread the tab reported running after the submit was routed. */
-  threadId: string | null;
-}
-
-const SUBMIT_ROUTE_HISTORY_LIMIT = 100;
-const submitRoutes = new Map<
-  string,
-  AgentChatSubmitRoute & { threadReported: boolean }
->();
-
-export function rememberAgentChatSubmitTarget(
-  submitMessageId: string,
-  tabId: string,
-): void {
-  submitRoutes.delete(submitMessageId);
-  submitRoutes.set(submitMessageId, {
-    tabId,
-    threadId: null,
-    threadReported: false,
-  });
-  if (submitRoutes.size > SUBMIT_ROUTE_HISTORY_LIMIT) {
-    const oldest = submitRoutes.keys().next().value;
-    if (oldest !== undefined) submitRoutes.delete(oldest);
-  }
-}
-
-export function rememberAgentChatRunningThread(
-  detail: Partial<AgentChatRunningEventDetail> | null | undefined,
-): void {
-  const reportedThreadId = detail?.threadId?.trim() || null;
-  // A thread-only event names its tab by the thread, and a tab-only event
-  // names its thread by the tab, as the resolver reads them.
-  const tabId = detail?.tabId?.trim() || reportedThreadId;
-  if (!tabId) return;
-  for (const route of submitRoutes.values()) {
-    if (route.tabId !== tabId || route.threadReported) continue;
-    route.threadId = reportedThreadId ?? tabId;
-    route.threadReported = reportedThreadId !== null;
-  }
-}
-
-/**
- * Where a submission was routed. The submit target and running events fire
- * once, often before a lazily loaded route that tracks the submission has
- * mounted, so late listeners read them here. The thread is scoped to this
- * submission, never a thread the tab ran before it.
- */
-export function getAgentChatSubmitTarget(
-  submitMessageId: string,
-): AgentChatSubmitRoute | null {
-  const route = submitRoutes.get(submitMessageId);
-  return route ? { tabId: route.tabId, threadId: route.threadId } : null;
-}
-
 export function dispatchAgentChatRunning(
   detail: AgentChatRunningEventDetail,
 ): void {
   if (typeof window === "undefined") return;
-  rememberAgentChatRunningThread(detail);
   window.dispatchEvent(new CustomEvent(AGENT_CHAT_RUNNING_EVENT, { detail }));
 }
 

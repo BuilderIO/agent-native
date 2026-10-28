@@ -78,6 +78,7 @@ const {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  getAgentChatSubmitTarget,
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
@@ -87,6 +88,7 @@ const {
   removeAgentChatContextItem,
   removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
+  reportAgentChatSubmitTarget,
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   setAgentChatContextItem,
@@ -2081,6 +2083,44 @@ describe("sendToAgentChat", () => {
       data: parentPostMessageSpy.mock.calls[0][0],
     } as MessageEvent);
     expect(parsed?.surface).toBe("deck-outline");
+  });
+});
+
+describe("getAgentChatSubmitTarget", () => {
+  it("keeps each submission's route for listeners that subscribe after the event", () => {
+    reportAgentChatSubmitTarget("submit-first", "tab-shared", {
+      threadId: "thread-first",
+    });
+    reportAgentChatSubmitTarget("submit-second", "tab-shared", {
+      threadId: "thread-second",
+    });
+    reportAgentChatSubmitTarget("submit-no-thread", "tab-other");
+
+    expect(getAgentChatSubmitTarget("submit-first")).toEqual({
+      tabId: "tab-shared",
+      threadId: "thread-first",
+    });
+    expect(getAgentChatSubmitTarget("submit-second")).toEqual({
+      tabId: "tab-shared",
+      threadId: "thread-second",
+    });
+    expect(getAgentChatSubmitTarget("submit-no-thread")).toEqual({
+      tabId: "tab-other",
+      threadId: null,
+    });
+    expect(getAgentChatSubmitTarget("submit-never-routed")).toBeNull();
+  });
+
+  it("forgets the oldest submissions once the history is full", () => {
+    reportAgentChatSubmitTarget("submit-oldest", "tab-oldest");
+    for (let index = 0; index < 100; index += 1) {
+      reportAgentChatSubmitTarget(`submit-filler-${index}`, "tab-filler");
+    }
+
+    expect(getAgentChatSubmitTarget("submit-oldest")).toBeNull();
+    expect(getAgentChatSubmitTarget("submit-filler-99")?.tabId).toBe(
+      "tab-filler",
+    );
   });
 });
 
