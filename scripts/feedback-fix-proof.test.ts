@@ -75,9 +75,9 @@ describe("parseReports", () => {
         "### Reports (3)",
         "1. https://app.slack.com/a",
         "  visual: n/a",
-        "https://app.slack.com/b",
+        "  https://app.slack.com/b",
         "  visual: https://example.com/after.png",
-        "- https://app.slack.com/c",
+        "   - https://app.slack.com/c",
         "  - visual: https://example.com/before.png https://example.com/after.png",
       ].join("\n"),
     );

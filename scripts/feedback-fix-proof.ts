@@ -53,8 +53,8 @@ export function parseReports(body: string): Report[] | null {
     }
     // A list item (bulleted or numbered) or a bare URL starts a report.
     const link =
-      /^(?:[-*+]|\d+[.)])\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1] ??
-      /^(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
+      /^ {0,3}(?:[-*+]|\d+[.)])\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1] ??
+      /^ {0,3}(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
     if (link) reports.push({ link, proven: [], visual: false });
   }
   return reports;

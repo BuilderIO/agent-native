@@ -31,6 +31,11 @@ jobs:
           # .git/config, since only local history is needed.
           persist-credentials: false
 
+      # Pin the runtime the parser needs instead of trusting the runner's.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
       # The script's own parser decides which PRs need checking, so the
       # trigger can't disagree with it; most PRs stop here in seconds.
       - name: Look for a Reports section
