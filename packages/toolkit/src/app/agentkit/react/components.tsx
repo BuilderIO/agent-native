@@ -4771,6 +4771,15 @@ function messageText(message: AgentMessage): string {
     .join("\n");
 }
 
+function messageCopyText(message: AgentMessage, text: string): string {
+  const files = message.parts.flatMap((part) => {
+    if (part.type !== "file") return [];
+    const href = safeAgentHref(part.url);
+    return [[part.name, ...(href ? [href] : [])].join("\n")];
+  });
+  return [text, ...files].filter(Boolean).join("\n\n");
+}
+
 function findPreviousMessage(
   messages: readonly AgentMessage[],
   messageId: string,
@@ -5389,6 +5398,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   const secondaryActionsRef = useRef<HTMLDivElement>(null);
   const pendingFocusRef = useRef<"secondary" | "toggle" | null>(null);
   const secondaryActionsId = useId();
+  const copyText = messageCopyText(message, text);
   const showRetry =
     isLastAssistantMessage &&
     position.hasPreviousUserMessage &&
@@ -5446,8 +5456,8 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     if (!hasSecondaryActions && moreActionsOpen) setMoreActions(false, null);
   }, [hasSecondaryActions, moreActionsOpen, setMoreActions]);
   const copyAction = useAgentKitMutation(async () => {
-    const handled = await onCopyMessage?.({ message, text });
-    if (!handled && !(await writeClipboardText(text))) {
+    const handled = await onCopyMessage?.({ message, text: copyText });
+    if (!handled && !(await writeClipboardText(copyText))) {
       throw new Error(labels.copyUnavailable);
     }
     setCopied(true);

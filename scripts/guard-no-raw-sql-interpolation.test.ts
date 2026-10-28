@@ -2095,4 +2095,21 @@ describe("raw SQL interpolation guard", () => {
       ),
     ).toEqual([]);
   });
+
+  it("traces diamond-shaped assignment chains without re-walking each path", () => {
+    const depth = 40;
+    const text = source([
+      "declare const recordId: string;",
+      "let v0 = `SELECT ${recordId}`;",
+      ...Array.from(
+        { length: depth },
+        (_, i) => `let v${i + 1} = v${i} + v${i};`,
+      ),
+      `database.execute(v${depth});`,
+    ]);
+
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([depth + 3])),
+    ).toHaveLength(1);
+  }, 10_000);
 });

@@ -50,6 +50,7 @@ import {
   isAgentConnectionRequiredError,
   actionCallIntent,
   ActionInputValidationError,
+  telemetryInvalidPaths,
   type ActionExecutionOutcome,
   invocationEffect,
   runPreparedActionCall,
@@ -9651,6 +9652,7 @@ export async function runAgentLoop(opts: {
         guidance: string,
         isError = false,
         errorClass?: ToolErrorClass,
+        invalidPaths?: string[],
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -9669,6 +9671,7 @@ export async function runAgentLoop(opts: {
             isError: true,
             completedSideEffect: false,
             ...(errorClass ? { errorClass } : {}),
+            ...(invalidPaths ? { invalidPaths } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9825,6 +9828,9 @@ export async function runAgentLoop(opts: {
           thrownToolResult(intent?.error),
           true,
           "input_invalid",
+          intent?.error instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(intent.error.paths)
+            : undefined,
         );
       }
 
@@ -11118,6 +11124,10 @@ export async function runAgentLoop(opts: {
             : callEffect === "none" && !actionIsReadOnly
               ? "rejected"
               : undefined;
+        const toolInvalidPaths =
+          thrown instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(thrown.paths)
+            : undefined;
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -11248,6 +11258,7 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(toolErrorClass ? { errorClass: toolErrorClass } : {}),
+          ...(toolInvalidPaths ? { invalidPaths: toolInvalidPaths } : {}),
           ...(callEffect === "unknown"
             ? { outcomeUnknown: true as const }
             : isError || receipt || callEffect === "committed"
