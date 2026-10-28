@@ -833,6 +833,11 @@ export {
 export {
   cdnSafeOriginStatus,
   createBuilderProject,
+  createBuilderWorkspaceApp,
+  getBuilderWorkspaceProjectId,
+  listBuilderWorkspaceApps,
+  type BuilderWorkspaceAppResult,
+  type BuilderWorkspaceAppSummary,
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,

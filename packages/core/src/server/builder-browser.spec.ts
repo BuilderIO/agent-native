@@ -60,6 +60,8 @@ import {
   BUILDER_STATE_PARAM,
   createBuilderConnectState,
   createBuilderProject,
+  createBuilderWorkspaceApp,
+  listBuilderWorkspaceApps,
   createBuilderRelayRequest,
   ensureBuilderProject,
   findBuilderProjectForRepo,
@@ -2270,6 +2272,63 @@ describe("Builder callback CSRF state", () => {
         },
         name: "Agent-Native Workspace",
       });
+    });
+
+    it("creates and lists Builder workspace apps", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ projectId: "app-proj", branchName: "ai_branch" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              apps: [
+                {
+                  projectId: "p1",
+                  appId: "crm",
+                  name: "CRM",
+                  status: "pending",
+                },
+                { projectId: "p2", appId: "bad" },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const created = await createBuilderWorkspaceApp({
+        workspaceProjectId: "ws-1",
+        prompt: "build a crm",
+        appId: "crm",
+        name: "CRM",
+      });
+      expect(created).toMatchObject({
+        projectId: "app-proj",
+        branchName: "ai_branch",
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain(
+        "/projects/workspace/apps",
+      );
+      expect(JSON.parse(fetchSpy.mock.calls[0]?.[1].body)).toEqual({
+        workspaceProjectId: "ws-1",
+        prompt: "build a crm",
+        appId: "crm",
+        name: "CRM",
+        description: "",
+      });
+
+      const apps = await listBuilderWorkspaceApps({
+        workspaceProjectId: "ws-1",
+      });
+      expect(apps).toEqual([
+        { projectId: "p1", appId: "crm", name: "CRM", status: "pending" },
+      ]);
+      expect(String(fetchSpy.mock.calls[1]?.[0])).toContain("projectId=ws-1");
     });
 
     it("finds a project connected to a repository through the deprecated API", async () => {
