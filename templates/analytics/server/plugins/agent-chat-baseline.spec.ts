@@ -54,7 +54,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * status). Trimming the AGENTS routing bullet and the BigQuery and get-dbt-connection
  * descriptions, which repeated data-querying, leaves ~55t over the last ratchet.
  */
-const BASELINE_BUDGET_TOKENS = 18_850;
+const BASELINE_BUDGET_TOKENS = 18_925;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;

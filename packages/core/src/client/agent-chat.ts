@@ -196,16 +196,46 @@ export interface AgentChatSubmitTarget {
   tabId: string;
 }
 
+export interface AgentChatSubmitRoute {
+  tabId: string;
+  /** The conversation thread, when the chat that routed the submit knows it. */
+  threadId: string | null;
+}
+
+const SUBMIT_ROUTE_HISTORY_LIMIT = 100;
+const submitRoutes = new Map<string, AgentChatSubmitRoute>();
+
 export function reportAgentChatSubmitTarget(
   submitMessageId: string | undefined,
   tabId: string,
+  options: { threadId?: string } = {},
 ): void {
   if (!submitMessageId || !tabId || typeof window === "undefined") return;
+  submitRoutes.delete(submitMessageId);
+  submitRoutes.set(submitMessageId, {
+    tabId,
+    threadId: options.threadId?.trim() || null,
+  });
+  if (submitRoutes.size > SUBMIT_ROUTE_HISTORY_LIMIT) {
+    const oldest = submitRoutes.keys().next().value;
+    if (oldest !== undefined) submitRoutes.delete(oldest);
+  }
   window.dispatchEvent(
     new CustomEvent<AgentChatSubmitTarget>(AGENT_CHAT_SUBMIT_TARGET_EVENT, {
       detail: { submitMessageId, tabId },
     }),
   );
+}
+
+/**
+ * Where a submission was routed. The target event fires once, often before a
+ * lazily loaded route that tracks the submission has mounted, so late
+ * listeners read it here instead of waiting for an event that already passed.
+ */
+export function getAgentChatSubmitTarget(
+  submitMessageId: string,
+): AgentChatSubmitRoute | null {
+  return submitRoutes.get(submitMessageId) ?? null;
 }
 
 export function reportAgentChatSubmitResult(

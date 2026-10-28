@@ -1,4 +1,3 @@
-import { useFormatters } from "@agent-native/core/client/i18n";
 import {
   useCreateReviewComment,
   useDeleteReviewComment,
@@ -8,10 +7,8 @@ import {
   useResolveReviewThread,
   useReviewComments,
 } from "@agent-native/core/client/review/use-review";
-import { useAvatarUrl } from "@agent-native/core/client/use-avatar";
 import type {
   ReviewComment,
-  ReviewCommentReaction,
   ReviewMention,
   ReviewResolutionTarget,
 } from "@agent-native/core/review/types";
@@ -26,16 +23,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@agent-native/toolkit/ui/alert-dialog";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@agent-native/toolkit/ui/avatar";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -45,31 +36,19 @@ import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertCircle,
-  IconCheck,
   IconChevronDown,
   IconCircleCheck,
-  IconDots,
   IconFilter,
-  IconLink,
   IconMessageCircle,
-  IconMoodSmile,
-  IconMail,
-  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 
-import { InlineMarkdown } from "./InlineMarkdown.js";
 import { ReviewCommentComposer } from "./ReviewCommentComposer.js";
+import { ReviewCommentItem } from "./ReviewCommentItem.js";
+import { DEFAULT_REACTION_CHOICES } from "./ReviewReactionBar.js";
 import { ReviewStatusBadge } from "./ReviewStatusBadge.js";
-
-const DEFAULT_REACTION_CHOICES = ["👍", "❤️", "🎉", "👀"] as const;
-const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
-
-interface ReviewCommentAttachment {
-  url: string;
-  name: string;
-}
+import { ReviewThreadMenu } from "./ReviewThreadMenu.js";
 
 export interface ReviewThread {
   root: ReviewComment;
@@ -257,7 +236,6 @@ export function ReviewThreadPanel({
     }>
   >([]);
   const createPendingRef = useRef(false);
-  const editChosenFromMenuRef = useRef(false);
   // Reply and Edit put the cursor in their box. A box reopened after a
   // failed save takes focus only if nobody else holds it by then.
   const [focusReplyBox, setFocusReplyBox] = useState(true);
@@ -316,8 +294,6 @@ export function ReviewThreadPanel({
     threadId: string;
     status: "copied" | "failed";
   } | null>(null);
-  const formatters = useFormatters();
-  const formatDate = formatters.formatDate.bind(formatters);
   const comments = useReviewComments({
     resourceType,
     resourceId,
@@ -326,6 +302,9 @@ export function ReviewThreadPanel({
     newestFirst,
     limit,
   });
+  // Read before the render branch narrows `comments.data`: there the type says
+  // `discussion` is always present, and the reads below would look redundant.
+  const discussion = comments.data?.discussion;
   const createComment = useCreateReviewComment();
   const replyComment = useReplyReviewComment();
   const resolveThread = useResolveReviewThread();
@@ -964,95 +943,84 @@ export function ReviewThreadPanel({
                 <article
                   key={thread.root.threadId}
                   className={cn(
-                    "group/thread px-3 py-3 transition-colors",
+                    "group/thread pb-3 transition-colors",
                     threadUnread && "bg-primary/[0.03]",
                     onSelectThread && "cursor-pointer hover:bg-muted/30",
                   )}
                   data-review-thread-unread={threadUnread ? "true" : undefined}
                   onClick={() => onSelectThread?.(thread)}
                 >
-                  {editCandidate?.id === thread.root.id ? (
-                    <div className="mt-3 flex min-w-0 items-start gap-1.5">
-                      <ReviewCommentComposer
-                        className="min-w-0 flex-1"
-                        value={editDraft}
-                        mentions={editMentions}
-                        onMentionsChange={(mentions) => {
-                          editMentionsRef.current = mentions;
-                          setEditMentions(mentions);
-                        }}
-                        mentionOptions={mentionOptions}
-                        showCommentTools={showComposerTools}
-                        onChange={(value) => {
-                          editGenerationRef.current += 1;
-                          editDraftRef.current = value;
-                          setEditDraft(value);
-                        }}
-                        onSubmit={submitEdit}
-                        commentLabel={saveEditLabel}
-                        placeholder={editLabel}
-                        textareaProps={{ "aria-label": editLabel }}
-                        autoFocus={focusEditBox}
-                        submitOnEnter
-                        onEscape={cancelEditing}
-                      />
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="mt-1 size-8 shrink-0"
-                        aria-label={cancelEditLabel}
-                        onClick={cancelEditing}
-                      >
-                        <IconX className="size-3.5" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <CommentBubble
-                      comment={thread.root}
+                  <ReviewCommentItem
+                    comment={thread.root}
+                    variant="root"
+                    resolvedLabel={resolvedLabel}
+                    reviewerLabel={reviewerLabel}
+                    agentLabel={agentLabel}
+                    unread={threadUnread}
+                    unreadLabel={unreadLabel}
+                    reactions={discussion?.reactions[thread.root.id]}
+                    canReact={discussion?.canReact ?? false}
+                    showReactions={showReactions}
+                    reactionChoices={reactionChoices}
+                    addReactionLabel={addReactionLabel}
+                    onReact={handleReaction}
+                    editor={
+                      editCandidate?.id === thread.root.id ? (
+                        <div className="flex min-w-0 items-start gap-1.5">
+                          <ReviewCommentComposer
+                            className="min-w-0 flex-1"
+                            value={editDraft}
+                            mentions={editMentions}
+                            onMentionsChange={(mentions) => {
+                              editMentionsRef.current = mentions;
+                              setEditMentions(mentions);
+                            }}
+                            mentionOptions={mentionOptions}
+                            showCommentTools={showComposerTools}
+                            onChange={(value) => {
+                              editGenerationRef.current += 1;
+                              editDraftRef.current = value;
+                              setEditDraft(value);
+                            }}
+                            onSubmit={() => void submitEdit()}
+                            commentLabel={saveEditLabel}
+                            placeholder={editLabel}
+                            textareaProps={{ "aria-label": editLabel }}
+                            autoFocus={focusEditBox}
+                            submitOnEnter
+                            onEscape={cancelEditing}
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="mt-1 size-8 shrink-0"
+                            aria-label={cancelEditLabel}
+                            onClick={cancelEditing}
+                          >
+                            <IconX className="size-3.5" />
+                          </Button>
+                        </div>
+                      ) : undefined
+                    }
+                  />
+                  {thread.replies.map((reply) => (
+                    <ReviewCommentItem
+                      key={reply.id}
+                      comment={reply}
+                      variant="reply"
                       resolvedLabel={resolvedLabel}
                       reviewerLabel={reviewerLabel}
                       agentLabel={agentLabel}
-                      unread={threadUnread}
                       unreadLabel={unreadLabel}
-                      formatDate={formatDate}
-                      reactions={
-                        comments.data?.discussion?.reactions[thread.root.id]
-                      }
-                      canReact={comments.data?.discussion?.canReact ?? false}
+                      reactions={discussion?.reactions[reply.id]}
+                      canReact={discussion?.canReact ?? false}
                       showReactions={showReactions}
                       reactionChoices={reactionChoices}
                       addReactionLabel={addReactionLabel}
                       onReact={handleReaction}
                     />
-                  )}
-                  {thread.replies.length ? (
-                    <div className="ms-3 mt-3 flex flex-col gap-3 border-s border-border ps-3">
-                      {thread.replies.map((reply) => (
-                        <CommentBubble
-                          key={reply.id}
-                          comment={reply}
-                          compact
-                          resolvedLabel={resolvedLabel}
-                          reviewerLabel={reviewerLabel}
-                          agentLabel={agentLabel}
-                          unread={false}
-                          unreadLabel={unreadLabel}
-                          formatDate={formatDate}
-                          reactions={
-                            comments.data?.discussion?.reactions[reply.id]
-                          }
-                          canReact={
-                            comments.data?.discussion?.canReact ?? false
-                          }
-                          showReactions={showReactions}
-                          reactionChoices={reactionChoices}
-                          addReactionLabel={addReactionLabel}
-                          onReact={handleReaction}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
+                  ))}
 
                   {(failedReplies[thread.root.id] ?? [])
                     .filter(
@@ -1063,7 +1031,7 @@ export function ReviewThreadPanel({
                     .map((failed) => (
                       <div
                         key={failed.id}
-                        className="mt-2 flex items-start gap-2 text-sm"
+                        className="mt-2 flex items-start gap-2 px-3 text-sm"
                         data-review-failed-reply={failed.id}
                       >
                         <IconAlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -1085,7 +1053,7 @@ export function ReviewThreadPanel({
                     ))}
                   {replying && replyAllowed ? (
                     <div
-                      className="mt-3 flex min-w-0 items-start gap-1.5"
+                      className="mt-3 flex min-w-0 items-start gap-1.5 px-3"
                       onClick={(event) => event.stopPropagation()}
                     >
                       <ReviewCommentComposer
@@ -1139,6 +1107,7 @@ export function ReviewThreadPanel({
                         onSubmit={() => submitReply(thread.root)}
                         placeholder={replyPlaceholder}
                         commentLabel={replyLabel}
+                        variant="reply"
                         autoFocus={focusReplyBox}
                         submitOnEnter
                         onEscape={cancelReplying}
@@ -1157,7 +1126,7 @@ export function ReviewThreadPanel({
                     </div>
                   ) : hasActions ? (
                     <div
-                      className="mt-2.5 flex min-w-0 items-center gap-0.5"
+                      className="mt-2.5 flex min-w-0 items-center gap-0.5 px-3"
                       onClick={(event) => event.stopPropagation()}
                     >
                       {replyAllowed ? (
@@ -1225,94 +1194,48 @@ export function ReviewThreadPanel({
                             </span>
                           </Button>
                         ) : null}
-                        {hasMenuActions ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-7 shrink-0"
-                                aria-label={moreActionsLabel}
-                              >
-                                <IconDots className="size-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              align="end"
-                              className="w-44"
-                              onCloseAutoFocus={(event) => {
-                                // Edit puts focus in its composer; leave it
-                                // there. Other actions return to the button.
-                                if (editChosenFromMenuRef.current)
-                                  event.preventDefault();
-                                editChosenFromMenuRef.current = false;
-                              }}
-                            >
-                              {editAllowed ? (
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    editChosenFromMenuRef.current = true;
-                                    startEditing(thread.root);
-                                  }}
-                                >
-                                  {editLabel}
-                                </DropdownMenuItem>
-                              ) : null}
-                              {onSetThreadUnread || onMarkThreadUnread ? (
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    if (onSetThreadUnread) {
-                                      onSetThreadUnread(thread, !threadUnread);
-                                    } else {
-                                      onMarkThreadUnread?.(thread);
-                                    }
-                                  }}
-                                >
-                                  <IconMail className="size-4" />
-                                  {onSetThreadUnread && threadUnread
-                                    ? markReadLabel
-                                    : markUnreadLabel}
-                                </DropdownMenuItem>
-                              ) : null}
-                              {onCopyThreadLink ? (
-                                <DropdownMenuItem
-                                  onSelect={() => onCopyThreadLink(thread)}
-                                >
-                                  <IconLink className="size-4" />
-                                  {copyLinkLabel}
-                                </DropdownMenuItem>
-                              ) : copyLinkAllowed ? (
-                                <DropdownMenuItem
-                                  disabled={copyPendingThreadId !== null}
-                                  onSelect={() => void copyThreadLink(thread)}
-                                >
-                                  {copyState === "copied" ? (
-                                    <IconCheck className="size-4" />
-                                  ) : copyState === "failed" ? (
-                                    <IconAlertCircle className="size-4" />
-                                  ) : (
-                                    <IconLink className="size-4" />
-                                  )}
-                                  {copyState === "copied"
-                                    ? linkCopiedLabel
-                                    : copyState === "failed"
-                                      ? copyLinkFailedLabel
-                                      : copyLinkLabel}
-                                </DropdownMenuItem>
-                              ) : null}
-                              {deleteAllowed ? (
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => openDeleteDialog(thread.root)}
-                                >
-                                  <IconTrash className="size-4" />
-                                  {deleteLabel}
-                                </DropdownMenuItem>
-                              ) : null}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : null}
+                        <ReviewThreadMenu
+                          canEdit={editAllowed}
+                          onEdit={() => startEditing(thread.root)}
+                          onToggleUnread={
+                            onSetThreadUnread || onMarkThreadUnread
+                              ? () => {
+                                  if (onSetThreadUnread) {
+                                    onSetThreadUnread(thread, !threadUnread);
+                                  } else {
+                                    onMarkThreadUnread?.(thread);
+                                  }
+                                }
+                              : undefined
+                          }
+                          unread={Boolean(onSetThreadUnread) && threadUnread}
+                          onCopyLink={
+                            onCopyThreadLink
+                              ? () => onCopyThreadLink(thread)
+                              : copyLinkAllowed
+                                ? () => void copyThreadLink(thread)
+                                : undefined
+                          }
+                          copyLinkState={
+                            onCopyThreadLink ? "idle" : (copyState ?? "idle")
+                          }
+                          copyLinkDisabled={
+                            !onCopyThreadLink && copyPendingThreadId !== null
+                          }
+                          onDelete={
+                            deleteAllowed
+                              ? () => openDeleteDialog(thread.root)
+                              : undefined
+                          }
+                          moreActionsLabel={moreActionsLabel}
+                          editLabel={editLabel}
+                          markUnreadLabel={markUnreadLabel}
+                          markReadLabel={markReadLabel}
+                          copyLinkLabel={copyLinkLabel}
+                          linkCopiedLabel={linkCopiedLabel}
+                          copyLinkFailedLabel={copyLinkFailedLabel}
+                          deleteLabel={deleteLabel}
+                        />
                       </div>
                     </div>
                   ) : null}
@@ -1377,260 +1300,10 @@ export function buildReviewThreads(comments: ReviewComment[]): ReviewThread[] {
   }));
 }
 
-function CommentBubble({
-  comment,
-  compact = false,
-  resolvedLabel,
-  reviewerLabel,
-  agentLabel,
-  unread = false,
-  unreadLabel = "Unread",
-  formatDate,
-  reactions = [],
-  canReact = false,
-  showReactions = false,
-  reactionChoices,
-  addReactionLabel,
-  onReact,
-}: {
-  comment: ReviewComment;
-  compact?: boolean;
-  resolvedLabel: string;
-  reviewerLabel: string;
-  agentLabel?: string;
-  unread?: boolean;
-  unreadLabel?: string;
-  formatDate: ReturnType<typeof useFormatters>["formatDate"];
-  reactions?: ReviewCommentReaction[];
-  canReact?: boolean;
-  showReactions?: boolean;
-  reactionChoices: readonly string[];
-  addReactionLabel: string;
-  onReact: (comment: ReviewComment, reaction: string, active: boolean) => void;
-}) {
-  const author =
-    (comment.createdBy === "agent" ? agentLabel : undefined) ??
-    comment.authorName ??
-    comment.authorEmail ??
-    reviewerLabel;
-  const avatarUrl = useAvatarUrl(comment.authorEmail);
-  const resolutionNote =
-    comment.status === "resolved" ? getReviewResolutionNote(comment) : null;
-  const bodyIsResolutionNote =
-    resolutionNote !== null &&
-    resolutionNote === comment.body.trim() &&
-    isResolutionNoteMetadata(comment.metadata);
-  return (
-    <div className="flex min-w-0 items-start gap-2.5">
-      <Avatar className={compact ? "size-5" : "size-7"}>
-        {avatarUrl ? <AvatarImage src={avatarUrl} alt={author} /> : null}
-        <AvatarFallback className="text-[10px] font-semibold text-muted-foreground">
-          {authorInitials(author)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium">{author}</span>
-          <time
-            className="shrink-0 text-[11px] text-muted-foreground"
-            dateTime={comment.createdAt}
-          >
-            {formatCommentDate(comment.createdAt, formatDate)}
-          </time>
-          {unread ? (
-            <>
-              <span
-                aria-hidden="true"
-                className="size-1.5 shrink-0 rounded-full bg-primary"
-              />
-              <span className="sr-only">{unreadLabel}</span>
-            </>
-          ) : null}
-          {comment.status === "resolved" ? (
-            <span className="hidden shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground @xs/review:inline-flex">
-              {resolvedLabel}
-            </span>
-          ) : null}
-        </div>
-        {!bodyIsResolutionNote ? (
-          <InlineMarkdown
-            content={displayReviewCommentBody(comment.body)}
-            className={cn(
-              "mt-1 text-foreground",
-              compact ? "text-xs leading-5" : "text-sm leading-5",
-            )}
-          />
-        ) : null}
-        {resolutionNote ? (
-          <div
-            className="mt-1.5 flex min-w-0 items-start gap-1.5 rounded-md bg-muted/60 px-2 py-1.5 text-muted-foreground"
-            aria-label={resolvedLabel}
-          >
-            <IconCircleCheck className="mt-0.5 size-3.5 shrink-0" />
-            <InlineMarkdown
-              content={displayReviewCommentBody(resolutionNote)}
-              className="min-w-0 text-xs leading-4"
-            />
-          </div>
-        ) : null}
-        <ReviewCommentAttachmentStrip comment={comment} compact={compact} />
-        {showReactions ? (
-          <div className="mt-2 flex flex-wrap items-center gap-1">
-            {reactions.map((item) => (
-              <button
-                key={item.reaction}
-                type="button"
-                disabled={!canReact}
-                className={cn(
-                  "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs transition-colors",
-                  item.reactedByMe
-                    ? "border-primary/50 bg-primary/10 text-foreground"
-                    : "border-border bg-background text-muted-foreground hover:bg-muted",
-                )}
-                onClick={() =>
-                  onReact(comment, item.reaction, !item.reactedByMe)
-                }
-                aria-label={`${item.reaction} ${item.count}`}
-              >
-                <span aria-hidden="true">{item.reaction}</span>
-                <span>{item.count}</span>
-              </button>
-            ))}
-            {canReact ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 rounded-full text-muted-foreground"
-                    aria-label={addReactionLabel}
-                  >
-                    <IconMoodSmile className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  className="flex w-auto gap-0.5 p-1"
-                >
-                  {reactionChoices.map((reaction) => (
-                    <DropdownMenuItem
-                      key={reaction}
-                      className="size-8 justify-center p-0 text-base"
-                      onSelect={() => onReact(comment, reaction, true)}
-                    >
-                      <span aria-hidden="true">{reaction}</span>
-                      <span className="sr-only">{reaction}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function ReviewCommentAttachmentStrip({
-  comment,
-  compact,
-}: {
-  comment: ReviewComment;
-  compact: boolean;
-}) {
-  const attachments = reviewCommentAttachments(comment);
-  if (!attachments.length) return null;
-  return (
-    <div
-      className={cn(
-        "mt-2 flex flex-wrap gap-1.5",
-        compact ? "max-w-56" : "max-w-64",
-      )}
-      data-review-comment-attachments
-    >
-      {attachments.map((attachment) => (
-        <a
-          key={attachment.url}
-          href={attachment.url}
-          target="_blank"
-          rel="noreferrer"
-          className="block size-16 overflow-hidden rounded-md border border-border bg-muted"
-        >
-          <img
-            src={attachment.url}
-            alt={attachment.name}
-            loading="lazy"
-            className="size-full object-cover"
-          />
-        </a>
-      ))}
-    </div>
-  );
-}
-
-function reviewCommentAttachments(
-  comment: ReviewComment,
-): ReviewCommentAttachment[] {
-  const raw = comment.metadata?.attachments;
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .flatMap((value) => {
-      if (!value || typeof value !== "object") return [];
-      const attachment = value as Record<string, unknown>;
-      const url = typeof attachment.url === "string" ? attachment.url : "";
-      const contentType =
-        typeof attachment.contentType === "string"
-          ? attachment.contentType
-          : undefined;
-      if (
-        !url ||
-        (contentType && !contentType.startsWith("image/")) ||
-        !isTrustedReviewAttachmentUrl(url)
-      ) {
-        return [];
-      }
-      return [
-        {
-          url,
-          name:
-            typeof attachment.name === "string" && attachment.name.trim()
-              ? attachment.name
-              : "image",
-        },
-      ];
-    })
-    .slice(0, MAX_REVIEW_IMAGE_ATTACHMENTS);
-}
-
-export function isTrustedReviewAttachmentUrl(value: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(
-      value,
-      typeof window === "undefined"
-        ? "http://localhost"
-        : window.location.origin,
-    );
-    // coercion-ok: an unparseable attachment URL is untrusted, not absent.
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-  if (typeof window !== "undefined" && parsed.origin === window.location.origin)
-    return true;
-  return parsed.protocol === "https:" && parsed.hostname === "cdn.builder.io";
-}
-
 /** Nothing on the page holds focus, so taking it moves nobody's caret. */
 function focusIsFree() {
   const active = document.activeElement;
   return !active || active === document.body;
-}
-
-function displayReviewCommentBody(body: string): string {
-  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
 function capabilityAllowsThread(
@@ -1648,78 +1321,4 @@ function capabilityAllowsComment(
   return typeof capability === "function"
     ? capability(comment, thread)
     : capability;
-}
-
-function getReviewResolutionNote(comment: ReviewComment): string | null {
-  const direct = comment.resolutionNote;
-  const metadata = comment.metadata;
-  const nestedResolution = metadata?.resolution;
-  const nestedNote =
-    isRecord(nestedResolution) && typeof nestedResolution.note === "string"
-      ? nestedResolution.note
-      : null;
-  const metadataNote =
-    typeof metadata?.resolutionNote === "string"
-      ? metadata.resolutionNote
-      : typeof metadata?.resolvedNote === "string"
-        ? metadata.resolvedNote
-        : isResolutionNoteMetadata(metadata) &&
-            typeof metadata?.note === "string"
-          ? metadata.note
-          : isResolutionNoteMetadata(metadata)
-            ? comment.body
-            : null;
-  const candidate =
-    typeof direct === "string" ? direct : (metadataNote ?? nestedNote);
-  const normalized = candidate?.trim();
-  return normalized || null;
-}
-
-function isResolutionNoteMetadata(
-  metadata: Record<string, unknown> | null,
-): boolean {
-  const marker = metadata?.type ?? metadata?.kind;
-  return (
-    marker === "resolution" ||
-    marker === "resolution_note" ||
-    marker === "resolution-note"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function authorInitials(value: string): string {
-  const normalized = value.split("@")[0]?.trim() ?? "";
-  const parts = normalized.split(/[\s._+-]+/).filter(Boolean);
-  const initials = parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-  return initials || "R";
-}
-
-function formatCommentDate(
-  value: string,
-  formatDate: ReturnType<typeof useFormatters>["formatDate"],
-): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const now = new Date();
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-  if (sameDay) {
-    return formatDate(date, { hour: "numeric", minute: "2-digit" });
-  }
-  if (date.getFullYear() === now.getFullYear()) {
-    return formatDate(date, { month: "short", day: "numeric" });
-  }
-  return formatDate(date, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }

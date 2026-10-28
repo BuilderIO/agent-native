@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { ReviewComment } from "@agent-native/core/review/types";
+import type { Editor } from "@tiptap/core";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -93,11 +94,6 @@ vi.mock("@agent-native/core/client/review/use-review", () => ({
     mutateAsync: mutate,
     isPending: false,
   }),
-  useReactToReviewComment: () => ({
-    mutate,
-    isPending: false,
-    variables: undefined,
-  }),
   useUpdateReviewComment: () => ({
     mutate,
     mutateAsync: mutate,
@@ -111,22 +107,43 @@ vi.mock("@agent-native/core/client/review/use-review", () => ({
   useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
-import {
-  isTrustedReviewAttachmentUrl,
-  ReviewThreadPanel,
-} from "./ReviewThreadPanel.js";
+import { isTrustedReviewAttachmentUrl } from "./ReviewCommentItem.js";
+import { serializeReviewComposerDoc } from "./ReviewComposerText.js";
+import { ReviewThreadPanel } from "./ReviewThreadPanel.js";
 vi.mock("@agent-native/toolkit/clipboard", () => ({ writeClipboardText }));
 
-function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    Object.getPrototypeOf(textarea),
-    "value",
-  )?.set;
+// The composers are Tiptap editors: the `.ProseMirror` node carries `role="textbox"`
+// and the `aria-*`/`data-*` attributes the composer was given, plus `.editor`.
+type ReviewEditorElement = HTMLElement & { editor: Editor };
+
+function requireEditor(element: ReviewEditorElement | null) {
+  if (!element) throw new Error("review composer editor is not mounted");
+  return element;
+}
+
+// Replaces the body the way a keystroke does (a transaction that fires
+// onUpdate), so the component under test sees the change. Positions 1 to
+// size-1 are the text of the first paragraph, which is all these tests use.
+function setEditorValue(element: ReviewEditorElement | null, value: string) {
+  const { editor } = requireEditor(element);
   act(() => {
-    setter?.call(textarea, value);
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    textarea.dispatchEvent(new Event("change", { bubbles: true }));
+    const { state, view } = editor;
+    view.dispatch(state.tr.insertText(value, 1, state.doc.content.size - 1));
   });
+}
+
+function appendToEditor(element: ReviewEditorElement | null, value: string) {
+  const { editor } = requireEditor(element);
+  act(() => {
+    const { state, view } = editor;
+    view.dispatch(state.tr.insertText(value, state.doc.content.size - 1));
+  });
+}
+
+// The body as the composer submits it, with mention chips written as `@label`.
+function editorValue(element: ReviewEditorElement | null) {
+  const { editor } = requireEditor(element);
+  return serializeReviewComposerDoc(editor.state.doc);
 }
 
 function deferredMutation() {
@@ -198,7 +215,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
   });
 
   it("renders all five trusted persisted image attachments", () => {
-    rootComment.metadata = {
+    (rootComment as ReviewComment).metadata = {
       attachments: Array.from({ length: 6 }, (_, index) => ({
         url: `${window.location.origin}/uploads/review-${index + 1}.png`,
         name: `Review ${index + 1}`,
@@ -309,11 +326,11 @@ describe("ReviewThreadPanel sidebar layout", () => {
       ),
     ).toBe(true);
 
-    const composer = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Leave feedback"]',
+    const composer = container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Leave feedback"]',
     );
     expect(composer).not.toBeNull();
-    setTextareaValue(composer!, "Ship this feedback");
+    setEditorValue(composer, "Ship this feedback");
     const composerButtons = Array.from(container.querySelectorAll("button"));
     const commentButton = composerButtons.find(
       (button) => button.textContent?.trim() === "Comment",
@@ -333,7 +350,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
         resolutionTarget: "human",
       }),
     );
-    setTextareaValue(composer!, "Send this to the agent");
+    setEditorValue(composer, "Send this to the agent");
     act(() => agentButton?.click());
     expect(mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({ resolutionTarget: "agent" }),
@@ -350,14 +367,23 @@ describe("ReviewThreadPanel sidebar layout", () => {
       (button) => button.textContent?.trim() === "Reply",
     );
     expect(replyButton).toBeTruthy();
-    act(() => replyButton?.click());
+    await act(async () => replyButton?.click());
+    // The editor mounts asynchronously and takes the reply's focus once ready.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
 
-    expect(
-      container.querySelector('textarea[placeholder="Reply to this thread"]'),
-    ).not.toBeNull();
+    const replyBox = container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Reply to this thread"]',
+    );
+    const replyField = replyBox?.closest("[data-review-composer-field]");
+    expect(replyBox).not.toBeNull();
+    expect(replyField?.hasAttribute("data-expanded")).toBe(true);
     expect(
       container.querySelector('button[aria-label="Cancel reply"]'),
     ).not.toBeNull();
+
+    // An empty reply box goes back to the one-line pill once the person leaves it.
+    act(() => replyBox?.blur());
+    expect(replyField?.hasAttribute("data-expanded")).toBe(false);
   });
 
   it("renders inline Markdown in comment bodies without headings", () => {
@@ -393,11 +419,11 @@ describe("ReviewThreadPanel sidebar layout", () => {
       );
     });
 
-    const composer = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Leave feedback"]',
+    const composer = container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Leave feedback"]',
     );
     expect(composer).not.toBeNull();
-    setTextareaValue(composer!, "Human review note");
+    setEditorValue(composer, "Human review note");
     const commentButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Comment",
     );
@@ -425,17 +451,17 @@ describe("ReviewThreadPanel sidebar layout", () => {
       );
     });
 
-    const composer = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Leave feedback"]',
+    const composer = container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Leave feedback"]',
     );
-    setTextareaValue(composer!, "First draft");
+    setEditorValue(composer, "First draft");
     const failedSubmission = deferredMutation();
     const commentButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Comment",
     );
     act(() => commentButton?.click());
 
-    expect(composer?.value).toBe("");
+    expect(editorValue(composer)).toBe("");
     expect(mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         body: "First draft",
@@ -446,16 +472,16 @@ describe("ReviewThreadPanel sidebar layout", () => {
       failedSubmission.reject(new Error("offline"));
       await failedSubmission.promise.catch(() => undefined);
     });
-    expect(composer?.value).toBe("First draft");
+    expect(editorValue(composer)).toBe("First draft");
 
     const staleFailure = deferredMutation();
     act(() => commentButton?.click());
-    setTextareaValue(composer!, "Newer draft");
+    setEditorValue(composer, "Newer draft");
     await act(async () => {
       staleFailure.reject(new Error("still offline"));
       await staleFailure.promise.catch(() => undefined);
     });
-    expect(composer?.value).toBe("Newer draft");
+    expect(editorValue(composer)).toBe("Newer draft");
     const failedCard = container.querySelector<HTMLElement>(
       "[data-review-failed-create]",
     );
@@ -492,7 +518,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
         clientOperationId: failedOperationId,
       }),
     );
-    expect(composer?.value).toBe("Newer draft");
+    expect(editorValue(composer)).toBe("Newer draft");
     expect(container.querySelector("[data-review-failed-create]")).toBeNull();
   });
 
@@ -515,25 +541,28 @@ describe("ReviewThreadPanel sidebar layout", () => {
         ?.click(),
     );
     const input = () =>
-      container.querySelector<HTMLTextAreaElement>(
-        'textarea[placeholder="Reply to this thread"]',
+      container.querySelector<ReviewEditorElement>(
+        '[role="textbox"][aria-label="Reply to this thread"]',
       );
-    setTextareaValue(input()!, "Submitted reply");
+    setEditorValue(input(), "Submitted reply");
     const failedReply = deferredMutation();
     act(() =>
-      input()?.closest("form")?.querySelector("button[type=submit]")?.click(),
+      input()
+        ?.closest("form")
+        ?.querySelector<HTMLButtonElement>("button[type=submit]")
+        ?.click(),
     );
     act(() =>
       container
         .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
         ?.click(),
     );
-    setTextareaValue(input()!, "Newer reply");
+    setEditorValue(input(), "Newer reply");
     await act(async () => {
       failedReply.reject(new Error("offline"));
       await failedReply.promise.catch(() => undefined);
     });
-    expect(input()?.value).toBe("Newer reply");
+    expect(editorValue(input())).toBe("Newer reply");
     const failedCard = container.querySelector<HTMLElement>(
       "[data-review-failed-reply]",
     );
@@ -574,7 +603,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
         clientOperationId: failedOperationId,
       }),
     );
-    expect(input()?.value).toBe("Newer reply");
+    expect(editorValue(input())).toBe("Newer reply");
     expect(container.querySelector("[data-review-failed-reply]")).toBeNull();
   });
 
@@ -597,10 +626,10 @@ describe("ReviewThreadPanel sidebar layout", () => {
         .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
         ?.click(),
     );
-    const replyComposer = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Reply to this thread"]',
+    const replyComposer = container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Reply to this thread"]',
     );
-    setTextareaValue(replyComposer!, "A quick reply");
+    setEditorValue(replyComposer, "A quick reply");
     const replySubmit = replyComposer
       ?.closest("form")
       ?.querySelector<HTMLButtonElement>('button[type="submit"]');
@@ -608,7 +637,9 @@ describe("ReviewThreadPanel sidebar layout", () => {
     act(() => replySubmit?.click());
 
     expect(
-      container.querySelector('textarea[placeholder="Reply to this thread"]'),
+      container.querySelector(
+        '[role="textbox"][aria-label="Reply to this thread"]',
+      ),
     ).toBeNull();
     expect(mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -621,9 +652,11 @@ describe("ReviewThreadPanel sidebar layout", () => {
       await failedReply.promise.catch(() => undefined);
     });
     expect(
-      container.querySelector<HTMLTextAreaElement>(
-        'textarea[placeholder="Reply to this thread"]',
-      )?.value,
+      editorValue(
+        container.querySelector<ReviewEditorElement>(
+          '[role="textbox"][aria-label="Reply to this thread"]',
+        ),
+      ),
     ).toBe("A quick reply");
   });
 
@@ -645,10 +678,10 @@ describe("ReviewThreadPanel sidebar layout", () => {
         .querySelector<HTMLButtonElement>('button[aria-label="Reply"]')
         ?.click(),
     );
-    const replyComposer = container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Reply to this thread"]',
+    const replyComposer = container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Reply to this thread"]',
     );
-    setTextareaValue(replyComposer!, "A quick reply");
+    setEditorValue(replyComposer, "A quick reply");
     const failedReply = deferredMutation();
     act(() =>
       replyComposer
@@ -662,15 +695,15 @@ describe("ReviewThreadPanel sidebar layout", () => {
       await failedReply.promise.catch(() => undefined);
     });
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-    return container.querySelector<HTMLTextAreaElement>(
-      'textarea[placeholder="Reply to this thread"]',
+    return container.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Reply to this thread"]',
     );
   }
 
   it("puts the cursor back in a failed reply when nothing else took focus", async () => {
     const restored = await failReplyAfter(() => {});
 
-    expect(restored?.value).toBe("A quick reply");
+    expect(editorValue(restored)).toBe("A quick reply");
     expect(document.activeElement).toBe(restored);
   });
 
@@ -680,7 +713,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     try {
       const restored = await failReplyAfter(() => elsewhere.focus());
 
-      expect(restored?.value).toBe("A quick reply");
+      expect(editorValue(restored)).toBe("A quick reply");
       expect(document.activeElement).toBe(elsewhere);
     } finally {
       elsewhere.remove();
@@ -813,7 +846,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
   it("preserves mentions while editing a comment", async () => {
     const mention = { label: "Alice", email: "alice@example.com" };
     rootComment.body = "Ping @Alice";
-    rootComment.mentions = [mention];
+    (rootComment as ReviewComment).mentions = [mention];
     act(() => {
       root.render(
         <ReviewThreadPanel
@@ -843,11 +876,14 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(editItem).toBeTruthy();
     await act(async () => editItem?.click());
 
-    const editComposer = document.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Edit comment"]',
+    const editComposer = document.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Edit comment"]',
     );
     expect(editComposer).not.toBeNull();
-    setTextareaValue(editComposer!, "Ping @Alice updated");
+    expect(
+      editComposer?.querySelector("[data-review-mention-chip]"),
+    ).not.toBeNull();
+    appendToEditor(editComposer, " updated");
     const save = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Save",
     );
@@ -861,7 +897,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
       }),
     );
     expect(
-      document.querySelector('textarea[aria-label="Edit comment"]'),
+      document.querySelector('[role="textbox"][aria-label="Edit comment"]'),
     ).toBeNull();
     // Someone who moved on while the save ran keeps their focus.
     const elsewhere = document.createElement("input");
@@ -874,9 +910,11 @@ describe("ReviewThreadPanel sidebar layout", () => {
       });
       await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
       expect(
-        document.querySelector<HTMLTextAreaElement>(
-          'textarea[aria-label="Edit comment"]',
-        )?.value,
+        editorValue(
+          document.querySelector<ReviewEditorElement>(
+            '[role="textbox"][aria-label="Edit comment"]',
+          ),
+        ),
       ).toBe("Ping @Alice updated");
       expect(document.activeElement).toBe(elsewhere);
     } finally {
@@ -902,9 +940,11 @@ describe("ReviewThreadPanel sidebar layout", () => {
     );
     reply?.focus();
     await act(async () => reply?.click());
+    // The editor mounts asynchronously and takes the reply's focus once ready.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
 
     expect(document.activeElement).toBe(
-      container.querySelector("textarea[data-review-reply-input]"),
+      container.querySelector('[role="textbox"][data-review-reply-input]'),
     );
   });
 
@@ -936,11 +976,14 @@ describe("ReviewThreadPanel sidebar layout", () => {
     // The menu hands focus back to its trigger once it has closed.
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
 
-    const editComposer = document.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Edit comment"]',
+    const editComposer = document.querySelector<ReviewEditorElement>(
+      '[role="textbox"][aria-label="Edit comment"]',
     );
     expect(document.activeElement).toBe(editComposer);
-    expect(editComposer?.selectionStart).toBe(rootComment.body.length);
+    // The caret sits after the last character of the first paragraph.
+    expect(editComposer?.editor.state.selection.$head.parentOffset).toBe(
+      rootComment.body.length,
+    );
   });
 
   it("returns focus to the menu button after an action other than Edit", async () => {
@@ -1005,7 +1048,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
 
     act(() => replyButton?.click());
     expect(
-      container.querySelector('textarea[placeholder="Reply..."]'),
+      container.querySelector('[role="textbox"][aria-label="Reply..."]'),
     ).not.toBeNull();
 
     act(() => {
@@ -1206,5 +1249,100 @@ describe("ReviewThreadPanel sidebar layout", () => {
       "This thread has not actually been resolved.",
     );
     expect(container.querySelector('[aria-label="Resolved"]')).toBeNull();
+  });
+
+  it("lays a thread out as a compact root followed by dividerless replies", async () => {
+    const reply = {
+      ...(rootComment as ReviewComment),
+      id: "comment-reply",
+      parentCommentId: "comment-1",
+      body: "Beep bloop",
+      authorName: "Claude",
+      authorEmail: null,
+      createdBy: "agent",
+      createdAt: "2026-07-13T14:31:00.000Z",
+    } satisfies ReviewComment;
+    discussion.canReact = true;
+    discussion.reactions = {
+      "comment-reply": [
+        { reaction: "🔥", count: 1, reactedByMe: false },
+        { reaction: "👍", count: 2, reactedByMe: false },
+      ],
+    };
+    reviewComments.mockImplementation(() => ({
+      data: {
+        comments: [rootComment, reply],
+        reviewStatus: { status: "draft" },
+        discussion,
+      },
+      isLoading: false,
+    }));
+    try {
+      act(() => {
+        root.render(
+          <ReviewThreadPanel
+            resourceType="design"
+            resourceId="design-1"
+            showHeader={false}
+            showComposer={false}
+            showReactions
+          />,
+        );
+      });
+
+      const items = container.querySelectorAll("[data-review-comment]");
+      expect(
+        Array.from(items).map((item) =>
+          item.getAttribute("data-review-comment-variant"),
+        ),
+      ).toEqual(["root", "reply"]);
+      expect(container.querySelector(".border-s")).toBeNull();
+      expect(
+        items[0]?.querySelector('[aria-label="Add reaction"]'),
+      ).not.toBeNull();
+      expect(
+        items[1]?.querySelector('[aria-label="Add reaction"]'),
+      ).not.toBeNull();
+      expect(items[1]?.textContent).toContain("Agent");
+      expect(
+        items[1]?.querySelector("[data-review-comment-clock]"),
+      ).not.toBeNull();
+      expect(
+        items[1]
+          ?.querySelector('[aria-label="🔥, 1 reaction"]')
+          ?.textContent?.trim(),
+      ).toBe("🔥");
+      expect(
+        items[1]
+          ?.querySelector('[aria-label="👍, 2 reactions"]')
+          ?.textContent?.replace(/\s/g, ""),
+      ).toBe("👍2");
+
+      await act(async () => {
+        items[1]
+          ?.querySelector('[aria-label="Add reaction"]')
+          ?.dispatchEvent(
+            new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+          );
+      });
+      const choices = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).map((item) => item.querySelector('[aria-hidden="true"]')?.textContent);
+      expect(choices).toEqual(["👍", "❤️", "🎉", "👀", "🔥"]);
+      await act(async () =>
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]')[4]?.click(),
+      );
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commentId: "comment-reply",
+          reaction: "🔥",
+          active: true,
+        }),
+        expect.anything(),
+      );
+    } finally {
+      discussion.canReact = false;
+      discussion.reactions = {};
+    }
   });
 });

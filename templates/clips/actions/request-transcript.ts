@@ -798,6 +798,7 @@ async function generateRecordingMetadata({
       recordingId,
       transcriptText,
       includeSummary: !description?.trim(),
+      automatic: true,
     });
     return {
       titleQueued: true,

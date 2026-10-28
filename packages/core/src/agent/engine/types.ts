@@ -46,6 +46,7 @@ export interface EngineTool {
     [key: string]: unknown;
   };
   providerOptions?: Record<string, unknown>;
+  eagerInputStreaming?: boolean;
 }
 
 export interface EngineTextPart {

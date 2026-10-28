@@ -374,6 +374,41 @@ test.beforeEach(async ({ page }, testInfo) => {
     (testInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
 });
 
+test("double-clicking a board frame title saves its new name", async ({
+  page,
+}) => {
+  const id = await newBoardDesign(page, OVERLAPPING_BOARD_FRAMES);
+  await gotoEditor(page, id);
+  const board = boardIframe(page).contentFrame();
+  await board
+    .locator("[data-agent-native-frame-label]")
+    .filter({ hasText: "Drag frame" })
+    .dblclick();
+  const input = board.locator("[data-agent-native-frame-label-input]");
+  await expect(input).toBeVisible();
+  await input.fill("Workspace");
+  await input.press("Enter");
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(
+        `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(id)}`,
+      );
+      if (!response.ok()) throw new Error(`get-design: ${response.status()}`);
+      const record = await response.json();
+      return record.files.find(
+        (file: { filename: string }) => file.filename === "__board__.html",
+      )?.content;
+    })
+    .toContain('data-agent-native-layer-name="Workspace"');
+  await page.reload();
+  await expect(
+    boardIframe(page)
+      .contentFrame()
+      .locator("[data-agent-native-frame-label]")
+      .filter({ hasText: "Workspace" }),
+  ).toBeVisible();
+});
+
 test("board regression: an overlapping Frame drop into another board Frame persists after reload", async ({
   page,
 }) => {

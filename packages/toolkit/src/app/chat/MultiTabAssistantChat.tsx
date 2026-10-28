@@ -2351,7 +2351,9 @@ export function MultiTabAssistantChat({
         deliveryLanes.current.set(threadId, lane);
         if (!delivery.targetReported) {
           delivery.targetReported = true;
-          reportAgentChatSubmitTarget(delivery.send.submitMessageId, threadId);
+          reportAgentChatSubmitTarget(delivery.send.submitMessageId, threadId, {
+            threadId,
+          });
         }
         if (
           deliveryLanes.current.get(threadId) !== lane ||
@@ -2608,7 +2610,7 @@ export function MultiTabAssistantChat({
           modelOverride,
           targetReported: true,
         });
-        reportAgentChatSubmitTarget(submitMessageId, threadId);
+        reportAgentChatSubmitTarget(submitMessageId, threadId, { threadId });
         flushPendingDeliveries(threadId, true);
       };
 

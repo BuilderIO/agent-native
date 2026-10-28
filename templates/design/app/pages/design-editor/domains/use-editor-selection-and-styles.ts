@@ -705,8 +705,9 @@ export function useEditorSelectionAndStyles({
   }, [embedded, embedChromeRequested, pendingQuestions, shellMode]);
 
   const handleIframeContextMenu = useCallback(
-    (payload: IframeContextMenuPayload) =>
-      runIframeContextMenu(
+    (payload: IframeContextMenuPayload) => {
+      if (!activeFile) return;
+      return runIframeContextMenu(
         {
           activeFile,
           activeFileId,
@@ -721,7 +722,8 @@ export function useEditorSelectionAndStyles({
           zoom,
         },
         payload,
-      ),
+      );
+    },
     [
       activeFile?.id,
       activeFileId,
@@ -819,6 +821,7 @@ export function useEditorSelectionAndStyles({
         requirePersistedSourceAcceptance?: boolean;
       } = {},
     ) => {
+      if (!activeFile) return;
       const routePath =
         options.routePath ??
         (isRunningAppSourceType(activeCanvasSourceType)
@@ -912,6 +915,7 @@ export function useEditorSelectionAndStyles({
       capturedOptions?: CapturedStyleTargetCommitOptions,
       pendingUndoGestureId?: string,
     ) => {
+      if (!activeFile) return false;
       const canEditSelectedVisualLayers =
         canEditDesign ||
         (selectedLayerTargetsRef.current.length > 0 &&
@@ -981,6 +985,7 @@ export function useEditorSelectionAndStyles({
       operation: number | ScrubRelativeExpression,
       pendingUndoGestureId?: string,
     ) => {
+      if (!activeFile) return false;
       const canEditSelectedVisualLayers =
         canEditDesign ||
         (selectedLayerTargetsRef.current.length > 0 &&
@@ -1470,8 +1475,9 @@ export function useEditorSelectionAndStyles({
         routePath?: string;
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
-    ) =>
-      runTextContentChange(
+    ) => {
+      if (!activeFile) return "refused";
+      return runTextContentChange(
         {
           activeCanvasSourceType,
           activeFile,
@@ -1494,7 +1500,8 @@ export function useEditorSelectionAndStyles({
         value,
         elementInfo,
         details,
-      ),
+      );
+    },
     [
       activeFile,
       activeCanvasSourceType,
@@ -1614,42 +1621,41 @@ export function useEditorSelectionAndStyles({
     ],
   );
 
-  const handleFrameSelection = useCallback(
-    () =>
-      runFrameSelection({
-        activeBreakpointWidthState,
-        activeFile,
-        applyLinkedComponentEdit,
-        applyLocalContentUpdate,
-        boardFileId,
-        canEditDesign,
-        contentHistorySelectionAfterRef,
-        contentUndoStackRef,
-        localContentUndoStackRef,
-        files,
-        getFreshActiveContent,
-        overviewSelectedScreenIds,
-        selectedLayerIdsState,
-        setSelectedElement,
-        setSelectedLayerIdsState,
-        t,
-        undoManagerRef,
-      }),
-    [
+  const handleFrameSelection = useCallback(() => {
+    if (!activeFile) return;
+    return runFrameSelection({
       activeBreakpointWidthState,
       activeFile,
       applyLinkedComponentEdit,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
+      contentHistorySelectionAfterRef,
+      contentUndoStackRef,
+      localContentUndoStackRef,
       files,
       getFreshActiveContent,
-      localContentUndoStackRef,
       overviewSelectedScreenIds,
       selectedLayerIdsState,
+      setSelectedElement,
+      setSelectedLayerIdsState,
       t,
-    ],
-  );
+      undoManagerRef,
+    });
+  }, [
+    activeBreakpointWidthState,
+    activeFile,
+    applyLinkedComponentEdit,
+    applyLocalContentUpdate,
+    boardFileId,
+    canEditDesign,
+    files,
+    getFreshActiveContent,
+    localContentUndoStackRef,
+    overviewSelectedScreenIds,
+    selectedLayerIdsState,
+    t,
+  ]);
 
   const handleRotateSelectionClockwise = useCallback(() => {
     if (!canEditDesign || !selectedElement) return;
