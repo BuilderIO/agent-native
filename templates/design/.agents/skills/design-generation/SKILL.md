@@ -19,7 +19,6 @@ authoring and completion checks, which replace the web stack defaults.
 ## Technology Stack
 
 Web prototypes use:
-
 - **Tailwind CSS v4** — via `@tailwindcss/browser@4` CDN (NOT the old v3 CDN)
 - **Alpine.js 3.x** — via `alpinejs@3.15.11` CDN with `defer` attribute
 - **Google Fonts** — for distinctive typography (never Inter/Roboto/Arial)
@@ -27,7 +26,7 @@ Web prototypes use:
 
 ## Why the workflow exists — it is the anti-slop engine
 
-Generic output ("AI slop") is a _workflow_ failure, not a lack of talent. When one
+Generic output ("AI slop") is a *workflow* failure, not a lack of talent. When one
 prompt has to set the taste, explore the options, and emit final code all at once,
 the safest answer is the statistical average of the training data: Inter, an
 indigo→violet gradient, a centered hero, three rounded icon cards. Design beats
@@ -67,7 +66,7 @@ Before Phase 1, check for **specification signals**:
   contradict the supplied material. Those rules break ties in the absence of a
   spec; they never outvote one.
 - Reproduce first, improve second. Match the structure, then raise quality
-  _within_ it, and say what you changed and why.
+  *within* it, and say what you changed and why.
 
 Mixed input is normal: reproduce what was given, use the quality bar only for
 the parts genuinely left open. When a supplied reference and the linked design
@@ -160,7 +159,7 @@ already uses it.
 **Second-order convergence is real.** Even your "creative" picks converge (Space
 Grotesk everywhere; teal accent + blinking dot + left accent bars). Vary
 deliberately across generations so two designs never share a fingerprint —
-but only across designs _you_ had to invent. A token the user's own system
+but only across designs *you* had to invent. A token the user's own system
 specifies is theirs, not your fingerprint: consistency with their brand is the
 goal, and varying away from it to avoid repeating yourself is a bug.
 
@@ -185,7 +184,7 @@ genuinely distinct instead of three near-identical layouts:
    editorial column, split-screen, masonry, dashboard tiles.
 3. **Aesthetic** — a named visual movement: editorial serif, neo-brutalist,
    glassmorphic, Swiss/International, warm organic, technical/mono, etc. Each
-   variant gets a _different_ aesthetic + font pairing.
+   variant gets a *different* aesthetic + font pairing.
 4. **Tech stack** — Tailwind v4 + Alpine, mobile-first, light/dark via tokens.
 
 Push each dimension to extremes rather than safe middles: weight extremes
@@ -194,7 +193,6 @@ accent, layered gradient/pattern backgrounds (not flat fills), and one
 orchestrated staggered page-load reveal (via `animation-delay`).
 
 Pick a preset by `projectType`:
-
 - **Brand / marketing** (landing pages, decks): expressive, atmospheric,
   animated, full-bleed.
 - **Product / app** (dashboards, tools): dense, restrained, token-driven, fast.
@@ -240,8 +238,8 @@ Use this as a starting scale, then adjust to the chosen Aesthetic:
 Pick one section padding value and repeat it for every top-level section on
 the page/screen: 96-128px on desktop, 48-64px on mobile. Don't let each
 section invent its own padding — that's what makes a page feel unplanned.
-Use spacing to encode grouping: gaps _inside_ a card or cluster should be
-visibly smaller than the gap _between_ cards/sections — if inside-group and
+Use spacing to encode grouping: gaps *inside* a card or cluster should be
+visibly smaller than the gap *between* cards/sections — if inside-group and
 between-group spacing match, the eye can't tell where one group ends and the
 next begins.
 
@@ -333,7 +331,6 @@ much is actually unresolved — most prompts warrant 2-4 questions, not the full
 stated color, audience, or layout is settled; don't re-ask it as a choice).
 
 Skip the questions entirely when:
-
 - the prompt is already specific enough to generate from (names the audience,
   purpose, and a visual direction, e.g. "a dark, data-dense analytics
   dashboard for ops engineers" or "re-skin this with my brand colors");
@@ -400,27 +397,9 @@ screen name.
   "prompt": "Pick a direction",
   "brief": "<the original request, including its exact canvas dimensions>",
   "variants": [
-    {
-      "id": "a",
-      "label": "Editorial Serif",
-      "width": 1440,
-      "height": 900,
-      "content": "<!DOCTYPE html>...full self-contained HTML..."
-    },
-    {
-      "id": "b",
-      "label": "Bold Brutalist",
-      "width": 1440,
-      "height": 900,
-      "content": "<!DOCTYPE html>..."
-    },
-    {
-      "id": "c",
-      "label": "Soft & Spacious",
-      "width": 1440,
-      "height": 900,
-      "content": "<!DOCTYPE html>..."
-    }
+    { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 900, "content": "<!DOCTYPE html>...full self-contained HTML..." },
+    { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 900, "content": "<!DOCTYPE html>..." },
+    { "id": "c", "label": "Soft & Spacious", "width": 1440, "height": 900, "content": "<!DOCTYPE html>..." }
   ]
 }
 ```
@@ -606,86 +585,67 @@ Every `index.html` must include:
 ```html
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title><!-- Design title --></title>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><!-- Design title --></title>
 
-    <!-- Tailwind v4 browser runtime -->
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <!-- Tailwind v4 browser runtime -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 
-    <!-- Alpine.js — MUST be deferred -->
-    <script
-      defer
-      src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
-    ></script>
+  <!-- Alpine.js — MUST be deferred -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
 
-    <!-- Google Fonts — pick distinctive fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=...&display=swap"
-      rel="stylesheet"
-    />
+  <!-- Google Fonts — pick distinctive fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=...&display=swap" rel="stylesheet">
 
-    <style>
-      /* Required: hide elements until Alpine initializes */
-      [x-cloak] {
-        display: none !important;
+  <style>
+    /* Required: hide elements until Alpine initializes */
+    [x-cloak] { display: none !important; }
+
+    /* Required: CSS custom properties for theming */
+    :root {
+      --color-primary: #0F172A;
+      --color-accent: #0EA5E9;
+      --color-surface: #1E293B;
+      --color-text: #F8FAFC;
+      --color-text-muted: #94A3B8;
+      --font-heading: '<HEADING_FONT>', sans-serif; /* pick per Font Recommendations below — do not default to Space Grotesk */
+      --font-body: '<BODY_FONT>', sans-serif; /* pick a pairing, not a repeat of every other generation */
+      --radius: 12px;
+    }
+
+    /* Base styles */
+    body {
+      font-family: var(--font-body);
+      min-height: 100vh;
+      min-height: 100dvh; /* fill the frame — see Full-height frames below */
+    }
+    h1, h2, h3, h4, h5, h6 {
+      font-family: var(--font-heading);
+      text-wrap: balance;
+    }
+    p { text-wrap: pretty; }
+
+    /* Respect users who ask for less motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
       }
-
-      /* Required: CSS custom properties for theming */
-      :root {
-        --color-primary: #0f172a;
-        --color-accent: #0ea5e9;
-        --color-surface: #1e293b;
-        --color-text: #f8fafc;
-        --color-text-muted: #94a3b8;
-        --font-heading:
-          "<HEADING_FONT>", sans-serif; /* pick per Font Recommendations below — do not default to Space Grotesk */
-        --font-body:
-          "<BODY_FONT>", sans-serif; /* pick a pairing, not a repeat of every other generation */
-        --radius: 12px;
-      }
-
-      /* Base styles */
-      body {
-        font-family: var(--font-body);
-        min-height: 100vh;
-        min-height: 100dvh; /* fill the frame — see Full-height frames below */
-      }
-      h1,
-      h2,
-      h3,
-      h4,
-      h5,
-      h6 {
-        font-family: var(--font-heading);
-        text-wrap: balance;
-      }
-      p {
-        text-wrap: pretty;
-      }
-
-      /* Respect users who ask for less motion */
-      @media (prefers-reduced-motion: reduce) {
-        *,
-        *::before,
-        *::after {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-          scroll-behavior: auto !important;
-        }
-      }
-    </style>
-  </head>
-  <body class="bg-[var(--color-primary)] text-[var(--color-text)]">
-    <!-- Root wrapper fills the device viewport: prefer min-h-screen over inline height:100vh -->
-    <div x-data="{ /* component state */ }" class="min-h-screen">
-      <!-- Content -->
-    </div>
-  </body>
+    }
+  </style>
+</head>
+<body class="bg-[var(--color-primary)] text-[var(--color-text)]">
+  <!-- Root wrapper fills the device viewport: prefer min-h-screen over inline height:100vh -->
+  <div x-data="{ /* component state */ }" class="min-h-screen">
+    <!-- Content -->
+  </div>
+</body>
 </html>
 ```
 
@@ -704,8 +664,7 @@ growth.
 **State management** — use `x-data` on the highest-level container:
 
 ```html
-<div
-  x-data="{
+<div x-data="{
   currentPage: 'home',
   mobileNav: false,
   theme: 'dark',
@@ -713,23 +672,18 @@ growth.
     { id: 1, title: 'Item 1', active: false },
     { id: 2, title: 'Item 2', active: true }
   ]
-}"
-></div>
+}">
 ```
 
 **Conditional rendering** — use `x-show` with transitions (not `x-if` for simple toggles):
 
 ```html
-<div
-  x-show="mobileNav"
-  x-cloak
-  x-transition:enter="transition ease-out duration-200"
-  x-transition:enter-start="opacity-0 -translate-y-2"
-  x-transition:enter-end="opacity-100 translate-y-0"
-  x-transition:leave="transition ease-in duration-150"
-  x-transition:leave-start="opacity-100"
-  x-transition:leave-end="opacity-0"
->
+<div x-show="mobileNav" x-cloak x-transition:enter="transition ease-out duration-200"
+     x-transition:enter-start="opacity-0 -translate-y-2"
+     x-transition:enter-end="opacity-100 translate-y-0"
+     x-transition:leave="transition ease-in duration-150"
+     x-transition:leave-start="opacity-100"
+     x-transition:leave-end="opacity-0">
   <!-- Mobile nav content -->
 </div>
 ```
@@ -747,12 +701,8 @@ growth.
 **Two-way binding** — use `x-model` for form elements:
 
 ```html
-<input
-  x-model="searchQuery"
-  type="text"
-  placeholder="Search..."
-  class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[var(--radius)] px-4 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-accent)]"
-/>
+<input x-model="searchQuery" type="text" placeholder="Search..."
+       class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[var(--radius)] px-4 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-accent)]">
 ```
 
 **Click outside** — use `@click.outside`:
@@ -767,14 +717,14 @@ growth.
 
 ### Breakpoint Strategy
 
-| Breakpoint | Width     | Target                       |
-| ---------- | --------- | ---------------------------- |
-| (default)  | < 640px   | Mobile phones                |
-| `sm:`      | >= 640px  | Large phones / small tablets |
-| `md:`      | >= 768px  | Tablets                      |
-| `lg:`      | >= 1024px | Laptops                      |
-| `xl:`      | >= 1280px | Desktops                     |
-| `2xl:`     | >= 1536px | Wide screens                 |
+| Breakpoint | Width | Target |
+| --- | --- | --- |
+| (default) | < 640px | Mobile phones |
+| `sm:` | >= 640px | Large phones / small tablets |
+| `md:` | >= 768px | Tablets |
+| `lg:` | >= 1024px | Laptops |
+| `xl:` | >= 1280px | Desktops |
+| `2xl:` | >= 1536px | Wide screens |
 
 ### Mobile-First Layout Patterns
 
@@ -798,51 +748,28 @@ growth.
 ### Mobile Navigation Pattern
 
 ```html
-<nav
-  class="fixed top-0 inset-x-0 z-50 border-b border-white/5 backdrop-blur-xl bg-[var(--color-primary)]/80"
->
+<nav class="fixed top-0 inset-x-0 z-50 border-b border-white/5 backdrop-blur-xl bg-[var(--color-primary)]/80">
   <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
     <a href="#" class="font-bold">Brand</a>
 
     <!-- Desktop nav -->
     <div class="hidden md:flex items-center gap-8">
       <a href="#" class="text-sm text-[var(--color-text-muted)]">Link</a>
-      <a
-        href="#"
-        class="text-sm px-4 py-2 rounded-[var(--radius)] bg-[var(--color-accent)]"
-        >CTA</a
-      >
+      <a href="#" class="text-sm px-4 py-2 rounded-[var(--radius)] bg-[var(--color-accent)]">CTA</a>
     </div>
 
     <!-- Mobile hamburger -->
-    <button
-      @click="mobileNav = !mobileNav"
-      class="md:hidden p-2 cursor-pointer"
-      aria-label="Menu"
-    >
-      <svg
-        class="w-5 h-5"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          :d="mobileNav ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'"
-        />
+    <button @click="mobileNav = !mobileNav" class="md:hidden p-2 cursor-pointer" aria-label="Menu">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              :d="mobileNav ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'"/>
       </svg>
     </button>
   </div>
 
   <!-- Mobile menu -->
-  <div
-    x-show="mobileNav"
-    x-cloak
-    x-transition
-    class="md:hidden border-t border-white/5 bg-[var(--color-primary)] px-6 py-4 space-y-3"
-  >
+  <div x-show="mobileNav" x-cloak x-transition
+       class="md:hidden border-t border-white/5 bg-[var(--color-primary)] px-6 py-4 space-y-3">
     <a href="#" class="block text-sm text-[var(--color-text-muted)]">Link</a>
   </div>
 </nav>
@@ -854,16 +781,9 @@ growth.
 
 ```html
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-  <div
-    class="p-4 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5"
-  >
+  <div class="p-4 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/5">
     <p class="text-xs text-[var(--color-text-muted)] mb-1">Label</p>
-    <p
-      class="text-2xl font-bold tracking-tight"
-      style="font-family: var(--font-heading)"
-    >
-      $12,345
-    </p>
+    <p class="text-2xl font-bold tracking-tight" style="font-family: var(--font-heading)">$12,345</p>
     <p class="text-xs text-emerald-400 mt-1">+12.5%</p>
   </div>
 </div>
@@ -875,12 +795,11 @@ growth.
 <div x-data="{ tab: 'overview' }">
   <div class="flex gap-1 border-b border-white/5 mb-6">
     <template x-for="t in ['overview', 'analytics', 'settings']" :key="t">
-      <button
-        @click="tab = t"
+      <button @click="tab = t"
         :class="tab === t ? 'text-[var(--color-text)] border-[var(--color-accent)]' : 'text-[var(--color-text-muted)] border-transparent hover:text-[var(--color-text)]'"
         class="px-4 py-2 text-sm font-medium border-b-2 -mb-px capitalize cursor-pointer"
-        x-text="t"
-      ></button>
+        x-text="t">
+      </button>
     </template>
   </div>
   <div x-show="tab === 'overview'"><!-- Overview content --></div>
@@ -896,49 +815,20 @@ growth.
   <button @click="modalOpen = true" class="cursor-pointer">Open</button>
 
   <!-- Backdrop + modal -->
-  <div
-    x-show="modalOpen"
-    x-cloak
-    class="fixed inset-0 z-50 flex items-center justify-center p-4"
-    @keydown.escape.window="modalOpen = false"
-  >
-    <div
-      x-show="modalOpen"
-      x-transition:enter="transition ease-out duration-200"
-      x-transition:enter-start="opacity-0"
-      x-transition:enter-end="opacity-100"
-      x-transition:leave="transition ease-in duration-150"
-      x-transition:leave-start="opacity-100"
-      x-transition:leave-end="opacity-0"
-      class="fixed inset-0 bg-black/60"
-      @click="modalOpen = false"
-    ></div>
-    <div
-      x-show="modalOpen"
-      x-transition:enter="transition ease-out duration-200"
-      x-transition:enter-start="opacity-0 scale-95"
-      x-transition:enter-end="opacity-100 scale-100"
-      class="relative bg-[var(--color-surface)] rounded-[var(--radius)] border border-white/10 p-6 w-full max-w-md shadow-2xl"
-    >
-      <h3 class="font-semibold mb-4" style="font-family: var(--font-heading)">
-        Modal Title
-      </h3>
-      <p class="text-sm text-[var(--color-text-muted)] mb-6">
-        Modal content goes here.
-      </p>
+  <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       @keydown.escape.window="modalOpen = false">
+    <div x-show="modalOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+         class="fixed inset-0 bg-black/60" @click="modalOpen = false"></div>
+    <div x-show="modalOpen" x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+         class="relative bg-[var(--color-surface)] rounded-[var(--radius)] border border-white/10 p-6 w-full max-w-md shadow-2xl">
+      <h3 class="font-semibold mb-4" style="font-family: var(--font-heading)">Modal Title</h3>
+      <p class="text-sm text-[var(--color-text-muted)] mb-6">Modal content goes here.</p>
       <div class="flex justify-end gap-3">
-        <button
-          @click="modalOpen = false"
-          class="px-4 py-2 text-sm rounded-[var(--radius)] border border-white/10 cursor-pointer"
-        >
-          Cancel
-        </button>
-        <button
-          @click="modalOpen = false"
-          class="px-4 py-2 text-sm rounded-[var(--radius)] bg-[var(--color-accent)] font-medium cursor-pointer"
-        >
-          Confirm
-        </button>
+        <button @click="modalOpen = false" class="px-4 py-2 text-sm rounded-[var(--radius)] border border-white/10 cursor-pointer">Cancel</button>
+        <button @click="modalOpen = false" class="px-4 py-2 text-sm rounded-[var(--radius)] bg-[var(--color-accent)] font-medium cursor-pointer">Confirm</button>
       </div>
     </div>
   </div>
@@ -948,21 +838,15 @@ growth.
 ### Toast/Notification
 
 ```html
-<div
-  x-data="{ show: false, message: '' }"
-  @notify.window="message = $event.detail; show = true; setTimeout(() => show = false, 3000)"
->
-  <div
-    x-show="show"
-    x-cloak
-    x-transition:enter="transition ease-out duration-300 transform"
-    x-transition:enter-start="opacity-0 translate-y-4"
-    x-transition:enter-end="opacity-100 translate-y-0"
-    x-transition:leave="transition ease-in duration-200"
-    x-transition:leave-start="opacity-100"
-    x-transition:leave-end="opacity-0"
-    class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/10 shadow-xl text-sm"
-  >
+<div x-data="{ show: false, message: '' }"
+     @notify.window="message = $event.detail; show = true; setTimeout(() => show = false, 3000)">
+  <div x-show="show" x-cloak
+       x-transition:enter="transition ease-out duration-300 transform"
+       x-transition:enter-start="opacity-0 translate-y-4"
+       x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+       class="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-[var(--radius)] bg-[var(--color-surface)] border border-white/10 shadow-xl text-sm">
     <span x-text="message"></span>
   </div>
 </div>
@@ -974,17 +858,17 @@ Good distinctive font pairings (heading / body). **Rotate through these** — do
 reach for Space Grotesk (or any single pairing) every time; matching the pairing
 to the chosen Aesthetic layer is what keeps designs from sharing a fingerprint:
 
-| Heading             | Body              | Mood                 |
-| ------------------- | ----------------- | -------------------- |
-| Space Grotesk       | DM Sans           | Modern tech          |
-| Playfair Display    | Source Sans 3     | Editorial luxury     |
-| Sora                | Outfit            | Clean geometric      |
+| Heading | Body | Mood |
+| --- | --- | --- |
+| Space Grotesk | DM Sans | Modern tech |
+| Playfair Display | Source Sans 3 | Editorial luxury |
+| Sora | Outfit | Clean geometric |
 | Bricolage Grotesque | Schibsted Grotesk | Contemporary startup |
-| Fraunces            | Work Sans         | Warm editorial       |
-| JetBrains Mono      | IBM Plex Sans     | Developer tool       |
-| Unbounded           | Sora              | Bold statement       |
-| Archivo             | Nunito Sans       | Friendly SaaS        |
-| Instrument Serif    | Schibsted Grotesk | Editorial minimal    |
+| Fraunces | Work Sans | Warm editorial |
+| JetBrains Mono | IBM Plex Sans | Developer tool |
+| Unbounded | Sora | Bold statement |
+| Archivo | Nunito Sans | Friendly SaaS |
+| Instrument Serif | Schibsted Grotesk | Editorial minimal |
 
 All of the above are served by Google Fonts (`fonts.googleapis.com/css2`). The
 mandatory `<head>` only loads the Google Fonts CDN (see HTML Structure
@@ -999,12 +883,12 @@ Fontshare `<link>`/`@import` and confirm it renders.
 A prototype with more than one screen is **multiple files** in the same design
 (e.g. `index.html`, `dashboard.html`, `checkout.html`). The editor shows them
 all in the artboard/overview and as screen tabs. This is only for genuinely
-distinct screens — the mobile and desktop views of the _same_ page are
+distinct screens — the mobile and desktop views of the *same* page are
 breakpoint frames of ONE document (the `devices` param + the
 `responsive-breakpoints` model), never a second file.
 
 The preview renders each file in a sandboxed `srcdoc` iframe. A real
-`<a href="/pricing">` or `<a href="page.html">` resolves against the _app_ URL
+`<a href="/pricing">` or `<a href="page.html">` resolves against the *app* URL
 and navigates the iframe to the Design app itself ("Design not found"), nuking
 the prototype. **Never link screens with real URLs.** Use one of:
 
@@ -1012,9 +896,7 @@ the prototype. **Never link screens with real URLs.** Use one of:
    and `x-show`. Links become buttons:
    ```html
    <div x-data="{ screen: 'home' }">
-     <button @click="screen = 'pricing'" class="cursor-pointer">
-       See pricing
-     </button>
+     <button @click="screen = 'pricing'" class="cursor-pointer">See pricing</button>
      <section x-show="screen === 'home'">…</section>
      <section x-show="screen === 'pricing'" x-cloak>…</section>
    </div>
