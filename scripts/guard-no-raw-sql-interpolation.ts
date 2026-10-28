@@ -1685,12 +1685,15 @@ function reachingAssignments(
   const candidates = (analysis.assignments.get(symbol) ?? []).filter(
     (assignment) => {
       const assignedBlock = assignmentBlock(assignment);
+      if (analysis.activeAssignments.has(assignment.node)) {
+        noteSqlTraceCut(assignment.node);
+        return false;
+      }
       return (
-        !analysis.activeAssignments.has(assignment.node) &&
-        (!block ||
-          assignedBlock !== block ||
-          assignment.node.end <= position ||
-          repeatedBlock)
+        !block ||
+        assignedBlock !== block ||
+        assignment.node.end <= position ||
+        repeatedBlock
       );
     },
   );
@@ -1867,12 +1870,93 @@ function unionSources(...sets: ReadonlySet<ts.Node>[]): Set<ts.Node> {
   return sources;
 }
 
+// A trace is cut short by cycle guards (seen symbol/function, active
+// assignment), so its result depends on which of them were live. Tracing
+// without a memo is exponential on large files, so each result is cached with
+// the guards it was cut by (`deps`, must be live to reuse it) and the ones it
+// introduced itself (`expanded`, must not be live to reuse it).
+interface SqlTraceFrame {
+  deps: Set<object>;
+  expanded: Set<object>;
+}
+interface SqlTraceEntry extends SqlTraceFrame {
+  result: Set<ts.Node>;
+}
+let sqlTraceFrame: SqlTraceFrame | undefined;
+const unsafeSqlSourceCache = new WeakMap<
+  SqlAnalysis,
+  Map<ts.Node, [SqlTraceEntry[], SqlTraceEntry[]]>
+>();
+
+function noteSqlTraceCut(guard: object): void {
+  sqlTraceFrame?.deps.add(guard);
+}
+
+function noteSqlTraceExpanded(guard: object): void {
+  sqlTraceFrame?.expanded.add(guard);
+}
+
 function findUnsafeSqlSources(
   expression: ts.Expression,
   analysis: SqlAnalysis,
   seenSymbols: ReadonlySet<ts.Symbol> = new Set(),
   seenFunctions: ReadonlySet<ts.Symbol> = new Set(),
   traceTemplateSpans = false,
+): Set<ts.Node> {
+  let byNode = unsafeSqlSourceCache.get(analysis);
+  if (!byNode) {
+    byNode = new Map();
+    unsafeSqlSourceCache.set(analysis, byNode);
+  }
+  let entries = byNode.get(expression);
+  if (!entries) {
+    entries = [[], []];
+    byNode.set(expression, entries);
+  }
+  const slot = entries[traceTemplateSpans ? 1 : 0];
+  const live = (guard: object) =>
+    seenSymbols.has(guard as ts.Symbol) ||
+    seenFunctions.has(guard as ts.Symbol) ||
+    analysis.activeAssignments.has(guard as ts.Node);
+  const hit = slot.find(
+    (entry) => [...entry.deps].every(live) && ![...entry.expanded].some(live),
+  );
+  if (hit) {
+    for (const guard of hit.deps) noteSqlTraceCut(guard);
+    for (const guard of hit.expanded) noteSqlTraceExpanded(guard);
+    return new Set(hit.result);
+  }
+
+  const parent = sqlTraceFrame;
+  const frame: SqlTraceFrame = { deps: new Set(), expanded: new Set() };
+  sqlTraceFrame = frame;
+  let result: Set<ts.Node>;
+  try {
+    result = computeUnsafeSqlSources(
+      expression,
+      analysis,
+      seenSymbols,
+      seenFunctions,
+      traceTemplateSpans,
+    );
+  } finally {
+    sqlTraceFrame = parent;
+  }
+  for (const guard of frame.expanded) frame.deps.delete(guard);
+  slot.push({ ...frame, result: new Set(result) });
+  if (parent) {
+    for (const guard of frame.deps) parent.deps.add(guard);
+    for (const guard of frame.expanded) parent.expanded.add(guard);
+  }
+  return result;
+}
+
+function computeUnsafeSqlSources(
+  expression: ts.Expression,
+  analysis: SqlAnalysis,
+  seenSymbols: ReadonlySet<ts.Symbol>,
+  seenFunctions: ReadonlySet<ts.Symbol>,
+  traceTemplateSpans: boolean,
 ): Set<ts.Node> {
   let current = expression;
   while (
@@ -1920,7 +2004,11 @@ function findUnsafeSqlSources(
   }
   if (ts.isIdentifier(current)) {
     const symbol = analysis.checker.getSymbolAtLocation(current);
-    if (!symbol || seenSymbols.has(symbol)) return new Set();
+    if (!symbol) return new Set();
+    if (seenSymbols.has(symbol)) {
+      noteSqlTraceCut(symbol);
+      return new Set();
+    }
     if (
       isSqlFragmentDeclaration(
         symbol,
@@ -1936,11 +2024,14 @@ function findUnsafeSqlSources(
     if (reaching.assignments.length > 0) {
       const nextSymbols = new Set(seenSymbols);
       nextSymbols.add(symbol);
+      noteSqlTraceExpanded(symbol);
       const assignmentSources = reaching.assignments.map((assignment) => {
         if (analysis.activeAssignments.has(assignment.node)) {
+          noteSqlTraceCut(assignment.node);
           return new Set<ts.Node>();
         }
         analysis.activeAssignments.add(assignment.node);
+        noteSqlTraceExpanded(assignment.node);
         let sources = new Set<ts.Node>();
         try {
           if (assignment.iteration === "in") {
@@ -2057,9 +2148,13 @@ function findUnsafeSqlSources(
       });
     });
     if (resolvedSymbol && declarations.length > 0) {
-      if (seenFunctions.has(resolvedSymbol)) return new Set();
+      if (seenFunctions.has(resolvedSymbol)) {
+        noteSqlTraceCut(resolvedSymbol);
+        return new Set();
+      }
       const nextFunctions = new Set(seenFunctions);
       nextFunctions.add(resolvedSymbol);
+      noteSqlTraceExpanded(resolvedSymbol);
       return unionSources(
         ...[...new Set(declarations)].flatMap((declaration) =>
           returnExpressions(declaration).map((returned) => {
