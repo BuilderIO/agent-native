@@ -5891,3 +5891,327 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* "Ready to record" panel: recording options before the countdown, laid out
+   like Snagit's video HUD (grey header and footer around black tiles). */
+.rtr-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  padding: 12px;
+  background: transparent;
+  color: white;
+  /* A fixed dark HUD, like Snagit's: it sits over any desktop in any theme. */
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-panel: rgba(78, 78, 82, 0.86);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-panel-edge: rgba(255, 255, 255, 0.16);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-shadow: rgba(0, 0, 0, 0.45);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-logo-top: #5b8cff;
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-logo-bottom: #3f6df2;
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-divider: rgba(255, 255, 255, 0.22);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-tile: #000;
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-tile-hover: #141414;
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-on: #34c759;
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-muted: rgba(255, 255, 255, 0.6);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-soft: rgba(255, 255, 255, 0.8);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-swatch-edge: rgba(255, 255, 255, 0.4);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-faint: rgba(255, 255, 255, 0.55);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-hint: rgba(255, 255, 255, 0.7);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-button-edge: rgba(255, 255, 255, 0.28);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-button: rgba(255, 255, 255, 0.08);
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-record: #e5322d;
+  /* guard:allow-raw-color — fixed recording HUD */
+  --rtr-record-hover: #f0443f;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+    sans-serif;
+  user-select: none;
+}
+
+.rtr-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--rtr-panel);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--rtr-panel-edge);
+  box-shadow: 0 14px 36px var(--rtr-shadow);
+}
+
+.rtr-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 60px;
+  flex: none;
+}
+
+.rtr-header h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.rtr-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: linear-gradient(
+    180deg,
+    var(--rtr-logo-top),
+    var(--rtr-logo-bottom)
+  );
+}
+
+.rtr-logo svg {
+  width: 22px;
+  color: white;
+}
+
+.rtr-grid {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+  gap: 2px;
+  background: var(--rtr-divider);
+  border-block: 2px solid var(--rtr-divider);
+}
+
+.rtr-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 20px;
+  border: 0;
+  background: var(--rtr-tile);
+  color: white;
+  text-align: left;
+}
+
+.rtr-tile-button {
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.rtr-tile-button:hover:not(:disabled),
+.rtr-tile-button:focus-visible {
+  background: var(--rtr-tile-hover);
+  outline: none;
+}
+
+.rtr-tile-disabled .rtr-sub,
+.rtr-tile-disabled .rtr-tile-head {
+  opacity: 0.5;
+}
+
+.rtr-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.rtr-tile-title {
+  flex: 1;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.rtr-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.rtr-sub .rtr-value {
+  font-size: 15px;
+}
+
+.rtr-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--rtr-on);
+}
+
+.rtr-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-left: 32px;
+  padding: 1px 0;
+  border: 0;
+  background: none;
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rtr-sub:hover:not(:disabled) .rtr-value,
+.rtr-sub:focus-visible .rtr-value {
+  text-decoration: underline;
+  outline: none;
+}
+
+.rtr-sub:disabled {
+  cursor: default;
+}
+
+.rtr-disclosure {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  margin: 2px 0 0 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--rtr-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rtr-disclosure:hover,
+.rtr-disclosure:focus-visible {
+  color: white;
+  outline: none;
+}
+
+.rtr-chevron-open {
+  transform: rotate(180deg);
+}
+
+.rtr-colors {
+  display: flex;
+  gap: 12px;
+  margin-left: 32px;
+}
+
+.rtr-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rtr-soft);
+}
+
+.rtr-color input {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--rtr-swatch-edge);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+
+.rtr-color input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.rtr-color input::-webkit-color-swatch {
+  border: 0;
+  border-radius: 4px;
+}
+
+.rtr-color input:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rtr-device,
+.rtr-note {
+  margin: 0 0 0 32px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--rtr-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rtr-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  flex: none;
+  padding: 0 14px 0 20px;
+}
+
+.rtr-hint {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--rtr-hint);
+}
+
+.rtr-cancel,
+.rtr-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rtr-cancel {
+  border: 1px solid var(--rtr-button-edge);
+  background: var(--rtr-button);
+  color: white;
+}
+
+.rtr-record {
+  border: 0;
+  background: var(--rtr-record);
+  color: white;
+}
+
+.rtr-record:hover:not(:disabled),
+.rtr-record:focus-visible {
+  background: var(--rtr-record-hover);
+  outline: 2px solid var(--rtr-muted);
+  outline-offset: 1px;
+}
+
+.rtr-record:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

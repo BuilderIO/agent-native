@@ -41,6 +41,9 @@ const BUBBLE_LABEL: &str = "bubble";
 pub(crate) const BUBBLE_WINDOW_TITLE: &str = "Clips Camera";
 const BUBBLE_DESTROYED_EVENT: &str = "clips:bubble-destroyed";
 const PREPARING_LABEL: &str = "preparing";
+const READY_TO_RECORD_LABEL: &str = "ready-to-record";
+const READY_TO_RECORD_WIDTH_LOGICAL: f64 = 600.0;
+const READY_TO_RECORD_HEIGHT_LOGICAL: f64 = 470.0;
 const FINALIZING_LABEL: &str = "finalizing";
 const FLOW_BAR_LABEL: &str = "flow-bar";
 static VOICE_FLOW_IDLE: AtomicBool = AtomicBool::new(true);
@@ -965,6 +968,56 @@ pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
     // promised textual readiness state.
     tokio::time::sleep(Duration::from_millis(120)).await;
     dlog!("[clips-tray] preparing recording shown");
+    Ok(())
+}
+
+/// Shows the "Ready to record" panel: the recording options on one screen,
+/// before region selection and the countdown, as in Snagit's video HUD.
+#[tauri::command]
+pub async fn show_ready_to_record(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window(READY_TO_RECORD_LABEL) {
+        present_interactive_window(&existing);
+        return Ok(());
+    }
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
+    let win = WebviewWindowBuilder::new(
+        &app,
+        READY_TO_RECORD_LABEL,
+        build_overlay_url(READY_TO_RECORD_LABEL),
+    )
+    .title("Ready to record")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .shadow(false)
+    .visible(false)
+    .focused(true)
+    .build()
+    .map_err(|error| format!("ready-to-record window build failed: {error}"))?;
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let width = (READY_TO_RECORD_WIDTH_LOGICAL * scale).round() as u32;
+    let height = (READY_TO_RECORD_HEIGHT_LOGICAL * scale).round() as u32;
+    let x = mx + (mw.saturating_sub(width) / 2) as i32;
+    let y = my + (mh.saturating_sub(height) / 2) as i32;
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(width, height)));
+    let _ = win.set_position(PhysicalPosition::new(x, y));
+    set_capture_excluded_always(&win);
+    configure_overlay_behavior(&win);
+    raise_to_status_level(&win);
+    present_interactive_window(&win);
+    dlog!("[clips-tray] ready-to-record shown");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn close_ready_to_record(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(READY_TO_RECORD_LABEL) {
+        window
+            .close()
+            .map_err(|error| format!("Failed to close ready-to-record window: {error}"))?;
+    }
     Ok(())
 }
 
@@ -3374,6 +3427,9 @@ fn type_text_unicode(_text: &str) {}
 #[tauri::command]
 pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), String> {
     dlog!("[clips-tray] set_recording_state active={}", active);
+    if !active {
+        crate::cursor_effects::stop(&app);
+    }
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = active;
@@ -3386,6 +3442,7 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
 #[tauri::command]
 pub async fn release_recording_state(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] release_recording_state");
+    crate::cursor_effects::stop(&app);
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = false;
@@ -3670,6 +3727,7 @@ mod quit_teardown_tests {
 #[tauri::command]
 pub async fn reset_state(app: AppHandle) -> Result<(), String> {
     eprintln!("[clips-tray] reset_state invoked — clearing recording flag + showing popover");
+    crate::cursor_effects::stop(&app);
     if let Some(state) = app.try_state::<RecordingActive>() {
         if let Ok(mut g) = state.0.lock() {
             *g = false;

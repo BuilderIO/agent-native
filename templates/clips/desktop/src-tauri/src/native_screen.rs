@@ -930,6 +930,7 @@ fn emit_native_upload_progress(
 }
 
 fn clear_recording_active(app: &AppHandle) {
+    crate::cursor_effects::stop(app);
     let mut changed = false;
     if let Some(state) = app.try_state::<crate::state::RecordingActive>() {
         if let Ok(mut active) = state.0.lock() {
@@ -2971,6 +2972,10 @@ pub async fn native_fullscreen_recording_begin(
             mic_warm_wait_ms = Some(wait_started.elapsed().as_millis());
         }
 
+        // Cursor effects draw into the screen, so a window capture cannot show them.
+        if selected_window.is_none() {
+            crate::cursor_effects::start(&app);
+        }
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
         let session = guard
             .as_mut()
@@ -3050,6 +3055,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    crate::cursor_effects::stop(&app);
     let upload_mode = NativeUploadMode::from_option(upload_mode);
     emit_native_upload_progress(
         &app,
@@ -3465,6 +3471,7 @@ pub async fn native_fullscreen_recording_stop_and_save(
     folder_name: String,
     file_role: String,
 ) -> Result<NativeFullscreenSaveResult, String> {
+    crate::cursor_effects::stop(&app);
     let StoppedSession {
         mut session,
         duration_ms,
@@ -3552,6 +3559,7 @@ pub async fn native_fullscreen_recording_cancel(
     preserve_display_override: Option<bool>,
     preserve_window_override: Option<bool>,
 ) -> Result<(), String> {
+    crate::cursor_effects::stop(&app);
     let cancelled_generation = state.warm_generation.fetch_add(1, Ordering::SeqCst);
     let mut camera_restore_error = None;
     #[cfg(target_os = "macos")]
@@ -3624,6 +3632,7 @@ pub async fn native_fullscreen_recording_pause(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
+    crate::cursor_effects::set_paused(&app, true);
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
     let session = guard
         .as_mut()
@@ -3756,6 +3765,7 @@ pub async fn native_fullscreen_recording_resume(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
+    crate::cursor_effects::set_paused(&app, false);
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
     let session = guard
         .as_mut()

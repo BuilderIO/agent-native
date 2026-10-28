@@ -17,6 +17,7 @@ import { MeetingNub } from "./overlays/meeting-nub";
 import { MonitorPicker } from "./overlays/monitor-picker";
 import { Preparing } from "./overlays/preparing";
 import { QuitRecoveryDialog } from "./overlays/quit-recovery-dialog";
+import { ReadyToRecord } from "./overlays/ready-to-record";
 import { RecordingPill } from "./overlays/record-pill";
 import { MeetingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
@@ -50,6 +51,8 @@ function pickRoute(route: string): React.ReactElement {
       return <Finalizing />;
     case "preparing":
       return <Preparing />;
+    case "ready-to-record":
+      return <ReadyToRecord />;
     case "meeting-notif":
       return <MeetingNotification />;
     case "meeting-nub":
