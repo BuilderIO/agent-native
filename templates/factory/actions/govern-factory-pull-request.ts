@@ -53,6 +53,8 @@ import {
 
 const AMBIGUOUS_APPROVAL_RESULT_REASON =
   "GitHub approval request outcome is ambiguous; reconciliation is required before retrying.";
+const APPROVAL_FINALIZATION_RECONCILIATION_REASON =
+  "GitHub accepted the approval, but the Factory item changed before finalization; reconciliation is required.";
 
 function hasUsableChangedFiles(
   changedFiles: readonly string[] | undefined,
@@ -988,9 +990,6 @@ export default defineAction({
             if (isTerminalFactoryItemStatus(latestItem.status)) {
               return { kind: "terminal", status: latestItem.status } as const;
             }
-            if (latestItem.status === "needs_manual") {
-              return { kind: "not_recovered" } as const;
-            }
             const recovered = await tx
               .update(triageDecisions)
               .set({ outcome: "auto_approve" })
@@ -1004,9 +1003,15 @@ export default defineAction({
                     eq(triageDecisions.outcome, "auto_approval_claimed"),
                     and(
                       eq(triageDecisions.outcome, "needs_manual"),
-                      eq(
-                        triageDecisions.reason,
-                        AMBIGUOUS_APPROVAL_RESULT_REASON,
+                      or(
+                        eq(
+                          triageDecisions.reason,
+                          AMBIGUOUS_APPROVAL_RESULT_REASON,
+                        ),
+                        eq(
+                          triageDecisions.reason,
+                          APPROVAL_FINALIZATION_RECONCILIATION_REASON,
+                        ),
                       ),
                     ),
                   ),
@@ -1022,7 +1027,9 @@ export default defineAction({
               .update(triageItems)
               .set({
                 metadataJson: serializeTriageMetadata(metadata),
-                status: "auto_approved",
+                ...(latestItem.status === "needs_manual"
+                  ? {}
+                  : { status: "auto_approved" }),
                 updatedAt: new Date().toISOString(),
               })
               .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
@@ -1265,6 +1272,11 @@ export default defineAction({
                 eq(triageDecisions.orgId, orgId),
                 eq(triageDecisions.factoryId, factoryId),
                 eq(triageDecisions.outcome, "needs_manual"),
+                ne(triageDecisions.reason, AMBIGUOUS_APPROVAL_RESULT_REASON),
+                ne(
+                  triageDecisions.reason,
+                  APPROVAL_FINALIZATION_RECONCILIATION_REASON,
+                ),
               ),
             )
             .returning({ id: triageDecisions.id });
@@ -1298,6 +1310,7 @@ export default defineAction({
               orgFactoryScopedItemWhere(itemId, orgId, factoryId),
               notInArray(triageItems.status, [
                 "reconciliation_required",
+                "auto_approved",
                 "merged",
                 "resolved",
                 "dismissed",
@@ -1558,6 +1571,22 @@ export default defineAction({
             throw new Error(
               `PR review evidence changed before approval: expected ${pullRequest.headSha}, received ${finalPullRequest.headSha}.`,
             );
+          }
+          if (
+            finalPullRequest.state !== "open" ||
+            finalPullRequest.draft ||
+            finalPullRequest.merged
+          ) {
+            await reconcileClaim(
+              pullRequest.headSha,
+              "Live GitHub pull-request state changed before approval; reconciliation is required before approval.",
+            );
+            return {
+              ok: true,
+              action: "needs_manual",
+              reason:
+                "Live GitHub pull-request state changed before approval; no approval was posted.",
+            };
           }
           finalReviewSnapshot = await github.getPullRequestEvidence(
             repository,
@@ -1837,8 +1866,6 @@ export default defineAction({
               "The pull-request head or state changed after approval was posted; durable approval state was not finalized.",
           };
         }
-        const finalizationReason =
-          "GitHub accepted the approval, but the Factory item changed before finalization; reconciliation is required.";
         const finalization = await getDb().transaction(async (tx) => {
           const finalizedClaim = await tx
             .update(triageDecisions)
@@ -1908,7 +1935,7 @@ export default defineAction({
               .update(triageDecisions)
               .set({
                 outcome: "needs_manual",
-                reason: finalizationReason,
+                reason: APPROVAL_FINALIZATION_RECONCILIATION_REASON,
                 createdAt: new Date().toISOString(),
               })
               .where(
@@ -1939,7 +1966,7 @@ export default defineAction({
             reason:
               finalization === "claim_changed"
                 ? "The approval claim changed before finalization; manual reconciliation is required."
-                : finalizationReason,
+                : APPROVAL_FINALIZATION_RECONCILIATION_REASON,
           };
         }
       }
