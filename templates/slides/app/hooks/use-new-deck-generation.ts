@@ -1,4 +1,5 @@
 import {
+  getAgentChatRunningThreadId,
   getAgentChatSubmitTarget,
   sendToAgentChatAndConfirm,
 } from "@agent-native/core/client/agent-chat";
@@ -645,7 +646,18 @@ function getRunConversationThreadId(
   const stored = window.sessionStorage.getItem(
     getRunConversationThreadStorageKey(deckId, submitMessageId),
   );
-  if (stored === null) return null;
+  if (stored === null) {
+    const tabId = getRunTabId(deckId, submitMessageId);
+    const running = tabId ? getAgentChatRunningThreadId(tabId) : null;
+    if (running) {
+      rememberNewDeckGenerationRunConversationThread(
+        deckId,
+        submitMessageId,
+        running,
+      );
+    }
+    return running;
+  }
   if (!stored.trim()) {
     throw new Error(
       `Cannot restore Slides generation ownership for deck ${deckId}: invalid session data.`,

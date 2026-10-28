@@ -2,6 +2,7 @@
 
 import {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
+  dispatchAgentChatRunning,
   reportAgentChatSubmitTarget,
 } from "@agent-native/core/client/agent-chat";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -840,13 +841,27 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBeNull();
   });
 
-  it("waits on a question asked by a run the chat routed before the editor mounted", async () => {
-    // The deck route loads lazily, so Home's submission can reach its chat
-    // tab before this editor is listening for the target event.
+  it("waits on a question asked by a run that ended before the editor mounted", async () => {
+    // The deck route loads lazily, so Home's submission can be routed, run,
+    // and end on a question before this editor listens for any chat event.
     reportAgentChatSubmitTarget("submit-before-mount", "generation-tab");
+    dispatchAgentChatRunning({
+      isRunning: true,
+      threadId: "generation-tab",
+      tabId: "generation-tab",
+    });
+    dispatchAgentChatRunning({
+      isRunning: false,
+      threadId: "generation-tab",
+      tabId: "generation-tab",
+      reason: "run.completed",
+    });
+    mocks.guidedQuestionAskerThreadId = "generation-tab";
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "Which story should the deck tell?" },
+    ];
     mocks.targetTabId = "generation-tab";
     mocks.startedTabId = "generation-tab";
-    mocks.attemptGenerating = true;
     mocks.attemptObservedRun = true;
     router = createMemoryRouter(
       [{ path: "/deck/:id", element: <DeckEditor /> }],
@@ -858,35 +873,6 @@ describe("DeckEditor generation signal wiring", () => {
     );
 
     render(<RouterProvider router={router} />);
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent("agentNative.chatRunning", {
-          detail: {
-            isRunning: true,
-            threadId: "generation-tab",
-            tabId: "generation-tab",
-          },
-        }),
-      );
-    });
-    mocks.guidedQuestionAskerThreadId = "generation-tab";
-    mocks.guidedQuestionQuestions = [
-      { id: "q1", question: "Which story should the deck tell?" },
-    ];
-    mocks.attemptGenerating = false;
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent("agentNative.chatRunning", {
-          detail: {
-            isRunning: false,
-            threadId: "generation-tab",
-            tabId: "generation-tab",
-            reason: "run.completed",
-          },
-        }),
-      );
-      publishAgentGeneratingChange();
-    });
 
     await waitFor(() =>
       expect(screen.getByTestId("question-flow")).toBeTruthy(),

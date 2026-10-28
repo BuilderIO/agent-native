@@ -6,8 +6,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   dispatchAgentChatRunning,
+  getAgentChatRunningThreadId,
   useAgentChatRunningThreads,
 } from "./use-agent-chat-running-threads.js";
+
+describe("getAgentChatRunningThreadId", () => {
+  it("keeps a tab's thread for listeners that subscribe after its events", () => {
+    dispatchAgentChatRunning({
+      isRunning: false,
+      tabId: "tab-late-listener",
+      threadId: "thread-late-listener",
+      reason: "run.completed",
+    });
+
+    expect(getAgentChatRunningThreadId("tab-late-listener")).toBe(
+      "thread-late-listener",
+    );
+    expect(getAgentChatRunningThreadId("tab-never-ran")).toBeNull();
+  });
+});
 
 describe("useAgentChatRunningThreads", () => {
   let container: HTMLDivElement;

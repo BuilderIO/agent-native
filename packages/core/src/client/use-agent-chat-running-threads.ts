@@ -36,10 +36,37 @@ export function resolveAgentChatRunningThreadId(
   return typeof value === "string" && value.trim() ? value : null;
 }
 
+const RUNNING_THREAD_HISTORY_LIMIT = 100;
+const runningThreadIdsByTab = new Map<string, string>();
+
+export function rememberAgentChatRunningThread(
+  detail: Partial<AgentChatRunningEventDetail> | null | undefined,
+): void {
+  const tabId = detail?.tabId?.trim();
+  const threadId = detail?.threadId?.trim();
+  if (!tabId || !threadId) return;
+  runningThreadIdsByTab.delete(tabId);
+  runningThreadIdsByTab.set(tabId, threadId);
+  if (runningThreadIdsByTab.size > RUNNING_THREAD_HISTORY_LIMIT) {
+    const oldest = runningThreadIdsByTab.keys().next().value;
+    if (oldest !== undefined) runningThreadIdsByTab.delete(oldest);
+  }
+}
+
+/**
+ * The conversation thread a chat tab last reported running. Like the submit
+ * target, the running events can all pass before a lazily loaded route that
+ * tracks the run has mounted.
+ */
+export function getAgentChatRunningThreadId(tabId: string): string | null {
+  return runningThreadIdsByTab.get(tabId) ?? null;
+}
+
 export function dispatchAgentChatRunning(
   detail: AgentChatRunningEventDetail,
 ): void {
   if (typeof window === "undefined") return;
+  rememberAgentChatRunningThread(detail);
   window.dispatchEvent(new CustomEvent(AGENT_CHAT_RUNNING_EVENT, { detail }));
 }
 

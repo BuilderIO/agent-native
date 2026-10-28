@@ -37,6 +37,7 @@ import {
   sendMcpAppHostMessage,
   type McpAppModelContextContentPart,
 } from "./mcp-app-host.js";
+import { rememberAgentChatRunningThread } from "./use-agent-chat-running-threads.js";
 
 export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
 
@@ -275,10 +276,10 @@ if (typeof window !== "undefined") {
       event.data?.type === "agentNative.chatRunning" ||
       event.data?.type === "builder.chatRunning"
     ) {
+      const detail = event.data.detail ?? event.data.data;
+      rememberAgentChatRunningThread(detail);
       window.dispatchEvent(
-        new CustomEvent("agentNative.chatRunning", {
-          detail: event.data.detail ?? event.data.data,
-        }),
+        new CustomEvent("agentNative.chatRunning", { detail }),
       );
     }
   });
