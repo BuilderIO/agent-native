@@ -15,7 +15,10 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
-import { isValidPanelDrilldown } from "./panel-drilldown";
+import {
+  isValidPanelDrilldown,
+  panelDrilldownSqlProblem,
+} from "./panel-drilldown";
 import { isValidPanelEvent, panelEventProblem } from "./panel-events";
 import { isValidPanelBreakdowns } from "./row-breakdown";
 import {
@@ -343,9 +346,13 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
     problem: comparisonProblem,
   },
   drilldown: {
-    valid: isValidPanelDrilldown,
+    valid: (value) =>
+      isValidPanelDrilldown(value) &&
+      panelDrilldownSqlProblem(value.sql) === null,
     expected:
       "an object with only sql, a non-empty SQL template of at most 50000 characters using drillX, drillSeries and dashboard filter variables",
+    problem: (value) =>
+      isValidPanelDrilldown(value) ? panelDrilldownSqlProblem(value.sql) : null,
   },
   funnelOutcomes: {
     valid: (value) =>

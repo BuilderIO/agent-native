@@ -278,6 +278,51 @@ describe("unknownPanelConfigKeys", () => {
     ]);
   });
 
+  it("rejects a saved record template that uses a list variable or conditional block, naming the pattern to use", () => {
+    const extra = { source: "bigquery", chartType: "bar" };
+    const listDrilldown = {
+      sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
+    };
+    const [issue] = unknownPanelConfigKeys(
+      panel({ drilldown: listDrilldown }, extra),
+    );
+
+    expect(issue).toMatchObject({ kind: "invalid-value", key: "drilldown" });
+    expect(issue.message).toContain(
+      "Record templates must not use list variables such as {{appFilter:list}}.",
+    );
+    expect(issue.message).toContain(
+      "In BigQuery: ('{{appFilter}}' IN ('', 'all') OR <column> IN UNNEST(SPLIT('{{appFilter}}', ',')))",
+    );
+    expect(issue.message).toContain(
+      "In first-party SQL: ('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || <column> || ',') > 0).",
+    );
+    expect(
+      unknownPanelConfigKeys(
+        panel(
+          {
+            drilldown: {
+              sql: "SELECT visitor FROM events WHERE {{?appFilter}}app = '{{appFilter}}'{{/appFilter}}",
+            },
+          },
+          extra,
+        ),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        key: "drilldown",
+        message: expect.stringContaining("must not use conditional blocks"),
+      }),
+    ]);
+    // An unchanged template doesn't block an unrelated edit to its panel.
+    expect(
+      unknownPanelConfigKeys(
+        panel({ drilldown: listDrilldown, yKey: "visitors" }, extra),
+        panel({ drilldown: listDrilldown }, extra),
+      ),
+    ).toEqual([]);
+  });
+
   it("suggests yFormatter for yAxis and names the panel", () => {
     const [issue] = unknownPanelConfigKeys(
       panel({ yAxis: { format: "percent" } }),

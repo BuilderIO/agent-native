@@ -1,5 +1,7 @@
 import { fail } from "@agent-native/core/action";
 
+import { panelDrilldownSqlProblem } from "../../shared/panel-drilldown";
+
 function rejectSourceSql(message: string): never {
   return fail(message, { errorCode: "invalid_source_sql", statusCode: 400 });
 }
@@ -16,7 +18,7 @@ function hasBigQueryRawStringPrefix(sql: string, quoteIndex: number): boolean {
   return !beforePrefix || !/[A-Za-z0-9_]/.test(beforePrefix);
 }
 
-const TEMPLATE_SLOT_AT = /\{\{\w+(:list)?\}\}/y;
+const TEMPLATE_SLOT_AT = /\{\{\w+\}\}/y;
 
 // Sticky so each lookup costs only the slot's own length; slicing the rest of
 // a 50,000-character template at every `{{` or `\` makes validation quadratic.
@@ -40,14 +42,13 @@ function sanitizeSqlForInspection(
   const inspectTemplateLiteral = (end: number) => {
     if (
       validateTemplateVariables &&
-      /\{\{\w+(?::list)?\}\}/.test(sql.slice(quoteStart, end)) &&
+      /\{\{\w+\}\}/.test(sql.slice(quoteStart, end)) &&
       (rawString ||
         state === "backtick" ||
-        (dialect === "standard" && state === "double") ||
-        /\{\{\w+:list\}\}/.test(sql.slice(quoteStart, end)))
+        (dialect === "standard" && state === "double"))
     ) {
       rejectSourceSql(
-        "Scalar SQL template variables require ordinary quoted strings; list variables require standalone SQL positions, not raw literals or identifiers.",
+        "SQL template variables require ordinary quoted strings, not raw literals or identifiers.",
       );
     }
   };
@@ -60,22 +61,9 @@ function sanitizeSqlForInspection(
         rejectSourceSql("SQL template variables must not occur in comments.");
       }
       if (variable && state === "code") {
-        const adjacent = `${sql[i - 1] ?? ""}${sql[i + variable[0].length] ?? ""}`;
-        if (
-          !variable[1] ||
-          /[\p{ID_Continue}$'"`\\{}]/u.test(adjacent) ||
-          // A list renders quoted items, so `U&` before it makes a U& string,
-          // and PostgreSQL reads any non-ASCII neighbor as identifier text.
-          (dialect === "standard" &&
-            (sql[i - 1] === "&" || /[^\x00-\x7f]/.test(adjacent)))
-        ) {
-          rejectSourceSql(
-            "Scalar SQL template variables require ordinary quoted strings; list variables require standalone SQL positions.",
-          );
-        }
-        out += " ".repeat(variable[0].length);
-        i += variable[0].length - 1;
-        continue;
+        rejectSourceSql(
+          "SQL template variables require ordinary quoted strings.",
+        );
       }
       // An empty value joins the quotes around a slot run, which can form a
       // new delimiter (`'''x'{{v}}''` closes early), so only a triple-quoted
@@ -264,11 +252,8 @@ export function assertRecordTemplateLiteralContexts(
   sql: string,
   dialect: "bigquery" | "standard",
 ): void {
-  if (/\{\{\?\w+\}\}/.test(sql)) {
-    rejectSourceSql(
-      "Record templates must not use conditional blocks. Use SQL CASE expressions with ordinary template variables.",
-    );
-  }
+  const problem = panelDrilldownSqlProblem(sql);
+  if (problem) rejectSourceSql(`${problem}.`);
   sanitizeSqlForInspection(sql, dialect, true);
 }
 
