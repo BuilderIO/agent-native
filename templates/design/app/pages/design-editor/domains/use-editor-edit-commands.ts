@@ -243,7 +243,8 @@ export function useEditorEditCommands({
     pendingStructureRedoPreparedEditsRef,
     recordPendingLiveStructureEdit,
   } = editorScreenChangeHandlers;
-  const { handleDeleteSelection } = editorClipboard;
+  const { cancelPendingPastedMediaForHistoryReplay, handleDeleteSelection } =
+    editorClipboard;
   const {
     runtimeStructureDeleteRequest,
     setRuntimeStructureDeleteRequest,
@@ -516,8 +517,12 @@ export function useEditorEditCommands({
           deletedFileSnapshots: FileDeletionHistorySnapshot[],
         ) => void;
       },
-    ) =>
-      runDeleteFiles(
+    ) => {
+      if (!activeFile) {
+        options?.onMutationSettled?.([], filesToDelete, []);
+        return Promise.resolve();
+      }
+      return runDeleteFiles(
         {
           activeFile,
           canvasFrameGeometryById,
@@ -560,7 +565,8 @@ export function useEditorEditCommands({
         },
         filesToDelete,
         options,
-      ),
+      );
+    },
     [
       activeFile,
       canvasFrameGeometryById,
@@ -806,6 +812,7 @@ export function useEditorEditCommands({
           return;
         }
       }
+      if (!activeFile) return;
       return runChangeSelectedZIndex(
         {
           activeFile,
@@ -904,8 +911,9 @@ export function useEditorEditCommands({
   }, [restoreSelectionChrome]);
 
   const handleNudgeSelection = useCallback(
-    (direction: "up" | "right" | "down" | "left", largeStep: boolean) =>
-      runNudgeSelection(
+    (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
+      if (!activeFile) return;
+      return runNudgeSelection(
         {
           activeFile,
           applyLinkedComponentEdit,
@@ -934,7 +942,8 @@ export function useEditorEditCommands({
         },
         direction,
         largeStep,
-      ),
+      );
+    },
     [
       activeCanvasSourceType,
       activeFile,
@@ -1014,9 +1023,15 @@ export function useEditorEditCommands({
     for (const change of changes) {
       const content = direction === "undo" ? change.before : change.after;
       if (change.before === change.after) continue;
-      applyFileContentUpdate(change.fileId, content, {
+      const result = applyFileContentUpdate(change.fileId, content, {
         recordHistory: false,
       });
+      if (result.status === "accepted")
+        cancelPendingPastedMediaForHistoryReplay(
+          change.fileId,
+          direction === "undo" ? change.after : change.before,
+          content,
+        );
     }
     if (direction !== "commit") {
       applyDesignDataHistoryChanges(changes, direction);
@@ -1033,6 +1048,7 @@ export function useEditorEditCommands({
         applyGeometryHistoryContentChanges: (changes, direction) =>
           applyGeometryHistoryContentChangesRef.current(changes, direction),
         applyLocalContentUpdate,
+        cancelPendingPastedMediaForHistoryReplay,
         canEditDesign,
         allowPendingLiveEdits: canEditLiveScreens && !canEditDesign,
         captureCurrentSelection,
@@ -1113,6 +1129,7 @@ export function useEditorEditCommands({
       applyDesignDataHistoryChanges,
       applyGeometryHistoryContentChangesRef,
       applyLocalContentUpdate,
+      cancelPendingPastedMediaForHistoryReplay,
       canEditDesign,
       canEditLiveScreens,
       clearPendingHistoryDirections,
@@ -1149,6 +1166,7 @@ export function useEditorEditCommands({
       runRedo({
         activeEditorDragRef,
         activeFile,
+        cancelPendingPastedMediaForHistoryReplay,
         applyFileContentUpdate,
         applyDesignDataHistoryChanges,
         applyGeometryHistoryContentChanges: (changes, direction) =>

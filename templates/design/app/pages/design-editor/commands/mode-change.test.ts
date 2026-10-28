@@ -96,6 +96,20 @@ describe("runModeChange Interact navigation", () => {
     );
   });
 
+  it("does not record the Interact target when screen entry is refused", () => {
+    const args = makeArgs();
+    args.enterSingleScreen = vi.fn(() => false);
+
+    const changed = runModeChange(args, "interact", {
+      targetFileId: targetFile.id,
+    });
+
+    expect(changed).toBe(false);
+    expect(args.viewModeRef.current).toBe("overview");
+    expect(args.setOverviewInteractScreenId).not.toHaveBeenCalled();
+    expect(args.rememberOverviewScreenSelection).not.toHaveBeenCalled();
+  });
+
   it("keeps the selected device when returning to Interact after comments", () => {
     const args = makeArgs();
     const returnOptions = commentModeReturnOptions("interact", targetFile.id);
@@ -172,6 +186,19 @@ describe("runModeChange Interact navigation", () => {
     expect(args.rememberOverviewScreenSelection).toHaveBeenCalledWith(
       targetFile.id,
     );
+  });
+
+  it("does not change the Interact target when a screen switch is refused", () => {
+    const args = makeArgs("single", activeFile.id);
+    args.enterSingleScreen = vi.fn(() => false);
+
+    const changed = runModeChange(args, "interact", {
+      targetFileId: targetFile.id,
+    });
+
+    expect(changed).toBe(false);
+    expect(args.setOverviewInteractScreenId).not.toHaveBeenCalled();
+    expect(args.rememberOverviewScreenSelection).not.toHaveBeenCalled();
   });
 
   it("keeps the chosen device when the screen picker switches screens inside Interact", () => {
