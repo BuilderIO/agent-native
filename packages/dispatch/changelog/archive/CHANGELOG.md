@@ -1,3 +1,10 @@
+## 0.30.4
+
+### Patch Changes
+
+- Updated dependencies [fc85cb2]
+  - @agent-native/toolkit@0.16.7
+
 ## 0.30.3
 
 ### Patch Changes

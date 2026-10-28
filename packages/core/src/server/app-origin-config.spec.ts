@@ -30,6 +30,7 @@ const KEYS = [
   "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
   "APP_BASE_PATH",
   "VITE_APP_BASE_PATH",
+  "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
 ];
 
 describe("app origin client config", () => {
@@ -80,6 +81,19 @@ describe("app origin client config", () => {
       appHomePath: "/home",
       workspaceRuntime: true,
     });
+  });
+
+  it("projects the configured framework route prefix for embedded apps", () => {
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      appHomePath: "/home",
+      frameworkRoutePrefix: "/_platform",
+    });
+    expect(getAppOriginClientConfigScript()).toContain(
+      '"frameworkRoutePrefix":"/_platform"',
+    );
   });
 
   it("projects workspace mount paths for early runtime path reconciliation", () => {
@@ -159,7 +173,19 @@ describe("app origin client config", () => {
     expect(resolvePublicAppOriginConfig()).toMatchObject({
       workspaceAppPath: "/",
       workspaceRuntime: true,
+      explicitRootPath: true,
     });
+  });
+
+  it("projects an env-only root path for dynamic first-paint resolution", () => {
+    process.env.VITE_APP_BASE_PATH = "/";
+
+    expect(resolvePublicAppOriginConfig()).toMatchObject({
+      explicitRootPath: true,
+    });
+    expect(resolvePublicAppOriginConfig()).not.toHaveProperty(
+      "workspaceAppPath",
+    );
   });
 
   it("prefers the canonical spelling over its mirror", () => {

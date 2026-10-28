@@ -58,8 +58,10 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `get-native-shader-approvals` | Read effect approvals |
 | `prepare-native-scene-export` | Pin scene for PNG |
 | `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Export native PNG |
+| `generate-screens` | Plan screens |
 | `take-design-screenshot` / `export-png` | Inspect responsive images / export PNG |
-| `export-html` / `export-hubspot-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export finished work |
+| `export-html` / `export-hubspot-html` / `export-zip` / `export-design-as-figma-svg` | Export finished work |
+| `export-coding-handoff` | Export code; outside-agent calls need approval (7-day bearer URLs) |
 
 ## Core Rules
 

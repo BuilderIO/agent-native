@@ -61,7 +61,7 @@ export default {
     recordingStarted: "錄製開始時間",
     appBandHeading: "{app} · {count} 個工作階段",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 個工作階段{partial}",
-    journeyTitleAppBandsSummary: "{from} 至 {to} · 各應用程式獨立群組{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 獨立群組{partial}",
     sessionCount: "{count} 個工作階段",
     otherPaths: "其他路徑",
     otherBranchesShown: "已顯示 {shown}/{total} 個分支",

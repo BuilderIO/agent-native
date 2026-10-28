@@ -113,11 +113,8 @@ Real replies that missed, and what to send instead:
 | "Could you send the recording link, approximate time, and browser so we can trace whether the clip produced media before it tried to save?" | Find the recording from the reporter and message time first. If you still can't: "thanks - I couldn't find which recording this was; could you paste its link?" |
 | "cleanup now waits for the transcript, and a fix is ready. It should be on beta shortly." (sent before the merge) | "thanks - recordings will keep their transcript once this <url\|fix> is merged; it's in review now." |
 | "I've left moving it somewhere easier to find for product to decide." | "thanks - Steve will decide where the editor should live." |
-| "The framework team needs to decide whether multi-step work should be gathered into one request or handled through the agent's usual back-and-forth." | "thanks - Steve will decide how this should work." |
 | "Partially fixed - PR #7512 merged the project-instructions/context carryover fix", after she'd asked whether FullStory could be added for the whole org | Answer that question first: "yes - I'll add it for everyone" or "not yet - Steve will decide". |
 | "All fixed and verified. Please try again!" plus instructions to pull main and reinstall | "thanks - this <url\|fix> is merged and will be on beta shortly." No homework. |
-| "One-click clip duplication is a feature request; no change was made in this sweep." | "thanks - Steve will decide whether to build this." |
-| "I have not reproduced it or separated model/project time from framework workflow time." | "thanks - I'll look into why that run took so long." Or, if you can't: "Steve will take a look." |
 | More replies after Shawn wrote "bot please stop! I've got this all fixed and in flight" | Nothing. A person has it. |
 | "Thanks for correcting me, Julia - I misread the replies. ... Open - no question: I don't have enough source evidence to claim a fix." | Nothing: the thread was a joke. |
 | Asked for the app URL, what was clicked, and the time; then, in a second reply, for the time zone. | One reply, one question, only for what you can't look up. The message's own timestamp already says when. |
@@ -202,9 +199,10 @@ the invocation gives), plus 14 days for open items.
   - GitHub: open issues updated in the window
     (`gh issue list --state open --search "updated:>=<date>"`). Skip ones
     someone else has offered to fix.
-  - Sentry (frontend and backend projects) and Agent-Native Analytics
-    (`list-error-issues`, then `get-error-issue`): unresolved, recent, and
-    repo-owned.
+  - Sentry (through its connector, or the local reader the invocation
+    names) and Agent-Native Analytics (`list-error-issues`, then
+    `get-error-issue`): unresolved, recent, and repo-owned. Rank by users
+    affected. An error with a stack trace is already a reproduction lead.
 <!-- framework-repo-only:start -->
   - CI on main: `pnpm ci:red-report` (exit 2 means CI unavailable, not
     clean).
@@ -233,8 +231,13 @@ Put each report in one bucket:
   answered, duplicates of something already in this run. These get no
   reaction and no reply.
 
-Then add 👀 to every Fix, Build, and Needs-a-person root in one pass, before you
-investigate. In an automation run, immediately list those roots (channel and
+Take the Fix reports in order of how many people they hurt, and claim as
+many as the run can finish. Any Fix, Build, or Needs-a-person root you leave
+unclaimed gets no reaction, only one line in the recap saying why, so
+nothing is dropped silently.
+
+Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
+pass, before you investigate. In an automation run, immediately list those roots (channel and
 ts) under "Claimed, not yet answered" in its `memory.md`, and remove each one
 once it has its reply. That list is how the next run tells an unfinished claim
 apart from Steve's own 👀.
@@ -244,15 +247,40 @@ apart from Steve's own 👀.
 - Group related reports so one cause gets one fix. Give each independent
   group a subagent on a cheaper model with disjoint files. The main thread
   plans, reviews diffs, and integrates.
-- For each group, reproduce first where you reasonably can (a test, the
-  action, or the flow in a local dev server), fix at the owning boundary
-  (`fix-at-the-boundary`), and search for the same pattern elsewhere and fix
-  those too.
-- Verify the way `verifying-changes` describes: a test that fails before and
-  passes after, or the reported flow working in the running app. Reading the
-  code is not verification.
-- Timebox one item to about 30 minutes. If it doesn't yield, it becomes 🎫
-  with one line on what you learned and who should look.
+- **Reproduce before you edit.** Get the failure on screen first: a test
+  that fails, the action returning the wrong thing, a stack trace, or the
+  flow broken in a signed-in local app. No reproduction means no code
+  change; it stays a 🎫. Guessing at a fix and hoping is how one Clips
+  popover got "fixed" four times.
+- **Check the history.** `git log --since=30.days --oneline -- <files>`: if
+  this surface was fixed before for the same symptom, that fix treated a
+  symptom. Find the shared cause (`fix-at-the-boundary`) instead of adding
+  one more patch, and look for the same pattern elsewhere.
+- **Prove it.** The check has to fail with the fix's source changes put
+  back to `main` and pass with them. A check that passes without your fix
+  doesn't test the bug: write one that does. Tests that read source text
+  never count. For a purely visual fix, a before and after screenshot of the
+  signed-in app stands in. Put the proof under the report in the PR's
+  `Reports` section.
+<!-- framework-repo-only:start -->
+  Commit the fix and its check, then run
+  `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the
+  repo root. For any fix that isn't purely visual, only its
+  `fix-proof: proven` line counts, and the second opinion below reads its red
+  output to confirm the check failed on the bug, not on setup.
+<!-- framework-repo-only:end -->
+- **Two misses, then stop guessing.** If two attempts don't turn the check
+  green, stop editing and capture the real failure first (stack, logs, the
+  reporter's actual data). If that doesn't settle it within about 30
+  minutes, it becomes 🎫 with one line on what you learned.
+- **Second opinion before the PR.** Give a fresh subagent only the report
+  text, the diff, and the proof, and ask: does the check exercise what the
+  reporter saw, and is this the cause or a symptom? Fix what it finds.
+- **Keep fixes small.** Each report's fix goes in its own commit so a bad
+  one can be reverted alone. A fix that grows past about 300 lines, or into
+  a new subsystem (timeouts, cancellation, retries) the reporter didn't ask
+  for, isn't a sweep fix: ship the small part and 🎫 the rest. Match the
+  versions the workspace already pins; a sweep is not a dependency upgrade.
 - Never tune agent instructions or prompts around one report's wording.
 
 ## 4. Ship
@@ -294,7 +322,8 @@ leave it. If a newer human reply says it's still broken, leave the 👀 for the
 next sweep. Otherwise:
 
 - **Merged fix:** add ✅ and reply that it's fixed, with the PR linked, and
-  will be on beta shortly.
+  will be on beta shortly. Only for reports whose `Reports` entry carries a
+  proof (step 3). Without one, it's 🎫 and "Steve will take a look".
 - **Fix ready but not merged yet** (for example CI is still running when the
   run must end): reply that a fix (PR linked) is in review. Don't mention
   beta yet. The next run adds ✅ once it's merged, with no second reply.
@@ -334,6 +363,7 @@ Fixed and merged (N): <one line each, with Slack thread link> · PR <link>
 Closed out from earlier runs (N): <Slack thread link> · PR <link>
 Needs a person (N): <what's needed, who>
 Still open from earlier runs (N): <why>
+Seen, not picked (N): <Slack thread link> - <one-line reason>
 Sources unavailable: <list or "none">
 Lesson (optional): <one line>
 ```
