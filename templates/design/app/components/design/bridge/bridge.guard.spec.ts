@@ -2766,6 +2766,114 @@ it(
 );
 
 it(
+  "editor chrome bridge reports each dragged SVG shape's pre-drag translate as its revert baseline",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #art { position: absolute; left: 100px; top: 100px; }
+    </style>
+  </head>
+  <body>
+    <svg id="art" data-an-primitive="pasted-svg" data-agent-native-node-id="art" viewBox="0 0 200 100" width="400" height="200">
+      <rect id="a" data-agent-native-node-id="a" x="10" y="10" width="40" height="20" fill="#333"/>
+      <rect id="b" data-agent-native-node-id="b" x="100" y="10" width="40" height="20" fill="#333"/>
+    </svg>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate(() => {
+        (window as unknown as { __styleChanges: unknown[] }).__styleChanges =
+          [];
+        window.addEventListener("message", (event) => {
+          const data = event.data as { type?: string };
+          if (data?.type === "visual-style-change") {
+            (
+              window as unknown as { __styleChanges: unknown[] }
+            ).__styleChanges.push(data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#a",
+            selectorCandidates: ["#a"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+      // The layers panel adds the other shape without the bridge selecting it.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-elements", selectorGroups: [["#a"], ["#b"]] },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-agent-native-edit-overlay="multi-selection"]',
+          ),
+        ).some(
+          (overlay) => window.getComputedStyle(overlay).display !== "none",
+        ),
+      );
+
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(180, 150);
+      await page.mouse.move(200, 160);
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const changes = await page.evaluate(() =>
+        (
+          window as unknown as {
+            __styleChanges: Array<{
+              selector: string;
+              styles: Record<string, string>;
+              originalStyles: Record<string, string>;
+            }>;
+          }
+        ).__styleChanges.map((change) => ({
+          translate: change.styles.translate,
+          baseline: change.originalStyles.translate,
+        })),
+      );
+
+      expect(changes).toEqual([
+        { translate: "20px 10px", baseline: "" },
+        { translate: "20px 10px", baseline: "" },
+      ]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge omits a move position badge and locks to the dominant axis while Shift is held during a move drag",
   { timeout: 30_000 },
   async () => {

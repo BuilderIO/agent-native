@@ -18812,6 +18812,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var states = members.map(function(member) {
         var shape = member;
         var toCanvas = svgShapeUserUnitsToCanvas(shape);
+        rememberLiveVisualEditOriginalStyles(shape);
         return {
           el: shape,
           toCanvas,

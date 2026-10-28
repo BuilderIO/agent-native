@@ -24263,6 +24263,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var states = members.map(function (member) {
       var shape = member as SVGElement;
       var toCanvas = svgShapeUserUnitsToCanvas(shape);
+      rememberLiveVisualEditOriginalStyles(shape);
       return {
         el: shape,
         toCanvas: toCanvas,
