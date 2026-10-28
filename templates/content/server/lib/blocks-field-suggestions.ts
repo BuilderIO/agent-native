@@ -35,6 +35,7 @@ import {
 } from "../../shared/suggestion-apply.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { schema } from "../db/index.js";
+import { firstRow } from "./first-row.js";
 import {
   CONTENT_SUGGESTION_OPERATION_KINDS,
   drizzleTransactionForExec,
@@ -59,7 +60,7 @@ function fieldOperation(operations: SuggestionOperation[]) {
       "Content v1 accepts one independently reviewable edit per suggestion",
     );
   }
-  const operation = operations[0]!;
+  const operation = operations[0];
   if (!CONTENT_SUGGESTION_OPERATION_KINDS.includes(operation.kind)) {
     throw new Error(
       `Unsupported Content suggestion operation: ${operation.kind}`,
@@ -192,7 +193,9 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
         errorCode: "suggestion_field_unavailable",
       });
     }
-    const { fieldId, before, after } = fieldOperation(input.operations);
+    const { operation, fieldId, before, after } = fieldOperation(
+      input.operations,
+    );
     const base = parseBlocksFieldSuggestionRevision(input.baseRevision);
     if (!base || base.propertyId !== fieldId) {
       throw new Error(
@@ -229,7 +232,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
     // the words it changes are gone.
     const moved =
       base.revision <= revision
-        ? operationOnCurrentField(input.operations[0]!, content)
+        ? operationOnCurrentField(operation, content)
         : null;
     if (!moved) {
       fail("The tab changed; refresh before saving this suggestion", {
@@ -257,23 +260,27 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       .from(schema.documents)
       .where(eq(schema.documents.id, documentId));
     assertEditableDocument(page);
-    const [definition] = await db
-      .select()
-      .from(schema.documentPropertyDefinitions)
-      .where(
-        and(
-          eq(schema.documentPropertyDefinitions.id, fieldId),
-          eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+    const definition = firstRow(
+      await db
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.id, fieldId),
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+          ),
         ),
-      );
+    );
     if (!definition) fieldUnavailable();
     // Checked again under the locks: the field may have changed since.
     await readSuggestionField(tx, documentId, fieldId);
     await assertPropertyWritableByRowMutation(db, databaseId, definition);
-    const [database] = await db
-      .select({ ownerEmail: schema.contentDatabases.ownerEmail })
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
+    const database = firstRow(
+      await db
+        .select({ ownerEmail: schema.contentDatabases.ownerEmail })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId)),
+    );
     if (!database) fieldUnavailable();
 
     const current = await readStoredBlocksField(db, documentId, fieldId);

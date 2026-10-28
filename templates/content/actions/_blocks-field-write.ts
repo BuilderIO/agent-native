@@ -2,6 +2,7 @@ import { ActionContractError } from "@agent-native/core";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { firstRow } from "../server/lib/first-row.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
 import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
@@ -48,15 +49,17 @@ export async function readStoredBlocksField(
   documentId: string,
   propertyId: string,
 ): Promise<string> {
-  const [field] = await db
-    .select({ content: schema.documentBlockFieldContents.content })
-    .from(schema.documentBlockFieldContents)
-    .where(
-      and(
-        eq(schema.documentBlockFieldContents.documentId, documentId),
-        eq(schema.documentBlockFieldContents.propertyId, propertyId),
+  const field = firstRow(
+    await db
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(schema.documentBlockFieldContents.documentId, documentId),
+          eq(schema.documentBlockFieldContents.propertyId, propertyId),
+        ),
       ),
-    );
+  );
   return field?.content ?? "";
 }
 

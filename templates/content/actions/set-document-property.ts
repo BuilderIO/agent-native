@@ -425,12 +425,17 @@ export default defineAction({
           operation: "set-document-property",
           content,
         });
-        const [currentDocument] = await tx
-          .select({ content: schema.documents.content })
-          .from(schema.documents)
-          .where(eq(schema.documents.id, documentId));
+        const currentDocument = firstRow(
+          await tx
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, documentId)),
+        );
         if (!currentDocument) {
-          throw new Error(`Document "${documentId}" not found`);
+          throw new ActionContractError(`Document "${documentId}" not found`, {
+            errorCode: "DOCUMENT_NOT_FOUND",
+            statusCode: 404,
+          });
         }
         const previousContent = currentDocument.content;
         assertNoNewlySharedVideoIds(previousContent, content);

@@ -158,7 +158,7 @@ describe("useBlocksFieldSuggestions", () => {
     await render(true, []);
     await draftInTab();
     expect(latest.drafts).toHaveLength(1);
-    expect(latest.drafts[0]!.operations[0]!.targetId).toBe("notes");
+    expect(latest.drafts[0].operations[0].targetId).toBe("notes");
     expect(latest.hasOpen).toBe(true);
 
     let saved = false;
@@ -181,7 +181,7 @@ describe("useBlocksFieldSuggestions", () => {
         ],
       }),
     );
-    const created = onSaved.mock.calls[0]![0] as ResourceSuggestion[];
+    const created = onSaved.mock.calls[0][0] as ResourceSuggestion[];
     expect(created.map((suggestion) => suggestion.id)).toEqual(["saved-0"]);
 
     // Once the list has it, the draft is that suggestion, not a new one.
@@ -210,12 +210,12 @@ describe("useBlocksFieldSuggestions", () => {
     await act(async () => {
       await latest.flushAll();
     });
-    const [created] = onSaved.mock.calls[0]![0] as ResourceSuggestion[];
-    await render(true, [created!]);
+    const [created] = onSaved.mock.calls[0][0] as ResourceSuggestion[];
+    await render(true, [created]);
     expect(latest.provider.sessions.has("notes")).toBe(true);
 
     await act(async () => {
-      await latest.decide(created!, "accepted");
+      await latest.decide(created, "accepted");
     });
 
     expect(mocks.decideSuggestion).toHaveBeenCalledWith(

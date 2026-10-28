@@ -1805,6 +1805,8 @@ export function useBlockFieldEditor({
    * from, or null while an edit of the tab's own is unsaved or on the way.
    */
   suggestionBase: () => { content: string; revision: number } | null;
+  /** Changes whenever `suggestionBase` may answer differently. */
+  suggestionBaseVersion: string;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -2093,8 +2095,6 @@ export function useBlockFieldEditor({
     );
   }
 
-  // A new identity whenever the answer can change, so a caller's effect
-  // asks again.
   const suggestionBase = useCallback(() => {
     const controller = controllerRef.current;
     if (!controller || controller.isSaving || !controller.isClean) return null;
@@ -2105,8 +2105,10 @@ export function useBlockFieldEditor({
     return initialRevision >= revision.base
       ? { content: initialContent, revision: initialRevision }
       : { content: controller.lastSaved, revision: revision.base };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialContent, initialRevision, key, mergeRequest, settledSaves]);
+  }, [initialContent, initialRevision, key]);
+  // A save settling or a merge landing can change that answer, so a caller's
+  // effect asks again when this does.
+  const suggestionBaseVersion = `${settledSaves}:${mergeRequest?.key ?? ""}`;
 
   return {
     content,
@@ -2117,6 +2119,7 @@ export function useBlockFieldEditor({
     isPendingContent,
     onPersistenceControllerChange,
     suggestionBase,
+    suggestionBaseVersion,
   };
 }
 
@@ -2160,6 +2163,7 @@ function AdditionalBlockEditor({
     isPendingContent,
     onPersistenceControllerChange,
     suggestionBase,
+    suggestionBaseVersion,
   } = useBlockFieldEditor({
     documentId,
     propertyId,
@@ -2221,7 +2225,7 @@ function AdditionalBlockEditor({
     if (!needsSession) return;
     const base = suggestionBase();
     if (base) startSession?.(base);
-  }, [needsSession, startSession, suggestionBase]);
+  }, [needsSession, startSession, suggestionBase, suggestionBaseVersion]);
   const shownContent = session ? session.draft : content;
   const visualsFor = suggestionEditor?.visuals;
   const visuals = useMemo(

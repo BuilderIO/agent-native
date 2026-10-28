@@ -6,6 +6,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { firstRow } from "../server/lib/first-row.js";
 import {
   blocksFieldSuggestionRevision,
   CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
@@ -29,7 +30,7 @@ const TEST_DB_PATH = join(
 const OWNER = "owner@example.com";
 const ctx = { caller: "frontend" as const, userEmail: OWNER };
 
-let getDb: () => any;
+let getDb: typeof import("../server/db/index.js").getDb;
 let schema: typeof import("../server/db/schema.js");
 let createContentDatabase: typeof import("./create-content-database.js").default;
 let configureDocumentProperty: typeof import("./configure-document-property.js").default;
@@ -68,7 +69,7 @@ beforeAll(async () => {
   getSuggestion = (
     await import("@agent-native/core/review/suggestions/actions/get-resource-suggestion")
   ).default;
-  await (await import("../server/plugins/db.js")).default(undefined as any);
+  await (await import("../server/plugins/db.js")).default(undefined as never);
   await (
     await import("../server/plugins/suggested-edits.js")
   ).default(undefined as never);
@@ -99,12 +100,16 @@ async function seedRow(suffix: string, body: string, notes: string) {
     const blocks = configured.properties.filter(
       (property) => property.definition.type === "blocks",
     );
-    const primaryId = blocks.find(
-      (property) => property.definition.options.blocks?.primary === true,
-    )!.definition.id;
-    const notesId = blocks.find(
-      (property) => property.definition.name === "Notes",
-    )!.definition.id;
+    const primaryId = present(
+      blocks.find(
+        (property) => property.definition.options.blocks?.primary === true,
+      ),
+      "the body's Blocks field",
+    ).definition.id;
+    const notesId = present(
+      blocks.find((property) => property.definition.name === "Notes"),
+      "the Notes field",
+    ).definition.id;
     const read = await getContentDatabase.run({ databaseId });
     if (!("database" in read) || !read.mutationContract)
       throw new Error("Fixture Collection has no mutation contract.");
@@ -127,22 +132,30 @@ async function seedRow(suffix: string, body: string, notes: string) {
   });
 }
 
+function present<T>(value: T | undefined, what: string): T {
+  if (value === undefined) throw new Error(`Fixture is missing ${what}.`);
+  return value;
+}
+
 async function fieldState(row: string, databaseId: string, fieldId: string) {
   const listed = await as(() =>
     listDocumentProperties.run({ documentId: row, databaseId }),
   );
-  const property = listed.properties.find(
-    (candidate) => candidate.definition.id === fieldId,
-  )!;
-  const [stored] = await getDb()
-    .select({ content: schema.documentBlockFieldContents.content })
-    .from(schema.documentBlockFieldContents)
-    .where(
-      and(
-        eq(schema.documentBlockFieldContents.documentId, row),
-        eq(schema.documentBlockFieldContents.propertyId, fieldId),
+  const property = present(
+    listed.properties.find((candidate) => candidate.definition.id === fieldId),
+    `field ${fieldId}`,
+  );
+  const stored = firstRow(
+    await getDb()
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(schema.documentBlockFieldContents.documentId, row),
+          eq(schema.documentBlockFieldContents.propertyId, fieldId),
+        ),
       ),
-    );
+  );
   return {
     content: stored?.content ?? "",
     revision: property.blocksField?.revision ?? 0,
@@ -150,10 +163,12 @@ async function fieldState(row: string, databaseId: string, fieldId: string) {
 }
 
 async function pageBody(row: string) {
-  const [page] = await getDb()
-    .select({ content: schema.documents.content })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, row));
+  const page = firstRow(
+    await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, row)),
+  );
   return page?.content;
 }
 
@@ -236,7 +251,7 @@ describe("suggestions on a Blocks field tab", () => {
     expect(suggestion.operations[0]?.targetId).toBe(seeded.notesId);
 
     const decided = await accept(suggestion.id);
-    expect(decided.suggestion?.status).toBe("accepted");
+    expect(decided.suggestion.status).toBe("accepted");
     const after = await fieldState(
       seeded.row,
       seeded.databaseId,
@@ -283,7 +298,7 @@ describe("suggestions on a Blocks field tab", () => {
       ),
     );
 
-    await accept(created.suggestions[0]!.id);
+    await accept(created.suggestions[0].id);
     expect(
       (await fieldState(seeded.row, seeded.databaseId, seeded.notesId)).content,
     ).toBe("First paragraph, reworded.\n\nSecond paragraph, typed meanwhile.");
@@ -315,11 +330,11 @@ describe("suggestions on a Blocks field tab", () => {
       ),
     );
 
-    await expect(accept(created.suggestions[0]!.id)).rejects.toMatchObject({
+    await expect(accept(created.suggestions[0].id)).rejects.toMatchObject({
       errorCode: "suggestion_stale",
     });
     const pending = await as(() =>
-      getSuggestion.run({ id: created.suggestions[0]!.id }, ctx),
+      getSuggestion.run({ id: created.suggestions[0].id }, ctx),
     );
     expect(pending.status).toBe("pending");
     expect(
@@ -403,7 +418,7 @@ describe("suggestions on a Blocks field tab", () => {
       ],
       "older-create",
     );
-    const saved = created.suggestions[0]!.operations[0]!;
+    const saved = created.suggestions[0].operations[0];
     expect(saved.targetId).toBe(seeded.notesId);
     expect(saved.before).toMatchObject({
       markdown: "Original notes.\n\nA second paragraph, typed meanwhile.",
@@ -413,7 +428,7 @@ describe("suggestions on a Blocks field tab", () => {
         "Original notes, revised.\n\nA second paragraph, typed meanwhile.",
     });
 
-    await accept(created.suggestions[0]!.id);
+    await accept(created.suggestions[0].id);
     expect(
       (await fieldState(seeded.row, seeded.databaseId, seeded.notesId)).content,
     ).toBe("Original notes, revised.\n\nA second paragraph, typed meanwhile.");

@@ -332,14 +332,17 @@ export function useBlocksFieldSuggestions({
         operations: SuggestionOperation[],
         idempotencyKey: string,
       ) => {
-        if (created.suggestions.length !== operations.length)
+        if (
+          created.suggestions.length !== operations.length ||
+          keys.length !== operations.length
+        )
           throw new Error("Proposal creation returned an incomplete edit set");
         session.proposalId = created.proposal.id;
         operations.forEach((operation, index) => {
-          session.entries.set(keys[index]!, {
+          session.entries.set(keys[index], {
             idempotencyKey,
             operation,
-            suggestion: created.suggestions[index]!,
+            suggestion: created.suggestions[index],
           });
         });
         savedNow.push(...created.suggestions);
@@ -513,6 +516,7 @@ export function useBlocksFieldSuggestions({
         if (!session.dirty && !session.unresolved) return true;
         return persist(session, autosave);
       });
+      // coercion-ok: the queue only orders saves; `run` reports its failure.
       session.queue = run.catch(() => false);
       return run;
     },
@@ -634,8 +638,9 @@ export function useBlocksFieldSuggestions({
     [],
   );
 
-  // What the sessions hold now: drafts not saved yet, each saved suggestion
-  // as its draft shows it, and the suggestions it took back.
+  // What the sessions hold at this revision (they live in a ref, and
+  // `revision` counts their changes): drafts not saved yet, each saved
+  // suggestion as its draft shows it, and the suggestions it took back.
   const derived = useMemo(() => {
     const sessions = new Map<string, { key: string; draft: string }>();
     const drafts: DraftSuggestion[] = [];
@@ -668,8 +673,7 @@ export function useBlocksFieldSuggestions({
       for (const id of withdrawnSessionSuggestionIds(own, session.entries))
         withdrawn.add(id);
     }
-    return { sessions, drafts, visuals, editing, withdrawn };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return { revision, sessions, drafts, visuals, editing, withdrawn };
   }, [authorEmail, revision]);
 
   /** The tabs' saved suggestions, as their drafts show them. */
@@ -751,8 +755,8 @@ export function useBlocksFieldSuggestions({
       const fieldId = suggestionBlocksFieldId(draft);
       const session = fieldId ? sessionsRef.current.get(fieldId) : undefined;
       if (!session || !(await save(session, { autosave: false }))) return null;
+      if (draft.operations.length === 0) return null;
       const operation = draft.operations[0];
-      if (!operation) return null;
       const exact = session.entries.get(suggestionOperationKey(operation));
       if (exact) return exact.suggestion;
       // Typing since the draft rendered changed its edit; the saved edit at
