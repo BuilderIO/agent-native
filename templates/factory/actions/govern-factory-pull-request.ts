@@ -813,6 +813,30 @@ export default defineAction({
           !isUltraScaryChange(changedFiles)
         ) {
           recoveredApproval = await getDb().transaction(async (tx) => {
+            const latestItems = await tx
+              .select({
+                metadataJson: triageItems.metadataJson,
+                status: triageItems.status,
+              })
+              .from(triageItems)
+              .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+              .limit(1)
+              .for("update");
+            const latestItem =
+              latestItems.length === 0 ? undefined : latestItems[0];
+            if (!latestItem) {
+              fail("Factory item disappeared during approval recovery.", {
+                errorCode: "factory_item_not_found",
+                statusCode: 404,
+              });
+            }
+            if (
+              latestItem.status === "merged" ||
+              latestItem.status === "resolved" ||
+              latestItem.status === "dismissed"
+            ) {
+              return false;
+            }
             const recovered = await tx
               .update(triageDecisions)
               .set({ outcome: "auto_approve" })
@@ -827,18 +851,6 @@ export default defineAction({
               )
               .returning({ id: triageDecisions.id });
             if (!recovered[0]) return false;
-            const latestItem = (
-              await tx
-                .select({ metadataJson: triageItems.metadataJson })
-                .from(triageItems)
-                .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
-                .limit(1)
-            )[0];
-            if (!latestItem) {
-              throw new Error(
-                "Factory item disappeared during approval recovery.",
-              );
-            }
             const metadata = parseTriageMetadata(latestItem.metadataJson);
             metadata.autoApprovedAt = new Date().toISOString();
             metadata.autoApprovalUrl = attributedApprovalUrl;

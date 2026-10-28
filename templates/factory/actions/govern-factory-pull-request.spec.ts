@@ -206,6 +206,7 @@ function governanceGitHub(input: {
   revalidatedSummary?: Record<string, unknown>;
   postApprovalSummary?: Record<string, unknown>;
   beforeApprovalReturn?: () => Promise<void>;
+  beforeSummaryReturn?: (callNumber: number) => Promise<void>;
 }) {
   const initialSummary = pullRequestSummary({
     number: 42,
@@ -230,6 +231,7 @@ function governanceGitHub(input: {
   return {
     getPullRequestSummary: vi.fn(async () => {
       summaryCalls += 1;
+      await input.beforeSummaryReturn?.(summaryCalls);
       const summaryOverrides =
         summaryCalls === 2
           ? input.revalidatedSummary
@@ -504,6 +506,47 @@ describe("govern-factory-pull-request final check evidence", () => {
     expect(decision.outcome).toBe("auto_approve");
     expect(github.approvePullRequest).not.toHaveBeenCalled();
     expect(github.getAuthenticatedUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a terminal item when approval recovery races with its disposition", async () => {
+    await seedInternalApprovalPath(true);
+    const github = governanceGitHub({
+      internalMember: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [
+        memberApprovalReview({
+          author: "factory-bot",
+          authorType: "Bot",
+          body: `${FACTORY_APPROVAL_BODY_MARKER}${governanceDecisionId()}; recovered`,
+        }),
+      ],
+      beforeSummaryReturn: async (callNumber) => {
+        if (callNumber !== 2) return;
+        await db
+          .update(triageItems)
+          .set({ status: "merged" })
+          .where(eq(triageItems.id, "item-1"));
+      },
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID, true);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decision = (
+      await db
+        .select({ outcome: triageDecisions.outcome })
+        .from(triageDecisions)
+        .where(eq(triageDecisions.id, governanceDecisionId()))
+    )[0];
+
+    expect(result).toMatchObject({ ok: true, action: "skipped" });
+    expect(item.status).toBe("merged");
+    expect(decision.outcome).toBe("needs_manual");
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
   });
 
   it("records an external Factory-bot approval as manual instead of recovering it", async () => {
