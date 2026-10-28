@@ -86,7 +86,10 @@ export function snapshotSummaryBands(
   });
 }
 
-function arrayItemAt<T>(items: readonly T[], index: number): T | undefined {
+export function arrayItemAt<T>(
+  items: readonly T[],
+  index: number,
+): T | undefined {
   return items.slice(index, index + 1)[0];
 }
 
@@ -405,7 +408,7 @@ export function selectCaptureTree<T extends SnapshotTree>(
 export function combineSnapshotBands(
   bands: readonly SnapshotBand[],
 ): SnapshotTree {
-  const first = bands[0];
+  const first = arrayItemAt(bands, 0);
   if (bands.length < 2 || !first) {
     throw new Error(
       "At least two cohorts are required for a side-by-side tree.",

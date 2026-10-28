@@ -14,6 +14,7 @@ import {
   stripBearer,
 } from "./journey-capture-plan.js";
 import {
+  arrayItemAt,
   allocateFrameBudgets,
   combineSnapshotBands,
   compareTrees,
@@ -855,7 +856,7 @@ async function publishCanvas(args: {
     capture,
     key: canvasBandKey(args.app, capture.target.key),
   }));
-  const [firstBand] = keyedBands;
+  const firstBand = arrayItemAt(keyedBands, 0);
   if (!firstBand) {
     throw checkFailure(`${args.app} has no screenshot-backed canvas bands.`);
   }
