@@ -913,23 +913,21 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("keeps streamed tool input that arrives without a call id", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        sseResponse([
-          { type: "tool_input_delta", tool: "add-slide", text: '{"deckId"' },
-          { type: "tool_input_delta", tool: "add-slide", text: ':"d1"}' },
-          {
-            type: "tool_input_delta",
-            tool: "add-slide",
-            id: "call-2",
-            text: "{",
-          },
-          { type: "tool_start", tool: "add-slide", input: { deckId: "d1" } },
-          { type: "tool_done", tool: "add-slide", result: "ok" },
-          { type: "done" },
-        ]),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_input_delta", tool: "add-slide", text: '{"deckId"' },
+        { type: "tool_input_delta", tool: "add-slide", text: ':"d1"}' },
+        {
+          type: "tool_input_delta",
+          tool: "add-slide",
+          id: "call-2",
+          text: "{",
+        },
+        { type: "tool_start", tool: "add-slide", input: { deckId: "d1" } },
+        { type: "tool_done", tool: "add-slide", result: "ok" },
+        { type: "done" },
+      ]),
+    );
     const runtime = createAgentNativeChatRuntime({
       apiUrl: "/_agent-native/agent-chat",
       fetch: fetchMock as typeof fetch,

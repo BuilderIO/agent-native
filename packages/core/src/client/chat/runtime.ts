@@ -4094,6 +4094,16 @@ function steeredUserMessageEvent(raw: unknown):
   };
 }
 
+function pendingToolInputId(
+  message: { pendingToolInputIds?: Map<string, string> },
+  tool: string,
+): string {
+  const pending = (message.pendingToolInputIds ??= new Map<string, string>());
+  const id = pending.get(tool) ?? createRuntimeId("tool");
+  pending.set(tool, id);
+  return id;
+}
+
 function mapAgentNativeEvent(
   raw: unknown,
   input: {
@@ -4240,13 +4250,8 @@ function mapAgentNativeEvent(
     // An engine may stream input without a call id. Give that call one id
     // for all its deltas and the tool_start that follows, so the preview and
     // the finished tool are the same call.
-    let toolCallId = ev.id;
-    if (!toolCallId) {
-      const pending = (input.message.pendingToolInputIds ??= new Map());
-      const key = ev.tool ?? "";
-      toolCallId = pending.get(key) ?? createRuntimeId("tool");
-      pending.set(key, toolCallId);
-    }
+    const toolCallId =
+      ev.id || pendingToolInputId(input.message, ev.tool ?? "");
     return [
       {
         type: "tool-delta",
