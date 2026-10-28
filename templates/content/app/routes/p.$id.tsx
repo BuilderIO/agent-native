@@ -14,6 +14,7 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   safeJsonForHtml,
+  signInJourney,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
@@ -39,6 +40,7 @@ import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
+  privateDocumentRedirectHref,
   privateDocumentRedirectScript,
   privateLinkRedirectStarted,
 } from "@/lib/private-link-redirect";
@@ -450,18 +452,21 @@ function PrivateDocumentNotice({
   const pageHref = id
     ? `${basePath ?? ""}/page/${encodeURIComponent(id)}`
     : null;
+  const signInHref = pageHref
+    ? (signInJourney({ at: pageHref, basePath }).signInHref ?? pageHref)
+    : null;
   useEffect(() => {
-    if (!pageHref || privateLinkRedirectStarted()) return;
-    window.location.replace(pageHref);
-  }, [pageHref]);
+    if (!pageHref || !signInHref || privateLinkRedirectStarted()) return;
+    window.location.replace(privateDocumentRedirectHref(pageHref, signInHref));
+  }, [pageHref, signInHref]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      {pageHref ? (
+      {pageHref && signInHref ? (
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: privateDocumentRedirectScript(pageHref),
+            __html: privateDocumentRedirectScript(pageHref, signInHref),
           }}
         />
       ) : null}

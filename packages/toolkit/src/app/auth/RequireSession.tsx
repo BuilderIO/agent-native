@@ -27,6 +27,14 @@ export interface RequireSessionProps {
    * its own token) so they are never bounced to the sign-in page.
    */
   bypass?: boolean;
+  /**
+   * Where a signed-out visitor goes instead of sign-in, when the app has a
+   * public view of the current URL (a shared page's read-only copy, say).
+   * Read only once the session endpoint says signed out; return null to send
+   * the visitor to sign-in. The public view decides what that visitor may
+   * see, so it must send anyone it can't show to sign-in itself.
+   */
+  signedOutHref?: () => string | null;
 }
 
 export function RequireSession({
@@ -35,6 +43,7 @@ export function RequireSession({
   redirect = true,
   signedOut,
   bypass = false,
+  signedOutHref,
 }: RequireSessionProps) {
   if (bypass) return <>{children}</>;
   return (
@@ -42,6 +51,7 @@ export function RequireSession({
       fallback={fallback}
       redirect={redirect}
       signedOut={signedOut}
+      signedOutHref={signedOutHref}
     >
       {children}
     </ResolvedSessionGate>
@@ -53,12 +63,15 @@ function ResolvedSessionGate({
   fallback,
   redirect = true,
   signedOut,
+  signedOutHref,
 }: Omit<RequireSessionProps, "bypass">) {
   const { session, status, retry } = useSession();
   // Only the session endpoint's definitive "signed out" sends a visitor to
   // sign-in; loading and unavailable never navigate.
   const signInHref =
-    status === "unauthenticated" && redirect ? resolveSignInReturnHref() : null;
+    status === "unauthenticated" && redirect
+      ? (signedOutHref?.() ?? resolveSignInReturnHref())
+      : null;
 
   useEffect(() => {
     if (signInHref) navigateForSession(signInHref, "signed_out");

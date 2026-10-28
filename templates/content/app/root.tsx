@@ -50,6 +50,8 @@ import type {
   ShouldRevalidateFunctionArgs,
 } from "react-router";
 
+import { buildContentPublicDocumentPath } from "@shared/agent-readable";
+
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -136,6 +138,17 @@ export function computeSessionBypass(pathname: string): boolean {
       isContentSuggestionReviewPath(pathname)) &&
     Boolean(getEmbedAuthToken())
   );
+}
+
+// A signed-out visitor on a page's editor link goes to the page's public view
+// rather than sign-in. That view shows a public page, and sends everyone else
+// on to sign-in with this link as the way back.
+export function signedOutPublicViewHref(): string | null {
+  const { pathname, hash } = window.location;
+  const id = /^\/page\/([^/]+)\/?$/.exec(appPathname(pathname))?.[1];
+  return id
+    ? `${appBasePath()}${buildContentPublicDocumentPath(id)}${hash}`
+    : null;
 }
 
 // The startup shell draws before the i18n provider exists, so it reads its
@@ -500,6 +513,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         sessionBypass={computeSessionBypass(location.pathname)}
+        signedOutHref={signedOutPublicViewHref}
         clientOnlyFallback={
           <ContentStartupShell
             pathname={location.pathname}
