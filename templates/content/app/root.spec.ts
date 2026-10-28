@@ -84,6 +84,15 @@ describe("Content signed-out public view", () => {
     window.history.replaceState(null, "", "/content/page/FsXU0lX7Ime9#intro");
     expect(signedOutPublicViewHref()).toBe("/content/p/FsXU0lX7Ime9#intro");
 
+    window.history.replaceState(
+      null,
+      "",
+      "/content/page/FsXU0lX7Ime9?databaseId=db-1&viewId=view-2#intro",
+    );
+    expect(signedOutPublicViewHref()).toBe(
+      "/content/p/FsXU0lX7Ime9?databaseId=db-1&viewId=view-2#intro",
+    );
+
     vi.mocked(appBasePath).mockReturnValue("");
     window.history.replaceState(null, "", "/page/FsXU0lX7Ime9/");
     expect(signedOutPublicViewHref()).toBe("/p/FsXU0lX7Ime9");

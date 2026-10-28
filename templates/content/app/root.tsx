@@ -141,12 +141,12 @@ export function computeSessionBypass(pathname: string): boolean {
 
 // A signed-out visitor on a page's editor link goes to the page's public view
 // rather than sign-in. That view shows a public page, and sends everyone else
-// on to sign-in with this link as the way back.
+// on to sign-in with this link, query and hash included, as the way back.
 export function signedOutPublicViewHref(): string | null {
-  const { pathname, hash } = window.location;
+  const { pathname, search, hash } = window.location;
   const id = /^\/page\/([^/]+)\/?$/.exec(appPathname(pathname))?.[1];
   return id
-    ? `${appBasePath()}${buildContentPublicDocumentPath(id)}${hash}`
+    ? `${appBasePath()}${buildContentPublicDocumentPath(id)}${search}${hash}`
     : null;
 }
 

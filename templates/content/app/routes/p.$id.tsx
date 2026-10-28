@@ -14,7 +14,6 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
   buildResourceSocialMeta,
   safeJsonForHtml,
-  signInJourney,
 } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
@@ -452,22 +451,20 @@ function PrivateDocumentNotice({
   const pageHref = id
     ? `${basePath ?? ""}/page/${encodeURIComponent(id)}`
     : null;
-  const signInHref = pageHref
-    ? (signInJourney({ at: pageHref, ...(basePath ? { basePath } : {}) })
-        .signInHref ?? pageHref)
-    : null;
   useEffect(() => {
-    if (!pageHref || !signInHref || privateLinkRedirectStarted()) return;
-    window.location.replace(privateDocumentRedirectHref(pageHref, signInHref));
-  }, [pageHref, signInHref]);
+    if (!pageHref || privateLinkRedirectStarted()) return;
+    window.location.replace(
+      privateDocumentRedirectHref(pageHref, basePath ?? ""),
+    );
+  }, [pageHref, basePath]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      {pageHref && signInHref ? (
+      {pageHref ? (
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: privateDocumentRedirectScript(pageHref, signInHref),
+            __html: privateDocumentRedirectScript(pageHref, basePath ?? ""),
           }}
         />
       ) : null}
