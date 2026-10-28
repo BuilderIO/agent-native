@@ -258,6 +258,48 @@ describe("provider corpus jobs", () => {
     expect(jobs.size).toBe(0);
   });
 
+  it("refuses to continue a saved HubSpot write job", async () => {
+    const executeRequest = vi.fn(async () =>
+      providerEnvelope({ results: [{ id: "d1", name: "ordinary deal" }] }),
+    );
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({ executeRequest }),
+    });
+    const first = (await action.run({
+      operation: "start",
+      name: "hubspot-saved",
+      mode: "paginated-search",
+      request: {
+        provider: "hubspot",
+        method: "GET",
+        path: "/crm/v3/objects/deals",
+      },
+      pagination: { itemsPath: "results", pageParam: "page", maxPages: 3 },
+      search: { query: "Figma MCP", textPaths: ["name"] },
+      limits: { pageBudget: 1 },
+    })) as any;
+    expect(first.job.status).toBe("paused");
+    // A job stored before HubSpot became read-only for agents.
+    const stored = jobs.get(first.job.id)!;
+    stored.request_json = JSON.stringify({
+      provider: "hubspot",
+      method: "PATCH",
+      path: "/crm/v3/objects/deals/1",
+      body: { properties: { amount: "1" } },
+    });
+    executeRequest.mockClear();
+
+    const continued = (await action.run({
+      operation: "continue",
+      jobId: first.job.id,
+    })) as any;
+
+    expect(executeRequest).not.toHaveBeenCalled();
+    expect(continued.job.status).toBe("failed");
+    expect(JSON.stringify(continued)).toContain("read-only");
+  });
+
   it("still starts a HubSpot search job", async () => {
     const executeRequest = vi.fn(async () =>
       providerEnvelope({ results: [{ id: "d1", name: "Figma MCP deal" }] }),

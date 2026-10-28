@@ -860,7 +860,11 @@ async function callProvider(
   runtime: ProviderCorpusRuntime,
   request: ProviderRequest,
 ): Promise<ProviderBodyResult> {
-  const raw = (await runtime.executeRequest(cleanRequest(request))) as Record<
+  // Also checked here, not only at start: a job stored before a provider
+  // became read-only must not replay its write on continue.
+  const cleaned = cleanRequest(request);
+  assertAgentProviderRequestAllowed(cleaned);
+  const raw = (await runtime.executeRequest(cleaned)) as Record<
     string,
     unknown
   >;

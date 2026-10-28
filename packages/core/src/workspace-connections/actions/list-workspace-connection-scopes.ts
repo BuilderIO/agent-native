@@ -26,7 +26,7 @@ type ListWorkspaceConnectionScopesResult = z.infer<
 >;
 
 const MISSING_SCOPE_HINT =
-  "Granted scopes come from the provider's OAuth app (for HubSpot, the scopes configured on the HubSpot app). To use an API that needs a scope missing here, ask the provider admin to add it to that app, then reconnect.";
+  "Granted scopes come from the provider's OAuth app (for HubSpot, the scopes configured on the HubSpot app). To use an API that needs a scope missing here, ask the provider admin to add it to that app, then reconnect. A connection made before its granted scopes were recorded can show an older list; reconnecting refreshes it.";
 
 function connectionScopeOf(
   config: Record<string, unknown>,
