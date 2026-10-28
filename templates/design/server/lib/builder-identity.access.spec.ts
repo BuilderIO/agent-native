@@ -52,6 +52,7 @@ const {
   clearBuilderIdentitySession,
   encodeIdentityCookie,
   getBuilderIdentitySession,
+  isBuilderIdentityEnabled,
   isBuilderOwnerEmail,
   rememberDelegatedCredential,
   BUILDER_IDENTITY_COOKIE,
@@ -440,5 +441,54 @@ describe("Builder sign-out", () => {
     await expect(
       clearBuilderIdentitySession(event as never),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("Builder identity in production", () => {
+  const original = {
+    NODE_ENV: process.env.NODE_ENV,
+    secret: process.env.BUILDER_IDENTITY_COOKIE_SECRET,
+  };
+  afterEach(() => {
+    process.env.NODE_ENV = original.NODE_ENV;
+    if (original.secret === undefined) {
+      delete process.env.BUILDER_IDENTITY_COOKIE_SECRET;
+    } else {
+      process.env.BUILDER_IDENTITY_COOKIE_SECRET = original.secret;
+    }
+  });
+
+  it("refuses to enable without a secret, rather than using a guessable owner key", () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.BUILDER_IDENTITY_COOKIE_SECRET;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(isBuilderIdentityEnabled()).toBe(false);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("BUILDER_IDENTITY_COOKIE_SECRET is required"),
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("enables with a secret in production, and without one in development", () => {
+    process.env.NODE_ENV = "production";
+    process.env.BUILDER_IDENTITY_COOKIE_SECRET = "configured";
+    expect(isBuilderIdentityEnabled()).toBe(true);
+
+    process.env.NODE_ENV = "development";
+    delete process.env.BUILDER_IDENTITY_COOKIE_SECRET;
+    expect(isBuilderIdentityEnabled()).toBe(true);
+  });
+
+  it("stays off unless asked for", () => {
+    const original = process.env.BUILDER_IDENTITY;
+    process.env.BUILDER_IDENTITY = "0";
+    try {
+      expect(isBuilderIdentityEnabled()).toBe(false);
+    } finally {
+      process.env.BUILDER_IDENTITY = original;
+    }
   });
 });

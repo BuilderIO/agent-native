@@ -3859,6 +3859,22 @@ describe("host-managed Builder credentials", () => {
     });
   });
 
+  it("does not let the deployment gateway credential stand in when the provider fails", async () => {
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    registerDelegatedBuilderCredentials(async () => {
+      throw new Error("stored credential unreadable");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        resolveBuilderGatewayCredentialsDetailed(),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("reports a provider outage as a failed lookup, not as a missing credential", async () => {
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     process.env.BUILDER_PUBLIC_KEY = "deploy-space";
@@ -3868,11 +3884,10 @@ describe("host-managed Builder credentials", () => {
     });
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-        privateKey: null,
-        lookupFailed: true,
-        cause: outage,
-      });
+      const failed = await resolveBuilderCredentialsDetailed();
+      expect(failed).toMatchObject({ privateKey: null, lookupFailed: true });
+      expect(failed.cause).toBeInstanceOf(CredentialStoreUnavailableError);
+      expect((failed.cause as Error).cause).toBe(outage);
       await expect(
         resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
       ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);

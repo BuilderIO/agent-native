@@ -348,6 +348,25 @@ describe("additional session provider", () => {
       expect(event.res.status).toBe(503);
     });
 
+    it("ends the provider's session on sign-out of all sessions too", async () => {
+      mockBuiltInAuth();
+      const { autoMountAuth } = await import("./auth.js");
+      const clearAdditionalSession = vi.fn(async () => {});
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getAdditionalSession: async () => ({ email: hostEmail }),
+        clearAdditionalSession,
+      });
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout-all",
+      )?.[1];
+      const event = cookieEvent();
+      event.req.method = "POST";
+
+      await expect(handler(event)).resolves.toEqual({ ok: true });
+      expect(clearAdditionalSession).toHaveBeenCalledTimes(1);
+    });
+
     it("signs out normally when there is no additional provider", async () => {
       mockBuiltInAuth();
       const { autoMountAuth, logout } = await import("./auth.js");

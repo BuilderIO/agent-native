@@ -159,7 +159,8 @@ export function assertCredentialStoreReadable(result: {
   if (
     result.lookupFailed &&
     (isTransientDatabaseError(result.cause) ||
-      result.cause instanceof AppSecretDecryptionError)
+      result.cause instanceof AppSecretDecryptionError ||
+      result.cause instanceof CredentialStoreUnavailableError)
   ) {
     throw new CredentialStoreUnavailableError(result.cause);
   }
@@ -603,7 +604,14 @@ async function resolveScopedBuilderCredential(
     try {
       delegated = await delegatedBuilderCredentials(email);
     } catch (cause) {
-      return { value: null, source: null, cause, lookupFailed: true };
+      // A host's provider failing is an unreadable store like any other: no
+      // deployment credential may stand in for the user's own.
+      return {
+        value: null,
+        source: null,
+        cause: new CredentialStoreUnavailableError(cause),
+        lookupFailed: true,
+      };
     }
   }
   if (delegated === "none") {
@@ -843,7 +851,11 @@ async function resolveScopedBuilderCredentials(
     try {
       delegated = await delegatedBuilderCredentials(email);
     } catch (cause) {
-      return { creds: null, cause, lookupFailed: true };
+      return {
+        creds: null,
+        cause: new CredentialStoreUnavailableError(cause),
+        lookupFailed: true,
+      };
     }
   }
   if (delegated === "none") {

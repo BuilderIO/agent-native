@@ -421,8 +421,10 @@ export interface AuthOptions {
    * (returns `null`) resolves exactly as it would without it, and the built-in
    * sign-in routes stay mounted. Use it to let a host product vouch for its
    * own users on a deployment that also serves everyone else. If it throws, the
-   * request falls through to the built-in sessions. Ignored when `getSession`
-   * is set, which already takes over every session.
+   * request is refused as session-unavailable (503) rather than falling
+   * through, so a browser holding two identities cannot silently become the
+   * other one. Ignored when `getSession` is set, which already takes over every
+   * session.
    */
   getAdditionalSession?: (event: H3Event) => Promise<AuthSession | null>;
   /**
@@ -7321,6 +7323,8 @@ async function mountBetterAuthRoutes(
             });
           }
         });
+        // The additional provider's own session ends with the rest.
+        if (additionalClearSession) await additionalClearSession(event);
         clearFrameworkSessionCookies(event);
         clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);

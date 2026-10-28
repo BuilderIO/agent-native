@@ -21,12 +21,7 @@
  * - verifying the user is a member of `spaceId` with the right role;
  * - mapping the Builder space onto a Design org for sharing/RBAC.
  */
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core/action";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
@@ -52,8 +47,26 @@ const GOOGLE_SECURETOKEN_JWKS = createRemoteJWKSet(
 );
 
 export function isBuilderIdentityEnabled(): boolean {
-  return process.env.BUILDER_IDENTITY === "1";
+  if (process.env.BUILDER_IDENTITY !== "1") return false;
+  // Owner keys name stored data and gate the delegated Builder credential, so
+  // in production they must come from a secret, never the development
+  // default. Refuse to enable rather than run with a guessable key.
+  if (
+    process.env.NODE_ENV === "production" &&
+    !process.env.BUILDER_IDENTITY_COOKIE_SECRET
+  ) {
+    if (!warnedMissingSecret) {
+      warnedMissingSecret = true;
+      console.error(
+        "[builder-identity] BUILDER_IDENTITY is ignored: BUILDER_IDENTITY_COOKIE_SECRET is required in production.",
+      );
+    }
+    return false;
+  }
+  return true;
 }
+
+let warnedMissingSecret = false;
 
 // A per-boot secret is fine for a dev spike: restarting just re-runs the
 // exchange. Production sets BUILDER_IDENTITY_COOKIE_SECRET.
