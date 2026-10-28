@@ -28,6 +28,7 @@ import {
   uploadMobileChatAttachments,
 } from "./agentkit-mobile";
 import { AgentChatError, parseMobileChatEligibility } from "./api";
+import { applyWireEvent, initialTurnState } from "./reducer";
 import type { ChatAttachment } from "./types";
 import {
   canShowMobileVersionHistory,
@@ -155,6 +156,56 @@ describe("mobile AgentKit adapter", () => {
       unsubscribe();
       await session.dispose();
     }
+  });
+
+  it("cuts a replaced reply back to its last tool call", () => {
+    let sequence = 0;
+    const event = (body: Record<string, unknown>): AgentEvent =>
+      ({
+        id: `event-${++sequence}`,
+        threadId: "thread-1",
+        runId: "run-1",
+        sequence,
+        occurredAt: "2026-09-25T12:00:00.000Z",
+        ...body,
+      }) as AgentEvent;
+    const delta = (text: string) =>
+      event({ type: "message.delta", messageId: "reply", text });
+    const tool = (status: "running" | "completed") =>
+      event({
+        type: status === "running" ? "tool.started" : "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          status,
+          input: { q: "a" },
+          ...(status === "completed" ? { output: "ok" } : {}),
+        },
+      });
+    const state = [
+      delta("Checking."),
+      tool("running"),
+      tool("completed"),
+      delta("Answer A."),
+      event({
+        type: "message.replaced",
+        message: {
+          id: "reply",
+          role: "assistant",
+          parts: [{ type: "text", text: "Checking." }],
+        },
+      }),
+      delta("Answer B."),
+    ].reduce((current, next) => {
+      const wire = mobileAgentKitEventToWireEvent(next);
+      return wire ? applyWireEvent(current, wire, "assistant-1") : current;
+    }, initialTurnState());
+
+    expect(
+      state.messages[0]?.parts.map((part) =>
+        part.type === "text" ? part.text : part.type,
+      ),
+    ).toEqual(["Checking.", "tool-call", "Answer B."]);
   });
 
   it("maps a replaced reply onto a clear", () => {
