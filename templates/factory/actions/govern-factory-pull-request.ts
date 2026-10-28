@@ -101,6 +101,7 @@ async function recordManualPullRequestDisposition(input: {
         and(
           orgFactoryScopedItemWhere(input.itemId, input.orgId, input.factoryId),
           notInArray(triageItems.status, [
+            "auto_approved",
             "reconciliation_required",
             "merged",
             "resolved",
@@ -127,6 +128,7 @@ async function recordManualPullRequestDisposition(input: {
         });
       }
       switch (existingItem.status) {
+        case "auto_approved":
         case "reconciliation_required":
           // Keep uncertain approval writes recoverable while recording the manual disposition.
           break;

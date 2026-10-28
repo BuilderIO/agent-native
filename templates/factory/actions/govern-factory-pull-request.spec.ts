@@ -439,11 +439,18 @@ describe("govern-factory-pull-request final check evidence", () => {
 
     await runGovernance(github);
     await runGovernance(github);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
     const decisions = await db
       .select({ id: triageDecisions.id, outcome: triageDecisions.outcome })
       .from(triageDecisions)
       .where(eq(triageDecisions.itemId, "item-1"));
 
+    expect(item.status).toBe("auto_approved");
     expect(decisions).toHaveLength(2);
     expect(decisions).toContainEqual({
       id: governanceDecisionId(),

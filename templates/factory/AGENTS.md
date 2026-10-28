@@ -24,7 +24,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 - Missing callbacks, partial threads, unreadable provider responses, or missed reconciliation are failures; preserve typed errors or `reconciliation_required`.
 - Deduplicate by Factory item and run identity, not provider comment id.
 - Clear bugs reach Builder only through a workflow's Builder step, which enforces the dispatch gate in code (clear bug, low risk, high confidence, no product/UX call, not claimed). The agent never starts Builder work or posts findings itself. Read `review-latest-feedback` for feedback sweeps.
-- PR governance follows `review-prs`: verify membership/evidence, skip drafts/external authors, apply the verified `liamdebeasi` exception for ordinary gates, and keep ultra-scary risks manual. Governance approves but never merges; a Builder pull request is merged only by a workflow's merge step, after the merge gate.
+- PR governance follows `review-prs`: verify membership/evidence and skip drafts. Route confirmed external authors through the governance action for a manual disposition, never approval; ignore outside-fork PRs assigned to a verified BuilderIO member. Apply the verified `liamdebeasi` exception for ordinary gates and keep ultra-scary risks manual. Governance approves but never merges; a Builder pull request is merged only by a workflow's merge step, after the merge gate.
 - Provider credentials belong to Dispatch/workspace integrations, not Factory. Hosted reads use workspace connections or org vault; local development may use `.env` Slack/GitHub/Sentry keys last.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
