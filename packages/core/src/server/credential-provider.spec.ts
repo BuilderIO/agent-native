@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
 const mockReadAppSecrets = vi.fn();
@@ -115,6 +115,7 @@ import {
   resolveBuilderCredential,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
+  registerDelegatedBuilderCredentials,
   BuilderCredentialLookupError,
   resolveBuilderCredentialSource,
   resolveBuilderGatewayAuth,
@@ -3758,5 +3759,100 @@ describe("Restrict personal API keys", () => {
         orgId: null,
       }),
     ).resolves.toBe("bpk-personal");
+  });
+});
+
+describe("host-managed Builder credentials", () => {
+  const owner = "b-0123@builder-identity.invalid";
+
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue(owner);
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockResolvedValue(null);
+    mockReadAppSecrets.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    registerDelegatedBuilderCredentials(null);
+    delete process.env.BUILDER_PRIVATE_KEY;
+    delete process.env.BUILDER_PUBLIC_KEY;
+  });
+
+  it("uses the credential the host's provider returns, even asynchronously", async () => {
+    registerDelegatedBuilderCredentials(async () => ({
+      token: "user-token",
+      spaceId: "user-space",
+    }));
+
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: "user-token",
+      publicKey: "user-space",
+      source: "user",
+      lookupFailed: false,
+    });
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "user-token",
+    );
+    await expect(resolveBuilderCredential("BUILDER_PUBLIC_KEY")).resolves.toBe(
+      "user-space",
+    );
+  });
+
+  it("falls through to ordinary credentials for a user the provider does not manage", async () => {
+    registerDelegatedBuilderCredentials(async () => null);
+    mockReadAppSecret.mockImplementation(async ({ key }: { key: string }) =>
+      key === "BUILDER_PRIVATE_KEY" ? { key, value: "stored-key" } : null,
+    );
+
+    await expect(resolveBuilderCredential("BUILDER_PRIVATE_KEY")).resolves.toBe(
+      "stored-key",
+    );
+  });
+
+  it("stops when a managed user has no credential, even with deployment credentials set", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "deploy-space";
+    registerDelegatedBuilderCredentials(async () => "none");
+    mockReadAppSecret.mockImplementation(async ({ key }: { key: string }) => ({
+      key,
+      value: `shared-${key}`,
+    }));
+    mockReadAppSecrets.mockResolvedValue([
+      { key: "BUILDER_PRIVATE_KEY", value: "shared-key" },
+    ]);
+
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+    ).resolves.toBeNull();
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      source: null,
+      lookupFailed: false,
+    });
+    expect(mockReadAppSecret).not.toHaveBeenCalled();
+    expect(mockReadAppSecrets).not.toHaveBeenCalled();
+  });
+
+  it("reports a provider outage as a failed lookup, not as a missing credential", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "deploy-space";
+    const outage = new Error("credential store down");
+    registerDelegatedBuilderCredentials(async () => {
+      throw outage;
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+        privateKey: null,
+        lookupFailed: true,
+        cause: outage,
+      });
+      await expect(
+        resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    } finally {
+      error.mockRestore();
+    }
   });
 });

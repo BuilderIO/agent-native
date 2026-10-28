@@ -87,6 +87,7 @@ describe("design auth plugin", () => {
       expect(options.getAdditionalBrowserSession).toBe(
         getBuilderIdentitySession,
       );
+      expect(options.clearAdditionalSession).toBeTypeOf("function");
     } finally {
       vi.unstubAllEnvs();
       vi.resetModules();

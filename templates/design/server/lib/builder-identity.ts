@@ -30,10 +30,14 @@ import {
 
 import { ActionContractError } from "@agent-native/core/action";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
-import { readAppSecret, writeAppSecret } from "@agent-native/core/secrets";
+import {
+  deleteAppSecret,
+  readAppSecret,
+  writeAppSecret,
+} from "@agent-native/core/secrets";
 import { registerDelegatedBuilderCredentials } from "@agent-native/core/server";
 import { registerHostAccessResolver } from "@agent-native/core/sharing";
-import { getCookie, type H3Event } from "h3";
+import { deleteCookie, getCookie, type H3Event } from "h3";
 import { createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
 
 import { readFusionApp } from "../../shared/full-app.js";
@@ -69,25 +73,38 @@ function allowedFirebaseProjects(token: string): string[] {
   return typeof aud === "string" ? [aud] : [];
 }
 
+/** Every Builder owner key ends with this; nothing else can. */
+const BUILDER_OWNER_DOMAIN = "builder-identity.invalid";
+
+export function isBuilderOwnerEmail(email: string): boolean {
+  return email.toLowerCase().endsWith(`@${BUILDER_OWNER_DOMAIN}`);
+}
+
 /**
  * The owner key Design uses for a Builder user. Design keys everything it
  * stores by the session's email, so using the Builder email would merge a
  * Builder user into any Design account that shares it, and orphan their work
  * when they change email. The key is derived from the stable Builder uid
- * instead, so Builder users never share an account with anyone else. It is
- * not a deliverable address (`.invalid`), and is lowercase so the places that
- * normalize emails cannot make two users collide.
+ * instead, together with the Firebase project that issued it: a uid is only
+ * unique within its project, and tokens from every configured project are
+ * accepted. It is not a deliverable address (`.invalid`), and is lowercase so
+ * the places that normalize emails cannot make two users collide.
  */
-export function builderOwnerEmail(uid: string): string {
-  const digest = createHash("sha256").update(uid).digest("hex").slice(0, 32);
-  return `b-${digest}@builder-identity.invalid`;
+export function builderOwnerEmail(projectId: string, uid: string): string {
+  const digest = createHash("sha256")
+    .update(`${projectId}\n${uid}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `b-${digest}@${BUILDER_OWNER_DOMAIN}`;
 }
 
 export interface BuilderIdentity {
   uid: string;
+  /** The Firebase project that issued the token (its `aud`). */
+  projectId: string;
   email: string;
-  name?: string;
-  spaceId?: string;
+  name?: string | undefined;
+  spaceId?: string | undefined;
 }
 
 export async function verifyBuilderIdToken(
@@ -102,8 +119,13 @@ export async function verifyBuilderIdToken(
   const email = typeof payload.email === "string" ? payload.email : "";
   if (!payload.sub || !email) throw new Error("token has no user or email");
   if (payload.email_verified === false) throw new Error("email not verified");
+  const audience = [payload.aud ?? []].flat();
+  const projectId = projects.find((project) => audience.includes(project));
+  if (!projectId)
+    throw new Error("token is not for a Builder Firebase project");
   return {
     uid: payload.sub,
+    projectId,
     email,
     name: typeof payload.name === "string" ? payload.name : undefined,
   };
@@ -140,7 +162,11 @@ function decodeIdentityCookie(value: string): BuilderIdentity | null {
     if (typeof parsed.exp !== "number" || parsed.exp * 1000 < Date.now()) {
       return null;
     }
-    if (typeof parsed.uid !== "string" || typeof parsed.email !== "string") {
+    if (
+      typeof parsed.uid !== "string" ||
+      typeof parsed.projectId !== "string" ||
+      typeof parsed.email !== "string"
+    ) {
       return null;
     }
     return parsed as BuilderIdentity;
@@ -165,7 +191,7 @@ function decodeIdentityCookie(value: string): BuilderIdentity | null {
 interface DelegatedCredential {
   token: string;
   uid: string;
-  spaceId?: string;
+  spaceId?: string | undefined;
   expiresAtMs: number;
 }
 
@@ -207,7 +233,7 @@ export async function rememberDelegatedCredential(
   token: string,
 ): Promise<void> {
   const exp = decodeJwt(token).exp;
-  const owner = builderOwnerEmail(identity.uid);
+  const owner = builderOwnerEmail(identity.projectId, identity.uid);
   const entry: DelegatedCredential = {
     token,
     uid: identity.uid,
@@ -249,10 +275,14 @@ if (isBuilderIdentityEnabled()) {
     key === "full-app-building" ? true : undefined,
   );
   registerDelegatedBuilderCredentials(async (email) => {
-    // A store outage means "no credential here", never a thrown error from
-    // inside someone else's credential lookup.
-    const entry = await readDelegatedCredential(email).catch(() => null);
-    if (!entry?.spaceId) return null;
+    // Not a Builder user: ordinary stored credentials apply.
+    if (!isBuilderOwnerEmail(email)) return null;
+    // A store outage throws, and core reports it as a failed lookup rather
+    // than as a user with no credential.
+    const entry = await readDelegatedCredential(email);
+    // A Builder user without a usable credential must sign in again; no
+    // shared credential may stand in for their own.
+    if (!entry?.spaceId) return "none";
     return { token: entry.token, spaceId: entry.spaceId };
   });
 }
@@ -432,10 +462,25 @@ export async function getBuilderIdentitySession(event: H3Event) {
   const identity = cookie ? decodeIdentityCookie(cookie) : null;
   if (!identity) return null;
   return {
-    email: builderOwnerEmail(identity.uid),
+    email: builderOwnerEmail(identity.projectId, identity.uid),
     userId: `builder:${identity.uid}`,
     // The Builder email is for display only, never an owner key.
     name: identity.name ?? identity.email,
     emailVerified: true,
   };
+}
+
+/**
+ * Sign-out for a Builder session: expire its cookie and forget the stored
+ * Builder credential, so the user is signed out of Design and Design can no
+ * longer act as them.
+ */
+export async function clearBuilderIdentitySession(event: H3Event) {
+  const cookie = getCookie(event, BUILDER_IDENTITY_COOKIE);
+  const identity = cookie ? decodeIdentityCookie(cookie) : null;
+  deleteCookie(event, BUILDER_IDENTITY_COOKIE, { path: "/" });
+  if (!identity) return;
+  const owner = builderOwnerEmail(identity.projectId, identity.uid);
+  credentialCache.delete(owner);
+  await deleteAppSecret(credentialRef(owner));
 }

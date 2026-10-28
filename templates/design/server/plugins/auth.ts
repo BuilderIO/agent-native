@@ -3,6 +3,7 @@ import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 import {
+  clearBuilderIdentitySession,
   getBuilderIdentitySession,
   isBuilderIdentityEnabled,
 } from "../lib/builder-identity.js";
@@ -21,6 +22,7 @@ export default createToolkitAuthPlugin({
         // It reads only the signed identity cookie, so pages that take no
         // other credential, such as an MCP approval review, can use it too.
         getAdditionalBrowserSession: getBuilderIdentitySession,
+        clearAdditionalSession: clearBuilderIdentitySession,
         trustCustomEmailVerification: true,
       }
     : {}),

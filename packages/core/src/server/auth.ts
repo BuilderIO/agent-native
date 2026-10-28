@@ -432,6 +432,13 @@ export interface AuthOptions {
    */
   getAdditionalBrowserSession?: (event: H3Event) => Promise<AuthSession | null>;
   /**
+   * Called on sign-out to end the additional provider's own session (clear its
+   * cookie, drop any server-side state), which the built-in sign-out knows
+   * nothing about. Without it a user would still resolve as signed in on the
+   * next request.
+   */
+  clearAdditionalSession?: (event: H3Event) => void | Promise<void>;
+  /**
    * Set only when the custom provider (`getSession` or
    * `getAdditionalSession`) independently verifies email ownership. Without
    * this opt-in, an omitted `emailVerified` value remains unknown.
@@ -2187,6 +2194,17 @@ async function performLogout(
     clearFirstRunOnboardingCookie(event);
     optOutOfAuthDisabledSession(event);
 
+    if (additionalClearSession) {
+      try {
+        await additionalClearSession(event);
+      } catch (error) {
+        // The user would still resolve as signed in through the additional
+        // provider, so sign-out has not worked.
+        revocationFailed = true;
+        captureAuthError(error, { route: "logout" });
+      }
+    }
+
     if (auth) {
       try {
         const result = await auth.api.signOut({
@@ -2362,6 +2380,7 @@ let additionalGetSession: AuthOptions["getAdditionalSession"] | null = null;
 let additionalGetBrowserSession:
   | AuthOptions["getAdditionalBrowserSession"]
   | null = null;
+let additionalClearSession: AuthOptions["clearAdditionalSession"] | null = null;
 let warnedMissingBrowserSession = false;
 let trustCustomEmailVerification = false;
 
@@ -4990,17 +5009,20 @@ async function resolveSessionUncached(
     }
   }
 
-  const accessTokens = getAccessTokens();
-  if (accessTokens.length > 0) {
-    const cookieSession = await getLegacyCookieSessionSafely(event);
-    if (cookieSession) return cookieSession;
-  }
-
+  // First, like the browser-cookie resolver, so a request carrying both an
+  // additional-provider session and a legacy cookie resolves to the same owner
+  // in every check.
   const additionalSession = await resolveAdditionalSession(
     event,
     additionalGetSession,
   );
   if (additionalSession) return additionalSession;
+
+  const accessTokens = getAccessTokens();
+  if (accessTokens.length > 0) {
+    const cookieSession = await getLegacyCookieSessionSafely(event);
+    if (cookieSession) return cookieSession;
+  }
 
   if (customGetSession) {
     const session = await customGetSession(event);
@@ -7513,6 +7535,7 @@ export async function autoMountAuth(
     if (options.getAdditionalSession) {
       additionalGetSession = options.getAdditionalSession;
       additionalGetBrowserSession = options.getAdditionalBrowserSession ?? null;
+      additionalClearSession = options.clearAdditionalSession ?? null;
       trustCustomEmailVerification =
         options.trustCustomEmailVerification === true;
     }
@@ -7580,6 +7603,7 @@ export async function autoMountAuth(
       customGetBrowserSession = null;
       additionalGetSession = null;
       additionalGetBrowserSession = null;
+      additionalClearSession = null;
       trustCustomEmailVerification = false;
       return false;
     }
@@ -7592,6 +7616,7 @@ export async function autoMountAuth(
   customGetBrowserSession = null;
   additionalGetSession = null;
   additionalGetBrowserSession = null;
+  additionalClearSession = null;
   trustCustomEmailVerification = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = resolveAuthPublicPaths(options.publicPaths);
@@ -7619,6 +7644,7 @@ export async function autoMountAuth(
   } else if (options.getAdditionalSession) {
     additionalGetSession = options.getAdditionalSession;
     additionalGetBrowserSession = options.getAdditionalBrowserSession ?? null;
+    additionalClearSession = options.clearAdditionalSession ?? null;
     trustCustomEmailVerification =
       options.trustCustomEmailVerification === true;
   }
