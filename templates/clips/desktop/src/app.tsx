@@ -4619,7 +4619,7 @@ export function App({
       setMicOffConfirmOpen(true);
       return;
     }
-    void handleStartRecording(options);
+    return handleStartRecording(options);
   }
 
   function closeMicOffConfirmation() {
@@ -4646,7 +4646,7 @@ export function App({
       readyToRecordRef.current = null;
       // Nobody saw the panel, so keep the mic-off prompt. It lives in the
       // popover, which was just hidden.
-      beginRecording(undefined, {
+      void beginRecording(undefined, {
         skipReadyPanel: true,
         revealPopoverIfMicOff: true,
       });
@@ -4669,7 +4669,13 @@ export function App({
     },
     start: () => {
       if (!closeReadyToRecord()) return;
-      beginRecording(undefined, { confirmedInReadyPanel: true });
+      // A failed start writes its recovery steps to the popover, which the
+      // panel hid, so bring the popover back when no recording began.
+      void beginRecording(undefined, { confirmedInReadyPanel: true })
+        ?.catch(() => null)
+        .then((handle) => {
+          if (!handle) invoke("show_popover").catch(() => {});
+        });
     },
     cancel: () => {
       const panel = closeReadyToRecord();
@@ -4726,7 +4732,7 @@ export function App({
       return;
     }
 
-    beginRecording(undefined, { revealPopoverIfMicOff: true });
+    void beginRecording(undefined, { revealPopoverIfMicOff: true });
   };
 
   useEffect(() => {

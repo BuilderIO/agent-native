@@ -77,6 +77,8 @@ export function ReadyToRecord() {
   const [cursorOptionsOpen, setCursorOptionsOpen] = useState(false);
   const [cursorError, setCursorError] = useState<string | null>(null);
   const closingRef = useRef(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
 
@@ -116,7 +118,8 @@ export function ReadyToRecord() {
         finish("cancel");
       } else if (event.key === "Enter" && !isControl(event.target)) {
         event.preventDefault();
-        finish("start");
+        // Like the disabled Record button, wait for the device state.
+        if (stateRef.current) finish("start");
       }
     };
     window.addEventListener("keydown", onKeyDown);

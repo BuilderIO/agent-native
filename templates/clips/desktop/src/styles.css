@@ -6023,7 +6023,11 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .rtr-tile-button:hover:not(:disabled),
 .rtr-tile-button:focus-visible {
   background: var(--rtr-tile-hover);
-  outline: none;
+}
+
+.rtr-tile-button:focus-visible {
+  outline: 2px solid var(--rtr-muted);
+  outline-offset: -2px;
 }
 
 .rtr-tile-disabled .rtr-sub,
@@ -6080,7 +6084,13 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .rtr-sub:hover:not(:disabled) .rtr-value,
 .rtr-sub:focus-visible .rtr-value {
   text-decoration: underline;
-  outline: none;
+}
+
+.rtr-sub:focus-visible,
+.rtr-disclosure:focus-visible {
+  outline: 2px solid var(--rtr-muted);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .rtr-sub:disabled {
@@ -6105,7 +6115,6 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 .rtr-disclosure:hover,
 .rtr-disclosure:focus-visible {
   color: white;
-  outline: none;
 }
 
 .rtr-chevron-open {
