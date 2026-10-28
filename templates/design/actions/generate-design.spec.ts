@@ -321,55 +321,119 @@ function setExistingFile(
 }
 
 describe("generate-design action tool schema", () => {
-  it("exposes a lean native-tool schema while retaining Zod validation", () => {
-    const parameters = action.tool.parameters as {
-      properties?: Record<
-        string,
-        { type?: string | readonly string[]; description?: string }
-      >;
-      required?: string[];
-    };
+  const html = "<!doctype html><html><body>Hello</body></html>";
+  const validInput = () => ({
+    designId: "design_123",
+    prompt: "Dark SaaS landing page",
+    files: [{ filename: "index.html", fileType: "html", content: html }],
+  });
+  const parameters = action.tool.parameters as {
+    properties: Record<
+      string,
+      {
+        type?: string | readonly string[];
+        description?: string;
+        items?: { properties?: Record<string, { enum?: string[] }> };
+      }
+    >;
+    required?: string[];
+  };
 
+  it("shows the model the real shape of every structured field", () => {
     expect(parameters.required).toEqual(["designId", "prompt", "files"]);
-    expect(parameters.properties?.files?.type).toBe("string");
-    expect(parameters.properties?.files?.description).toContain(
+    for (const field of ["files", "tweaks", "canvasFrames", "reuseLabels"]) {
+      expect(parameters.properties[field]?.type, field).toBe("array");
+    }
+    expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
+      ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
+    );
+    expect(JSON.stringify(parameters.properties.designSystemId)).toContain(
+      "null",
+    );
+    expect(JSON.stringify(parameters.properties.contextModeOverride)).toContain(
+      '"off"',
+    );
+  });
+
+  it("keeps the placement and routing guidance in the field descriptions", () => {
+    const { files, devices } = parameters.properties;
+    expect(files?.description).toContain(
       "Do not use generate-design to replace a selected variant screen",
     );
-    expect(parameters.properties?.files?.description).toContain("edit-design");
-    expect(parameters.properties?.designSystemId?.type).toEqual([
-      "string",
-      "null",
-    ]);
-    expect(parameters.properties?.tweaks?.type).toBe("string");
-    expect(parameters.properties?.canvasFrames?.type).toBe("string");
-    expect(parameters.properties?.reuseLabels?.type).toBe("string");
-    expect(parameters.properties?.contextModeOverride?.type).toBe("string");
-    expect(parameters.properties?.devices?.description).toContain(
-      "ignore this field",
+    expect(files?.description).toContain("edit-design");
+    expect(devices?.description).toContain("ignore this field");
+  });
+
+  it("validates exactly the fields the model is shown, and requires the same ones", async () => {
+    const shape = (action as any).schema.shape as Record<string, unknown>;
+    expect(Object.keys(parameters.properties).sort()).toEqual(
+      Object.keys(shape).sort(),
     );
 
+    const base = validInput();
+    expect((action as any).schema.safeParse(base).success).toBe(true);
+    for (const key of Object.keys(shape)) {
+      const { [key as keyof typeof base]: _omitted, ...rest } = base;
+      expect(
+        (action as any).schema.safeParse(rest).success,
+        `omitting ${key}`,
+      ).toBe(!(parameters.required ?? []).includes(key));
+    }
+  });
+
+  it("still accepts structured fields sent as JSON strings", () => {
     const parsed = (action as any).schema.safeParse({
-      designId: "design_123",
-      prompt: "Dark SaaS landing page",
+      ...validInput(),
       designSystemId: null,
-      files: JSON.stringify([
+      files: JSON.stringify(validInput().files),
+      tweaks: JSON.stringify([
         {
-          filename: "index.html",
-          fileType: "html",
-          content: "<!doctype html><html><body>Hello</body></html>",
+          id: "accent",
+          label: "Accent",
+          type: "color-swatch",
+          defaultValue: "#0ea5e9",
         },
       ]),
     });
 
     expect(parsed.success).toBe(true);
     expect(parsed.data.designSystemId).toBeNull();
-    expect(parsed.data.files).toEqual([
-      {
-        filename: "index.html",
-        fileType: "html",
-        content: "<!doctype html><html><body>Hello</body></html>",
-      },
-    ]);
+    expect(parsed.data.files).toEqual(validInput().files);
+    expect(parsed.data.tweaks).toHaveLength(1);
+  });
+
+  it("names the field when a JSON string does not parse", async () => {
+    const result = await (action as any).schema["~standard"].validate({
+      ...validInput(),
+      files: "[{bad",
+      tweaks: "{",
+    });
+
+    expect(
+      result.issues.map((issue: { path: unknown[] }) => issue.path),
+    ).toEqual([["files"], ["tweaks"]]);
+    expect(result.issues[0].message).toContain("files is not valid JSON");
+    expect(result.issues[1].message).toContain("tweaks is not valid JSON");
+  });
+
+  it("rejects a tweak the model-facing schema describes, by path", async () => {
+    const result = await (action as any).schema["~standard"].validate({
+      ...validInput(),
+      tweaks: [
+        { id: "a", label: "A", type: "dropdown", defaultValue: "x" },
+        {
+          id: "b",
+          label: "B",
+          type: "segment",
+          options: ["one", "two"],
+          defaultValue: "one",
+        },
+      ],
+    });
+
+    expect(
+      result.issues.map((issue: { path: unknown[] }) => issue.path.join(".")),
+    ).toEqual(["tweaks.0.type", "tweaks.1.options.0", "tweaks.1.options.1"]);
   });
 });
 
