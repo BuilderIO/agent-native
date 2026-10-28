@@ -1135,6 +1135,52 @@ export const editorChromeBridgeScript: string = `"use strict";
     return candidates;
   }
 
+  // shared/svg-shape-offset.ts
+  var MOVABLE_SVG_SHAPE_TAGS = /* @__PURE__ */ new Set([
+    "circle",
+    "ellipse",
+    "g",
+    "image",
+    "line",
+    "path",
+    "polygon",
+    "polyline",
+    "rect",
+    "svg",
+    "text",
+    "use"
+  ]);
+  function isMovableSvgShapeTag(tagName) {
+    return MOVABLE_SVG_SHAPE_TAGS.has(tagName.toLowerCase());
+  }
+  var PX_TOKEN = /^-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[-+]?\\d+)?(?:px)?$/i;
+  function parseSvgShapeTranslate(value) {
+    const raw = (value ?? "").trim();
+    if (!raw || raw === "none") return { x: 0, y: 0 };
+    const tokens = raw.split(/\\s+/);
+    if (tokens.length > 3 || !tokens.every((token) => PX_TOKEN.test(token))) {
+      return null;
+    }
+    const [x = 0, y = 0, z = 0] = tokens.map((token) => Number.parseFloat(token));
+    if (![x, y, z].every(Number.isFinite) || z !== 0) return null;
+    return { x, y };
+  }
+  function formatSvgShapeTranslate(offset) {
+    const px = (value) => \`\${Number(value.toFixed(2)) || 0}px\`;
+    return \`\${px(offset.x)} \${px(offset.y)}\`;
+  }
+  function svgShapeTranslateAfterMove(offset, toCanvas, distance) {
+    const { a, b, c, d } = toCanvas;
+    const determinant = a * d - b * c;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+      return null;
+    }
+    return formatSvgShapeTranslate({
+      x: offset.x + (d * distance.dx - c * distance.dy) / determinant,
+      y: offset.y + (-b * distance.dx + a * distance.dy) / determinant
+    });
+  }
+
   // shared/text-layer-rule.ts
   var TEXT_LAYER_TAGS = /* @__PURE__ */ new Set([
     "a",
@@ -3772,6 +3818,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
+    function editableSvgShapeParent(el) {
+      var parent = el && el.parentElement;
+      if (!el || !parent || el.namespaceURI !== "http://www.w3.org/2000/svg" || parent.namespaceURI !== "http://www.w3.org/2000/svg" || !isMovableSvgShapeTag(el.tagName)) {
+        return null;
+      }
+      var root = outermostSvgAncestor(el);
+      return root && root.getAttribute("data-an-primitive") === "pasted-svg" ? parent : null;
+    }
+    function svgShapeUserUnitsToCanvas(el) {
+      var parent = editableSvgShapeParent(el);
+      var matrix = parent && parent.getScreenCTM();
+      return matrix ? { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d } : null;
+    }
     function isBoardRootMarqueeSurface(el) {
       if (!designCanvasBoardSurface || !el) return false;
       if (isDocumentRootElement(el)) return true;
@@ -6406,6 +6465,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
         positionRenderOffset
       ) : void 0;
+      var svgShapeToCanvas = editableSvgShapeParent(el) ? svgShapeUserUnitsToCanvas(el) : void 0;
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -6507,6 +6567,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           positionReferenceRect,
           positionContainingBlockOrigin: positionCoordinateContext.origin,
           positionContainingBlockTransform: positionCoordinateContext.transform
+        } : {},
+        ...svgShapeToCanvas !== void 0 ? {
+          svgShapeOffset: svgShapeToCanvas ? parseSvgShapeTranslate(cs.translate) : null,
+          ...svgShapeToCanvas ? { positionContainingBlockTransform: svgShapeToCanvas } : {}
         } : {},
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
@@ -18735,6 +18799,103 @@ export const editorChromeBridgeScript: string = `"use strict";
       snapGuideLayer.innerHTML = "";
       snapGuideNodeCount = 0;
     }
+    function startSvgShapeMove(e, gestureEl, pointerStart) {
+      postCrossScreenDrag("cancel");
+      var events = dragEventNames(e);
+      var startX = pointerStart ? pointerStart.clientX : e.clientX;
+      var startY = pointerStart ? pointerStart.clientY : e.clientY;
+      var DRAG_THRESHOLD = 3;
+      var members = collectMoveGroupMembers(gestureEl).filter(function(member) {
+        return !!editableSvgShapeParent(member);
+      });
+      if (members.indexOf(gestureEl) === -1) members = [gestureEl];
+      var states = members.map(function(member) {
+        var shape = member;
+        var toCanvas = svgShapeUserUnitsToCanvas(shape);
+        return {
+          el: shape,
+          toCanvas,
+          offset: toCanvas ? parseSvgShapeTranslate(window.getComputedStyle(shape).translate) : null,
+          originalTranslate: shape.style.translate,
+          originalStyleAttribute: shape.getAttribute("style")
+        };
+      });
+      var moved = false;
+      function restore() {
+        states.forEach(function(state) {
+          if (state.originalStyleAttribute === null) {
+            state.el.removeAttribute("style");
+          } else {
+            state.el.style.translate = state.originalTranslate;
+          }
+        });
+      }
+      function onMove(ev) {
+        var dx = ev.clientX - startX;
+        var dy = ev.clientY - startY;
+        if (!moved && Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+        moved = true;
+        if (ev.shiftKey) {
+          if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+          else dx = 0;
+        }
+        states.forEach(function(state) {
+          var next = state.toCanvas && state.offset ? svgShapeTranslateAfterMove(state.offset, state.toCanvas, {
+            dx: Math.round(dx),
+            dy: Math.round(dy)
+          }) : null;
+          if (next) state.el.style.translate = next;
+        });
+        refreshOverlays();
+      }
+      function cleanup() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onKeyDown, true);
+        clearActiveDragCancel(onEscape);
+      }
+      function onEscape() {
+        resetBridgeDragModifierStateOnCancel();
+        cleanup();
+        restore();
+        suppressNextShieldClickBriefly();
+        refreshOverlays();
+        if (selectedEl) postElementSelect(selectedEl);
+        return true;
+      }
+      function onKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        onEscape();
+      }
+      function onUp(ev) {
+        onMove(ev);
+        cleanup();
+        if (!moved) return;
+        suppressNextShieldClickBriefly();
+        states.forEach(function(state) {
+          var styles = { translate: state.el.style.translate };
+          if (styles.translate === state.originalTranslate) return;
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(state.el),
+              styles,
+              originalStyles: originalInlineStylesForPatch(state.el, styles),
+              payload: getElementInfo(state.el)
+            },
+            "*"
+          );
+          recordSourceOwnership(state.el);
+        });
+        refreshOverlays();
+        if (selectedEl) postElementSelect(selectedEl);
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onKeyDown, true);
+      setActiveDragCancel(onEscape);
+    }
     function startMove(e, gestureElParam, pointerStartParam) {
       if (readOnly) return;
       var gestureEl = gestureElParam || selectedEl;
@@ -18743,6 +18904,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if (editableSvgShapeParent(gestureEl)) {
+        startSvgShapeMove(e, gestureEl, pointerStartParam);
+        return;
+      }
       clearGridProjectionCaches();
       var moveGestureId = ++dragGestureSequence;
       var gestureStartedAt = eventEpochMilliseconds(e) ?? Date.now();

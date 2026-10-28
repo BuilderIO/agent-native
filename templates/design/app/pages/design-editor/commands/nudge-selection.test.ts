@@ -143,3 +143,64 @@ describe("runNudgeSelection — rapid translate nudges", () => {
     ]);
   });
 });
+
+describe("runNudgeSelection — shapes inside an SVG", () => {
+  it("moves by translate in the SVG's units, continuing from the source", () => {
+    let content =
+      '<svg data-an-primitive="pasted-svg" viewBox="0 0 100 50" width="200" height="100"><rect data-agent-native-node-id="dot" width="10" height="10"/></svg>';
+    const commits: Array<Record<string, string>> = [];
+    const rendered = {
+      selector: "[data-agent-native-node-id=dot]",
+      sourceId: "dot",
+      tagName: "rect",
+      classes: [],
+      computedStyles: {},
+      positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 2 },
+      svgShapeOffset: { x: 0, y: 0 },
+    } as unknown as ElementInfo;
+    const args = {
+      activeFile: { id: "screen-a", content },
+      applyLocalContentUpdate: () => {},
+      boardFileId: undefined,
+      boardFrameGeometry: undefined,
+      canEditDesign: true,
+      isRunningAppSource: false,
+      commitVisualStyles: (
+        _selector: string,
+        styles: Record<string, string>,
+      ) => {
+        commits.push(styles);
+        content = content.replace(
+          /<rect data-agent-native-node-id="dot"( style="[^"]*")?/,
+          `<rect data-agent-native-node-id="dot" style="translate: ${styles.translate}"`,
+        );
+      },
+      designDataJsonRef: { current: {} },
+      editorPreferences: { nudge: { small: 1, big: 10 } },
+      files: [],
+      getFreshActiveContent: () => content,
+      handleGeometryCommit: () => {},
+      hideSelectionChromeForNudge: () => {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      selectedElement: rendered,
+      selectedLayerIdsState: [],
+      selectedLayerTargetsRef: { current: [] },
+      renderedElementInfoByLayerKeyRef: { current: new Map() },
+      setSelectedElement: () => {},
+      setSelectedLayerIdsState: () => {},
+      viewModeRef: { current: "single" },
+    } as unknown as NudgeSelectionArgs;
+
+    runNudgeSelection(args, "right", true);
+    runNudgeSelection(args, "left", false);
+    runNudgeSelection(args, "down", false);
+
+    expect(commits).toEqual([
+      { translate: "5px 0px" },
+      { translate: "4.5px 0px" },
+      { translate: "4.5px 0.5px" },
+    ]);
+    expect(commits.some((styles) => "left" in styles)).toBe(false);
+  });
+});

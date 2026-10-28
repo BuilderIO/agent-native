@@ -1,3 +1,4 @@
+import { promoteAuthoredSvgArtworkInHtml } from "./authored-svg-layers.js";
 import {
   type CodeLayerSource,
   type CodeLayerSourceEdit,
@@ -42,8 +43,9 @@ export function annotateScreenHtmlForPersist(
 
 /**
  * For screens the agent authors from scratch: also drops wrapper divs that
- * render nothing, so the layer tree the user inherits stays flat. Not applied
- * to copies, imports, or restores, whose structure belongs to the user.
+ * render nothing and turns inline SVG artwork into vector layers, so the layer
+ * tree the user inherits stays flat and editable. Not applied to copies,
+ * imports, or restores, whose structure belongs to the user.
  */
 export function annotateAgentScreenHtmlForPersist(
   content: string,
@@ -52,7 +54,9 @@ export function annotateAgentScreenHtmlForPersist(
   if ((fileType ?? "html") !== "html") return content;
   if (typeof content !== "string" || !content.trim()) return content;
   return annotateScreenHtmlForPersist(
-    flattenRedundantWrappersInHtml(content).content,
+    flattenRedundantWrappersInHtml(
+      promoteAuthoredSvgArtworkInHtml(content).content,
+    ).content,
     fileType,
   );
 }

@@ -969,6 +969,7 @@ export function useEditorLayerActions({
               measured.positionContainingBlockOrigin,
             positionContainingBlockTransform:
               measured.positionContainingBlockTransform,
+            svgShapeOffset: measured.svgShapeOffset,
             relativeContainingBlockDirection:
               measured.relativeContainingBlockDirection,
             computedStyles: {

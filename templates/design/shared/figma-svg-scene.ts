@@ -2506,6 +2506,24 @@ export function collectRawFigmaSvgScene(
 
   function serializeInlineSvg(el: Element): string {
     const clone = el.cloneNode(true) as Element;
+    // The editor moves a shape inside an SVG with its CSS `translate`, which
+    // SVG importers ignore; it applies outside the shape's own `transform`.
+    const originals = Array.from(el.querySelectorAll("*"));
+    const copies = Array.from(clone.querySelectorAll("*"));
+    originals.forEach((original, index) => {
+      const copy = copies[index] as SVGElement;
+      const translate = view.getComputedStyle(original).translate;
+      if (!translate || translate === "none") return;
+      const [x = "0px", y = "0px"] = translate.trim().split(/\s+/);
+      if (!/px$/.test(x) || !/px$/.test(y)) return;
+      const authored = copy.getAttribute("transform");
+      copy.setAttribute(
+        "transform",
+        `translate(${Number.parseFloat(x)} ${Number.parseFloat(y)})${authored ? ` ${authored}` : ""}`,
+      );
+      copy.style.removeProperty("translate");
+      if (copy.getAttribute("style") === "") copy.removeAttribute("style");
+    });
     for (const node of Array.from(
       clone.querySelectorAll("script, foreignObject"),
     )) {
