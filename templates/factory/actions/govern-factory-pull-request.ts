@@ -679,6 +679,7 @@ export default defineAction({
     ) {
       const manualReason =
         "Factory governance does not approve external authors; the existing current-head approval does not change that, so this pull request needs a manual disposition.";
+      await reconcileClaim(pullRequest.headSha, manualReason);
       let livePullRequest: Awaited<
         ReturnType<typeof github.getPullRequestSummary>
       >;
@@ -706,7 +707,6 @@ export default defineAction({
         await reconcileClaim(pullRequest.headSha, staleReason);
         return { ok: true, action: "needs_manual", reason: staleReason };
       }
-      await reconcileClaim(pullRequest.headSha, manualReason);
       const disposition = await recordManualPullRequestDisposition({
         factoryId,
         headSha: pullRequest.headSha,
@@ -716,12 +716,14 @@ export default defineAction({
         reason: manualReason,
       });
       if (disposition.kind === "terminal") {
+        await reconcileClaim(pullRequest.headSha, manualReason);
         return {
           ok: true,
           action: "skipped",
           reason: `The external pull request requires manual disposition, but the Factory item is already ${disposition.status}; no manual disposition was recorded.`,
         };
       }
+      await reconcileClaim(pullRequest.headSha, manualReason);
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -891,7 +893,7 @@ export default defineAction({
           hasUsableChangedFiles(changedFiles) &&
           !isUltraScaryChange(changedFiles)
         ) {
-          recoveredApproval = await getDb().transaction(async (tx) => {
+          const recoveryResult = await getDb().transaction(async (tx) => {
             const latestItems = await tx
               .select({
                 metadataJson: triageItems.metadataJson,
@@ -909,12 +911,8 @@ export default defineAction({
                 statusCode: 404,
               });
             }
-            if (
-              latestItem.status === "merged" ||
-              latestItem.status === "resolved" ||
-              latestItem.status === "dismissed"
-            ) {
-              return false;
+            if (isTerminalFactoryItemStatus(latestItem.status)) {
+              return { kind: "terminal", status: latestItem.status } as const;
             }
             const recovered = await tx
               .update(triageDecisions)
@@ -929,7 +927,7 @@ export default defineAction({
                 ),
               )
               .returning({ id: triageDecisions.id });
-            if (!recovered[0]) return false;
+            if (!recovered[0]) return { kind: "not_recovered" } as const;
             const metadata = parseTriageMetadata(latestItem.metadataJson);
             metadata.autoApprovedAt = new Date().toISOString();
             metadata.autoApprovalUrl = attributedApprovalUrl;
@@ -942,8 +940,20 @@ export default defineAction({
                 updatedAt: new Date().toISOString(),
               })
               .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
-            return true;
+            return { kind: "recovered" } as const;
           });
+          if (recoveryResult.kind === "terminal") {
+            await reconcileClaim(
+              pullRequest.headSha,
+              `Factory item is already ${recoveryResult.status}; the existing approval was not finalized.`,
+            );
+            return {
+              ok: true,
+              action: "skipped",
+              reason: `Factory item is already ${recoveryResult.status}; approval recovery was not finalized.`,
+            };
+          }
+          recoveredApproval = recoveryResult.kind === "recovered";
         }
         if (recoveredApproval) {
           await recordFactoryAudit(
