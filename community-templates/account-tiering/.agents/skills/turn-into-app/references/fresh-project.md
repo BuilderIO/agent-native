@@ -38,10 +38,13 @@ On a browser host the host is an orchestrator, not the build environment:
    as text, or a public URL, and say what was left out. Never attach `.env`
    files, keys, tokens, or other credentials; if a knowledge file holds one,
    leave it out of the attachment and say so in the report.
-3. Report what Dispatch actually returned: the branch, the path, and the status.
-   The browser host cannot run or inspect the app, and a returned path can 404
-   until the branch merges and deploys, so the report ends at pending or
-   unverified unless a status or verification action is available to call.
+3. Lead the report with what Dispatch actually returned: its Builder link
+   (`url`), where the person can watch the app being built, or its status when
+   there is no link. Then give the branch and the path, and the rest of the
+   final report in SKILL.md. The browser host cannot run or inspect the app,
+   and a returned path can 404 until the branch merges and deploys, so the
+   report ends at pending or unverified unless a status or verification action
+   is available to call.
 
 Rules on this path:
 

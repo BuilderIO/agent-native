@@ -64,9 +64,10 @@ it, and remove it before the final `pnpm build`. A scaffold skill (`build-an-app
 to set `AUTH_DISABLED` is about keeping auth on in real use; this skill's
 review loop is the exception for local runs. Without it, only the first
 browser to open the app is signed in automatically; later fresh browsers get
-the "Continue as local dev" card. After the final restart, leave that first
-visit to the person you hand the app to: `curl` polls do not use it up, but
-a browser or screenshot you open does.
+the "Continue as local dev" card. That first visit belongs to the person: the
+hand-off (Processes and evidence) opens the app in their own browser, and
+that is the visit. `curl` polls do not use it up, but a browser or screenshot
+you open does, so after the final start check the app with `curl` only.
 
 A developer can put a provider key such as `ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY` in the same `.env`; once the server restarts, the sidebar skips
@@ -98,8 +99,11 @@ children. Vite restarts the dev server when `.env` changes; the framework closes
 the worker's database clients during shutdown so the restarted server can
 reopen the same local database. Wait for that restart, then poll again. After
 editing `server/plugins/*` or adding a dependency, poll again, and restart if
-`/` does not reflect the change. The scaffold's
-`pnpm dev` runs the same server and also opens a browser tab.
+`/` does not reflect the change. The scaffold's `pnpm dev` runs the same
+server with `--open`, which opens a browser tab. Leave `--open` off while you
+build, so the person's browser does not pop up on every start; only the
+hand-off adds it. Vite opens a tab when it starts, never on a `.env` or
+config restart.
 
 ## Checks and build
 
@@ -155,10 +159,24 @@ deployment.
 
 ## Processes and evidence
 
-- After an interactive invocation (see "When to ask" in SKILL.md for what
-  counts), leave the dev server running and report its URL, PID, and stop
-  command. In a headless or harness run, stop every process you started, by
-  its PID, before exiting.
+- **Hand-off.** After an interactive invocation (see "When to ask" in
+  SKILL.md for what counts), start the server once more after `pnpm build`,
+  with `--open`, and poll it as in Run:
+
+  ```bash
+  (nohup pnpm exec agent-native dev --port <port> --open > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
+  ```
+
+  Vite opens `http://localhost:<port>/` once, in the person's default browser.
+  That is the first visit: the page waits for the server, then signs them in
+  as the local dev account. From then on, check the app with `curl` only, never
+  a browser or screenshot of your own. If the person is not at this machine
+  (Claude Cowork, an SSH session, a container), leave `--open` off and give
+  the URL. Report the URL, PID, and stop command.
+
+- In a headless or harness run, stop every process you started, by its PID,
+  before exiting, and open nothing. The report gives the app's folder and
+  says `pnpm dev` starts it and opens it.
 - Stopping means processes only: keep `.tmp/ui-review/out/` and the app's
   `data/`, so the report's paths still exist.
 - Evidence labels are separate states: locally running (the server answers),

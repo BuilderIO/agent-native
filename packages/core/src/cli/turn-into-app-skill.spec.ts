@@ -70,6 +70,22 @@ describe("turn-into-app skill structure", () => {
     }
   });
 
+  it("leads the final report with the app and opens it only at the hand-off", () => {
+    const report = skillMd.slice(skillMd.indexOf("## Final report"));
+    expect(report).toContain('"Your app is open at <URL>"');
+    expect(report.indexOf("How to change it")).toBeLessThan(
+      report.indexOf("**Details**"),
+    );
+
+    const run = references["references/local-run-and-deploy.md"];
+    const buildStart = /^mkdir -p \.tmp && .*agent-native dev .*$/m.exec(
+      run,
+    )?.[0];
+    expect(buildStart).toBeDefined();
+    expect(buildStart).not.toContain("--open");
+    expect(run).toContain("agent-native dev --port <port> --open");
+  });
+
   it("gives long references a contents list and no dead relative doc links", () => {
     for (const [file, text] of Object.entries(references)) {
       if (text.split("\n").length > 100) {
