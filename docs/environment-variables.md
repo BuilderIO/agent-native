@@ -337,8 +337,9 @@ repository values in GitHub Actions configuration, never in the repository.
 
 ### Beta E2E browser suite
 
-Read by the manual `Beta E2E (browser)` workflow and `e2e/beta/`, never by
-application runtime code. `BETA_E2E_SESSION_TOKENS` and
+Read by the manual `Beta E2E (browser)` workflow, the isolated Chat opt-in in
+`deploy-hosts.yml`, and `e2e/beta/`, never by application runtime code.
+`BETA_E2E_SESSION_TOKENS` and
 `BETA_E2E_OPENAI_API_KEY` are live credentials: supply them as GitHub Actions
 secrets only. See `e2e/beta/README.md` for how they are minted.
 
@@ -346,7 +347,9 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETA_E2E_APPS`                   | Comma-separated beta app ids to test, or `all`. An unknown id fails the run rather than selecting nothing.                                                                                                                                |
 | `BETA_E2E_AUTHED`                 | `1`/`0` to force the authenticated lane on or off. Unset means "run it when a session credential was supplied".                                                                                                                           |
+| `BETA_E2E_AUTH_STATE_DIR`         | Optional directory for Playwright session state and lane marker files. Disposable deployment checks use a temporary directory that is removed with the database.                                                                          |
 | `BETA_E2E_CLUSTER`                | Authenticated cluster selected by the workflow (`registry`, `chat`, or `journeys`); internal CI wiring, not a user credential.                                                                                                            |
+| `BETA_E2E_DISPOSABLE_CHAT_ORIGIN` | Optional Chat-only origin override, restricted to the disposable Netlify test site. Set only by the isolated deploy-host check.                                                                                                        |
 | `BETA_E2E_GREP`                   | Optional Playwright title filter from the workflow `grep` input. Passed through the environment so a dispatch input never reaches a shell line.                                                                                           |
 | `BETA_E2E_PROJECT`                | Playwright project one authenticated workflow slot runs (`journeys-session`, `chat`, ...). Workflow wiring only; read by the workflow's shell step, not by the suite.                                                                     |
 | `BETA_E2E_SHARD`                  | `n/m` for a slot that runs one `--shard` of its project, empty otherwise. Workflow wiring only.                                                                                                                                           |
@@ -364,6 +367,7 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_MODEL`                  | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                                                                                                         |
 | `BETA_E2E_ENGINE`                 | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                                                                                                           |
 | `BETA_E2E_GLOBAL_TIMEOUT_MINUTES` | Whole minutes for Playwright's `globalTimeout`, setup included. The workflow sets it a few minutes under each job's `timeout-minutes` so a hung run ends with a report instead of a cancelled job. Defaults to 20 in CI; ignored locally. |
+| `EXERCISE_CHAT_DURABILITY`         | Internal `deploy-hosts.yml` switch that enables the authenticated Chat reliability proof on the disposable Netlify deployment.                                                                                                           |
 | `SHARD_SELECTED`                  | Set per authenticated shard by the workflow: whether the shard's app is in the run's app selection. Workflow-internal; gates the shard's steps.                                                                                           |
 
 #### Scheduled Signup E2E isolation gate
