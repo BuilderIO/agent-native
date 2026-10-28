@@ -84,6 +84,7 @@ export function ReadyToRecord() {
   stateRef.current = state;
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
+  const savedCursorRef = useRef(cursor);
   const saveSeqRef = useRef(0);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -99,7 +100,9 @@ export function ReadyToRecord() {
     });
     invoke<CursorEffectsConfig>("get_cursor_effects")
       .then((config) => {
-        if (!cancelled) setCursor(config);
+        if (cancelled) return;
+        savedCursorRef.current = config;
+        setCursor(config);
       })
       .catch((error) => {
         console.error("[clips-ready] cursor effects load failed:", error);
@@ -155,10 +158,15 @@ export function ReadyToRecord() {
     saveChainRef.current = saveChainRef.current.then(() =>
       invoke<CursorEffectsConfig>("set_cursor_effects", { config: next })
         .then((saved) => {
+          savedCursorRef.current = saved;
           if (seq === saveSeqRef.current) setCursor(saved);
         })
         .catch((error) => {
-          if (seq === saveSeqRef.current) setCursorError(String(error));
+          if (seq !== saveSeqRef.current) return;
+          // Show what a recording will actually use: the last saved settings.
+          cursorRef.current = savedCursorRef.current;
+          setCursor(savedCursorRef.current);
+          setCursorError(String(error));
         }),
     );
   }

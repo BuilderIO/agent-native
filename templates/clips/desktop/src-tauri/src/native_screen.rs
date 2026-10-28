@@ -3062,7 +3062,6 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    crate::cursor_effects::stop(&app);
     let upload_mode = NativeUploadMode::from_option(upload_mode);
     emit_native_upload_progress(
         &app,
@@ -3072,15 +3071,20 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         None,
         None,
     );
+    let finalized = take_and_finalize_active_session(&state, |_session| {
+        stop_cursor_effects_after_capture(&app);
+        let _ = app.emit("clips:native-recording-finalized", &recording_id);
+    });
+    if finalized.is_err() {
+        crate::cursor_effects::stop(&app);
+    }
     let StoppedSession {
         mut session,
         duration_ms,
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state, |_session| {
-        let _ = app.emit("clips:native-recording-finalized", &recording_id);
-    })?;
+    } = finalized?;
 
     #[cfg(target_os = "macos")]
     restore_camera_bubble_alignment(&app, &state, Some(session.restart.alignment_generation));
@@ -3478,14 +3482,19 @@ pub async fn native_fullscreen_recording_stop_and_save(
     folder_name: String,
     file_role: String,
 ) -> Result<NativeFullscreenSaveResult, String> {
-    crate::cursor_effects::stop(&app);
+    let finalized = take_and_finalize_active_session(&state, |_session| {
+        stop_cursor_effects_after_capture(&app)
+    });
+    if finalized.is_err() {
+        crate::cursor_effects::stop(&app);
+    }
     let StoppedSession {
         mut session,
         duration_ms,
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state, |_session| {})?;
+    } = finalized?;
     #[cfg(target_os = "macos")]
     restore_camera_bubble_alignment(&app, &state, Some(session.restart.alignment_generation));
     #[cfg(target_os = "macos")]
@@ -4080,6 +4089,13 @@ struct StoppedSession {
     stop_outcome: Result<(), String>,
     consolidate_outcome: Result<(), String>,
     multi_segment: bool,
+}
+
+/// Removes cursor effects once the capture backend has stopped, so the last
+/// recorded frames still show them, and before segments are merged, so the
+/// overlay does not linger on screen during that work.
+fn stop_cursor_effects_after_capture(app: &AppHandle) {
+    crate::cursor_effects::stop(app);
 }
 
 fn take_and_finalize_active_session(

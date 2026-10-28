@@ -1465,12 +1465,15 @@ pub(crate) async fn rewind_clip_stop_and_upload(
     include_system_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    crate::cursor_effects::stop(&app);
     #[cfg(target_os = "macos")]
     {
         let stop_started = std::time::Instant::now();
         let mut active = take_active(&state)?;
-        if let Err(error) = close_direct_clip_interval(&app, &mut active) {
+        let closed = close_direct_clip_interval(&app, &mut active);
+        // The clip's interval has ended, so removing the effects now cannot
+        // cut them from its last frames.
+        crate::cursor_effects::stop(&app);
+        if let Err(error) = closed {
             if let Some(sink) = active.shared_sink.take() {
                 sink.cancel();
             }
@@ -1691,12 +1694,15 @@ pub(crate) async fn rewind_clip_stop_and_save(
     include_mic: bool,
     include_system_audio: bool,
 ) -> Result<NativeFullscreenSaveResult, String> {
-    crate::cursor_effects::stop(&app);
     #[cfg(target_os = "macos")]
     {
         let stop_started = std::time::Instant::now();
         let mut active = take_active(&state)?;
-        if let Err(error) = close_direct_clip_interval(&app, &mut active) {
+        let closed = close_direct_clip_interval(&app, &mut active);
+        // The clip's interval has ended, so removing the effects now cannot
+        // cut them from its last frames.
+        crate::cursor_effects::stop(&app);
+        if let Err(error) = closed {
             if let Some(sink) = active.shared_sink.take() {
                 sink.cancel();
             }
