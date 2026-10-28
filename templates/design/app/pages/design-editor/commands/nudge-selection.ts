@@ -17,6 +17,7 @@ import {
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import type { LayoutMoveRefusal } from "@/pages/design-editor/commands/align-selection";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   cloneCanvasFrameGeometry,
@@ -76,6 +77,7 @@ export interface NudgeSelectionArgs {
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
   hideSelectionChromeForNudge: () => void;
+  refuseMove: (refusal: LayoutMoveRefusal) => void;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   selectedElement: ElementInfo | null;
@@ -134,6 +136,7 @@ export function runNudgeSelection(
     getFreshActiveContent,
     handleGeometryCommit,
     hideSelectionChromeForNudge,
+    refuseMove,
     overviewScreens,
     overviewSelectedScreenIds,
     selectedElement,
@@ -236,7 +239,10 @@ export function runNudgeSelection(
           { dx, dy },
         )
       : null;
-    if (!translate) return;
+    if (!translate) {
+      refuseMove("unsupported-position");
+      return;
+    }
     hideSelectionChromeForNudge();
     commitVisualStyles(
       nudgeTarget.selector,

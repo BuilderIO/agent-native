@@ -286,13 +286,15 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     const linked = promoteAuthoredSvgArtworkInHtml(
       page(
         `<link rel="stylesheet" href="/site.css">`,
-        `<use class="icon" href="#dot"/>`,
+        `<use class="icon" href="#dot"/><use href="#dot"/>`,
       ),
     ).content;
 
     expect(tailwind).toContain(`<use class="md:w-6" href="#dot"/>`);
     expect(tailwind).not.toContain(`<use class="text-emerald-400"`);
-    expect(linked).toContain(`<use class="icon" href="#dot"/>`);
+    expect(linked).toContain(
+      `<use class="icon" href="#dot"/><use href="#dot"/>`,
+    );
   });
 
   it("keeps a use whose symbol sits under a lock", () => {
@@ -316,6 +318,18 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     expect(promoted).toBe(1);
     expect(content).toContain(
       `${art}<svg viewBox="0 0 100 100" width="100" height="100" data-an-primitive="pasted-svg">`,
+    );
+  });
+
+  it("keeps a use's clip outside the symbol's viewBox scale", () => {
+    const { content } = promoteAuthoredSvgArtworkInHtml(
+      screen(
+        `<svg viewBox="0 0 100 100" width="100" height="100"><defs><clipPath id="half"><rect width="20" height="40"/></clipPath><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot" x="10" width="40" height="40" clip-path="url(#half)"/></svg>`,
+      ),
+    );
+
+    expect(content).toContain(
+      `<g clip-path="url(#half)" data-agent-native-layer-name="dot" transform="translate(10 0)"><g transform="scale(4)" clip-path="url(#dot-viewport-2)">`,
     );
   });
 

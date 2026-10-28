@@ -368,6 +368,10 @@ function isLayoutUtilityClass(name: string): boolean {
   return LAYOUT_UTILITY.test(name.replace(/^(?:[\w-]+:)+/, ""));
 }
 
+function isUseSpaceProperty(name: string): boolean {
+  return /^(?:clip-path|mask|filter)/.test(name);
+}
+
 function inlineProperties(node: HtmlNode): string[] {
   return (attribute(node, "style") ?? "")
     .split(";")
@@ -436,13 +440,16 @@ class UseExpander {
       if (attribute(target, "transform") !== null) return null;
       const instance = this.instanceViewport(use, target, viewport);
       if (!instance) return null;
-      transforms.push(...instance.transforms);
+      // The use's own clip, mask, and filter work in its coordinates, outside
+      // the symbol's viewBox scale, so the scale then gets a group of its own.
+      const ownViewportGroup = this.hasUseSpaceEffects(use);
+      if (!ownViewportGroup) transforms.push(...instance.transforms);
       const scope = this.scopeIds(target);
       content = children(target)
         .map((child) => this.serialize(child, scope, nextChain, instance.inner))
         .join("");
       // The referenced root's own paint and style still cascade to its shapes.
-      let inherited = this.serializeAttributes(
+      const inherited = this.serializeAttributes(
         (target.attrs ?? []).filter(
           (attr) => !VIEWPORT_ATTRIBUTES.has(attr.name),
         ),
@@ -452,15 +459,16 @@ class UseExpander {
         const clipId = escapeAttribute(this.uniqueId(`${id}-viewport`));
         const { x: clipX, y: clipY, width, height } = instance.clip;
         viewportClip = ` clip-path="url(#${clipId})"`;
-        // The use's own clip-path stays on the outer group, so this one
-        // moves in with the symbol's attributes.
-        if (attribute(use, "clip-path") !== null) {
-          inherited += viewportClip;
-          viewportClip = "";
-        }
         content = `<clipPath id="${clipId}"><rect x="${round(clipX)}" y="${round(clipY)}" width="${round(width)}" height="${round(height)}"></rect></clipPath>${content}`;
       }
       if (inherited) content = `<g${inherited}>${content}</g>`;
+      if (ownViewportGroup) {
+        const viewportTransform = instance.transforms.filter(Boolean).join(" ");
+        if (viewportTransform || viewportClip) {
+          content = `<g${viewportTransform ? ` transform="${escapeAttribute(viewportTransform)}"` : ""}${viewportClip}>${content}</g>`;
+        }
+        viewportClip = "";
+      }
     } else {
       const scope = this.scopeIds(target);
       content = this.serialize(target, scope, nextChain, viewport, {
@@ -557,23 +565,16 @@ class UseExpander {
   // from under the symbol, so a rule that selects either by tag, or sizes,
   // places, or transforms the use, would stop applying.
   private stylesheetDependsOnUse(use: HtmlNode, target: HtmlNode): boolean {
+    // A linked stylesheet may select the use by tag or id; this can't read it.
+    if (this.hasLinkedStylesheet) return true;
     if (inlineProperties(use).some((name) => USE_LAYOUT_PROPERTIES.has(name))) {
       return true;
     }
-    // Classes no in-document rule defines come from Tailwind's runtime or a
-    // linked stylesheet, which this can't read.
-    const unresolved = [use, target]
-      .flatMap((node) => classNames(node))
-      .filter(
-        (name) =>
-          !new RegExp(`\\.${escapeRegExp(name)}(?![\\w-])`).test(
-            this.styleText,
-          ),
-      );
+    // Classes no in-document rule defines come from Tailwind's runtime.
     if (
-      unresolved.some(
-        (name) => this.hasLinkedStylesheet || isLayoutUtilityClass(name),
-      )
+      [use, target]
+        .flatMap((node) => classNames(node))
+        .some((name) => !this.definesClass(name) && isLayoutUtilityClass(name))
     ) {
       return true;
     }
@@ -586,6 +587,27 @@ class UseExpander {
         ((selectsTag(rule.selector, target.tagName ?? "") ||
           mayMatchNode(rule.selector, target)) &&
           rule.properties.includes("overflow")),
+    );
+  }
+
+  private hasUseSpaceEffects(use: HtmlNode): boolean {
+    if (
+      (use.attrs ?? []).some((attr) => isUseSpaceProperty(attr.name)) ||
+      inlineProperties(use).some(isUseSpaceProperty) ||
+      classNames(use).some((name) => !this.definesClass(name))
+    ) {
+      return true;
+    }
+    return this.rules.some(
+      (rule) =>
+        mayMatchNode(rule.selector, use) &&
+        rule.properties.some(isUseSpaceProperty),
+    );
+  }
+
+  private definesClass(name: string): boolean {
+    return new RegExp(`\\.${escapeRegExp(name)}(?![\\w-])`).test(
+      this.styleText,
     );
   }
 

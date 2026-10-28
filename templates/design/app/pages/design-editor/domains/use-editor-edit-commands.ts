@@ -19,6 +19,7 @@ import {
   findCodeLayerSiblingOrder,
   preferredCodeLayerSelector,
 } from "../code-layer-state";
+import { toastLayoutMoveRefusal } from "../commands/align-selection";
 import { runChangeSelectedZIndex } from "../commands/change-selected-z-index";
 import { copyVisualProperties } from "../commands/copy-properties";
 import { releaseCrossScreenDropAdmission } from "../commands/cross-screen-element-drop";
@@ -922,6 +923,7 @@ export function useEditorEditCommands({
           getFreshActiveContent,
           handleGeometryCommit,
           hideSelectionChromeForNudge,
+          refuseMove: (refusal) => toastLayoutMoveRefusal(t, refusal),
           overviewScreens,
           overviewSelectedScreenIds,
           selectedElement,
@@ -957,6 +959,7 @@ export function useEditorEditCommands({
       runtimeLayerSnapshotsById,
       selectedElement,
       selectedLayerIdsState,
+      t,
     ],
   );
 
