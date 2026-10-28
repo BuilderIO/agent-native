@@ -22,7 +22,10 @@ import {
 } from "./builder-oauth.js";
 import { readsOrgCredentialFirst } from "./credential-read-order.js";
 import { decideCredentialWriteScope } from "./credential-write-scope.js";
-import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
+import {
+  isFusionPreviewRuntime,
+  isHostedWorkspaceRuntime,
+} from "./deployment-protection.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
@@ -293,7 +296,9 @@ export function canUseDeployCredentialFallbackForRequest(
   }
   if (key && isNetlifyAiGatewayInjected(key)) return false;
   if (key && BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) {
-    return isTrustedSelfHostedRuntime();
+    // Fusion mints the preview pod's pair for the project's own space, so the
+    // hosted-workspace block on deploy keys must not reach it.
+    return isTrustedSelfHostedRuntime() || isFusionPreviewRuntime();
   }
   if (key && DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
     const hostedWorkspace = isHostedWorkspaceRuntime();
@@ -1343,6 +1348,8 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
 }
 
 export function isBuilderGatewayDeployConfigured(): boolean {
+  // The preview carries the published site's token but is read by the owner.
+  if (isFusionPreviewRuntime()) return false;
   return (
     canUseDeployCredentialFallbackForRequest(BUILDER_GATEWAY_TOKEN_ENV_VAR) &&
     Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR))

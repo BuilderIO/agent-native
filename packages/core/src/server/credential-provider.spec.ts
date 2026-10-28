@@ -3178,7 +3178,7 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
-  it("does not resolve the credits lane inside the dev-preview runtime", async () => {
+  it("does not resolve the credits lane inside a workspace runtime", async () => {
     hostedVisitor();
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -3191,6 +3191,29 @@ describe("Builder gateway credential lane", () => {
       publicKey: null,
       lane: null,
     });
+  });
+
+  it("resolves the credits pair Fusion injects into the preview for a signed-in user", async () => {
+    hostedVisitor();
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_GATEWAY_TOKEN"),
+    ).toBe(true);
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_PRIVATE_KEY"),
+    ).toBe(false);
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
+      privateKey: "btk-preview-token",
+      publicKey: "space-abc",
+      lane: "gateway-deploy",
+    });
+    await expect(resolveHasBuilderGatewayCredential()).resolves.toBe(true);
+    expect(isBuilderGatewayDeployConfigured()).toBe(false);
   });
 });
 
