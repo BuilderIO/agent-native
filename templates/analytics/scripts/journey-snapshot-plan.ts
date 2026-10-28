@@ -66,6 +66,26 @@ export interface SnapshotBand {
   tree: SnapshotTree;
 }
 
+export interface SnapshotSummaryBand extends SnapshotBand {
+  label: string;
+  previousTree?: SnapshotTree;
+}
+
+export function snapshotSummaryBands(
+  bands: readonly (SnapshotBand & { label: string })[],
+  previousTrees: ReadonlyMap<string, SnapshotTree>,
+): SnapshotSummaryBand[] {
+  return bands.map(({ key, label, tree }) => {
+    const previousTree = previousTrees.get(key);
+    return {
+      key,
+      label,
+      tree,
+      ...(previousTree ? { previousTree } : {}),
+    };
+  });
+}
+
 function arrayItemAt<T>(items: readonly T[], index: number): T | undefined {
   return items.slice(index, index + 1)[0];
 }

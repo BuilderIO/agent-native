@@ -21,6 +21,7 @@ import {
   isReusableCaptureSelection,
   isBuilderCdnUrl,
   selectCaptureTree,
+  snapshotSummaryBands,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
@@ -114,7 +115,6 @@ interface CaptureTarget extends SnapshotBand {
 
 interface CapturedBand {
   target: CaptureTarget;
-  analyticsTree: SnapshotTree;
   tree: SnapshotTree;
   frames: CaptureFrame[];
   failures: number;
@@ -127,12 +127,7 @@ interface BoardResult {
   designId: string;
   url: string;
   tree: SnapshotTree;
-  bands: Array<{
-    key: string;
-    tree: SnapshotTree;
-    label: string;
-    previousTree?: SnapshotTree;
-  }>;
+  bands: ReturnType<typeof snapshotSummaryBands>;
   manifestFailures: number;
   frames: number;
 }
@@ -835,6 +830,7 @@ async function publishCanvas(args: {
   app: AppName;
   week: string;
   captures: CapturedBand[];
+  summaryBands: CaptureTarget[];
   previousTrees: Map<string, SnapshotTree>;
   experimentId?: ExperimentId;
   designUrl: string;
@@ -1002,15 +998,7 @@ async function publishCanvas(args: {
     designId: canvas.designId,
     url: canonicalDesignUrl(args.designUrl, canvas.designId),
     tree,
-    bands: keyedBands.map(({ key, capture }) => {
-      const previousTree = args.previousTrees.get(capture.target.key);
-      return {
-        key,
-        label: capture.target.label,
-        tree: capture.analyticsTree,
-        ...(previousTree ? { previousTree } : {}),
-      };
-    }),
+    bands: snapshotSummaryBands(args.summaryBands, args.previousTrees),
     manifestFailures: args.captures.reduce(
       (total, capture) => total + capture.failures,
       0,
@@ -1554,7 +1542,7 @@ async function main(argv: string[]): Promise<number> {
           `${app}/${target.key}: ${capture.failures} frame capture or upload failures; ${capture.frames.length} screenshot-backed frames remain.`,
         );
       }
-      captures.push({ target, analyticsTree: target.tree, ...capture });
+      captures.push({ target, ...capture });
     }
     const nonempty = captures.filter(
       (capture) => capture.tree.nodes.length > 0 && capture.frames.length > 0,
@@ -1576,6 +1564,7 @@ async function main(argv: string[]): Promise<number> {
         app,
         week: window.week,
         captures: nonempty,
+        summaryBands: targetBands,
         previousTrees: previousBands,
         ...(values.experiment
           ? { experimentId: values.experiment as ExperimentId }

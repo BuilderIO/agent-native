@@ -8,6 +8,7 @@ import {
   isBuilderCdnUrl,
   isReusableCaptureSelection,
   selectCaptureTree,
+  snapshotSummaryBands,
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
@@ -212,6 +213,34 @@ describe("weekly snapshot preset", () => {
         "same",
       ),
     ).toBe(false);
+  });
+});
+
+describe("weekly snapshot summaries", () => {
+  it("keeps Analytics cohorts even when they have no captured screenshots", () => {
+    const visibleTree = tree([], 8, "design");
+    const screenshotlessTree = tree([], 4, "design");
+    const bands = snapshotSummaryBands(
+      [
+        { key: "design-web", label: "First touch · web", tree: visibleTree },
+        {
+          key: "design-mcp-oauth",
+          label: "First touch · MCP OAuth",
+          tree: screenshotlessTree,
+        },
+      ],
+      new Map([["design-mcp-oauth", tree([], 6, "design")]]),
+    );
+
+    expect(bands.map((band) => band.key)).toEqual([
+      "design-web",
+      "design-mcp-oauth",
+    ]);
+    expect(bands[1]).toMatchObject({
+      label: "First touch · MCP OAuth",
+      tree: screenshotlessTree,
+      previousTree: { rootN: 6 },
+    });
   });
 });
 
