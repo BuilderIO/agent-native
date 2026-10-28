@@ -272,38 +272,43 @@ export default defineAction({
         realSlideCount === null
           ? null
           : realSlideCount + (isRealSlide({ content }) ? 1 : 0);
-      if (targetSlideCountOverride !== undefined) {
-        if (!isAgentPatchCaller(ctx?.caller)) {
-          throw new ActionContractError(
-            "targetSlideCountOverride is only available to agent calls after an explicit user request for more slides.",
-            { errorCode: "target_slide_count_override_agent_only" },
-          );
-        }
-        if (
-          targetSlideCount === null ||
-          realSlideCount === null ||
-          targetSlideCountOverride <= targetSlideCount ||
+      if (
+        targetSlideCountOverride !== undefined &&
+        !isAgentPatchCaller(ctx?.caller)
+      ) {
+        throw new ActionContractError(
+          "targetSlideCountOverride is only available to agent calls after an explicit user request for more slides.",
+          { errorCode: "target_slide_count_override_agent_only" },
+        );
+      }
+      // An override extends a persisted target. A deck without one has no cap
+      // to lift, so the override is dropped rather than saved as a new target
+      // that would refuse later slides.
+      const slideCountOverride =
+        targetSlideCount === null ? undefined : targetSlideCountOverride;
+      if (
+        slideCountOverride !== undefined &&
+        targetSlideCount !== null &&
+        realSlideCount !== null &&
+        (slideCountOverride <= targetSlideCount ||
           realSlideCount < targetSlideCount ||
-          targetSlideCountOverride <= realSlideCount
-        ) {
-          throw new ActionContractError(
-            targetSlideCount === null || realSlideCount === null
-              ? "targetSlideCountOverride requires a persisted target slide count."
-              : realSlideCount < targetSlideCount
-                ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides; it has ${realSlideCount} real slides (blank placeholders do not count).`
-                : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current real slide count of ${realSlideCount}.`,
-            {
-              errorCode: "target_slide_count_override_invalid",
-              details: {
-                deckId,
-                currentSlideCount: slides.length,
-                realSlideCount,
-                targetSlideCount,
-                targetSlideCountOverride,
-              },
+          slideCountOverride <= realSlideCount)
+      ) {
+        throw new ActionContractError(
+          realSlideCount < targetSlideCount
+            ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides; it has ${realSlideCount} real slides (blank placeholders do not count).`
+            : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current real slide count of ${realSlideCount}.`,
+          {
+            errorCode: "target_slide_count_override_invalid",
+            details: {
+              deckId,
+              currentSlideCount: slides.length,
+              realSlideCount,
+              targetSlideCount,
+              targetSlideCountOverride: slideCountOverride,
             },
-          );
-        }
+          },
+        );
       }
       if (
         isAgentPatchCaller(ctx?.caller) &&
@@ -311,7 +316,7 @@ export default defineAction({
         realSlideCount !== null &&
         realSlideCount >= targetSlideCount &&
         postWriteRealSlideCount !== realSlideCount &&
-        targetSlideCountOverride === undefined
+        slideCountOverride === undefined
       ) {
         fail(
           `No slide was added: this deck already has ${realSlideCount} real slides against its requested target of ${targetSlideCount}. Re-read the deck. If the target is satisfied, stop authoring and finish the response; do not retry. Only if the user explicitly asked for more than ${targetSlideCount} slides, call add-slide again with targetSlideCountOverride set to the new total of real slides.`,
@@ -328,8 +333,7 @@ export default defineAction({
         );
       }
 
-      const effectiveTargetSlideCount =
-        targetSlideCountOverride ?? targetSlideCount;
+      const effectiveTargetSlideCount = slideCountOverride ?? targetSlideCount;
       if (
         generationComplete &&
         effectiveTargetSlideCount !== null &&
@@ -352,10 +356,10 @@ export default defineAction({
         );
       }
 
-      if (targetSlideCountOverride !== undefined) {
+      if (slideCountOverride !== undefined) {
         deck.generationContext = {
           ...(generationContext ?? {}),
-          targetSlideCount: targetSlideCountOverride,
+          targetSlideCount: slideCountOverride,
         };
       }
 
