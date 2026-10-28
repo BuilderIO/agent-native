@@ -36,7 +36,7 @@ Steve (`U0GCV21HC`) steers the sweep with his own reactions on a root:
 | `:mag:`      | Don't work on this; someone else will. Wins over everything below                             |
 | `:yes-party:`| Definitely do this, even if it looks ambiguous or like a UX change. Build the smallest version that does what was asked |
 | `:upvote:`   | Same as `:yes-party:` for a feature request                                                    |
-| 👀 + his own reply | He's working on it himself; leave it (see "Open items first")                     |
+| 👀 by hand   | He's working on it himself; leave it (see "Open items first" for how to tell his 👀 from ours) |
 
 Reactions can't be removed through the Slack connector, so never add one you
 might need to take back. Every 👀 you add ends the run with a reply, plus
@@ -167,13 +167,18 @@ the invocation gives), plus 14 days for open items.
   `upvote`. Don't rely on
   `hasmy:` searches, which have returned nothing for roots that do carry
   Steve's marks.
-- **Open items first.** A 👀 must never sit without a follow-up, so every
-  root in the window carrying a 👀 from Steve's account is this workflow's to
-  close, whoever added it. The one exception is a thread where Steve replied
-  himself: a reply from his account that doesn't end with "This was sent
-  from a bot" (ignoring case, `*`, punctuation, and whitespace) means he has
-  it. Read the thread of every such root; the channel view can't show a
-  human reply newer than ours. A root listed in the `Reports` section of a sweep
+- **Open items first.** Every run posts as Steve, and Steve also adds 👀 by
+  hand to things he is working on himself, so a 👀 from his account is not
+  enough to make a root this workflow's. Treat it as the workflow's only when
+  the thread already has a reply from Steve's account that ends with "This
+  was sent from a bot", ignoring case, `*`, punctuation, and whitespace. The
+  phrase may be on its own line or, in older replies, at the end of the
+  sentence (`... this was sent from a bot.`). Or when the root is listed under "Claimed, not
+  yet answered" in the automation's `memory.md`. Any other Steve 👀 means Steve
+  has it: leave it alone. Read the thread of every workflow root in the
+  window, not just the channel row: a human reply newer than ours only shows
+  there, and runs that skipped this left people waiting after our 🎫. A root
+  listed in the `Reports` section of a sweep
   PR that is still open and that this run didn't open belongs to the run
   working on that PR: don't react
   or reply there, and leave it out of your self-check; just list it under
@@ -230,7 +235,10 @@ unclaimed gets no reaction, only one line in the recap saying why, so
 nothing is dropped silently.
 
 Then add 👀 to every root you claimed (Fix, Build, or Needs a person) in one
-pass, before you investigate.
+pass, before you investigate. In an automation run, immediately list those roots (channel and
+ts) under "Claimed, not yet answered" in its `memory.md`, and remove each one
+once it has its reply. That list is how the next run tells an unfinished claim
+apart from Steve's own 👀.
 
 ## 3. Fix as many as you can
 
