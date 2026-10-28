@@ -1522,6 +1522,8 @@ export function useEditorGenerationAndAccess({
             "designEditor.invalidCanvasDimensions",
           ),
           id,
+          previousRunTabId: generationChatTabId,
+          trackActiveRun: trackAgentGeneration,
           setGenerationChatTabId,
           setGenerationIssue,
           setHasPendingGeneration,
@@ -1540,8 +1542,10 @@ export function useEditorGenerationAndAccess({
       clearAutoRetryTimer,
       clearGenerationCompleteTimer,
       design,
+      generationChatTabId,
       id,
       t,
+      trackAgentGeneration,
     ],
   );
 

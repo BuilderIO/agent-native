@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   failPendingGenerationForMissingImagePayload: vi.fn(() => false),
   patchPendingGeneration: vi.fn(),
+  readAgentRunStatus: vi.fn(),
+}));
+
+vi.mock("@/lib/agent-run-status", () => ({
+  readAgentRunStatus: mocks.readAgentRunStatus,
 }));
 
 vi.mock("@/lib/pending-generation", () => ({
@@ -39,6 +44,8 @@ function createArgs(
     imageAttachmentUnavailableMessage: "Attach the image again.",
     invalidCanvasDimensionsMessage: "Invalid canvas dimensions.",
     id: "design-1",
+    previousRunTabId: null,
+    trackActiveRun: vi.fn(),
     setGenerationChatTabId: vi.fn(),
     setGenerationIssue: vi.fn(),
     setHasPendingGeneration: vi.fn(),
@@ -76,5 +83,69 @@ describe("runStartRetryGeneration output baseline", () => {
     for (const [, patch] of mocks.patchPendingGeneration.mock.calls) {
       expect(patch).toHaveProperty("outputBaselineFiles", []);
     }
+  });
+});
+
+describe("runStartRetryGeneration auto retry", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("follows a run still active on the previous tab instead of submitting again", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "running",
+      active: true,
+      runId: "skip-run",
+      turnId: "skip-turn",
+    });
+    const args = createArgs({ previousRunTabId: "question-tab" });
+
+    await runStartRetryGeneration(
+      args,
+      { ...promptState, attempt: 1 },
+      2,
+      "auto",
+    );
+
+    expect(args.agentSubmit).not.toHaveBeenCalled();
+    expect(args.trackActiveRun).toHaveBeenCalledWith("question-tab", {
+      currentRunId: "skip-run",
+      currentTurnId: "skip-turn",
+    });
+    expect(mocks.patchPendingGeneration).toHaveBeenCalledWith(
+      "design-1",
+      expect.objectContaining({
+        attempt: 1,
+        runTabId: "question-tab",
+        currentRunId: "skip-run",
+      }),
+    );
+    expect(args.setGenerationIssue).toHaveBeenCalledWith(null);
+    expect(args.setRetryablePrompt).toHaveBeenCalledWith(null);
+  });
+
+  it("does not submit while the previous run state is unreadable", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({ ok: false });
+    const args = createArgs({ previousRunTabId: "question-tab" });
+
+    await runStartRetryGeneration(args, promptState, 2, "auto");
+
+    expect(args.agentSubmit).not.toHaveBeenCalled();
+    expect(args.trackActiveRun).not.toHaveBeenCalled();
+    expect(mocks.patchPendingGeneration).not.toHaveBeenCalled();
+    expect(args.setRetryablePrompt).not.toHaveBeenCalled();
+  });
+
+  it("submits the retry once the previous run is idle", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "idle",
+      active: false,
+    });
+    const args = createArgs({ previousRunTabId: "question-tab" });
+
+    await runStartRetryGeneration(args, promptState, 2, "auto");
+
+    expect(args.agentSubmit).toHaveBeenCalledTimes(1);
+    expect(args.trackActiveRun).not.toHaveBeenCalled();
   });
 });
