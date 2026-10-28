@@ -554,18 +554,30 @@ export interface DelegatedBuilderCredentials {
   userId?: string;
 }
 
-let delegatedBuilderCredentials:
-  | ((email: string) => DelegatedBuilderCredentials | null)
-  | null = null;
+/**
+ * May answer asynchronously, so a host on serverless can keep the credential
+ * in shared storage rather than per-instance memory.
+ */
+type DelegatedBuilderCredentialsProvider = (
+  email: string,
+) =>
+  | DelegatedBuilderCredentials
+  | null
+  | Promise<DelegatedBuilderCredentials | null>;
+
+let delegatedBuilderCredentials: DelegatedBuilderCredentialsProvider | null =
+  null;
 
 export function registerDelegatedBuilderCredentials(
-  provider: ((email: string) => DelegatedBuilderCredentials | null) | null,
+  provider: DelegatedBuilderCredentialsProvider | null,
 ): void {
   delegatedBuilderCredentials = provider;
 }
 
-function delegatedFor(email: string): DelegatedBuilderCredentials | null {
-  return delegatedBuilderCredentials?.(email) ?? null;
+async function delegatedFor(
+  email: string,
+): Promise<DelegatedBuilderCredentials | null> {
+  return (await delegatedBuilderCredentials?.(email)) ?? null;
 }
 
 async function resolveScopedBuilderCredential(
@@ -575,7 +587,7 @@ async function resolveScopedBuilderCredential(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return NOT_FOUND;
-  const delegated = delegatedFor(email);
+  const delegated = await delegatedFor(email);
   if (delegated) {
     if (key === "BUILDER_PRIVATE_KEY") {
       return { value: delegated.token, source: "user", lookupFailed: false };
@@ -798,7 +810,7 @@ async function resolveScopedBuilderCredentials(
   const email =
     identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
   if (!email) return { creds: null, lookupFailed: false };
-  const delegated = delegatedFor(email);
+  const delegated = await delegatedFor(email);
   if (delegated) {
     return {
       creds: {

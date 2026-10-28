@@ -30,6 +30,7 @@ import {
 
 import { ActionContractError } from "@agent-native/core/action";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
+import { readAppSecret, writeAppSecret } from "@agent-native/core/secrets";
 import { registerDelegatedBuilderCredentials } from "@agent-native/core/server";
 import { registerHostAccessResolver } from "@agent-native/core/sharing";
 import { getCookie, type H3Event } from "h3";
@@ -156,24 +157,85 @@ function decodeIdentityCookie(value: string): BuilderIdentity | null {
  * user from the token and the space from `apiKey`, so per-user roles, MCP
  * OAuth tokens and credits apply exactly as in Builder. Firebase ID
  * tokens live an hour; the host re-exchanges when Builder refreshes it.
- * In-memory is spike-grade; production keeps this in the session store.
+ *
+ * It lives in the app secrets store (encrypted, shared by every instance),
+ * because serverless requests land on instances that never saw the exchange.
+ * A short per-instance cache keeps polling from reading the store each time.
  */
-const delegatedCredentials = new Map<
+interface DelegatedCredential {
+  token: string;
+  uid: string;
+  spaceId?: string;
+  expiresAtMs: number;
+}
+
+const CREDENTIAL_SECRET_KEY = "BUILDER_DELEGATED_CREDENTIAL";
+const CREDENTIAL_CACHE_MS = 30_000;
+const credentialCache = new Map<
   string,
-  { token: string; uid: string; spaceId?: string; expiresAtMs: number }
+  { entry: DelegatedCredential | null; at: number }
 >();
 
-export function rememberDelegatedCredential(
+function credentialRef(owner: string) {
+  return {
+    key: CREDENTIAL_SECRET_KEY,
+    scope: "user" as const,
+    scopeId: owner,
+  };
+}
+
+function parseCredential(value: string): DelegatedCredential | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<DelegatedCredential>;
+    if (
+      typeof parsed.token !== "string" ||
+      typeof parsed.uid !== "string" ||
+      typeof parsed.expiresAtMs !== "number"
+    ) {
+      return null;
+    }
+    return parsed as DelegatedCredential;
+  } catch {
+    // coercion-ok: an unreadable stored credential is no credential; the
+    // caller treats null as "sign in again" and the host re-runs the exchange.
+    return null;
+  }
+}
+
+export async function rememberDelegatedCredential(
   identity: BuilderIdentity,
   token: string,
-): void {
+): Promise<void> {
   const exp = decodeJwt(token).exp;
-  delegatedCredentials.set(builderOwnerEmail(identity.uid), {
+  const owner = builderOwnerEmail(identity.uid);
+  const entry: DelegatedCredential = {
     token,
     uid: identity.uid,
     spaceId: identity.spaceId,
     expiresAtMs: typeof exp === "number" ? exp * 1000 : Date.now() + 5 * 60_000,
+  };
+  await writeAppSecret({
+    ...credentialRef(owner),
+    value: JSON.stringify(entry),
+    description: "Builder sign-in for Design (renewed hourly)",
   });
+  credentialCache.set(owner, { entry, at: Date.now() });
+}
+
+/** The stored credential, or null when there is none or it has expired. */
+async function readDelegatedCredential(
+  owner: string,
+): Promise<DelegatedCredential | null> {
+  const cached = credentialCache.get(owner);
+  let entry: DelegatedCredential | null;
+  if (cached && Date.now() - cached.at < CREDENTIAL_CACHE_MS) {
+    entry = cached.entry;
+  } else {
+    const secret = await readAppSecret(credentialRef(owner));
+    entry = secret ? parseCredential(secret.value) : null;
+    credentialCache.set(owner, { entry, at: Date.now() });
+  }
+  return entry && entry.expiresAtMs >= Date.now() ? entry : null;
 }
 
 if (isBuilderIdentityEnabled()) {
@@ -186,9 +248,11 @@ if (isBuilderIdentityEnabled()) {
   registerHostLabOverrides((key) =>
     key === "full-app-building" ? true : undefined,
   );
-  registerDelegatedBuilderCredentials((email) => {
-    const entry = delegatedCredentials.get(email.toLowerCase());
-    if (!entry || entry.expiresAtMs < Date.now() || !entry.spaceId) return null;
+  registerDelegatedBuilderCredentials(async (email) => {
+    // A store outage means "no credential here", never a thrown error from
+    // inside someone else's credential lookup.
+    const entry = await readDelegatedCredential(email).catch(() => null);
+    if (!entry?.spaceId) return null;
     return { token: entry.token, spaceId: entry.spaceId };
   });
 }
@@ -242,12 +306,16 @@ async function builderProjectRole(
   email: string,
   projectId: string,
 ): Promise<BuilderProjectRole> {
-  const entry = delegatedCredentials.get(email.toLowerCase());
-  // No usable Builder credential here (it expired, or this instance never
-  // saw the exchange, e.g. after a restart) is not Builder saying no.
-  if (!entry || entry.expiresAtMs < Date.now() || !entry.spaceId) {
-    throw new BuilderSignInRequiredError();
+  let entry: DelegatedCredential | null;
+  try {
+    entry = await readDelegatedCredential(email);
+  } catch (error) {
+    // The credential store is down: unavailable, not "sign in again".
+    throw new BuilderUnavailableError(error);
   }
+  // No usable Builder credential (it expired, or was never exchanged) is not
+  // Builder saying no.
+  if (!entry?.spaceId) throw new BuilderSignInRequiredError();
   const cacheKey = `${email.toLowerCase()}:${entry.spaceId}:${projectId}`;
   const cached = accessCache.get(cacheKey);
   if (cached && Date.now() - cached.at < ACCESS_CACHE_MS) return cached.role;
