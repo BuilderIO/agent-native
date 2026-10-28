@@ -52,10 +52,10 @@ export function useClipCommentWrites(
   author: { email?: string | null; name?: string | null },
 ) {
   const queryClient = useQueryClient();
-  const add = useActionMutation<{ id: string; threadId: string }, AddClipComment>(
-    "add-clip-comment",
-    { skipActionQueryInvalidation: true },
-  );
+  const add = useActionMutation<
+    { id: string; threadId: string },
+    AddClipComment
+  >("add-clip-comment", { skipActionQueryInvalidation: true });
   const resolve = useActionMutation<
     { id: string; resolved: boolean },
     ResolveClipComment

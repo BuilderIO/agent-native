@@ -191,6 +191,7 @@ import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
 import { createAuthoredContentBase } from "./authored-content-base";
+import { commentRailThreads } from "./block-field-comment-threads";
 import {
   BlockFieldCommentsProvider,
   useBlockFieldComments,
@@ -211,7 +212,6 @@ import {
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
-import { commentRailThreads } from "./block-field-comment-threads";
 import {
   clipCommentThreads,
   useClipCommentFocus,

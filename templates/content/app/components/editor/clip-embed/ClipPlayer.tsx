@@ -165,9 +165,7 @@ export function ClipPlayer({
                 const element = video();
                 element?.pause();
                 onComment(
-                  Math.round(
-                    element ? element.currentTime * 1000 : currentMs,
-                  ),
+                  Math.round(element ? element.currentTime * 1000 : currentMs),
                 );
               }
             : undefined

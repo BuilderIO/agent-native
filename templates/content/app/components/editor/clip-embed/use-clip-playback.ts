@@ -6,13 +6,13 @@ import {
 } from "@shared/clips-peer-contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import type { ClipThreadView } from "./clip-comments";
 import {
   GRANT_REFRESH_RETRY_DELAYS_MS,
   grantRefreshDelay,
   youtubeEmbedSrc,
 } from "./clip-media";
 import type { ClipCommentList } from "./use-clip-comment-writes";
-import type { ClipThreadView } from "./clip-comments";
 
 /** No write changes a grant, so Clip queries refetch only when asked. */
 export const CLIP_PLAYBACK_RESOURCE = "clip-playback";
