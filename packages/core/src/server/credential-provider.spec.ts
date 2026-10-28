@@ -3776,6 +3776,8 @@ describe("host-managed Builder credentials", () => {
     registerDelegatedBuilderCredentials(null);
     delete process.env.BUILDER_PRIVATE_KEY;
     delete process.env.BUILDER_PUBLIC_KEY;
+    delete process.env.BUILDER_GATEWAY_TOKEN;
+    delete process.env.BUILDER_GATEWAY_SPACE_ID;
   });
 
   it("uses the credential the host's provider returns, even asynchronously", async () => {
@@ -3832,6 +3834,29 @@ describe("host-managed Builder credentials", () => {
     });
     expect(mockReadAppSecret).not.toHaveBeenCalled();
     expect(mockReadAppSecrets).not.toHaveBeenCalled();
+  });
+
+  it("keeps the shared gateway credential from standing in for a managed user", async () => {
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    mockGetRequestUserEmail.mockReturnValue(owner);
+
+    // An ordinary user, for contrast, is served by the deployment's gateway.
+    registerDelegatedBuilderCredentials(async () => null);
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({ lane: "gateway-deploy" });
+
+    registerDelegatedBuilderCredentials(async () => "none");
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      lane: null,
+      hostManagedWithoutCredential: true,
+    });
   });
 
   it("reports a provider outage as a failed lookup, not as a missing credential", async () => {

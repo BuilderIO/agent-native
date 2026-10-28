@@ -1096,6 +1096,8 @@ export interface BuilderCredentialsDetailed {
   /** Optional Builder profile metadata failed after the required key pair was read. */
   optionalMetadataLookupFailure?: "unreadable" | "unavailable";
   cause?: unknown;
+  /** A host-managed user with no credential: no fallback may stand in. */
+  hostManagedWithoutCredential?: boolean;
 }
 
 export async function resolveBuilderCredentialsDetailed(
@@ -1158,12 +1160,27 @@ export async function resolveBuilderCredentialsDetailed(
       cause,
     };
   }
+  if (hostManagedWithoutCredential) {
+    return {
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: false,
+      hostManagedWithoutCredential: true,
+    };
+  }
   const canUseEnv =
-    !hostManagedWithoutCredential &&
     !(
       identity === undefined && getRequestBuilderCredentialScope().storageOnly
-    ) &&
-    canUseBuilderDeployCredentialFallbackForRequest();
+    ) && canUseBuilderDeployCredentialFallbackForRequest();
   const privateKey = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_PRIVATE_KEY") ?? null)
     : null;
@@ -1338,6 +1355,9 @@ export async function resolveBuilderGatewayCredentialsDetailed(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<BuilderGatewayCredentialsDetailed> {
   const scoped = await resolveBuilderCredentialsDetailed(identity);
+  // A host-managed user with no credential gets none: the shared gateway
+  // deploy credential must not act in their place.
+  if (scoped.hostManagedWithoutCredential) return { ...scoped, lane: null };
   if (scoped.source && scoped.source !== "env") {
     return { ...scoped, lane: "identity" };
   }

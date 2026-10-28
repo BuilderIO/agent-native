@@ -117,6 +117,37 @@ describe("additional session provider", () => {
     expect(builtInSession).not.toHaveBeenCalled();
   });
 
+  it("does not let the cookie provider override an explicit bearer credential", async () => {
+    mockBuiltInAuth();
+    const { autoMountAuth, getSession } = await import("./auth.js");
+    const getAdditionalSession = vi.fn(async () => ({ email: hostEmail }));
+    await autoMountAuth(createMockApp(), { getAdditionalSession });
+
+    const event = createMockEvent({
+      headers: { cookie: "host-login=1", authorization: "Bearer some-token" },
+    });
+    const session = await getSession(event);
+
+    expect(getAdditionalSession).not.toHaveBeenCalled();
+    expect(session?.email).not.toBe(hostEmail);
+  });
+
+  it("still uses the cookie provider when the authorization header is not a bearer credential", async () => {
+    mockBuiltInAuth();
+    const { autoMountAuth, getSession } = await import("./auth.js");
+    await autoMountAuth(createMockApp(), {
+      getAdditionalSession: async () => ({ email: hostEmail }),
+    });
+
+    await expect(
+      getSession(
+        createMockEvent({
+          headers: { cookie: "host-login=1", authorization: "Basic abc" },
+        }),
+      ),
+    ).resolves.toMatchObject({ email: hostEmail });
+  });
+
   it("resolves the built-in session when the provider does not recognize the request", async () => {
     mockBuiltInAuth();
     const { autoMountAuth, getSession } = await import("./auth.js");

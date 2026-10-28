@@ -135,7 +135,13 @@ function sign(body: string): string {
   return createHmac("sha256", cookieSecret).update(body).digest("base64url");
 }
 
-export function encodeIdentityCookie(identity: BuilderIdentity): string {
+/** What the signed cookie carries: the identity, and which sign-in it belongs to. */
+export interface BuilderCookieIdentity extends BuilderIdentity {
+  /** Must be on the server-side list of live sign-ins, so logout can revoke every copy. */
+  sid: string;
+}
+
+export function encodeIdentityCookie(identity: BuilderCookieIdentity): string {
   const body = Buffer.from(
     JSON.stringify({
       ...identity,
@@ -149,7 +155,7 @@ export function identityCookieMaxAge(): number {
   return COOKIE_TTL_SECONDS;
 }
 
-function decodeIdentityCookie(value: string): BuilderIdentity | null {
+function decodeIdentityCookie(value: string): BuilderCookieIdentity | null {
   const [body, signature] = value.split(".");
   if (!body || !signature) return null;
   const expected = Buffer.from(sign(body));
@@ -165,11 +171,12 @@ function decodeIdentityCookie(value: string): BuilderIdentity | null {
     if (
       typeof parsed.uid !== "string" ||
       typeof parsed.projectId !== "string" ||
+      typeof parsed.sid !== "string" ||
       typeof parsed.email !== "string"
     ) {
       return null;
     }
-    return parsed as BuilderIdentity;
+    return parsed as BuilderCookieIdentity;
   } catch {
     // coercion-ok: a cookie that does not decode is no session; the caller
     // treats null as signed out and the host re-runs the exchange.
@@ -193,14 +200,13 @@ interface DelegatedCredential {
   uid: string;
   spaceId?: string | undefined;
   expiresAtMs: number;
+  /** Live sign-ins (cookie session ids), newest first. Logout deletes the row. */
+  sids: string[];
 }
 
 const CREDENTIAL_SECRET_KEY = "BUILDER_DELEGATED_CREDENTIAL";
-const CREDENTIAL_CACHE_MS = 30_000;
-const credentialCache = new Map<
-  string,
-  { entry: DelegatedCredential | null; at: number }
->();
+/** Sign-ins kept per user, so a few devices stay signed in at once. */
+const MAX_LIVE_SIGN_INS = 10;
 
 function credentialRef(owner: string) {
   return {
@@ -210,57 +216,80 @@ function credentialRef(owner: string) {
   };
 }
 
-function parseCredential(value: string): DelegatedCredential | null {
-  try {
-    const parsed = JSON.parse(value) as Partial<DelegatedCredential>;
-    if (
-      typeof parsed.token !== "string" ||
-      typeof parsed.uid !== "string" ||
-      typeof parsed.expiresAtMs !== "number"
-    ) {
-      return null;
-    }
-    return parsed as DelegatedCredential;
-  } catch {
-    // coercion-ok: an unreadable stored credential is no credential; the
-    // caller treats null as "sign in again" and the host re-runs the exchange.
-    return null;
+class UnreadableCredentialError extends Error {
+  constructor() {
+    super("The stored Builder credential could not be read");
+    this.name = "UnreadableCredentialError";
   }
+}
+
+/** A stored row that does not parse is corrupt state, never "no credential". */
+function parseCredential(value: string): DelegatedCredential {
+  let parsed: Partial<DelegatedCredential>;
+  try {
+    parsed = JSON.parse(value) as Partial<DelegatedCredential>;
+  } catch {
+    throw new UnreadableCredentialError();
+  }
+  if (
+    typeof parsed.token !== "string" ||
+    typeof parsed.uid !== "string" ||
+    typeof parsed.expiresAtMs !== "number" ||
+    !Array.isArray(parsed.sids) ||
+    !parsed.sids.every((sid) => typeof sid === "string")
+  ) {
+    throw new UnreadableCredentialError();
+  }
+  return parsed as DelegatedCredential;
+}
+
+/** The stored row, expired or not; null only when there is no row. */
+async function readStoredCredential(
+  owner: string,
+): Promise<DelegatedCredential | null> {
+  const secret = await readAppSecret(credentialRef(owner));
+  return secret ? parseCredential(secret.value) : null;
 }
 
 export async function rememberDelegatedCredential(
   identity: BuilderIdentity,
   token: string,
+  sid: string,
 ): Promise<void> {
   const exp = decodeJwt(token).exp;
   const owner = builderOwnerEmail(identity.projectId, identity.uid);
+  // Other sign-ins (another device) stay valid; an unreadable row is replaced,
+  // since this sign-in is proving the user right now.
+  const earlier = await readStoredCredential(owner).catch((error) => {
+    if (error instanceof UnreadableCredentialError) return null;
+    throw error;
+  });
   const entry: DelegatedCredential = {
     token,
     uid: identity.uid,
     spaceId: identity.spaceId,
     expiresAtMs: typeof exp === "number" ? exp * 1000 : Date.now() + 5 * 60_000,
+    sids: [sid, ...(earlier?.sids ?? []).filter((id) => id !== sid)].slice(
+      0,
+      MAX_LIVE_SIGN_INS,
+    ),
   };
   await writeAppSecret({
     ...credentialRef(owner),
     value: JSON.stringify(entry),
     description: "Builder sign-in for Design (renewed hourly)",
   });
-  credentialCache.set(owner, { entry, at: Date.now() });
 }
 
-/** The stored credential, or null when there is none or it has expired. */
+/**
+ * The stored credential, or null when there is none or it has expired. Read
+ * from the shared store on every call (the secrets layer already dedupes
+ * within a request), so a sign-out on one instance is seen by all of them.
+ */
 async function readDelegatedCredential(
   owner: string,
 ): Promise<DelegatedCredential | null> {
-  const cached = credentialCache.get(owner);
-  let entry: DelegatedCredential | null;
-  if (cached && Date.now() - cached.at < CREDENTIAL_CACHE_MS) {
-    entry = cached.entry;
-  } else {
-    const secret = await readAppSecret(credentialRef(owner));
-    entry = secret ? parseCredential(secret.value) : null;
-    credentialCache.set(owner, { entry, at: Date.now() });
-  }
+  const entry = await readStoredCredential(owner);
   return entry && entry.expiresAtMs >= Date.now() ? entry : null;
 }
 
@@ -461,9 +490,16 @@ export async function getBuilderIdentitySession(event: H3Event) {
   const cookie = getCookie(event, BUILDER_IDENTITY_COOKIE);
   const identity = cookie ? decodeIdentityCookie(cookie) : null;
   if (!identity) return null;
+  const owner = builderOwnerEmail(identity.projectId, identity.uid);
+  // A correctly signed cookie is not enough: its sign-in must still be live,
+  // or a copy taken before logout would keep working until it expired.
+  const stored = await readStoredCredential(owner);
+  if (!stored?.sids.includes(identity.sid)) return null;
   return {
-    email: builderOwnerEmail(identity.projectId, identity.uid),
-    userId: `builder:${identity.uid}`,
+    email: owner,
+    // The Firebase project is part of the id: uids repeat across projects, and
+    // caches partition on this.
+    userId: `builder:${identity.projectId}:${identity.uid}`,
     // The Builder email is for display only, never an owner key.
     name: identity.name ?? identity.email,
     emailVerified: true,
@@ -480,7 +516,9 @@ export async function clearBuilderIdentitySession(event: H3Event) {
   const identity = cookie ? decodeIdentityCookie(cookie) : null;
   deleteCookie(event, BUILDER_IDENTITY_COOKIE, { path: "/" });
   if (!identity) return;
-  const owner = builderOwnerEmail(identity.projectId, identity.uid);
-  credentialCache.delete(owner);
-  await deleteAppSecret(credentialRef(owner));
+  // Every sign-in of this user, on every device and instance: the row is the
+  // list of live ones.
+  await deleteAppSecret(
+    credentialRef(builderOwnerEmail(identity.projectId, identity.uid)),
+  );
 }

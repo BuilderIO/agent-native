@@ -4936,6 +4936,10 @@ async function resolveAdditionalSession(
   }
 }
 
+function hasBearerAuthorization(event: H3Event): boolean {
+  return /^bearer\s/i.test(getHeader(event, "authorization") ?? "");
+}
+
 async function resolveBrowserCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
@@ -5011,11 +5015,11 @@ async function resolveSessionUncached(
 
   // First, like the browser-cookie resolver, so a request carrying both an
   // additional-provider session and a legacy cookie resolves to the same owner
-  // in every check.
-  const additionalSession = await resolveAdditionalSession(
-    event,
-    additionalGetSession,
-  );
+  // in every check. Not when the request names an explicit bearer credential:
+  // that is the caller's choice and wins over a cookie.
+  const additionalSession = hasBearerAuthorization(event)
+    ? null
+    : await resolveAdditionalSession(event, additionalGetSession);
   if (additionalSession) return additionalSession;
 
   const accessTokens = getAccessTokens();
