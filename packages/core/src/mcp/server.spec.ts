@@ -30,6 +30,7 @@ import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
   WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
 } from "../server/origin-allowlist.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
@@ -10530,6 +10531,58 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("does not infer email membership for an unclaimed first-party token over HTTP", async () => {
+    process.env.A2A_SECRET = "fake-first-party-org-scope-secret";
+    resolveOrgIdForEmailMock.mockResolvedValue("org-must-not-be-granted");
+    const token = await new jose.SignJWT({
+      sub: "member@example.test",
+      agent_native_first_party_mcp: true,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setAudience("https://mail.agent-native.com/_agent-native/mcp")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(process.env.A2A_SECRET));
+    const actions = {
+      "scope-probe": {
+        tool: {
+          description: "Return the fake caller scope",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: true,
+        run: async () => {
+          const { getRequestContext } =
+            await import("../server/request-context.js");
+          const context = getRequestContext();
+          return {
+            orgId: context?.orgId ?? null,
+            orgScope: context?.orgScope ?? null,
+          };
+        },
+      },
+    };
+    const result = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 19,
+        method: "tools/call",
+        params: { name: "scope-probe", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: { ...config, actions, productionActions: actions },
+      },
+    );
+    expect(result.result.structuredContent).toEqual({
+      orgId: null,
+      orgScope: "personal",
+    });
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
   it("preserves verified organization-member assurance for action calls", async () => {
     const actions = {
       "whoami-scope": {
@@ -12511,34 +12564,194 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
-    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
-    const token = await signMcpOAuthAccessToken({
-      ownerEmail: "oauth@example.com",
-      orgDomain: "example.com",
-      clientId: "client-123",
-      scope: "mcp:read",
-      resource: "https://mail.agent-native.com/mcp",
-      issuer: "https://mail.agent-native.com",
-    });
-    lookupOrgByDomainMock.mockRejectedValueOnce(
-      new Error("database connection failed"),
-    );
+  it.each(["57014", "42501", "42P01", "unexpected"])(
+    "classifies a failed token org domain lookup: %s",
+    async (code) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockRejectedValueOnce(
+        Object.assign(new Error("private domain lookup failure"), {
+          code: code === "unexpected" ? undefined : code,
+        }),
+      );
 
-    const event = makeWebEvent({
-      method: "POST",
-      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const result = await handleMcpRequest(event, config as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
 
-    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
-    expect(event._status).toBe(503);
-    expect(event._responseHeaders?.["retry-after"]).toBe("5");
-    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
-    expect(result).toMatchObject({ error: "Service Unavailable" });
-  });
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(code === "57014" ? 503 : 500);
+      expect(event._responseHeaders?.["retry-after"]).toBe(
+        code === "57014" ? "5" : undefined,
+      );
+      expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error:
+          code === "57014" ? "Service Unavailable" : "Internal server error",
+      });
+    },
+  );
+
+  it.each([
+    "revoked",
+    "email-mismatch",
+    "missing-org",
+    "valid",
+    "unavailable",
+  ] as const)(
+    "preserves delegated organization resolution over HTTP: %s",
+    async (scope) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "delegate@example.test",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
+      const db = await import("../db/client.js");
+      const realDb = db.getDbExec();
+      const dbSpy = vi.spyOn(db, "getDbExec").mockReturnValue({
+        execute: async (query: { sql: string; args: unknown[] }) => {
+          if (!query.sql.includes("SELECT role FROM org_members"))
+            return realDb.execute(query);
+          if (scope === "unavailable")
+            throw Object.assign(new Error("fake membership database failure"), {
+              code: "57014",
+            });
+          return { rows: scope === "revoked" ? [] : [{ role: "member" }] };
+        },
+      } as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 15, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      try {
+        const result = await runWithRequestContext(
+          {
+            userEmail:
+              scope === "email-mismatch"
+                ? "other@example.test"
+                : "delegate@example.test",
+            orgId: scope === "missing-org" ? undefined : "delegated-org",
+            a2aIdentityAssurance: "org-member",
+          },
+          () => handleMcpRequest(event, config as any),
+        );
+        expect(result instanceof Response ? result.status : event._status).toBe(
+          scope === "valid" ? 200 : scope === "unavailable" ? 503 : 401,
+        );
+        if (scope === "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBe("5");
+          expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+          expect(result).toMatchObject({ error: "Service Unavailable" });
+        } else if (scope !== "valid") {
+          expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+          expect(event._responseHeaders?.["www-authenticate"]).toContain(
+            'error="invalid_token"',
+          );
+          expect(result).toMatchObject({ reason: "invalid" });
+        }
+      } finally {
+        dbSpy.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    "unavailable",
+    "permission",
+    "schema",
+    "unexpected",
+    "personal",
+  ] as const)(
+    "preserves the email-only MCP scope result over HTTP: %s",
+    async (scope) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "email-only@example.test",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
+      const db = await import("../db/client.js");
+      const realDb = db.getDbExec();
+      const execute = vi.fn(async (query: { sql: string; args: unknown[] }) => {
+        if (!query.sql.includes("SELECT org_id FROM org_members"))
+          return realDb.execute(query);
+        if (scope !== "personal")
+          throw Object.assign(
+            new Error("permission denied for table org_members"),
+            {
+              code:
+                scope === "unavailable"
+                  ? "57014"
+                  : scope === "permission"
+                    ? "42501"
+                    : scope === "schema"
+                      ? "42P01"
+                      : undefined,
+            },
+          );
+        return { rows: [] };
+      });
+      const dbSpy = vi
+        .spyOn(db, "getDbExec")
+        .mockReturnValue({ execute } as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 15, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      try {
+        const result = await handleMcpRequest(event, config as any);
+        expect(result instanceof Response ? result.status : event._status).toBe(
+          scope === "personal" ? 200 : scope === "unavailable" ? 503 : 500,
+        );
+        expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+        if (scope !== "personal" && scope !== "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+          expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+          expect(result).toEqual({ error: "Internal server error" });
+        }
+        if (scope === "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBe("5");
+          expect(result).toMatchObject({ error: "Service Unavailable" });
+        }
+        expect(resolveOrgIdForEmailMock).toHaveBeenCalledOnce();
+      } finally {
+        dbSpy.mockRestore();
+      }
+    },
+  );
 
   it.each([
     ["unknown", { status: "not-found" }],

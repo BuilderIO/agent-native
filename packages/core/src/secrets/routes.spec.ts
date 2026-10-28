@@ -36,6 +36,7 @@ vi.mock("../server/auth.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  hasOrgScopeResolutionUnavailable: () => false,
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
 }));
 

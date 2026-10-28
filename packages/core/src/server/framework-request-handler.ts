@@ -31,6 +31,7 @@ import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
+import { PublicServerError } from "./public-server-error.js";
 import {
   getRequestContext,
   markRequestBoundaryInstalled,
@@ -794,12 +795,13 @@ function createMountedMiddleware(
     } catch (err) {
       const reqPath = originalPathname ?? event.url?.pathname ?? "";
       const e = err as any;
-      const status =
+      const declaredStatus =
         typeof e?.statusCode === "number"
           ? e.statusCode
           : typeof e?.status === "number"
             ? e.status
-            : 500;
+            : undefined;
+      const status = declaredStatus ?? 500;
       if (isClientAbortError(err, event)) {
         debugClientAbort({ method: event.method, route: reqPath, error: err });
         return undefined;
@@ -826,12 +828,30 @@ function createMountedMiddleware(
       }
       try {
         setResponseStatus(event, status);
+        if (declaredStatus !== undefined && e?.unhandled !== true) {
+          const headers = new Headers(e?.headers);
+          const retryAfter = headers.get("retry-after");
+          if ((status === 429 || status === 503) && retryAfter) {
+            setResponseHeader(event, "retry-after", retryAfter);
+          }
+          const authenticate = headers.get("www-authenticate");
+          if (status === 401 && authenticate) {
+            setResponseHeader(event, "www-authenticate", authenticate);
+          }
+        }
         setResponseHeader(event, "content-type", "application/json");
       } catch {
         // Response already sent — best effort.
       }
       return {
-        error: e?.message || "Internal server error",
+        error:
+          e?.unhandled === true
+            ? "Internal server error"
+            : err instanceof PublicServerError
+              ? err.publicMessage
+              : declaredStatus !== undefined && status < 500
+                ? e?.message || "Internal server error"
+                : "Internal server error",
         // Clients name a failure by its code (no model connected, run slot
         // busy); a bare HTTP status reaches them as an unnamed "forbidden".
         ...(typeof e?.data?.code === "string" ? { code: e.data.code } : {}),

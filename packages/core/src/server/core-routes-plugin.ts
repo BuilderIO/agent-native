@@ -516,21 +516,7 @@ export async function resolveBuilderOrgMutation(
   deny: string | null;
   whoCanFix?: CredentialFixer;
 }> {
-  let orgCtx: Awaited<ReturnType<typeof getOrgContext>>;
-  try {
-    orgCtx = await getOrgContext(event);
-  } catch (error) {
-    console.warn(
-      "[builder-connect] could not read organization membership:",
-      error instanceof Error ? error.message : error,
-    );
-    return {
-      orgId: null,
-      role: null,
-      deny: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
-      whoCanFix: "self",
-    };
-  }
+  const orgCtx = await getOrgContext(event);
   const orgId = orgCtx.orgId ?? null;
   const role = orgCtx.role ?? null;
   if (options.allowMemberInitiation) {
@@ -560,8 +546,6 @@ export const BUILDER_CONNECT_NEEDS_ORGANIZATION =
   "Builder.io access is managed through an organization. Switch to one you belong to, or ask an organization owner or admin to invite you, then set up Builder.io again.";
 export const BUILDER_CONNECT_SESSION_NOT_SHARED =
   "This window can't see your sign-in, which happens in previews and embedded browsers. Open the app in its own browser tab, sign in, then set up Builder.io there.";
-export const BUILDER_ORG_MEMBERSHIP_UNREADABLE =
-  "Couldn't check your organization membership. Try starting Builder.io setup again in a moment.";
 export const BUILDER_ORG_ALREADY_CONNECTED =
   "Your organization already has a Builder.io connection, and a new account would take its place. An organization owner or admin can sign in to Builder.io again in Settings.";
 export const BUILDER_ORG_RECONNECT_BY_LOGIN =
@@ -753,18 +737,6 @@ export async function decideBuilderActivation(
   const member =
     input.member ??
     (await resolveBuilderOrgMutation(event, { allowMemberInitiation: true }));
-  // Without the membership the org's connection cannot be seen, and a new
-  // personal account would shadow it (reads try personal first).
-  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) {
-    return {
-      refuse: {
-        status: 503,
-        message: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
-        reason: "membership_unreadable",
-        code: "membership_unreadable",
-      },
-    };
-  }
   const write = resolveBuilderActivationWrite({
     requestedScope: input.requestedScope,
     orgId: member.orgId,
@@ -3946,7 +3918,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -4260,7 +4232,7 @@ export function createCoreRoutesPlugin(
         `${P}/debug/runtime`,
         defineEventHandler(async (event) => {
           setResponseHeader(event, "cache-control", "no-store");
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const productionLike =
             process.env.NODE_ENV?.trim() === "production" ||
             isProductionServerlessFunctionRuntime();
@@ -5099,7 +5071,7 @@ export function createCoreRoutesPlugin(
               error: error instanceof Error ? error.message : "Invalid context",
             };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
@@ -5176,7 +5148,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const body = ((await readBody(event).catch(() => ({}))) ??
             {}) as BuilderWaitlistBody;
           const waitlistEmail = resolveWaitlistEmail(
@@ -5582,7 +5554,7 @@ export function createCoreRoutesPlugin(
             pending.tracking && typeof pending.tracking === "object"
               ? (pending.tracking as BuilderConnectTrackingParams)
               : {};
-          const session = await getSession(event).catch(() => null); // coercion-ok: callback treats session read failure as unauthenticated
+          const session = await getSession(event);
           const expiresAt =
             typeof pending.expiresAt === "number" ? pending.expiresAt : 0;
           const encryptedOAuthFlow =
@@ -5825,7 +5797,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 403);
             return { error: "Cross-origin request rejected" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -5852,21 +5824,14 @@ export function createCoreRoutesPlugin(
             return { error: "Unknown Builder.io connection." };
           }
 
+          const orgCtx = await getOrgContext(event);
+          const orgId = orgCtx.orgId ?? null;
+          const role = orgCtx.role ?? null;
           try {
             const {
               deleteBuilderCredentials,
               resolveBuilderCredentialsDetailed,
             } = await import("./credential-provider.js");
-            let orgId: string | null = null;
-            let role: string | null = null;
-            try {
-              const { getOrgContext } = await import("../org/context.js");
-              const orgCtx = await getOrgContext(event);
-              orgId = orgCtx.orgId ?? null;
-              role = orgCtx.role ?? null;
-            } catch {
-              // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
-            }
             if (requestedConnectionScope) {
               const result = await disconnectBuilderConnectionAtScope({
                 email: session.email,
@@ -5985,13 +5950,7 @@ export function createCoreRoutesPlugin(
                 reason: "credential_delete_failed",
               },
             );
-            setResponseStatus(event, 500);
-            return {
-              ok: false,
-              error:
-                "Could not fully remove Builder credentials. Please retry.",
-              cause: err instanceof Error ? err.message : String(err),
-            };
+            throw err;
           }
         }),
       );
@@ -6005,7 +5964,7 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
 
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6086,7 +6045,7 @@ export function createCoreRoutesPlugin(
         getH3App(nitroApp).use(
           `${P}/env-status`,
           defineEventHandler(async (event) => {
-            const session = await getSession(event).catch(() => null);
+            const session = await getSession(event);
             const userEmail = session?.email;
             let orgId: string | undefined;
             if (userEmail) {
@@ -6162,8 +6121,7 @@ export function createCoreRoutesPlugin(
                 setResponseStatus(event, err.statusCode);
                 return { error: err.message };
               }
-              setResponseStatus(event, 500);
-              return { error: "Failed to save keys" };
+              throw err;
             }
           }),
         );
@@ -6258,7 +6216,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
           if (!userEmail) {
             setResponseStatus(event, 401);
@@ -6326,14 +6284,14 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/agent-loop-settings`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
           }
 
-          const orgCtx = await getOrgContext(event).catch(() => null);
-          const orgId = orgCtx?.orgId ?? session.orgId ?? null;
+          const orgCtx = await getOrgContext(event);
+          const orgId = orgCtx.orgId ?? null;
           const ctx = { userEmail: session.email, orgId };
           const canUpdate = await canUpdateAgentLoopSettings(
             session.email,
@@ -6411,7 +6369,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/usage`,
         defineEventHandler(async (event: H3Event) => {
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           if (!session?.email) {
             setResponseStatus(event, 401);
             return { error: "unauthorized" };
@@ -6450,7 +6408,7 @@ export function createCoreRoutesPlugin(
           // (DB), which requires request context (AsyncLocalStorage) to know which
           // user to scope by. Without runWithRequestContext() the ALS store is empty
           // and it falls back to process.env only — missing OAuth-connected users.
-          const session = await getSession(event).catch(() => null);
+          const session = await getSession(event);
           const userEmail = session?.email;
 
           return userEmail

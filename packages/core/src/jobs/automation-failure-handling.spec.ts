@@ -804,6 +804,116 @@ describe("owners that cannot run automations", () => {
     ).toBe(written);
   });
 
+  it.each(["account", "membership"] as const)(
+    "does not retry permanent %s lookup failures",
+    async (stage) => {
+      for (const code of ["42501", "42P01", undefined]) {
+        const name = `permanent-${stage}-${code ?? "unexpected"}`;
+        putJob("alice@agent-native.test", name, [
+          'schedule: "0 * * * *"',
+          "enabled: true",
+          "createdBy: alice@agent-native.test",
+          'orgId: "acme"',
+          'appId: "calendar"',
+          `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
+        ]);
+        const original = rawClient.execute.getMockImplementation();
+        if (!original) throw new Error("Missing fixture executor");
+        let reads = 0;
+        rawClient.execute.mockImplementation(async (input: ExecuteInput) => {
+          if (
+            typeof input !== "string" &&
+            input.sql.includes(
+              stage === "account" ? 'FROM "user"' : "FROM org_members",
+            )
+          ) {
+            reads++;
+            throw Object.assign(new Error("Fake private lookup diagnostics"), {
+              code,
+            });
+          }
+          return original(input);
+        });
+        try {
+          await tickAt(START);
+          expect(readJob("alice@agent-native.test", name)).toMatchObject({
+            enabled: false,
+            lastErrorCode: "config_invalid",
+            pausedReason: "config_invalid",
+          });
+          expect(createThreadMock).not.toHaveBeenCalled();
+          const firstReads = reads;
+          expect(firstReads).toBeGreaterThan(0);
+          await tickAt(START + 24 * 60 * MINUTE);
+          expect(reads).toBe(firstReads);
+        } finally {
+          rawClient.execute.mockImplementation(original);
+        }
+      }
+    },
+  );
+
+  it.each(["account", "membership"] as const)(
+    "retries network outages from known %s database lookups without pausing",
+    async (stage) => {
+      for (const code of [
+        "ECONNREFUSED",
+        "EAI_AGAIN",
+        "CONNECT_TIMEOUT",
+        "ETIMEDOUT",
+      ]) {
+        const name = `network-${stage}-${code}`;
+        putJob("alice@agent-native.test", name, [
+          'schedule: "0 * * * *"',
+          "enabled: true",
+          "createdBy: alice@agent-native.test",
+          'orgId: "acme"',
+          'appId: "calendar"',
+          `nextRun: "${new Date(START - MINUTE).toISOString()}"`,
+        ]);
+        const original = rawClient.execute.getMockImplementation();
+        if (!original) throw new Error("Missing fixture executor");
+        let reads = 0;
+        rawClient.execute.mockImplementation(async (input: ExecuteInput) => {
+          if (
+            typeof input !== "string" &&
+            input.sql.includes(
+              stage === "account" ? 'FROM "user"' : "FROM org_members",
+            )
+          ) {
+            reads++;
+            throw Object.assign(new Error("Fake connection failure"), { code });
+          }
+          return original(input);
+        });
+        try {
+          await tickAt(START);
+          expect(readJob("alice@agent-native.test", name)).toMatchObject({
+            enabled: true,
+            lastErrorCode: "owner_unverifiable",
+            lastCheck: new Date(START).toISOString(),
+          });
+          expect(
+            readJob("alice@agent-native.test", name).pausedReason,
+          ).toBeUndefined();
+          expect(createThreadMock).not.toHaveBeenCalled();
+          const firstReads = reads;
+          expect(firstReads).toBeGreaterThan(0);
+          const secondTick = START + 24 * 60 * MINUTE;
+          await tickAt(secondTick);
+          expect(readJob("alice@agent-native.test", name)).toMatchObject({
+            enabled: true,
+            lastErrorCode: "owner_unverifiable",
+            lastCheck: new Date(secondTick).toISOString(),
+          });
+          expect(reads).toBeGreaterThan(firstReads);
+        } finally {
+          rawClient.execute.mockImplementation(original);
+        }
+      }
+    },
+  );
+
   it("does not disable a job just because the owner lookup failed", async () => {
     putJob("alice@agent-native.test", "digest", [
       'schedule: "0 * * * *"',
@@ -815,7 +925,9 @@ describe("owners that cannot run automations", () => {
     const original = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(async (input: ExecuteInput) => {
       if (typeof input !== "string" && input.sql.includes('FROM "user"')) {
-        throw new Error("connection terminated");
+        throw Object.assign(new Error("connection terminated"), {
+          code: "08006",
+        });
       }
       return original(input);
     });

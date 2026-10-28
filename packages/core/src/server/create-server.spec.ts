@@ -5,7 +5,11 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import * as org from "../org/context.js";
+import * as auth from "./auth.js";
 import { createServer } from "./create-server.js";
+import * as credentials from "./credential-provider.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 describe("createServer", () => {
   afterEach(() => {
@@ -144,6 +148,39 @@ describe("createServer", () => {
       "X-User-Timezone",
     );
   });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "does not probe Personal credentials after org failure $code",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      vi.spyOn(auth, "getSession").mockResolvedValue({
+        email: "member@example.test",
+        orgId: "stale-org",
+      });
+      vi.spyOn(org, "getOrgContext").mockRejectedValue(error);
+      const secret = vi
+        .spyOn(credentials, "resolveSecret")
+        .mockResolvedValue("fake-secret");
+      const { app } = createServer({
+        envKeys: [{ key: "OPENAI_API_KEY", label: "OpenAI" }],
+      });
+      const response = await app.request(
+        "http://localhost/_agent-native/env-status",
+      );
+      expect(response.status).toBe(status);
+      expect(response.headers.get("Retry-After")).toBe(
+        status === 503 ? "5" : null,
+      );
+      expect(secret).not.toHaveBeenCalled();
+      expect(await response.text()).not.toContain(cause.message);
+    },
+  );
 
   it("reports deploy-time env values as configured", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");

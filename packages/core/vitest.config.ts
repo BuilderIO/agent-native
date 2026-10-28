@@ -1,14 +1,51 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { defineConfig, mergeConfig } from "vitest/config";
 
+import corePackage from "./package.json";
 import baseConfig from "./src/vitest-config";
+import { workspaceRoot } from "./vitest.workspace-root";
 
-const templatesRoot = path.resolve(__dirname, "../../templates");
+const templatesRoot = path.join(workspaceRoot, "templates");
+
+function defaultExport(target: unknown): string | undefined {
+  if (typeof target === "string") return target;
+  if (target && typeof target === "object" && "default" in target) {
+    return defaultExport(target.default);
+  }
+  return undefined;
+}
+
+// External template imports must reach Stryker's copied Core, not installed dist.
+const sandboxCoreAliases =
+  path.resolve(__dirname) === path.join(workspaceRoot, "packages/core")
+    ? []
+    : Object.entries(corePackage.exports).flatMap(([subpath, target]) => {
+        const runtime = defaultExport(target);
+        if (!runtime?.startsWith("./dist/") || !runtime.endsWith(".js")) {
+          return [];
+        }
+        const stem = path.join(__dirname, "src", runtime.slice(7, -3));
+        const source = [`${stem}.ts`, `${stem}.tsx`].find(existsSync);
+        if (!source) {
+          throw new Error(`Missing Core source for export ${subpath}`);
+        }
+        const name = `@agent-native/core${subpath === "." ? "" : subpath.slice(1)}`;
+        return [
+          {
+            find: new RegExp(
+              `^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+            ),
+            replacement: source,
+          },
+        ];
+      });
 
 export default mergeConfig(
   baseConfig,
   defineConfig({
+    resolve: { alias: sandboxCoreAliases },
     plugins: [
       {
         // Specs that load template modules (a template's action registry)

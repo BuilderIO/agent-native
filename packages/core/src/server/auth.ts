@@ -66,6 +66,10 @@ import {
   resolveEmbedSessionFromRequest,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import {
+  getEmbeddedHostOrgScope,
+  preserveEmbeddedHostOrgScope,
+} from "./embedded-org-scope.js";
 import { createFirstTouchHandler } from "./first-touch-route.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
@@ -76,6 +80,7 @@ import {
   publicFrameworkPath,
 } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 function toWebRequest(event: H3Event): Request {
   const req = (event as any).req as Request;
@@ -1332,6 +1337,7 @@ export async function getMcpOAuthBearerSession(
       identityVerificationUnavailableErrorClass &&
       e instanceof identityVerificationUnavailableErrorClass
     ) {
+      if (e.retryable === false) throw e;
       markCredentialMembershipUnavailable(event);
       return null;
     }
@@ -4842,13 +4848,22 @@ async function backfillSessionOrg(
   session: AuthSession,
   event: H3Event,
 ): Promise<AuthSession> {
-  if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
+  if (
+    session.orgId ||
+    hasExplicitPersonalOrgScope(event) ||
+    getEmbeddedHostOrgScope(event, session)
+  )
+    return session;
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
-    () => null,
-  );
-  return orgId ? { ...session, orgId } : session;
+  try {
+    const orgId = await resolveOrgIdForEmailViaEvent(event, session.email);
+    return orgId ? { ...session, orgId } : session;
+  } catch (cause) {
+    throw sessionResolutionFailure(cause);
+  }
 }
+
+export { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   const ctx = event.context as {
@@ -4937,7 +4952,7 @@ async function resolveAdditionalSession(
   if (!resolve || customGetSession) return null;
   try {
     const session = await resolve(event);
-    return session ? normalizeCustomSession(session) : null;
+    return session ? normalizeCustomSession(session, event) : null;
   } catch (error) {
     markSessionResolutionUnavailable(event, "additional-session", error);
     return ADDITIONAL_SESSION_FAILED;
@@ -4969,7 +4984,7 @@ async function resolveBrowserCookieSession(
     }
     if (!getHeader(event, "cookie")) return null;
     const session = await customGetBrowserSession(event);
-    return session ? normalizeCustomSession(session) : null;
+    return session ? normalizeCustomSession(session, event) : null;
   }
   const cookie = getHeader(event, "cookie");
   if (cookie) {
@@ -4989,13 +5004,18 @@ async function resolveBrowserCookieSession(
   return getAuthDisabledSession(event);
 }
 
-function normalizeCustomSession(session: AuthSession): AuthSession {
+function normalizeCustomSession(
+  session: AuthSession,
+  event: H3Event,
+): AuthSession {
   const safeSession = { ...session };
   delete safeSession.authUserId;
-  if (trustCustomEmailVerification && session.emailVerified === undefined) {
-    return { ...safeSession, emailVerified: true };
-  }
-  return safeSession;
+  const normalized =
+    trustCustomEmailVerification && session.emailVerified === undefined
+      ? { ...safeSession, emailVerified: true }
+      : safeSession;
+  preserveEmbeddedHostOrgScope(event, session, normalized);
+  return normalized;
 }
 
 async function resolveSessionUncached(
@@ -5041,7 +5061,7 @@ async function resolveSessionUncached(
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) {
-      return normalizeCustomSession(session);
+      return normalizeCustomSession(session, event);
     }
 
     const bearerSession = await getBearerSession(event);

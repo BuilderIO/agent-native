@@ -1,5 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -60,6 +62,71 @@ describe("raw SQL interpolation guard", () => {
     expect(
       findRawSqlInterpolationViolations(FILE, text, new Set([4])),
     ).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      "direct",
+      'database.execute({ sql: "SELECT id FROM records WHERE id = ?", args: [recordId] });',
+    ],
+    [
+      "alias",
+      'const query = { sql: "SELECT id FROM records WHERE id = ?", args: [recordId] };\ndatabase.execute(query);',
+    ],
+    [
+      "returned",
+      'function queryFor(id: string) { return { sql: "SELECT id FROM records WHERE id = ?", args: [id] }; }\ndatabase.execute(queryFor(recordId));',
+    ],
+  ])(
+    "does not treat bound values as SQL text in %s statements",
+    (_, statement) => {
+      const text = source(["declare const recordId: string;", statement]);
+      expect(
+        findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3])),
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["key", "(key as string)", "`sql`"])(
+    "inspects computed %s properties that can overwrite SQL text",
+    (key) => {
+      const text = source([
+        "declare const recordId: string;",
+        'const key: string = "sql";',
+        "database.execute({",
+        '  sql: "SELECT 1",',
+        `  [${key}]: \`SELECT * FROM records WHERE id = \${recordId}\`,`,
+        "  args: [],",
+        "});",
+      ]);
+      expect(
+        findRawSqlInterpolationViolations(FILE, text, new Set([5])),
+      ).toEqual([expect.objectContaining({ file: FILE, line: 5 })]);
+    },
+  );
+
+  it("keeps a statically named computed args property as bound values", () => {
+    const text = source([
+      "declare const recordId: string;",
+      'database.execute({ sql: "SELECT id FROM records WHERE id = ?", ["args"]: [recordId] });',
+    ]);
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([2]))).toEqual(
+      [],
+    );
+  });
+
+  it("still rejects a bound value when it is later used as SQL text", () => {
+    const text = source([
+      "declare const recordId: string;",
+      'const query = { sql: "SELECT id FROM records WHERE id = ?", args: [`SELECT * FROM records WHERE id = ${recordId}`] };',
+      "database.execute(query);",
+      "database.execute(query.args[0]);",
+    ]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, text, new Set([1, 2, 3, 4])),
+    ).toEqual([
+      { file: FILE, line: 4, snippet: "database.execute(query.args[0]);" },
+    ]);
   });
 
   it("finds interpolated templates passed directly to execute", () => {
@@ -770,57 +837,225 @@ describe("raw SQL interpolation guard", () => {
     ]);
   });
 
-  it("discovers an unchanged wrapper from a changed SQL helper caller", () => {
-    const fixtureRoot = resolve(process.cwd(), ".tmp");
-    mkdirSync(fixtureRoot, { recursive: true });
-    const fixtureDir = mkdtempSync(
-      resolve(fixtureRoot, "raw-sql-wrapper-discovery-"),
-    );
-    const helperFile = resolve(fixtureDir, "sql-helpers.ts");
-    const callerFile = resolve(fixtureDir, "store.ts");
-    const wrapperFile = resolve(fixtureDir, "query-wrapper.ts");
-    const unrelatedFile = resolve(fixtureDir, "unrelated.ts");
-    const helper = [
-      "export function ownerFilter(ownerId: string) {",
-      "  return `owner_id = ${ownerId}`;",
-      "}",
-    ].join("\n");
-    const caller = [
-      'import { ownerFilter } from "./sql-helpers.js";',
-      'import { runQuery } from "./query-wrapper.js";',
-      "runQuery(`SELECT * FROM records WHERE ${ownerFilter(ownerId)}`);",
-    ].join("\n");
-    const wrapper = [
-      'import { getDbExec } from "@agent-native/core/db";',
-      "export function runQuery(query: string) {",
-      "  getDbExec().execute({ sql: query, args: [] });",
-      "}",
-    ].join("\n");
+  it.each([
+    {
+      name: "named",
+      module: "./sql-helpers.js",
+      binding: "{ ownerFilter }",
+      call: "ownerFilter(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "barrel",
+      module: "./sql-barrel.js",
+      binding: "{ ownerFilter }",
+      call: "ownerFilter(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "alias",
+      module: "./sql-helpers.js",
+      binding: "{ ownerFilter as clause }",
+      call: "clause(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "namespace",
+      module: "./sql-helpers.js",
+      binding: "* as clauses",
+      call: "clauses.ownerFilter(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "import-equals",
+      module: "./sql-helpers.js",
+      binding: "clauses",
+      call: "clauses.ownerFilter(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "renamed-barrel",
+      module: "./ownerFilter-barrel.js",
+      binding: "{ filter }",
+      call: "filter(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "renamed-namespace",
+      module: "./ownerFilter-barrel.js",
+      binding: "* as clauses",
+      call: "clauses.filter(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "renamed-chain",
+      module: "./sql-outer.js",
+      binding: "{ predicate }",
+      call: "predicate(ownerId)",
+      isDefault: false,
+    },
+    {
+      name: "default",
+      module: "./sql-helpers.js",
+      binding: "ownerFilter",
+      call: "ownerFilter(ownerId)",
+      isDefault: true,
+    },
+  ])(
+    "discovers an unchanged SQL sink through $name helper imports",
+    ({ name, module: helperModule, binding, call, isDefault }) => {
+      const fixtureRoot = resolve(process.cwd(), ".tmp");
+      mkdirSync(fixtureRoot, { recursive: true });
+      const fixtureDir = mkdtempSync(
+        resolve(fixtureRoot, "raw-sql-wrapper-discovery-"),
+      );
+      const helperFile = resolve(fixtureDir, "sql-helpers.ts");
+      const callerFile = resolve(fixtureDir, "store.ts");
+      const wrapperFile = resolve(fixtureDir, "query-wrapper.ts");
+      const lexicalMatchFile = resolve(fixtureDir, "lexical-match.ts");
+      const importOnlyFile = resolve(fixtureDir, "import-only.ts");
+      const renamed = name.startsWith("renamed-");
+      const barrelFile = resolve(
+        fixtureDir,
+        renamed ? "ownerFilter-barrel.ts" : "sql-barrel.ts",
+      );
+      const outerFile = resolve(fixtureDir, "sql-outer.ts");
+      const helper = [
+        `export ${isDefault ? "default " : ""}function ownerFilter(ownerId: string) {`,
+        "  return `owner_id = ${ownerId}`;",
+        "}",
+      ].join("\n");
+      const caller = [
+        name === "import-equals"
+          ? `import ${binding} = require("${helperModule}");`
+          : `import ${binding} from "${helperModule}";`,
+        'import { runQuery } from "./query-wrapper.js";',
+        "runQuery(`SELECT * FROM records WHERE ${" + call + "}`);",
+      ].join("\n");
+      const wrapper = [
+        'import { getDbExec } from "@agent-native/core/db";',
+        "export function runQuery(query: string) {",
+        "  getDbExec().execute({ sql: query, args: [] });",
+        "}",
+      ].join("\n");
 
-    try {
-      writeFileSync(callerFile, caller);
-      writeFileSync(wrapperFile, wrapper);
-      writeFileSync(unrelatedFile, "const ownerFilter = 1;\n");
-      const sources = new Map<string, RawSqlGuardSource>([
-        [helperFile, { source: helper, addedLines: new Set([2]) }],
+      try {
+        const fixtures = new Map([
+          [callerFile, caller],
+          [lexicalMatchFile, 'export const label = "ownerFilter";'],
+          [
+            importOnlyFile,
+            `import ${isDefault ? "ownerFilter" : "{ ownerFilter }"} from "./sql-helpers.js";`,
+          ],
+          [
+            barrelFile,
+            `export { ${isDefault ? "default as ownerFilter" : renamed ? "ownerFilter as filter" : "ownerFilter"} } from "./sql-helpers.js";`,
+          ],
+        ]);
+        if (name === "renamed-chain") {
+          fixtures.set(
+            outerFile,
+            'export { filter as predicate } from "./ownerFilter-barrel.js";',
+          );
+        }
+        for (const [file, text] of fixtures) writeFileSync(file, text);
+        writeFileSync(wrapperFile, wrapper);
+        const sources = new Map<string, RawSqlGuardSource>([
+          [helperFile, { source: helper, addedLines: new Set([2]) }],
+        ]);
+        addChangedSqlCallSiteModules(sources, (names) =>
+          [...fixtures]
+            .filter(([, text]) =>
+              names.some((name) => text.split(/\W+/).includes(name)),
+            )
+            .map(([file]) => file),
+        );
+
+        expect(sources.has(callerFile)).toBe(true);
+        expect(sources.has(wrapperFile)).toBe(true);
+        expect(sources.has(lexicalMatchFile)).toBe(false);
+        expect(sources.has(importOnlyFile)).toBe(true);
+        expect(sources.has(barrelFile)).toBe(true);
+        expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+          {
+            file: relative(process.cwd(), helperFile).replaceAll("\\", "/"),
+            line: 2,
+            snippet: "return `owner_id = ${ownerId}`;",
+          },
+        ]);
+        if (name === "barrel" || renamed) {
+          const withoutBinding = new Map(sources);
+          withoutBinding.delete(barrelFile);
+          expect(
+            findRawSqlInterpolationViolationsInSources(withoutBinding),
+          ).toEqual([]);
+        }
+      } finally {
+        rmSync(fixtureDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["direct", "nested"])(
+    "does not enumerate unrelated closure assignments in %s SQL-flow checks",
+    (mode) => {
+      const fixtureRoot = resolve(process.cwd(), ".tmp");
+      mkdirSync(fixtureRoot, { recursive: true });
+      const fixtureDir = mkdtempSync(
+        resolve(fixtureRoot, "raw-sql-dataflow-cost-"),
+      );
+      const runnerFile = resolve(fixtureDir, "run.mjs");
+      const text = source([
+        "declare const recordId: string;",
+        ...(mode === "nested" ? ["function forward(input: unknown) {"] : []),
+        "let pending: { message: string } | null = null;",
+        "function consume(value: unknown) {}",
+        ...Array.from(
+          { length: 12 },
+          (_, index) =>
+            `function set${index}() { pending ??= { message: "fake message" }; }`,
+        ),
+        "consume(pending);",
+        ...(mode === "nested" ? ["}", "forward(recordId);"] : []),
+        "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
       ]);
-
-      addChangedSqlCallSiteModules(sources, () => [callerFile, unrelatedFile]);
-
-      expect(sources.has(callerFile)).toBe(true);
-      expect(sources.has(wrapperFile)).toBe(true);
-      expect(sources.has(unrelatedFile)).toBe(false);
-      expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
-        {
-          file: relative(process.cwd(), helperFile),
-          line: 2,
-          snippet: "return `owner_id = ${ownerId}`;",
-        },
-      ]);
-    } finally {
-      rmSync(fixtureDir, { recursive: true, force: true });
-    }
-  });
+      const expectedLine = mode === "nested" ? 20 : 17;
+      const guardUrl = pathToFileURL(
+        resolve(process.cwd(), "scripts/guard-no-raw-sql-interpolation.ts"),
+      ).href;
+      try {
+        writeFileSync(
+          runnerFile,
+          [
+            `import { findRawSqlInterpolationViolations } from ${JSON.stringify(guardUrl)};`,
+            `console.log(JSON.stringify(findRawSqlInterpolationViolations(${JSON.stringify(FILE)}, ${JSON.stringify(text)}, new Set([${expectedLine}]))));`,
+          ].join("\n"),
+        );
+        const result = spawnSync(
+          process.execPath,
+          ["--import", "tsx", runnerFile],
+          {
+            cwd: process.cwd(),
+            encoding: "utf8",
+            timeout: 5_000,
+          },
+        );
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(0);
+        expect(JSON.parse(result.stdout)).toEqual([
+          {
+            file: FILE,
+            line: expectedLine,
+            snippet:
+              "database.execute(`SELECT * FROM records WHERE id = ${recordId}`);",
+          },
+        ]);
+      } finally {
+        rmSync(fixtureDir, { recursive: true, force: true });
+      }
+    },
+    10_000,
+  );
 
   it("traces imported wrappers that forward SQL through another wrapper", () => {
     const wrapperFile = "packages/core/src/sql-helpers.ts";
@@ -1372,7 +1607,7 @@ describe("raw SQL interpolation guard", () => {
       resolve(process.cwd(), "scripts/guard-no-raw-sql-interpolation.test.ts"),
     );
 
-    expect(sourceFile?.fileName).toBe(
+    expect(sourceFile && resolve(sourceFile.fileName)).toBe(
       resolve(process.cwd(), "scripts/agent-friction-report.mjs"),
     );
   });

@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
+  SessionResolutionUnavailableError,
+  SessionResolutionLookupError,
+} from "../server/session-resolution-errors.js";
+import { ForbiddenError } from "../sharing/errors.js";
+import {
   hashEmail,
   InvalidMcpHeaderConfigurationError,
   McpHeaderSecretUnavailableError,
@@ -1479,6 +1484,46 @@ function createNitroApp() {
     },
   };
 }
+
+describe("MCP verified principal error control", () => {
+  describe.each(["session", "org"] as const)("%s boundary", (boundary) => {
+    it.each(["transient", "permanent", "forbidden"] as const)(
+      "propagates %s failures before manager selection",
+      async (kind) => {
+        const cause = Object.assign(
+          new Error("fake private MCP identity failure"),
+          { code: "57014" },
+        );
+        const failure =
+          kind === "transient"
+            ? new SessionResolutionUnavailableError({ cause })
+            : kind === "permanent"
+              ? new SessionResolutionLookupError(cause)
+              : new ForbiddenError();
+        getSessionMock.mockResolvedValue({ email: "member@example.test" });
+        getOrgContextMock.mockResolvedValue({
+          email: "member@example.test",
+          orgId: "org-acme",
+          role: "member",
+        });
+        (boundary === "session"
+          ? getSessionMock
+          : getOrgContextMock
+        ).mockRejectedValue(failure);
+        const resolveManager = vi.fn(async () => {
+          throw new Error("Unexpected manager selection");
+        });
+        const app = createNitroApp();
+        mountMcpServersRoutes(app, null, { resolveManager });
+        await expect(
+          dispatchMountedRoute(app, "/_agent-native/mcp/servers", "GET"),
+        ).rejects.toBe(failure);
+        expect(resolveManager).not.toHaveBeenCalled();
+        expect(mockedSettings.readKeys).toEqual([]);
+      },
+    );
+  });
+});
 
 async function dispatchMountedRoute(
   nitroApp: ReturnType<typeof createNitroApp>,

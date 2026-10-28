@@ -43,7 +43,7 @@ function isPngBuffer(buf: Buffer): boolean {
 async function resolveUploadSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (session?.email) return session;
   return getMcpOAuthBearerSession(event);
 }

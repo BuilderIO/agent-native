@@ -24,6 +24,7 @@ import {
 } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import { ForbiddenError } from "../sharing/errors.js";
 
 const SETTING_PREFIX = "credential:";
 
@@ -194,14 +195,22 @@ export async function resolveCredentialForScope(
 async function resolveEffectiveOrgId(
   ctx: CredentialContext,
 ): Promise<{ orgId: string | null; lookupFailed: boolean; cause?: unknown }> {
-  if (ctx.orgId) return { orgId: ctx.orgId, lookupFailed: false };
   try {
+    const delegated =
+      getRequestContext()?.a2aIdentityAssurance === "org-member";
+    if (ctx.orgId && !delegated)
+      return { orgId: ctx.orgId, lookupFailed: false };
     const { resolveOrgIdForEmail } = await import("../org/context.js");
+    const orgId = await resolveOrgIdForEmail(ctx.userEmail);
+    if (delegated && ctx.orgId && ctx.orgId !== orgId) {
+      throw new ForbiddenError();
+    }
     return {
-      orgId: await resolveOrgIdForEmail(ctx.userEmail),
+      orgId,
       lookupFailed: false,
     };
   } catch (cause) {
+    if (cause instanceof ForbiddenError) throw cause;
     return { orgId: null, lookupFailed: true, cause };
   }
 }
@@ -226,10 +235,8 @@ async function resolveEffectiveOrgId(
  *
  * Steps 3-5 use `ctx.orgId` when given, else the org resolved from
  * `ctx.userEmail` (see `resolveEffectiveOrgId`), and are skipped only when the
- * caller truly has no org. A membership lookup that could not be read throws
- * `CredentialStoreUnavailableError` instead of silently reporting the
- * credential as unset — "the store didn't answer" and "nothing is saved" are
- * different outcomes callers must not conflate.
+ * caller truly has no org. An unreadable membership lookup throws a typed
+ * credential-store failure instead of reporting the credential as unset.
  */
 export async function resolveCredentialDetailed(
   key: string,
@@ -238,15 +245,25 @@ export async function resolveCredentialDetailed(
   if (!ctx?.userEmail) return undefined;
 
   if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
+  const orgLookup = await resolveEffectiveOrgId(ctx);
+  if (orgLookup.lookupFailed) {
+    assertCredentialStoreReadable(orgLookup);
+  }
+  const { orgId } = orgLookup;
+
   // Stored but unused while the org restricts a member's provider keys.
-  const personalRestricted =
-    ctx.credentialScope !== "org" &&
-    isPersonalProviderPolicyKey(key) &&
-    (await isPersonalProviderKeyUseRestricted(
-      ctx.orgId
-        ? { email: ctx.userEmail, orgId: ctx.orgId }
-        : { email: ctx.userEmail },
-    ));
+  let personalRestricted = false;
+  if (ctx.credentialScope !== "org" && isPersonalProviderPolicyKey(key)) {
+    try {
+      personalRestricted = await isPersonalProviderKeyUseRestricted({
+        email: ctx.userEmail,
+        orgId,
+      });
+    } catch (cause) {
+      if (cause instanceof ForbiddenError) throw cause;
+      assertCredentialStoreReadable({ lookupFailed: true, cause });
+    }
+  }
 
   let personal: ResolvedCredential | undefined;
   let personalReadError: AppSecretDecryptionError | undefined;
@@ -262,10 +279,6 @@ export async function resolveCredentialDetailed(
     }
   }
 
-  const orgLookup = await resolveEffectiveOrgId(ctx);
-  // Without the org, an owner's precedence cannot be determined safely.
-  assertCredentialStoreReadable(orgLookup);
-  const { orgId } = orgLookup;
   // Usually role lookup is needed only when a personal value is available.
   // An unreadable personal row also needs this check so it cannot mask an org
   // credential that takes precedence for an owner or admin.

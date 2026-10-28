@@ -30,10 +30,12 @@ vi.mock("../application-state/store.js", () => ({
 
 import { markVerifiedServiceIdentityForEvent } from "../server/request-context.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { ForbiddenError } from "../sharing/access.js";
 import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
+  getOrgScopeResolutionError,
   hasOrgScopeResolutionUnavailable,
   resolveOrgIdForEmail,
   resolveOrgScopeForEmail,
@@ -107,15 +109,15 @@ describe("getOrgContext", () => {
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
-  it("marks a swallowed membership read failure as unavailable org scope", async () => {
+  it("rejects a missing membership table instead of marking Personal scope", async () => {
     mockGetSession.mockResolvedValue({ email: "a@b.com" });
-    mockExecute.mockRejectedValueOnce(
-      new Error('relation "org_members" does not exist'),
-    );
+    const cause = new Error('relation "org_members" does not exist');
+    mockExecute.mockRejectedValueOnce(cause);
 
-    await expect(getOrgContext(EVENT)).resolves.toMatchObject({
-      email: "a@b.com",
-      orgId: null,
+    await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+      name: "SessionResolutionLookupError",
+      statusCode: 500,
+      cause,
     });
     expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(true);
   });
@@ -158,10 +160,12 @@ describe("getOrgContext", () => {
       orgName: null,
       role: null,
     });
-    expect(mockExecute).toHaveBeenCalledWith({
-      sql: expect.stringContaining("FROM org_members"),
-      args: ["svc-pr-recap@service.org-1"],
-    });
+    expect(
+      mockExecute.mock.calls.map(([query]) => [query.sql, query.args]),
+    ).toContainEqual([
+      expect.stringContaining("FROM org_members"),
+      ["svc-pr-recap@service.org-1"],
+    ]);
   });
 
   it("denies a verified service identity for a federated org", async () => {
@@ -270,7 +274,7 @@ describe("getOrgContext", () => {
       orgRole: "owner",
     });
 
-    const ctx = await runWithRequestContext(
+    const lookup = runWithRequestContext(
       {
         a2aIdentityAssurance: "org-member",
         userEmail: "owner@example.test",
@@ -279,12 +283,7 @@ describe("getOrgContext", () => {
       () => getOrgContext(EVENT),
     );
 
-    expect(ctx).toEqual({
-      email: "other@example.test",
-      orgId: null,
-      orgName: null,
-      role: null,
-    });
+    await expect(lookup).rejects.toBeInstanceOf(ForbiddenError);
     expect(mockExecute).not.toHaveBeenCalled();
   });
 
@@ -294,11 +293,12 @@ describe("getOrgContext", () => {
       orgId: "other-org",
       orgRole: "owner",
     });
-    mockExecute.mockRejectedValueOnce(
-      Object.assign(new Error("db query timed out"), { code: "57014" }),
-    );
+    const cause = Object.assign(new Error("db query timed out"), {
+      code: "57014",
+    });
+    mockExecute.mockRejectedValueOnce(cause);
 
-    const ctx = await runWithRequestContext(
+    const lookup = runWithRequestContext(
       {
         a2aIdentityAssurance: "org-member",
         userEmail: "owner@example.test",
@@ -307,12 +307,7 @@ describe("getOrgContext", () => {
       () => getOrgContext(EVENT),
     );
 
-    expect(ctx).toEqual({
-      email: "owner@example.test",
-      orgId: null,
-      orgName: null,
-      role: null,
-    });
+    await expect(lookup).rejects.toMatchObject({ statusCode: 503, cause });
     expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(true);
   });
 
@@ -721,35 +716,57 @@ describe("getOrgContext", () => {
   });
 
   describe("membership-lookup failure (tables missing before migrations)", () => {
-    it("returns the session orgId when present", async () => {
+    it("rejects the lookup even when a session orgId is present", async () => {
       mockGetSession.mockResolvedValue({
         email: "a@b.com",
         orgId: "sess-org",
         orgRole: "admin",
       });
-      mockExecute.mockRejectedValueOnce(
-        new Error('relation "org_members" does not exist'),
-      );
-      const ctx = await getOrgContext(EVENT);
-      expect(ctx).toEqual({
-        email: "a@b.com",
-        orgId: "sess-org",
-        orgName: null,
-        role: "admin",
+      const cause = new Error('relation "org_members" does not exist');
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+        name: "SessionResolutionLookupError",
+        statusCode: 500,
+        cause,
       });
     });
 
-    it("returns a null-org context when there is no session orgId", async () => {
-      mockGetSession.mockResolvedValue({ email: "a@b.com" });
-      mockExecute.mockRejectedValueOnce(
-        new Error('relation "org_members" does not exist'),
-      );
-      const ctx = await getOrgContext(EVENT);
-      expect(ctx).toEqual({
+    it("refuses a claimed session role until membership can be verified", async () => {
+      mockGetSession.mockResolvedValue({
         email: "a@b.com",
-        orgId: null,
-        orgName: null,
-        role: null,
+        orgId: "sess-org",
+        orgRole: "admin",
+      });
+      const cause = Object.assign(new Error("db query timed out"), {
+        code: "57014",
+      });
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+        name: "SessionResolutionUnavailableError",
+        statusCode: 503,
+        cause,
+      });
+      const failure = getOrgScopeResolutionError(EVENT);
+      expect(failure?.cause).toBe(cause);
+      queueSelect([{ orgId: "sess-org", role: "member", orgName: "Verified" }]);
+      await expect(getOrgContext(EVENT)).resolves.toEqual({
+        email: "a@b.com",
+        orgId: "sess-org",
+        orgName: "Verified",
+        role: "member",
+      });
+      expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(false);
+      expect(getOrgScopeResolutionError(EVENT)).toBeUndefined();
+    });
+
+    it("rejects the lookup when there is no session orgId", async () => {
+      mockGetSession.mockResolvedValue({ email: "a@b.com" });
+      const cause = new Error('relation "org_members" does not exist');
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+        name: "SessionResolutionLookupError",
+        statusCode: 500,
+        cause,
       });
     });
   });
@@ -760,8 +777,13 @@ describe("getOrgContext", () => {
 
     it("surfaces the failure instead of reporting no org", async () => {
       mockGetSession.mockResolvedValue({ email: "tim@b.com" });
-      mockExecute.mockRejectedValueOnce(transient());
-      await expect(getOrgContext(EVENT)).rejects.toThrow("db query timed out");
+      const cause = transient();
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+        name: "SessionResolutionUnavailableError",
+        statusCode: 503,
+        cause,
+      });
     });
 
     it("does not memoize the failure as 'no memberships'", async () => {
@@ -947,6 +969,65 @@ describe("getOrgContext", () => {
       expect(mockAppStatePut).not.toHaveBeenCalled();
     });
 
+    it.each([
+      { phase: "claim", code: "42501" },
+      { phase: "invitation", code: "57014" },
+      { phase: "domain", code: "42501" },
+      { phase: "creation", code: "57014" },
+      { phase: "creation", code: "42501" },
+      { phase: "creation", code: "42P01" },
+    ])(
+      "rejects failed $phase preparation ($code) with its classified cause",
+      async ({ phase, code }) => {
+        mockGetSession.mockResolvedValue({ email: "creator@example.test" });
+        const cause = Object.assign(
+          new Error("private org preparation failure"),
+          { code },
+        );
+        let attempted = false;
+        let orgWriteAttempts = 0;
+        const queries: string[] = [];
+        mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+          queries.push(sql);
+          if (sql.includes("INSERT INTO organizations")) orgWriteAttempts += 1;
+          const fails =
+            phase === "claim"
+              ? sql.includes("INSERT INTO settings")
+              : phase === "invitation"
+                ? sql.includes("FROM org_invitations")
+                : phase === "domain"
+                  ? sql.includes("LOWER(allowed_domain)")
+                  : sql.includes("INSERT INTO organizations");
+          if (fails) {
+            attempted = true;
+            throw cause;
+          }
+          return { rows: [] };
+        });
+        const rejected = getOrgContext(EVENT);
+        await expect(rejected).rejects.toMatchObject({
+          statusCode: code === "57014" ? 503 : 500,
+          cause,
+        });
+        expect(attempted).toBe(true);
+        expect(orgWriteAttempts).toBe(phase === "creation" ? 1 : 0);
+        if (phase === "claim")
+          expect(
+            queries.some((sql) => sql.includes("DELETE FROM settings")),
+          ).toBe(false);
+        expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(true);
+        const failure = getOrgScopeResolutionError(EVENT);
+        expect(failure).toMatchObject({
+          statusCode: code === "57014" ? 503 : 500,
+        });
+        expect(failure?.cause).toBe(cause);
+        await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+          statusCode: code === "57014" ? 503 : 500,
+          cause,
+        });
+      },
+    );
+
     it("provisions a default org for a zero-membership user by default", async () => {
       mockGetSession.mockResolvedValue({
         email: "jane@startup.dev",
@@ -1037,6 +1118,8 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] });
       const ctx = await getOrgContext(EVENT);
       expect(ctx.orgId).toBeNull();
+      expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(false);
+      expect(getOrgScopeResolutionError(EVENT)).toBeUndefined();
       expect(mockPutUserSetting).not.toHaveBeenCalled();
       const sqls = mockExecute.mock.calls.map((c) => c[0].sql);
       expect(sqls.some((s) => s.includes("INSERT INTO organizations"))).toBe(
@@ -1090,7 +1173,30 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rowsAffected: 0 });
       const ctx = await getOrgContext(EVENT);
       expect(ctx.orgId).toBeNull();
+      expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(false);
+      expect(getOrgScopeResolutionError(EVENT)).toBeUndefined();
       expect(mockPutUserSetting).not.toHaveBeenCalled();
+    });
+
+    it("keeps a matching-domain creation deferral distinct from lookup failure", async () => {
+      process.env.AUTO_CREATE_DEFAULT_ORG = "1";
+      mockGetSession.mockResolvedValue({
+        email: "new@company.example.test",
+        emailVerified: false,
+      });
+      queueSelect([], [], [], [{ "1": 1 }], []);
+
+      const ctx = await getOrgContext(EVENT);
+
+      expect(ctx.orgId).toBeNull();
+      expect(hasOrgScopeResolutionUnavailable(EVENT)).toBe(false);
+      expect(getOrgScopeResolutionError(EVENT)).toBeUndefined();
+      expect(mockPutUserSetting).not.toHaveBeenCalled();
+      expect(
+        mockExecute.mock.calls.some(([query]) =>
+          query.sql.includes("INSERT INTO organizations"),
+        ),
+      ).toBe(false);
     });
 
     it("reclaims a STALE claim (TTL-expired) and proceeds to create the org", async () => {
@@ -1124,8 +1230,7 @@ describe("getOrgContext", () => {
     });
 
     it("does NOT auto-create when the invitation lookup ERRORS (fail closed)", async () => {
-      // hasPendingInvitation swallows DB errors and returns true so we never
-      // race ahead of an invite we couldn't read. Auto-create must be skipped.
+      // An unreadable invitation must prevent provisioning another workspace.
       process.env.AUTO_CREATE_DEFAULT_ORG = "1";
       mockGetSession.mockResolvedValue({
         email: "maybe-invited@startup.dev",
@@ -1134,12 +1239,13 @@ describe("getOrgContext", () => {
       mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });
       mockExecute.mockResolvedValueOnce({ rows: [] });
-      mockExecute.mockRejectedValueOnce(
-        new Error('relation "org_invitations" does not exist'),
-      );
+      const cause = new Error('relation "org_invitations" does not exist');
+      mockExecute.mockRejectedValueOnce(cause);
       mockExecute.mockResolvedValueOnce({ rows: [] });
-      const ctx = await getOrgContext(EVENT);
-      expect(ctx.orgId).toBeNull();
+      await expect(getOrgContext(EVENT)).rejects.toMatchObject({
+        statusCode: 500,
+        cause,
+      });
       expect(mockPutUserSetting).not.toHaveBeenCalled();
       const sqls = mockExecute.mock.calls.map((c) => c[0].sql);
       expect(sqls.some((s) => s.includes("INSERT INTO organizations"))).toBe(
@@ -1235,6 +1341,88 @@ describe("getOrgContext", () => {
   });
 });
 
+describe("resolveOrgIdForEmailViaEvent membership", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [] });
+    mockGetUserSetting.mockResolvedValue(null);
+  });
+
+  const resolveDelegated = (event: ReturnType<typeof makeEvent>) =>
+    runWithRequestContext(
+      {
+        userEmail: "delegate@example.test",
+        orgId: "delegated-org",
+        a2aIdentityAssurance: "org-member",
+      },
+      () => resolveOrgIdForEmailViaEvent(event, "delegate@example.test"),
+    );
+
+  it.each(["42501", "08006"])(
+    "rejects unavailable delegated membership (%s) instead of returning Personal",
+    async (code) => {
+      const cause = Object.assign(new Error("membership read failed"), {
+        code,
+      });
+      mockExecute.mockRejectedValueOnce(cause);
+      const lookup = resolveDelegated(makeEvent());
+      await expect(lookup).rejects.toThrow();
+      await expect(lookup).rejects.not.toBeInstanceOf(ForbiddenError);
+      await expect(lookup).rejects.toBe(cause);
+    },
+  );
+
+  it("preserves definitive refusal when membership is absent", async () => {
+    await expect(resolveDelegated(makeEvent())).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it("returns a healthy delegated organization", async () => {
+    queueSelect([
+      { orgId: "delegated-org", role: "member", orgName: "Example" },
+    ]);
+    await expect(resolveDelegated(makeEvent())).resolves.toBe("delegated-org");
+  });
+
+  it.each(["42501", "08006", "42P01"])(
+    "rejects unavailable ordinary membership (%s) without caching Personal scope",
+    async (code) => {
+      const cause = Object.assign(new Error("membership read failed"), {
+        code,
+      });
+      mockExecute.mockRejectedValueOnce(cause);
+      const event = makeEvent();
+      const resolve = () =>
+        runWithRequestContext({ userEmail: "member@example.test" }, () =>
+          resolveOrgIdForEmailViaEvent(event, "member@example.test"),
+        );
+      await expect(resolve()).rejects.toBe(cause);
+      queueSelect([
+        { orgId: "ordinary-org", role: "member", orgName: "Example" },
+      ]);
+      await expect(resolve()).resolves.toBe("ordinary-org");
+    },
+  );
+
+  it("returns Personal when the ordinary membership read succeeds without rows", async () => {
+    await expect(
+      resolveOrgIdForEmailViaEvent(makeEvent(), "personal@example.test"),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps an explicit Personal scope org-less without a membership read", async () => {
+    await expect(
+      runWithRequestContext(
+        { userEmail: "personal@example.test", orgScope: "personal" },
+        () =>
+          resolveOrgIdForEmailViaEvent(makeEvent(), "personal@example.test"),
+      ),
+    ).resolves.toBeNull();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
+
 describe("resolveOrgIdForEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1247,6 +1435,72 @@ describe("resolveOrgIdForEmail", () => {
     expect(await resolveOrgIdForEmail("nobody@b.com")).toBeNull();
   });
 
+  it.each(["missing-member", "email-mismatch", "missing-org"])(
+    "refuses delegated %s instead of reporting unavailable or Personal scope",
+    async (scenario) => {
+      const lookup = runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: scenario === "missing-org" ? undefined : "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          resolveOrgIdForEmail(
+            scenario === "email-mismatch"
+              ? "other@example.test"
+              : "delegate@example.test",
+          ),
+      );
+      await expect(lookup).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(lookup).rejects.toMatchObject({ statusCode: 403 });
+    },
+  );
+
+  it("refuses a revoked delegation at the scope result boundary", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () => resolveOrgScopeForEmail("delegate@example.test"),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("keeps a valid delegation pinned to its organization", async () => {
+    queueSelect([{ role: "owner" }]);
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () => resolveOrgIdForEmail("delegate@example.test"),
+      ),
+    ).resolves.toBe("delegated-org");
+  });
+
+  it("preserves the actual database failure while checking delegation", async () => {
+    const cause = Object.assign(
+      new Error("permission denied for table org_members"),
+      { code: "42501" },
+    );
+    mockExecute.mockRejectedValueOnce(cause);
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "delegate@example.test",
+          orgId: "delegated-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () => resolveOrgIdForEmail("delegate@example.test"),
+      ),
+    ).rejects.toBe(cause);
+  });
+
   it("confirms personal scope when the membership query succeeds without rows", async () => {
     queueSelect([]);
     await expect(resolveOrgScopeForEmail("nobody@b.com")).resolves.toEqual({
@@ -1255,11 +1509,11 @@ describe("resolveOrgIdForEmail", () => {
   });
 
   it("keeps scope unknown when the membership query is unavailable", async () => {
-    mockExecute.mockRejectedValueOnce(
-      new Error('relation "org_members" does not exist'),
-    );
+    const cause = new Error('relation "org_members" does not exist');
+    mockExecute.mockRejectedValueOnce(cause);
     await expect(resolveOrgScopeForEmail("nobody@b.com")).resolves.toEqual({
       status: "unknown",
+      cause,
     });
   });
 
@@ -1303,12 +1557,40 @@ describe("resolveOrgIdForEmail", () => {
     expect(mockExecute.mock.calls[0][0].args).toEqual(["mixed@case.com"]);
   });
 
-  it("returns null on a DB error (missing tables) rather than throwing", async () => {
-    mockExecute.mockRejectedValueOnce(
-      new Error('relation "org_members" does not exist'),
-    );
-    expect(await resolveOrgIdForEmail("a@b.com")).toBeNull();
+  it.each([
+    new Error('relation "org_members" does not exist'),
+    Object.assign(new Error("permission denied for table org_members"), {
+      code: "42501",
+    }),
+  ])("throws when organization scope is unavailable: %s", async (error) => {
+    mockExecute.mockRejectedValueOnce(error);
+    await expect(resolveOrgIdForEmail("a@b.com")).rejects.toBe(error);
   });
+
+  it("keeps a non-Error membership failure as the cause of an Error", async () => {
+    const cause = { code: "42501", message: "fake membership read failure" };
+    mockExecute.mockRejectedValueOnce(cause);
+    const lookup = resolveOrgIdForEmail("a@b.com");
+    await expect(lookup).rejects.toBeInstanceOf(Error);
+    await expect(lookup).rejects.toMatchObject({
+      message: "Organization scope is unavailable",
+      cause,
+    });
+  });
+
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "propagates raw membership transport %s without unknown scope",
+    async (code) => {
+      const cause = Object.assign(
+        new Error("Fake private network diagnostics"),
+        { code },
+      );
+      mockExecute.mockRejectedValueOnce(cause);
+      await expect(resolveOrgScopeForEmail("member@example.test")).rejects.toBe(
+        cause,
+      );
+    },
+  );
 
   it("throws when org_members is unreadable, so callers cannot mistake it for 'no org'", async () => {
     mockExecute.mockRejectedValueOnce(

@@ -5,14 +5,12 @@ import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import { getAppConfig } from "../app-config/index.js";
-import {
-  getDbExec,
-  isLocalDatabase,
-  isTransientDatabaseError,
-} from "../db/client.js";
+import { getDbExec, isLocalDatabase } from "../db/client.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import { AppSecretDecryptionError } from "../secrets/errors.js";
 import type { ReadSecretResult } from "../secrets/storage.js";
 import { getOrgSetting } from "../settings/org-settings.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
   BuilderOAuthScopeError,
@@ -27,6 +25,7 @@ import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
 } from "./personal-provider-key-policy.js";
+import { PublicServerError } from "./public-server-error.js";
 export {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -135,11 +134,13 @@ export class FeatureNotConfiguredError extends Error {
 }
 
 /**
- * The credential store could not be read — which is NOT the same as the
- * credential being absent. Never render this as "not configured": the user has
- * nothing to configure, they have something to retry.
+ * A credential-store availability failure. Failed lookups are distinct from
+ * absent credentials; only availability failures should invite a timed retry.
  */
-export class CredentialStoreUnavailableError extends Error {
+export class CredentialStoreUnavailableError extends PublicServerError {
+  readonly statusCode = 503;
+  readonly headers = { "Retry-After": "5" };
+  readonly data = { code: CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE };
   readonly errorCode = CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE;
   readonly retryable = true;
 
@@ -152,17 +153,33 @@ export class CredentialStoreUnavailableError extends Error {
   }
 }
 
+export class CredentialStoreLookupError extends PublicServerError {
+  readonly statusCode = 500;
+  readonly errorCode = "credential_store_lookup_failed";
+  readonly data = { code: this.errorCode };
+  readonly retryable = false;
+
+  constructor(cause: unknown) {
+    super("Internal server error", { cause });
+    this.name = "CredentialStoreLookupError";
+  }
+}
+
 export function assertCredentialStoreReadable(result: {
   lookupFailed: boolean;
   cause?: unknown;
 }): void {
-  if (
-    result.lookupFailed &&
-    (isTransientDatabaseError(result.cause) ||
-      result.cause instanceof AppSecretDecryptionError ||
-      result.cause instanceof CredentialStoreUnavailableError)
-  ) {
-    throw new CredentialStoreUnavailableError(result.cause);
+  if (result.cause instanceof ForbiddenError) throw result.cause;
+  if (result.lookupFailed) {
+    if (
+      result.cause instanceof CredentialStoreUnavailableError ||
+      result.cause instanceof CredentialStoreLookupError
+    ) {
+      throw result.cause;
+    }
+    throw isTransientDatabaseError(result.cause, { source: "database" })
+      ? new CredentialStoreUnavailableError(result.cause)
+      : new CredentialStoreLookupError(result.cause);
   }
 }
 
@@ -488,6 +505,7 @@ async function resolveOrgIdForRequestEmail(
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return { orgId: await resolveOrgIdForEmail(email) };
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     return { orgId: null, cause: err };
   }
 }
@@ -806,6 +824,7 @@ async function resolveScopedBuilderCredential(
       );
     }
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
@@ -1025,6 +1044,7 @@ async function resolveScopedBuilderCredentials(
       }
     }
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] email=${email} scope=${scopeAttempted} credentials error=${(err as Error)?.message ?? err}`,
@@ -1495,6 +1515,7 @@ export async function resolveBuilderGatewayAuth(
         ? await hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
         : await hasBuilderOAuthSession(ownerEmail, orgId);
     } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
       throw new BuilderCredentialLookupError(error);
     }
   }
@@ -1513,6 +1534,7 @@ export async function resolveBuilderGatewayAuth(
           }
         : null;
     } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
       if (error instanceof BuilderOAuthScopeError) return null;
       throw new BuilderCredentialLookupError(error);
     }
@@ -2238,8 +2260,7 @@ export async function resolveSecretPairs(
       if (personalReadError) throw personalReadError;
       const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
-      assertCredentialStoreReadable({ lookupFailed, cause });
-      return null;
+      throw cause;
     }
 
     const orgCredentialFirst =
@@ -2303,6 +2324,7 @@ export async function resolveSecretPairs(
       }
     }
   } catch (error) {
+    if (error instanceof ForbiddenError) throw error;
     lookupFailed = true;
     cause = error;
   }
@@ -2537,6 +2559,7 @@ export async function resolveSecretDetailed(
         }
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) throw err;
       if (traceLookup) {
         console.log(
           `[resolve-secret] key=${key} email=${email} scope=error err=${(err as Error)?.message ?? err}`,

@@ -3,6 +3,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 import { auditAttribution } from "../audit/attribution.js";
+import {
+  applyAutomationFailure,
+  classifyAutomationFailure,
+  isTransientPauseProbeDue,
+  RUNTIME_PAUSE_AFTER,
+} from "./automation-outcome.js";
 
 const pglite = await createTestPglite();
 
@@ -125,6 +131,7 @@ const {
   BACKGROUND_RUN_HARD_TIMEOUT_MS,
   backgroundRunTerminalError,
   resolveBackgroundAutomationIdentity,
+  validateAutomationRunIdentity,
   runBackgroundAutomation,
   runJobRunner,
 } = await import("./background-automation-runner.js");
@@ -2860,6 +2867,391 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
       .get(name)) as { notification_email: string | null };
     return history.notification_email;
   }
+
+  function untrackedAccountReads() {
+    const execute = rawClient.execute.getMockImplementation();
+    if (!execute) throw new Error("Missing fixture executor");
+    rawClient.execute.mockImplementation(async (input) => {
+      if (typeof input !== "string" && input.sql.includes('FROM "user"'))
+        return { rows: [], rowsAffected: 0 };
+      return execute(input);
+    });
+    return () => rawClient.execute.mockImplementation(execute);
+  }
+
+  it.each([true, false])(
+    "alerts an admin for an untracked creator with current membership=%s",
+    async (isMember) => {
+      await seedOrg([
+        ["bob@agent-native.test", "owner"],
+        ...(isMember
+          ? [["alice@agent-native.test", "member"] as [string, string]]
+          : []),
+      ]);
+      const restoreAccounts = untrackedAccountReads();
+      try {
+        expect(await orgJobAlertRecipient(`untracked-admin-${isMember}`)).toBe(
+          "bob@agent-native.test",
+        );
+      } finally {
+        restoreAccounts();
+      }
+    },
+  );
+
+  it.each([
+    { surface: "validation", isMember: true },
+    { surface: "validation", isMember: false },
+    { surface: "scheduled", isMember: true },
+    { surface: "scheduled", isMember: false },
+    { surface: "trigger", isMember: true },
+    { surface: "trigger", isMember: false },
+  ] as const)(
+    "keeps untracked creator execution blocked and retryable in $surface with membership=$isMember",
+    async ({ surface, isMember }) => {
+      await seedOrg(isMember ? [["alice@agent-native.test", "member"]] : []);
+      const restoreAccounts = untrackedAccountReads();
+      const automation = precondition(`untracked-${surface}`, {
+        createdBy: "alice@agent-native.test",
+        orgId: "acme",
+        runAs: "creator",
+        ...(surface === "trigger" ? { triggerType: "schedule" } : {}),
+      });
+      automation.resource.owner = "__organization__:acme";
+      try {
+        const result =
+          surface === "validation"
+            ? await validateAutomationRunIdentity(
+                "alice@agent-native.test",
+                "acme",
+              )
+            : await resolveBackgroundAutomationIdentity(automation);
+        expect(result).toMatchObject({ ok: false, code: "owner_unverifiable" });
+      } finally {
+        restoreAccounts();
+      }
+    },
+  );
+
+  it.each(["validation", "scheduled", "trigger"] as const)(
+    "classifies actual lookup failures through %s",
+    async (surface) => {
+      await seedOrg([["alice@agent-native.test", "member"]]);
+      const automation = precondition(`identity-${surface}`, {
+        createdBy: "alice@agent-native.test",
+        orgId: "acme",
+        runAs: "creator",
+        ...(surface === "trigger" ? { triggerType: "schedule" } : {}),
+      });
+      automation.resource.owner = "__organization__:acme";
+      const execute = rawClient.execute.getMockImplementation();
+      if (!execute) throw new Error("Missing fixture executor");
+      try {
+        for (const stage of ["account", "membership"] as const) {
+          for (const code of [
+            "57014",
+            "ECONNREFUSED",
+            "EAI_AGAIN",
+            "CONNECT_TIMEOUT",
+            "ETIMEDOUT",
+            "42501",
+            "42P01",
+            undefined,
+          ]) {
+            const cause = Object.assign(
+              new Error("Fake private identity diagnostics"),
+              { code },
+            );
+            rawClient.execute.mockImplementation(async (input) => {
+              if (
+                typeof input !== "string" &&
+                input.sql.includes(
+                  stage === "account" ? 'FROM "user"' : "FROM org_members",
+                )
+              )
+                throw cause;
+              return execute(input);
+            });
+            const result =
+              surface === "validation"
+                ? await validateAutomationRunIdentity(
+                    "alice@agent-native.test",
+                    "acme",
+                  )
+                : await resolveBackgroundAutomationIdentity(automation);
+            expect(result).toMatchObject({
+              ok: false,
+              code:
+                code !== "42501" && code !== "42P01" && code !== undefined
+                  ? "owner_unverifiable"
+                  : "config_invalid",
+              cause,
+            });
+            expect(JSON.stringify(result)).not.toContain(cause.message);
+          }
+        }
+      } finally {
+        rawClient.execute.mockImplementation(execute);
+      }
+    },
+  );
+
+  it.each([
+    {
+      deniedAt: "membership",
+      transient: false,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "admin",
+      transient: false,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "admin",
+      transient: false,
+      nonError: true,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "membership",
+      transient: true,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "admin",
+      transient: true,
+      nonError: false,
+      accountUntracked: false,
+    },
+    {
+      deniedAt: "membership",
+      transient: true,
+      nonError: false,
+      accountUntracked: true,
+    },
+    {
+      deniedAt: "membership",
+      transient: false,
+      nonError: false,
+      accountUntracked: true,
+    },
+  ])(
+    "records a safe failed $deniedAt lookup with transient=$transient and nonError=$nonError",
+    async ({ deniedAt, transient, nonError, accountUntracked }) => {
+      await seedOrg([["bob@agent-native.test", "owner"]]);
+      const { ensureTable } = await import("./run-history.js");
+      await ensureTable();
+      const { resolveOwnerEngineApiKey } =
+        await import("../agent/production-agent.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const name = `recipient-denied-${deniedAt}-${transient}-${nonError}-${accountUntracked}`;
+      const automation = precondition(name, {
+        runAs: "shared",
+        orgId: "acme",
+        createdBy: "alice@agent-native.test",
+      });
+      automation.resource.owner = "__organization__:acme";
+      const diagnostic = `fake-private-${deniedAt}-diagnostic`;
+      const denied = nonError
+        ? diagnostic
+        : Object.assign(new Error(diagnostic), {
+            code: transient ? "57014" : "42501",
+          });
+      const execute = rawClient.execute.getMockImplementation()!;
+      const queries: string[] = [];
+      rawClient.execute.mockImplementation(async (input) => {
+        if (
+          accountUntracked &&
+          typeof input !== "string" &&
+          input.sql.includes('FROM "user"')
+        )
+          return { rows: [], rowsAffected: 0 };
+        if (typeof input !== "string" && /FROM org_members/.test(input.sql)) {
+          queries.push(input.sql);
+          if (
+            deniedAt === "membership" ||
+            input.sql.includes("role IN ('owner', 'admin')")
+          )
+            throw denied;
+        }
+        return execute(input);
+      });
+      createThreadMock.mockClear();
+      vi.mocked(resolveOwnerEngineApiKey).mockClear();
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const result = await runBackgroundAutomation(
+          runOptions(automation, {
+            ownerEmail: "__organization__:acme",
+            orgId: "acme",
+          }),
+          { ...standardDeps, appId: "calendar" },
+        ).then(
+          () => ({ error: undefined }),
+          (error: unknown) => ({ error }),
+        );
+        const history = await pglite
+          .prepare(
+            `SELECT owner, scope, org_id, app_id, path, status, error, error_code,
+                  notification_email, run_id, thread_id, started_at, finished_at
+           FROM automation_runs WHERE automation = ?`,
+          )
+          .all(name);
+        expect(history).toHaveLength(1);
+        const errorCode = transient
+          ? "automation_recipient_lookup_unavailable"
+          : deniedAt === "membership"
+            ? "config_invalid"
+            : "automation_notification_recipient_unavailable";
+        expect(history[0]).toMatchObject({
+          owner: "__organization__:acme",
+          scope: "organization",
+          org_id: "acme",
+          app_id: "calendar",
+          path: `jobs/${name}.md`,
+          status: "error",
+          error_code: errorCode,
+          error:
+            deniedAt === "membership"
+              ? 'could not verify membership in org "acme"'
+              : `Could not resolve the alert recipient for automation "${name}" in org "acme"`,
+          notification_email: null,
+          run_id: null,
+          thread_id: null,
+          started_at: expect.any(Number),
+          finished_at: expect.any(Number),
+        });
+        expect(Number(history[0].finished_at)).toBeGreaterThanOrEqual(
+          Number(history[0].started_at),
+        );
+        expect(result.error).toMatchObject({ errorCode, cause: denied });
+        expect((result.error as Error).cause).toBe(denied);
+        expect((result.error as Error).message).not.toContain(diagnostic);
+        expect(JSON.stringify(history[0])).not.toContain(diagnostic);
+        const failure = classifyAutomationFailure(result.error);
+        const now = new Date("2026-10-27T12:00:00Z");
+        const paused = applyAutomationFailure(
+          {
+            enabled: true,
+            lastErrorCode: errorCode,
+            consecutiveFailures: RUNTIME_PAUSE_AFTER - 1,
+          },
+          failure,
+          now,
+        );
+        expect(paused.pause).toBe(true);
+        expect(
+          isTransientPauseProbeDue(
+            {
+              pausedReason: errorCode,
+              pausedAt: now.toISOString(),
+              consecutiveFailures: RUNTIME_PAUSE_AFTER,
+            },
+            new Date("2026-10-28T12:00:00Z"),
+          ),
+        ).toBe(transient);
+        expect(
+          errors.mock.calls.some((call) => call.includes(result.error)),
+        ).toBe(true);
+        expect(createThreadMock).not.toHaveBeenCalled();
+        expect(resolveOwnerEngineApiKey).not.toHaveBeenCalled();
+        expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+        await expect(countRowsWithPrefix(`job-${name}`)).resolves.toBe(0);
+        if (deniedAt === "membership") {
+          expect(queries).toHaveLength(1);
+        }
+      } finally {
+        rawClient.execute.mockImplementation(execute);
+        errors.mockRestore();
+      }
+    },
+  );
+
+  it.each(["start", "finish"] as const)(
+    "stops after recipient denial even when history %s fails",
+    async (failedWrite) => {
+      await seedOrg([["bob@agent-native.test", "owner"]]);
+      const history = await import("./run-history.js");
+      await history.ensureTable();
+      const { resolveOwnerEngineApiKey } =
+        await import("../agent/production-agent.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const name = `recipient-denied-history-${failedWrite}`;
+      const automation = precondition(name, {
+        runAs: "shared",
+        orgId: "acme",
+        createdBy: "alice@agent-native.test",
+      });
+      automation.resource.owner = "__organization__:acme";
+      const denied = Object.assign(
+        new Error("permission denied for table org_members"),
+        { code: "42501" },
+      );
+      const historyFailure = new Error("history persistence unavailable");
+      const execute = rawClient.execute.getMockImplementation()!;
+      rawClient.execute.mockImplementation(async (input) => {
+        if (typeof input !== "string" && /FROM org_members/.test(input.sql))
+          throw denied;
+        return execute(input);
+      });
+      const write =
+        failedWrite === "start"
+          ? vi
+              .spyOn(history, "startAutomationRun")
+              .mockRejectedValue(historyFailure)
+          : vi
+              .spyOn(history, "finishAutomationRun")
+              .mockRejectedValue(historyFailure);
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      createThreadMock.mockClear();
+      vi.mocked(resolveOwnerEngineApiKey).mockClear();
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      try {
+        const error = await runBackgroundAutomation(
+          runOptions(automation, {
+            ownerEmail: "__organization__:acme",
+            orgId: "acme",
+          }),
+          standardDeps,
+        ).then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        expect(createThreadMock).not.toHaveBeenCalled();
+        expect(resolveOwnerEngineApiKey).not.toHaveBeenCalled();
+        expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+        expect(error).toBeInstanceOf(
+          (await import("./background-automation-runner.js"))
+            .BackgroundAutomationRunError,
+        );
+        expect(error).toMatchObject({
+          errorCode: "config_invalid",
+        });
+        expect((error as Error).message).not.toContain(denied.message);
+        expect((error as Error).message).not.toContain(historyFailure.message);
+        expect((error as Error).cause).toBeInstanceOf(AggregateError);
+        expect(((error as Error).cause as AggregateError).errors).toEqual([
+          expect.objectContaining({
+            errorCode: "config_invalid",
+            cause: denied,
+          }),
+          historyFailure,
+        ]);
+        await expect(countRowsWithPrefix(`job-${name}`)).resolves.toBe(0);
+      } finally {
+        rawClient.execute.mockImplementation(execute);
+        write.mockRestore();
+        errors.mockRestore();
+      }
+    },
+  );
 
   it("alerts an org owner, not a creator who has left the organization", async () => {
     await seedOrg([["bob@agent-native.test", "owner"]]);

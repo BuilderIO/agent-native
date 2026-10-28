@@ -146,7 +146,8 @@ test("skips specs that need a database or other service, as the fast-test lanes 
   );
 });
 
-test("skips specs that import the repo-root catalog harness", () => {
+// oracle-change: workspace discovery supports catalog consumers inside the mutation sandbox.
+test("retains catalog consumers after sandbox workspace discovery", () => {
   const listing = ["plugin.spec.ts", "plugin.inventory.spec.ts", "plugin.ts"];
   const files = {
     "src/plugin.spec.ts": `import { start } from "./plugin";`,
@@ -154,7 +155,28 @@ test("skips specs that import the repo-root catalog harness", () => {
   };
   assert.deepEqual(
     namedSpecs(["src/plugin.ts:1-2"], () => listing, readFrom(files)),
-    { include: ["src/plugin.spec.ts"], missing: [] },
+    {
+      include: ["src/plugin.inventory.spec.ts", "src/plugin.spec.ts"],
+      missing: [],
+    },
+  );
+});
+
+test("selects catalog harness importers for mutations of the harness itself", () => {
+  const listing = [
+    "action-eligibility.spec.ts",
+    "advertised-catalog.harness.ts",
+  ];
+  const files = {
+    "src/mcp/action-eligibility.spec.ts": `import { withCatalogClient } from "./advertised-catalog.harness.js";`,
+  };
+  assert.deepEqual(
+    namedSpecs(
+      ["src/mcp/advertised-catalog.harness.ts:9-9"],
+      () => listing,
+      readFrom(files),
+    ),
+    { include: ["src/mcp/action-eligibility.spec.ts"], missing: [] },
   );
 });
 

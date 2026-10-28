@@ -6180,7 +6180,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         ) ?? "app";
 
       const resolveModelDefaultsContext = async (event: any) => {
-        const session = await getSession(event).catch(() => null);
+        const session = await getSession(event);
         if (!session?.email) {
           return {
             ok: false as const,

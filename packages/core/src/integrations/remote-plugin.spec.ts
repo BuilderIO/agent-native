@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ForbiddenError } from "../sharing/errors.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
@@ -34,12 +35,16 @@ vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
 }));
 
-vi.mock("../server/auth.js", () => ({
+vi.mock("../server/auth.js", async () => ({
   getSession: getSessionMock,
+  SessionResolutionUnavailableError: (
+    await import("../server/session-resolution-errors.js")
+  ).SessionResolutionUnavailableError,
 }));
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
+  hasOrgScopeResolutionUnavailable: () => false,
 }));
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
@@ -193,6 +198,34 @@ describe("remote integration plugin routes", () => {
   afterEach(() => {
     vi.resetAllMocks();
   });
+
+  it.each(["57014", "42501", "forbidden"])(
+    "refuses remote registration after org lookup failure %s",
+    async (code) => {
+      getSessionMock.mockResolvedValue({ email: "device@example.test" });
+      getOrgContextMock.mockRejectedValue(
+        code === "forbidden"
+          ? new ForbiddenError()
+          : Object.assign(new Error("private membership failure"), { code }),
+      );
+      const app = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [] })(app);
+      const result = await dispatch(
+        app,
+        "/_agent-native/integrations/remote/register",
+        "POST",
+        { label: "Fake device" },
+      );
+      expect(result.status).toBe(
+        code === "57014" ? 503 : code === "forbidden" ? 403 : 500,
+      );
+      expect(createRemoteDeviceMock).not.toHaveBeenCalled();
+      expect(enqueueRemoteCommandMock).not.toHaveBeenCalled();
+      expect(JSON.stringify(result.body)).not.toContain(
+        "private membership failure",
+      );
+    },
+  );
 
   it("registers a remote device with session auth and returns the raw token once", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "alice@example.com" });

@@ -98,6 +98,7 @@ import {
   canUseDeployCredentialFallbackForRequest,
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   assertCredentialStoreReadable,
   getBuilderCredentialAuthFailure,
   getBuilderKeyConnections,
@@ -2641,7 +2642,7 @@ describe("unreadable credential store is not 'not configured'", () => {
       cause: expect.any(AppSecretDecryptionError),
     });
     await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
-      CredentialStoreUnavailableError,
+      CredentialStoreLookupError,
     );
   });
 
@@ -2653,13 +2654,30 @@ describe("unreadable credential store is not 'not configured'", () => {
     ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
   });
 
-  it("reports an undecryptable saved secret as unavailable instead of missing", () => {
+  it("reports an undecryptable saved secret as a permanent failure instead of missing", () => {
     expect(() =>
       assertCredentialStoreReadable({
         lookupFailed: true,
         cause: new AppSecretDecryptionError(),
       }),
-    ).toThrow(CredentialStoreUnavailableError);
+    ).toThrow(CredentialStoreLookupError);
+  });
+
+  it.each([
+    new CredentialStoreUnavailableError(new Error("fake provider outage")),
+    new CredentialStoreLookupError(new Error("fake permanent lookup failure")),
+  ])("preserves an already classified credential failure: $name", (failure) => {
+    expect(() =>
+      assertCredentialStoreReadable({ lookupFailed: true, cause: failure }),
+    ).toThrow(failure);
+    try {
+      assertCredentialStoreReadable({ lookupFailed: true, cause: failure });
+    } catch (error) {
+      expect(error).toBe(failure);
+    }
+    expect(() =>
+      assertCredentialStoreReadable({ lookupFailed: false, cause: failure }),
+    ).not.toThrow();
   });
 
   it("does not report the retryable error as a missing-LLM-credential error", () => {
@@ -3695,7 +3713,7 @@ describe("Restrict personal API keys", () => {
 
     await expect(
       resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
-    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    ).rejects.toBeInstanceOf(CredentialStoreLookupError);
     expect(
       mockReadAppSecret.mock.calls.some(([args]) => args.scope === "org"),
     ).toBe(false);
@@ -3769,7 +3787,7 @@ describe("host-managed Builder credentials", () => {
     mockGetRequestUserEmail.mockReturnValue(owner);
     mockGetRequestOrgId.mockReturnValue(undefined);
     mockReadAppSecret.mockResolvedValue(null);
-    mockReadAppSecrets.mockResolvedValue([]);
+    mockReadAppSecrets.mockResolvedValue(new Map());
   });
 
   afterEach(() => {
@@ -3819,9 +3837,14 @@ describe("host-managed Builder credentials", () => {
       key,
       value: `shared-${key}`,
     }));
-    mockReadAppSecrets.mockResolvedValue([
-      { key: "BUILDER_PRIVATE_KEY", value: "shared-key" },
-    ]);
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        [
+          "BUILDER_PRIVATE_KEY",
+          { key: "BUILDER_PRIVATE_KEY", value: "shared-key" },
+        ],
+      ]),
+    );
 
     await expect(
       resolveBuilderCredential("BUILDER_PRIVATE_KEY"),

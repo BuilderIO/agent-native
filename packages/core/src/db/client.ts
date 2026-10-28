@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
+import { isConnectionError } from "./errors.js";
+export { isConnectionError, isTransientDatabaseError } from "./errors.js";
+
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
@@ -1037,90 +1040,6 @@ function explicitTransaction(
       throw err;
     }
   };
-}
-
-const CONNECTION_ERROR_CODES = new Set([
-  "ECONNRESET",
-  "ETIMEDOUT",
-  "EPIPE",
-  "ENOTFOUND",
-  "EMAXCONN",
-  "53300",
-  "CONNECT_TIMEOUT",
-  "CONNECTION_ENDED",
-  "CONNECTION_DESTROYED",
-  "CONNECTION_CLOSED",
-]);
-
-export function isConnectionError(err: any): boolean {
-  if (!err) return false;
-  const code = err.code || err.cause?.code;
-  if (code && CONNECTION_ERROR_CODES.has(code)) return true;
-  const name = err.name || err.cause?.name || "";
-  if (name === "ErrorEvent") return true;
-  const stack = String(err.stack || err.cause?.stack || "");
-  if (
-    /WebSocket\.#onSocketClose|failWebsocketConnection|onSocketClose/.test(
-      stack,
-    )
-  ) {
-    return true;
-  }
-  const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|EMAXCONN|too many connections|max client connections|remaining connection slots|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
-    msg,
-  );
-}
-
-export function isTransientDatabaseError(err: unknown): boolean {
-  const error = err as {
-    code?: unknown;
-    name?: unknown;
-    message?: unknown;
-    stack?: unknown;
-    cause?: {
-      code?: unknown;
-      name?: unknown;
-      message?: unknown;
-      stack?: unknown;
-    };
-  };
-  const code = String(error?.code ?? error?.cause?.code ?? "");
-  if (
-    code === "ECHECKOUTTIMEOUT" ||
-    code === "DB_CONNECT_COOLDOWN" ||
-    code === "EMAXCONN" ||
-    code === "53300" ||
-    code === "57014" ||
-    /^08/.test(code) ||
-    /^57P0[123]$/.test(code)
-  ) {
-    return true;
-  }
-
-  const message = [error?.message, error?.cause?.message]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  if (
-    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
-  ) {
-    return true;
-  }
-
-  const databaseSurface = [
-    error?.name,
-    error?.cause?.name,
-    error?.stack,
-    error?.cause?.stack,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  return (
-    isConnectionError(error) &&
-    /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
-      databaseSurface,
-    )
-  );
 }
 
 // A serverless gateway gives up near 30s, so a retry loop there must stop while

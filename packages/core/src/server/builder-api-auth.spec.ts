@@ -211,6 +211,24 @@ describe("resolveBuilderApiAuthorization", () => {
     ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
   });
 
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "classifies stored custody transport %s without reclassifying provider refresh",
+    async (code) => {
+      const cause = Object.assign(new Error("Fake transport failure"), {
+        code,
+      });
+      hasBuilderOAuthSessionMock.mockRejectedValue(cause);
+      await expect(
+        resolveBuilderApiAuthorization(ASSETS_WRITE),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
+      hasBuilderOAuthSessionMock.mockResolvedValue(true);
+      getBuilderOAuthSessionMock.mockRejectedValue(cause);
+      await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).rejects.toBe(
+        cause,
+      );
+    },
+  );
+
   it("reports a retryable error when the OAuth custody read is unavailable", async () => {
     hasBuilderOAuthSessionMock.mockRejectedValue({
       code: "ECHECKOUTTIMEOUT",

@@ -265,7 +265,7 @@ export async function resolveAgentEngineApiKeyWriteTarget(
   | { ok: true; target: AgentEngineApiKeyWriteTarget }
   | { ok: false; statusCode: number; error: string }
 > {
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) {
     return { ok: false, statusCode: 401, error: "Authentication required" };
   }
