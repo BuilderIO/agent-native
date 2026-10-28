@@ -61,7 +61,13 @@ interface EditorSidebarProps {
   recentEdits?: AttributedRecentEdit[];
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
-  generatingSlide?: { index: number };
+  /** Slides the agent is writing, in order, after the saved ones. */
+  generatingSlides?: {
+    key: string;
+    content?: string | undefined;
+    failed?: boolean | undefined;
+  }[];
+  /** The newest generating slide is on the canvas. */
   generatingSlideSelected?: boolean;
   onAddSlide?: () => void;
   addSlideGenerating?: boolean;
@@ -569,12 +575,16 @@ function SortableSlideThumb({
 
 function GeneratingSlideSkeleton({
   index,
+  content,
+  failed,
   aspectRatio,
   designSystem,
   selected,
   onSelect,
 }: {
   index: number;
+  content?: string;
+  failed?: boolean;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   selected?: boolean;
@@ -598,6 +608,8 @@ function GeneratingSlideSkeleton({
         </span>
         <div className="flex-1 min-w-0">
           <GeneratingSlidePreview
+            content={content}
+            failed={failed}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
             thumbnail
@@ -620,7 +632,7 @@ export default function EditorSidebar({
   recentEdits,
   aspectRatio,
   designSystem,
-  generatingSlide,
+  generatingSlides = [],
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
   onAddSlide,
@@ -1005,7 +1017,7 @@ export default function EditorSidebar({
               />
             ))}
           </SortableContext>
-          {slides.length === 0 && !generatingSlide && (
+          {slides.length === 0 && generatingSlides.length === 0 && (
             <div className="flex flex-col items-center gap-2 p-8 text-center">
               <span className="flex size-6 items-center justify-center rounded-sm bg-muted">
                 <IconPresentation className="size-3 text-foreground" />
@@ -1018,15 +1030,21 @@ export default function EditorSidebar({
               </div>
             </div>
           )}
-          {generatingSlide && (
+          {generatingSlides.map((generatingSlide, offset) => (
             <GeneratingSlideSkeleton
-              index={generatingSlide.index}
+              key={generatingSlide.key}
+              index={slides.length + offset}
+              content={generatingSlide.content}
+              failed={generatingSlide.failed}
               aspectRatio={aspectRatio}
               designSystem={designSystem}
-              selected={generatingSlideSelected}
+              selected={
+                generatingSlideSelected &&
+                offset === generatingSlides.length - 1
+              }
               onSelect={onSelectGeneratingSlide}
             />
-          )}
+          ))}
         </div>
       </div>
       {describeSlideId && describeSlideIndex !== -1 && describeAnchorEl && (

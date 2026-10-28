@@ -563,10 +563,12 @@ const generateDesignAction = defineAction({
     "A file rejected by a concurrent edit or an HTML-integrity check does not " +
     "fail the whole call — it is listed in `fileErrors` instead, while every " +
     "other file in the same call still saves; resend just the named file(s). " +
-    "Keep the first save compact and working; for large designs, persist a minimal " +
-    "version then refine individual files with `edit-design` (search/replace) rather " +
-    "than resending a big multi-file payload — a single oversized payload can get cut " +
-    "off mid-stream and stall the turn. " +
+    "Build a new screen with several sections skeleton-first: save the document shell " +
+    "with one sized, unstyled placeholder per section (each marked `data-skeleton` with a " +
+    "`data-layer-name`), then fill one section per `edit-design` call, top to bottom, so " +
+    "the canvas drafts each section in as it lands (steps in the design-generation skill). " +
+    "This also keeps every payload small: a single oversized payload can get cut off " +
+    "mid-stream and stall the turn. " +
     "Do not use this action to replace a selected variant screen after a " +
     "variant pick; call `get-design-snapshot` for the selected `fileId` and " +
     "`edit-design` that same `fileId` instead. " +

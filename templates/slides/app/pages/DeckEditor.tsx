@@ -145,6 +145,7 @@ import { useDeckAccessReload } from "@/hooks/use-deck-access-reload";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
+import { useGeneratingSlidePreviews } from "@/hooks/use-generating-slide-preview";
 import {
   clearNewDeckGenerationRun,
   NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
@@ -1264,6 +1265,29 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const {
+    slides: streamedSlides,
+    replacesDeck: streamReplacesDeck,
+    callKey: streamCallKey,
+  } = useGeneratingSlidePreviews({
+    deckId: id ?? "",
+    generating,
+  });
+  // The canvas shows the newest slide the agent is writing.
+  const streamedSlide = streamedSlides.at(-1);
+  // Saved slides wait behind their previews until those finish drawing, so
+  // the list never shows a slide twice. The held count is taken when the
+  // call first parses, which is before any of its slides lands.
+  const [heldSlides, setHeldSlides] = useState<{
+    key: string | null;
+    count: number;
+  }>({ key: null, count: 0 });
+  if (heldSlides.key !== streamCallKey) {
+    setHeldSlides({
+      key: streamCallKey,
+      count: streamReplacesDeck ? 0 : slideCount,
+    });
+  }
   const slideCountRef = useRef(slideCount);
   slideCountRef.current = slideCount;
   const deckRole = useDeckRole(
@@ -3149,8 +3173,25 @@ export default function DeckEditor() {
     (isNewDeckGenerating ||
       (addSlideGenerating && !fillingPlaceholderSlideId) ||
       showNewDeckGeneratingOverlay);
+  // While the user stays on the newest slide, the canvas follows the slide the
+  // agent is writing, from its first streamed burst until its draft settles.
+  const streamingSlideActive = streamedSlides.length > 0;
+  const [canvasFollowsStream, setCanvasFollowsStream] = useState(false);
+  const [followedStream, setFollowedStream] = useState(false);
+  if (streamingSlideActive !== followedStream) {
+    setFollowedStream(streamingSlideActive);
+    const slides = deck?.slides ?? [];
+    const viewedSlide =
+      slides.find((slide) => slide.id === activeSlideId) ?? slides[0];
+    setCanvasFollowsStream(
+      streamingSlideActive &&
+        generatingSlideVisible &&
+        (generatingSlideSelected || viewedSlide === slides.at(-1)),
+    );
+  }
   const showCurrentSlideEditor =
     !generatingSlideSelected &&
+    !canvasFollowsStream &&
     !showNewDeckGeneratingOverlay &&
     !showQuestionFlow;
 
@@ -3188,13 +3229,13 @@ export default function DeckEditor() {
     previousSlideIdsRef.current = currentSlideIds;
     if (!slideWasAdded) return;
 
-    if (addedSlide && generatingSlideSelected) {
+    if (addedSlide && (generatingSlideSelected || canvasFollowsStream)) {
       selectionAnchorSlideIdRef.current = addedSlide.id;
       setSelectedSlideIds([addedSlide.id]);
       setActiveSlideId(addedSlide.id);
     }
     setGeneratingSlideSelected(false);
-  }, [deck, generatingSlideSelected]);
+  }, [deck, generatingSlideSelected, canvasFollowsStream]);
 
   const checkedDeckAccessKey = useDeckAccessReload({
     accessKey: currentDeckAccessKey,
@@ -3570,6 +3611,7 @@ export default function DeckEditor() {
       selectionAnchorSlideIdRef.current = result.anchorSlideId;
       setSelectedSlideIds(result.selectedSlideIds);
       setGeneratingSlideSelected(false);
+      setCanvasFollowsStream(false);
       setActiveSlideId(slideId);
       if (isCompactEditorLayout()) setSidebarOpen(false);
     },
@@ -5605,7 +5647,11 @@ export default function DeckEditor() {
                   onDragCancel={handleDragCancel}
                 >
                   <EditorSidebar
-                    slides={deck.slides}
+                    slides={
+                      generatingSlideVisible && streamCallKey !== null
+                        ? deck.slides.slice(0, heldSlides.count)
+                        : deck.slides
+                    }
                     activeSlideId={currentSlide?.id || ""}
                     selectedSlideIds={selectedSlideIds}
                     deckId={id}
@@ -5636,14 +5682,21 @@ export default function DeckEditor() {
                     recentEdits={deckRecentEdits}
                     aspectRatio={deck.aspectRatio}
                     designSystem={designSystem}
-                    generatingSlide={
+                    generatingSlides={
                       generatingSlideVisible
-                        ? {
-                            index: deck.slides.length,
-                          }
+                        ? streamedSlides.length > 0
+                          ? streamedSlides.map(({ key, content, failed }) => ({
+                              key,
+                              content,
+                              failed,
+                            }))
+                          : [{ key: "next-slide" }]
                         : undefined
                     }
-                    generatingSlideSelected={generatingSlideSelected}
+                    generatingSlideSelected={
+                      generatingSlideSelected ||
+                      (canvasFollowsStream && !streamedSlide?.settling)
+                    }
                     onSelectGeneratingSlide={() => {
                       setGeneratingSlideSelected(true);
                       if (isCompactEditorLayout()) setSidebarOpen(false);
@@ -5749,10 +5802,15 @@ export default function DeckEditor() {
           </>
         )}
 
-        {generatingSlideSelected && generatingSlideVisible && (
+        {(canvasFollowsStream ||
+          (generatingSlideSelected && generatingSlideVisible)) && (
           <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
             <div className="m-auto w-full max-w-6xl">
               <GeneratingSlidePreview
+                key={streamedSlide?.key}
+                content={streamedSlide?.content}
+                failed={streamedSlide?.failed}
+                settling={streamedSlide?.settling}
                 aspectRatio={deck.aspectRatio}
                 designSystem={designSystem}
                 thumbnail={false}
@@ -5789,6 +5847,7 @@ export default function DeckEditor() {
         )}
 
         {!generatingSlideSelected &&
+          !canvasFollowsStream &&
           deck.slides.length === 0 &&
           (showGenerationRecovery ? (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
@@ -5827,6 +5886,8 @@ export default function DeckEditor() {
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
+                  content={streamedSlide?.content}
+                  failed={streamedSlide?.failed}
                   aspectRatio={deck.aspectRatio}
                   designSystem={designSystem}
                   thumbnail={false}
@@ -5836,6 +5897,7 @@ export default function DeckEditor() {
           ) : null)}
 
         {deck.slides.length === 0 &&
+          !canvasFollowsStream &&
           !showGenerationRecovery &&
           !generatingSlideVisible && (
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">

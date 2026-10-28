@@ -214,6 +214,8 @@ const CANVAS_BACKGROUND_VAR = "var(--design-editor-canvas-bg)";
 const SCREEN_HEIGHT = 640;
 const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
+/** `nextCanvasFramePosition`'s default gap before a newly placed screen. */
+const NEW_SCREEN_GAP = 160;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
 const CROSS_SCREEN_MODIFIER_SNAPSHOT_TIMEOUT_MS = 50;
@@ -503,6 +505,7 @@ export function isApplePlatform(): boolean {
 const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
 const VECTOR_EDIT_HIT_RADIUS_SCREEN_PX = 8;
 
+import { GeneratingScreenGhost } from "./GeneratingScreenGhost";
 import {
   alignmentGuidesEqual,
   altHoverMeasurementEqual,
@@ -887,6 +890,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBoardTextContentChange,
   } = {},
   canvasBackground,
+  generatingDesignId = null,
   onDropFiles,
 }: MultiScreenCanvasGroupedProps) {
   const { resolvedTheme } = useTheme();
@@ -11288,6 +11292,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const scale = canvasZoom / 100;
   const chromeScale = scale > 0 ? 1 / scale : 1;
+  // Where a newly generated screen lands: right of the existing screens, the
+  // same gap `nextCanvasFramePosition` places it at.
+  const generatingScreenOrigin = useMemo(() => {
+    if (!generatingDesignId) return null;
+    const bounds = getFrameGroupBounds(
+      screens.map((screen, index) => ({
+        id: screen.id,
+        geometry:
+          frameGeometry[screen.id] ??
+          getInitialFrameGeometry(index, getResolvedMetadata(screen)),
+      })),
+    );
+    return bounds
+      ? { x: bounds.right + NEW_SCREEN_GAP, y: bounds.top }
+      : { x: 0, y: 0 };
+  }, [frameGeometry, generatingDesignId, getResolvedMetadata, screens]);
   const showPixelGrid = pixelGridEnabled && canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
   const lastTracedToolRef = useRef<string | null>(null);
@@ -13438,6 +13458,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }}
           />
         )
+      ) : null}
+
+      {generatingDesignId && generatingScreenOrigin ? (
+        <GeneratingScreenGhost
+          designId={generatingDesignId}
+          origin={generatingScreenOrigin}
+          pan={pan}
+          scale={scale}
+        />
       ) : null}
 
       {duplicatePreview ? (

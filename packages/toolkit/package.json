@@ -473,6 +473,13 @@
       "import": "./dist/app/onboarding/first-run-builder-credits-flag.js",
       "default": "./dist/app/onboarding/first-run-builder-credits-flag.js"
     },
+    "./app/generation": {
+      "types": "./dist/app/generation/index.d.ts",
+      "browser": "./dist/app/generation/index.js",
+      "development": "./dist/app/generation/index.js",
+      "import": "./dist/app/generation/index.js",
+      "default": "./dist/app/generation/index.js"
+    },
     "./app/progress": {
       "types": "./dist/app/progress/index.d.ts",
       "browser": "./dist/app/progress/index.js",

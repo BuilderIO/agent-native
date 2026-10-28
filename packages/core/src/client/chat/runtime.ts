@@ -4230,6 +4230,20 @@ function mapAgentNativeEvent(
       },
     ];
   }
+  if (ev.type === "tool_input_delta") {
+    // Arguments stream long before the tool runs; generation previews render
+    // them as they arrive, so dropping these leaves a preview with nothing.
+    if (!ev.id || !ev.text) return [];
+    return [
+      {
+        type: "tool-delta",
+        ...base,
+        toolCallId: ev.id,
+        ...(ev.tool ? { toolName: ev.tool } : {}),
+        inputTextDelta: ev.text,
+      },
+    ];
+  }
   if (ev.type === "tool_start") {
     const toolCallId = ev.id ?? createRuntimeId("tool");
     const toolName = ev.tool ?? "unknown";

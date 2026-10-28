@@ -7375,16 +7375,26 @@ function dispatchAgentKitCompatibilityEvent(
     return;
   }
   if (event.type === "tool.delta") {
-    const tool = thread.tools[event.toolCallId];
-    if (!tool || !event.inputTextDelta) return;
-    const argsText = `${toolInputArgs.get(tool.id) ?? ""}${event.inputTextDelta}`;
-    toolInputArgs.set(tool.id, argsText);
+    if (!event.inputTextDelta) return;
+    // `thread` is the last rendered snapshot, which doesn't know a tool whose
+    // first argument bytes are this event. Skipping it would cut the head off
+    // the JSON every streaming preview parses.
+    const metadataToolName = event.metadata?.toolName;
+    const knownTool = Object.hasOwn(thread.tools, event.toolCallId)
+      ? thread.tools[event.toolCallId]
+      : undefined;
+    const toolName =
+      knownTool?.name ??
+      (typeof metadataToolName === "string" ? metadataToolName : undefined);
+    if (!toolName) return;
+    const argsText = `${toolInputArgs.get(event.toolCallId) ?? ""}${event.inputTextDelta}`;
+    toolInputArgs.set(event.toolCallId, argsText);
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-input", {
         detail: {
           phase: "delta",
-          tool: tool.name,
-          id: tool.id,
+          tool: toolName,
+          id: event.toolCallId,
           argsText,
           text: event.inputTextDelta,
           tabId,

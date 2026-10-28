@@ -1,0 +1,73 @@
+// @vitest-environment happy-dom
+
+import { describe, expect, it } from "vitest";
+
+import { morphChildren, STREAMED_IN_ATTRIBUTE } from "./dom-morph";
+
+function fragment(html: string): HTMLTemplateElement {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  return template;
+}
+
+function morph(target: HTMLElement, html: string) {
+  morphChildren(target, fragment(html).content, STREAMED_IN_ATTRIBUTE);
+}
+
+describe("morphChildren", () => {
+  it("keeps elements already on screen and marks only new ones", () => {
+    const root = document.createElement("div");
+    morph(root, "<h1>Hel</h1>");
+    const heading = root.querySelector("h1");
+    expect(heading?.hasAttribute(STREAMED_IN_ATTRIBUTE)).toBe(true);
+    heading?.removeAttribute(STREAMED_IN_ATTRIBUTE);
+
+    morph(root, "<h1>Hello</h1><p>Body <b>bold</b></p>");
+    expect(root.querySelector("h1")).toBe(heading);
+    expect(heading?.textContent).toBe("Hello");
+    expect(heading?.hasAttribute(STREAMED_IN_ATTRIBUTE)).toBe(false);
+    const paragraph = root.querySelector("p");
+    expect(paragraph?.hasAttribute(STREAMED_IN_ATTRIBUTE)).toBe(true);
+    expect(root.querySelector("b")?.hasAttribute(STREAMED_IN_ATTRIBUTE)).toBe(
+      false,
+    );
+  });
+
+  it("syncs attributes without dropping the entrance mark", () => {
+    const root = document.createElement("div");
+    morph(root, '<div class="a"></div>');
+    morph(root, '<div class="a b" id="x"></div>');
+    const div = root.firstElementChild;
+    expect(div?.getAttribute("class")).toBe("a b");
+    expect(div?.id).toBe("x");
+    expect(div?.hasAttribute(STREAMED_IN_ATTRIBUTE)).toBe(true);
+  });
+
+  it("replaces a node whose tag changed and removes extras", () => {
+    const root = document.createElement("div");
+    morph(root, "<p>a</p><p>b</p>");
+    morph(root, "<section>a</section>");
+    expect(root.innerHTML).toBe(
+      `<section ${STREAMED_IN_ATTRIBUTE}="">a</section>`,
+    );
+  });
+
+  it("reports each inserted element once, after the patch", () => {
+    const root = document.createElement("div");
+    const inserted: string[] = [];
+    const track = (element: Element) => inserted.push(element.tagName);
+    morphChildren(
+      root,
+      fragment("<h1>A</h1>").content,
+      STREAMED_IN_ATTRIBUTE,
+      track,
+    );
+    morphChildren(
+      root,
+      fragment("<h1>AB</h1><p>c</p>").content,
+      STREAMED_IN_ATTRIBUTE,
+      track,
+    );
+    expect(inserted).toEqual(["H1", "P"]);
+  });
+});
