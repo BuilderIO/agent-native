@@ -30,6 +30,11 @@ export const STREAMED_IN_CSS = `
  * has its attributes synced but its children left alone, for content another
  * renderer owns, such as a React portal's slot.
  *
+ * With `owned`, only nodes in it are compared or removed. A morph adds every
+ * node it inserts; nodes a runtime created after them (Alpine's `x-for`
+ * clones, text from `x-text`) are not in the source, so a positional
+ * comparison would otherwise overwrite or delete them.
+ *
  * This function is serialized into sandboxed preview frames with
  * `Function.prototype.toString`, so it must not reference anything outside
  * its own body.
@@ -40,8 +45,17 @@ export function morphChildren(
   markAttribute: string,
   onInsert?: (element: Element) => void,
   keepChildren?: (element: Element) => boolean,
+  owned?: WeakSet<Node>,
 ): void {
   const doc = target.ownerDocument ?? (target as Document);
+
+  const own = (node: Node): void => {
+    if (!owned) return;
+    owned.add(node);
+    node.childNodes.forEach(own);
+  };
+  const childrenToMatch = (node: Node) =>
+    Array.from(node.childNodes).filter((child) => !owned || owned.has(child));
 
   const syncAttributes = (to: Element, from: Element) => {
     for (const attr of Array.from(to.attributes)) {
@@ -58,6 +72,7 @@ export function morphChildren(
   const inserted: Element[] = [];
   const adopt = (node: Node): Node => {
     const copy = doc.importNode(node, true);
+    own(copy);
     if (copy.nodeType === 1) {
       (copy as Element).setAttribute(markAttribute, "");
       inserted.push(copy as Element);
@@ -71,7 +86,7 @@ export function morphChildren(
 
   const patch = (to: Node, from: Node) => {
     const next = Array.from(from.childNodes);
-    const current = Array.from(to.childNodes);
+    const current = childrenToMatch(to);
     next.forEach((wanted, i) => {
       const existing = current.at(i);
       if (!existing) {
@@ -94,11 +109,7 @@ export function morphChildren(
         existing.nodeValue = wanted.nodeValue;
       }
     });
-    while (to.childNodes.length > next.length) {
-      const extra = to.lastChild;
-      if (!extra) break;
-      to.removeChild(extra);
-    }
+    for (const extra of current.slice(next.length)) to.removeChild(extra);
   };
 
   patch(target, source);

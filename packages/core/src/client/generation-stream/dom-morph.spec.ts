@@ -72,6 +72,38 @@ describe("morphChildren", () => {
     expect(root.querySelector("p")?.textContent).toBe("Hi there");
   });
 
+  it("leaves nodes a runtime added alone when it tracks what it inserted", () => {
+    const owned = new WeakSet<Node>();
+    const root = document.createElement("div");
+    const patchTo = (html: string) =>
+      morphChildren(
+        root,
+        fragment(html).content,
+        STREAMED_IN_ATTRIBUTE,
+        undefined,
+        undefined,
+        owned,
+      );
+    patchTo(
+      '<ul><template></template></ul><p>Hi</p><span class="name"></span>',
+    );
+    // A runtime renders list items beside the template and fills in text.
+    const list = root.querySelector("ul") as HTMLElement;
+    list.insertAdjacentHTML("beforeend", "<li>One</li><li>Two</li>");
+    const name = root.querySelector(".name") as HTMLElement;
+    name.textContent = "Ada";
+
+    patchTo(
+      '<ul class="ready"><template></template></ul><p>Hi there</p><span class="name"></span>',
+    );
+    expect(list.className).toBe("ready");
+    expect(
+      Array.from(list.querySelectorAll("li"), (li) => li.textContent),
+    ).toEqual(["One", "Two"]);
+    expect(name.textContent).toBe("Ada");
+    expect(root.querySelector("p")?.textContent).toBe("Hi there");
+  });
+
   it("reports each inserted element once, after the patch", () => {
     const root = document.createElement("div");
     const inserted: string[] = [];

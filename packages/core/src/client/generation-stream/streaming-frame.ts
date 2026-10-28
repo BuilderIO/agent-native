@@ -81,6 +81,9 @@ function frameScript(token: string): string {
   // The text each live body script ran with. A later document can add a
   // script or change one; either runs, as it would on a fresh load.
   var ranScripts = new WeakMap();
+  // Body nodes the stream put there. A runtime adds others (Alpine renders
+  // x-for clones beside their template); later patches leave those alone.
+  var streamedNodes = new WeakSet();
   var runBodyScript = function (node, source) {
     var live = liveScript(source);
     // Recorded now, so a patch before the swap does not queue it twice.
@@ -88,13 +91,16 @@ function frameScript(token: string): string {
     enqueueScript(function () {
       if (!node.parentNode) return null;
       node.parentNode.replaceChild(live, node);
+      streamedNodes.add(live);
       ranScripts.set(live, source.text);
       return live;
     });
   };
   var syncBodyScripts = function (parsedBody) {
     var wanted = parsedBody.querySelectorAll("script");
-    Array.prototype.slice.call(document.body.querySelectorAll("script")).forEach(function (node, index) {
+    Array.prototype.slice.call(document.body.querySelectorAll("script")).filter(function (node) {
+      return streamedNodes.has(node);
+    }).forEach(function (node, index) {
       var source = wanted[index];
       if (source && ranScripts.get(node) !== source.text) runBodyScript(node, source);
     });
@@ -180,7 +186,7 @@ function frameScript(token: string): string {
         appliedHead.delete(key);
       });
     }
-    morph(document.body, parsed.body, MARK);
+    morph(document.body, parsed.body, MARK, undefined, undefined, streamedNodes);
     if (completed) syncBodyScripts(parsed.body);
     else if (lower.indexOf("</html") !== -1) complete();
   };
