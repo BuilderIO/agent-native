@@ -13,6 +13,7 @@ export class NativeShaderPaintValueError extends TypeError {
     readonly code:
       | "native-paint-invalid-color"
       | "native-paint-invalid-gradient"
+      | "native-paint-unsupported-kind"
       | "native-paint-unsupported-geometry"
       | "native-paint-unsupported-interpolation",
   ) {

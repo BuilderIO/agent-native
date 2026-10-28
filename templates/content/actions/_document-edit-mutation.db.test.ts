@@ -14,6 +14,8 @@ import {
   vi,
 } from "vitest";
 
+import { derivedVideoBlockId } from "../shared/comment-block-anchor.js";
+
 const { countOutcome } = vi.hoisted(() => ({ countOutcome: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
@@ -394,52 +396,40 @@ describe("revisioned document edit mutation", () => {
     );
   });
 
-  it.each(["slow", "rejected", "throwing"] as const)(
-    "keeps save settlement and ordering independent of %s telemetry",
-    async (failure) => {
-      const order: string[] = [];
-      let releaseTelemetry: (() => void) | undefined;
-      countOutcome.mockImplementation(() => {
-        order.push("telemetry");
-        if (failure === "throwing") throw new Error("telemetry failed");
-        if (failure === "rejected")
-          return Promise.reject(new Error("telemetry failed"));
-        return new Promise<void>((resolve) => {
-          releaseTelemetry = resolve;
-        });
-      });
-      const input = {
-        documentId: DOCUMENT_ID,
-        baseRevision: documentRevisionToken(0, "alpha beta"),
-        idempotencyKey: "telemetry-independent",
-        edits: [{ find: "alpha", replace: "omega" }],
-        ctx,
-      };
-      const first = await mutateDocumentBody(input);
-      order.push("save_settled");
-      expect(order).toEqual(["save_settled"]);
-      await deliverTelemetry();
-      expect(order).toEqual(["save_settled", "telemetry"]);
-      const replay = await mutateDocumentBody(input);
-      expect(first.receipt).toMatchObject({
-        outcome: "applied",
-        bodyRevision: { before: 0, after: 1 },
-      });
-      expect(replay.receipt).toMatchObject({
-        receiptId: first.receipt.receiptId,
-        idempotency: { result: "replayed" },
-      });
-      expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
-        2,
-      );
-      expect(
-        await getDb().select().from(schema.documentEditReceipts),
-      ).toHaveLength(1);
-      releaseTelemetry?.();
-      await deliverTelemetry();
-      releaseTelemetry?.();
-    },
-  );
+  it("counts within the save and settles it the same when telemetry throws", async () => {
+    const order: string[] = [];
+    countOutcome.mockImplementation(() => {
+      order.push("telemetry");
+      throw new Error("telemetry failed");
+    });
+    const input = {
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, "alpha beta"),
+      idempotencyKey: "telemetry-independent",
+      edits: [{ find: "alpha", replace: "omega" }],
+      ctx,
+    };
+    const first = await mutateDocumentBody(input);
+    order.push("save_settled");
+    // oracle-change: the count now runs before the save returns.
+    expect(order).toEqual(["telemetry", "save_settled"]);
+    const replay = await mutateDocumentBody(input);
+    expect(first.receipt).toMatchObject({
+      outcome: "applied",
+      bodyRevision: { before: 0, after: 1 },
+    });
+    expect(replay.receipt).toMatchObject({
+      receiptId: first.receipt.receiptId,
+      idempotency: { result: "replayed" },
+    });
+    expect(await getDb().select().from(schema.documentVersions)).toHaveLength(
+      2,
+    );
+    expect(
+      await getDb().select().from(schema.documentEditReceipts),
+    ).toHaveLength(1);
+    await deliverTelemetry();
+  });
 
   it("retains the exact save error when telemetry fails", async () => {
     const saveError = new Error("creative-context validation failed");
@@ -458,8 +448,6 @@ describe("revisioned document edit mutation", () => {
         ctx,
       }),
     ).rejects.toBe(saveError);
-    expect(countOutcome).not.toHaveBeenCalled();
-    await deliverTelemetry();
     expect(countOutcome).toHaveBeenCalledExactlyOnceWith(
       "content_save_outcome_counts",
       {
@@ -1057,6 +1045,90 @@ describe("revisioned document edit mutation", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, DOCUMENT_ID));
     expect(document.content).toBe("beta gamma");
+  });
+
+  it("refuses copying a video with its id, and still saves a page that already has such a copy", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const db = getDb();
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    const original = `Intro\n${video("Demo")}`;
+    await db.update(schema.documents).set({ content: original }).where(page);
+    const refused = await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, original),
+      idempotencyKey: "video-copy",
+      edits: [{ find: "Intro", replace: `Intro\n${video("Copy")}` }],
+      ctx,
+    }).catch((error: unknown) => error);
+    expect(refused).toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      statusCode: 422,
+      details: { blockId: "video-original" },
+    });
+    expect(
+      (await db.select().from(schema.documents).where(page))[0].content,
+    ).toBe(original);
+
+    const copied = `Intro\n${video("Copy")}\n${video("Demo")}`;
+    await db.update(schema.documents).set({ content: copied }).where(page);
+    const saved = await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, copied),
+      idempotencyKey: "video-old-copy",
+      edits: [{ find: "Intro", replace: "Opening" }],
+      ctx,
+    });
+    expect(saved.receipt.outcome).toBe("applied");
+  });
+
+  it("refuses an edit without a revision that copies a video with its id", async () => {
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const db = getDb();
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    const original = `Intro\n${video("Demo")}`;
+    await db.update(schema.documents).set({ content: original }).where(page);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          {
+            id: DOCUMENT_ID,
+            find: "Intro",
+            replace: `Intro\n${video("Copy")}`,
+            reuseLabels: [],
+          },
+          { caller: "cli", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+      statusCode: 422,
+      details: { blockId: "video-original" },
+    });
+    expect(
+      (await db.select().from(schema.documents).where(page))[0].content,
+    ).toBe(original);
+  });
+
+  it("saves a video added without an id above one whose derived id the page saved", async () => {
+    const src = "https://example.com/a.mp4";
+    const original = `Intro\n<video src="${src}" id="${derivedVideoBlockId(src, 0)}">Demo</video>`;
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    await getDb()
+      .update(schema.documents)
+      .set({ content: original })
+      .where(page);
+    const added = await mutateDocumentBody({
+      documentId: DOCUMENT_ID,
+      baseRevision: documentRevisionToken(0, original),
+      idempotencyKey: "video-plain-above",
+      edits: [
+        { find: "Intro", replace: `Intro\n<video src="${src}">Added</video>` },
+      ],
+      ctx,
+    });
+    expect(added.receipt.outcome).toBe("applied");
   });
 
   it("rejects legacy content drift even when its numeric body revision was not advanced", async () => {

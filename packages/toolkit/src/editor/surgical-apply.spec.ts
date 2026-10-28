@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { Editor } from "@tiptap/core";
+import { Editor, Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, it } from "vitest";
 
@@ -9,6 +9,7 @@ import {
   applyDocSurgically,
   defaultParseValue,
   diffTopLevel,
+  planDocReconcile,
   reconcileDocAgainstBase,
 } from "./surgical-apply.js";
 
@@ -369,37 +370,203 @@ describe("reconcileDocAgainstBase", () => {
     }
   });
 
-  it("preserves a local insertion at the start boundary of a server replacement", () => {
+  // oracle-change: an insertion beside a replaced block, not inside it, has one
+  // place to go, so it merges instead of conflicting.
+  it("merges a local insertion at the start boundary of a server replacement", () => {
     const editor = makeEditor(
       "Alpha\n\nLocal before Bravo\n\nBravo\n\nCharlie",
     );
     try {
-      const before = editor.state.doc;
       const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
       const server = parse(editor, "Alpha\n\nBravo server\n\nCharlie");
       const result = reconcileDocAgainstBase(editor, base, server);
 
-      expect(result.status).toBe("conflict");
-      expect(editor.state.doc).toBe(before);
+      expect(result.status).toBe("applied");
       expect(md(editor)).toBe(
-        "Alpha\n\nLocal before Bravo\n\nBravo\n\nCharlie",
+        "Alpha\n\nLocal before Bravo\n\nBravo server\n\nCharlie",
       );
     } finally {
       editor.destroy();
     }
   });
 
-  it("preserves a local insertion at the end boundary of a server replacement", () => {
+  // oracle-change: an insertion beside a replaced block, not inside it, has one
+  // place to go, so it merges instead of conflicting.
+  it("merges a local insertion at the end boundary of a server replacement", () => {
     const editor = makeEditor("Alpha\n\nBravo\n\nLocal after Bravo\n\nCharlie");
     try {
-      const before = editor.state.doc;
       const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
       const server = parse(editor, "Alpha\n\nBravo server\n\nCharlie");
       const result = reconcileDocAgainstBase(editor, base, server);
 
+      expect(result.status).toBe("applied");
+      expect(md(editor)).toBe(
+        "Alpha\n\nBravo server\n\nLocal after Bravo\n\nCharlie",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      side: "start",
+      server: "Alpha\n\nInserted\n\nBravo\n\nCharlie",
+      merged: "Alpha\n\nInserted\n\nBravo local\n\nCharlie",
+    },
+    {
+      side: "end",
+      server: "Alpha\n\nBravo\n\nInserted\n\nCharlie",
+      merged: "Alpha\n\nBravo local\n\nInserted\n\nCharlie",
+    },
+  ])(
+    "merges a server insertion at the $side boundary of a local replacement",
+    ({ server, merged }) => {
+      const editor = makeEditor("Alpha\n\nBravo local\n\nCharlie");
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "Alpha\n\nBravo\n\nCharlie"),
+          parse(editor, server),
+        );
+
+        expect(result.status).toBe("applied");
+        expect(md(editor)).toBe(merged);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    ["after", "Alpha\n\nServer\n\nBravo", "Alpha local\n\nServer\n\nBravo"],
+    ["before", "Server\n\nAlpha\n\nBravo", "Server\n\nAlpha local\n\nBravo"],
+  ])(
+    "applies a server insertion right %s a locally edited block",
+    (_side, serverMarkdown, merged) => {
+      const editor = makeEditor("Alpha local\n\nBravo");
+      try {
+        const base = parse(editor, "Alpha\n\nBravo");
+        const server = parse(editor, serverMarkdown);
+        const result = reconcileDocAgainstBase(editor, base, server);
+
+        expect(result.status).toBe("applied");
+        expect(md(editor)).toBe(merged);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each(["prefer-live", "conflict"] as const)(
+    "still treats an insertion inside a replaced range as an overlap (%s)",
+    (overlapPolicy) => {
+      const local = "Alpha\n\nBravo and Charlie\n\nDelta";
+      const editor = makeEditor(local);
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "Alpha\n\nBravo\n\nCharlie\n\nDelta"),
+          parse(editor, "Alpha\n\nBravo\n\nInserted\n\nCharlie\n\nDelta"),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject(
+          overlapPolicy === "prefer-live"
+            ? { status: "noop", setAside: 1 }
+            : { status: "conflict" },
+        );
+        expect(md(editor)).toBe(local);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each(["prefer-live", "conflict"] as const)(
+    "treats a local insertion inside a server replacement as an overlap (%s)",
+    (overlapPolicy) => {
+      const local = "Alpha\n\nBravo\n\nLocal\n\nCharlie\n\nDelta";
+      const editor = makeEditor(local);
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "Alpha\n\nBravo\n\nCharlie\n\nDelta"),
+          parse(editor, "Alpha\n\nBravo and Charlie\n\nDelta"),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject(
+          overlapPolicy === "prefer-live"
+            ? { status: "noop", setAside: 1 }
+            : { status: "conflict" },
+        );
+        expect(md(editor)).toBe(local);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each(
+    (["prefer-live", "conflict"] as const).flatMap((overlapPolicy) => [
+      {
+        overlapPolicy,
+        name: "a local deletion and insertion beside server replacements",
+        base: "Alpha\n\nBravo\n\nCharlie\n\nDelta\n\nEcho",
+        live: "Alpha\n\nCharlie\n\nDelta\n\nLocal\n\nEcho",
+        server:
+          "Start\n\nAlpha\n\nBravo\n\nCharlie server\n\nDelta server\n\nEcho",
+        merged:
+          "Start\n\nAlpha\n\nCharlie server\n\nDelta server\n\nLocal\n\nEcho",
+      },
+      {
+        overlapPolicy,
+        name: "a local insertion after a block the server deleted",
+        base: "Alpha\n\nBravo\n\nCharlie",
+        live: "Alpha\n\nBravo\n\nLocal\n\nCharlie",
+        server: "Alpha\n\nCharlie",
+        merged: "Alpha\n\nLocal\n\nCharlie",
+      },
+      {
+        overlapPolicy,
+        name: "a server insertion after a block the tab deleted",
+        base: "Alpha\n\nBravo\n\nCharlie",
+        live: "Alpha\n\nCharlie",
+        server: "Alpha\n\nBravo\n\nInserted\n\nCharlie",
+        merged: "Alpha\n\nInserted\n\nCharlie",
+      },
+    ]),
+  )(
+    "merges $name ($overlapPolicy)",
+    ({ overlapPolicy, base, live, server, merged }) => {
+      const editor = makeEditor(live);
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toBe(merged);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("treats a server insertion inside a local change as overlapping", () => {
+    const editor = makeEditor("Alpha local\n\nBravo local\n\nCharlie");
+    try {
+      const before = editor.state.doc;
+      const base = parse(editor, "Alpha\n\nBravo\n\nCharlie");
+      const server = parse(editor, "Alpha\n\nServer\n\nBravo\n\nCharlie");
+      const result = reconcileDocAgainstBase(editor, base, server);
+
       expect(result.status).toBe("conflict");
       expect(editor.state.doc).toBe(before);
-      expect(md(editor)).toBe("Alpha\n\nBravo\n\nLocal after Bravo\n\nCharlie");
     } finally {
       editor.destroy();
     }
@@ -418,6 +585,507 @@ describe("reconcileDocAgainstBase", () => {
       editor.destroy();
     }
   });
+
+  it.each(["prefer-live", "conflict"] as const)(
+    "does not count a change both sides made beside repeated blocks (%s)",
+    (overlapPolicy) => {
+      const editor = makeEditor("Same\n\nAlpha edited\n\nSame");
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "Same\n\nAlpha\n\nSame"),
+          parse(editor, "Same\n\nAlpha edited\n\nSame\n\nServer tail."),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toBe("Same\n\nAlpha edited\n\nSame\n\nServer tail.");
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("counts the server changes prefer-live sets aside", () => {
+    const editor = makeEditor("Alpha local\n\nBravo");
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "Alpha\n\nBravo"),
+        parse(editor, "Alpha server\n\nBravo server"),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 1 });
+      expect(md(editor)).toBe("Alpha local\n\nBravo server");
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+// TrailingNode keeps an empty paragraph after a last block that is not a
+// paragraph. Saved Markdown leaves it out, so the base parsed from it has none.
+describe("reconcileDocAgainstBase beside the editor's filler line", () => {
+  function blockTypes(doc: ProseMirrorNode): string[] {
+    return Array.from({ length: doc.childCount }, (_, i) => {
+      const node = doc.child(i);
+      return node.textContent ? node.type.name : `empty ${node.type.name}`;
+    });
+  }
+
+  function openPage(markdown: string): Editor {
+    const editor = makeEditor(markdown);
+    const last = editor.state.doc.lastChild!;
+    if (last.type.name === "paragraph" && last.textContent) return editor;
+    expect(last.type.name, "the editor's filler line").toBe("paragraph");
+    expect(last.content.size).toBe(0);
+    return editor;
+  }
+
+  it.each(["prefer-live", "conflict"] as const)(
+    "keeps an item added to a closing list (%s)",
+    (overlapPolicy) => {
+      const base = "Intro.\n\n1. One\n2. Two";
+      const server = "Intro.\n\n1. One\n2. Two\n3. Three";
+      const editor = openPage(base);
+      try {
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toContain("3. Three");
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "paragraph",
+          "orderedList",
+          "empty paragraph",
+        ]);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps every change when a closing list is replaced beside edits elsewhere", () => {
+    const base = [
+      "# Plan",
+      "Context paragraph.",
+      "## Next steps",
+      "1. Fix the bugs.",
+      "2. Redesign the hand-off.",
+    ].join("\n\n");
+    const server = [
+      "# Plan",
+      "Context paragraph, revised.",
+      "## Next steps",
+      "1. Fix the bugs.\n2. Redesign the hand-off, then run it once.\n3. Answer the open question.",
+    ].join("\n\n");
+    const editor = openPage(base);
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, server),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(md(editor)).toContain("Context paragraph, revised.");
+      expect(md(editor)).toContain("3. Answer the open question.");
+      expect(editor.state.doc.lastChild!.content.size).toBe(0);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps a section added after a closing list, without a stray empty line", () => {
+    const base = "Intro.\n\n- One\n- Two";
+    const server = "Intro.\n\n- One\n- Two\n\n## Added\n\nNew paragraph.";
+    const editor = openPage(base);
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, server),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(blockTypes(editor.state.doc)).toEqual([
+        "paragraph",
+        "bulletList",
+        "heading",
+        "paragraph",
+      ]);
+      expect(editor.state.doc.lastChild!.textContent).toBe("New paragraph.");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps a reworded closing heading and the line after it", () => {
+    const editor = openPage("Intro.\n\n## Old heading");
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "Intro.\n\n## Old heading"),
+        parse(editor, "Intro.\n\n## New heading"),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(md(editor)).toContain("## New heading");
+      expect(blockTypes(editor.state.doc)).toEqual([
+        "paragraph",
+        "heading",
+        "empty paragraph",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      label: "rewording the closing paragraph",
+      base: "# T\n\nOld last line.",
+      server: "# T\n\nNew last line.",
+    },
+    {
+      label: "appending after the closing paragraph",
+      base: "# T\n\nLast line.",
+      server: "# T\n\nLast line.\n\nAppended line.",
+    },
+  ])(
+    "merges a page that ends in a paragraph as before: $label",
+    ({ base, server }) => {
+      const editor = openPage(base);
+      try {
+        expect(editor.state.doc.lastChild!.textContent).not.toBe("");
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, server),
+          { overlapPolicy: "prefer-live" },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toBe(server);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps a typed empty line after a closing paragraph", () => {
+    const editor = makeEditor("# Title\n\nLast line.");
+    try {
+      editor.commands.insertContentAt(editor.state.doc.content.size, {
+        type: "paragraph",
+      });
+      expect(editor.state.doc.childCount).toBe(3);
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "# Title\n\nLast line."),
+        parse(editor, "# New title\n\nLast line."),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(blockTypes(editor.state.doc)).toEqual([
+        "heading",
+        "paragraph",
+        "empty paragraph",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["prefer-live", "conflict"] as const)(
+    "keeps a server edit to the closing paragraph above a typed empty line (%s)",
+    (overlapPolicy) => {
+      const editor = makeEditor("# Title\n\nLast line.");
+      try {
+        editor.commands.insertContentAt(editor.state.doc.content.size, {
+          type: "paragraph",
+        });
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "# Title\n\nLast line."),
+          parse(editor, "# Title\n\nLast line, revised."),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "heading",
+          "paragraph",
+          "empty paragraph",
+        ]);
+        expect(editor.state.doc.child(1).textContent).toBe(
+          "Last line, revised.",
+        );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("leaves a base that really ends in an empty paragraph alone", () => {
+    const editor = openPage("## Heading");
+    try {
+      const { schema } = editor;
+      const heading = editor.state.doc.firstChild!;
+      const empty = schema.nodes.paragraph!.create();
+      const appended = schema.nodes.paragraph!.create(
+        null,
+        schema.text("Appended."),
+      );
+      const plan = planDocReconcile(
+        editor.state.doc,
+        schema.nodes.doc!.create(null, [heading, empty]),
+        schema.nodes.doc!.create(null, [heading, empty, appended]),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(plan).toMatchObject({ status: "applied", setAside: 0 });
+      if (plan.status !== "applied") return;
+      expect(blockTypes(plan.mergedDoc)).toEqual([
+        "heading",
+        "empty paragraph",
+        "paragraph",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  const StyledLines = Extension.create({
+    name: "styledLines",
+    addGlobalAttributes() {
+      return [
+        {
+          types: ["paragraph"],
+          attributes: { indent: { default: 0 }, color: { default: null } },
+        },
+      ];
+    },
+  });
+
+  it.each([
+    { style: { indent: 1 }, overlapPolicy: "prefer-live" as const },
+    { style: { color: "red" }, overlapPolicy: "prefer-live" as const },
+    { style: { indent: 1 }, overlapPolicy: "conflict" as const },
+    { style: { color: "red" }, overlapPolicy: "conflict" as const },
+  ])(
+    "keeps a styled empty closing line as the tab's own edit: $style ($overlapPolicy)",
+    ({ style, overlapPolicy }) => {
+      const editor = new Editor({
+        extensions: [...createRichMarkdownExtensions(), StyledLines],
+        content: "",
+      });
+      try {
+        editor.commands.setContent("# H");
+        editor.commands.setTextSelection(1);
+        const fillerFrom =
+          editor.state.doc.content.size - editor.state.doc.lastChild!.nodeSize;
+        editor.view.dispatch(
+          editor.state.tr.setNodeMarkup(fillerFrom, undefined, style),
+        );
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, "# H"),
+          parse(editor, "Replacement."),
+          { overlapPolicy },
+        );
+
+        // oracle-change: the styled line is an insertion after the replaced
+        // heading, not inside it, so the agent's change merges and the line
+        // stays after it. Read as filler, the cleanup would delete it.
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "paragraph",
+          "empty paragraph",
+        ]);
+        expect(editor.state.doc.lastChild!.attrs).toMatchObject(style);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it.each([
+    { focused: true, blocks: ["heading", "paragraph", "empty paragraph"] },
+    { focused: false, blocks: ["heading", "paragraph"] },
+  ])(
+    "keeps the empty closing line only while the cursor is typing on it (focused: $focused)",
+    ({ focused, blocks }) => {
+      const base = "Intro.\n\n- One\n- Two";
+      const editor = openPage(base);
+      try {
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+        editor.isFocused = focused;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, `${base}\n\n## Added\n\nNew paragraph.`),
+          { overlapPolicy: "prefer-live" },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc).slice(2)).toEqual(blocks);
+        if (!focused) return;
+        editor.commands.insertContent("Typed.");
+        expect(editor.state.doc.lastChild!.textContent).toBe("Typed.");
+        expect(md(editor)).toContain("New paragraph.\n\nTyped.");
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("keeps the empty closing line while a selection reaches into it", () => {
+    const base = "Intro.\n\n- One\n- Two";
+    const editor = openPage(base);
+    try {
+      const inTwo =
+        editor.state.doc.child(0).nodeSize +
+        editor.state.doc.child(1).nodeSize -
+        4;
+      editor.commands.setTextSelection({
+        from: inTwo,
+        to: editor.state.doc.content.size - 1,
+      });
+      editor.isFocused = true;
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, `${base}\n\n## Added\n\nNew paragraph.`),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      const doc = editor.state.doc;
+      expect(blockTypes(doc).slice(2)).toEqual([
+        "heading",
+        "paragraph",
+        "empty paragraph",
+      ]);
+      expect(editor.state.selection.from).toBe(inTwo);
+      expect(editor.state.selection.to).toBe(doc.content.size - 1);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  // Once it follows a paragraph, the kept line is saved like a typed one, so it
+  // stays whether or not the editor still has focus.
+  it.each([true, false])(
+    "keeps a later server edit to a paragraph added beside a kept empty line (focused: %s)",
+    (focused) => {
+      const base = "Intro.\n\n- One\n- Two";
+      const added = `${base}\n\n## Added\n\nNew paragraph.`;
+      const editor = openPage(base);
+      try {
+        editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+        editor.isFocused = true;
+        expect(
+          reconcileDocAgainstBase(
+            editor,
+            parse(editor, base),
+            parse(editor, added),
+            { overlapPolicy: "prefer-live" },
+          ),
+        ).toMatchObject({ status: "applied", setAside: 0 });
+        expect(editor.state.doc.lastChild?.content.size).toBe(0);
+
+        editor.isFocused = focused;
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, added),
+          parse(editor, `${base}\n\n## Added\n\nNew paragraph, revised.`),
+          { overlapPolicy: "prefer-live" },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(blockTypes(editor.state.doc).slice(2)).toEqual([
+          "heading",
+          "paragraph",
+          "empty paragraph",
+        ]);
+        expect(editor.state.doc.child(3).textContent).toBe(
+          "New paragraph, revised.",
+        );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  it("still sets aside a server change to a closing block the tab edited", () => {
+    const base = "Intro.\n\n- One\n- Two";
+    const editor = openPage(base);
+    try {
+      editor.commands.insertContentAt(
+        editor.state.doc.child(0).nodeSize +
+          editor.state.doc.child(1).nodeSize -
+          3,
+        " local",
+      );
+      const live = md(editor);
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, "Intro.\n\n- One\n- Two\n- Three"),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "noop", setAside: 1 });
+      expect(md(editor)).toBe(live);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each(["prefer-live", "conflict"] as const)(
+    "keeps a section added after a closing list the tab edited (%s)",
+    (overlapPolicy) => {
+      const base = "Intro.\n\n- One\n- Two";
+      const editor = openPage(base);
+      try {
+        editor.commands.insertContentAt(
+          editor.state.doc.child(0).nodeSize +
+            editor.state.doc.child(1).nodeSize -
+            3,
+          " local",
+        );
+        const result = reconcileDocAgainstBase(
+          editor,
+          parse(editor, base),
+          parse(editor, `${base}\n\n## Added\n\nNew section.`),
+          { overlapPolicy },
+        );
+
+        expect(result).toMatchObject({ status: "applied", setAside: 0 });
+        expect(md(editor)).toBe(
+          "Intro.\n\n- One\n- Two local\n\n## Added\n\nNew section.",
+        );
+        expect(blockTypes(editor.state.doc)).toEqual([
+          "paragraph",
+          "bulletList",
+          "heading",
+          "paragraph",
+        ]);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
 });
 
 describe("defaultParseValue", () => {

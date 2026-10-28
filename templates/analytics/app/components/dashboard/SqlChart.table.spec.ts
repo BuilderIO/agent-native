@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   SqlPanel,
@@ -11,6 +11,7 @@ import {
   formatSeriesLabelForPanel,
   reorderColumnConfigs,
   sortTableRows,
+  type TableSort,
 } from "./SqlChart";
 
 describe("SqlChart table helpers", () => {
@@ -44,6 +45,20 @@ describe("SqlChart table helpers", () => {
     expect(formatCell("1234", "number")).toBe("1,234");
     expect(formatCell("0.125", "percent")).toBe("12.50%");
     expect(formatCell("-2.5", "delta")).toBe("-2.5%");
+  });
+
+  describe("in a time zone west of UTC", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("shows a bare date on its own day", () => {
+      vi.stubEnv("TZ", "America/Los_Angeles");
+      expect(formatCell("2026-10-01", "date")).toBe("Oct 1, 2026");
+      expect(formatCell("2026-10-01T12:00:00.000Z", "date")).toBe(
+        "Oct 1, 2026",
+      );
+    });
   });
 
   it("puts the sign before the dollar sign for currency cells", () => {
@@ -114,6 +129,51 @@ describe("SqlChart table helpers", () => {
     ).toEqual([{ rate: "9%" }, { rate: "12.5%" }, { rate: "100%" }]);
   });
 
+  it("sorts durations and abbreviated numbers written as text by their size", () => {
+    const waits = ["9.9 days", "75 days", "18 hours", "10 days", "1m 42s"].map(
+      (waiting) => ({ waiting }),
+    );
+    expect(
+      sortTableRows(waits, [{ key: "waiting", direction: "desc" }]).map(
+        (row) => row.waiting,
+      ),
+    ).toEqual(["75 days", "10 days", "9.9 days", "18 hours", "1m 42s"]);
+
+    const views = ["1.2K", "980", "3.4M", "15K"].map((count) => ({ count }));
+    expect(
+      sortTableRows(views, [{ key: "count", direction: "asc" }]).map(
+        (row) => row.count,
+      ),
+    ).toEqual(["980", "1.2K", "15K", "3.4M"]);
+  });
+
+  it("sorts counts by number, but text whose units differ as text", () => {
+    const prs = ["12 PRs", "3 PRs", "40 PRs"].map((open) => ({ open }));
+    expect(
+      sortTableRows(prs, [{ key: "open", direction: "asc" }]).map(
+        (row) => row.open,
+      ),
+    ).toEqual(["3 PRs", "12 PRs", "40 PRs"]);
+
+    const days = ["3 Feb", "12 Jan", "28 Feb"].map((day) => ({ day }));
+    expect(
+      sortTableRows(days, [{ key: "day", direction: "asc" }]).map(
+        (row) => row.day,
+      ),
+    ).toEqual(["12 Jan", "28 Feb", "3 Feb"]);
+  });
+
+  it("uses the number columns a caller passes in", () => {
+    const prs = ["12 PRs", "3 PRs"].map((open) => ({ open }));
+    const sorts: TableSort[] = [{ key: "open", direction: "asc" }];
+    expect(
+      sortTableRows(prs, sorts, [], new Set(["open"])).map((row) => row.open),
+    ).toEqual(["3 PRs", "12 PRs"]);
+    expect(
+      sortTableRows(prs, sorts, [], new Set()).map((row) => row.open),
+    ).toEqual(["12 PRs", "3 PRs"]);
+  });
+
   it("sorts unparseable values after numeric ones in a mixed column, regardless of direction", () => {
     const rows = [
       { revenue: "10" },
@@ -138,6 +198,76 @@ describe("SqlChart table helpers", () => {
       { revenue: "N/A" },
       { revenue: "" },
     ]);
+  });
+
+  it("shows duration cells as text and a dash when empty", () => {
+    expect(formatCell(960, "duration")).toBe("16 min");
+    expect(formatCell("26640", "duration")).toBe("7.4 hours");
+    expect(formatCell(null, "duration")).toBe("–");
+    expect(formatCell(undefined, "duration")).toBe("–");
+    expect(formatCell(null, "number")).toBe("");
+  });
+
+  it("shows blank and non-finite duration cells as a dash", () => {
+    for (const value of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      "",
+      " ",
+      "NaN",
+    ]) {
+      expect(formatCell(value, "duration"), String(value)).toBe("–");
+    }
+    expect(formatCell("n/a", "duration")).toBe("n/a");
+    expect(formatCell("", "number")).toBe("");
+  });
+
+  it("sorts blank and non-finite duration cells last both ways, like nulls", () => {
+    const rows = [
+      { check: "build", median: 960 },
+      { check: "lint", median: Number.NaN },
+      { check: "unit", median: 60 },
+      { check: "docs", median: "" },
+      { check: "types", median: "Infinity" },
+      { check: "e2e", median: null },
+      { check: "flaky", median: "n/a" },
+      { check: "deploy", median: 120 },
+    ];
+    const columns: TableColumnConfig[] = [
+      { key: "check" },
+      { key: "median", format: "duration" },
+    ];
+    const shown = (sorted: Record<string, unknown>[]) =>
+      sorted.map((row) => formatCell(row.median, "duration"));
+
+    expect(
+      shown(
+        sortTableRows(rows, [{ key: "median", direction: "asc" }], columns),
+      ),
+    ).toEqual(["1 min", "2 min", "16 min", "n/a", "–", "–", "–", "–"]);
+    expect(
+      shown(
+        sortTableRows(rows, [{ key: "median", direction: "desc" }], columns),
+      ),
+    ).toEqual(["16 min", "2 min", "1 min", "n/a", "–", "–", "–", "–"]);
+  });
+
+  it("sorts a duration column by its seconds with empty cells last both ways", () => {
+    const rows = [
+      { check: "build", median: 960 },
+      { check: "lint", median: null },
+      { check: "unit", median: 60 },
+      { check: "types", median: 120 },
+    ];
+    const shown = (sorted: Record<string, unknown>[]) =>
+      sorted.map((row) => formatCell(row.median, "duration"));
+
+    expect(
+      shown(sortTableRows(rows, [{ key: "median", direction: "asc" }])),
+    ).toEqual(["1 min", "2 min", "16 min", "–"]);
+    expect(
+      shown(sortTableRows(rows, [{ key: "median", direction: "desc" }])),
+    ).toEqual(["16 min", "2 min", "1 min", "–"]);
   });
 
   it("builds formatted tab-separated clipboard content", () => {

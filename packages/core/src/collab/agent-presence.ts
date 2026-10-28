@@ -18,6 +18,19 @@ const _heartbeats = new Map<string, NodeJS.Timeout>();
 const _refCounts = new Map<string, number>();
 const _lingerTimers = new Map<string, NodeJS.Timeout>();
 
+function reportPresencePersistenceFailure(
+  action: string,
+  error: unknown,
+): void {
+  console.error(`Failed to ${action} agent collaboration presence`, error);
+}
+
+function persistAgentPresence(action: string, operation: Promise<void>): void {
+  void operation.catch((error: unknown) =>
+    reportPresencePersistenceFailure(action, error),
+  );
+}
+
 function cancelLinger(docId: string): void {
   const timer = _lingerTimers.get(docId);
   if (timer) {
@@ -33,7 +46,10 @@ function removeAgentPresence(docId: string): void {
   const map = getDocAwareness(docId);
   map.delete(AGENT_CLIENT_ID);
   emitAwarenessChange(docId, currentAwarenessStates(map));
-  void deleteAwarenessRow(docId, AGENT_CLIENT_ID, clearedAt);
+  persistAgentPresence(
+    "clear",
+    deleteAwarenessRow(docId, AGENT_CLIENT_ID, clearedAt),
+  );
 
   const interval = _heartbeats.get(docId);
   if (interval) {
@@ -67,11 +83,14 @@ function ensureHeartbeat(docId: string): void {
     const existing = m.get(AGENT_CLIENT_ID);
     if (existing) {
       existing.lastSeen = Date.now();
-      void upsertAwarenessRow(
-        docId,
-        AGENT_CLIENT_ID,
-        existing.state,
-        existing.lastSeen,
+      persistAgentPresence(
+        "persist",
+        upsertAwarenessRow(
+          docId,
+          AGENT_CLIENT_ID,
+          existing.state,
+          existing.lastSeen,
+        ),
       );
     }
   }, HEARTBEAT_INTERVAL);
@@ -118,7 +137,10 @@ function writeAgentState(docId: string, state: Record<string, unknown>): void {
   const map = getDocAwareness(docId);
   map.set(AGENT_CLIENT_ID, entry);
   emitAwarenessChange(docId, currentAwarenessStates(map));
-  void upsertAwarenessRow(docId, AGENT_CLIENT_ID, entry.state, entry.lastSeen);
+  persistAgentPresence(
+    "persist",
+    upsertAwarenessRow(docId, AGENT_CLIENT_ID, entry.state, entry.lastSeen),
+  );
 }
 
 export function agentEnterDocument(

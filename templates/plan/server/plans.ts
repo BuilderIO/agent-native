@@ -218,14 +218,19 @@ export function resolveCommentAuthor(input: {
   };
 }
 
+// Builders always set kind and status; the column defaults only apply to
+// inserts that skip them.
+type NewPlanCommentRow = typeof schema.planComments.$inferInsert &
+  Required<Pick<typeof schema.planComments.$inferInsert, "kind" | "status">>;
+
 export function buildInitialPlanCommentRows(input: {
   planId: string;
   comments: PlanCommentInput[];
   requestEmail?: string | null;
   requestName?: string | null;
   now: string;
-}): Array<typeof schema.planComments.$inferInsert> {
-  type NewCommentRow = typeof schema.planComments.$inferInsert;
+}): NewPlanCommentRow[] {
+  type NewCommentRow = NewPlanCommentRow;
   const pendingComments = input.comments.map((comment) => {
     const author = resolveCommentAuthor({
       createdBy: comment.createdBy,
@@ -334,8 +339,8 @@ export function buildUpdatedPlanCommentRows(input: {
   requestEmail?: string | null;
   requestName?: string | null;
   now: string;
-}): Array<typeof schema.planComments.$inferInsert> {
-  type NewCommentRow = typeof schema.planComments.$inferInsert;
+}): NewPlanCommentRow[] {
+  type NewCommentRow = NewPlanCommentRow;
   type ParentContext = Pick<
     NewCommentRow,
     "id" | "sectionId" | "kind" | "anchor" | "resolutionTarget"
@@ -762,7 +767,15 @@ export async function assertPlanEditor(planId: string) {
   }
 }
 
-export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
+// Server loaders always resolve access; the shared `PlanBundle.access` stays
+// optional for client-side and fixture bundles that carry none.
+export type AuthorizedPlanBundle = PlanBundle & {
+  access: NonNullable<PlanBundle["access"]>;
+};
+
+export async function loadPlanBundle(
+  planId: string,
+): Promise<AuthorizedPlanBundle> {
   const access = await resolveAccess(
     "plan",
     planId,
@@ -784,7 +797,7 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
 
 export async function loadPlanBundleForAgentAccess(
   planId: string,
-): Promise<PlanBundle> {
+): Promise<AuthorizedPlanBundle> {
   const db = getDb();
   // guard:allow-unscoped -- callers must verify a plan-scoped agent_access token before using this helper; it intentionally returns a read-only viewer bundle.
   const [plan] = await db
@@ -801,8 +814,8 @@ export async function loadPlanBundleForAgentAccess(
 async function loadPlanBundleForAuthorizedPlan(
   planId: string,
   plan: typeof schema.plans.$inferSelect,
-  role: PlanBundle["access"]["role"],
-): Promise<PlanBundle> {
+  role: AuthorizedPlanBundle["access"]["role"],
+): Promise<AuthorizedPlanBundle> {
   // Editions are ordinary `plans` rows, so every generic action that reads or
   // writes one arrives here. Gating only the edition actions would leave the
   // whole surface — export, source patches, versions, comments, mutations —

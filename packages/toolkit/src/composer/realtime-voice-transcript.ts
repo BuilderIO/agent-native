@@ -6,69 +6,56 @@ export interface RealtimeVoiceTranscriptMessage {
   role: RealtimeVoiceTranscriptRole;
   text: string;
   createdAt: string;
+  /** Streaming updates repeat the id with longer text until the final one. */
+  status?: "streaming" | "complete";
+}
+
+/** One tool call in a voice reply's work. */
+/** A tool name as a short label, such as "Edit design" for `edit-design`. */
+export function realtimeVoiceToolLabel(name: string): string {
+  const label = name.replace(/[_-]+/g, " ").trim();
+  return label ? label.charAt(0).toUpperCase() + label.slice(1) : name;
+}
+
+export interface RealtimeVoiceWorkCall {
+  /** The provider's call id. */
+  id: string;
+  name: string;
+  input?: Record<string, unknown>;
+  status: "running" | "completed" | "failed" | "cancelled";
+  output?: string;
+  startedAt: string;
+  completedAt?: string;
+}
+
+/**
+ * The tool calls one voice reply made, so the chat can show them as one work
+ * item. Each update is the whole reply so far under the same id.
+ */
+export interface RealtimeVoiceWorkUpdate {
+  id: string;
+  threadId: string;
+  calls: RealtimeVoiceWorkCall[];
+  /** Set once the reply has finished and every call in it has ended. */
+  completedAt?: string;
 }
 
 export interface RealtimeVoiceTranscriptSink {
   threadId: string;
-  active: boolean;
+  /** Read when a voice session starts, so a sink can report whether it is on screen. */
+  active: boolean | (() => boolean);
+  /** False keeps the message queued, newest text per id, until the sink re-registers. */
   append: (message: RealtimeVoiceTranscriptMessage) => boolean;
+  /** False keeps the update queued, newest per reply, until the sink re-registers. */
+  appendWork?: (update: RealtimeVoiceWorkUpdate) => boolean;
 }
 
 export interface RealtimeVoiceTranscriptRegistry {
   activeThreadId: () => string | undefined;
   publish: (message: RealtimeVoiceTranscriptMessage) => void;
+  publishWork: (update: RealtimeVoiceWorkUpdate) => void;
   register: (sink: RealtimeVoiceTranscriptSink) => () => void;
   pendingCount: () => number;
-}
-
-export function appendRealtimeVoiceTranscriptToRepository(
-  value: unknown,
-  transcript: RealtimeVoiceTranscriptMessage,
-): { appended: boolean; repository: Record<string, unknown> } {
-  const repository =
-    value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
-  const messages = Array.isArray(repository.messages)
-    ? [...repository.messages]
-    : [];
-  const duplicate = messages.some((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const record = entry as Record<string, unknown>;
-    const message =
-      record.message && typeof record.message === "object"
-        ? (record.message as Record<string, unknown>)
-        : record;
-    return message.id === transcript.id;
-  });
-  if (duplicate) return { appended: false, repository };
-
-  const parentId =
-    typeof repository.headId === "string" ? repository.headId : null;
-  const createdAt = new Date(transcript.createdAt);
-  const message = {
-    id: transcript.id,
-    role: transcript.role,
-    content: [{ type: "text", text: transcript.text }],
-    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
-    metadata: {
-      custom: {
-        source: "realtime-voice",
-      },
-    },
-    ...(transcript.role === "assistant"
-      ? { status: { type: "complete", reason: "stop" } }
-      : {}),
-  };
-
-  return {
-    appended: true,
-    repository: {
-      ...repository,
-      messages: [...messages, { message, parentId }],
-      headId: transcript.id,
-    },
-  };
 }
 
 export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscriptRegistry {
@@ -77,10 +64,23 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
     RealtimeVoiceTranscriptSink & { order: number }
   >();
   const pending = new Map<string, RealtimeVoiceTranscriptMessage>();
+  const pendingWork = new Map<string, RealtimeVoiceWorkUpdate>();
   const delivered = new Set<string>();
   let order = 0;
 
   const flush = () => {
+    for (const [id, update] of pendingWork) {
+      let consumed = false;
+      for (const sink of sinks.values()) {
+        if (sink.threadId !== update.threadId || !sink.appendWork) continue;
+        try {
+          consumed = sink.appendWork(update) || consumed;
+        } catch {
+          // coercion-ok: a throwing sink leaves the update queued for the next flush.
+        }
+      }
+      if (consumed) pendingWork.delete(id);
+    }
     for (const [id, message] of pending) {
       let consumed = false;
       for (const sink of sinks.values()) {
@@ -88,11 +88,12 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
         try {
           consumed = sink.append(message) || consumed;
         } catch {
-          // Keep the completed transcript queued until the chat can import it.
+          // coercion-ok: a throwing sink leaves the transcript queued for the next flush.
         }
       }
       if (!consumed) continue;
       pending.delete(id);
+      if (message.status === "streaming") continue;
       delivered.add(id);
       if (delivered.size > 1_000) {
         const oldest = delivered.values().next().value;
@@ -105,7 +106,9 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
     activeThreadId() {
       let active: (RealtimeVoiceTranscriptSink & { order: number }) | undefined;
       for (const sink of sinks.values()) {
-        if (!sink.active || (active && sink.order <= active.order)) continue;
+        const isActive =
+          typeof sink.active === "function" ? sink.active() : sink.active;
+        if (!isActive || (active && sink.order <= active.order)) continue;
         active = sink;
       }
       return active?.threadId;
@@ -114,10 +117,28 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
       const id = message.id.trim();
       const threadId = message.threadId.trim();
       const text = message.text.trim();
-      if (!id || !threadId || !text || delivered.has(id) || pending.has(id)) {
-        return;
-      }
-      pending.set(id, { ...message, id, threadId, text });
+      if (!id || !threadId || !text || delivered.has(id)) return;
+      const queued = pending.get(id);
+      const streaming = message.status === "streaming";
+      // A final transcript already queued outranks a late streaming update.
+      if (queued && queued.status !== "streaming" && streaming) return;
+      if (queued && !streaming && queued.status !== "streaming") return;
+      pending.set(id, {
+        ...message,
+        id,
+        threadId,
+        text,
+        status: streaming ? "streaming" : "complete",
+      });
+      flush();
+    },
+    publishWork(update) {
+      const id = update.id.trim();
+      const threadId = update.threadId.trim();
+      if (!id || !threadId) return;
+      // A finished reply outranks a late update from while it ran.
+      if (pendingWork.get(id)?.completedAt && !update.completedAt) return;
+      pendingWork.set(id, { ...update, id, threadId });
       flush();
     },
     register(sink) {
@@ -126,7 +147,7 @@ export function createRealtimeVoiceTranscriptRegistry(): RealtimeVoiceTranscript
       flush();
       return () => sinks.delete(token);
     },
-    pendingCount: () => pending.size,
+    pendingCount: () => pending.size + pendingWork.size,
   };
 }
 

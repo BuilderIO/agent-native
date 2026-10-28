@@ -2,12 +2,14 @@
 
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { describe, expect, it } from "vitest";
 
 import { suggestionPresentations } from "./DocumentEditor";
 import {
   acceptedSuggestionAtRange,
   setSuggestionHighlights,
+  suggestionHighlightKey,
 } from "./extensions/SuggestionHighlight";
 import { markdownSuggestionOperation } from "./suggestions/markdown-operation";
 import {
@@ -64,8 +66,11 @@ describe("accepted suggestion canonical handoff", () => {
         project(editor, settling);
         const spec = suggestionHighlightSpec(editor.state.doc, settling)!;
         expect(spec).not.toBeNull();
+        // The server's accepted text arrives over live sync.
         editor.view.dispatch(
-          editor.state.tr.insertText(settling.afterText, spec.from, spec.to),
+          editor.state.tr
+            .insertText(settling.afterText, spec.from, spec.to)
+            .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
         );
 
         const canonical = docToNfm(editor.getJSON() as any);
@@ -161,4 +166,46 @@ describe("accepted suggestion canonical handoff", () => {
       }
     },
   );
+});
+
+describe("suggestion highlights across collaboration redraws", () => {
+  it("keeps highlights when the whole Page is redrawn unchanged", () => {
+    const baseline = "Old tail\n\nPeer tail";
+    const [presentation] = suggestionPresentations(
+      {
+        id: "pending",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(baseline, "New tail\n\nPeer tail")!,
+        ],
+      },
+      baseline,
+    );
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(baseline),
+    });
+    try {
+      project(editor, presentation!);
+      const specs = suggestionHighlightKey.getState(editor.state)!.specs;
+      const highlighted = () =>
+        [...editor.view.dom.querySelectorAll(".suggestion-delete")].map(
+          (element) => element.textContent,
+        );
+      expect(highlighted()).toEqual(["Old"]);
+
+      const before = editor.state.doc;
+      const redrawn = editor.state.schema.nodeFromJSON(before.toJSON());
+      editor.view.dispatch(
+        editor.state.tr.replaceWith(0, before.content.size, redrawn.content),
+      );
+
+      expect(editor.state.doc).not.toBe(before);
+      expect(editor.state.doc.eq(before)).toBe(true);
+      expect(suggestionHighlightKey.getState(editor.state)!.specs).toBe(specs);
+      expect(highlighted()).toEqual(["Old"]);
+    } finally {
+      editor.destroy();
+    }
+  });
 });

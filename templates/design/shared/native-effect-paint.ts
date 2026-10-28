@@ -26,6 +26,7 @@ export interface EffectPaintProperty {
   label: string;
   default: EffectPaint;
   maxCount: number;
+  allowedKinds?: EffectPaint["kind"][];
   group?: string;
   rebuild?: boolean;
 }
@@ -82,12 +83,19 @@ function color(value: unknown): value is EffectColor {
 export function isEffectPaint(
   value: unknown,
   maxCount = MAX_EFFECT_PAINT_STOPS,
+  allowedKinds?: readonly EffectPaint["kind"][],
 ): value is EffectPaint {
   if (
     !Number.isInteger(maxCount) ||
     maxCount < 1 ||
     maxCount > MAX_EFFECT_PAINT_STOPS ||
     !object(value)
+  )
+    return false;
+  if (
+    allowedKinds !== undefined &&
+    (!Array.isArray(allowedKinds) ||
+      !allowedKinds.includes(value.kind as EffectPaint["kind"]))
   )
     return false;
   if (value.kind === "solid")

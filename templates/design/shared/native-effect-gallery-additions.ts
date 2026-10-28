@@ -501,7 +501,7 @@ fn octaveSimplex(point: vec2f, requested: f32) -> f32 {
 `,
 });
 
-const pulsingBorder = catalogShader({
+export const PULSING_BORDER_V1_EFFECT = catalogShader({
   id: "pulsing-border",
   name: "Pulsing Border",
   kind: "processor",
@@ -644,7 +644,7 @@ export const NATIVE_EFFECT_GALLERY_ADDITIONS: readonly EffectDefinition[] = [
   neuroNoise,
   perlinNoise,
   simplexNoise,
-  pulsingBorder,
+  PULSING_BORDER_V1_EFFECT,
   colorPanels,
   smokeRing,
   godRays,

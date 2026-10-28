@@ -1,76 +1,9 @@
-import type {
-  PublicArticle,
-  PublicUseCase,
-} from "../../../lib/campaign-content";
+import type { PublicArticle } from "../../../lib/campaign-content";
 import { sitePathForLocale } from "../docs-locale";
 
-export type UseCase = PublicUseCase;
 export type Article = PublicArticle;
 
 // Project nested objects as well: additions to the content source must not widen the public loader contract.
-export function publicUseCase(item: UseCase): UseCase {
-  return {
-    slug: item.slug,
-    job_id: item.job_id,
-    app: item.app,
-    title: item.title,
-    subhead: item.subhead,
-    meta_description: item.meta_description,
-    cta_label: item.cta_label,
-    secondary_cta_label: item.secondary_cta_label,
-    app_cta_url: item.app_cta_url,
-    screenshot_alt: item.screenshot_alt,
-    old_way: { heading: item.old_way.heading, body: item.old_way.body },
-    replaces: item.replaces,
-    new_way: { heading: item.new_way.heading, steps: item.new_way.steps },
-    todays_stack: item.todays_stack
-      ? {
-          heading: item.todays_stack.heading,
-          items: item.todays_stack.items.map(({ text }) => ({ text })),
-          in_app: item.todays_stack.in_app,
-        }
-      : undefined,
-    recipes: item.recipes?.map(
-      ({ id, title, when, steps, prompt, result, tip, how_often }) => ({
-        id,
-        title,
-        when,
-        steps,
-        prompt,
-        result,
-        tip,
-        how_often,
-      }),
-    ),
-    next_jobs: item.next_jobs,
-    connects_to: item.connects_to,
-    frequency: item.frequency,
-    how_often_label: item.how_often_label,
-    roles: item.roles,
-    angles: item.angles?.map(
-      ({ id, audience, title, subhead, old_way_body }) => ({
-        id,
-        audience,
-        title,
-        subhead,
-        old_way_body,
-      }),
-    ),
-    story: item.story
-      ? {
-          quote: item.story.quote,
-          name: item.story.name,
-          role: item.story.role,
-          used_before: item.story.used_before,
-        }
-      : undefined,
-    faqs: item.faqs.map(({ q, a }) => ({ q, a })),
-    cta_band_heading: item.cta_band_heading,
-    cta_band_subhead: item.cta_band_subhead,
-    updated: item.updated,
-  };
-}
-
 export function publicArticle(item: Article): Article {
   return {
     slug: item.slug,

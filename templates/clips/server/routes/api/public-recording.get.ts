@@ -46,6 +46,7 @@ import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
+  isRecordingTrashedForViewer,
   type RecordingPageAccessRole,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
@@ -252,6 +253,14 @@ export default defineEventHandler(async (event) => {
     : null;
   const viewerIsOwner = viewerAccess?.role === "owner";
 
+  if (
+    isRecordingTrashedForViewer({ trashedAt: rec.trashedAt, viewerIsOwner })
+  ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+
   let viewerIsOrgMember = false;
   if (session?.email && rec.visibility === "org" && rec.organizationId) {
     try {
@@ -348,16 +357,17 @@ export default defineEventHandler(async (event) => {
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
     .limit(1);
 
-  const comments = rec.enableComments
-    ? await db
-        .select()
-        .from(schema.recordingComments)
-        .where(eq(schema.recordingComments.recordingId, recordingId))
-        .orderBy(
-          asc(schema.recordingComments.videoTimestampMs),
-          asc(schema.recordingComments.createdAt),
-        )
-    : [];
+  const comments =
+    rec.enableComments || viewerIsOwner
+      ? await db
+          .select()
+          .from(schema.recordingComments)
+          .where(eq(schema.recordingComments.recordingId, recordingId))
+          .orderBy(
+            asc(schema.recordingComments.videoTimestampMs),
+            asc(schema.recordingComments.createdAt),
+          )
+      : [];
   const hydratedComments = await hydrateCommentAuthorNames(comments);
   const commentMentions = new Map(
     hydratedComments.map((comment) => [

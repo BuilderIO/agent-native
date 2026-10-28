@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  loadFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { assignFirstRunBuilderCreditsV2 } from "../shared/first-run-builder-credits-experiment.js";
 import { isQaTestEmail } from "../shared/qa-test-email.js";
 import {
   flushTracking,
@@ -12,10 +17,16 @@ import {
 import type { TrackingEvent } from "./types.js";
 
 const mockQueueTrackingEvent = vi.hoisted(() => vi.fn());
+const mockExperimentAssignments = vi.hoisted(() => ({
+  getAssignment: vi.fn(),
+  upsertAssignment: vi.fn(),
+}));
 
 vi.mock("../observability/tracing.js", () => ({
   queueTrackingEvent: mockQueueTrackingEvent,
 }));
+
+vi.mock("../observability/store.js", () => mockExperimentAssignments);
 
 function captureEvents(): TrackingEvent[] {
   const events: TrackingEvent[] = [];
@@ -35,6 +46,8 @@ describe("tracking registry", () => {
     unregisterTrackingProvider("qa-capture");
     unregisterTrackingProvider("qa-identify");
     mockQueueTrackingEvent.mockClear();
+    mockExperimentAssignments.getAssignment.mockReset();
+    mockExperimentAssignments.upsertAssignment.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -138,6 +151,142 @@ describe("tracking registry", () => {
     expect(events[1]).toMatchObject({ userId: "different@example.com" });
     expect(events[1]?.sessionId).toBeUndefined();
     expect(events[1]?.properties).not.toHaveProperty("auth_user_id");
+  });
+
+  it("persists an exposed first-run credits arm on durable product events", async () => {
+    const events = captureEvents();
+    mockExperimentAssignments.getAssignment.mockResolvedValue(null);
+    mockExperimentAssignments.upsertAssignment.mockResolvedValue(undefined);
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+      },
+      async () => {
+        const expected = assignFirstRunBuilderCreditsV2("better-auth-user-1");
+        const assignment = await recordFirstRunBuilderCreditsV2Exposure({
+          flagEnabled: true,
+          experimentVariant: expected!.experiment_variant,
+        });
+        expect(assignment).toMatchObject({
+          authUserId: "better-auth-user-1",
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: expect.stringMatching(/^(control|credits)$/),
+        });
+        track("run_started", {});
+        track("design_created", {});
+        track("deck_created", {});
+        track("recording_ready", {});
+        track("unrelated_event", {});
+      },
+    );
+
+    expect(events).toHaveLength(5);
+    const assignments = events.slice(0, 4).map(({ properties }) => ({
+      experiment_id: properties.experiment_id,
+      experiment_variant: properties.experiment_variant,
+    }));
+    expect(
+      assignments.every(
+        (assignment) =>
+          assignment.experiment_id === "first_run_builder_credits_v2",
+      ),
+    ).toBe(true);
+    expect(
+      new Set(assignments.map(({ experiment_variant }) => experiment_variant))
+        .size,
+    ).toBe(1);
+    expect(events[4]?.properties).not.toHaveProperty("experiment_id");
+    expect(mockExperimentAssignments.upsertAssignment).toHaveBeenCalledWith({
+      experimentId: "first_run_builder_credits_v2",
+      userId: "better-auth-user-1",
+      variantId: assignments[0]?.experiment_variant,
+      assignedAt: expect.any(Number),
+    });
+  });
+
+  it("does not persist or tag when the v2 feature flag is off", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", authUserId: "better-auth-user-1" },
+      async () => {
+        await expect(
+          recordFirstRunBuilderCreditsV2Exposure({
+            flagEnabled: false,
+            experimentVariant: "control",
+          }),
+        ).resolves.toBeNull();
+        track("run_started", {});
+      },
+    );
+
+    expect(mockExperimentAssignments.getAssignment).not.toHaveBeenCalled();
+    expect(mockExperimentAssignments.upsertAssignment).not.toHaveBeenCalled();
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+  });
+
+  it("loads the durable arm into a later request before tagging run events", async () => {
+    const events = captureEvents();
+    const authUserId = "better-auth-user-2";
+    const expected = assignFirstRunBuilderCreditsV2(authUserId);
+    mockExperimentAssignments.getAssignment.mockResolvedValue({
+      experimentId: "first_run_builder_credits_v2",
+      userId: authUserId,
+      variantId: expected?.experiment_variant,
+      assignedAt: 123,
+    });
+
+    await runWithRequestContext(
+      { userEmail: "bob@example.com", authUserId },
+      async () => {
+        await loadFirstRunBuilderCreditsV2Assignment();
+        track("run_started", {});
+      },
+    );
+
+    expect(events[0]?.properties).toMatchObject({
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: expected?.experiment_variant,
+    });
+  });
+
+  it("keeps unassigned events joinable without reading the arm on every run", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", authUserId: "better-auth-user-1" },
+      () => {
+        track("run_started", {});
+        track("design_created", {}, { anonymousId: "visitor-1" });
+      },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.properties?.auth_user_id).toBe("better-auth-user-1");
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
+    expect(events[1]?.properties).not.toHaveProperty("experiment_id");
+    expect(mockExperimentAssignments.getAssignment).not.toHaveBeenCalled();
+  });
+
+  it("derives experiment exposure only from the authenticated request id", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", agentRunAnonymous: true },
+      async () => {
+        await expect(
+          recordFirstRunBuilderCreditsV2Exposure({
+            flagEnabled: true,
+            experimentVariant: "control",
+          }),
+        ).resolves.toBeNull();
+        track("run_started", {});
+      },
+    );
+
+    expect(events[0]?.properties).not.toHaveProperty("experiment_id");
   });
 
   it("keeps an explicitly absent session distinct from the ambient session", async () => {

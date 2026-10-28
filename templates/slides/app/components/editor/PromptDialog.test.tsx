@@ -946,6 +946,29 @@ describe("uploadPromptFiles", () => {
     expect(screen.getByRole("button", { name: "Custom keys" })).toBeTruthy();
   });
 
+  it("renders the large home composer with dictation", () => {
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+      undefined,
+      false,
+    );
+
+    expect(promptComposerProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ layoutVariant: "hero", voiceEnabled: true }),
+    );
+    expect(
+      screen
+        .getByRole("group", { name: "New presentation" })
+        .getAttribute("data-agentkit-composer-size"),
+    ).toBe("large");
+  });
+
   it("keeps hosted images URL-only while adding bytes for unhosted images", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

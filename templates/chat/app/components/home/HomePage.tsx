@@ -8,6 +8,7 @@ import { AgentKitComposer } from "@agent-native/toolkit/app/agentkit/react/compo
 import { useAgentKitControl } from "@agent-native/toolkit/app/agentkit/react/context";
 import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
+import { useRealtimeVoiceModeOptional } from "@agent-native/toolkit/app/chat/composer";
 import { WaveBackground } from "@agent-native/toolkit/app/shared";
 import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
@@ -16,14 +17,13 @@ import {
   IconBrandGithub,
   IconUsers,
 } from "@tabler/icons-react";
-import { Fragment, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
   Item,
   ItemContent,
-  ItemDescription,
   ItemFooter,
   ItemMedia,
   ItemTitle,
@@ -31,6 +31,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { getChatHomeThreadId } from "@/lib/chat-home-thread";
 import {
+  chatHandoffComposerOptions,
   chatThreadPath,
   type ChatInitialComposerOptions,
   type ChatRouteState,
@@ -41,61 +42,15 @@ const DOCS_URL = "https://www.agent-native.com/docs";
 const GITHUB_URL = "https://github.com/BuilderIO/agent-native";
 const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
 
-const INLINE_COMPOSER_STYLE = {
-  display: "block",
-  blockSize: "auto",
-  overflow: "visible",
-  background: "transparent",
-} as const;
-
-const EDIT_HINT_CODE = { file: "actions/hello.ts" };
-
-/** Placeholder values that `WithCode` swaps back out for code chips. */
-function codeSlots(code: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.keys(code).map((name) => [name, `\u0000${name}\u0000`]),
-  );
-}
-
-function WithCode({
-  text,
-  code,
-}: {
-  text: string;
-  code: Record<string, string>;
-}) {
-  return (
-    <>
-      {text
-        .split(/\u0000(\w+)\u0000/)
-        .map((part, index) =>
-          index % 2 === 1 ? (
-            <CodeChip key={index}>{code[part]}</CodeChip>
-          ) : (
-            <Fragment key={index}>{part}</Fragment>
-          ),
-        )}
-    </>
-  );
-}
-
-function CodeChip({ children }: { children: ReactNode }) {
-  return (
-    <code className="whitespace-nowrap rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.9em] text-foreground">
-      {children}
-    </code>
-  );
-}
-
 /**
  * The same AgentKit composer the chat page uses, so Connect AI and the model
  * picker look the way they will in chat. Submitting hands the prompt to the
- * full chat page instead of running it here.
+ * full chat page instead of running it here, and voice chat continues there.
  */
 function HomeAgentComposer() {
   const navigate = useNavigate();
+  const realtimeVoice = useRealtimeVoiceModeOptional();
   const [threadId] = useState(getChatHomeThreadId);
-  const [mode, setMode] = useState<"act" | "plan">("act");
   const [transport] = useState(() =>
     createAgentNativeAgentKitTransport({
       browserTabId: TAB_ID,
@@ -120,48 +75,48 @@ function HomeAgentComposer() {
     onLocalSubmit?.();
   }
 
+  function startVoiceChat() {
+    // Home shows no transcript, so the session is bound to the thread it
+    // opens rather than to whichever thread is on screen when it starts.
+    void realtimeVoice?.start({ threadId });
+    markAgentChatHomeHandoff("chat");
+    navigateWithAgentChatViewTransition(navigate, chatThreadPath(threadId));
+  }
+
   return (
-    // `agentkit-chat` carries the page composer's sizing tokens. Its stylesheet
-    // is unlayered, so Tailwind utilities can't undo the transcript canvas
-    // (background, full-height grid); only inline styles win here.
     <div
-      className="agentkit-chat w-full max-w-2xl text-start"
-      style={INLINE_COMPOSER_STYLE}
+      className="agentkit-tokens w-full max-w-[calc(var(--agent-kit-conversation-max-width,47rem)-2rem)] text-start"
+      data-agentkit-composer-size="large"
     >
-      <div className="agentkit-composer-stack">
-        <CoreComposerRuntimeProvider>
-          <CoreAgentKitRoot
-            transport={transport}
-            clientOptions={{ transportOwnership: "owned" }}
+      <CoreComposerRuntimeProvider>
+        <CoreAgentKitRoot
+          transport={transport}
+          clientOptions={{ transportOwnership: "owned" }}
+          threadId={threadId}
+        >
+          <HomeAgentComposerInput
             threadId={threadId}
-          >
-            <HomeAgentComposerInput
-              threadId={threadId}
-              mode={mode}
-              onModeChange={setMode}
-              onSubmit={openChat}
-            />
-          </CoreAgentKitRoot>
-        </CoreComposerRuntimeProvider>
-      </div>
+            onSubmit={openChat}
+            onVoiceChatStart={startVoiceChat}
+          />
+        </CoreAgentKitRoot>
+      </CoreComposerRuntimeProvider>
     </div>
   );
 }
 
 function HomeAgentComposerInput({
   threadId,
-  mode,
-  onModeChange,
   onSubmit,
+  onVoiceChatStart,
 }: {
   threadId: string;
-  mode: "act" | "plan";
-  onModeChange: (mode: "act" | "plan") => void;
   onSubmit: (
     text: string,
     options: ChatInitialComposerOptions,
     onLocalSubmit?: () => void,
   ) => void;
+  onVoiceChatStart: () => void;
 }) {
   const t = useT();
   const control = useAgentKitControl(threadId);
@@ -170,12 +125,11 @@ function HomeAgentComposerInput({
     <AgentKitComposer
       threadId={threadId}
       requireAgentEngine
-      placeholder={t("home.composerPlaceholder")}
+      placeholder={t("chat.composerPlaceholder")}
       plusMenuMode="hidden"
       attachmentsEnabled={false}
-      mode={mode}
-      onModeChange={onModeChange}
       voiceEnabled
+      onVoiceChatStart={onVoiceChatStart}
       onSubmit={async (text, files, references, options) => {
         const uploadedAttachments = files.length
           ? await control.uploadFiles(
@@ -187,20 +141,13 @@ function HomeAgentComposerInput({
               })),
             )
           : [];
-        const {
-          onLocalSubmit: clearLocalDraft,
-          attachments: _rawAttachments,
-          ...submitOptions
-        } = options;
         onSubmit(
           text,
-          {
-            ...submitOptions,
-            mode,
+          chatHandoffComposerOptions(options, {
             references,
             ...(uploadedAttachments.length ? { uploadedAttachments } : {}),
-          },
-          clearLocalDraft,
+          }),
+          options.onLocalSubmit,
         );
       }}
     />
@@ -229,25 +176,20 @@ function ResourceLink({
 function ResourceColumn({
   icon,
   title,
-  description,
   children,
 }: {
   icon: ReactNode;
   title: string;
-  description?: string;
   children: ReactNode;
 }) {
   return (
-    <Item asChild className="px-6 py-8 sm:px-10">
+    <Item asChild className="content-start px-6 py-8 sm:px-10">
       <section>
         <ItemMedia variant="icon">{icon}</ItemMedia>
         <ItemContent>
           <ItemTitle role="heading" aria-level={2}>
             {title}
           </ItemTitle>
-          {description ? (
-            <ItemDescription>{description}</ItemDescription>
-          ) : null}
         </ItemContent>
         <ItemFooter className="flex-wrap justify-start">{children}</ItemFooter>
       </section>
@@ -269,31 +211,15 @@ export default function HomePage() {
           aria-hidden="true"
           className="h-8 w-14 text-foreground"
         />
-        <div className="flex flex-col items-center gap-3">
-          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            {t("home.title")}
-          </h1>
-          <p className="max-w-xl text-base text-muted-foreground">
-            <span className="block">{t("home.lead")}</span>
-            <span className="block">{t("home.leadTry")}</span>
-          </p>
-        </div>
+        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+          {t("home.title")}
+        </h1>
         <HomeAgentComposer />
-        <p className="max-w-lg text-sm text-muted-foreground">
-          <WithCode
-            text={t("home.editHint", codeSlots(EDIT_HINT_CODE))}
-            code={EDIT_HINT_CODE}
-          />
-        </p>
       </section>
 
       <Separator />
       <div className="grid md:grid-cols-[1fr_auto_1fr]">
-        <ResourceColumn
-          icon={<IconBook />}
-          title={t("home.docsTitle")}
-          description={t("home.docsDescription")}
-        >
+        <ResourceColumn icon={<IconBook />} title={t("home.docsTitle")}>
           <ResourceLink href={`${DOCS_URL}/getting-started`}>
             {t("home.docsGettingStarted")}
           </ResourceLink>
@@ -308,11 +234,7 @@ export default function HomePage() {
           </ResourceLink>
         </ResourceColumn>
         <Separator orientation="vertical" className="hidden md:block" />
-        <ResourceColumn
-          icon={<IconUsers />}
-          title={t("home.communityTitle")}
-          description={t("home.communityDescription")}
-        >
+        <ResourceColumn icon={<IconUsers />} title={t("home.communityTitle")}>
           <ResourceLink href={GITHUB_URL} icon={<IconBrandGithub />}>
             GitHub
           </ResourceLink>

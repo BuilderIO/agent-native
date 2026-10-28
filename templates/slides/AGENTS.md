@@ -58,6 +58,7 @@ Deck data lives in SQL; all writes go through server-side actions. Read `deck-ma
 
 - `navigation` exposes deck, slide, selection, and editor view; `navigate` opens decks, slides, imports, and exports.
 - `slides-selection` describes selected elements, tool mode, transient selectors, text/image/video hints, and computed styles. Read `view-screen` before visual/style edits; use actions for full data.
+- `agent-selection` lists slides and elements picked with Select; a `Selected objects` context block names the target set, so edit only those.
 - `slides-open-panel` records the open side panel (`layers` / `animations`) and `notesOpen` for the speaker notes panel; `view-screen` prints them as `openPanel` and `notesOpen`.
 - Presenter speech navigation accepts exact localized next/previous slide phrases; keep transcripts transient and ignore narration.
 
@@ -70,3 +71,9 @@ Google Slides export produces a PPTX for the user to import; a native Slides fil
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI.
 
 Search with `rg --hidden --follow`; read the exact linked guide before deeper work.
+
+## Actions for outside agents
+
+| Action | Purpose |
+| --- | --- |
+| `clone-context-slide` | Copy a pinned native library slide into an editable deck, preserving provenance |

@@ -195,6 +195,23 @@ describe("recurring job actions", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
+  it.each(["automation", "mcp"] as const)(
+    "prevents nested run-now calls from %s automations",
+    async (caller) => {
+      await expect(
+        runAutomationNow.run(
+          { resourceId: "job-1" },
+          {
+            ...ctx,
+            caller,
+            automation: { triggerId: "parent", triggerName: "parent" },
+          },
+        ),
+      ).rejects.toThrow("An automation cannot run another automation.");
+      expect(mocks.queueAutomationRunNow).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps all recurring-job actions frontend-only", () => {
     expect(listRecurringJobs.agentTool).toBe(false);
     expect(manageRecurringJob.agentTool).toBe(false);

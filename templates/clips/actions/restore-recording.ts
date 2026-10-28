@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { hasDeleteClaim } from "../server/lib/screenshot-edits.js";
 
 export default defineAction({
@@ -14,7 +15,9 @@ export default defineAction({
     id: z.string().describe("Recording ID"),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.id, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.id, "editor"),
+    );
 
     const db = getDb();
 

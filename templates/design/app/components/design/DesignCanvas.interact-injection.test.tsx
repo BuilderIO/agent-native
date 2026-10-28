@@ -286,6 +286,49 @@ describe("DesignCanvas when the mode swaps a markup document", () => {
   });
 });
 
+describe("DesignCanvas in Edit: the bridge that forwards a pinch", () => {
+  async function installedBridgeScript(embedded: boolean) {
+    await act(async () =>
+      root.render(
+        canvas({
+          interactMode: false,
+          content: "http://127.0.0.1:1/app",
+          embedded,
+        }),
+      ),
+    );
+    const iframe = previewIframe();
+    const frameWindow = iframe?.contentWindow;
+    if (!iframe || !frameWindow) throw new Error("Expected the preview frame");
+    const post = vi.spyOn(frameWindow, "postMessage");
+    await act(async () => {
+      iframe.dispatchEvent(new Event("load"));
+    });
+    const install = post.mock.calls.find(
+      ([message]) =>
+        (message as { type?: string } | null)?.type ===
+        "agentNative.installBridge",
+    );
+    return String((install?.[0] as { script?: string } | undefined)?.script);
+  }
+
+  it("leaves a markup screen on the overview to its gesture bridge", async () => {
+    await act(async () =>
+      root.render(canvas({ interactMode: false, embedded: true })),
+    );
+    const srcdoc = previewIframe()?.getAttribute("srcdoc") ?? "";
+    expect(srcdoc).toContain("embedded-canvas-wheel");
+    expect(srcdoc).not.toContain("pinch-zoom-wheel");
+  });
+
+  it("gives a running app the same bridge on the overview as on its own, so Full view can take it over", async () => {
+    const onOverview = await installedBridgeScript(true);
+    const onItsOwn = await installedBridgeScript(false);
+    expect(onOverview).toContain("pinch-zoom-wheel");
+    expect(onOverview).toBe(onItsOwn);
+  });
+});
+
 describe("DesignCanvas in Interact: a screen served from a URL", () => {
   it("loads a running app straight from its address, with no bridge registered for it", async () => {
     vi.spyOn(

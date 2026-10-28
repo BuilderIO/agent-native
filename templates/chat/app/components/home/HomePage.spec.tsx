@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(),
   markHomeHandoff: vi.fn(),
   uploadFiles: vi.fn(),
+  startVoice: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -21,6 +22,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   markAgentChatHomeHandoff: state.markHomeHandoff,
+  markClientDraftThread: vi.fn(),
   navigateWithAgentChatViewTransition: state.navigateWithTransition,
 }));
 vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
@@ -41,6 +43,9 @@ vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/composer", () => ({
   }: {
     children: React.ReactNode;
   }) => <>{children}</>,
+}));
+vi.mock("@agent-native/toolkit/app/chat/composer", () => ({
+  useRealtimeVoiceModeOptional: () => ({ start: state.startVoice }),
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/index", () => ({
   CoreAgentKitRoot: (props: Record<string, unknown>) => {
@@ -79,6 +84,8 @@ describe("HomePage", () => {
     state.markHomeHandoff.mockReset();
     state.uploadFiles.mockReset();
     state.uploadFiles.mockResolvedValue([]);
+    state.startVoice.mockReset();
+    state.startVoice.mockResolvedValue(undefined);
     window.sessionStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -97,7 +104,7 @@ describe("HomePage", () => {
     expect(container.querySelector("h1")?.textContent).toBe("home.title");
     expect(state.composerProps).toMatchObject({
       requireAgentEngine: true,
-      placeholder: "home.composerPlaceholder",
+      placeholder: "chat.composerPlaceholder",
     });
     expect(state.rootProps?.threadId).toEqual(expect.stringMatching(/^chat-/));
     expect(state.composerProps?.threadId).toBe(state.rootProps?.threadId);
@@ -126,10 +133,7 @@ describe("HomePage", () => {
     const contextItems = [
       { key: "project", title: "Project", context: "Use project defaults." },
     ];
-    const composerProps = state.composerProps;
-    act(() =>
-      (composerProps?.onModeChange as (mode: "act" | "plan") => void)("plan"),
-    );
+    expect(state.composerProps).not.toHaveProperty("onModeChange");
     const onSubmit = state.composerProps?.onSubmit as (
       text: string,
       files: File[],
@@ -142,6 +146,8 @@ describe("HomePage", () => {
         steer: true;
         contextItems: typeof contextItems;
         composerModeContext: string;
+        requestMode: "plan";
+        submissionId: string;
         onLocalSubmit: () => void;
       },
     ) => Promise<void>;
@@ -155,6 +161,8 @@ describe("HomePage", () => {
         steer: true,
         contextItems,
         composerModeContext: "Use the selected action.",
+        requestMode: "plan",
+        submissionId: "client-request-home",
         onLocalSubmit,
       }),
     );
@@ -190,19 +198,36 @@ describe("HomePage", () => {
     );
     expect(state.markHomeHandoff).toHaveBeenCalledWith("chat");
     expect(state.markHomeHandoff.mock.invocationCallOrder[0]).toBeLessThan(
-      state.navigateWithTransition.mock.invocationCallOrder[0],
+      state.navigateWithTransition.mock.invocationCallOrder[0] ??
+        Number.NEGATIVE_INFINITY,
     );
     expect(onLocalSubmit).toHaveBeenCalledOnce();
   });
 
-  it("renders file paths as code inside translated sentences", () => {
+  it("starts voice chat on the home thread and opens that thread", () => {
+    act(() => root.render(<HomePage />));
+    const threadId = state.rootProps?.threadId as string;
+
+    act(() => (state.composerProps?.onVoiceChatStart as () => void)());
+
+    expect(state.startVoice).toHaveBeenCalledWith({ threadId });
+    expect(state.markHomeHandoff).toHaveBeenCalledWith("chat");
+    expect(state.navigateWithTransition).toHaveBeenCalledWith(
+      state.navigate,
+      `/chat/${threadId}`,
+    );
+    expect(state.startVoice.mock.invocationCallOrder[0]).toBeLessThan(
+      state.navigateWithTransition.mock.invocationCallOrder[0] ??
+        Number.NEGATIVE_INFINITY,
+    );
+  });
+
+  it("shows only the heading above the composer, with no developer walkthrough", () => {
     act(() => root.render(<HomePage />));
 
-    const codes = Array.from(container.querySelectorAll("code")).map(
-      (code) => code.textContent,
-    );
-    expect(codes).toEqual(["actions/hello.ts"]);
-    expect(container.textContent).not.toContain("local development");
+    const hero = container.querySelector("h1")?.parentElement;
+    expect(hero?.querySelectorAll("p")).toHaveLength(0);
+    expect(container.querySelectorAll("code")).toHaveLength(0);
   });
 
   it("links to the docs and community", () => {

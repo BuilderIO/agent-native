@@ -88,9 +88,9 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "What happens on an output mismatch.",
         },
         {
@@ -98,7 +98,14 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
           type: "TReturn",
           optional: true,
           description:
-            'Returned in place of an invalid result when outputErrorStrategy is "fallback".',
+            'Deprecated. Returned in place of an invalid result when outputErrorStrategy is "fallback".',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "The action's closed set of error codes, from defineActionErrors. See Declaring error codes below.",
         },
         {
           name: "mcpOutputSchema",
@@ -247,24 +254,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+The action's return type comes from `outputSchema`, and `run` must return a value the schema accepts, so a result that drifts from the schema is a compile error before it is a runtime one.
+
 `outputErrorStrategy` controls what happens on a mismatch:
 
-| Strategy     | Behavior on mismatch                                                                               |
-| ------------ | -------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking. |
-| `"strict"`   | Throw `ActionOutputContractError`, so a bug in the action is easy to notice.                       |
-| `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
+| Strategy     | Behavior on mismatch                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `"strict"`   | **Default.** Throw `ActionOutputContractError`, so a bug in the action fails loudly.                               |
+| `"warn"`     | `console.warn` the issues and return the **original** result unchanged. Use it while you fix a schema.             |
+| `"fallback"` | **Deprecated.** Return `outputFallback` in place of the invalid result, which callers cannot tell from a real one. |
 
 When `run()` succeeds, the framework returns the validated value, so any defaults or coercions on `outputSchema` take effect, the same way they do for input. When you don't pass an `outputSchema`, the return value is unchanged.
 
 The strict check runs after `run()`, so the error (`errorCode: "output_contract_violation"`) reports what already happened: `effect` is `"committed"` once a write entered its handler, in the call or in an action it called (even from a read-only action), and callers must not retry it; otherwise it is `"none"`. The message lists only declared field paths and issue codes, never the returned values.
+
+### Declaring error codes {#error-codes}
+
+`defineActionErrors` declares the closed set of `errorCode`s an action fails with. Its `fail` and `noWrite` accept only those codes, so a misspelled code does not compile, and passing it as `errors` publishes the codes as `errorCodes` on the definition.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### Advertising the contract over MCP {#mcp-output-schema}
 

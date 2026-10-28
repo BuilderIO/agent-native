@@ -163,6 +163,12 @@ export default defineAction({
       const slides = Array.isArray(deck.slides)
         ? ([...deck.slides] as Array<Record<string, unknown>>)
         : [];
+      if (slideId && slides.some((slide) => slide.id === slideId)) {
+        fail(
+          `Slide ${slideId} already exists in deck ${deckId}; omit slideId or choose a new one.`,
+          { errorCode: "slide_id_taken", statusCode: 409 },
+        );
+      }
       const newSlideId = slideId ?? `slide-${nanoid(10)}`;
       const reuseLabel = {
         itemId,

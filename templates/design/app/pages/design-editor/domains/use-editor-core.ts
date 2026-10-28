@@ -40,6 +40,8 @@ import {
   sendBuilderSelectionContext,
 } from "@/lib/builder-host-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
+import { leaveCanvasOutcomeDesign } from "@/lib/canvas-load-outcome";
+import { setCanvasOutcomeContext } from "@/lib/canvas-outcome-tracking";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { SHELL_DESIGN_ID } from "@/lib/shell-design";
 
@@ -87,6 +89,13 @@ export function useEditorCore() {
   const isSignedIn = Boolean(session?.email);
   const sessionResolved = !sessionLoading;
   const location = useLocation();
+  useEffect(() => {
+    setCanvasOutcomeContext({
+      designId: id,
+      signedIn: sessionResolved ? isSignedIn : undefined,
+    });
+  }, [id, isSignedIn, sessionResolved]);
+  useEffect(() => leaveCanvasOutcomeDesign, []);
   usePerformanceBufferGuard();
   const initialEditorUrlRef = useRef<{
     designId: string | undefined;

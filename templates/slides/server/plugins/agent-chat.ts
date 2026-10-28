@@ -18,6 +18,7 @@ import {
   readGeneratedDeckSlideCount,
   trackGenerationCompletedForRun,
 } from "../lib/generation-completion.js";
+import { SLIDES_REALTIME_VOICE } from "../lib/realtime-voice.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -55,6 +56,7 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
+  "clone-context-slide",
   "view-screen",
   "navigate",
   "list-decks",
@@ -213,7 +215,9 @@ export default createAgentChatPlugin({
   onAgentRunComplete: reportGenerationCompletion,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  realtimeVoice: SLIDES_REALTIME_VOICE,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: EXTERNAL_CONNECTOR_TOOL_NAMES,
     instructions:
       "Latest-message rule: a newer user message or correction supersedes unresolved earlier work. Before any write after a correction or ambiguous target, call view-screen again and use its slide/selection IDs; never infer a slide from semantic wording or prior tool output. If update-slide rejects a stale target, do not retry that slideId — re-read view-screen and rebase once. " +

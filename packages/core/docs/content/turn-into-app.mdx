@@ -7,6 +7,19 @@ description: "The /turn-into-app skill turns a thread, skill, spreadsheet, or Cl
 
 `/turn-into-app` is a skill that turns a workflow you have already proven into an Agent-Native app. The source can be a thread, a skill, a spreadsheet, or a Claude or ChatGPT project. The app opens on your world, populated with sample data shaped like the source, with the in-app agent working behind controls on the objects it acts on. A form under a step bar is the result the skill is built to avoid.
 
+## Before you start {#before-you-start}
+
+- An AI agent that can run terminal commands, such as Claude Code, Codex, or Cursor. Claude or ChatGPT on the web can hand the job to Builder instead. See [Where it runs](#hosts).
+- [Node.js](https://nodejs.org). The installer from nodejs.org includes `npx`, which runs the install commands below.
+- An empty folder for the new app, and about 45 minutes.
+
+The skill asks whether the app runs on your machine or is hosted with Builder. Each needs one more thing:
+
+- **On your machine.** Node.js 22.22 or later (check with `node --version`) and [pnpm](https://pnpm.io) on your `PATH`. If `pnpm --version` fails, run `corepack enable`, which ships with Node.js.
+- **Hosted with Builder.** A free Builder account. Nothing else to install.
+
+You don't need an AI provider key to build the app. You only need one when you want the app's own agent to answer you.
+
 ## Install {#install}
 
 ```bash
@@ -34,14 +47,16 @@ Without an argument the skill builds the latest successful, repeatable job and n
 
 ## Where it runs {#hosts}
 
-| Host                                                  | What happens                                                                                                    |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Claude Code, Codex, Cursor, other local coding agents | Builds, runs, and reviews the app in your checkout.                                                             |
-| Claude or ChatGPT on the web                          | Writes a bounded brief and hands it to Builder through the Dispatch connector. It does not run anything itself. |
+| Host                                                  | What happens                                                                                                                       |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code, Codex, Cursor, other local coding agents | Asks where the app runs. On your machine, it builds, runs, and reviews the app in your checkout. Otherwise it hands it to Builder. |
+| Claude or ChatGPT on the web                          | Writes a bounded brief and hands it to Builder through the Dispatch connector. It does not run anything itself.                    |
 
 A host counts as local when it has a real working directory, a terminal, and a workspace. Having a Builder or Dispatch connector does not make a host a browser host.
 
-On a browser host the skill requires the Agent-Native Dispatch MCP connector (`https://dispatch.agent-native.com/mcp`, OAuth) and calls its `start-workspace-app-creation` action. The host cannot run or inspect the app, so the report stays pending or unverified until the branch Dispatch returns is built. The skill reports what Dispatch actually returned and never invents a branch URL. For a ChatGPT Project, or any host that only exposes MCP, put the skill instructions in the Project instructions or knowledge files.
+On a local host the skill shows its brief, then asks one question: **On your machine** (Node.js and pnpm; the app runs from your folder while the computer is on) or **Hosted with Builder** (a free Builder account; Builder builds the app and hosts it online, and the free plan has a daily credit limit). It recommends Builder when Node.js 22.22+ or pnpm is missing, or in Claude Cowork, which can't keep a local app running; otherwise it recommends your machine. It doesn't ask when you already said where, when it resumes an earlier run, when the app's source of truth is files on your machine (Local File Mode), or in a headless run, which builds on your machine. If you choose Builder, it attaches the source files from your folder and runs nothing locally.
+
+Builder hosting, from either kind of host, needs the Agent-Native Dispatch MCP connector (`https://dispatch.agent-native.com/mcp`, OAuth) and calls its `start-workspace-app-creation` action. Nothing runs on your side, so the report stays pending or unverified until the branch Dispatch returns is built. The skill reports what Dispatch actually returned and never invents a branch URL. In a local agent without the connector, the skill offers to set it up with `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code` (or `codex`, `cursor`, `cowork`); restart the agent and run the skill again. Without Node.js, it points you to `https://dispatch.agent-native.com/mcp/connect`, which has setup steps for each agent. It never switches to a local build without asking. For a ChatGPT Project, or any host that only exposes MCP, put the skill instructions in the Project instructions or knowledge files.
 
 ## Sources {#sources}
 
@@ -63,7 +78,7 @@ The skill saves its source brief as `docs/brief.md` and appends the surface desi
 ## How a run works {#how-it-works}
 
 1. **Brief.** It reads the whole source and writes a short brief: the job, at most three agent moments, invariants, data hazards, source of truth, and assumptions.
-2. **Design.** It decides the archetype, direction, shell, first viewport and sample data, and agent moments, and posts the brief once as a checkpoint. It continues without waiting.
+2. **Design.** It decides the archetype, direction, shell, first viewport and sample data, and agent moments, and posts the brief once as a checkpoint, with how long the rest will take. On a local host it then asks where the app runs and waits for your answer. Otherwise it continues without waiting. With Builder hosting, the Dispatch handoff replaces steps 3 to 6.
 3. **Scaffold.** It creates the real app with the chat template and never overwrites an existing app.
 
    ```bash
@@ -78,6 +93,8 @@ The skill saves its source brief as `docs/brief.md` and appends the surface desi
 
 The skill aims for about 45 minutes. If 35 minutes have passed when the review starts, it runs one pass and lists the open criteria.
 
+If a run stops partway, invoke the skill again in the same folder. It finds the half-built app, says what is already done and what is left, and continues from the first unfinished step instead of starting a second app.
+
 ## The screenshot review loop {#review-loop}
 
 Before handoff the skill starts the dev server and screenshots `/` at desktop and phone sizes in light and dark, plus the main agent control after a click. It scores the shots against a 12-row rubric covering first-viewport impact, domain fit, hierarchy, chrome discipline, sample data, typography, color, polish, agent and UI together, 390px layout, dark mode, and accessibility.
@@ -88,7 +105,7 @@ Screenshots are saved in the app's `.tmp/ui-review/out/`, and the final report l
 
 ## Run and deploy {#run-deploy}
 
-For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. Without it, opening the app shows a "Continue as local dev" card.
+For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After that, the first browser to open the app is signed in automatically as the local dev account. Later fresh browsers show a "Continue as local dev" card.
 
 To run the app yourself:
 
@@ -96,7 +113,9 @@ To run the app yourself:
 pnpm dev
 ```
 
-To use your own model provider locally, put a key such as `ANTHROPIC_API_KEY` in the same `.env`. Otherwise the agent sidebar shows the shared Use Builder.io or Custom keys setup.
+To change the app, ask the agent that built it, in the same folder. On localhost the app's own agent can't edit the app's code. A Builder-hosted app's code lives in Builder, so you change it there.
+
+To use your own model provider locally, put a key such as `ANTHROPIC_API_KEY` in the same `.env`. Otherwise the app still opens on its sample data, and the agent sidebar offers the shared Use Builder.io or Custom keys setup when you use the agent.
 
 The skill deploys only when you ask or the provider is already configured. A healthy local build still prints a "production configuration errors" block with exit code 0. That is the deploy checklist: a stable `BETTER_AUTH_SECRET` and a persistent `DATABASE_URL`, plus `A2A_SECRET` for an app inside a workspace. The skill reports these as the pending step and does not create placeholder values. See [Deploy an app](/docs/deploy-an-app) and [Deploy a workspace](/docs/workspace-deployment).
 
@@ -109,10 +128,10 @@ The final report labels evidence separately: locally running, locally verified, 
 - **Spreadsheets on a browser host.** A workbook cannot be attached; the host passes a bounded CSV rendering as text, or a URL that is intentionally public, and the handoff says what was left out. A link to a private sheet is not a source; the skill asks for an authenticated Sheets or Drive connection or an export, and never uses a public export URL to get around access controls.
 - **Cell colors.** A text preview cannot prove colors, so on a local host the skill reads both formulas and cached values, and treats color as a weak hint.
 - **Local File Mode apps.** An app whose source of truth is the host's files is local-only and is not deployed.
-- **Browser-host handoffs.** The result is unverified until Dispatch returns a built branch. The skill cannot run or screenshot the app there.
+- **Builder handoffs.** The result is unverified until Dispatch returns a built branch. The skill cannot run or screenshot an app Builder hosts.
 
 ## What's next {#whats-next}
 
 - [Skills Guide](/docs/skills-guide) for how skills are installed and loaded
-- [Dispatch](/docs/dispatch) for the connector used from Claude and ChatGPT on the web
+- [Dispatch](/docs/dispatch) for the connector used for Builder hosting
 - [Deploy an app](/docs/deploy-an-app) for taking the generated app to production

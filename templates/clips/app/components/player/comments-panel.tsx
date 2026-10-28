@@ -190,6 +190,11 @@ export interface CommentsPanelProps {
   currentUserName?: string;
   enableComments: boolean;
   canComment: boolean;
+  /**
+   * Lets the viewer delete comments they wrote. Defaults to `canComment`; an
+   * owner reviewing history with comments off may delete without commenting.
+   */
+  canDeleteOwnComments?: boolean;
   onSeek: (ms: number) => void;
   queryKey: readonly unknown[];
   selectComments?: CommentsLens["selectComments"];
@@ -208,6 +213,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     currentUserName,
     enableComments,
     canComment,
+    canDeleteOwnComments = canComment,
     onSeek,
     onUnauthenticated,
     queryKey,
@@ -765,10 +771,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
           formatRelativeTime={formatters.formatRelativeTime}
           currentUserEmail={currentUserEmail}
           canComment={canComment}
+          canDelete={canDeleteOwnComments}
           onSeek={onSeek}
           onReply={() => openReply(node.comment)}
           onDelete={(id) => remove.mutate({ id })}
-          isEditing={editingId === node.comment.id}
+          isEditing={canComment && editingId === node.comment.id}
           editDraft={editDraft}
           onEditDraftChange={setEditDraft}
           onEditMentionAdd={(mention) =>
@@ -786,7 +793,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
           canReply={replyAllowed}
           isReply={depth > 0}
         />
-        {replyAllowed && replyTo?.id === node.comment.id ? (
+        {canComment && replyAllowed && replyTo?.id === node.comment.id ? (
           <div className="ps-8">
             <InlineReplyComposer
               draft={replyDraft}
@@ -1193,6 +1200,7 @@ function CommentCard({
   formatRelativeTime,
   currentUserEmail,
   canComment,
+  canDelete,
   editDraft,
   isEditing,
   onSeek,
@@ -1214,6 +1222,7 @@ function CommentCard({
   formatRelativeTime: ReturnType<typeof useFormatters>["formatRelativeTime"];
   currentUserEmail?: string;
   canComment: boolean;
+  canDelete: boolean;
   editDraft: string;
   isEditing: boolean;
   onSeek: (ms: number) => void;
@@ -1414,7 +1423,7 @@ function CommentCard({
                 );
               })}
 
-              {isOwner && canComment ? (
+              {isOwner && (canComment || canDelete) ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1430,15 +1439,19 @@ function CommentCard({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={onStartEdit}>
-                      {t("commentsPanel.editComment")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => onDelete(comment.id)}
-                    >
-                      {t("commentsPanel.delete")}
-                    </DropdownMenuItem>
+                    {canComment ? (
+                      <DropdownMenuItem onSelect={onStartEdit}>
+                        {t("commentsPanel.editComment")}
+                      </DropdownMenuItem>
+                    ) : null}
+                    {canDelete ? (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => onDelete(comment.id)}
+                      >
+                        {t("commentsPanel.delete")}
+                      </DropdownMenuItem>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}

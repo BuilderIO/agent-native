@@ -1,9 +1,4 @@
-import {
-  ActionContractError,
-  defineAction,
-  embedApp,
-  fail,
-} from "@agent-native/core";
+import { ActionContractError, defineAction, fail } from "@agent-native/core";
 import type { WriteReceipt } from "@agent-native/core/action";
 import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -247,13 +242,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Deck editor",
-      description: "Open the updated deck in the Slides 2 editor.",
-      iframeTitle: "Agent-Native Slides 2",
-      openLabel: "Open deck",
-      height: 680,
-    }),
   },
   // Not retrySafe: a replay with the same slideId is rejected and must be
   // reconciled by reading the deck before another add is attempted.

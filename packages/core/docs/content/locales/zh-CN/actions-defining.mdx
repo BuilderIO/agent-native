@@ -84,9 +84,9 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "输出不匹配时会发生什么。",
         },
         {
@@ -94,7 +94,14 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
           type: "TReturn",
           optional: true,
           description:
-            '当 outputErrorStrategy 为 "fallback" 时,用它代替无效结果返回。',
+            '已弃用。当 outputErrorStrategy 为 "fallback" 时,用它代替无效结果返回。',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "该 action 的错误码封闭集合，来自 defineActionErrors。参见下文“声明错误码”。",
         },
         {
           name: "mcpOutputSchema",
@@ -242,24 +249,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+action 的返回类型来自 `outputSchema`，`run` 必须返回 schema 接受的值，因此偏离 schema 的结果会先成为编译错误，而不是运行时错误。
+
 `outputErrorStrategy` 控制不匹配时会发生什么:
 
-| 策略         | 不匹配时的行为                                                                |
-| ------------ | ----------------------------------------------------------------------------- |
-| `"warn"`     | **默认值。**用 `console.warn` 记录问题,并原样返回**原始**结果。不会中断运行。 |
-| `"strict"`   | 抛出一个明确的错误,让 action 中的 bug 容易被发现。                            |
-| `"fallback"` | 返回提供的 `outputFallback` 值,代替无效的结果。                               |
+| 策略         | 不匹配时的行为                                                                      |
+| ------------ | ----------------------------------------------------------------------------------- |
+| `"strict"`   | **默认值。**抛出 `ActionOutputContractError`，让 action 中的 bug 明显地失败。       |
+| `"warn"`     | 用 `console.warn` 记录问题，并原样返回**原始**结果。修复 schema 期间使用。          |
+| `"fallback"` | **已弃用。**返回 `outputFallback`，代替无效的结果，调用方无法将其与真实结果区分开。 |
 
 当 `run()` 成功时,框架会返回校验后的值,所以 `outputSchema` 上的任何默认值或类型转换都会生效,和输入的处理方式一样。如果你没有传入 `outputSchema`,返回值不会有任何变化。
 
 strict 校验在 `run()` 之后运行，因此错误（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）报告的是已经发生的事：一旦有写入进入其处理函数（无论是在调用本身中，还是在它调用的 action 中，即使发起方是只读 action），`effect` 即为 `"committed"`，调用方不得重试；否则为 `"none"`。消息只列出已声明的字段路径和问题代码，从不包含返回的值。
+
+### 声明错误码 {#error-codes}
+
+`defineActionErrors` 声明一个 action 失败时使用的 `errorCode` 封闭集合。它的 `fail` 和 `noWrite` 只接受这些错误码，因此拼错的错误码无法通过编译；将其作为 `errors` 传入，这些错误码会作为 `errorCodes` 发布在定义上。
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### 通过 MCP 公布契约 {#mcp-output-schema}
 

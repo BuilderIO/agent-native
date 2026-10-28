@@ -51,7 +51,10 @@ function selectBuilder(result: unknown[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAssertAccess.mockResolvedValue(undefined);
+  mockAssertAccess.mockResolvedValue({
+    role: "editor",
+    resource: { expiresAt: null },
+  });
   mockWriteAppState.mockResolvedValue(undefined);
   mockNanoid.mockReturnValue("cta_1");
   mockDb.select.mockReturnValue(

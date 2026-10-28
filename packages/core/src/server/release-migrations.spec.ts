@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const identityRows = new Map<string, Record<string, unknown>>();
@@ -297,5 +297,67 @@ describe("runFrameworkReleaseMigrations", () => {
 
     await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
     expect(mocks.ensureSharingAccessIndexes).toHaveBeenCalled();
+  });
+
+  describe("timing logs", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+    });
+
+    function loggedLines(log: { mock: { calls: unknown[][] } }): string[] {
+      return log.mock.calls.map(([line]) => String(line));
+    }
+
+    it("logs startup and completion time for a successful release", async () => {
+      vi.stubEnv("VITEST", "");
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await runFrameworkReleaseMigrations(null);
+
+      const lines = loggedLines(log);
+      expect(
+        lines.some((line) =>
+          /^\[db\] Migration runtime ready \d+ms after process start$/.test(
+            line,
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        lines.some((line) =>
+          /^\[db\] Framework release migrations finished in \d+ms \(lock wait \d+ms\)$/.test(
+            line,
+          ),
+        ),
+      ).toBe(true);
+    });
+
+    it("logs a failure, not completion, when the release throws", async () => {
+      vi.stubEnv("VITEST", "");
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      mocks.runFrameworkSchemaEnsures.mockRejectedValueOnce(new Error("boom"));
+
+      await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow("boom");
+
+      const lines = loggedLines(log);
+      expect(
+        lines.some((line) =>
+          /^\[db\] Framework release migrations failed after \d+ms \(lock wait \d+ms\)$/.test(
+            line,
+          ),
+        ),
+      ).toBe(true);
+      expect(lines.some((line) => line.includes("finished in"))).toBe(false);
+    });
+
+    it("stays quiet under vitest", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await runFrameworkReleaseMigrations(null);
+
+      expect(
+        loggedLines(log).some((line) => line.startsWith("[db] Migration")),
+      ).toBe(false);
+    });
   });
 });

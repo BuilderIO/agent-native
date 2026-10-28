@@ -48,6 +48,13 @@ export function isDocsWebMcpPath(
 
 export const docsAuthOptions: AuthOptions = {
   workspaceAppAudience: "public",
+  getBrowserSession: async (event) => {
+    if (isDocsWebMcpPath(getDocsRequestPathname(event))) return null;
+    const sessionId = getCookie(event, "an_docs_session");
+    return sessionId
+      ? { email: `anon-${sessionId}@agent-native.com`, userId: sessionId }
+      : null;
+  },
   getSession: async (event) => {
     const cookieName = "an_docs_session";
     if (isDocsWebMcpPath(getDocsRequestPathname(event))) return null;

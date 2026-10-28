@@ -38,6 +38,7 @@ const actions: Record<string, ActionDefinition> = Object.fromEntries(
 );
 
 const DIRECT_MCP_READS = [
+  "open-traffic-dashboard",
   "account-deep-dive",
   "builder-blog-articles",
   "data-source-status",
@@ -75,6 +76,12 @@ const DIRECT_MCP_WRITES = [
   "run-gong-native-insight",
   "update-analytics-public-key",
 ];
+
+// The declaration is preserved, but the shared SQL-input boundary requires
+// publicAgent.allowRawQueryInput before this action can be served.
+const SERVED_DIRECT_MCP_READS = DIRECT_MCP_READS.filter(
+  (name) => name !== "estimate-query-cost",
+);
 
 // Raw SQL and capability minting stay off every MCP catalog, including the
 // explicit full-catalog opt-in, which otherwise serves every undeclared action.
@@ -238,13 +245,13 @@ describe("Analytics direct MCP tools", () => {
 describe("Analytics MCP tools/list", () => {
   it("serves only the direct reads to an mcp:read token", async () => {
     expect(await listAppTools(["mcp:read"])).toEqual(
-      [...DIRECT_MCP_READS].sort(),
+      [...SERVED_DIRECT_MCP_READS].sort(),
     );
   }, 60_000);
 
   it("adds only allowlisted writes for an mcp:write token", async () => {
     expect(await listAppTools(["mcp:read", "mcp:write"])).toEqual(
-      [...DIRECT_MCP_READS, ...DIRECT_MCP_WRITES].sort(),
+      [...SERVED_DIRECT_MCP_READS, ...DIRECT_MCP_WRITES].sort(),
     );
   }, 60_000);
 
@@ -253,9 +260,12 @@ describe("Analytics MCP tools/list", () => {
       fullCatalog: true,
     });
     expect(served).toEqual(
-      expect.arrayContaining([...DIRECT_MCP_READS, ...DIRECT_MCP_WRITES]),
+      expect.arrayContaining([
+        ...SERVED_DIRECT_MCP_READS,
+        ...DIRECT_MCP_WRITES,
+      ]),
     );
-    for (const name of VETOED) {
+    for (const name of [...VETOED, "estimate-query-cost"]) {
       expect(served, name).not.toContain(name);
     }
   }, 60_000);

@@ -1110,7 +1110,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>(
-          ".agent-builder-setup-card__builder-button",
+          '[data-agent-builder-setup-slot="builder-button"]',
         )
         ?.click();
       container
@@ -1169,7 +1169,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>(
-          ".agent-builder-setup-card__builder-button",
+          '[data-agent-builder-setup-slot="builder-button"]',
         )
         ?.click();
     });
@@ -1222,7 +1222,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>(
-          ".agent-builder-setup-card__builder-button",
+          '[data-agent-builder-setup-slot="builder-button"]',
         )
         ?.click();
     });
@@ -1247,6 +1247,51 @@ describe("run recovery surfaces", () => {
     );
   });
 
+  it("hides a failed Builder status read on the card but keeps connect errors", async () => {
+    const renderCard = () => (
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <BuilderSetupCard />
+      </AgentNativeI18nProvider>
+    );
+    builderFlowMock.state.statusUnavailable = true;
+    builderFlowMock.state.errorKind = "status-read";
+    builderFlowMock.state.error = "Connection status is unavailable.";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(container.textContent).not.toContain(
+      "Connection status is unavailable.",
+    );
+
+    builderFlowMock.state.statusUnavailable = false;
+    builderFlowMock.state.errorKind = "connection";
+    builderFlowMock.state.error = "Builder.io sign-in was cancelled.";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(container.textContent).toContain(
+      "Builder.io sign-in was cancelled.",
+    );
+
+    builderFlowMock.state.statusUnavailable = true;
+    builderFlowMock.state.errorKind = "status-read";
+    builderFlowMock.state.error = "Connection status is unavailable.";
+    builderFlowMock.state.terminalError = "Builder.io sign-in was cancelled.";
+    await act(async () => {
+      root.render(renderCard());
+    });
+    expect(container.textContent).toContain(
+      "Builder.io sign-in was cancelled.",
+    );
+    expect(container.textContent).not.toContain(
+      "Connection status is unavailable.",
+    );
+  });
+
   it("records bounded Builder failure outcomes after a setup attempt", async () => {
     const renderCard = () => (
       <AgentNativeI18nProvider
@@ -1263,7 +1308,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>(
-          ".agent-builder-setup-card__builder-button",
+          '[data-agent-builder-setup-slot="builder-button"]',
         )
         ?.click();
     });
@@ -1298,7 +1343,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       container
         .querySelector<HTMLButtonElement>(
-          ".agent-builder-setup-card__builder-button",
+          '[data-agent-builder-setup-slot="builder-button"]',
         )
         ?.click();
     });
@@ -1458,12 +1503,52 @@ describe("run recovery surfaces", () => {
     });
 
     const actions = container.querySelector(
-      ".agent-builder-setup-card__actions",
+      '[data-agent-builder-setup-slot="actions"]',
     );
     expect(actions).not.toBeNull();
     expect(actions?.className).toContain("flex-row");
     expect(actions?.className).not.toContain("flex-col");
   });
+
+  it.each(["default", "sidebar"] as const)(
+    "renders the %s setup card as one row with a title and no description",
+    async (layout) => {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <BuilderSetupCard layout={layout} />
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      const title = container.querySelector("h3");
+      const actions = container.querySelector(
+        '[data-agent-builder-setup-slot="actions"]',
+      );
+      expect(title?.textContent).toBe("Connect AI");
+      expect(container.querySelector("p")).toBeNull();
+      expect(container.textContent).not.toContain(
+        "Choose Builder.io or custom keys.",
+      );
+      // Title and both choices share one wrapping row.
+      const row = actions?.parentElement;
+      expect(row?.contains(title)).toBe(true);
+      expect(row?.className).toContain("flex-wrap");
+      expect(row?.className).not.toContain("flex-col");
+      expect(
+        container.querySelector(
+          ".agent-builder-setup-card__content, .agent-builder-setup-card__actions, .agent-builder-setup-card__builder-button, .agent-builder-setup-card__key-button",
+        ),
+      ).toBeNull();
+      const choices = actions?.querySelectorAll("a, button");
+      expect(choices).toHaveLength(2);
+      choices?.forEach((choice) => expect(choice.className).toContain("h-6"));
+    },
+  );
 
   it("keeps retry available on the shared provider setup card", async () => {
     const onRetry = vi.fn();

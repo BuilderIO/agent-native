@@ -1,7 +1,10 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
-import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
+import {
+  SuggestionFormattingMappingError,
+  suggestionSourceAlignment,
+} from "@shared/suggestion-formatting";
 import {
   resolveMarkdownSuggestionRange,
   resolveOutsideChange,
@@ -75,6 +78,18 @@ function intersects(left: Range, right: Range) {
     : left.from < right.to && left.to > right.from;
 }
 
+// An edit that only touches another, even an insertion at another insertion's
+// offset, still has one place beside it.
+function overlaps(left: Range, right: Range) {
+  return left.from < right.to && left.to > right.from;
+}
+
+// Acceptance holds every accepted range fixed and places a pending edit in the
+// first stretch of text between them that contains it.
+function placedAfter(change: Range, target: Range) {
+  return change.to <= target.from && change.from < target.to;
+}
+
 function reconstruct(before: string, changes: Change[]) {
   let cursor = 0;
   let result = "";
@@ -113,7 +128,24 @@ function verifiedTransition(transition: SuggestionPresentationTransition) {
   );
 }
 
+// Saved operations keep their identity across renders, and each one diffs a
+// full Page, so a Page with many suggestions reuses the result.
+const preciseOperationsBySaved = new WeakMap<
+  object,
+  ReturnType<typeof computePreciseSuggestionPresentationOperations>
+>();
+
 export function preciseSuggestionPresentationOperations(
+  operation: MarkdownOperation,
+) {
+  if (preciseOperationsBySaved.has(operation))
+    return preciseOperationsBySaved.get(operation)!;
+  const precise = computePreciseSuggestionPresentationOperations(operation);
+  preciseOperationsBySaved.set(operation, precise);
+  return precise;
+}
+
+function computePreciseSuggestionPresentationOperations(
   operation: MarkdownOperation,
 ) {
   const identity = operation as MarkdownOperation & {
@@ -217,6 +249,40 @@ export function createObservedSuggestionPresentationTransition(
   return verifiedTransition(transition) ? transition : null;
 }
 
+// A draft's operations address the stored Page, but the editor shows them on
+// the Page's canonical form, which can differ, as a pipe table does.
+export function createDraftSuggestionPresentationTransition(
+  drafts: Array<Pick<ResourceSuggestion, "operations">>,
+  draftMarkdown: string,
+): SuggestionPresentationTransition | null {
+  const operations = drafts.flatMap((draft) => draft.operations);
+  const base =
+    operations[0] && checkedOperation(operations[0])?.before.markdown;
+  const alignment = base === undefined ? null : suggestionSourceAlignment(base);
+  if (!alignment) return null;
+  const changes: Change[] = [];
+  for (const operation of operations) {
+    const checked = checkedOperation(operation);
+    if (!checked || checked.before.markdown !== base) return null;
+    const from = alignment.map(checked.range.from, "stored");
+    const to = alignment.map(checked.range.to, "stored");
+    if (from === null || to === null) return null;
+    changes.push({
+      from,
+      to,
+      beforeText: alignment.canonical.slice(from, to),
+      afterText: checked.after.changedText,
+    });
+  }
+  changes.sort((left, right) => left.from - right.from || left.to - right.to);
+  const transition = {
+    before: alignment.canonical,
+    after: draftMarkdown,
+    changes,
+  };
+  return verifiedTransition(transition) ? transition : null;
+}
+
 function dependentOperation(
   operation: MarkdownOperation,
   transition: SuggestionPresentationTransition,
@@ -226,7 +292,7 @@ function dependentOperation(
   if (
     !checked ||
     checked.before.markdown !== transition.before ||
-    transition.changes.some((change) => intersects(checked.range, change))
+    transition.changes.some((change) => overlaps(checked.range, change))
   )
     return null;
   return checked;
@@ -463,7 +529,7 @@ export function resolveSuggestionPresentationRange(
     .sort((left, right) => left.from - right.from || left.to - right.to);
   const union: Range[] = [];
   for (const sibling of siblings) {
-    if (intersects(checked.range, sibling)) return null;
+    if (overlaps(checked.range, sibling)) return null;
     const previous = union[union.length - 1];
     if (previous && sibling.from <= previous.to)
       previous.to = Math.max(previous.to, sibling.to);
@@ -475,7 +541,7 @@ export function resolveSuggestionPresentationRange(
   });
   // Masked context must agree with the exact committed edits and unchanged target.
   const shift = transition.changes
-    .filter((change) => change.to <= checked.range.from)
+    .filter((change) => placedAfter(change, checked.range))
     .reduce(
       (delta, change) =>
         delta + change.afterText.length - change.beforeText.length,
@@ -534,4 +600,33 @@ export function resolveSuggestionPresentationRange(
       suffix: source.slice(projectedRange.to, projectedRange.to + 32),
     },
   });
+}
+
+// Text typed at a saved suggestion's spot splits the context that places it on
+// the draft, so place it on the draft's base and carry it across the draft's
+// edits. The editor maps a highlight past text typed at its position, so a
+// saved edit stays after a draft insertion at the same offset.
+export function resolveSuggestionPresentationRangeInDraft(
+  draft: SuggestionPresentationTransition,
+  operation: MarkdownOperation,
+  transition?: SuggestionPresentationTransition,
+  observedTransition?: SuggestionPresentationTransition,
+): Range | null {
+  if (!verifiedTransition(draft)) return null;
+  const range = resolveSuggestionPresentationRange(
+    draft.before,
+    operation,
+    transition,
+    observedTransition,
+  );
+  if (!range || draft.changes.some((change) => overlaps(range, change)))
+    return null;
+  const shift = draft.changes
+    .filter((change) => change.to <= range.from)
+    .reduce(
+      (delta, change) =>
+        delta + change.afterText.length - change.beforeText.length,
+      0,
+    );
+  return { from: range.from + shift, to: range.to + shift };
 }

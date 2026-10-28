@@ -32,16 +32,27 @@ agent over MCP/A2A, an A2A peer). `get-document` returns whatever is in the
 `documents.content` SQL column, which can lag behind a live editing session:
 the open editor holds the authoritative Y.Doc in memory and only debounces it
 back to SQL. `pull-document` closes that gap with a flush handshake — if a
-live Yjs collab session exists for the document it writes a one-shot
-`flush-request-<id>` application-state key (scoped to the browser session,
-just like `navigate`); the open editor sees that key, serializes its current
-document to markdown through its own existing serializer, calls
-`update-document`, and writes an explicit request-id-matched success/error
-acknowledgement. `pull-document` waits for that acknowledgement and fails
-closed if the open editor cannot save; when no active human editor is
-present, the SQL column is authoritative and the handshake is skipped. It is
+live Yjs collab session exists for the document it writes a request to each
+editing browser session's `flush-request-<id>` application-state key
+(scoped to the session, just like `navigate`), naming the editors it asks.
+In the prepare phase each editor saves its document through
+`update-document` and answers under its own request-matched key with
+`prepared` and a claim of what it saved, or `changed` or `error`. Once
+SQL holds every claim, a verify phase with a fresh token confirms each editor
+answers `verified`, unchanged across that read. `pull-document` waits up
+to 20 seconds and fails closed if an open editor cannot save; when no active
+human editor is present, the SQL column is authoritative and the handshake
+is skipped. On a page that takes body writes through its live copy, the tabs
+already wrote the body, so the request carries `scope: "title"` and goes
+only to editors that advertise `canFlushTitle`. Each marks its prepare
+answer `taken`, saves its title alone, then replaces the mark with
+`prepared` and the title it saved; the server prepares again until SQL holds
+that title, then verifies. With no such editor open, the handshake is
+skipped. A missing or failed answer fails with
+`OPEN_EDITOR_TITLE_NOT_SAVED`. `pull-document` is
 GET + read-only + public-agent exposed (`requiresAuth: true`), returns
-`{ id, title, content, format, deepLink }`, and surfaces an "Open document"
+`{ id, title, content, format, deepLink }`, plus `editorFlush.titleFlush` when
+such editors were asked, and surfaces an "Open document"
 deep link for external agents. Use `--format text` for a plain-text strip of
 the markdown.
 
@@ -61,6 +72,42 @@ the user to connect Builder.io in Settings -> File uploads. Agents can add
 images that already have a hosted URL by using `edit-document` or
 `update-document` to insert markdown image syntax. Do not embed base64 image
 data in document content.
+
+## Video uploads become Clips
+
+While the `content.clip-embed` flag is on, a video a person uploads, drops, or
+pastes into a page becomes a private Clip bound to that page instead of a file
+in Content's storage. The page holds `<ClipEmbed … origin="upload" />`, and
+the Clip is visible to exactly the people who can see the page. The browser
+sends the file straight to Clips, and only the page's editors can upload.
+Uploading is UI-only: no agent tool uploads a video.
+
+- Clips takes MP4, WebM, and MOV. Another video type is refused with a
+  message naming those, and an empty file as a video that didn't upload;
+  neither leaves a block.
+- When Clips can't take the file yet (free clips used up, no storage, or no
+  Clips account), the file waits in the video block with setup links that open
+  Clips in a new tab. Point the user at those links; the upload carries on by
+  itself when they come back. Nothing is in the page until it starts.
+- `view-screen` returns `clipUploads.uploads` while this tab is sending a file
+  or Clips is making the Clip. Each upload has `recordingId`, `documentId`,
+  `fileName`, `phase` (`uploading`, `making`, or `failed`), and `percent`.
+  An upload whose block has been gone from the page for a few seconds drops
+  out of `clipUploads`, whatever its phase, and once the page is closed in
+  that tab, only an upload it is still sending stays, until its sending ends.
+- Keep a Clip block in place while its file sends, or while Clips waits for
+  storage before making the Clip: once the block has been
+  gone for those few seconds, the uploading tab cancels the upload in Clips
+  and says so, even when the page closed in that time, and the person picks
+  the file again. It does the same when the
+  editor loses edit access before the block is in place. If Clips already had
+  the whole file, the Clip stays, and the tab says it was saved, with Open in
+  Clips.
+- An upload whose file stopped sending is cancelled in Clips and shows "This
+  upload didn't finish", which its editors can remove. When Clips doesn't
+  confirm a cancel, the tab says so. Clips fails such an upload about an hour
+  later, as it does one whose tab closed mid-upload.
+- With the flag off, video uploads use Content's file storage as before.
 
 ## Sharing and visibility
 

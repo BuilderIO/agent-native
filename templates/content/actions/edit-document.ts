@@ -1,9 +1,9 @@
 import { ActionContractError } from "@agent-native/core";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -20,9 +20,23 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import {
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
+import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
+import { drizzleOverExec } from "../server/live-copy/exec-db.js";
+import {
+  editContentLiveCopy,
+  liveCopyBaseChanged,
+  liveCopyWriteLeftPath,
+  unrepresentableBodyError,
+} from "../server/live-copy/write.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
@@ -40,6 +54,7 @@ import {
 } from "./_document-edit-mutation.js";
 import { assertSourceAllowsPageEdit } from "./_document-source.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
+import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 
 interface TextEdit {
   find: string;
@@ -103,12 +118,13 @@ const editDocumentSchema = z.object({
     .optional()
     .describe(
       'Replacement text in single-edit mode; omit to delete the matched text (default: ""). ' +
-        'NFM body: each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. Plain CommonMark blank lines are not preserved. No admonition/callout shorthand like "> [!TIP]" — use <callout icon="💡">...</callout> with the body indented one tab.',
+        'NFM body: each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. Plain CommonMark blank lines are not preserved. No admonition/callout shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
+        NFM_CONTAINER_SYNTAX,
     ),
   edits: textEditsSchema
     .optional()
     .describe(
-      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace.",
+      "JSON array of {find, replace} objects for a snapshot-stable batch; use instead of find/replace. Each replace is NFM, written as for replace.",
     ),
   initializeContent: z
     .string()
@@ -118,7 +134,8 @@ const editDocumentSchema = z.object({
     })
     .optional()
     .describe(
-      "Exact NFM containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits. Each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs.",
+      "Exact NFM containing non-whitespace content, used only to initialize a literally empty document body; mutually exclusive with find, replace, and edits. Each line is a block; use <br> for hard breaks and <empty-block/> for empty paragraphs. " +
+        NFM_CONTAINER_SYNTAX,
     ),
   contextPackId: z
     .string()
@@ -227,6 +244,54 @@ async function resolveEditCreativeContext(args: {
             elementProvenance,
           ),
   };
+}
+
+/**
+ * Writes an edit without a revision to a switched page through its live
+ * copy. False when the page isn't switched, or left its live copy before
+ * anything committed.
+ */
+async function editThroughLiveCopy(args: {
+  id: string;
+  expected: string;
+  content: string;
+  ctx: ActionRunContext | undefined;
+  creativeContext: Awaited<ReturnType<typeof resolveEditCreativeContext>>;
+}): Promise<boolean> {
+  if (!(await isLiveBodyWriterPage(args.id))) return false;
+  try {
+    await editContentLiveCopy(args.id, {
+      cause: { ctx: args.ctx, operation: "edit-document" },
+      edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+      input: { content: args.content, expected: args.expected },
+      persist: async (tx, change) => {
+        await assertAccess("document", args.id, "editor", {
+          ...currentAccess(),
+          transaction: tx,
+        });
+        if (!change.changed || !args.creativeContext) return;
+        await recordGenerationCreativeContext(
+          {
+            appId: "content",
+            artifactType: "document",
+            artifactId: args.id,
+            ...args.creativeContext,
+          },
+          { db: drizzleOverExec(tx) },
+        );
+      },
+    });
+    return true;
+  } catch (error) {
+    if (liveCopyBaseChanged(error)) {
+      throw new ActionContractError(
+        "The document changed before this edit could be written. Read it again and retry.",
+        { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
+      );
+    }
+    if (liveCopyWriteLeftPath(error)) return false;
+    throw unrepresentableBodyError(error) ?? error;
+  }
 }
 
 export default defineAction({
@@ -408,6 +473,7 @@ export default defineAction({
       );
       return { applied: 0, total: edits.length, results };
     }
+    assertNoNewlySharedVideoIds(existing.content, content);
 
     let linkedLocalPersistence:
       | {
@@ -507,11 +573,44 @@ export default defineAction({
       };
     }
 
+    if (
+      !isLinkedLocalSource &&
+      (await editThroughLiveCopy({
+        id,
+        expected: existing.content ?? "",
+        content,
+        ctx,
+        creativeContext,
+      }))
+    ) {
+      countOutcome("applied", "transition");
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return {
+        applied: changeCount,
+        total: edits.length,
+        results,
+        contentFidelity: inspectNfmFidelity(content),
+        ...(creativeContext
+          ? {
+              contextMode: creativeContext.contextMode,
+              contextPackId: creativeContext.contextPackId,
+              reuseLabels: creativeContext.reuseLabels,
+            }
+          : {}),
+      };
+    }
+
     const db = getDb();
     const now = nextDocumentUpdatedAt(existing.updatedAt);
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
+        // The page may have switched since its write path was checked.
+        await lockLegacyBodyWrites(tx, [id], {
+          operation: "edit-document",
+          routed: !isLinkedLocalSource,
+          content: null,
+        });
         const mirrored = await tx
           .update(schema.documents)
           .set({
@@ -535,8 +634,9 @@ export default defineAction({
             .from(schema.documents)
             .where(eq(schema.documents.id, id));
           assertEditableDocument(current);
-          throw new Error(
-            "The document changed before Content history could be updated.",
+          throw new ActionContractError(
+            "The document changed before this edit could be written. Read it again and retry.",
+            { errorCode: "DOCUMENT_REVISION_CONFLICT", statusCode: 409 },
           );
         }
         for (const field of primaryBlocksFields) {
@@ -576,6 +676,22 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      if (isUnsupportedBodyWriter(error)) {
+        // The page left its file and took its live copy while the file took
+        // the edit, so the file has it and the page doesn't.
+        throw new ActionContractError(
+          `Wrote this edit to local file ${linkedLocalPersistence.path}, but page ${id} now takes body writes through its live copy, so the page doesn't have it.`,
+          {
+            errorCode: error.errorCode,
+            statusCode: 409,
+            details: {
+              documentId: id,
+              operation: "edit-document",
+              sourcePath: linkedLocalPersistence.path,
+            },
+          },
+        );
+      }
       countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,

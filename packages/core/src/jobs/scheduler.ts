@@ -35,6 +35,7 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  AutomationRecoveryProjectionDeferredError,
   AutomationRecoveryStorageError,
   deliveryNoteForEvents,
   inspectAutomationRecovery,
@@ -73,6 +74,7 @@ import {
   finishRemoteAutomationHistory,
   getRemoteAutomationStatus,
 } from "./remote-execution.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   automationRunClaimLeaseMs,
   claimAutomationRun,
@@ -116,6 +118,8 @@ export type RecurringJobContext = BackgroundAutomationContext;
 
 export interface SchedulerDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
+  /** Job `appId` values this scheduler runs besides `appId`; the lease and run history stay under `appId`. */
+  additionalJobAppIds?: readonly string[];
 }
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
@@ -319,7 +323,7 @@ async function processRecurringJobsWithLease(
 
       const { meta, body } = parseJobFrontmatter(resource.content);
       if (
-        !jobBelongsToApp(meta, deps.appId) &&
+        !jobBelongsToApp(meta, deps.appId, deps.additionalJobAppIds) &&
         !isRecoveredFactoryJob(meta, resource.path, deps.appId, resource.owner)
       ) {
         continue;
@@ -454,7 +458,7 @@ async function processRecurringJobsWithLease(
         }
         if (await updateResource(resource, meta, body)) {
           await recoverStaleAutomationHistory(
-            resource.owner,
+            staleHistoryOwner(resource, meta),
             resource.path,
             now,
           );
@@ -680,6 +684,27 @@ async function processRecurringJobsWithLease(
       error: healthError,
     });
   }
+}
+
+/**
+ * The owner the runner recorded this automation's history under: a legacy
+ * shared resource has no organization in its owner, so the resolved execution
+ * identity decides (the organization for an org-bound run, the creator
+ * otherwise). Recovery must query that owner, not the resource owner.
+ */
+function staleHistoryOwner(resource: Resource, meta: JobFrontmatter): string {
+  const effectiveRunAs = meta.runAs ?? "creator";
+  const executionOwner =
+    effectiveRunAs === "creator"
+      ? meta.createdBy?.trim() || resource.owner
+      : resource.owner;
+  return automationRunOwnership(
+    resource.owner,
+    executionOwner,
+    recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
+      meta.orgId ??
+      null,
+  ).owner;
 }
 
 async function recoverStaleAutomationHistory(
@@ -1452,6 +1477,7 @@ async function executeJob(
   } catch (err) {
     const failure = classifyAutomationFailure(err);
     if (err instanceof AutomationSchedulerLeaseLostError) throw err;
+    if (err instanceof AutomationRecoveryProjectionDeferredError) throw err;
     if (err instanceof AutomationRecoveryStorageError) throw err;
     if (failure.code === "background_automation_history_write_failed")
       throw err;

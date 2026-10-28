@@ -1101,9 +1101,9 @@ interface SlideEditorProps {
     options?: UpdateSlideOptions,
   ) => string | undefined;
   onPasteSlideClipboard?: (event: ClipboardEvent) => boolean;
-  /** When true, all inline-edit affordances are disabled — the slide is
-   *  navigable but contentEditable / image overlays don't activate.
-   *  Mirrors Google Slides' viewer experience. */
+  /** When true, inline-edit affordances are disabled while navigation stays
+   *  available. ContentEditable and image overlays don't activate.
+   */
   readOnly?: boolean;
   /** Full-width host for the contextual style toolbar, rendered by the editor
    *  shell above the slide rail. Selection state lives here, so the toolbar is
@@ -1916,8 +1916,8 @@ export default function SlideEditor({
   } | null>(null);
   const [selectionMeasurementRevision, setSelectionMeasurementRevision] =
     useState(0);
-  // Google Slides outlines the object a click would grab, and dashes the box
-  // around a selected child, so boxes read as boxes even when dark on dark.
+  // The hover outline marks the object a click would grab. A selected child's
+  // box uses a dashed outline so it stays visible against dark content.
   const [canvasHover, setCanvasHover] = useState<{
     rect: DOMRect;
     frame: SelectionOverlayMeasurement["frame"];
@@ -4496,7 +4496,7 @@ export default function SlideEditor({
         slideCanvasRef.current?.focus({ preventScroll: true });
       } else if (action === "gesture" && held) {
         // The cancel restores the selection the gesture started with; Escape
-        // then clears it, as in Google Slides.
+        // then clears it after Escape.
         held.cancel();
         clearMultiSelection();
         clearSelectedElement();

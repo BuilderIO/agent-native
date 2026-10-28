@@ -239,6 +239,23 @@ export default {
     expandSidebar: "Développer la barre latérale",
     collapseSidebar: "Réduire la barre latérale",
   },
+  gettingStarted: {
+    title: "Premiers pas",
+    progress: "{{completeCount}} sur {{totalCount}} terminées",
+    collapse: "Réduire",
+    expand: "Développer",
+    completed: "Terminé",
+    loadError: "Impossible de charger votre liste",
+    retry: "Réessayer",
+    steps: {
+      createDesign: "Créez votre premier design",
+      addBrand: "Ajoutez votre marque",
+      useRealData: "Utilisez vos données réelles",
+      shareFeedback: "Partagez pour recueillir des retours",
+      inviteTeammate: "Invitez un collègue",
+      saveTemplate: "Enregistrez un design comme modèle",
+    },
+  },
   settings: {
     agentTitle: "Gérer l’agent",
     agentDescription:
@@ -304,6 +321,10 @@ export default {
       chooseFrame: "Choisir une frame",
       inspect: "Inspecter",
       exportSvg: "Exporter SVG",
+      moreActions: "Plus d’actions",
+      askAboutFile: "Poser une question sur ce fichier",
+      askAboutFilePrompt:
+        "Posez une question sur ce fichier de design lié. {{url}}",
       actionsPrefill: "Vérifiez puis envoyez",
       retry: "Réessayer",
       currentDesign: "le Design actuel",
@@ -452,6 +473,7 @@ export default {
       image: "Image",
       style: "Style",
       rotation: "Rotation",
+      length: "Longueur",
       flipHorizontal: "Retourner horizontalement",
       flipVertical: "Retourner verticalement",
       shadow: "Ombre",
@@ -468,7 +490,6 @@ export default {
       showGrid: "Afficher la grille",
       hideGrid: "Masquer la grille",
       reorderLayer: "Réorganiser le calque",
-      stylesComingSoon: "Styles — Bientôt disponible",
       linkSides: "Lier les côtés",
       unlinkSides: "Délier les côtés",
       allSides: "Tout",
@@ -549,8 +570,6 @@ export default {
       addRecordRow: "Ajouter {{item}}",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "Supprimer {{item}} {{index}}",
-      codeHint:
-        "Le code source GLSL est enregistré dans le HTML de cet écran — ouvrez le panneau Code pour le modifier.",
       selectElementFirst: "Sélectionnez d'abord un élément d'écran",
       selectCanvasElementFirst:
         "Sélectionnez d'abord un élément sur le canevas",
@@ -612,6 +631,7 @@ export default {
           transform: "Transformation",
           shape: "Forme",
           surface: "Surface",
+          offset: "Décalage",
         },
         properties: {
           thickness: "Épaisseur",
@@ -717,6 +737,27 @@ export default {
           feather: "Adoucissement",
           colorAttenuation: "Fondu des couleurs",
           focus: "Focus",
+          colors: "Couleurs",
+          roundness: "Arrondi",
+          aspectRatio: "Rapport largeur/hauteur",
+          bloom: "Halo",
+          spots: "Taches",
+          spotSize: "Taille des taches",
+          pulse: "Pulsation",
+          smoke: "Fumée",
+          smokeSize: "Taille de la fumée",
+          margin: "Marge",
+          marginLeft: "Marge gauche",
+          marginRight: "Marge droite",
+          marginTop: "Marge supérieure",
+          marginBottom: "Marge inférieure",
+          fit: "Ajustement",
+          offsetX: "Décalage X",
+          offsetY: "Décalage Y",
+          originX: "Origine X",
+          originY: "Origine Y",
+          worldWidth: "Largeur du monde",
+          worldHeight: "Hauteur du monde",
         },
         options: {
           linear: "linéaire",
@@ -727,6 +768,11 @@ export default {
           clamp: "limiter",
           repeat: "répéter",
           mirror: "miroir",
+          auto: "automatique",
+          square: "carré",
+          none: "aucun",
+          contain: "contenir",
+          cover: "couvrir",
         },
         presets: {
           "an-preset-catalog-gradient-field-1": "Horizon de marée",
@@ -1185,6 +1231,14 @@ export default {
         animation: "Animation",
         distance: "Distance",
         amount: "Valeur",
+        axis: "Axe",
+        axisBoth: "Les deux",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "Largeur de départ",
+        endWidth: "Largeur d’arrivée",
+        startHeight: "Hauteur de départ",
+        endHeight: "Hauteur d’arrivée",
         delay: "Délai",
         easing: "Progression",
         editCurve: "Modifier la courbe de progression",
@@ -1373,7 +1427,7 @@ export default {
       sourceWriteUnavailable:
         "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
       unresolvedStylesheets:
-        "Résolvez les feuilles de style externes avant de modifier ou d’ajouter des animations.",
+        "Résolvez les styles externes ou générés à l’exécution avant de modifier ou d’ajouter Motion.",
       sourceConflict:
         "La source Motion a changé alors que cette timeline contenait des modifications non enregistrées. Rechargez le code pour les abandonner et utiliser la source actuelle.",
       reloadFromSource: "Recharger le code",
@@ -1846,7 +1900,7 @@ export default {
       ellipse: "Ellipse",
       polygon: "Polygone",
       star: "Étoile",
-      imageVideo: "Image/vidéo...",
+      imageVideo: "Image/vidéo…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1867,8 +1921,12 @@ export default {
         small: "Petit déplacement",
         big: "Grand déplacement",
         unit: "px",
-        description:
-          "Les flèches déplacent de la petite valeur et Maj flèche de la grande. Dans un cadre en disposition automatique, les flèches réorganisent le calque.",
+        close: "Fermer la valeur de déplacement",
+        done: "Terminé",
+        smallDescription:
+          "Définit le nombre de pixels dont un objet se déplace avec les flèches.",
+        bigDescription:
+          "Définit le nombre de pixels dont un objet se déplace avec Maj + flèches.",
       },
       keys: {
         or: "ou",
@@ -1906,6 +1964,7 @@ export default {
         arrange: "Organiser",
         components: "Composants",
         layout: "Mise en page",
+        code: "Code",
       },
       commands: {
         showShortcuts: "Raccourcis clavier",
@@ -1922,7 +1981,7 @@ export default {
         drawTool: "Dessiner",
         showLayers: "Calques",
         showAssets: "Ressources",
-        toggleUi: "View",
+        toggleUi: "Afficher ou masquer l'interface",
         toggleMinimalUi: "Interface minimale",
         toggleComments: "Épingler un commentaire",
         zoomIn: "Zoom avant",
@@ -1930,6 +1989,8 @@ export default {
         zoomReset: "Zoom 100%",
         zoomFit: "Ajuster à l'écran",
         zoomSelection: "Zoom: Sélection",
+        bold: "Gras",
+        italic: "Italique",
         underline: "Souligné",
         strikethrough: "Barré",
         rectangle: "Rectangle",
@@ -1944,7 +2005,8 @@ export default {
         previousSibling: "← Sélection",
         nextScreen: "Écrans →",
         previousScreen: "← Écrans",
-        toggleLayoutGrids: "Grille de mise en page: View",
+        toggleLayoutGrids: "Afficher ou masquer les grilles de mise en page",
+        toggleRulers: "Afficher ou masquer les règles",
         nudge: "Move",
         nudgeLarge: "Grand déplacement",
         copy: "Copier",
@@ -1977,7 +2039,15 @@ export default {
         ungroup: "Dissocier",
         frameSelection: "Encadrer la sélection",
         autoLayout: "Mise en page auto",
-        imageVideo: "Image/vidéo...",
+        removeAutoLayout: "Supprimer l'auto layout",
+        toggleHidden: "Afficher ou masquer la sélection",
+        toggleLocked: "Verrouiller ou déverrouiller la sélection",
+        alignHorizontalCenters: "Aligner les centres horizontaux",
+        alignVerticalCenters: "Aligner les centres verticaux",
+        distributeHorizontal: "Répartir l'espacement horizontal",
+        distributeVertical: "Répartir l'espacement vertical",
+        setOpacity: "Définir l'opacité",
+        imageVideo: "Image/vidéo…",
       },
     },
     undo: "Défaire",
@@ -2006,6 +2076,16 @@ export default {
     pinComment: "Épingler un commentaire",
     export: "Exporter",
     downloadHtml: "Télécharger HTML",
+    exportHubspotHtml: "Exporter le HTML HubSpot",
+    hubspotConversion: {
+      title: "Convertir pour HubSpot ?",
+      description:
+        "{{name}} nécessite des adaptations pour les e-mails. Le cadre original sera conservé.",
+      convert: "Convertir avec l’agent",
+      cancel: "Annuler",
+      prompt:
+        "Crée une version e-mail HubSpot de ce cadre en gardant son contenu et son identité visuelle, et en préservant l’original. Valide l’export HTML et ouvre le nouveau cadre.",
+    },
     downloadPng: "Télécharger PNG",
     downloadSvg: "Télécharger SVG",
     downloadFigmaSvg: "Télécharger pour Figma (SVG)",
@@ -2150,6 +2230,19 @@ export default {
       added: "Écran ajouté",
       addFailed: "Impossible d’ajouter l’écran",
     },
+    localhostConsent: {
+      approvedTitle: "Approuvé — relancez la modification",
+      approvedDescription:
+        "L'écriture de fichiers est autorisée pendant 8 heures. La modification qui a demandé l'accès n'a pas été enregistrée.",
+      retryInChat: "Relancer dans le chat",
+      retryPrompt:
+        "L'écriture de fichiers est approuvée pour {{rootPath}}. Relance la modification qui en avait besoin.",
+      unavailableTitle: "Cette demande d'écriture n'est plus en attente",
+      unavailableDescription: "Relancez la modification pour demander l'accès.",
+      close: "Fermer",
+      prepareSignInError:
+        "Impossible d'enregistrer cette demande avant la connexion. Réessayez.",
+    },
     nodeRewrite: {
       composerTitle: "Questionner ou modifier la sélection",
       send: "Envoyer",
@@ -2202,6 +2295,9 @@ export default {
       htmlCreateError: "Impossible de créer le téléchargement HTML",
       htmlDownloaded: "HTML téléchargé",
       htmlExportError: "Impossible d’exporter HTML",
+      hubspotHtmlExporting: "Préparation du HTML HubSpot…",
+      hubspotHtmlDownloaded: "HTML HubSpot téléchargé",
+      hubspotHtmlExportError: "Impossible d’exporter le HTML HubSpot",
       zipCreateError: "Impossible de créer le téléchargement ZIP",
       zipDownloaded: "ZIP téléchargé",
       zipExportError: "Impossible d’exporter ZIP",
@@ -2282,6 +2378,7 @@ export default {
         "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
       versionHistoryUnavailable:
         "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
+      removeAutoLayoutFailed: "Impossible de supprimer l'auto layout",
       autoLayoutScreensUnsupported:
         "Ajouter une disposition automatique ne s'applique pas aux écrans",
       booleanSubtractUnsupported:
@@ -2300,8 +2397,27 @@ export default {
         "L’édition vectorielle n’est pas disponible pour cette forme ou transformation.",
       imageUploading: "Import de l’image…",
       pasteReplaceFailed: "Impossible de remplacer ce calque",
+      pasteTargetUnmeasured:
+        "Impossible de mesurer le calque sélectionné pour y coller",
+      pasteClipboardUnreadable:
+        "Autorisez l'accès au presse-papiers pour coller ici",
+      pasteClipboardUntrusted:
+        "Impossible de coller des calques copiés depuis Design sur un autre site",
       swapFillStrokeLayeredFill:
         "Les remplissages multiples ou d'image ne peuvent pas encore devenir un contour",
+      alignNeedsTwoLayers:
+        "Sélectionnez au moins deux calques pour les aligner",
+      alignNeedsTwoScreens:
+        "Sélectionnez au moins deux écrans pour les aligner",
+      layoutUnmeasurable:
+        "Impossible de mesurer un calque sélectionné. Vérifiez qu'il est visible sur le canevas et réessayez.",
+      layoutAutoLayoutChildren:
+        "L'auto layout positionne ces calques. Supprimez l'auto layout de leur cadre pour les déplacer librement.",
+      layoutUnsupportedPosition:
+        "Les calques sticky et les formes à l'intérieur d'un SVG ne peuvent pas être déplacés ainsi",
+      layoutMovesNestedLayers:
+        "Déplacer ce calque décalerait les calques positionnés à l'intérieur",
+      layoutMoveFailed: "Impossible de déplacer les calques sélectionnés",
     },
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription:
@@ -2326,6 +2442,7 @@ export default {
     order: "Ordre",
     createComponent: "Créer un composant",
     addAutoLayout: "Ajouter un auto layout",
+    removeAutoLayout: "Supprimer l'auto layout",
     copyAs: "Copier/Coller comme",
     copyProps: "Copier les propriétés",
     pasteProps: "Coller les propriétés",
@@ -2346,13 +2463,15 @@ export default {
     allScreens: "Tous les écrans",
     thumbnail: "Miniature",
     addScreen: "Ajouter un écran",
-    searchPlaceholder: "Rechercher des calques...",
+    searchPlaceholder: "Rechercher des calques",
     empty: "Aucun calque",
     noMatches: "Aucun calque correspondant",
     designLayers: "Calques de design",
     codeLayers: "Calques de code",
     elementLayers: "Calques d’éléments",
     collapse: "Réduire le calque",
+    collapseAll: "Réduire tous les calques",
+    clearSearch: "Effacer la recherche",
     expand: "Développer le calque",
     lock: "Verrouiller le calque",
     unlock: "Déverrouiller le calque",

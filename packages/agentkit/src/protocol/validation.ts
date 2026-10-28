@@ -19,6 +19,7 @@ import {
   type InvokeActionInput,
   type ListThreadsInput,
   type QueueMessageInput,
+  type ReorderQueuedMessagesInput,
   type ResolveApprovalInput,
   type ResolveConnectionRequestInput,
   type AgentResumeEntry,
@@ -46,6 +47,9 @@ import {
   type AgentRequestAttachment,
   type AgentSubmissionPayload,
   type AgentQueuedMessage,
+  type AgentQueuedSubmissionReceipt,
+  type AgentQueuedSubmissionStatus,
+  type AgentSubmissionReference,
   type AgentReplayCheckpoint,
   type RunId,
   type AgentRunSnapshot,
@@ -66,6 +70,7 @@ import {
   type AgentProtocolEnvelope,
   type AgentRunOptions,
   type QueueMessageResult,
+  type AgentRunStartResult,
   type StartRunInput,
   type StartRunResult,
   type SteerQueuedMessageResult,
@@ -436,6 +441,11 @@ function validateMessagePart(value: unknown, path: string): void {
           "unsupported reasoning visibility",
         );
       }
+      if (part.toolCallIds !== undefined) {
+        array(part.toolCallIds, `${path}.toolCallIds`).forEach((id, index) =>
+          string(id, `${path}.toolCallIds[${index}]`),
+        );
+      }
       return;
     case "citation":
       string(part.title, `${path}.title`);
@@ -678,6 +688,9 @@ export function parseAgentQueuedMessage(
       { allowInlineData: false, allowLegacyQueueCount: true },
     );
   }
+  if (message.references !== undefined) {
+    parseAgentSubmissionReferences(message.references, `${path}.references`);
+  }
   optionalMetadata(message.metadata, `${path}.metadata`);
   if (message.options !== undefined) {
     parseAgentRunOptions(message.options, `${path}.options`);
@@ -685,7 +698,68 @@ export function parseAgentQueuedMessage(
   if (message.interruptActiveRun !== undefined) {
     boolean(message.interruptActiveRun, `${path}.interruptActiveRun`);
   }
+  if (
+    message.delivery !== undefined &&
+    message.delivery !== "steering" &&
+    message.delivery !== "after_reply"
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.delivery`,
+      "expected steering or after_reply",
+    );
+  }
   return value as AgentQueuedMessage;
+}
+
+export function parseAgentQueuedSubmissionReceipt(
+  value: unknown,
+  path = "queuedSubmission",
+): AgentQueuedSubmissionReceipt {
+  const receipt = record(value, path);
+  knownKeys(receipt, ["state", "message", "activeRunId"], path);
+  if (receipt.state !== "queued") {
+    throw new AgentProtocolValidationError(`${path}.state`, "expected queued");
+  }
+  parseAgentQueuedMessage(receipt.message, `${path}.message`);
+  optionalString(receipt.activeRunId, `${path}.activeRunId`);
+  return value as AgentQueuedSubmissionReceipt;
+}
+
+export function parseAgentQueuedSubmissionStatus(
+  value: unknown,
+  path = "queuedSubmissionStatus",
+): AgentQueuedSubmissionStatus {
+  const status = record(value, path);
+  knownKeys(status, ["state", "submittedRunId"], path);
+  if (
+    status.state !== "queued" &&
+    status.state !== "submitted" &&
+    status.state !== "removed" &&
+    status.state !== "expired" &&
+    status.state !== "blocked"
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.state`,
+      "expected a queued submission state",
+    );
+  }
+  if (status.submittedRunId !== undefined) {
+    string(status.submittedRunId, `${path}.submittedRunId`);
+  }
+  if (status.state === "submitted" && status.submittedRunId === undefined) {
+    throw new AgentProtocolValidationError(
+      `${path}.submittedRunId`,
+      "is required for a submitted receipt",
+    );
+  }
+  return value as AgentQueuedSubmissionStatus;
+}
+
+export function parseNullableAgentQueuedSubmissionStatus(
+  value: unknown,
+  path = "queuedSubmissionStatus",
+): AgentQueuedSubmissionStatus | null {
+  return value === null ? null : parseAgentQueuedSubmissionStatus(value, path);
 }
 
 export function parseAgentQueuedMessages(
@@ -1750,11 +1824,39 @@ export function parseStartRunResult(
   path = "startRunResult",
 ): StartRunResult {
   const result = record(value, path);
-  string(result.runId, `${path}.runId`);
+  if (result.queuedSubmission !== undefined) {
+    if (result.runId !== undefined) {
+      throw new AgentProtocolValidationError(
+        `${path}.runId`,
+        "must be omitted for a queued submission",
+      );
+    }
+    parseAgentQueuedSubmissionReceipt(
+      result.queuedSubmission,
+      `${path}.queuedSubmission`,
+    );
+    return value as StartRunResult;
+  }
+  parseAgentRunStartResult(result, path);
+  return value as StartRunResult;
+}
+
+export function parseAgentRunStartResult(
+  value: unknown,
+  path = "runStartResult",
+): AgentRunStartResult {
+  const result = record(value, path);
+  if (result.queuedSubmission !== undefined) {
+    throw new AgentProtocolValidationError(
+      `${path}.queuedSubmission`,
+      "must be omitted for an active run",
+    );
+  }
   if (result.capabilities !== undefined) {
     parseAgentCapabilities(result.capabilities, `${path}.capabilities`);
   }
-  return value as StartRunResult;
+  string(result.runId, `${path}.runId`);
+  return value as AgentRunStartResult;
 }
 
 export function parseSteerQueuedMessageResult(
@@ -1763,6 +1865,20 @@ export function parseSteerQueuedMessageResult(
 ): SteerQueuedMessageResult {
   if (value === null || value === undefined) return undefined;
   const result = record(value, path);
+  if (result.delivery !== undefined) {
+    if (
+      (result.delivery !== "steering" && result.delivery !== "after_reply") ||
+      result.runId !== undefined ||
+      result.alreadySubmitted !== undefined ||
+      result.alreadyRemoved !== undefined
+    ) {
+      throw new AgentProtocolValidationError(
+        `${path}.delivery`,
+        "must be steering or after_reply without a run result",
+      );
+    }
+    return value as SteerQueuedMessageResult;
+  }
   if (result.alreadyRemoved !== undefined) {
     if (
       result.alreadyRemoved !== true ||
@@ -1776,7 +1892,7 @@ export function parseSteerQueuedMessageResult(
     }
     return value as SteerQueuedMessageResult;
   }
-  parseStartRunResult(result, path);
+  parseAgentRunStartResult(result, path);
   if (
     result.alreadySubmitted !== undefined &&
     result.alreadySubmitted !== true
@@ -2688,6 +2804,7 @@ function parseAgentSubmissionPayload(
       "text",
       "attachments",
       "requestAttachments",
+      "references",
       "metadata",
       "options",
       "interruptActiveRun",
@@ -2759,6 +2876,9 @@ function parseAgentSubmissionPayload(
       },
     );
   }
+  if (submission.references !== undefined) {
+    parseAgentSubmissionReferences(submission.references, `${path}.references`);
+  }
   optionalMetadata(submission.metadata, `${path}.metadata`);
   if (submission.options !== undefined) {
     parseAgentRunOptions(submission.options, `${path}.options`);
@@ -2767,6 +2887,52 @@ function parseAgentSubmissionPayload(
     boolean(submission.interruptActiveRun, `${path}.interruptActiveRun`);
   }
   return value as AgentSubmissionPayload;
+}
+
+function parseAgentSubmissionReferences(
+  value: unknown,
+  path: string,
+): AgentSubmissionReference[] {
+  return array(value, path).map((reference, index) => {
+    const referencePath = `${path}[${index}]`;
+    const item = record(reference, referencePath);
+    knownKeys(
+      item,
+      [
+        "type",
+        "path",
+        "name",
+        "source",
+        "refType",
+        "refId",
+        "slotKey",
+        "slotLabel",
+        "metadata",
+      ],
+      referencePath,
+    );
+    if (
+      item.type !== "file" &&
+      item.type !== "skill" &&
+      item.type !== "mention" &&
+      item.type !== "agent" &&
+      item.type !== "custom-agent"
+    ) {
+      throw new AgentProtocolValidationError(
+        `${referencePath}.type`,
+        "unsupported reference type",
+      );
+    }
+    string(item.path, `${referencePath}.path`);
+    string(item.name, `${referencePath}.name`);
+    string(item.source, `${referencePath}.source`);
+    optionalString(item.refType, `${referencePath}.refType`);
+    optionalString(item.refId, `${referencePath}.refId`);
+    optionalString(item.slotKey, `${referencePath}.slotKey`);
+    optionalString(item.slotLabel, `${referencePath}.slotLabel`);
+    optionalMetadata(item.metadata, `${referencePath}.metadata`);
+    return reference as AgentSubmissionReference;
+  });
 }
 
 export function parseStartRunInput(
@@ -2784,6 +2950,9 @@ export function parseStartRunInput(
       `${path}.requestAttachments`,
       { allowInlineData: true },
     );
+  }
+  if (input.references !== undefined) {
+    parseAgentSubmissionReferences(input.references, `${path}.references`);
   }
   if (input.options !== undefined) {
     parseAgentRunOptions(input.options, `${path}.options`);
@@ -2916,6 +3085,35 @@ export function parseThreadMessageInput(
   return value as ThreadMessageInput;
 }
 
+/** Queues hold a handful of follow-ups; this only bounds a hostile payload. */
+export const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
+
+export function parseReorderQueuedMessagesInput(
+  value: unknown,
+  path = "reorderQueuedMessages",
+): ReorderQueuedMessagesInput {
+  const input = record(parseThreadIdInput(value, path), path);
+  const ids = array(input.messageIds, `${path}.messageIds`);
+  if (ids.length > MAX_REORDER_QUEUED_MESSAGE_IDS) {
+    throw new AgentProtocolValidationError(
+      `${path}.messageIds`,
+      `expected at most ${MAX_REORDER_QUEUED_MESSAGE_IDS} ids`,
+    );
+  }
+  const seen = new Set<string>();
+  ids.forEach((id, index) => {
+    const messageId = string(id, `${path}.messageIds.${index}`);
+    if (seen.has(messageId)) {
+      throw new AgentProtocolValidationError(
+        `${path}.messageIds.${index}`,
+        "expected each id once",
+      );
+    }
+    seen.add(messageId);
+  });
+  return value as ReorderQueuedMessagesInput;
+}
+
 export function parseGetRunInput(value: unknown, path = "getRun"): GetRunInput {
   const input = record(parseThreadIdInput(value, path), path);
   string(input.runId, `${path}.runId`);
@@ -3002,6 +3200,9 @@ export function parseQueueMessageInput(
         allowLegacyQueueCount: options.allowLegacyQueueCount,
       },
     );
+  }
+  if (input.references !== undefined) {
+    parseAgentSubmissionReferences(input.references, `${path}.references`);
   }
   optionalMetadata(input.metadata, `${path}.metadata`);
   if (input.options !== undefined) {

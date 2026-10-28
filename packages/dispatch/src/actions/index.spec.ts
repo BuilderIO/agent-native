@@ -17,6 +17,9 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
+    expect(dispatchActions.create_embed_session.mcpApp?.visibility).toEqual([
+      "app",
+    ]);
     expect(dispatchActions).toHaveProperty(
       "create-workspace-app-embed-session",
     );
@@ -93,9 +96,13 @@ describe("dispatch action registry", () => {
     expect(action.tool.description).toContain(
       "workspaceAppCreationsByUserMonth",
     );
-    expect(action.tool.description).toContain("app adoption metrics");
-    expect(action.tool.description).toContain(
-      "do not include customer/account/company usage or product data",
+    const firstSentence = action.tool.description.split(". ")[0];
+    expect(firstSentence).toContain("members of this organization");
+    expect(firstSentence).toContain("does NOT cover");
+    expect(firstSentence).toContain("external customers");
+    expect(firstSentence).toContain("describe-workspace-apps");
+    expect(JSON.stringify(action.tool.parameters)).toContain(
+      "Not for customers or other external accounts",
     );
   });
 });

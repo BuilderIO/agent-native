@@ -27,7 +27,6 @@ export const DESIGN_OUTPUT_ACTIONS = new Set([
   "apply-a11y-fix",
   "apply-component-prop-edit",
   "apply-motion-edit",
-  "apply-shader-fill",
   "apply-source-edit",
   "apply-visual-edit",
   "clone-creative-context-design",

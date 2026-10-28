@@ -194,7 +194,7 @@ class BusyFocusBoundary extends Component<
   unknown,
   boolean
 > {
-  getSnapshotBeforeUpdate(previous: BusyFocusBoundaryProps) {
+  override getSnapshotBeforeUpdate(previous: BusyFocusBoundaryProps) {
     const bar = this.props.barRef.current;
     // Chromium can blur a disabled native control during DOM mutation, before
     // layout effects can inspect which element owned focus.
@@ -205,7 +205,7 @@ class BusyFocusBoundary extends Component<
     );
   }
 
-  componentDidUpdate(
+  override componentDidUpdate(
     _previous: BusyFocusBoundaryProps,
     _state: unknown,
     ownedFocus: boolean,
@@ -219,7 +219,7 @@ class BusyFocusBoundary extends Component<
     }
   }
 
-  render() {
+  override render() {
     const { busy: _busy, barRef, ...props } = this.props;
     return <Collapsible {...props} ref={barRef} />;
   }

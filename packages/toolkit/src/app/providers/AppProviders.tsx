@@ -2,6 +2,8 @@ import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cac
 import {
   agentNativePath,
   frameworkRoutePrefix,
+  isWorkspaceRuntime,
+  resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
 import {
   AgentNativeI18nProvider,
@@ -33,12 +35,17 @@ import React, { useContext, useEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
+import {
+  McpApprovalReviewGate,
+  McpApprovalReviewSkeleton,
+} from "../mcp-approval/McpApprovalReview.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 import {
   AppShellSkeleton,
   type AppShellSkeletonLayout,
 } from "../shared/AppShellSkeleton.js";
 import { ClientOnly } from "../shared/ClientOnly.js";
+import { ConsentBanner } from "../shared/ConsentBanner.js";
 import { EnvironmentBadge } from "../shared/EnvironmentBadge.js";
 import { RouteTransitionIndicator } from "../shared/RouteTransitionIndicator.js";
 import { RuntimeConfigNotice } from "../shared/RuntimeConfigNotice.js";
@@ -128,10 +135,17 @@ function EarlyBetaRedirectScript() {
 // Marks <html> as an MCP App widget before the server-rendered skeleton below
 // paints, so the widget never flashes the app's own sidebar.
 function McpAppWidgetBootScript() {
+  const workspaceRuntime = isWorkspaceRuntime();
+  // Workspace mount metadata is available to the inline browser script.
   return (
     <script
       data-agent-native-mcp-widget-boot="1"
-      dangerouslySetInnerHTML={{ __html: getMcpAppWidgetEmbedBootScriptBody() }}
+      dangerouslySetInnerHTML={{
+        __html: getMcpAppWidgetEmbedBootScriptBody(
+          workspaceRuntime ? undefined : resolveAppBasePath(),
+          workspaceRuntime,
+        ),
+      }}
     />
   );
 }
@@ -401,6 +415,54 @@ function AgentEngineReadinessBootstrap() {
 
 const ThemeFamilySync = React.lazy(() => import("./ThemeFamilySync.js"));
 
+const LazyAgentRunAwareness = React.lazy(() =>
+  import("../chat/run-awareness/AgentRunAwareness.js").then((module) => ({
+    default: module.AgentRunAwareness,
+  })),
+);
+
+function AgentRunAwareness({ persistUnread }: { persistUnread?: boolean }) {
+  return (
+    <React.Suspense fallback={null}>
+      <LazyAgentRunAwareness persistUnread={persistUnread} />
+    </React.Suspense>
+  );
+}
+
+/**
+ * An MCP approval review the URL names replaces the app. It sits outside the
+ * device gate, so a phone can decide, and outside first-run onboarding, so a
+ * new user can decide before setting up the app.
+ */
+function McpApprovalReviewBoundary({
+  appName,
+  themeFamily,
+  children,
+}: {
+  appName: string | undefined;
+  themeFamily: boolean;
+  children: React.ReactNode;
+}) {
+  const name = appName ?? readDocumentTitleFallback();
+  return (
+    <McpApprovalReviewGate
+      appName={name}
+      wrap={(review) => (
+        <RequireSession fallback={<McpApprovalReviewSkeleton appName={name} />}>
+          {themeFamily ? (
+            <React.Suspense fallback={null}>
+              <ThemeFamilySync />
+            </React.Suspense>
+          ) : null}
+          {review}
+        </RequireSession>
+      )}
+    >
+      {children}
+    </McpApprovalReviewGate>
+  );
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -436,12 +498,17 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
+  // The banner reads the app's locale, so it sits inside the same provider.
   const localizedChildren =
     i18n === false ? (
-      children
+      <>
+        {children}
+        {ownsDocument ? <ConsentBanner /> : null}
+      </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
+        {ownsDocument ? <ConsentBanner /> : null}
       </AgentNativeI18nProvider>
     );
 
@@ -545,9 +612,13 @@ export function AppProviders({
   const sessionGated = (
     <RequireSession bypass={sessionBypass} fallback={fallback}>
       {sessionBypass ? (
-        children
+        <>
+          {ownsDocument ? <AgentRunAwareness persistUnread={false} /> : null}
+          {children}
+        </>
       ) : (
         <>
+          {ownsDocument ? <AgentRunAwareness /> : null}
           {ownsDocument && enableThemeFamily ? (
             <React.Suspense fallback={null}>
               <ThemeFamilySync />
@@ -565,13 +636,27 @@ export function AppProviders({
     </RequireSession>
   );
 
-  const gated = unsupportedDevice ? (
+  const deviceGated = unsupportedDevice ? (
     <UnsupportedDeviceGate {...unsupportedDevice}>
       {sessionGated}
     </UnsupportedDeviceGate>
   ) : (
     sessionGated
   );
+
+  // A token-authenticated embed or an app inside another app's document
+  // never shows a review: neither is the reader's own top-level page.
+  const gated =
+    sessionBypass || !ownsDocument ? (
+      deviceGated
+    ) : (
+      <McpApprovalReviewBoundary
+        appName={documentTitleFallback}
+        themeFamily={enableThemeFamily}
+      >
+        {deviceGated}
+      </McpApprovalReviewBoundary>
+    );
 
   return (
     <>

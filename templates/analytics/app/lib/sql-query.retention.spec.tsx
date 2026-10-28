@@ -84,6 +84,7 @@ describe("useSqlQuery retained results", () => {
     refreshToken = 0,
     paused = false,
     reuse = false,
+    rerunPartial = false,
   }: {
     sql: string;
     scope?: string;
@@ -91,6 +92,7 @@ describe("useSqlQuery retained results", () => {
     refreshToken?: number;
     paused?: boolean;
     reuse?: boolean;
+    rerunPartial?: boolean;
   }) {
     const query = useSqlQuery(["sql", "panel-1", sql], sql, "bigquery", {
       enabled,
@@ -98,6 +100,7 @@ describe("useSqlQuery retained results", () => {
       retainPreviousScope: scope,
       retainWhilePaused: paused,
       reuseCompletedOnEnable: reuse,
+      rerunPartial,
     });
     latest = {
       rows: query.data?.rows,
@@ -116,6 +119,11 @@ describe("useSqlQuery retained results", () => {
           <Probe {...props} />
         </QueryClientProvider>,
       );
+    });
+
+  const unmount = () =>
+    act(async () => {
+      root.render(<QueryClientProvider client={queryClient} />);
     });
 
   const settle = () =>
@@ -411,6 +419,67 @@ describe("useSqlQuery retained results", () => {
       await render({ sql: "A", reuse: true });
       await vi.waitFor(() => expect(latest.rows).toEqual([{ v: "a" }]));
       expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a partial result through visibility toggles and remounts unless asked to rerun it", async () => {
+      mocks.callAction.mockResolvedValue({
+        rows: [{ v: "a" }],
+        schema: [],
+        partial: true,
+      });
+      await render({ sql: "A", reuse: true });
+      await settle();
+      await render({ sql: "A", enabled: false, reuse: true });
+      await render({ sql: "A", reuse: true });
+      await settle();
+      await unmount();
+      await render({ sql: "A", reuse: true });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      expect(latest.rows).toEqual([{ v: "a" }]);
+    });
+
+    it("reruns a partial result it was asked to rerun when enabled again", async () => {
+      mocks.callAction.mockResolvedValue({
+        rows: [{ v: "a" }],
+        schema: [],
+        partial: true,
+      });
+      await render({ sql: "A", reuse: true, rerunPartial: true });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+      await render({
+        sql: "A",
+        enabled: false,
+        reuse: true,
+        rerunPartial: true,
+      });
+      await render({ sql: "A", reuse: true, rerunPartial: true });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    });
+
+    it("reruns a partial result when it mounts again, but reuses a completed one", async () => {
+      mocks.callAction.mockImplementation(async (_name, args) => ({
+        rows: [{ v: args.query }],
+        schema: [],
+        ...(args.query === "A" ? { partial: true } : {}),
+      }));
+      for (const sql of ["A", "B"]) {
+        await render({ sql, reuse: true, rerunPartial: true });
+        await settle();
+        await unmount();
+      }
+      mocks.callAction.mockClear();
+
+      await render({ sql: "A", reuse: true, rerunPartial: true });
+      await settle();
+      await unmount();
+      await render({ sql: "B", reuse: true, rerunPartial: true });
+      await settle();
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      expect(mocks.callAction.mock.calls[0][1]).toMatchObject({ query: "A" });
     });
 
     it("keeps the five minute freshness for ordinary consumers", async () => {

@@ -13,19 +13,19 @@ metadata:
 
 # Turn Into App
 
-Give a proven workflow the face of an app and the brain of an agent. The first
-screen shows the user's world, populated. Controls on those objects hand work
-to the in-app agent, the object shows it is working, and the result lands back
-in the UI. A form under a stepper bar is the failure to prevent.
+Give a proven workflow an Agent-Native app face and agent brain. Start with
+populated domain screens. Object controls send work to the agent; the object
+shows progress and receives the result. Avoid form-under-stepper layouts.
 
 ## Host, source, and when to ask
 
 ### Classify the host
 
+- Local scaffolding needs Node.js 22.22.0 or newer (with npm/npx) and pnpm.
 - **Local host**: a terminal, a filesystem, and a target checkout (Claude Code,
   Codex, Cursor, or an Agent-Native agent that can edit files). Build the app in
-  that checkout with steps 1-6. Never call \`start-workspace-app-creation\` or
-  \`create_workspace_app\` on this path.
+  that checkout with steps 1-6, unless the route is Builder hosting (below).
+  Never call \`create_workspace_app\`.
 - **Browser host**: Claude or ChatGPT on the web, their web Projects, or any
   runtime that cannot edit files. Do steps 1-2, then make the Dispatch handoff
   in [the browser-host guide](references/fresh-project.md), with files per
@@ -35,6 +35,14 @@ in the UI. A form under a stepper bar is the failure to prevent.
 - Decide an ambiguous host by the environment: a real working directory,
   terminal, and workspace mean local host. A Builder or Dispatch connector being
   available does not make a host a browser host.
+
+### Ask where the app runs
+
+On an interactive local host, after the plan (step 2) and before installing,
+ask once: **On your machine** (some setup) or **Hosted with Builder** (a free
+Builder account). Skip it on browser hosts or when the route is set (by the
+person, a resumed run, Local File Mode, an existing workspace, or headless);
+[where it runs](references/where-it-runs.md) says which wins.
 
 ### Pick the source
 
@@ -83,7 +91,7 @@ Decide and proceed. Take the source's recommended option, otherwise the most
 conventional default, and record it as an assumption. Never ask about visuals,
 copy, layout, template, or integrations.
 
-Ask once, with your recommended interpretation, only when:
+Beyond the hosting question, ask once, with your recommendation, only when:
 
 1. no repeatable workflow can be identified, or Project context is not visible
    (ask for an export);
@@ -105,19 +113,27 @@ opens on a mapping or setup screen.
 
 ## Workflow
 
-Copy this checklist and keep it current. Pace: aim for about 45 minutes; note
-the start time (\`date\`), and if 35 minutes have passed when the review starts,
-run one pass and list the open criteria.
+Copy and update this checklist. Aim for 45 minutes; note the start time
+(\`date\`). If review starts after 35 minutes, run one pass and list open criteria.
 
 \`\`\`text
 - [ ] 0 Host classified, source picked
 - [ ] 1 Source read, brief drafted
-- [ ] 2 Design decided, brief posted with App design
+- [ ] 2 Design decided; brief, App design, estimate shown; where it runs asked
 - [ ] 3 Real scaffold, onboarding config, local sign-in
 - [ ] 4 Actions, domain surface, sample data, agent moments, agent instructions
 - [ ] 5 Running; screenshots reviewed and refined (two passes by default)
 - [ ] 6 Typecheck, doctor, build; final report with evidence labels
 \`\`\`
+
+Resume an unfinished run instead of starting a second app. When the working
+directory holds an app this skill started for the same source (a completed
+scaffold or actions, but no review screenshots), verify the completed stages
+from its git status, brief, schema, and actions. Open with what exists, the
+next stage, and the active work left ("Found a half-built app. The data model
+and actions are done; screens and checks are next, about 10 more minutes.").
+Resume at the first unverified stage without rerunning scaffolding or
+replacing completed work.
 
 ### 1. Write the source brief
 
@@ -154,19 +170,18 @@ add them to the brief under App design:
 
 Source steps become states of objects (Draft, Checked, Approved), never a
 stepper, numbered tabs, or a wizard. Chrome stays quiet: no eyebrow, subtitle,
-repeated title, or stat strip over visible data. Post the brief once, with its
-App design, before the first scaffold command, as a checkpoint, and continue
-without waiting.
+repeated title, or stat strip over visible data. Show the brief with its App
+design in your message (a saved file is not shown), then ask where the app runs
+and wait, unless that question is skipped.
 
 ### 3. Create the real scaffold
 
-Before the first command, say once what the run executes (install, scaffold,
-checks, a dev server, a headless browser), so permission prompts do not read
-as trouble.
+Before the first command, name the steps (install, scaffold, checks, dev server,
+headless browser) and estimate work time from the source and host. Separate
+external setup waits, so delays are expected.
 
-Choose a short slug and never overwrite an existing app. For a standalone app,
-run from the directory that should contain it (the app is its own git
-repository; say so when it sits inside another checkout):
+Choose a short slug and never overwrite an app. Run standalone creation from
+its parent directory, noting that the nested app is its own Git repository:
 
 \`\`\`bash
 npx --yes @agent-native/core@latest create <slug> --standalone --template chat
@@ -182,11 +197,10 @@ from the workspace root:
 pnpm exec agent-native add-app <slug> --template chat
 \`\`\`
 
-Read the generated \`AGENTS.md\`, and its \`build-an-app\` skill when the scaffold
-ships one. Where that guidance skips the design record, screenshots, or build,
-leaves \`DESIGN.md\` alone, says not to set \`AUTH_DISABLED\`, or says to stop the
-dev server, this skill's steps win for this run. Use another first-party
-template only when it materially fits.
+Read the generated \`AGENTS.md\` and any \`build-an-app\` skill. This skill
+overrides guidance that skips the design record, screenshots, or build; leaves
+\`DESIGN.md\` unchanged; omits \`AUTH_DISABLED\` or says not to set it; or stops
+the dev server. Use another first-party template only if it materially fits.
 
 If a scaffold or install step fails, times out (no output for 5 minutes), or is
 denied, the app does not exist yet. Retry once where a retry could help, then
@@ -261,9 +275,8 @@ Start the dev server as the run and deploy guide says (detached, log and PID in
 - Fix every finding in one batch, reset what the click changed, and shoot
   again. Stop when the bar is met: two passes by default; a third only when the
   second still misses the bar and the pace budget allows.
-- Installed design skills are optional; the review loop limits them.
-
-Screenshots stay in the app's \`.tmp/ui-review/out/\`.
+- Screenshots stay in the app's \`.tmp/ui-review/out/\`. Installed design skills
+  are optional; the review loop limits them.
 
 ### 6. Verify, build, and deploy
 
@@ -280,20 +293,20 @@ pnpm's own command), then stop the dev server, remove \`AUTH_DISABLED\` from
 checklist, not a defect (run and deploy guide). Deploy only when the user
 asked or the provider is already configured. Leave the dev server running
 (start it again after the build) or stop it as that guide says, and report
-which. Label evidence separately:
-locally running, locally verified, build-ready, deployed, and live-verified
-are different states.
+which. Label evidence separately: locally running, locally verified,
+build-ready, deployed, and live-verified are different states.
 
 ## Final report
 
-Keep it demo-short. The first line is the verdict ("Built X in \`<dir>\`;
-locally verified, not deployed"). Then: the app directory, local URL, and
-server state (PID and stop command); the archetype, the direction, and what
-each control does (agent handoff or local action); absolute paths of the final
-screenshots, rubric scores, and open criteria; the verification, with evidence
-labels, and what the review click left behind; a deployment URL only if it is
-real, and one precise pending step if any; what changed from the brief
-(assumptions, gaps in the source, choices where it was silent).
+For a local build, keep it demo-short. The first line is the verdict ("Built X
+in \`<dir>\`; locally verified, not deployed"). Then: the app directory, local
+URL, and server state (PID and stop command); the archetype, the direction, and
+what each control does (agent handoff or local action); absolute paths of the
+final screenshots, rubric scores, and open criteria; the verification, with
+evidence labels, and what the review click left behind; a deployment URL only if
+it is real, and one precise pending step if any; what changed from the brief
+(assumptions, gaps in the source, choices where it was silent); how to change
+the app (ask this agent, in this folder).
 
 Report what exists, not what was intended. Never claim the app exists without
 a path and a verification result. If the scaffold never completed, a step was
@@ -309,7 +322,9 @@ installed, join in step 5.
 export const TURN_INTO_APP_FRESH_PROJECT_REFERENCE_MD = `# Browser hosts and Project sources
 
 Read this only on a browser host (Claude or ChatGPT on the web, their web
-Projects) or a runtime that cannot edit files. For a Project on a local host,
+Projects), a runtime that cannot edit files, or a local host where the person
+chose Hosted with Builder ([where-it-runs.md](where-it-runs.md) lists what
+differs there). For a Project built on a local host,
 [source-brief.md](source-brief.md) is enough: it follows the normal local
 build.
 
@@ -341,7 +356,9 @@ On a browser host the host is an orchestrator, not the build environment:
    reproduced verbatim (not in context, too large), say so in the brief and the
    report; never swap in a digest silently. A workbook cannot be attached
    (attachments take images, PDF, text, and JSON): pass a bounded CSV rendering
-   as text, or a public URL, and say what was left out.
+   as text, or a public URL, and say what was left out. Never attach \`.env\`
+   files, keys, tokens, or other credentials; if a knowledge file holds one,
+   leave it out of the attachment and say so in the report.
 3. Report what Dispatch actually returned: the branch, the path, and the status.
    The browser host cannot run or inspect the app, and a returned path can 404
    until the branch merges and deploys, so the report ends at pending or
@@ -351,12 +368,15 @@ Rules on this path:
 
 - Never run \`npm\`, \`pnpm\`, \`npx\`, \`agent-native create\`, or \`add-app\`; never
   edit files, build in the host's code interpreter, sandbox, or artifact
-  editor, or start a dev server.
+  editor, or start a dev server. On a local host that chose Builder, the
+  Dispatch connector setup in [where-it-runs.md](where-it-runs.md) is the one
+  exception.
 - Never substitute the generic \`create_workspace_app\` MCP tool. It is a local
   workspace scaffolder, not the Dispatch handoff.
 - If \`start-workspace-app-creation\` is unavailable or Dispatch is not
-  authenticated, stop and give the connector setup below. Do not fall back to
-  a sandbox build or claim that the app exists.
+  authenticated, stop and give the connector setup below (on a local host, the
+  two ways on in [where-it-runs.md](where-it-runs.md)). Do not fall back to a
+  sandbox build or claim that the app exists.
 - Never invent a Builder branch URL. If Dispatch returns only an
   acknowledgement, or a path without a URL, report the Dispatch handoff as
   unverified, not as a ready or verified branch.
@@ -639,16 +659,19 @@ The chat scaffold ships \`agent-native.json\` with \`"onboarding": { "firstRun":
   "version": 1,
   "onboarding": {
     "firstRun": {
-      "development": "connect",
+      "development": "off",
       "production": "connect-and-integrations"
     }
   }
 }
 \`\`\`
 
-\`connect\` shows the shared setup in the agent sidebar ("Use Builder.io" or
-"Custom keys"); \`connect-and-integrations\` adds the integrations catalog; only
-\`"off"\` hides it. Never replace it with a local credential form.
+Development stays \`"off"\`, as in the first-party templates, so a person
+running the app locally lands in it instead of a setup screen. Without a
+provider key, the agent sidebar still offers "Connect AI" above its composer.
+In production, \`connect\` shows the shared setup ("Use Builder.io" or
+"Custom keys") after the first sign-in, and \`connect-and-integrations\` adds
+the integrations catalog. Never replace it with a local credential form.
 
 When the mode needs code, set it in the scaffold's existing
 \`agent-native.config.ts\` instead. The typed file takes precedence over the JSON
@@ -660,7 +683,7 @@ import { defineAgentNativeConfig } from "@agent-native/core/config";
 export default defineAgentNativeConfig(({ isDev }) => ({
   // keep the keys the scaffold already sets here
   onboarding: {
-    firstRun: isDev ? "connect" : "connect-and-integrations",
+    firstRun: isDev ? "off" : "connect-and-integrations",
   },
 }));
 \`\`\`
@@ -679,8 +702,11 @@ put \`AUTH_DISABLED=1\` in the app's ignored \`.env\` while the dev server is
 stopped (see Run). Loopback development only: never commit it, never deploy
 it, and remove it before the final \`pnpm build\`. A scaffold skill (\`build-an-app\`) that says not
 to set \`AUTH_DISABLED\` is about keeping auth on in real use; this skill's
-review loop is the exception for local runs. Without it, a person opening the
-app clicks "Continue as local dev".
+review loop is the exception for local runs. Without it, only the first
+browser to open the app is signed in automatically; later fresh browsers get
+the "Continue as local dev" card. After the final restart, leave that first
+visit to the person you hand the app to: \`curl\` polls do not use it up, but
+a browser or screenshot you open does.
 
 A developer can put a provider key such as \`ANTHROPIC_API_KEY\` or
 \`OPENAI_API_KEY\` in the same \`.env\`; once the server restarts, the sidebar skips
@@ -1164,8 +1190,9 @@ grep -rnE 'Icon(Sparkles|Wand|Magic|Robot)' app --include='*.tsx'
   "not scored", and say so in the final report.
 - **No shell or browser at all:** skip the loop, and say in the final report
   that no screenshots were reviewed. Never report scores without screenshots.
-- **Browser hosts:** no review here; the Dispatch handoff carries the design
-  decisions, and the status stays pending or unverified.
+- **Browser hosts, and Hosted with Builder on a local host:** no review here;
+  the Dispatch handoff carries the design decisions, and the status stays
+  pending or unverified.
 `;
 
 export const TURN_INTO_APP_SOURCE_BRIEF_REFERENCE_MD = `# Source brief
@@ -2558,6 +2585,101 @@ body {
   --chart-4: 305 59% 72.4%; /* oklch(0.76 0.14 330) */
 }
 \`\`\`
+`;
+
+export const TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD = `# Where the app runs
+
+On an interactive local host, ask this once, after the brief and App design
+are shown (step 2) and before any install, scaffold, or setup command. The rest
+of the run decides and proceeds; this is its one planned question, because the
+person should choose between setting things up and making an account.
+
+## When to skip it
+
+- **Browser host.** Builder is the only route: make the Dispatch handoff in
+  [the browser-host guide](fresh-project.md).
+- **The person already chose.** "Build it here", "run it locally", or "host it
+  on Builder" all count. A named route wins over the other skip rules except
+  Local File Mode. It picks where the app runs, not what data may be sent.
+- **The target is already an Agent-Native workspace** (a parent \`package.json\`
+  has \`agent-native.workspaceCore\`) and no route was named. Build on this
+  machine, inside that workspace.
+- **Resuming.** Keep the route the earlier run took.
+- **Files on this machine are the source of truth** (Local File Mode). Builder
+  can't reach them, so build here even if the person asked for Builder, and
+  say why.
+- **Headless, with no route named.** Build on this machine, and say in the
+  report that nobody was there to ask where it should run.
+
+## The question
+
+First run \`node --version\` and \`pnpm --version\`. They only read; install
+nothing before the answer. Then ask with the host's question tool, or end the
+message with the question. Put your recommendation first, with one sentence on
+why, and use these labels:
+
+- **On your machine.** Some setup: Node.js 22.22 or newer and pnpm (name the
+  ones that are missing). The app runs from this folder while the computer is
+  on. In Claude Cowork, add that the person starts it from their own terminal,
+  since Cowork can't keep it running.
+- **Hosted with Builder.** Nothing to install, just a free Builder account.
+  The brief and the source files it uses are sent to Builder, which builds the
+  app and hosts it online. The free plan has a daily credit limit.
+
+Recommend **Hosted with Builder** in Claude Cowork, or when Node.js 22.22+ or
+pnpm is missing. Otherwise recommend **On your machine**.
+
+## On your machine
+
+Continue with step 3. If Node.js or pnpm is missing, say what to install (the
+installer from nodejs.org; \`corepack enable\` for pnpm, which ships with
+Node.js) and continue once both answer. The final report ends with how to
+change the app: ask this agent, in this folder. On localhost the app's own
+agent can't edit its code.
+
+## Hosted with Builder
+
+Make the Dispatch handoff in [the browser-host guide](fresh-project.md), with
+files per [the attachment reference](attachments.md). Two things differ on a
+local host:
+
+- Attach the source files the brief relies on from disk, verbatim, instead of
+  from context. A workbook still goes as a bounded CSV rendering. Never attach
+  \`.env\` files, keys, tokens, or other credentials, even when the source uses
+  them; name what the app will need instead. If a file holds customer or
+  personal data (contact details, financial or health records) or anything the
+  source marks internal, confidential, or restricted to one role
+  ([source-brief.md](source-brief.md)), sending it to Builder needs the
+  person's authorization, even when they named Builder, so the ask-once rule
+  in SKILL.md applies: ask before the handoff and offer to leave it out. In a
+  headless run nobody can authorize it, so leave it out. The report names what
+  was left out.
+- Run nothing for the app: no \`npm\`, \`pnpm\`, scaffold, or dev server. The only
+  commands allowed are the Dispatch connector setup below.
+
+A handoff leaves nothing in this folder, so the resume check can't see one. If
+this thread already shows a handoff for the same source, give that result and
+ask before sending another: a second handoff makes a second app.
+
+If \`start-workspace-app-creation\` is missing or Dispatch is not signed in, say
+so and offer two ways on:
+
+1. Connect Dispatch. If it is not configured, run
+   \`npx @agent-native/core@latest connect https://dispatch.agent-native.com\`
+   with \`--client\` set to this host. Without Node.js 22.22+, don't make the
+   person install it just to pick Builder: send them to
+   \`https://dispatch.agent-native.com/mcp/connect\`, which has steps for each
+   host. If it is configured but signed out, sign in from the host's MCP
+   settings (in Claude Code, \`/mcp\`, then Authenticate); for Codex or Cowork,
+   run the same command with \`reconnect\` in place of \`connect\`. The person
+   restarts the agent and runs \`/turn-into-app\` again with the same source,
+   saying to host it on Builder so the question is skipped.
+2. Build on this machine instead.
+
+Never fall back to a local build without asking, and never claim the app
+exists. The report says what Dispatch returned, as the browser-host guide
+describes, and that changes happen in Builder, where the app's code lives,
+not in this folder.
 `;
 
 export const TURN_INTO_APP_OPENAI_YAML = `interface:

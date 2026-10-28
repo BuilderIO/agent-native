@@ -1,3 +1,4 @@
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 function stringifyValue(value: unknown): string {
   if (
     typeof value === "string" ||
@@ -25,7 +26,7 @@ function parseLimit(value: unknown, fallback = 20): number {
 export function createProgressToolEntries(
   getCurrentUser: () => string,
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "manage-progress": {
       confirmsAutomationWork: false,
       tool: {
@@ -186,5 +187,5 @@ Actions:
         }
       },
     },
-  };
+  });
 }

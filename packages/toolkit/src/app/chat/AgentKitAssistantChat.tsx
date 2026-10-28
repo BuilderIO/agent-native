@@ -4,7 +4,6 @@ import {
   selectAgentSuggestions,
   isCurrentAgentSuggestion,
   AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
-  splitAgentKitMessageContext,
   type AgentKitUploadDriver,
   type AgentThreadState,
 } from "@agent-native/agentkit";
@@ -54,7 +53,10 @@ import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
 } from "@agent-native/core/client/agent-chat";
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
+import {
+  createAgentNativeChatRuntime,
+  trackTurnSubmitted,
+} from "@agent-native/core/client/agent-chat";
 import type { CreateAgentNativeChatRuntimeOptions } from "@agent-native/core/client/agent-chat";
 import { useAgentDynamicSuggestionsResult } from "@agent-native/core/client/agent-chat";
 import {
@@ -90,6 +92,7 @@ import {
   stripAgentChatContextFromMessage,
   stripInlineAttachmentPayloads,
 } from "@agent-native/core/shared";
+import { AgentSelectToggle } from "@agent-native/toolkit/app/agent-select";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentSuggestionBar,
@@ -104,18 +107,15 @@ import {
   composerContextFits,
   readAgentPromptAttachment,
 } from "@agent-native/toolkit/composer";
-import {
-  appendRealtimeVoiceTranscriptToRepository,
-  realtimeVoiceTranscriptRegistry,
-  type RealtimeVoiceTranscriptMessage,
-} from "@agent-native/toolkit/composer/realtime-voice-transcript";
 import { IconButton } from "@agent-native/toolkit/design-system";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
@@ -123,7 +123,6 @@ import {
   IconCopy,
   IconDotsVertical,
   IconMessage,
-  IconPlayerStopFilled,
   IconQuote,
   IconRefresh,
   IconX,
@@ -141,19 +140,40 @@ import React, {
 import { toast } from "sonner";
 
 import {
+  ComposerNotice,
+  ComposerNoticeScope,
+} from "../../composer/composer-notice.js";
+import { approvalRequestKind } from "../agentkit/react/approval-card.js";
+import {
   AgentKitChat,
   AgentKitComposer,
+  AgentKitEmptyState,
+  AgentKitTranscriptSkeleton,
   AgentApprovalPrompt,
   AgentInteractionItem,
   AgentMessageView,
   useAgentKit,
+  useAgentKitBeginPendingSubmission,
   useAgentKitControl,
+  useAgentKitInWorkStep,
+  useAgentKitPendingSubmissions,
+  useAgentKitStopButton,
+  useAgentKitSubmissionHoldsTurn,
   useAgentThread,
+  useAgentThreadSelector,
   type AgentKitRenderProps,
   type AgentKitRegionRenderProps,
   type AgentConnectionErrorRenderProps,
   type AgentKitBranchNavigation,
 } from "../agentkit/react/index.js";
+import {
+  AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
+  agentKitTurnInProgress,
+  pendingSubmissionFiles,
+} from "../agentkit/react/pending-submissions.js";
+import { isStreamingVoiceMessage } from "../agentkit/react/voice-transcripts.js";
+import { ThreadContextRing } from "../context-xray/ThreadContextRing.js";
+import { threadHasFinishedReply } from "../context-xray/use-thread-context-usage.js";
 import {
   AgentKitDevCheckpointProvider,
   AgentKitDevCheckpointRestore,
@@ -179,14 +199,16 @@ import {
   AgentKitMarkdownText,
 } from "./agentkit-chat/parity-renderers.js";
 import { CoreAgentKitRoot } from "./agentkit-chat/root.js";
+import { agentKitWorkStepLabels } from "./agentkit-chat/work-step-labels.js";
 import { AgentApprovalCard } from "./chat/agent-approval-card.js";
 import { renderMarkdownToClipboardHtml } from "./chat/markdown-renderer.js";
 import {
   RunErrorRecoveryCard,
   BuilderSetupCard,
   LoopLimitContinueCard,
+  IMPLEMENT_PLAN_PROMPT,
   PlanModeCallout,
-  getRequestModeMetadata,
+  getReplyRequestMode,
   isMissingLlmProviderRunError,
   type RunErrorInfo,
 } from "./chat/run-recovery.js";
@@ -211,9 +233,15 @@ import { fallbackChatTitle } from "./fallback-chat-title.js";
 import { formatFeedbackReport } from "./feedback-report.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import {
+  isWaitingOnApprovalRequest,
   isWaitingOnConnectionRequest,
   reconcileSettledRun,
 } from "./reconcile-settled-run.js";
+import {
+  pickReplyConnectionSuggestion,
+  latestReplyContext,
+  type LatestReplyContext,
+} from "./reply-connection-suggestion.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
@@ -230,6 +258,17 @@ export interface AgentKitAssistantChatProps extends AssistantChatProps {
    */
   createAdapter?: "Removed. See https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
 }
+
+const copyAgentKitMessage = ({ text }: { text: string }) => {
+  const html = renderMarkdownToClipboardHtml(text);
+  return html === null ? false : writeClipboardText(text, { html });
+};
+
+const dispatchAgentKitClientEffect = (effect: unknown) => {
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:client-effect", { detail: effect }),
+  );
+};
 
 const reportIntegrity = (report: AgentStreamIntegrityReport) => {
   if (typeof window === "undefined") return;
@@ -626,6 +665,9 @@ type ThreadRestoreState =
   | { status: "ready" | "loading" }
   | { status: "error"; notFound: boolean };
 
+const THREAD_RESTORE_READY: ThreadRestoreState = { status: "ready" };
+const THREAD_RESTORE_LOADING: ThreadRestoreState = { status: "loading" };
+
 type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryAction?: "continue" | "retry";
   /** The failed run a retry answers; one retry per run. */
@@ -645,6 +687,8 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   deferredAgentId?: string | null;
   deferredContextScope?: AgentKitAssistantChatProps["contextScope"] | null;
   deferredSubmissionId?: string;
+  /** The deferred send came from app code, whose id the deferral drops. */
+  deferredFromApp?: boolean;
 };
 
 function isSubmissionExpired(submissionExpiresAt: number | undefined): boolean {
@@ -1416,6 +1460,8 @@ interface AgentKitSurfaceContextValue {
   hasRenderedMessages: boolean;
   canChat: boolean;
   setupMissing: boolean;
+  /** Only the server's readiness answer, never the model list's early guess. */
+  setupConfirmedMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
   modelListUnavailable: boolean;
   retryProviderStatus: () => void;
@@ -1437,6 +1483,7 @@ interface AgentKitSurfaceContextValue {
   authSessionAvailable: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   isSubmissionInFlight: boolean;
   composerSubmissionPending: boolean;
   onComposerSubmissionPendingChange: (pending: boolean) => void;
@@ -1445,9 +1492,8 @@ interface AgentKitSurfaceContextValue {
   providerContextItems: { current: readonly AgentChatContextItem[] };
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
-  voiceTranscriptMessages: AgentMessage[];
-  /** The user's message, shown from submit until the agent client appends it. */
-  optimisticUserMessage: AgentMessage | null;
+  /** A sent user message is showing before the agent client appended it. */
+  pendingSubmissionVisible: boolean;
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -1497,7 +1543,9 @@ const agentKitSlots = {
   composer: AgentKitComposerSlot,
   // Core owns suggestion placement across the transcript and empty states.
   suggestions: () => null,
-  emptyState: AgentKitEmptyState,
+  emptyState: AgentKitAssistantEmptyState,
+  // The transcript renders its own not-found and load-failure states with Retry.
+  threadUnavailable: () => null,
   transcript: AgentKitTranscript,
   message: AgentKitUserMessage,
   messageSupplement: AgentKitMessageSupplement,
@@ -1550,11 +1598,42 @@ export const AgentKitAssistantChat = forwardRef<
   );
   const hasManualLoadForCurrentThread =
     props.isNewThread || manualLoadThreadId === threadId;
-  const [threadRestore, setThreadRestore] = useState<ThreadRestoreState>(() =>
-    props.isThreadStateLoading || !hasManualLoadForCurrentThread
-      ? { status: "loading" }
-      : { status: "ready" },
-  );
+  const restoreInputKey = [
+    threadId,
+    props.isThreadStateLoading ? "loading" : "settled",
+    hasManualLoadForCurrentThread ? "manual" : "auto",
+    props.isNewThread ? "new" : "existing",
+  ].join("\u0000");
+  const restoreInputKeyRef = useRef(restoreInputKey);
+  restoreInputKeyRef.current = restoreInputKey;
+  // Keyed by the restore inputs so the first commit after a thread switch
+  // already reads "loading"; an effect-driven reset would paint one frame of
+  // the previous thread's "ready" state as an empty new chat.
+  const [storedThreadRestore, setStoredThreadRestore] = useState<{
+    key: string;
+    state: ThreadRestoreState;
+  } | null>(null);
+  if (storedThreadRestore && storedThreadRestore.key !== restoreInputKey) {
+    setStoredThreadRestore(null);
+  }
+  const threadRestore: ThreadRestoreState =
+    storedThreadRestore?.key === restoreInputKey
+      ? storedThreadRestore.state
+      : props.isThreadStateLoading || !hasManualLoadForCurrentThread
+        ? THREAD_RESTORE_LOADING
+        : THREAD_RESTORE_READY;
+  const setThreadRestore = useCallback((state: ThreadRestoreState) => {
+    const key = restoreInputKeyRef.current;
+    setStoredThreadRestore((current) =>
+      current?.key === key &&
+      current.state.status === state.status &&
+      (state.status !== "error" ||
+        (current.state.status === "error" &&
+          current.state.notFound === state.notFound))
+        ? current
+        : { key, state },
+    );
+  }, []);
   const [restoreRetryLoadPhase, setRestoreRetryLoadPhase] = useState<
     "idle" | "release" | "reopen"
   >("idle");
@@ -1563,29 +1642,15 @@ export const AgentKitAssistantChat = forwardRef<
   >(null);
   const notifiedMissingThreadsRef = useRef(new Set<string>());
   const onThreadRestoreLoaded = useCallback(() => {
-    setThreadRestore({ status: "ready" });
+    setThreadRestore(THREAD_RESTORE_READY);
     setRestoreRetryLoadPhase("idle");
     setRestoreRetryThreadId(null);
-  }, []);
+  }, [setThreadRestore]);
   useEffect(() => {
     setManualLoadThreadId((current) =>
       props.isNewThread ? threadId : current === threadId ? current : null,
     );
   }, [props.isNewThread, threadId]);
-  useEffect(() => {
-    setThreadRestore(
-      props.isThreadStateLoading || !hasManualLoadForCurrentThread
-        ? { status: "loading" }
-        : { status: "ready" },
-    );
-    setRestoreRetryLoadPhase("idle");
-    setRestoreRetryThreadId(null);
-  }, [
-    hasManualLoadForCurrentThread,
-    props.isNewThread,
-    props.isThreadStateLoading,
-    threadId,
-  ]);
   const onThreadRestoreLoadError = useCallback(
     (error: unknown) => {
       const record = asRecord(error);
@@ -1605,14 +1670,14 @@ export const AgentKitAssistantChat = forwardRef<
         props.onThreadRestoreNotFound();
       }
     },
-    [props.onThreadRestoreNotFound, threadId],
+    [props.onThreadRestoreNotFound, setThreadRestore, threadId],
   );
   const retryThreadRestore = useCallback(() => {
     if (props.isNewThread) return;
-    setThreadRestore({ status: "loading" });
+    setThreadRestore(THREAD_RESTORE_LOADING);
     setRestoreRetryThreadId(threadId);
     setRestoreRetryLoadPhase("release");
-  }, [props.isNewThread, threadId]);
+  }, [props.isNewThread, setThreadRestore, threadId]);
   useEffect(() => {
     if (
       restoreRetryLoadPhase !== "release" ||
@@ -1635,6 +1700,8 @@ export const AgentKitAssistantChat = forwardRef<
       approvalSubmit: t("agentChat.approval.submit"),
       approvalOther: t("agentChat.approval.other"),
       approvalOtherPlaceholder: t("agentChat.approval.otherPlaceholder"),
+      approvalPending: t("agentChat.approval.pending"),
+      approvalAnswerPending: t("agentChat.approval.answerPending"),
       connectionConnect: t("agentChat.common.connect"),
       connectionConnecting: t("agentChat.connection.connecting"),
       connectionRetry: t("agentChat.common.retry"),
@@ -1662,16 +1729,26 @@ export const AgentKitAssistantChat = forwardRef<
       }),
       worked: t("agentChat.tool.worked"),
       workedFor: t("agentChat.tool.workedFor", { duration: "{{duration}}" }),
+      showMoreActivities: t("agentChat.activity.showMore", {
+        count: "{{count}}",
+      }),
+      ...agentKitWorkStepLabels(t),
       durationHourShort: t("agentChat.duration.hourShort"),
       durationMinuteShort: t("agentChat.duration.minuteShort"),
       durationSecondShort: t("agentChat.duration.secondShort"),
       composerLabel: t("agentChat.composer.messageAgent"),
-      composerPlaceholder: t("agentChat.composer.messageAgent"),
+      composerPlaceholder:
+        props.composerPlaceholder || t("agentChat.composer.newChatPlaceholder"),
+      composerReplyPlaceholder: t("agentChat.composer.replyPlaceholder"),
+      emptyStateText: t("agentChat.empty.prompt"),
       queue: t("agentChat.queue.label"),
       queueSendNow: t("agentChat.queue.sendNow"),
       queueSendNowHint: t("agentChat.queue.sendNowHint"),
       queueSendNext: t("agentChat.queue.sendNext"),
       queueSendNextHint: t("agentChat.queue.sendNextHint"),
+      queueItemBusy: t("agentChat.queue.itemBusy"),
+      queueItemBlocked: t("agentChat.queue.itemBlocked"),
+      queueOrderStale: t("agentChat.queue.orderStale"),
       queueRemove: t("agentChat.queue.remove"),
       queueMore: t("agentChat.queue.moreActions"),
       suggestions: t("agentChat.composer.suggestedPrompts"),
@@ -1705,6 +1782,21 @@ export const AgentKitAssistantChat = forwardRef<
         { amount: "{{amount}}" },
       ),
       requestIdUnavailable: t("agentChat.message.requestIdUnavailable"),
+      runDetails: t("agentChat.message.runDetails"),
+      runCreditsUsed: t("agentChat.message.creditsUsed"),
+      runCost: t("agentChat.message.cost"),
+      runToolCalls: t("agentChat.message.toolCalls"),
+      runModel: t("agentChat.message.modelUsed"),
+      runDetailUnavailable: t("agentChat.message.detailUnavailable"),
+      runDetailNotRecorded: t("agentChat.message.notRecorded"),
+      runDetailIncomplete: t("agentChat.message.incomplete"),
+      runDetailEstimated: t("agentChat.message.estimatedAmount", {
+        amount: "{{amount}}",
+      }),
+      runDetailMixed: t("agentChat.message.mixedAmount", {
+        amount: "{{amount}}",
+      }),
+      suggestedActions: t("agentChat.composer.suggestedActions"),
       messageUnavailable: t("agentChat.message.unavailable"),
       navigationUnavailable: t("agentChat.message.navigationUnavailable"),
       copyUnavailable: t("agentChat.recovery.copyFailed"),
@@ -1722,6 +1814,14 @@ export const AgentKitAssistantChat = forwardRef<
       feedbackReasonWrongNumbers: t("agentChat.feedback.reasonWrongNumbers"),
       feedbackReasonTooSlow: t("agentChat.feedback.tooSlow"),
       feedbackCopyDetails: t("agentChat.feedback.copyDetails"),
+      feedback: t("agentChat.feedback.label"),
+      feedbackGood: t("agentChat.feedback.goodResponse"),
+      feedbackBad: t("agentChat.feedback.badResponse"),
+      rateResponse: t("agentChat.feedback.rate"),
+      forkFromHere: t("agentChat.message.forkFromHere"),
+      feedbackNote: t("agentChat.feedback.note"),
+      moreMessageActions: t("agentChat.message.moreActions"),
+      fewerMessageActions: t("agentChat.message.fewerActions"),
       fork: t("agentChat.message.forkChat"),
       previousBranch: t("agentChat.message.previousBranch"),
       nextBranch: t("agentChat.message.nextBranch"),
@@ -1731,7 +1831,8 @@ export const AgentKitAssistantChat = forwardRef<
       runFailed: t("agentChat.error.failed"),
       continueRun: t("agentChat.common.continue"),
       continueRunUnavailable: t("agentChat.recovery.continueUnavailable"),
-      reconnect: t("agentChat.agentPanel.chatgptSubscriptionReconnect"),
+      reconnect: t("agentChat.common.reconnect"),
+      dismissNotice: t("agentChat.common.dismiss"),
       reasoning: t("agentChat.status.thinking"),
       expandActivity: t("agentChat.common.expand"),
       collapseActivity: t("agentChat.common.collapse"),
@@ -1744,8 +1845,10 @@ export const AgentKitAssistantChat = forwardRef<
       agentFailed: t("agentChat.agent.failed"),
       agentClosed: t("agentChat.agent.closed"),
       editMessage: t("agentChat.message.edit"),
+      editingMessage: t("agentChat.message.editing"),
+      editingMessageHint: t("agentChat.message.editingHint"),
       cancelEditing: t("agentChat.common.cancel"),
-      regenerateResponse: t("agentChat.message.regenerate"),
+      regenerateResponse: t("agentChat.common.retry"),
       expandMessage: t("agentChat.common.expand"),
       collapseMessage: t("agentChat.common.collapse"),
       previewAttachment: t("agentChat.composer.previewAttachment", {
@@ -1758,6 +1861,48 @@ export const AgentKitAssistantChat = forwardRef<
       dropFilesToAttach: t("agentChat.composer.dropToAttach"),
       dropFileFailed: t("agentChat.composer.droppedFileError"),
       scrollToBottom: t("agentChat.composer.scrollToBottom"),
+      stop: t("agentChat.composer.stop"),
+      copyCode: t("agentChat.message.copyCode"),
+      codeCopied: t("agentChat.message.codeCopied"),
+      codeBlock: t("agentChat.message.codeBlock"),
+      codeBlockLanguage: t("agentChat.message.codeBlockLanguage", {
+        language: "{{language}}",
+      }),
+      table: t("agentChat.message.table"),
+      runStopped: t("agentChat.message.runStopped"),
+      responseReady: t("agentChat.message.responseReady"),
+      responseFailed: t("agentChat.message.responseFailed"),
+      waitingForApproval: t("agentChat.message.waitingForApproval"),
+      waitingForInput: t("agentChat.message.waitingForInput"),
+      workSummaryFailedCount: t("agentChat.message.workSummaryFailedCount", {
+        summary: "{{summary}}",
+        count: "{{count}}",
+      }),
+      taskStatusPending: t("agentChat.message.taskStatusPending"),
+      taskStatusRunning: t("agentChat.message.taskStatusRunning"),
+      taskStatusCompleted: t("agentChat.message.taskStatusCompleted"),
+      taskStatusFailed: t("agentChat.message.taskStatusFailed"),
+      taskStatusAwaitingInput: t("agentChat.message.taskStatusAwaitingInput"),
+      untitledTask: t("agentChat.message.untitledTask"),
+      connectionConnectProvider: t("agentChat.message.connectProvider", {
+        provider: "{{provider}}",
+      }),
+      connectionDeclined: t("agentChat.message.connectionDeclined", {
+        provider: "{{provider}}",
+      }),
+      connectionAdminRequiredTitle: t(
+        "agentChat.message.connectionAdminRequiredTitle",
+        { provider: "{{provider}}" },
+      ),
+      branchPositionLabel: t("agentChat.message.branchPositionLabel", {
+        index: "{{index}}",
+        count: "{{count}}",
+      }),
+      taskListChecked: t("agentChat.message.taskListChecked"),
+      taskListUnchecked: t("agentChat.message.taskListUnchecked"),
+      threadUnavailable: t("agentChat.message.threadNotFound"),
+      newChat: t("agentChat.tabs.newChat"),
+      loadingConversation: t("agentChat.empty.loadingChat"),
       formatTimestamp: (createdAt: string) => {
         const date = new Date(createdAt);
         if (Number.isNaN(date.getTime())) return createdAt;
@@ -1784,7 +1929,7 @@ export const AgentKitAssistantChat = forwardRef<
         });
       },
     }),
-    [formatDate, t],
+    [formatDate, props.composerPlaceholder, t],
   );
   const uploadedFilesRef = useRef(new Map<string, FilePart>());
   const upload: AgentKitUploadDriver = useCallback(
@@ -1847,7 +1992,6 @@ export const AgentKitAssistantChat = forwardRef<
     props.hostedHarness ? props.selectedAgent : undefined,
   );
   const hostedHarnessRef = useRef(props.hostedHarness === true);
-  const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
   const scopeRef = useRef<AssistantChatAdapterContext["scopeRef"]["current"]>(
     props.contextScope,
   );
@@ -1866,7 +2010,6 @@ export const AgentKitAssistantChat = forwardRef<
   effortRef.current = props.selectedEffort;
   harnessRef.current = props.hostedHarness ? props.selectedAgent : undefined;
   hostedHarnessRef.current = props.hostedHarness === true;
-  execModeRef.current = props.execMode;
   scopeRef.current = props.contextScope;
   isolateHistoryByScopeRef.current = props.isolateHistoryByScope;
   createTransportRef.current = props.createTransport;
@@ -1937,7 +2080,6 @@ export const AgentKitAssistantChat = forwardRef<
       effortRef,
       harnessRef,
       hostedHarnessRef,
-      execModeRef,
       browserTabId: props.browserTabId,
       scopeRef,
       surface,
@@ -1982,9 +2124,6 @@ export const AgentKitAssistantChat = forwardRef<
         return transportThreadIdRef.current;
       },
       surface,
-      get mode() {
-        return execModeRef.current === "plan" ? "plan" : "act";
-      },
       get model() {
         return modelRef.current;
       },
@@ -2003,7 +2142,9 @@ export const AgentKitAssistantChat = forwardRef<
         apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
         runtime:
           injectedRuntimeRef.current ??
-          createAgentNativeChatRuntime(runtimeOptions),
+          createAgentNativeChatRuntime(runtimeOptions, {
+            onTurnSubmitted: trackTurnSubmitted,
+          }),
         browserTabId: props.browserTabId,
         get threadId() {
           return transportThreadIdRef.current;
@@ -2066,57 +2207,52 @@ export const AgentKitAssistantChat = forwardRef<
       null,
     [transport],
   );
-  const loadRunUsage = useCallback(
-    ({ runId, signal }: { runId: string; signal: AbortSignal }) =>
-      callAction<undefined, "get-usage-run">(
-        "get-usage-run",
-        { runId, scope: "me" },
-        { method: "GET", signal },
-      ),
-    [],
-  );
   const history = props.chatHistory as
     | AgentKitHistoryConfig<unknown, any, any>
     | undefined;
+  const clientOptions = useMemo(
+    () => ({
+      transportOwnership: "owned" as const,
+      retainActiveRunsOnThreadRelease: true,
+      onIntegrityReport: reportIntegrity,
+      upload,
+    }),
+    [upload],
+  );
+  const slots = useMemo(
+    () =>
+      props.workedForSummarySlot
+        ? { ...agentKitSlots, workedForSummary: props.workedForSummarySlot }
+        : agentKitSlots,
+    [props.workedForSummarySlot],
+  );
+  const onForkedThread = props.onForkedThread;
+  const onThreadForked = useCallback(
+    (thread: { id: string }) => onForkedThread?.(thread.id),
+    [onForkedThread],
+  );
 
   return (
     <ThinkingDisplayProvider value={props.thinkingDisplay}>
       <CoreComposerRuntimeProvider>
         <CoreAgentKitRoot
           transport={transport}
-          clientOptions={{
-            transportOwnership: "owned",
-            retainActiveRunsOnThreadRelease: true,
-            onIntegrityReport: reportIntegrity,
-            upload,
-          }}
+          clientOptions={clientOptions}
           threadId={threadId}
           load={agentKitLoad}
           onLoadError={onThreadRestoreLoadError}
-          slots={
-            props.workedForSummarySlot
-              ? {
-                  ...agentKitSlots,
-                  workedForSummary: props.workedForSummarySlot,
-                }
-              : agentKitSlots
-          }
+          slots={slots}
           registry={agentKitRegistry}
           labels={labels}
           resolveMessageContentOrder={props.resolveMessageContentOrder}
           branchNavigation={props.branchNavigation}
-          loadRunUsage={loadRunUsage}
           buildFeedbackReport={formatFeedbackReport}
-          onThreadForked={(thread) => props.onForkedThread?.(thread.id)}
-          onCopyMessage={({ text }) => {
-            const html = renderMarkdownToClipboardHtml(text);
-            return html === null ? false : writeClipboardText(text, { html });
-          }}
-          onClientEffect={(effect) => {
-            window.dispatchEvent(
-              new CustomEvent("agent-chat:client-effect", { detail: effect }),
-            );
-          }}
+          workedForRowLayout={props.workedForRowLayout}
+          dataChartLayout={props.dataChartLayout}
+          formatWorkedForDuration={props.formatWorkedForDuration}
+          onThreadForked={onThreadForked}
+          onCopyMessage={copyAgentKitMessage}
+          onClientEffect={dispatchAgentKitClientEffect}
         >
           {history ? (
             <AgentKitHistoryProvider history={history}>
@@ -2213,8 +2349,22 @@ const AgentKitAssistantChatBody = forwardRef<
     props.showModelSelector !== false && props.modelListError === true;
   const effectiveReadiness = readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
-  const setupMissing =
+  const [composerSetupRequired, setComposerSetupRequired] = useState(false);
+  const setupConfirmedMissing =
     providerChecksEnabled && effectiveReadiness === "missing";
+  // The composer's model list knows nothing is connected well before the
+  // readiness check answers; an answer of "configured" still wins. Only this
+  // chat's own card can show on that guess: a host-owned card waits for the
+  // server, and acting on the guess without it closes the prompt with nothing
+  // on screen to explain why.
+  const ownsSetupCard =
+    props.showMissingApiKeySetup !== false && props.setupCardOwner !== "host";
+  const setupMissing =
+    setupConfirmedMissing ||
+    (providerChecksEnabled &&
+      ownsSetupCard &&
+      effectiveReadiness !== "configured" &&
+      composerSetupRequired);
   const providerStatus: AgentEngineConfiguredState = setupMissing
     ? "missing"
     : modelListUnavailable
@@ -2245,24 +2395,34 @@ const AgentKitAssistantChatBody = forwardRef<
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
   const [composerSubmissionPending, setComposerSubmissionPending] =
     useState(false);
-  // Set at submit and cleared when the submit settles. The agent client
-  // appends the real message only after its own awaits, so the transcript
-  // shows this copy in the meantime.
-  const [pendingUserSubmission, setPendingUserSubmission] = useState<{
-    id: number;
-    text: string;
-    threadId: string;
-    baseCount: number;
-  } | null>(null);
-  // A send that settles late must not clear a newer send's pending prompt.
-  const pendingSubmissionIdRef = useRef(0);
-  const messageCountRef = useRef(0);
-  messageCountRef.current = thread.messages.length;
+  const beginPendingSubmission = useAgentKitBeginPendingSubmission();
+  // The agent client appends a sent message only after its own awaits, so
+  // the transcript shows this copy from submit until that message lands.
+  const beginSubmittedMessage = useCallback(
+    (text: string, files: readonly PromptComposerFile[]) => {
+      const previews = pendingSubmissionFiles(
+        files.map((file) => ({ name: file.name, file })),
+      );
+      return beginPendingSubmission(
+        threadId,
+        { text, attachments: previews.attachments },
+        { release: previews.release },
+      );
+    },
+    [beginPendingSubmission, threadId],
+  );
   const [continueSubmissionFailed, setContinueSubmissionFailed] =
     useState(false);
   const [queueSubmissionError, setQueueSubmissionError] = useState<
     string | null
   >(null);
+  const [historyNoticeDismissed, setHistoryNoticeDismissed] = useState(false);
+  // Notices describe this thread's last attempt; another thread starts clean.
+  useEffect(() => {
+    setContinueSubmissionFailed(false);
+    setQueueSubmissionError(null);
+    setHistoryNoticeDismissed(false);
+  }, [threadId]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -2360,66 +2520,16 @@ const AgentKitAssistantChatBody = forwardRef<
   }
   const selectionRevisionRef = useRef(0);
   const selectionLength = pendingSelection?.text.length ?? null;
-  const [voiceTranscriptState, setVoiceTranscriptState] = useState({
-    threadId,
-    messages: [] as AgentMessage[],
-  });
-  const voiceTranscriptMessages =
-    voiceTranscriptState.threadId === threadId
-      ? voiceTranscriptState.messages
-      : [];
-  const voiceTranscriptsRef = useRef({
-    threadId,
-    messages: [] as RealtimeVoiceTranscriptMessage[],
-  });
-  if (voiceTranscriptsRef.current.threadId !== threadId) {
-    voiceTranscriptsRef.current = { threadId, messages: [] };
-  }
-  const threadMessageIds = new Set(
-    thread.messages.map((message) => message.id),
-  );
-  // Scoped to the thread that was submitted to. A reused surface can change
-  // threadId mid-send, and the prior prompt must not show under the new thread.
-  // Hidden only once this prompt's own message lands: another send appending
-  // first must not remove it. Exact text, not containment, so a longer message
-  // that quotes the prompt is not taken for this one.
-  const submittedMessageArrived =
-    pendingUserSubmission !== null &&
-    thread.messages
-      .slice(pendingUserSubmission.baseCount)
-      .some(
-        (message) =>
-          message.role === "user" &&
-          message.parts.some(
-            (part) =>
-              part.type === "text" &&
-              splitAgentKitMessageContext(part.text).message.trim() ===
-                pendingUserSubmission.text.trim(),
-          ),
-      );
-  const optimisticUserMessage: AgentMessage | null =
-    pendingUserSubmission &&
-    pendingUserSubmission.threadId === threadId &&
-    !submittedMessageArrived
-      ? {
-          id: "pending-user-submission",
-          role: "user",
-          parts: [{ type: "text", text: pendingUserSubmission.text }],
-          status: "complete",
-          metadata: { pendingSubmission: true },
-        }
-      : null;
+  const pendingSubmissionVisible =
+    useAgentKitPendingSubmissions(threadId).length > 0;
   const hasRenderedMessages =
     thread.messages.length > 0 ||
-    optimisticUserMessage !== null ||
+    pendingSubmissionVisible ||
     props.threadContentSlot != null ||
     getAgentKitThreadHandoffMessages(
       thread,
       props.threadRestore.status === "error" ? null : props.handoffSnapshot,
-    ).length > 0 ||
-    voiceTranscriptMessages.some(
-      (message) => !threadMessageIds.has(message.id),
-    );
+    ).length > 0;
   const seenEventsRef = useRef({
     threadId,
     initialized: false,
@@ -2833,8 +2943,10 @@ const AgentKitAssistantChatBody = forwardRef<
     (isRunning || isSubmissionInFlight) &&
     lastMessage?.role === "user" &&
     lastMessage.metadata?.hideUserMessage !== true;
+  // A send that has no run id yet already holds the thread's turn, so what
+  // follows it queues instead of starting a second turn.
   const isThreadRunning = useCallback(
-    () => hasActiveAgentRuns(controller.getThread(threadId)),
+    () => agentKitTurnInProgress(controller, threadId),
     [controller, threadId],
   );
   const reconcileServerSettled = useCallback(
@@ -3206,9 +3318,8 @@ const AgentKitAssistantChatBody = forwardRef<
       return;
     }
     let addedUserMessage = false;
-    for (let index = 0; index < thread.messages.length; index += 1) {
-      const message = thread.messages[index];
-      if (!message) continue;
+    for (const [index, message] of thread.messages.entries()) {
+      if (isStreamingVoiceMessage(message)) continue;
       if (observedMessagesRef.current.has(message.id)) continue;
       observedMessagesRef.current.add(message.id);
       if (message.role !== "user") continue;
@@ -3254,30 +3365,15 @@ const AgentKitAssistantChatBody = forwardRef<
         terminalEventAdded || completedAssistantSnapshot,
       );
     }
-    reportMessageCount(
-      thread.messages.length +
-        voiceTranscriptMessages.filter(
-          (message) => !thread.messages.some((item) => item.id === message.id),
-        ).length,
-    );
-  }, [isRunning, props, thread, threadId, voiceTranscriptMessages]);
+    reportMessageCount(thread.messages.length);
+  }, [isRunning, props, thread, threadId]);
 
   saveSnapshotRef.current = (
     metadataOnly = false,
     allowCompletionRetry = false,
   ) => {
-    const transcripts = voiceTranscriptsRef.current.messages;
-    if (thread.messages.length === 0 && transcripts.length === 0) {
-      return;
-    }
-    const baseSnapshot = createAgentKitThreadSnapshot(thread);
-    const snapshot = transcripts.length
-      ? appendVoiceTranscriptsToThreadSnapshot(
-          baseSnapshot,
-          thread,
-          transcripts,
-        )
-      : baseSnapshot;
+    if (!hasPersistableMessages(thread)) return;
+    const snapshot = createAgentKitThreadSnapshot(thread);
     if (
       isUnmountingRef.current &&
       props.onSaveThread &&
@@ -3306,47 +3402,6 @@ const AgentKitAssistantChatBody = forwardRef<
       saveSnapshotRef.current();
     };
   }, []);
-
-  const appendRealtimeVoiceTranscript = useCallback(
-    (transcript: RealtimeVoiceTranscriptMessage) => {
-      if (
-        isRestoring ||
-        isRunning ||
-        transcript.threadId !== threadId ||
-        voiceTranscriptsRef.current.threadId !== threadId
-      ) {
-        return false;
-      }
-      const currentTranscripts = voiceTranscriptsRef.current.messages;
-      if (
-        thread.messages.some((message) => message.id === transcript.id) ||
-        currentTranscripts.some((message) => message.id === transcript.id)
-      ) {
-        return true;
-      }
-      const transcripts = [...currentTranscripts, transcript];
-      const messages = transcripts.map(realtimeVoiceTranscriptAgentMessage);
-      voiceTranscriptsRef.current = { threadId, messages: transcripts };
-      setVoiceTranscriptState({ threadId, messages });
-      const baseSnapshot = createAgentKitThreadSnapshot(thread);
-      const snapshot = appendVoiceTranscriptsToThreadSnapshot(
-        baseSnapshot,
-        thread,
-        transcripts,
-      );
-      saveThreadSnapshot(snapshot);
-      return true;
-    },
-    [isRestoring, isRunning, props, saveThreadSnapshot, thread, threadId],
-  );
-
-  useEffect(() => {
-    return realtimeVoiceTranscriptRegistry.register({
-      threadId,
-      active: props.isActiveComposer !== false,
-      append: appendRealtimeVoiceTranscript,
-    });
-  }, [appendRealtimeVoiceTranscript, props.isActiveComposer, threadId]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -3545,7 +3600,8 @@ const AgentKitAssistantChatBody = forwardRef<
         const requestMode =
           options.requestMode ??
           options.recoveryRequestMode ??
-          (props.execMode === "plan" ? "plan" : "act");
+          composerOptions.requestMode ??
+          "act";
         const model =
           composerOptions.model ?? options.recoveryModel ?? props.selectedModel;
         const engine =
@@ -3586,6 +3642,9 @@ const AgentKitAssistantChatBody = forwardRef<
                 agentNativeDeferredSubmissionId: options.deferredSubmissionId,
               }
             : {}),
+          ...(options.deferredFromApp
+            ? { agentNativeDeferredFromApp: true }
+            : {}),
           ...(retryRequestAttachments.length
             ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
             : {}),
@@ -3600,7 +3659,14 @@ const AgentKitAssistantChatBody = forwardRef<
           ...(options.submitMessageId
             ? { submitMessageId: options.submitMessageId }
             : {}),
+          ...(composerOptions.submissionId
+            ? {
+                [AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY]:
+                  composerOptions.submissionId,
+              }
+            : {}),
           ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
+          ...(options.surface ? { agentNativeSurface: options.surface } : {}),
           ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
           ...(skipAmbientSelectionContext
             ? { agentNativeSkipPendingSelectionContext: true }
@@ -3648,7 +3714,7 @@ const AgentKitAssistantChatBody = forwardRef<
           ...(options.submissionExpiresAt !== undefined
             ? { queueWhileRunning: false }
             : {}),
-          interruptActiveRun: composerOptions.steer,
+          deliverInActiveRun: composerOptions.steer,
           options: {
             model,
             mode: requestMode,
@@ -3710,7 +3776,6 @@ const AgentKitAssistantChatBody = forwardRef<
       control,
       threadId,
       props.contextScope,
-      props.execMode,
       props.selectedAgent,
       props.selectedEffort,
       props.selectedEngine,
@@ -3848,6 +3913,7 @@ const AgentKitAssistantChatBody = forwardRef<
               deferredOptions.skipAmbientSelectionContext = true;
             }
             delete deferredOptions.submitMessageId;
+            if (submitMessageId) deferredOptions.deferredFromApp = true;
             delete deferredOptions.attachments;
             deferredOptions.contextAlreadyIncluded = true;
             deferredOptions.deferredRequestAttachments = requestAttachments;
@@ -3857,7 +3923,7 @@ const AgentKitAssistantChatBody = forwardRef<
             deferredOptions.deferredContextScope =
               props.contextScope === undefined ? null : props.contextScope;
             deferredOptions.requestMode ??=
-              props.execMode === "plan" ? "plan" : "act";
+              submittedComposerOptions.requestMode ?? "act";
             const deferredComposerOptions = { ...submittedComposerOptions };
             delete deferredComposerOptions.attachments;
             delete deferredComposerOptions.onLocalSubmit;
@@ -3936,19 +4002,13 @@ const AgentKitAssistantChatBody = forwardRef<
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
-      const showsUserMessage =
-        !options.hideUserMessage && !options.approvedToolCalls;
-      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
-      if (showsUserMessage) {
-        if (!isThreadRunning()) {
-          setPendingUserSubmission({
-            id: pendingSubmissionId,
-            text,
-            threadId,
-            baseCount: messageCountRef.current,
-          });
-        }
-      }
+      const pending =
+        !options.hideUserMessage &&
+        !options.approvedToolCalls &&
+        !submittedComposerOptions.submissionId &&
+        !isThreadRunning()
+          ? beginSubmittedMessage(text, files)
+          : undefined;
       try {
         if (isSubmissionExpired(options.submissionExpiresAt)) {
           reportAgentChatSubmitResult(
@@ -3962,7 +4022,9 @@ const AgentKitAssistantChatBody = forwardRef<
           text,
           files,
           references,
-          submittedComposerOptions,
+          pending
+            ? { ...submittedComposerOptions, submissionId: pending.id }
+            : submittedComposerOptions,
           options,
         );
         return { status: "submitted" };
@@ -3983,20 +4045,18 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
-        setPendingUserSubmission((current) =>
-          current?.id === pendingSubmissionId ? null : current,
-        );
+        pending?.end();
         release?.();
       }
     },
     [
       acquireSubmission,
+      beginSubmittedMessage,
       contextItems,
       control,
       dispatch,
       fileStorageConfigured,
       props.contextScope,
-      props.execMode,
       props.selectedAgent,
       props.selectedEffort,
       props.selectedEngine,
@@ -4019,20 +4079,21 @@ const AgentKitAssistantChatBody = forwardRef<
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
       const runWasActiveAtSubmit = isThreadRunning();
+      setContinueSubmissionFailed(false);
       const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
-      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
-      if (!runWasActiveAtSubmit) {
-        setPendingUserSubmission({
-          id: pendingSubmissionId,
-          text,
-          threadId,
-          baseCount: messageCountRef.current,
-        });
+      const pending =
+        !runWasActiveAtSubmit && !composerOptions.submissionId
+          ? beginSubmittedMessage(text, files)
+          : undefined;
+      if (pending) {
+        composerOptions = { ...composerOptions, submissionId: pending.id };
       }
       try {
-        const preparedOptions = prepare ? await prepare() : composerOptions;
+        const preparedOptions = prepare
+          ? { ...(await prepare()), submissionId: composerOptions.submissionId }
+          : composerOptions;
         await dispatch(
           text,
           files,
@@ -4046,14 +4107,13 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
-        setPendingUserSubmission((current) =>
-          current?.id === pendingSubmissionId ? null : current,
-        );
+        pending?.end();
         release?.();
       }
     },
     [
       acquireSubmission,
+      beginSubmittedMessage,
       dispatch,
       isThreadRunning,
       props.composerDisabled,
@@ -4129,7 +4189,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ]
           : [],
       );
-      const requestMode = props.execMode === "plan" ? "plan" : "act";
+      const requestMode = "act";
       const model = props.selectedModel;
       const engine = props.selectedEngine;
       const effort = props.selectedEffort;
@@ -4318,7 +4378,6 @@ const AgentKitAssistantChatBody = forwardRef<
       props.composerDisabled,
       props.composerSubmissionDisabled,
       props.contextScope,
-      props.execMode,
       fileStorageConfigured,
       props.selectedAgent,
       props.selectedEffort,
@@ -4807,14 +4866,12 @@ const AgentKitAssistantChatBody = forwardRef<
     [props.contextNamespace, threadId],
   );
   const implementPlan = useCallback(() => {
-    const canImplement =
-      props.execMode === "plan" &&
-      getRequestModeMetadata(latestAssistant) === "plan";
-    if (!canImplement) return false;
-    props.onExecModeChange?.("build");
-    void send("Implement the plan.", undefined, { requestMode: "act" });
+    if (getReplyRequestMode(thread.messages, latestAssistant) !== "plan") {
+      return false;
+    }
+    void send(IMPLEMENT_PLAN_PROMPT, undefined, { requestMode: "act" });
     return true;
-  }, [latestAssistant, props.execMode, props.onExecModeChange, send]);
+  }, [latestAssistant, send, thread.messages]);
 
   useImperativeHandle(
     ref,
@@ -4874,17 +4931,8 @@ const AgentKitAssistantChatBody = forwardRef<
         ),
       focusComposer: () => requestComposerFocus(threadId),
       exportThreadSnapshot: () => {
-        if (
-          thread.messages.length === 0 &&
-          voiceTranscriptsRef.current.messages.length === 0
-        ) {
-          return null;
-        }
-        const snapshot = appendVoiceTranscriptsToThreadSnapshot(
-          createAgentKitThreadSnapshot(thread),
-          thread,
-          voiceTranscriptsRef.current.messages,
-        );
+        if (!hasPersistableMessages(thread)) return null;
+        const snapshot = createAgentKitThreadSnapshot(thread);
         if (!props.createTransport && !props.runtime) {
           storeAgentKitThreadHandoffSnapshot(
             createAgentKitThreadHandoffKey(props, threadId),
@@ -4921,6 +4969,7 @@ const AgentKitAssistantChatBody = forwardRef<
     hasRenderedMessages,
     canChat,
     setupMissing,
+    setupConfirmedMissing,
     providerStatus,
     modelListUnavailable,
     retryProviderStatus,
@@ -4945,14 +4994,14 @@ const AgentKitAssistantChatBody = forwardRef<
     authSessionAvailable,
     setupBouncePulse,
     bounceSetupCard,
+    onComposerSetupRequiredChange: setComposerSetupRequired,
     isSubmissionInFlight,
     composerSubmissionPending,
     onComposerSubmissionPendingChange: setComposerSubmissionPending,
     isThinkingVisibleInTranscript,
     contextItems,
     providerContextItems,
-    voiceTranscriptMessages,
-    optimisticUserMessage,
+    pendingSubmissionVisible,
     selectionLength,
     suggestions: suggestions ?? [],
     showSuggestions,
@@ -4971,97 +5020,122 @@ const AgentKitAssistantChatBody = forwardRef<
   };
 
   return (
-    <AgentKitSurfaceContext.Provider value={surfaceContext}>
-      {props.isActiveComposer === false ? null : (
-        <McpAgentKitConnectionResume
-          onResume={(
-            { threadId: targetThreadId, runId, requestId },
-            request,
-          ) => {
-            if (targetThreadId !== threadId) return "not-owner";
-            return control.resolveConnectionRequest(runId, requestId, {
-              status: "connected",
-              message: request.message,
-            });
-          }}
-          onMessageResume={(request) =>
-            resumeIntegrationPrompt(request.message)
+    <ComposerNoticeScope>
+      <AgentKitSurfaceContext.Provider value={surfaceContext}>
+        {props.isActiveComposer === false ? null : (
+          <McpAgentKitConnectionResume
+            onResume={(
+              { threadId: targetThreadId, runId, requestId },
+              request,
+            ) => {
+              if (targetThreadId !== threadId) return "not-owner";
+              return control.resolveConnectionRequest(runId, requestId, {
+                status: "connected",
+                message: request.message,
+              });
+            }}
+            onMessageResume={(request) =>
+              resumeIntegrationPrompt(request.message)
+            }
+          />
+        )}
+        <RunStuckBanner
+          threadId={threadId}
+          enabled={props.isActiveComposer !== false}
+          apiUrl={props.apiUrl ?? agentNativePath("/_agent-native/agent-chat")}
+          autoRetry
+          autoRetryOwnerId={props.browserTabId}
+          hasInFlightWork={() =>
+            Object.values(thread.tools).some(
+              (tool) => tool.status === "running",
+            ) ||
+            Object.values(thread.activities).some(
+              (activity) => activity.status === "running",
+            )
           }
+          isAwaitingResponse={() =>
+            isRunning &&
+            !isWaitingOnConnectionRequest(thread) &&
+            !isWaitingOnApprovalRequest(thread)
+          }
+          onServerSettled={reconcileServerSettled}
+          onRetry={(runId) => {
+            const lastUserMessage = [...thread.messages]
+              .reverse()
+              .find((message) => message.role === "user");
+            runContinueWithVisibleError(
+              () =>
+                sendContinueRequest(
+                  surfaceContext,
+                  retryRequestFrom(lastUserMessage),
+                  runId,
+                ),
+              setContinueSubmissionFailed,
+            );
+          }}
         />
-      )}
-      <RunStuckBanner
-        threadId={threadId}
-        enabled={props.isActiveComposer !== false}
-        apiUrl={props.apiUrl ?? agentNativePath("/_agent-native/agent-chat")}
-        autoRetry
-        autoRetryOwnerId={props.browserTabId}
-        hasInFlightWork={() =>
-          Object.values(thread.tools).some(
-            (tool) => tool.status === "running",
-          ) ||
-          Object.values(thread.activities).some(
-            (activity) => activity.status === "running",
-          )
-        }
-        isAwaitingResponse={() =>
-          isRunning && !isWaitingOnConnectionRequest(thread)
-        }
-        onServerSettled={reconcileServerSettled}
-        onRetry={(runId) => {
-          const lastUserMessage = [...thread.messages]
-            .reverse()
-            .find((message) => message.role === "user");
-          runContinueWithVisibleError(
-            () =>
-              sendContinueRequest(
-                surfaceContext,
-                retryRequestFrom(lastUserMessage),
-                runId,
-              ),
-            setContinueSubmissionFailed,
-          );
-        }}
-      />
-      {continueSubmissionFailed ? (
-        <div role="alert" className="mx-3 mb-2 text-xs text-destructive">
-          {t("agentChat.recovery.continueUnavailable")}
-        </div>
-      ) : null}
-      {queueSubmissionError ? (
-        <div role="alert" className="mx-3 mb-2 text-xs text-destructive">
-          {queueSubmissionError}
-        </div>
-      ) : null}
-      {history?.historyLoadFailed ? (
-        <div
-          role="alert"
-          className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs"
-        >
-          <span className="text-muted-foreground">
-            {t("agentChat.message.historyUnavailable")}
-          </span>
-          <button
-            type="button"
-            onClick={history.retryHistory}
-            disabled={history.isRetryingHistory}
-            className="shrink-0 font-medium text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+        {continueSubmissionFailed ? (
+          <ComposerNotice
+            role="alert"
+            noticeId="continue-failed"
+            onDismiss={() => setContinueSubmissionFailed(false)}
+            dismissLabel={t("agentChat.common.dismiss")}
           >
-            {t("agentChat.common.retry")}
-          </button>
-        </div>
-      ) : null}
-      <AgentKitChat
-        className={props.className}
-        composerProps={{ attachmentsEnabled: fileStorageConfigured }}
-        hasRenderedMessages={hasRenderedMessages}
-        transcriptLayout={props.transcriptLayout}
-        emptyComposerPlacement={
-          props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
-        }
-        title={props.showHeader === false ? undefined : props.emptyStateText}
-        autoScroll
-      />
-    </AgentKitSurfaceContext.Provider>
+            {t("agentChat.recovery.continueUnavailable")}
+          </ComposerNotice>
+        ) : null}
+        {queueSubmissionError ? (
+          <ComposerNotice
+            role="alert"
+            noticeId="queue-failed"
+            onDismiss={() => setQueueSubmissionError(null)}
+            dismissLabel={t("agentChat.common.dismiss")}
+          >
+            {queueSubmissionError}
+          </ComposerNotice>
+        ) : null}
+        {history?.historyLoadFailed && !historyNoticeDismissed ? (
+          <ComposerNotice
+            role="alert"
+            noticeId="history-unavailable"
+            actions={
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={history.retryHistory}
+                disabled={history.isRetryingHistory}
+                aria-busy={history.isRetryingHistory || undefined}
+              >
+                {history.isRetryingHistory ? (
+                  <Spinner className="size-3" aria-hidden="true" />
+                ) : null}
+                {t("agentChat.common.retry")}
+              </Button>
+            }
+            onDismiss={() => setHistoryNoticeDismissed(true)}
+            dismissLabel={t("agentChat.common.dismiss")}
+          >
+            {t("agentChat.message.historyUnavailable")}
+          </ComposerNotice>
+        ) : null}
+        <AgentKitChat
+          {...(props.className === undefined
+            ? {}
+            : { className: props.className })}
+          composerProps={{ attachmentsEnabled: fileStorageConfigured }}
+          hasRenderedMessages={hasRenderedMessages}
+          {...(props.transcriptLayout === undefined
+            ? {}
+            : { transcriptLayout: props.transcriptLayout })}
+          emptyComposerPlacement={
+            props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
+          }
+          expectExistingThread={!props.isNewThread}
+          autoScroll
+        />
+      </AgentKitSurfaceContext.Provider>
+    </ComposerNoticeScope>
   );
 });
 
@@ -5108,7 +5182,7 @@ function AgentKitScopedComposerContext({
   );
 }
 
-function AgentKitEmptyState({ threadId }: { threadId: string }) {
+function AgentKitAssistantEmptyState({ threadId }: { threadId: string }) {
   const surface = useAgentKitSurface();
   const t = useT();
   const thread = useAgentThread(threadId);
@@ -5133,44 +5207,39 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
     surface.showSuggestions
       ? surface.suggestions
       : [];
+  // A host's text is a hint about this surface, not a replacement greeting.
+  const hostHint = surface.props.emptyStateText?.trim();
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-4 py-16">
       {showDefault ? (
-        <>
-          <IconMessage className="h-5 w-5 text-muted-foreground/60" />
-          <p className="sr-only">
-            {surface.props.emptyStateText ?? t("agentChat.empty.prompt")}
-          </p>
+        <AgentKitEmptyState
+          className="w-full"
+          text={
+            hostHint ? (
+              <span className="mx-auto block max-w-[30rem] text-sm font-normal leading-5 tracking-normal text-muted-foreground">
+                {hostHint}
+              </span>
+            ) : (
+              t("agentChat.empty.prompt")
+            )
+          }
+        >
           {promptSuggestions.length ? (
-            <div className="flex w-full max-w-[320px] flex-col gap-1.5">
-              {promptSuggestions.map((suggestion, index) => {
-                const prompt = agentSuggestionPrompt(suggestion);
-                return (
-                  <button
-                    key={
-                      typeof suggestion === "string"
-                        ? suggestion
-                        : suggestion.id
-                    }
-                    type="button"
-                    disabled={
-                      !surface.canChat ||
-                      surface.props.composerDisabled ||
-                      surface.props.composerSubmissionDisabled ||
-                      surface.composerSubmissionPending
-                    }
-                    onClick={() => surface.submitSuggestion(suggestion)}
-                    className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-left text-[13px] text-muted-foreground shadow-sm transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  >
-                    {typeof suggestion === "string"
-                      ? suggestion
-                      : suggestion.label || prompt || String(index)}
-                  </button>
-                );
-              })}
-            </div>
+            <AgentKitSuggestedPrompts
+              suggestions={promptSuggestions}
+              disabled={
+                !surface.canChat ||
+                Boolean(surface.props.composerDisabled) ||
+                Boolean(surface.props.composerSubmissionDisabled) ||
+                surface.composerSubmissionPending
+              }
+              onSelect={surface.submitSuggestion}
+              // The two-line track is wider than a narrow lane, so the chips
+              // wrap within it rather than also scrolling sideways.
+              className="agentkit-empty-suggestions max-w-[30rem] px-0 [&_[data-agent-suggestion-track=true]]:max-w-full"
+            />
           ) : null}
-        </>
+        </AgentKitEmptyState>
       ) : null}
       {surface.props.emptyStateAddon}
       {surface.props.emptyStateFooter}
@@ -5211,7 +5280,8 @@ function AgentKitSelectionPill({
 }
 
 function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
-  const { controller } = useAgentKit();
+  const { controller, slots } = useAgentKit();
+  const MessageView = slots.message ?? AgentMessageView;
   const surface = useAgentKitSurface();
   const t = useT();
   const thread = useAgentThread(threadId);
@@ -5254,9 +5324,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       return { delivered: true };
     },
   });
-  const threadMessageIds = new Set(
-    thread.messages.map((message) => message.id),
-  );
   const activeRunId = thread.activeRunIds.at(-1);
   const [requestIdCopyFeedback, setRequestIdCopyFeedback] = useState<{
     runId: string;
@@ -5286,36 +5353,10 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const lastMessage = thread.messages.at(-1);
   const showThinking =
     !surface.isRunning &&
-    (surface.optimisticUserMessage !== null ||
+    (surface.pendingSubmissionVisible ||
       (surface.isSubmissionInFlight &&
         lastMessage?.role === "user" &&
         lastMessage.metadata?.hideUserMessage !== true));
-  const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
-    (message) => !threadMessageIds.has(message.id),
-  );
-  const showHomeSuggestions =
-    surface.props.centerComposerWhenEmpty &&
-    !surface.hasRenderedMessages &&
-    surface.threadRestore.status === "ready";
-  const initialContextSuggestionBar =
-    !surface.hasRenderedMessages &&
-    surface.props.suggestionPlacement === "context-chips" &&
-    !showHomeSuggestions &&
-    surface.showSuggestions &&
-    surface.suggestions.length > 0 ? (
-      <AgentKitSuggestedPrompts
-        suggestions={surface.suggestions}
-        disabled={
-          !surface.canChat ||
-          surface.props.composerDisabled ||
-          surface.props.composerSubmissionDisabled ||
-          surface.isSubmissionInFlight ||
-          surface.composerSubmissionPending
-        }
-        onSelect={surface.submitSuggestion}
-        className="agentkit-host-suggestions"
-      />
-    ) : null;
   if (surface.authError) {
     const authTitle = surface.authSessionAvailable
       ? t("agentChat.auth.refreshTitle")
@@ -5383,21 +5424,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
     handoffMessages.length === 0
   ) {
     return (
-      <div
-        className="flex h-full flex-col gap-6 p-4"
-        aria-busy="true"
-        role="status"
-      >
-        <span className="sr-only">{t("agentChat.empty.loadingChat")}</span>
-        <div className="flex justify-end" aria-hidden="true">
-          <div className="h-20 w-2/3 max-w-[38rem] animate-pulse rounded-2xl bg-muted motion-reduce:animate-none" />
-        </div>
-        <div className="flex flex-col gap-2.5" aria-hidden="true">
-          <div className="h-3.5 w-full max-w-[38rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
-          <div className="h-3.5 w-[88%] max-w-[33rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
-          <div className="h-3.5 w-[64%] max-w-[24rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
-        </div>
-      </div>
+      <AgentKitTranscriptSkeleton label={t("agentChat.empty.loadingChat")} />
     );
   }
   if (
@@ -5406,19 +5433,27 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
     handoffMessages.length === 0
   ) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-4 py-16">
+      <div
+        className="flex h-full flex-col items-center justify-center gap-3 px-4 py-16"
+        role="alert"
+      >
+        <IconAlertTriangle
+          aria-hidden="true"
+          className="size-5 text-[hsl(var(--agent-kit-warning))]"
+        />
         <p className="max-w-[420px] text-center text-sm text-muted-foreground">
           {surface.threadRestore.notFound
             ? t("agentChat.message.threadNotFound")
-            : t("agentChat.message.restoreRequestFailed")}
+            : t("agentChat.message.threadLoadFailed")}
         </p>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="xs"
           onClick={surface.retryThreadRestore}
-          className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           {t("agentChat.common.retry")}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -5428,23 +5463,24 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         <AgentKitHistoryBeginningRevert />
       ) : null}
       {surface.threadRestore.status === "error" ? (
-        <div
-          className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"
+        <ComposerNotice
           role="alert"
+          noticeId="thread-restore"
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={surface.retryThreadRestore}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          }
         >
-          <span>
-            {surface.threadRestore.notFound
-              ? t("agentChat.message.threadNotFound")
-              : t("agentChat.message.restoreRequestFailed")}
-          </span>
-          <button
-            type="button"
-            onClick={surface.retryThreadRestore}
-            className="shrink-0 rounded px-2 py-1 hover:bg-accent hover:text-foreground"
-          >
-            {t("agentChat.common.retry")}
-          </button>
-        </div>
+          {surface.threadRestore.notFound
+            ? t("agentChat.message.threadNotFound")
+            : t("agentChat.message.threadLoadFailed")}
+        </ComposerNotice>
       ) : null}
       {renderThreadSlot(
         surface.props.threadContentSlot,
@@ -5504,25 +5540,8 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         </div>
       ) : null}
       {handoffMessages.map((message) => (
-        <AgentMessageView
-          key={message.id}
-          value={message}
-          threadId={threadId}
-        />
+        <MessageView key={message.id} value={message} threadId={threadId} />
       ))}
-      {pendingVoiceMessages.map((message) => (
-        <AgentMessageView
-          key={message.id}
-          value={message}
-          threadId={threadId}
-        />
-      ))}
-      {surface.optimisticUserMessage ? (
-        <AgentMessageView
-          value={surface.optimisticUserMessage}
-          threadId={threadId}
-        />
-      ) : null}
       {showThinking ? (
         <div
           className="agentkit-activities agentkit-activities-summary-content"
@@ -5565,7 +5584,6 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           />
         </div>
       ) : null}
-      {initialContextSuggestionBar}
       {renderThreadSlot(
         surface.props.threadFooterSlot,
         threadId,
@@ -5587,16 +5605,12 @@ function renderThreadSlot(
 
 function composerPlaceholder({
   props,
-  canChat,
-  providerStatus,
   setupMissing,
   isRunning,
   thread,
   t,
 }: {
   props: AgentKitAssistantChatProps;
-  canChat: boolean;
-  providerStatus: AgentEngineConfiguredState;
   setupMissing: boolean;
   isRunning: boolean;
   thread: ReturnType<typeof useAgentThread>;
@@ -5615,12 +5629,8 @@ function composerPlaceholder({
         })
       : t("agentChat.queue.followUp");
   }
-  return (
-    props.composerPlaceholder ??
-    (canChat || providerStatus === "unknown" || providerStatus === "unavailable"
-      ? "Ask the agent to explore, build, or explain…"
-      : "")
-  );
+  // Idle: the composer picks the new-chat or reply label from the thread.
+  return undefined;
 }
 
 function resolveAgentKitSuggestionInputs(
@@ -5699,6 +5709,7 @@ function AgentKitComposerSurface({
   showSuggestions,
   setupBouncePulse,
   bounceSetupCard,
+  onComposerSetupRequiredChange,
   contextItems,
   providerContextItems,
   selectionLength,
@@ -5737,6 +5748,7 @@ function AgentKitComposerSurface({
   hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
+  onComposerSetupRequiredChange: (required: boolean) => void;
   contextItems: AgentChatContextItem[];
   providerContextItems: { current: readonly AgentChatContextItem[] };
   selectionLength: number | null;
@@ -5757,6 +5769,7 @@ function AgentKitComposerSurface({
 }) {
   const t = useT();
   const [composerError, setComposerError] = useState<string | null>(null);
+  useEffect(() => setComposerError(null), [threadId]);
   React.useLayoutEffect(() => {
     providerContextItems.current = composerContext?.contextItems ?? [];
     return () => {
@@ -5929,21 +5942,28 @@ function AgentKitComposerSurface({
     !canChat &&
     !setupMissing &&
     (providerStatus === "unknown" || providerStatus === "unavailable");
+  // Missing setup keeps the draft editable and sendable: the composer's send
+  // gate holds the draft, points at the setup card, and resends it once setup
+  // connects.
+  const providerBlocksComposer =
+    !canChat && !setupMissing && !providerSubmissionPending;
   const latestAssistant = [...thread.messages]
     .reverse()
     .find((message) => message.role === "assistant");
-  const latestAssistantWasPlan =
-    getRequestModeMetadata(latestAssistant) === "plan";
   const showPlanCallout =
-    props.execMode === "plan" &&
+    getReplyRequestMode(thread.messages, latestAssistant) === "plan" &&
+    !isRunning &&
     !props.planModeDisabled &&
     !props.composerDisabled;
-  const control = useAgentKitControl(threadId);
-  const integration = findMcpConnectionSuggestionIntegration({
-    text,
-    variant: "composer",
-    requestedByUser: true,
-    excludedIntegrationIds: props.mcpSuggestionExcludedIntegrationIds,
+  const submissionHoldsTurn = useAgentKitSubmissionHoldsTurn(threadId);
+  const stopButton = useAgentKitStopButton({
+    label: t("agentChat.composer.stopResponse"),
+    threadId,
+    beforeCancel: async () => {
+      setComposerError(null);
+      return !props.onStop || (await props.onStop()) !== false;
+    },
+    onError: (error) => setComposerError(error.message),
   });
   const showHomeIntro =
     props.homeIntroSlot &&
@@ -5956,6 +5976,14 @@ function AgentKitComposerSurface({
     props.suggestionPlacement === "context-chips" &&
     showSuggestions &&
     suggestions.length > 0;
+  // Starters for a docked chat share the follow-up row above the composer,
+  // so the chips never move when the first message lands.
+  const showSuggestionsSlot =
+    props.suggestionPlacement !== "hidden" &&
+    (hasRenderedMessages ||
+      (props.suggestionPlacement === "context-chips" &&
+        !showHomeSuggestions &&
+        threadRestore.status === "ready"));
   const showAfterComposerSuggestions =
     props.suggestionPlacement === "after-composer" &&
     !hasRenderedMessages &&
@@ -6007,11 +6035,7 @@ function AgentKitComposerSurface({
         />
       ) : null}
       {showPlanCallout ? (
-        <PlanModeCallout
-          canImplementPlan={latestAssistantWasPlan}
-          onImplementPlan={onImplementPlan}
-          onSwitchToAct={() => props.onExecModeChange?.("build")}
-        />
+        <PlanModeCallout onImplementPlan={onImplementPlan} />
       ) : null}
       {setupMissing &&
       props.showMissingApiKeySetup !== false &&
@@ -6035,22 +6059,13 @@ function AgentKitComposerSurface({
           onRetry={modelListUnavailable ? retryModelList : retryProviderStatus}
         />
       ) : null}
-      {integration ? (
-        <McpConnectionSuggestion
-          text={text}
-          variant="composer"
-          requestedByUser
-          excludedIntegrationIds={props.mcpSuggestionExcludedIntegrationIds}
-          integrationId={integration.id}
-        />
-      ) : null}
       {selectionLength !== null && selectionLength > 0 ? (
         <AgentKitSelectionPill
           length={selectionLength}
           onClear={onClearSelection}
         />
       ) : null}
-      {hasRenderedMessages && props.suggestionPlacement !== "hidden" ? (
+      {showSuggestionsSlot ? (
         <div
           className="agentkit-host-suggestions-slot"
           data-agentkit-host-suggestions-slot="true"
@@ -6078,14 +6093,14 @@ function AgentKitComposerSurface({
           isReferenceTarget={props.isReferenceTarget !== false}
           requireAgentEngine
           disabled={
-            (!canChat && !providerSubmissionPending) ||
-            props.composerDisabled ||
-            isRestoring
+            providerBlocksComposer || props.composerDisabled || isRestoring
           }
           submissionDisabled={
-            (!canChat && !providerSubmissionPending) ||
+            providerBlocksComposer ||
             props.composerSubmissionDisabled === true ||
-            isSubmissionInFlight
+            // A submission that already holds the turn takes the next draft
+            // into the queue behind it.
+            (isSubmissionInFlight && !submissionHoldsTurn)
           }
           onDisabledClick={
             props.composerDisabled || !setupMissing
@@ -6102,6 +6117,8 @@ function AgentKitComposerSurface({
           initialText={text}
           initialTextKey={`${props.tabId ?? threadId}:${prefillRevision}`}
           showMissingApiKeySetup={false}
+          setupCardVisible={composerShowsSetupCard({ setupMissing, props })}
+          onModelConnectionRequiredChange={onComposerSetupRequiredChange}
           onTextChange={onTextChange}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
@@ -6115,6 +6132,13 @@ function AgentKitComposerSurface({
           onRetryContextItem={composerContext?.onRetryContextItem}
           interceptBuildRequestsForBuilder={isInBuilderFrame()}
           selectedModel={props.selectedModel ?? props.defaultModel}
+          contextUsageSlot={
+            <ThreadContextRing
+              threadId={threadId}
+              model={props.selectedModel ?? props.defaultModel}
+              enabled={threadHasFinishedReply(thread.messages)}
+            />
+          }
           selectedEngine={props.selectedEngine}
           selectedEffort={props.selectedEffort}
           availableModels={props.availableModels}
@@ -6126,18 +6150,11 @@ function AgentKitComposerSurface({
           agentOnly={props.hostedHarness}
           onAgentChange={props.onAgentChange}
           showModelSelector={props.showModelSelector}
-          mode={props.execMode === "plan" ? "plan" : "act"}
           planModeDisabled={props.planModeDisabled}
-          planModeDisabledReason={props.planModeDisabledReason}
-          onModeChange={(mode) =>
-            props.onExecModeChange?.(mode === "plan" ? "plan" : "build")
-          }
           layoutVariant={props.composerLayoutVariant}
           plusMenuMode={props.plusMenuMode}
           placeholder={composerPlaceholder({
             props,
-            canChat,
-            providerStatus,
             setupMissing,
             isRunning,
             thread,
@@ -6150,7 +6167,7 @@ function AgentKitComposerSurface({
           toolbarSlot={
             <>
               {props.selectedEngine === CHATGPT_SUBSCRIPTION_ENGINE_NAME ? (
-                <span className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                   <span>{t("agentChat.composer.chatgptPlanUsing")}</span>
                   <a
                     href="https://chatgpt.com/settings/usage"
@@ -6162,6 +6179,9 @@ function AgentKitComposerSurface({
                   </a>
                 </span>
               ) : null}
+              <AgentSelectToggle
+                reservedContextItems={composerContext?.contextItems}
+              />
               {props.composerToolbarSlot}
             </>
           }
@@ -6179,92 +6199,48 @@ function AgentKitComposerSurface({
           onAttachmentError={setComposerError}
           onSubmit={submitComposer}
           composerRef={composerRef}
-          stopButton={
-            isRunning ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setComposerError(null);
-                  void (async () => {
-                    if (props.onStop && (await props.onStop()) === false)
-                      return;
-                    await Promise.all(
-                      thread.activeRunIds.map((runId) => control.cancel(runId)),
-                    );
-                  })().catch((error: unknown) => {
-                    setComposerError(
-                      error instanceof Error ? error.message : String(error),
-                    );
-                  });
-                }}
-                aria-label={t("agentChat.composer.stopResponse")}
-                title={t("agentChat.composer.stopResponse")}
-                data-agent-composer-slot="stop-button"
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground"
-              >
-                <IconPlayerStopFilled className="h-3 w-3" />
-              </button>
-            ) : undefined
-          }
+          stopButton={stopButton}
         />
         {deferredSubmissionFailed ? (
-          <div
+          <ComposerNotice
             role="alert"
-            className="mx-3 mb-1.5 flex shrink-0 items-center gap-2 rounded-md border border-border bg-muted/70 px-3 py-2 text-xs text-foreground shadow-sm"
+            noticeId="deferred-submission"
+            actions={
+              !deferredSubmissionRequiresAttachment ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={!canChat || isSubmissionInFlight}
+                  onClick={() =>
+                    void retryDeferredSubmission().catch(() => undefined)
+                  }
+                >
+                  {t("agentChat.common.retry")}
+                </Button>
+              ) : undefined
+            }
+            onDismiss={() =>
+              void dismissDeferredSubmission().catch(() => undefined)
+            }
+            dismissLabel={t("agentChat.common.dismissError")}
           >
-            <IconAlertTriangle className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="flex-1 leading-snug">
-              {t(
-                deferredSubmissionRequiresAttachment
-                  ? "agentChat.recovery.retryAttachmentUnavailable"
-                  : "agentChat.recovery.deferredSubmissionFailed",
-              )}
-            </span>
-            {!deferredSubmissionRequiresAttachment ? (
-              <button
-                type="button"
-                disabled={!canChat || isSubmissionInFlight}
-                onClick={() =>
-                  void retryDeferredSubmission().catch(() => undefined)
-                }
-                className="shrink-0 rounded px-2 py-1 font-medium hover:bg-accent disabled:opacity-60"
-              >
-                {t("agentChat.common.retry")}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              aria-label={t("agentChat.common.dismissError")}
-              onClick={() =>
-                void dismissDeferredSubmission().catch(() => undefined)
-              }
-              className="-mr-1 flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <IconX className="size-3.5" />
-            </button>
-          </div>
+            {t(
+              deferredSubmissionRequiresAttachment
+                ? "agentChat.recovery.retryAttachmentUnavailable"
+                : "agentChat.recovery.deferredSubmissionFailed",
+            )}
+          </ComposerNotice>
         ) : null}
         {composerError ? (
-          <div
+          <ComposerNotice
             role="alert"
-            className="mx-3 mb-1.5 flex shrink-0 items-start gap-2 rounded-md border border-border bg-muted/70 px-3 py-2 text-xs text-foreground shadow-sm"
+            noticeId="composer"
+            onDismiss={() => setComposerError(null)}
+            dismissLabel={t("agentChat.common.dismissError")}
           >
-            <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span
-              {...SESSION_REPLAY_MASK_PROPS}
-              className="min-w-0 flex-1 break-words leading-snug"
-            >
-              {composerError}
-            </span>
-            <button
-              type="button"
-              aria-label={t("agentChat.common.dismissError")}
-              onClick={() => setComposerError(null)}
-              className="-mr-1 -mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </button>
-          </div>
+            <span {...SESSION_REPLAY_MASK_PROPS}>{composerError}</span>
+          </ComposerNotice>
         ) : null}
         <ExternalAgentNudge variant="prompt" />
       </div>
@@ -6309,6 +6285,7 @@ function AgentKitSuggestedPrompts({
   return (
     <AgentSuggestionBar
       ariaLabel={t("agentChat.composer.suggestedPrompts")}
+      title={t("agentChat.composer.suggestedActions")}
       suggestions={suggestions.map((suggestion, index) => ({
         ...(typeof suggestion === "string"
           ? {
@@ -6343,47 +6320,66 @@ function AgentKitUserMessage(props: AgentKitRenderProps<AgentMessage>) {
   return <AgentMessageView {...props} value={visible} />;
 }
 
+interface AgentKitSuggestionContext extends LatestReplyContext {
+  runsActive: boolean;
+}
+
+const NO_SUGGESTION_CONTEXT: AgentKitSuggestionContext = {
+  isLatest: false,
+  userText: "",
+  agentRequestedProviders: "",
+  runsActive: true,
+};
+
 function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const value = props.value;
   const t = useT();
   const surface = useAgentKitSurface();
-  const thread = useAgentThread(props.threadId);
-  const assistantIndex = thread.messages.findIndex(
-    (message) => message.id === value.id,
+  const isAssistant = value.role === "assistant";
+  // Every row renders this, so it reads only what it shows; a whole-thread
+  // subscription would re-render every row on every streamed delta.
+  const suggestion = useAgentThreadSelector(
+    (thread): AgentKitSuggestionContext => {
+      const context = isAssistant
+        ? latestReplyContext(thread, value.id)
+        : undefined;
+      return context?.isLatest
+        ? { ...context, runsActive: hasActiveAgentRuns(thread) }
+        : NO_SUGGESTION_CONTEXT;
+    },
+    (previous, next) =>
+      previous.isLatest === next.isLatest &&
+      previous.userText === next.userText &&
+      previous.agentRequestedProviders === next.agentRequestedProviders &&
+      previous.runsActive === next.runsActive,
+    props.threadId,
   );
-  const latestUser =
-    assistantIndex < 0
-      ? undefined
-      : thread.messages
-          .slice(0, assistantIndex)
-          .reverse()
-          .find((message) => message.role === "user");
-  const contextText =
-    latestUser?.parts
-      .filter((part) => part.type === "text")
-      .map((part) =>
-        part.type === "text"
-          ? splitAgentChatContextFromMessage(part.text).message
-          : "",
-      )
-      .join("\n") ?? "";
   const text = value.parts
     .filter((part) => part.type === "text")
     .map((part) => (part.type === "text" ? part.text : ""))
     .join("\n");
-  const integration =
-    value.role === "assistant" &&
-    value.status === "complete" &&
-    !hasActiveAgentRuns(thread)
-      ? findMcpConnectionSuggestionIntegration({
-          text,
-          contextText,
-          variant: "response",
-          requestedByAgent: true,
-          excludedIntegrationIds:
-            surface.props.mcpSuggestionExcludedIntegrationIds,
-        })
-      : null;
+  const excludedIntegrationIds =
+    surface.props.mcpSuggestionExcludedIntegrationIds;
+  const replyFinished = value.status === "complete" && !suggestion.runsActive;
+  // The streaming row re-renders on every delta; its ask is read once done.
+  const replyText = replyFinished ? text : "";
+  const integration = useMemo(
+    () =>
+      isAssistant
+        ? pickReplyConnectionSuggestion({
+            context: suggestion,
+            replyText,
+            replyFinished,
+            find: (message) =>
+              findMcpConnectionSuggestionIntegration({
+                text: message,
+                variant: "response",
+                ...(excludedIntegrationIds ? { excludedIntegrationIds } : {}),
+              }),
+          })
+        : null,
+    [excludedIntegrationIds, isAssistant, replyFinished, replyText, suggestion],
+  );
   const runWarning = asRecord(asRecord(value.metadata?.custom)?.runWarning);
   const missingFinalResponse =
     runWarning?.errorCode === "final_response_missing_after_tool";
@@ -6415,7 +6411,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
       {integration ? (
         <McpConnectionSuggestion
           text={text}
-          contextText={contextText}
+          contextText={suggestion.userText}
           variant="response"
           requestedByAgent
           excludedIntegrationIds={
@@ -6464,6 +6460,7 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           args={input}
           argsText={JSON.stringify(input)}
           result={output}
+          status={value.status}
           isError={value.status === "failed"}
           isRunning={value.status === "running"}
           structuredMeta={metadata}
@@ -6471,6 +6468,9 @@ function AgentKitTool({ value, active }: AgentKitRenderProps<AgentToolCall>) {
           chatUI={asRecord(metadata.chatUI) as never}
           activity={metadata.activity === true}
           isActiveTail={active === true}
+          workedForRowLayout={surface.props.workedForRowLayout}
+          dataChartLayout={surface.props.dataChartLayout}
+          formatWorkedForDuration={surface.props.formatWorkedForDuration}
         />
       </SuppressInlineOpenAppContext.Provider>
     </ChatRunningContext.Provider>
@@ -6494,7 +6494,11 @@ function AgentKitApproval({
       : (value.description ?? "");
   const exactCommandScope = actions?.alwaysAllowScope === "exact-command";
   const allowPersistentApproval = metadata?.allowPersistentApproval !== false;
-  if (value.options?.length || value.input) {
+  if (
+    approvalRequestKind(value) !== "approval" ||
+    value.options?.length ||
+    value.input
+  ) {
     return <AgentApprovalPrompt request={value} runId={runId} />;
   }
   const resolve = async (decision: "approve" | "deny") => {
@@ -6577,6 +6581,7 @@ function AgentKitReasoning({
 }: AgentKitRenderProps<
   Extract<AgentMessage["parts"][number], { type: "reasoning" }>
 >) {
+  const inWorkStep = useAgentKitInWorkStep();
   if (value.visibility === "hidden") return null;
   return (
     <ReasoningCell
@@ -6584,6 +6589,7 @@ function AgentKitReasoning({
       isStreaming={active}
       defaultOpen={active}
       resetKey={resetKey}
+      inline={inWorkStep}
     />
   );
 }
@@ -6772,9 +6778,14 @@ function AgentKitRunFailure({
           }
         />
         {continueFailed ? (
-          <p role="alert" className="mt-2 text-xs text-destructive">
+          <ComposerNotice
+            role="alert"
+            noticeId="continue-failed"
+            onDismiss={() => setContinueFailed(false)}
+            dismissLabel={t("agentChat.common.dismiss")}
+          >
             {t("agentChat.recovery.continueUnavailable")}
-          </p>
+          </ComposerNotice>
         ) : null}
       </>
     );
@@ -6856,9 +6867,14 @@ function AgentKitRunFailure({
         onDismiss={() => setDismissed(runId)}
       />
       {retryWithoutAttachmentFailed ? (
-        <p role="alert" className="mt-2 text-xs text-destructive">
+        <ComposerNotice
+          role="alert"
+          noticeId="retry-failed"
+          onDismiss={() => setRetryWithoutAttachmentFailed(false)}
+          dismissLabel={t("agentChat.common.dismiss")}
+        >
           {t("agentChat.recovery.deferredSubmissionFailed")}
-        </p>
+        </ComposerNotice>
       ) : null}
     </>
   );
@@ -6880,7 +6896,9 @@ function useResumeAfterAiSetup(
 ): () => void {
   const surface = useAgentKitSurface();
   const sawSetupMissingRef = useRef(false);
-  if (surface.setupMissing) sawSetupMissingRef.current = true;
+  // A resend fires without a fresh user action, so only the server's answer
+  // arms it; the model list's early guess can be briefly wrong.
+  if (surface.setupConfirmedMissing) sawSetupMissingRef.current = true;
   const latestRef = useRef({ resendKey, enabled, resend });
   latestRef.current = { resendKey, enabled, resend };
   const resumed = surface.resumedAfterSetup;
@@ -7164,6 +7182,7 @@ function AgentKitConnectionError({
   recover,
   recovering,
   recoveryError,
+  dismiss,
 }: AgentConnectionErrorRenderProps) {
   const t = useT();
   const surface = useAgentKitSurface();
@@ -7176,63 +7195,65 @@ function AgentKitConnectionError({
       /subscription_sharing_usage_limit_(exceeded|unavailable)/,
     )?.[1];
   return (
-    <div
-      className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground"
-      data-error-code={error.code}
-      data-thread-id={threadId}
+    <ComposerNotice
+      tone={error.retryable ? "warning" : "danger"}
       role="alert"
+      noticeId="connection-error"
+      rootProps={{ "data-error-code": error.code, "data-thread-id": threadId }}
+      onDismiss={dismiss}
+      dismissLabel={t("agentChat.common.dismiss")}
+      actions={
+        error.retryable || chatGPTPlanUsageError ? (
+          <>
+            {error.retryable ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                disabled={recovering}
+                aria-busy={recovering || undefined}
+                onClick={() => void recover().catch(() => undefined)}
+              >
+                {recovering ? (
+                  <Spinner className="size-3" aria-hidden="true" />
+                ) : null}
+                {t("agentChat.common.reconnect")}
+              </Button>
+            ) : null}
+            {chatGPTPlanUsageError ? (
+              <a
+                href="https://chatgpt.com/settings/usage"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-foreground underline-offset-2 hover:underline"
+              >
+                {t("agentChat.composer.chatgptManageUsage")}
+              </a>
+            ) : null}
+          </>
+        ) : undefined
+      }
     >
-      <strong className="mr-2 font-medium text-foreground">
-        {t("agentChat.error.failed")}
-      </strong>
       {chatGPTPlanUsageError ? (
-        <>
-          <span>
-            {t(
-              chatGPTPlanUsageError === "exceeded"
-                ? "agentChat.error.chatgptPlanUsageLimit"
-                : "agentChat.error.chatgptPlanUsageUnavailable",
-            )}
-          </span>
-          <a
-            href="https://chatgpt.com/settings/usage"
-            target="_blank"
-            rel="noreferrer"
-            className="ml-3 font-medium text-foreground underline-offset-2 hover:underline"
-          >
-            {t("agentChat.composer.chatgptManageUsage")}
-          </a>
-        </>
+        t(
+          chatGPTPlanUsageError === "exceeded"
+            ? "agentChat.error.chatgptPlanUsageLimit"
+            : "agentChat.error.chatgptPlanUsageUnavailable",
+        )
       ) : (
         <span {...SESSION_REPLAY_MASK_PROPS}>
           {formatAgentKitErrorText(error, t)}
         </span>
       )}
-      {error.retryable ? (
-        <button
-          type="button"
-          disabled={recovering}
-          onClick={() => void recover().catch(() => undefined)}
-          className="ml-3 rounded px-2 py-1 hover:bg-accent hover:text-foreground disabled:opacity-60"
-        >
-          {recovering
-            ? t("agentChat.common.loading")
-            : t("agentChat.agentPanel.chatgptSubscriptionReconnect")}
-        </button>
-      ) : null}
       {recoveryError ? (
-        <span
-          {...SESSION_REPLAY_MASK_PROPS}
-          className="mt-2 block"
-          role="alert"
-        >
+        <span {...SESSION_REPLAY_MASK_PROPS} className="block">
           {formatAgentKitErrorText(
             { code: "runtime_error", message: recoveryError.message },
             t,
           )}
         </span>
       ) : null}
-    </div>
+    </ComposerNotice>
   );
 }
 
@@ -8168,8 +8189,14 @@ function persistedQueuedMessage(
   };
 }
 
+function hasPersistableMessages(thread: AgentThreadState): boolean {
+  return thread.messages.some((message) => !isStreamingVoiceMessage(message));
+}
+
 function createAgentKitThreadSnapshot(thread: AgentThreadState) {
-  const messages = thread.messages.map(persistedAgentMessage);
+  const messages = thread.messages
+    .filter((message) => !isStreamingVoiceMessage(message))
+    .map(persistedAgentMessage);
   const repositoryMessages = messages.map((message, index) => ({
     parentId: index > 0 ? (messages[index - 1]?.id ?? null) : null,
     message: {
@@ -8363,137 +8390,4 @@ function getAgentKitThreadHandoffMessages(
     if (snapshot.messages[index]?.id !== thread.messages[index]?.id) return [];
   }
   return snapshot.messages.slice(thread.messages.length);
-}
-
-function realtimeVoiceTranscriptAgentMessage(
-  transcript: RealtimeVoiceTranscriptMessage,
-): AgentMessage {
-  const repository = appendRealtimeVoiceTranscriptToRepository(
-    { messages: [] },
-    transcript,
-  ).repository;
-  const messages = Array.isArray(repository.messages)
-    ? repository.messages
-    : [];
-  const entry = asRecord(messages[0]);
-  const message = asRecord(entry?.message);
-  const createdAt =
-    message?.createdAt instanceof Date
-      ? message.createdAt.toISOString()
-      : new Date(transcript.createdAt).toISOString();
-  return {
-    id: transcript.id,
-    role: transcript.role,
-    parts: [{ type: "text", text: transcript.text }],
-    createdAt,
-    status: "complete",
-    ...(asRecord(message?.metadata)
-      ? { metadata: asRecord(message?.metadata)! }
-      : {}),
-  };
-}
-
-function appendVoiceTranscriptsToThreadSnapshot(
-  snapshot: ReturnType<typeof createAgentKitThreadSnapshot>,
-  thread: AgentThreadState,
-  transcripts: readonly RealtimeVoiceTranscriptMessage[],
-): ReturnType<typeof createAgentKitThreadSnapshot> {
-  const messagesById = new Map<string, AgentMessage>();
-  for (const message of thread.messages) {
-    messagesById.set(message.id, persistedAgentMessage(message));
-  }
-  for (const transcript of transcripts) {
-    if (!messagesById.has(transcript.id)) {
-      messagesById.set(
-        transcript.id,
-        realtimeVoiceTranscriptAgentMessage(transcript),
-      );
-    }
-  }
-  const messageOrder = new Map(
-    [...messagesById.values()].map((message, index) => [message.id, index]),
-  );
-  const messages = [...messagesById.values()].sort((left, right) => {
-    const leftTime = Date.parse(left.createdAt ?? "");
-    const rightTime = Date.parse(right.createdAt ?? "");
-    if (Number.isFinite(leftTime) && Number.isFinite(rightTime)) {
-      const difference = leftTime - rightTime;
-      if (difference !== 0) return difference;
-    }
-    return (messageOrder.get(left.id) ?? 0) - (messageOrder.get(right.id) ?? 0);
-  });
-
-  const parsedRepository = asRecord(JSON.parse(snapshot.threadData));
-  if (!parsedRepository) {
-    throw new TypeError("AgentKit thread snapshot must contain a repository.");
-  }
-  const originalRepositoryMessages = Array.isArray(parsedRepository.messages)
-    ? parsedRepository.messages
-    : [];
-  const originalById = new Map<string, Record<string, unknown>>();
-  for (const entry of originalRepositoryMessages) {
-    const record = asRecord(entry);
-    const storedMessage = asRecord(record?.message ?? entry);
-    if (typeof storedMessage?.id === "string") {
-      originalById.set(storedMessage.id, record ?? { message: storedMessage });
-    }
-  }
-  const voiceRepositoryMessages = new Map<string, Record<string, unknown>>();
-  for (const transcript of transcripts) {
-    const result = appendRealtimeVoiceTranscriptToRepository(
-      { messages: [] },
-      transcript,
-    );
-    const messages = Array.isArray(result.repository.messages)
-      ? result.repository.messages
-      : [];
-    const entry = asRecord(messages[0]);
-    if (entry) voiceRepositoryMessages.set(transcript.id, entry);
-  }
-  const repositoryMessages = messages.map((message, index) => {
-    const existing =
-      originalById.get(message.id) ?? voiceRepositoryMessages.get(message.id);
-    const savedMessage = asRecord(existing?.message) ?? {
-      id: message.id,
-      role: message.role,
-      status: message.status,
-      content: message.parts,
-      metadata: message.metadata,
-      createdAt: message.createdAt,
-    };
-    return {
-      ...(existing ?? {}),
-      parentId: index > 0 ? (messages[index - 1]?.id ?? null) : null,
-      message: savedMessage,
-    };
-  });
-  const agentKit = asRecord(parsedRepository.agentKit) ?? {};
-  const firstUser = messages.find((message) => message.role === "user");
-  const latestUser = [...messages]
-    .reverse()
-    .find((message) => message.role === "user");
-  const title =
-    snapshot.title ||
-    (firstUser ? fallbackChatTitle(rawAgentMessageText(firstUser)) : "");
-  const persistedTitle = persistedAgentSnapshotValue(title);
-  const persistedPreview = persistedAgentSnapshotValue(
-    latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
-  );
-  return {
-    ...snapshot,
-    threadData: JSON.stringify(
-      persistedAgentSnapshotValue({
-        ...parsedRepository,
-        headId: messages.at(-1)?.id ?? null,
-        messages: repositoryMessages,
-        agentKit: {
-          ...agentKit,
-          messages,
-        },
-      }),
-    ),
-    title: typeof persistedTitle === "string" ? persistedTitle : "",
-    preview: typeof persistedPreview === "string" ? persistedPreview : "",
-    messageCount: messages.length,
-  };
 }

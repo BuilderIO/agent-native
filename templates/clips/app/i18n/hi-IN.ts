@@ -217,6 +217,7 @@ const messages = {
     spaces: "स्पेस",
     meetings: "मीटिंग्स",
     dictate: "डिक्टेट",
+    fromContent: "Content से",
     archive: "आर्काइव",
     trash: "ट्रैश",
     agent: "एजेंट",
@@ -271,6 +272,10 @@ const messages = {
     archive: {
       title: "कोई आर्काइव की गई रिकॉर्डिंग नहीं",
       body: "आर्काइव किए गए Clips यहाँ तब तक रहते हैं जब तक आप उन्हें वापस लाना न चाहें।",
+    },
+    fromContent: {
+      title: "Content से अभी तक कोई अपलोड नहीं",
+      body: "Content पेज पर अपलोड किए गए वीडियो यहाँ Clips के रूप में सहेजे जाते हैं।",
     },
     trash: {
       title: "ट्रैश खाली है",
@@ -336,6 +341,8 @@ const messages = {
     fillerCompleted: "भराव शब्द हटाना पूरा हुआ",
     workflowReady: "वर्कफ़्लो तैयार है",
     workflowFailed: "वर्कफ़्लो बनाना विफल रहा",
+    workflowCancelled: "वर्कफ़्लो बनाना रद्द किया गया",
+    workflowTimedOut: "वर्कफ़्लो बनाने का समय समाप्त हो गया",
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",
@@ -349,6 +356,8 @@ const messages = {
     fillerQueued: "भराव शब्द हटाए जा रहे हैं…",
     silenceQueued: "मौन हटाया जा रहा है…",
     workflowQueued: "वर्कफ़्लो बनाया जा रहा है…",
+    workflowStillGenerating: "वर्कफ़्लो अभी भी बनाया जा रहा है…",
+    workflowTakingLonger: "इसमें सामान्य से अधिक समय लग रहा है…",
     pageTitle: "क्लिप रिकॉर्डिंग · Clips",
     loomMissingUrl: "इस Loom रिकॉर्डिंग में इसका स्रोत URL गायब है।",
     finalizeFailed: "अंतिम रूप देना विफल ({{status}})",
@@ -729,7 +738,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आपका टूल इमेज नहीं लौटा सकता या इन लिंक को नहीं खोल सकता, तो बताएं कि यह आपके टूल की सीमा है; यह Clips की त्रुटि नहीं है।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
@@ -744,12 +753,16 @@ const messages = {
     chooseFile: "फ़ाइल चुनें",
     remove: "हटाएं",
     downloadMp4: "MP4 डाउनलोड करें",
-    embedsNeedPublic: "एंबेड को एक सार्वजनिक क्लिप की आवश्यकता है",
-    embedPublicDescription:
-      "यह क्लिप वर्तमान में {{visibility}} है। एंबेडेड आईफ्रेम गुमनाम रूप से लोड होते हैं, इसलिए दर्शकों के देखने के लिए क्लिप सार्वजनिक होनी चाहिए।",
-    makingPublic: "सार्वजनिक किया जा रहा है...",
-    makePublic: "सार्वजनिक करो",
     askOwnerPublic: "मालिक से इसे सार्वजनिक करने के लिए कहें.",
+    advanced: "उन्नत",
+    passwordSet: "पासवर्ड सेट है",
+    noPassword: "कोई पासवर्ड नहीं",
+    linkExpires: "लिंक की समाप्ति",
+    expiresOn: "{{date}} को समाप्त होगा",
+    neverExpires: "कभी समाप्त नहीं होता",
+    embedNeedsLinkAccess:
+      "एम्बेड किए गए प्लेयर बिना साइन इन के लोड होते हैं, इसलिए वे तभी चलते हैं जब लिंक वाला कोई भी व्यक्ति देख सकता है।",
+    changeGeneralAccess: "सामान्य एक्सेस बदलें",
     responsive: "प्रतिक्रियाशील (16:9)",
     fixedSize: "निश्चित आकार",
     embedIframeTitle: "Clips वीडियो",
@@ -1310,12 +1323,13 @@ const messages = {
     actionItems: "कार्य आइटम",
     sharedContent: "साझा की गई सामग्री",
     summaryIncluded: "सारांश, मुख्य बिंदु और कार्य आइटम",
-    includeTranscript: "पूरी ट्रांसक्रिप्ट शामिल करें",
-    includeTranscriptDescription:
-      "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
     transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
-    agentLinkDescription:
-      "यह अस्थायी लिंक एजेंट को इन मीटिंग नोट्स को सार्वजनिक किए बिना पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
+    transcriptOnShareLink: "शेयर लिंक पर ट्रांसक्रिप्ट",
+    transcriptOnShareLinkDescription:
+      "आपके आमंत्रित लोग Clips में हमेशा ट्रांसक्रिप्ट देखते हैं।",
+    linkShowsTranscript: "लिंक में ट्रांसक्रिप्ट शामिल है",
+    linkShowsNotesOnly: "लिंक केवल नोट्स दिखाता है",
+    copyAgentLink: "एजेंट लिंक कॉपी करें",
     transcript: "ट्रांसक्रिप्ट",
     copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
     transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
@@ -2258,6 +2272,8 @@ const messages = {
     goHome: "होम पर जाएं",
     testMic: "माइक टेस्ट करें",
     archivePageTitle: "आर्काइव · Clips",
+    fromContentPageTitle: "Content से · Clips",
+    openContentPage: "पेज खोलें",
     insightsPageTitle: "इनसाइट्स · Clips",
     folderPageTitle: "फ़ोल्डर · Clips",
     spacePageTitle: "स्पेस · Clips",

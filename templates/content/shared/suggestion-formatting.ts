@@ -67,16 +67,36 @@ function longestBacktickRun(text: string): number {
   return longestRun(text, /`+/g);
 }
 
-function formattingRuns(
-  source: string,
-  anchorEmptyCells = false,
-): {
+type FormattingRuns = {
   runs: TextRun[];
   nonTextAfter: boolean;
   restored: string;
   spans: Array<Record<SourceSide, SourceSpan>>;
   emptyCells: Array<{ sourceOffset: number; textOffset: number }>;
-} | null {
+};
+
+// Every suggestion on a Page maps its range through the same Page source, so
+// recent results are kept rather than reparsing the Page per suggestion.
+const recentFormattingRuns = new Map<string, FormattingRuns | null>();
+
+function formattingRuns(
+  source: string,
+  anchorEmptyCells = false,
+): FormattingRuns | null {
+  const key = `${anchorEmptyCells ? 1 : 0}${source}`;
+  if (recentFormattingRuns.has(key))
+    return recentFormattingRuns.get(key) as FormattingRuns | null;
+  const mapped = computeFormattingRuns(source, anchorEmptyCells);
+  if (recentFormattingRuns.size >= 8)
+    recentFormattingRuns.delete(recentFormattingRuns.keys().next().value!);
+  recentFormattingRuns.set(key, mapped);
+  return mapped;
+}
+
+function computeFormattingRuns(
+  source: string,
+  anchorEmptyCells: boolean,
+): FormattingRuns | null {
   const doc = nfmToDoc(source);
   const spellings = nfmContextualSpellings(doc);
   let markerPrefix = "suggestiontextboundary";
@@ -630,12 +650,21 @@ function resolveVerbatimRun(
 export type SuggestionFormattingSlicePart =
   | { type: "text"; text: string; marks: NonNullable<PMNode["marks"]> }
   | { type: "break"; text: string }
-  | { type: "indent"; text: string };
+  | { type: "indent"; text: string }
+  | { type: "block"; text: string };
 
+const EMPTY_BLOCK = "<empty-block/>";
+// The syntax that opens a line's block: a heading, list item, task, or quote.
+const BLOCK_MARKER = /^(?:#{1,6} |(?:> )+|[-*+] (?:\[[ xX]\] )?|\d+[.)] )/;
+
+// `blocks` admits block syntax and empty paragraphs. Without it a gap holds
+// only line breaks and indentation, which is what places a zero-width
+// boundary on one side of a gap or the other.
 function structuralGapParts(
   source: string,
   from: number,
   to: number,
+  blocks = true,
 ): SuggestionFormattingSlicePart[] | null {
   const parts: SuggestionFormattingSlicePart[] = [];
   let offset = from;
@@ -658,15 +687,36 @@ function structuralGapParts(
         source.lastIndexOf("\r", offset - 1),
       ) + 1;
     const atLineStart = /^\t*$/.test(source.slice(lineStart, offset));
-    if (!atLineStart || source[offset] !== "\t") return null;
-    const indentFrom = offset;
-    while (offset < to && source[offset] === "\t") offset += 1;
-    parts.push({
-      type: "indent",
-      text: "⇥".repeat(offset - indentFrom),
-    });
-    const heading = /^(?:#{1,6}) /.exec(source.slice(offset, to));
-    if (heading) offset += heading[0].length;
+    if (!atLineStart) return null;
+    if (source[offset] === "\t") {
+      const indentFrom = offset;
+      while (offset < to && source[offset] === "\t") offset += 1;
+      parts.push({
+        type: "indent",
+        text: "⇥".repeat(offset - indentFrom),
+      });
+      const heading = /^(?:#{1,6}) /.exec(source.slice(offset, to));
+      if (heading) offset += heading[0].length;
+      continue;
+    }
+    if (!blocks) return null;
+    // An empty paragraph or a block's opening syntax has no text of its own,
+    // so it is shown as written: a pilcrow for the paragraph, the marker
+    // otherwise. A marker is only whole when the slice holds all of it.
+    const lineEnd = offset + EMPTY_BLOCK.length;
+    if (
+      source.startsWith(EMPTY_BLOCK, offset) &&
+      lineEnd <= to &&
+      (lineEnd === source.length || /[\r\n]/.test(source[lineEnd]!))
+    ) {
+      parts.push({ type: "block", text: "¶" });
+      offset = lineEnd;
+      continue;
+    }
+    const marker = BLOCK_MARKER.exec(source.slice(offset, to));
+    if (!marker) return null;
+    parts.push({ type: "block", text: marker[0] });
+    offset += marker[0].length;
   }
   return parts;
 }
@@ -874,7 +924,7 @@ export function suggestionFormattingSourceRange(
         sourceTo: run.sourceFrom,
         offset: run.from,
         structural: Boolean(
-          structuralGapParts(source, previousSourceTo, run.sourceFrom),
+          structuralGapParts(source, previousSourceTo, run.sourceFrom, false),
         ),
         afterText: index > 0,
         beforeText: true,
@@ -890,7 +940,7 @@ export function suggestionFormattingSourceRange(
       sourceTo: source.length,
       offset: previousTextTo,
       structural: Boolean(
-        structuralGapParts(source, previousSourceTo, source.length),
+        structuralGapParts(source, previousSourceTo, source.length, false),
       ),
       afterText: mapped.runs.length > 0,
       beforeText: false,
@@ -963,13 +1013,13 @@ export function suggestionFormattingSourceRange(
       if (
         gap.afterText &&
         offset > gap.sourceFrom &&
-        structuralGapParts(source, gap.sourceFrom, offset)
+        structuralGapParts(source, gap.sourceFrom, offset, false)
       )
         candidates.push({ offset: gap.offset, affinity: "left" });
       if (
         gap.beforeText &&
         offset < gap.sourceTo &&
-        (structuralGapParts(source, offset, gap.sourceTo) ||
+        (structuralGapParts(source, offset, gap.sourceTo, false) ||
           !/[\r\n]/.test(opening) ||
           (gap.beforeCode && /^[^\r\n]*\r?\n$/.test(opening)))
       )

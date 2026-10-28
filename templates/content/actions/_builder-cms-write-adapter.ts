@@ -7,10 +7,13 @@ import type {
   ContentDatabaseSourceExecutionState,
   ContentDatabaseSourcePushMode,
   ContentDatabaseSourceWriteMode,
+  DocumentPropertyValue,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_ENTRY_NAME_KEY,
+  builderCmsReferenceIdKey,
   builderCmsSourceRowIdentityState,
 } from "./_builder-cms-source-adapter.js";
 import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
@@ -36,6 +39,8 @@ export interface BuilderCmsExecutionPayload {
     sourceQualifiedId: string | null;
     documentId: string | null;
     databaseItemId: string | null;
+    /** The entry's lastUpdated when the change was reviewed; execute rejects a live value that differs. */
+    reviewedLastUpdated: string | null;
   };
   request: {
     method: "POST" | "PATCH";
@@ -55,6 +60,47 @@ export interface BuilderCmsExecutionPayload {
     validatedAt: string;
     checks: string[];
     mismatches: string[];
+  };
+  /** Builder's entry as read right before the write. */
+  livePreflight?: BuilderCmsLivePreflight;
+}
+
+export interface BuilderCmsLivePreflight {
+  checkedAt: string;
+  exists: boolean;
+  id: string | null;
+  published: string | null;
+  lastUpdated: number | string | null;
+  blocksHash: string | null;
+  /** Builder returned an empty body, unlike a read that left the body out. */
+  bodyEmpty?: boolean;
+  hasAutosaves: boolean | null;
+  /** Live values of the fields this write sends; null when Builder did not return them. */
+  values: Record<string, DocumentPropertyValue> | null;
+}
+
+/**
+ * The source fields and body a Builder write request sends. A safe-model
+ * write also sends the entry name, so it counts as a written field.
+ */
+export function builderCmsWrittenSourceFields(
+  request: BuilderCmsExecutionPayload["request"],
+) {
+  const data = request.body.data;
+  const record =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+  return {
+    fieldKeys: [
+      ...Object.keys(record)
+        .filter((name) => name !== "blocks")
+        .map((name) => `data.${name}`),
+      ...(typeof request.body.name === "string"
+        ? [BUILDER_CMS_ENTRY_NAME_KEY]
+        : []),
+    ],
+    wroteBody: record.blocks !== undefined,
   };
 }
 
@@ -308,18 +354,41 @@ export function builderCmsExecutionIntentMarker(idempotencyKey: string) {
   return `agent-native-execution:${portableIntentHash(idempotencyKey)}`;
 }
 
+export type BuilderCmsUnpublishedSaveEffect = "autosave" | "save_draft";
+
+export function isBuilderCmsUnpublishedSaveEffect(
+  effect: unknown,
+): effect is BuilderCmsUnpublishedSaveEffect {
+  return effect === "autosave" || effect === "save_draft";
+}
+
+/**
+ * A save that must not change what is live. Builder keeps an autosave out of
+ * its read API, so a draft entry saved that way snaps back on the next
+ * refresh; a draft takes a plain save instead. Only "draft" picks that save:
+ * a stale or unknown state falls back to autosave, which never touches the
+ * live page, and the live check before the write settles the real choice.
+ */
+export function builderCmsUnpublishedSaveEffect(
+  published: unknown,
+): BuilderCmsUnpublishedSaveEffect {
+  return published === "draft" ? "save_draft" : "autosave";
+}
+
 function builderEffectForWrite(args: {
   pushMode: ContentDatabaseSourcePushMode;
   writeMode?: ContentDatabaseSourceWriteMode | null;
   entryId: string | null;
+  entryPublished?: unknown;
   publicationTransition?: BuilderCmsPublicationTransitionIntent | null;
 }): BuilderCmsWriteEffect {
   if (!args.entryId) return "create_draft";
   if (args.publicationTransition === "publish") return "publish";
   if (args.publicationTransition === "unpublish") return "unpublish";
-  if (args.writeMode === "stage_only") return "autosave";
   if (args.writeMode === "publish_updates") return "update_in_place";
-  if (args.pushMode === "autosave") return "autosave";
+  if (args.writeMode === "stage_only" || args.pushMode === "autosave") {
+    return builderCmsUnpublishedSaveEffect(args.entryPublished);
+  }
   return "update_in_place";
 }
 
@@ -381,7 +450,7 @@ export function resolveBuilderCmsWriteEffect(args: {
     changeSet: args.changeSet,
   });
   const effectivePushMode = pushMode === "none" ? "autosave" : pushMode;
-  const { entryId } = resolveBuilderCmsWriteTarget({
+  const { entryId, targetRow } = resolveBuilderCmsWriteTarget({
     source: args.source,
     changeSet: args.changeSet,
   });
@@ -389,6 +458,7 @@ export function resolveBuilderCmsWriteEffect(args: {
     pushMode: effectivePushMode,
     writeMode: sourceWriteMode,
     entryId,
+    entryPublished: targetRow?.sourceValues?.published,
     publicationTransition: args.publicationTransition,
   });
 }
@@ -512,11 +582,31 @@ function builderBodyPatch(changeSet: ContentDatabaseSourceChangeSet) {
   }
 }
 
+// Neither request sends a published field: `published: "draft"` on an entry
+// that went live after the check would unpublish it.
+function builderUnpublishedSaveRequest(args: {
+  effect: BuilderCmsUnpublishedSaveEffect;
+  path: string;
+  body: Record<string, unknown>;
+}): BuilderCmsExecutionPayload["request"] {
+  return {
+    method: "PATCH",
+    path: args.path,
+    query:
+      args.effect === "autosave"
+        ? { autoSaveOnly: "true", triggerWebhooks: "false" }
+        : { triggerWebhooks: "false" },
+    body: args.body,
+  };
+}
+
 function builderRequestForEffect(args: {
   effect: BuilderCmsWriteEffect;
   model: string;
   entryId: string | null;
   bodyPatch: Record<string, unknown>;
+  /** The entry's own name in Builder, kept by a write that leaves the title. */
+  currentName?: string | null;
   currentTitle?: string | null;
   intentMarker?: string;
 }): BuilderCmsExecutionPayload["request"] {
@@ -531,21 +621,20 @@ function builderRequestForEffect(args: {
       : null;
   const safeEntryName =
     args.model === SAFE_WRITE_MODEL
-      ? patchedTitle || args.currentTitle?.trim() || null
+      ? patchedTitle ||
+        args.currentName?.trim() ||
+        args.currentTitle?.trim() ||
+        null
       : null;
-  if (args.effect === "autosave") {
-    return {
-      method: "PATCH",
+  if (isBuilderCmsUnpublishedSaveEffect(args.effect)) {
+    return builderUnpublishedSaveRequest({
+      effect: args.effect,
       path: basePath,
-      query: {
-        autoSaveOnly: "true",
-        triggerWebhooks: "false",
-      },
       body: {
         ...args.bodyPatch,
         ...(safeEntryName ? { name: safeEntryName } : {}),
       },
-    };
+    });
   }
   if (args.effect === "update_in_place") {
     return {
@@ -569,6 +658,7 @@ function builderRequestForEffect(args: {
       },
       body: {
         ...args.bodyPatch,
+        ...(safeEntryName ? { name: safeEntryName } : {}),
         published: "published",
       },
     };
@@ -582,6 +672,7 @@ function builderRequestForEffect(args: {
       },
       body: {
         ...args.bodyPatch,
+        ...(safeEntryName ? { name: safeEntryName } : {}),
         published: "draft",
       },
     };
@@ -642,10 +733,25 @@ function builderRequiredFieldBlockers(args: {
   ) {
     effectiveData.blocks = ["reconciled-builder-body"];
   }
+  // A PATCH leaves fields it doesn't send as they are, so a reference the
+  // entry already holds stays set even when Content can't rebuild it.
+  const patchesExistingEntry =
+    args.request.method === "PATCH" && !!args.targetRow;
   return modelFields.flatMap((field) => {
     if (!field.required) return [];
     const value = effectiveData[field.name];
     if (hasBuilderRequiredValue(value, field)) return [];
+    if (
+      patchesExistingEntry &&
+      requestData[field.name] === undefined &&
+      /\b(reference|relation)\b/.test(normalizedBuilderFieldKind(field))
+    ) {
+      const referenceId =
+        args.targetRow?.sourceValues?.[
+          builderCmsReferenceIdKey(`data.${field.name}`)
+        ];
+      if (typeof referenceId === "string" && referenceId.trim()) return [];
+    }
     return [
       `Required Builder field ${field.label?.trim() || field.name} is missing or invalid.`,
     ];
@@ -686,10 +792,25 @@ function builderSafetyChecks(args: {
   }
 
   if (args.operations.length === 0 && !args.hasBodyOperation) {
-    blockers.push("No Builder operations are available for this change.");
+    if (args.effect !== "publish" && args.effect !== "unpublish") {
+      blockers.push("No Builder operations are available for this change.");
+    } else if (args.changeSet.stagedPublicationTransition !== args.effect) {
+      // A push with nothing but the transition exists only because of a
+      // status pick, so an approval for it can't outlive the pick.
+      blockers.push(
+        `This push only sends a ${args.effect}, and this entry has no ${args.effect} staged.`,
+      );
+    }
   }
-  if (args.effect === "autosave" || args.effect === "update_in_place") {
-    const label = args.effect === "autosave" ? "Autosave" : "Update in place";
+  if (
+    isBuilderCmsUnpublishedSaveEffect(args.effect) ||
+    args.effect === "update_in_place"
+  ) {
+    // The live check can swap autosave and draft save, so the gate's text
+    // names neither.
+    const label = isBuilderCmsUnpublishedSaveEffect(args.effect)
+      ? "Unpublished save"
+      : "Update in place";
     checks.push(
       `${label} preserves publication state — no published field is sent.`,
     );
@@ -807,6 +928,7 @@ export function buildBuilderCmsExecutionPlan(args: {
     pushMode: effectivePushMode,
     writeMode: sourceWriteMode,
     entryId: targetEntryId,
+    entryPublished: targetRow?.sourceValues?.published,
     publicationTransition: args.publicationTransition,
   });
   const operations: BuilderCmsExecutionOperation[] = [];
@@ -835,6 +957,19 @@ export function buildBuilderCmsExecutionPlan(args: {
       fieldBlockers.push(converted.blocker);
       continue;
     }
+    // The page title and a property mapped to Builder's title field are
+    // separate edits to one Builder field, and the patch keeps only one value.
+    const sameField = operations.find(
+      (operation) => operation.sourceFieldKey === field.sourceFieldKey,
+    );
+    if (sameField) {
+      if (stableJson(sameField.value) !== stableJson(converted.value)) {
+        fieldBlockers.push(
+          `Two changes set Builder's ${builderFieldName(field.sourceFieldKey)} field to different values. Set one of them back before pushing.`,
+        );
+      }
+      continue;
+    }
     operations.push({
       sourceFieldKey: field.sourceFieldKey,
       localFieldKey: field.localFieldKey,
@@ -854,6 +989,10 @@ export function buildBuilderCmsExecutionPlan(args: {
     model: args.source.sourceTable,
     entryId: targetEntryId,
     bodyPatch,
+    currentName:
+      typeof targetRow?.sourceValues?.[BUILDER_CMS_ENTRY_NAME_KEY] === "string"
+        ? targetRow.sourceValues[BUILDER_CMS_ENTRY_NAME_KEY]
+        : null,
     currentTitle: targetRow?.sourceDisplayKey ?? null,
     intentMarker:
       effect === "create_draft" && args.source.sourceTable === SAFE_WRITE_MODEL
@@ -872,6 +1011,14 @@ export function buildBuilderCmsExecutionPlan(args: {
     targetRow,
     request,
   });
+  const reviewedLastUpdated = targetEntryId
+    ? (targetRow?.lastSourceUpdatedAt ?? null)
+    : null;
+  if (targetEntryId && !reviewedLastUpdated?.trim()) {
+    fieldBlockers.push(
+      "Refresh this Builder entry before writing so its last update time can be checked.",
+    );
+  }
   const safety = builderSafetyChecks({
     source: args.source,
     changeSet: args.changeSet,
@@ -934,6 +1081,7 @@ export function buildBuilderCmsExecutionPlan(args: {
         sourceQualifiedId: targetSourceQualifiedId,
         documentId: args.changeSet.documentId,
         databaseItemId: args.changeSet.databaseItemId,
+        reviewedLastUpdated,
       },
       pushMode: effectivePushMode,
       request,
@@ -965,11 +1113,27 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function stripDryRun(
+// The reviewed intent of an unpublished save is "don't change what is live";
+// which of its two requests runs follows Builder's live state at write time,
+// so a retry after that choice still matches its gate.
+function gateComparablePayload(
   payload: Partial<BuilderCmsExecutionPayload>,
 ): Partial<BuilderCmsExecutionPayload> {
   const { dryRun: _dryRun, ...rest } = payload;
-  return rest;
+  if (!isBuilderCmsUnpublishedSaveEffect(rest.effect) || !rest.request) {
+    return rest;
+  }
+  // A stored payload is JSON a past run wrote, so its query can be missing.
+  const storedQuery = rest.request.query as
+    | typeof rest.request.query
+    | null
+    | undefined;
+  const { autoSaveOnly: _autoSaveOnly, ...query } = storedQuery ?? {};
+  return {
+    ...rest,
+    effect: "autosave",
+    request: { ...rest.request, query },
+  };
 }
 
 export function validateBuilderCmsExecutionDryRun(args: {
@@ -979,8 +1143,8 @@ export function validateBuilderCmsExecutionDryRun(args: {
 }): BuilderCmsExecutionPayload {
   const storedPayload =
     args.storedPayload as Partial<BuilderCmsExecutionPayload>;
-  const storedComparable = stripDryRun(storedPayload);
-  const planComparable = stripDryRun(args.plan.payload);
+  const storedComparable = gateComparablePayload(storedPayload);
+  const planComparable = gateComparablePayload(args.plan.payload);
   const mismatches: string[] = [];
 
   if (
@@ -1003,11 +1167,26 @@ export function validateBuilderCmsExecutionDryRun(args: {
       "Stored Builder effect no longer matches the approved write mode.",
     );
   }
-  if (
-    stableJson(storedComparable.target) !== stableJson(planComparable.target)
-  ) {
+  const { reviewedLastUpdated: storedReviewedLastUpdated, ...storedTarget } =
+    (storedComparable.target ?? {}) as Partial<
+      BuilderCmsExecutionPayload["target"]
+    >;
+  const { reviewedLastUpdated: planReviewedLastUpdated, ...planTarget } =
+    (planComparable.target ?? {}) as Partial<
+      BuilderCmsExecutionPayload["target"]
+    >;
+  if (stableJson(storedTarget) !== stableJson(planTarget)) {
     mismatches.push(
       "Stored Builder target no longer matches the current row identity.",
+    );
+  }
+  // A refresh that saw a newer Builder lastUpdated moves the row baseline, so
+  // the value recorded at review is the one the live check must compare.
+  if (
+    (storedReviewedLastUpdated ?? null) !== (planReviewedLastUpdated ?? null)
+  ) {
+    mismatches.push(
+      "Builder entry changed since this change was reviewed. Refresh and review it again.",
     );
   }
 
@@ -1034,4 +1213,30 @@ export function validateBuilderCmsExecutionDryRun(args: {
       mismatches,
     },
   } as BuilderCmsExecutionPayload;
+}
+
+/**
+ * Re-picks an unpublished save from Builder's publication state read right
+ * before the write, so an entry published or unpublished since review still
+ * gets the save that leaves the live page as it is.
+ */
+export function builderCmsPayloadForLivePublication(
+  payload: BuilderCmsExecutionPayload,
+  livePublished: string | null,
+): BuilderCmsExecutionPayload {
+  if (!isBuilderCmsUnpublishedSaveEffect(payload.effect)) return payload;
+  if (livePublished !== "draft" && livePublished !== "published") {
+    return payload;
+  }
+  const effect = builderCmsUnpublishedSaveEffect(livePublished);
+  if (effect === payload.effect) return payload;
+  return {
+    ...payload,
+    effect,
+    request: builderUnpublishedSaveRequest({
+      effect,
+      path: payload.request.path,
+      body: payload.request.body,
+    }),
+  };
 }

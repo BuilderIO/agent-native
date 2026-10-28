@@ -17,9 +17,9 @@ const messages = {
   },
   chat: {
     archiveChat: "Chat archivieren",
-    archiveFailed: "Archivieren fehlgeschlagen",
+    archiveFailed: "Chat konnte nicht archiviert werden.",
     chats: "Chats",
-    composerPlaceholder: "Frag den Agenten...",
+    composerPlaceholder: "Frag mich etwas",
     emptyState: "Frag mich alles",
     heroDescription:
       "Bitte den Agenten, diese App zu prüfen, zu erklären oder zu ändern.",
@@ -29,7 +29,7 @@ const messages = {
     inspectSuggestionCapabilities: "Was kann diese App?",
     inspectSuggestionHello: "Hilf mir beim Einstieg",
     newChat: "Neuer Chat",
-    optionsFor: "Optionen für",
+    optionsFor: "Chatoptionen für {{title}}",
     pinChat: "Chat anheften",
     pinned: "Angepinnt",
     recents: "Kürzlich",
@@ -42,8 +42,8 @@ const messages = {
     retryAttachmentUnavailable:
       "Chat kann diesen Anhang für einen erneuten Versuch nicht öffnen. Füge eine zugängliche Datei-URL hinzu und versuche es erneut.",
     renameChat: "Chat umbenennen",
-    renameFailed: "Umbenennen fehlgeschlagen",
-    renameThread: "Thread umbenennen",
+    renameFailed: "Chat konnte nicht umbenannt werden.",
+    renameThread: "{{title}} umbenennen",
     suggestionActions: "Zeig mir die verfügbaren Aktionen",
     suggestionCapabilities: "Was kann diese App?",
     suggestionCustomize: "Hilf mir, diese App anzupassen",
@@ -51,19 +51,12 @@ const messages = {
     untitledChat: "Unbenannter Chat",
   },
   home: {
-    communityDescription: "Tritt der Agent-Native-Community bei",
-    composerPlaceholder: "Ruf die Aktion hello für Alex auf",
     communityTitle: "Mach mit",
     docsAddAction: "Aktion hinzufügen",
     docsAddPage: "Seite hinzufügen",
-    docsDescription: "Anleitungen zu Aktionen, Seiten und Agenten",
     docsGettingStarted: "Erste Schritte",
     docsKeyConcepts: "Grundkonzepte",
     docsTitle: "Dokumentation",
-    editHint:
-      "Bearbeite {{file}}, speichere und frag erneut, um die neue Begrüßung zu sehen.",
-    lead: "Die Oberfläche deiner App und ihr Agent nutzen dieselben Aktionen.",
-    leadTry: "Bitte den Agenten, die Aktion hello aufzurufen.",
     title: "Loslegen",
   },
   navigation: {

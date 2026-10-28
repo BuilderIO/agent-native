@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -20,14 +21,20 @@ import {
   type LoadedAppSkillManifest,
 } from "./app-skill.js";
 import {
+  readConnectClientPreferences,
   resolveClients,
   runConnect,
+  supportsRemoteMcpOAuth,
   writeConnectClientPreferences,
 } from "./connect.js";
 import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
+import {
+  detectInstalledClients,
+  isHomeDirectory,
+} from "./installed-clients.js";
 import { CLIENTS, configPathFor, type ClientId } from "./mcp-config-writers.js";
 import {
   installScreenMemoryForClient,
@@ -63,6 +70,7 @@ import {
   TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
   TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
   TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
+  TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
   VISUALIZE_REPO_SKILL_MD,
@@ -469,6 +477,7 @@ export const BUILT_IN_APP_SKILLS = {
         "references/ui-archetypes.md": TURN_INTO_APP_UI_ARCHETYPES_REFERENCE_MD,
         "references/ui-direction.md": TURN_INTO_APP_UI_DIRECTION_REFERENCE_MD,
         "references/ui-palettes.md": TURN_INTO_APP_UI_PALETTES_REFERENCE_MD,
+        "references/where-it-runs.md": TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD,
         "agents/openai.yaml": TURN_INTO_APP_OPENAI_YAML,
       },
     },
@@ -870,6 +879,8 @@ export interface RunSkillsOptions {
     options?: RunCommandOptions,
   ) => Promise<number>;
   runConnect?: (args: string[]) => Promise<void>;
+  listenForSignInSkip?: (skip: () => void) => () => void;
+  detectInstalledClients?: (candidates: readonly ClientId[]) => ClientId[];
   installScreenMemory?: typeof installScreenMemoryForClient;
   telemetry?: CliTelemetry;
 }
@@ -2194,9 +2205,12 @@ function copyScaffoldGuidanceSkills(
     fs.rmSync(targetSkillDir, { recursive: true, force: true });
     fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
       recursive: true,
+      dereference: true,
     });
   }
 }
+
+export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };
 
 function updateScaffoldGuidanceStates(
   states: ScaffoldGuidanceState[],
@@ -2489,6 +2503,23 @@ function resolveSkillsClientArg(
 
 function skillsClients(installsMcp: boolean): SkillInstructionClientId[] {
   return installsMcp ? SKILLS_CLIENTS : SKILL_INSTRUCTION_PROMPT_CLIENTS;
+}
+
+// Preselect the clients saved last time, else the ones installed here. Every
+// preselected client without remote MCP OAuth (Codex, Cowork) adds a browser
+// sign-in to the install.
+function initialSkillsClients(
+  installsMcp: boolean,
+  options: RunSkillsOptions,
+): SkillInstructionClientId[] {
+  if (!installsMcp) return skillsClients(installsMcp);
+  const saved = (readConnectClientPreferences() ?? []).filter((client) =>
+    SKILLS_CLIENTS.includes(client),
+  );
+  if (saved.length > 0) return saved;
+  const detect = options.detectInstalledClients ?? detectInstalledClients;
+  const installed = detect(SKILLS_CLIENTS);
+  return installed.length > 0 ? installed : ["claude-code"];
 }
 
 function filterSkillsClients(
@@ -2887,7 +2918,7 @@ async function resolveSkillsClients(
     }
     return clients;
   }
-  const initialClients = skillsClients(installsMcp);
+  const initialClients = initialSkillsClients(installsMcp, options);
   const prompt = options.promptClients ?? promptForClients;
   const selected = normalizeSkillInstructionClientIds(
     await prompt({
@@ -3652,6 +3683,16 @@ function connectCommandFor(
   return commandString("npx", args);
 }
 
+// The skill and its MCP config are written before the sign-in starts, so
+// Ctrl+C there skips only the sign-in: the install has succeeded, and any
+// other selected skills still install.
+function listenForSigintSignInSkip(skip: () => void): () => void {
+  process.once("SIGINT", skip);
+  return () => {
+    process.removeListener("SIGINT", skip);
+  };
+}
+
 async function connectAfterEnsure(
   installTarget: SkillInstallTarget,
   clients: ClientId[],
@@ -3675,6 +3716,21 @@ async function connectAfterEnsure(
 
   const authMessage = `Authenticating ${installTarget.displayName}…`;
   const connectLog = options.connectLog ?? options.log;
+  const signInClients = clients.filter(
+    (client) => !supportsRemoteMcpOAuth(client),
+  );
+  if (signInClients.length > 0) {
+    const labels = signInClients.map((client) => CLIENT_LABELS[client]);
+    const who =
+      labels.length === 1
+        ? `${labels[0]} needs`
+        : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)} need`;
+    connectLog?.(
+      `${who} a one-time sign-in in your browser. It's optional: ` +
+        `${installTarget.displayName} is already installed, so you can press ` +
+        `Ctrl+C to skip it and finish later with: ${connectCommand}`,
+    );
+  }
   const spinner = options.createConnectSpinner?.();
   let spinnerActive = false;
   let wroteAuthMessage = false;
@@ -3688,11 +3744,28 @@ async function connectAfterEnsure(
     connectLog?.(authMessage);
     wroteAuthMessage = true;
   };
+  // Aborting stops the device flow's waits and requests, so runConnect
+  // returns instead of polling until the code expires.
+  const skipController = new AbortController();
+  const signInSkipped = () => skipController.signal.aborted;
   const writeConnectLog = (message: string) => {
     clearSpinner();
     writeAuthMessage();
     connectLog?.(message);
   };
+  // After a skip, the aborted wait's error would only repeat it.
+  const writeConnectError = (message: string) => {
+    if (!signInSkipped()) writeConnectLog(message);
+  };
+  // Registered before the spinner starts so it runs ahead of the spinner's
+  // own SIGINT listener.
+  const stopListeningForSkip = (
+    options.listenForSignInSkip ?? listenForSigintSignInSkip
+  )(() => {
+    if (signInSkipped()) return;
+    skipController.abort();
+    clearSpinner();
+  });
   if (spinner) {
     spinner.start(authMessage);
     spinnerActive = true;
@@ -3700,6 +3773,26 @@ async function connectAfterEnsure(
     writeAuthMessage();
   }
   options.telemetry?.track("skills_cli connect started");
+  // runConnect reports a failed sign-in only through process.exitCode, so
+  // it starts clear here and is read once runConnect returns.
+  const exitCodeBeforeConnect = process.exitCode;
+  process.exitCode = undefined;
+  let connectFailed = false;
+  // Clears the device flow's "Waiting for approval…" line, which Ctrl+C
+  // leaves behind whether or not the sign-in had finished.
+  const clearWaitingLine = () => {
+    if (signInSkipped() && process.stdout.isTTY) {
+      process.stdout.write("\r\x1b[K");
+    }
+  };
+  const skippedResult = () => {
+    clearWaitingLine();
+    connectLog?.(
+      `Sign-in skipped. ${installTarget.displayName} is installed; ` +
+        `to finish the sign-in later, run: ${connectCommand}`,
+    );
+    return { connected: false, connectCommand };
+  };
   try {
     const connectArgs = [
       hostedUrl,
@@ -3714,16 +3807,34 @@ async function connectAfterEnsure(
       await runConnect(connectArgs, {
         isInteractive: options.isInteractive,
         logOut: writeConnectLog,
-        logErr: writeConnectLog,
+        logErr: writeConnectError,
+        fetchImpl: (input, init) =>
+          fetch(input, {
+            ...init,
+            signal: init?.signal
+              ? AbortSignal.any([init.signal, skipController.signal])
+              : skipController.signal,
+          }),
+        sleep: (ms) => delay(ms, undefined, { signal: skipController.signal }),
         withBrowserOpenSpinner: (message, openBrowser) =>
           runWithConnectSpinner(options, message, openBrowser),
       });
     }
+    connectFailed = Boolean(process.exitCode);
+    if (connectFailed && signInSkipped()) return skippedResult();
+    // runConnect returns normally after a failed sign-in, so the catch below
+    // reports it the same way as a thrown error.
+    if (connectFailed) throw new Error("sign-in failed");
+    // A Ctrl+C that lands here came after the sign-in finished. It only cut
+    // short an optional step, such as the Plans publish token.
+    clearWaitingLine();
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect completed");
     return { connected: true, connectCommand: "" };
   } catch (err: any) {
+    connectFailed = Boolean(process.exitCode);
+    if (signInSkipped()) return skippedResult();
     clearSpinner();
     writeAuthMessage();
     options.telemetry?.track("skills_cli connect failed", {
@@ -3734,6 +3845,13 @@ async function connectAfterEnsure(
         `Run it later with: ${connectCommand}`,
     );
     return { connected: false, connectCommand };
+  } finally {
+    stopListeningForSkip();
+    // Skipping isn't a failure; only a sign-in that failed on its own keeps
+    // runConnect's exit code.
+    if (signInSkipped() || !connectFailed) {
+      process.exitCode = exitCodeBeforeConnect;
+    }
   }
 }
 
@@ -4676,8 +4794,19 @@ export async function runSkills(
     });
 
     // Ask where to install (project vs user) unless an explicit --scope was
-    // passed or we are running non-interactively.
-    if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
+    // passed or we are running non-interactively. The home directory is not a
+    // project: project scope there writes ~/.mcp.json, which Claude Code then
+    // offers as a new MCP server in every folder under it.
+    if (
+      !parsed.scopeExplicit &&
+      shouldPrompt(parsed, options) &&
+      isHomeDirectory(options.baseDir ?? process.cwd())
+    ) {
+      parsed.scope = "user";
+      options.log?.(
+        "Installing for your user account, so the skills work in every folder.",
+      );
+    } else if (!parsed.scopeExplicit && shouldPrompt(parsed, options)) {
       const promptScope = options.promptScope ?? promptForScope;
       const scope = await promptScope({ initialScope: "project" });
       if (!scope) {

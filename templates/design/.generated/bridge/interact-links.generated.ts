@@ -56,14 +56,14 @@ export const interactLinksBridgeScript: string = `"use strict";
       }
       e.preventDefault();
       try {
-        window.parent.postMessage(
-          {
-            type: "prototype-navigate",
-            href: target,
-            screen: screenName(target)
-          },
-          "*"
-        );
+        var message = {
+          type: "prototype-navigate",
+          href: target,
+          screen: screenName(target)
+        };
+        var transition = link.getAttribute("data-an-prototype-transition");
+        if (transition !== null) message.transition = transition;
+        window.parent.postMessage(message, "*");
       } catch (_err) {
         return;
       }

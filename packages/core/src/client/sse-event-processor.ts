@@ -14,7 +14,9 @@ import type { AgentChatRichEventEnvelope } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
+import { isNonProgressEventType } from "../shared/progress-events.js";
 import { toolInputsMatch } from "../shared/tool-inputs.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { emitChatFirstOpenApp } from "./chat-first-state.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
@@ -492,11 +494,11 @@ function isMeaningfulProgressEvent(
  * broader background policy, so it cannot be reused for this cursor: raw
  * keepalives and repeated zero-byte preparation are not proof of real work.
  */
-function isDurableProgressEvent(
+export function isDurableProgressEvent(
   ev: SSEEvent,
   actionPreparationProgress?: boolean,
 ): boolean {
-  if (ev.type === "stream_keepalive" || ev.type === "clear") return false;
+  if (isNonProgressEventType(ev.type)) return false;
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     return actionPreparationProgress === true;
   }
@@ -2004,6 +2006,8 @@ export function processEvent(
             isError: ev.isError === true,
             completedSideEffect: ev.completedSideEffect === true,
             tabId,
+            browserTabId: getBrowserTabId(),
+            runId: context?.runId,
             eventId: ev.eventId ?? ev.id,
           },
         }),

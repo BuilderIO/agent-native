@@ -17,13 +17,17 @@ import {
 } from "@/components/ui/tooltip";
 
 import { RunStatusChip } from "./RunStatusChip";
-import { anyRunInFlight, runStarter } from "./workflow-list-model";
+import {
+  RECENT_RUNS,
+  anyRunInFlight,
+  runStarter,
+  succeededItemFailures,
+} from "./workflow-list-model";
 import { useWorkflowStrings } from "./workflow-strings";
-import { formatRelativeTime } from "./workflow-time";
+import { formatRunTime } from "./workflow-time";
 import type { ListRunsResult, RunView } from "./workflow-types";
 
 const NO_RUN = "__none__";
-const RECENT_RUNS = 25;
 const WATCH_INTERVAL_MS = 2_000;
 
 interface RunPickerProps {
@@ -47,11 +51,15 @@ function RunLabel({
   const ws = useWorkflowStrings();
   const { locale } = useLocale();
 
-  const when = formatRelativeTime(run.finishedAt ?? run.startedAt, now, locale);
+  const when = formatRunTime(run, now, locale);
   const starter = runStarter(run.startedBy);
   return (
     <span className="flex items-center gap-2">
-      <RunStatusChip status={run.status} triggerKind={run.triggerKind} />
+      <RunStatusChip
+        status={run.status}
+        triggerKind={run.triggerKind}
+        itemFailures={succeededItemFailures(run)}
+      />
       {when ? <span className="text-muted-foreground">{when}</span> : null}
       {starter ? (
         <span className="max-w-32 truncate text-xs text-muted-foreground">
@@ -93,10 +101,14 @@ function SelectedRun({
   const ws = useWorkflowStrings();
   const { locale } = useLocale();
 
-  const when = formatRelativeTime(run.finishedAt ?? run.startedAt, now, locale);
+  const when = formatRunTime(run, now, locale);
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <RunStatusChip status={run.status} triggerKind={run.triggerKind} />
+      <RunStatusChip
+        status={run.status}
+        triggerKind={run.triggerKind}
+        itemFailures={succeededItemFailures(run)}
+      />
       <span className="min-w-0 truncate text-muted-foreground">
         {[when, ws.runPicker.version(run.graphVersion)]
           .filter(Boolean)
@@ -125,7 +137,7 @@ function SelectedRunDetail({
   const ws = useWorkflowStrings();
   const { locale } = useLocale();
 
-  const when = formatRelativeTime(run.finishedAt ?? run.startedAt, now, locale);
+  const when = formatRunTime(run, now, locale);
   const kind =
     run.triggerKind === "schedule" ? null : ws.runKind[run.triggerKind];
   const summary = [

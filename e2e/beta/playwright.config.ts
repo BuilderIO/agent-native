@@ -57,6 +57,9 @@ const JOURNEY_CREDENTIAL_SPECS =
   /specs\/apps\/journey-(?:credential-state|settings-keys)\.spec\.ts$/;
 const JOURNEY_FLOW_SPECS =
   /specs\/apps\/journey-(?:slides-pdf-import|forms-lifecycle|design-systems-indexing|dispatch-app-launch)\.spec\.ts$/;
+// Sixteen Content pages, each with saves held or failed on purpose.
+const CONTENT_REVIEW_SPECS =
+  /specs\/apps\/content-suggestion-review\.spec\.ts$/;
 
 export default defineConfig({
   testDir: "./specs",
@@ -129,6 +132,7 @@ export default defineConfig({
         JOURNEY_SESSION_SPECS,
         JOURNEY_CREDENTIAL_SPECS,
         JOURNEY_FLOW_SPECS,
+        CONTENT_REVIEW_SPECS,
       ],
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
@@ -151,8 +155,9 @@ export default defineConfig({
     {
       // [slides-import], [forms], [design-systems], [dispatch-apps]: the
       // multi-step product flows. Two of them create and delete a deck and a form.
+      // [content-review] decides suggestions with saves held or failed.
       name: "journeys-flows",
-      testMatch: JOURNEY_FLOW_SPECS,
+      testMatch: [JOURNEY_FLOW_SPECS, CONTENT_REVIEW_SPECS],
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },

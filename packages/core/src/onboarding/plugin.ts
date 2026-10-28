@@ -38,7 +38,6 @@ import {
 } from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
-import { listOnboardingSteps } from "./registry.js";
 import {
   SHARED_ONBOARDING_COOKIE,
   SHARED_ONBOARDING_COOKIE_MAX_AGE,
@@ -46,16 +45,22 @@ import {
   encodeSharedOnboardingCookie,
   hashOnboardingEmail,
 } from "./shared-cookie.js";
-import type {
-  OnboardingResolveContext,
-  OnboardingStepStatus,
+import {
+  getOnboardingStepStatuses,
+  isValidOnboardingChecklistName,
+  onboardingDismissedKey,
+  onboardingOverrideKey,
+  readOnboardingDismissed,
+} from "./status.js";
+import {
+  DEFAULT_ONBOARDING_CHECKLIST,
+  type OnboardingResolveContext,
+  type OnboardingStepStatus,
 } from "./types.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 const ONBOARDING_PREFIX = "/_agent-native/onboarding";
-const OVERRIDE_KEY_PREFIX = "onboarding:override:";
-const DISMISSED_KEY = "onboarding:dismissed";
 
 export interface OnboardingPluginOptions {
   skipDefaultSteps?: boolean;
@@ -75,45 +80,14 @@ async function resolveOnboardingContext(
   };
 }
 
-async function hasOverride(
-  sessionId: string,
-  stepId: string,
-): Promise<boolean> {
-  const val = await appStateGet(sessionId, `${OVERRIDE_KEY_PREFIX}${stepId}`);
-  return !!(val && (val as { complete?: boolean }).complete);
-}
-
-async function serializeSteps(
-  context: OnboardingResolveContext,
-  options: { preview?: boolean } = {},
-): Promise<OnboardingStepStatus[]> {
-  const steps = listOnboardingSteps();
-  const serialized = await Promise.all(
-    steps.map(async (step) => {
-      if (!options.preview && step.isAvailable) {
-        if (!(await step.isAvailable(context))) return null;
-      }
-      let complete = false;
-      if (!options.preview) {
-        complete = (await step.isComplete(context)) === true;
-        if (!complete) {
-          complete = await hasOverride(context.sessionId, step.id);
-        }
-      }
-      return {
-        id: step.id,
-        title: step.title,
-        description: step.description,
-        order: step.order,
-        required: step.required ?? false,
-        complete,
-        methods: step.methods,
-      };
-    }),
-  );
-  return serialized.filter(
-    (step): step is OnboardingStepStatus => step !== null,
-  );
+/** `undefined` when the request names no checklist; `null` when the name is invalid. */
+function readChecklistParam(event: H3Event): string | null | undefined {
+  const raw = (getQuery(event) as Record<string, unknown>).checklist;
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !isValidOnboardingChecklistName(raw)) {
+    return null;
+  }
+  return raw;
 }
 
 function withOnboardingRequestContext<T>(
@@ -144,9 +118,10 @@ function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
   return statuses.filter((s) => s.required).every((s) => s.complete);
 }
 
-async function readDismissedFlag(sessionId: string): Promise<boolean> {
-  const value = await appStateGet(sessionId, DISMISSED_KEY);
-  return !!(value && (value as { dismissed?: boolean }).dismissed);
+// A progress checklist has no required steps, so "required complete" would be
+// vacuously true while steps are still open.
+function allStepsComplete(statuses: OnboardingStepStatus[]): boolean {
+  return statuses.length > 0 && statuses.every((s) => s.complete);
 }
 
 async function resolveSharedCompletionEnabled(): Promise<boolean> {
@@ -186,11 +161,16 @@ export function createOnboardingPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
+          const checklist = readChecklistParam(event);
+          if (checklist === null) {
+            setResponseStatus(event, 400);
+            return { error: "Invalid checklist" };
+          }
           const context = await resolveOnboardingContext(event);
           const query = getQuery(event) as Record<string, unknown>;
           const preview = query.preview === "1" || query.preview === 1;
           return withOnboardingRequestContext(context, () =>
-            serializeSteps(context, { preview }),
+            getOnboardingStepStatuses(context, { preview, checklist }),
           );
         }
 
@@ -207,7 +187,7 @@ export function createOnboardingPlugin(
           const { sessionId } = await resolveOnboardingContext(event);
           await appStatePut(
             sessionId,
-            `${OVERRIDE_KEY_PREFIX}${id}`,
+            onboardingOverrideKey(id),
             { complete: true },
             { requestSource: "agent" },
           );
@@ -225,10 +205,16 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const requested = readChecklistParam(event);
+        if (requested === null) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid checklist" };
+        }
+        const checklist = requested ?? DEFAULT_ONBOARDING_CHECKLIST;
         const { sessionId } = await resolveOnboardingContext(event);
         await appStatePut(
           sessionId,
-          DISMISSED_KEY,
+          onboardingDismissedKey(checklist),
           { dismissed: true, at: new Date().toISOString() },
           { requestSource: "agent" },
         );
@@ -243,10 +229,16 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const requested = readChecklistParam(event);
+        if (requested === null) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid checklist" };
+        }
+        const checklist = requested ?? DEFAULT_ONBOARDING_CHECKLIST;
         const { sessionId } = await resolveOnboardingContext(event);
         await appStatePut(
           sessionId,
-          DISMISSED_KEY,
+          onboardingDismissedKey(checklist),
           { dismissed: false, at: new Date().toISOString() },
           { requestSource: "agent" },
         );
@@ -261,17 +253,23 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const checklist = readChecklistParam(event);
+        if (checklist === null) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid checklist" };
+        }
         const context = await resolveOnboardingContext(event);
         return withOnboardingRequestContext(context, async () => {
-          const [statuses, value] = await Promise.all([
-            serializeSteps(context),
-            appStateGet(context.sessionId, DISMISSED_KEY),
+          const [statuses, dismissed] = await Promise.all([
+            getOnboardingStepStatuses(context, { checklist }),
+            readOnboardingDismissed(context.sessionId, checklist),
           ]);
           return {
-            dismissed: !!(
-              value && (value as { dismissed?: boolean }).dismissed
-            ),
-            allComplete: allRequiredComplete(statuses),
+            dismissed,
+            allComplete:
+              checklist === undefined
+                ? allRequiredComplete(statuses)
+                : allStepsComplete(statuses),
           };
         });
       }),
@@ -295,13 +293,21 @@ export function createOnboardingPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        const checklist = readChecklistParam(event);
+        if (checklist === null) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid checklist" };
+        }
         const context = await resolveOnboardingContext(event);
         const query = getQuery(event) as Record<string, unknown>;
         const preview = query.preview === "1" || query.preview === 1;
         return withOnboardingRequestContext(context, async () => {
           const [steps, dismissed] = await Promise.all([
-            serializeSteps(context, { preview }),
-            readDismissedFlag(context.sessionId),
+            getOnboardingStepStatuses(context, { preview, checklist }),
+            readOnboardingDismissed(
+              context.sessionId,
+              checklist ?? DEFAULT_ONBOARDING_CHECKLIST,
+            ),
           ]);
           return {
             steps,

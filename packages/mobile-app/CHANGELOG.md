@@ -19,6 +19,239 @@
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
 
+## 0.1.194
+
+### Patch Changes
+
+- Updated dependencies [aed733b]
+- Updated dependencies [aed733b]
+- Updated dependencies [aed733b]
+- Updated dependencies [b5e5579]
+- Updated dependencies [b29ed61]
+- Updated dependencies [f717042]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0c8b261]
+- Updated dependencies [e086032]
+- Updated dependencies [f7b022c]
+- Updated dependencies [6b65dba]
+- Updated dependencies [5c03c72]
+- Updated dependencies [94f0b9c]
+- Updated dependencies [f20824d]
+- Updated dependencies [cc341a4]
+- Updated dependencies [798991f]
+- Updated dependencies [1fe5d77]
+- Updated dependencies [ef46f92]
+- Updated dependencies [1ceea69]
+- Updated dependencies [798991f]
+- Updated dependencies [5135ed2]
+- Updated dependencies [57fbf19]
+- Updated dependencies [460eae3]
+- Updated dependencies [7ee0542]
+- Updated dependencies [763b81b]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [e9d5ffa]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [3069880]
+- Updated dependencies [1a39024]
+- Updated dependencies [a726401]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [f20824d]
+- Updated dependencies [1cd201c]
+- Updated dependencies [4e91166]
+- Updated dependencies [e0ebd6b]
+- Updated dependencies [7e8cdb3]
+- Updated dependencies [e086032]
+- Updated dependencies [f01eafb]
+- Updated dependencies [320ba2b]
+- Updated dependencies [5fcf185]
+- Updated dependencies [5aee004]
+- Updated dependencies [5135ed2]
+- Updated dependencies [798991f]
+- Updated dependencies [1a39024]
+- Updated dependencies [327c5df]
+- Updated dependencies [e6c24f8]
+- Updated dependencies [551b6b7]
+- Updated dependencies [7faf806]
+- Updated dependencies [7faf806]
+- Updated dependencies [7faf806]
+- Updated dependencies [8280b38]
+- Updated dependencies [0ab7e59]
+- Updated dependencies
+- Updated dependencies [7199312]
+- Updated dependencies [12a91c6]
+- Updated dependencies [8254996]
+- Updated dependencies [c11a374]
+- Updated dependencies [5ac46dc]
+- Updated dependencies [e3a96b4]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [b7eabbd]
+- Updated dependencies [af96a99]
+- Updated dependencies [1fcca73]
+- Updated dependencies [844cc67]
+- Updated dependencies [fc600a2]
+- Updated dependencies [5aee004]
+- Updated dependencies [3cc7b85]
+- Updated dependencies [461542e]
+- Updated dependencies [5aee004]
+- Updated dependencies [798991f]
+- Updated dependencies [e5f43c6]
+- Updated dependencies [b14bed7]
+- Updated dependencies [267706a]
+- Updated dependencies [f20824d]
+- Updated dependencies [798991f]
+- Updated dependencies [038232e]
+- Updated dependencies [39209e4]
+- Updated dependencies [f20824d]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [91ec685]
+- Updated dependencies [d9cfcd4]
+- Updated dependencies [82efd47]
+- Updated dependencies [e086032]
+- Updated dependencies [e086032]
+- Updated dependencies [e086032]
+- Updated dependencies [7dc6e11]
+- Updated dependencies [5135ed2]
+- Updated dependencies [5135ed2]
+- Updated dependencies [f635856]
+- Updated dependencies [1368ef4]
+- Updated dependencies [798991f]
+- Updated dependencies [c8190ab]
+- Updated dependencies [798991f]
+- Updated dependencies [5aee004]
+- Updated dependencies [b5e5579]
+- Updated dependencies [4e91166]
+- Updated dependencies [5fcf185]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [2e8f454]
+- Updated dependencies [2e8f454]
+- Updated dependencies [74a9b9b]
+- Updated dependencies [5aee004]
+- Updated dependencies [1fcca73]
+- Updated dependencies [5fcf185]
+- Updated dependencies [e086032]
+- Updated dependencies [a2d411a]
+- Updated dependencies [1fd9a0b]
+- Updated dependencies [e673b8f]
+- Updated dependencies [aed733b]
+- Updated dependencies [c9a6c3d]
+- Updated dependencies [5cc9c0f]
+  - @agent-native/core@0.221.0
+  - @agent-native/agentkit@0.221.0
+
+## 0.1.193
+
+### Patch Changes
+
+- Updated dependencies [532b54b]
+- Updated dependencies [ddd3bd1]
+- Updated dependencies [4472c54]
+- Updated dependencies [0c211bc]
+- Updated dependencies [532b54b]
+- Updated dependencies [1cb4049]
+- Updated dependencies [0c211bc]
+- Updated dependencies [0c211bc]
+- Updated dependencies [0c211bc]
+- Updated dependencies [77b1cc5]
+- Updated dependencies
+- Updated dependencies [ce19f80]
+- Updated dependencies [7fd4878]
+- Updated dependencies [e3fb7d5]
+- Updated dependencies [4fbf4df]
+- Updated dependencies [92da285]
+- Updated dependencies [d61e523]
+- Updated dependencies [50513fd]
+- Updated dependencies [cd40cd1]
+- Updated dependencies [4fbf4df]
+- Updated dependencies [b3cf9b8]
+- Updated dependencies [fee0487]
+- Updated dependencies [b3cf9b8]
+- Updated dependencies [898d157]
+- Updated dependencies [766fa43]
+- Updated dependencies [0c211bc]
+  - @agent-native/core@0.220.0
+  - @agent-native/agentkit@0.220.0
+
+## 0.1.192
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [bf92e9d]
+- Updated dependencies [9701c0d]
+- Updated dependencies [619ddc8]
+  - @agent-native/agentkit@0.219.0
+  - @agent-native/core@0.219.0
+
+## 0.1.191
+
+### Patch Changes
+
+- Updated dependencies [84e4b2e]
+- Updated dependencies [84e4b2e]
+- Updated dependencies
+- Updated dependencies [fc038a0]
+  - @agent-native/core@0.218.0
+  - @agent-native/agentkit@0.218.0
+
+## 0.1.190
+
+### Patch Changes
+
+- Updated dependencies [6c3f3cb]
+- Updated dependencies [78abb26]
+- Updated dependencies [b07c13b]
+- Updated dependencies
+- Updated dependencies [642114a]
+  - @agent-native/core@0.217.0
+  - @agent-native/agentkit@0.217.0
+
+## 0.1.189
+
+### Patch Changes
+
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+- Updated dependencies [b28df00]
+  - @agent-native/agentkit@0.216.0
+  - @agent-native/core@0.216.0
+
+## 0.1.188
+
+### Patch Changes
+
+- Updated dependencies [6448b38]
+- Updated dependencies [9f4d2e7]
+- Updated dependencies [47d2072]
+- Updated dependencies [f43eec1]
+- Updated dependencies
+- Updated dependencies [4fd6b35]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [f872004]
+- Updated dependencies [6448b38]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [df1b3df]
+- Updated dependencies [6448b38]
+- Updated dependencies [c3d5580]
+- Updated dependencies [465d097]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [34d2fdc]
+- Updated dependencies [32ecc17]
+- Updated dependencies [9205a78]
+- Updated dependencies [7ba1d99]
+- Updated dependencies [a1af4d8]
+- Updated dependencies [32ecc17]
+- Updated dependencies [44a85ea]
+- Updated dependencies [4b0bb1e]
+  - @agent-native/core@0.215.0
+  - @agent-native/agentkit@0.215.0
+
 ## 0.1.187
 
 ### Patch Changes
@@ -2380,70 +2613,5 @@
 - Updated dependencies [6e647cb]
 - Updated dependencies [baedb60]
   - @agent-native/core@0.170.0
-
-## 0.1.95
-
-### Patch Changes
-
-- Updated dependencies [4de4af3]
-- Updated dependencies [4de4af3]
-- Updated dependencies [4de4af3]
-- Updated dependencies
-- Updated dependencies [4de4af3]
-- Updated dependencies [4de4af3]
-  - @agent-native/core@0.169.1
-
-## 0.1.94
-
-### Patch Changes
-
-- Updated dependencies [c90e034]
-- Updated dependencies [c90e034]
-- Updated dependencies [c90e034]
-- Updated dependencies [c90e034]
-- Updated dependencies [c90e034]
-  - @agent-native/core@0.169.0
-
-## 0.1.93
-
-### Patch Changes
-
-- Updated dependencies [f2f60b9]
-  - @agent-native/core@0.168.13
-
-## 0.1.92
-
-### Patch Changes
-
-- Updated dependencies [51b31ed]
-  - @agent-native/core@0.168.12
-
-## 0.1.91
-
-### Patch Changes
-
-- Updated dependencies [dc0978d]
-  - @agent-native/core@0.168.11
-
-## 0.1.90
-
-### Patch Changes
-
-- Updated dependencies [d9b6279]
-  - @agent-native/core@0.168.10
-
-## 0.1.89
-
-### Patch Changes
-
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-- Updated dependencies [dd80d09]
-- Updated dependencies [127606d]
-- Updated dependencies [e5e6934]
-- Updated dependencies [e5e6934]
-  - @agent-native/core@0.168.9
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -338,8 +338,21 @@ export function getBoardSurfaceRenderContent(html: string, darkScheme = false) {
 }
 
 function stripExecutableStaticPreviewContent(html: string) {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "") // i18n-ignore static-preview sanitizer regex, not visible UI copy
+  const manifests: string[] = [];
+  const stripped = html
+    .replace(
+      /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi,
+      (_script, attributes: string, body: string) => {
+        if (
+          !/(?:^|\s)type\s*=\s*(?:"application\/x-agent-native-effects"|'application\/x-agent-native-effects'|application\/x-agent-native-effects)(?=\s|$)/i.test(
+            attributes,
+          )
+        )
+          return "";
+        const index = manifests.push(body) - 1;
+        return `<!--an-native-static-manifest-${index}-->`;
+      },
+    ) // i18n-ignore static-preview sanitizer regex, not visible UI copy
     .replace(/<script\b[^>]*\/?\s*>/gi, "")
     .replace(/<(iframe|object|audio|video)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "") // i18n-ignore static-preview sanitizer regex, not visible UI copy
     .replace(/<(?:iframe|object|embed|audio|video|source)\b[^>]*\/?\s*>/gi, "")
@@ -357,6 +370,39 @@ function stripExecutableStaticPreviewContent(html: string) {
       ),
     )
     .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+  return stripped.replace(
+    /<!--an-native-static-manifest-(\d+)-->/g,
+    (_marker, index: string) => {
+      const body = manifests[Number(index)];
+      return body === undefined
+        ? ""
+        : `<script type="application/x-agent-native-effects">${body}</script>`;
+    },
+  );
+}
+
+function secureStaticPreviewDocument(html: string): string {
+  const nonce = crypto.randomUUID();
+  const policy = [
+    "default-src 'none'",
+    `script-src 'nonce-${nonce}'`,
+    "style-src 'unsafe-inline'",
+    "img-src https: data: blob:",
+    "font-src https: data:",
+    "connect-src 'none'",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+  ].join("; ");
+  const security = `<meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="an-native-static-script-nonce" content="${nonce}">`;
+  if (/<head\b[^>]*>/i.test(html))
+    return html.replace(/<head\b[^>]*>/i, (head) => `${head}${security}`);
+  if (/<html\b[^>]*>/i.test(html))
+    return html.replace(
+      /<html\b[^>]*>/i,
+      (root) => `${root}<head>${security}</head>`,
+    );
+  return `<head>${security}</head>${html}`;
 }
 
 /** Absolutely placed top-level board objects with px geometry, in board coordinates. */
@@ -419,8 +465,10 @@ export function getBoardSurfaceStaticPreviewContent(args: {
   logicalGeometry: FrameGeometry;
   viewport: { width: number; height: number };
 }) {
-  const renderHtml = stripExecutableStaticPreviewContent(
-    getBoardSurfaceRenderContent(args.html, args.darkScheme),
+  const renderHtml = secureStaticPreviewDocument(
+    stripExecutableStaticPreviewContent(
+      getBoardSurfaceRenderContent(args.html, args.darkScheme),
+    ),
   );
   const width = Math.max(1, args.logicalGeometry.width);
   const height = Math.max(1, args.logicalGeometry.height);
@@ -429,7 +477,8 @@ export function getBoardSurfaceStaticPreviewContent(args: {
   const scale = Math.min(viewportWidth / width, viewportHeight / height);
   const offsetX = -args.logicalGeometry.x;
   const offsetY = -args.logicalGeometry.y;
-  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
+  const bodyTransform = scale === 1 ? "none" : `scale(${scale})`;
+  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:transparent!important;background-color:transparent!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:${bodyTransform}!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
   if (/<\/head\s*>/i.test(renderHtml)) {
     return injectDocumentMarkup(renderHtml, style, { target: "head" });
   }

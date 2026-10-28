@@ -3,6 +3,56 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-27
+
+### Improved
+
+- First-run setup makes free credits the primary path while keeping personal API keys one click away
+
+## 2026-10-26
+
+### Improved
+
+- The new-deck prompt keeps Send as its main button; the mic still dictates.
+- Voice edits make the smallest matching change, say the new value out loud, and start faster
+
+### Fixed
+
+- The home prompt bar no longer leaves empty space under its controls.
+
+## 2026-10-24
+
+### Added
+
+- Pick slides and slide elements for the agent with the Select button in the chat composer.
+
+### Improved
+
+- The home prompt uses the large composer with dictation, and the agent panel opens on the same default model as the home prompt
+
+## 2026-10-23
+
+### Fixed
+
+- The agent keeps going after a slide edit that would change nothing, instead of stopping the run with an error.
+- The agent retries a slide edit whose text it could not find instead of stopping the run with an error.
+
+## 2026-10-22
+
+### Fixed
+
+- New decks and added slides open in the full Slides app from their chat links.
+
+## 2026-10-21
+
+### Improved
+
+- The ownership filter beside search is a lighter button with a filter icon.
+
+### Fixed
+
+- Deleting a deck through an agent requires approval for each deletion.
+
 ## 2026-10-20
 
 ### Improved
@@ -41,6 +91,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Deck lists use the shared ownership filter, and visibility badges use localized labels.
 - Contextual toolbar: the second row now changes with what is selected (text, shape, image, video, multi-select), and every state ends with an Edit with Agent button with quick picks.
 - The top bar shows a deck's privacy next to its name, Share has People and Agents tabs, and Present opens a menu to start in this tab, full screen, or Presenter View.
 

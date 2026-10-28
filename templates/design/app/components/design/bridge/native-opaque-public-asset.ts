@@ -37,6 +37,7 @@ const pending = new Map<
   { resolve: (blob: Blob) => void; reject: (error: Error) => void }
 >();
 const objectUrls = new Map<string, Promise<string>>();
+const blobs = new Map<string, Promise<Blob>>();
 const decodedImages = new Map<string, Promise<HTMLImageElement>>();
 
 export function isOpaquePublicAssetPreview(): boolean {
@@ -226,22 +227,28 @@ function onResult(event: MessageEvent<AssetResult>): void {
   request.resolve(result.blob);
 }
 
-export function resolveOpaquePublicAsset(
-  raw: string,
-): string | Promise<string> {
-  if (!isOpaquePublicAssetPreview()) return raw;
+export function resolveOpaquePublicAssetBlob(raw: string): Promise<Blob> {
+  if (!isOpaquePublicAssetPreview())
+    throw new NativeOpaquePublicAssetError(
+      "source-public-asset-unavailable",
+      "The public image channel is available only in opaque previews.",
+    );
   if (closed)
     throw new NativeOpaquePublicAssetError(
       "source-public-asset-disposed",
       "The public image channel closed.",
     );
   const url = opaquePublicAssetUrl(raw);
-  if (/^(?:data|blob):/i.test(url)) return url;
-  const cached = objectUrls.get(url);
+  if (/^(?:data|blob):/i.test(url))
+    throw new NativeOpaquePublicAssetError(
+      "source-public-asset-url-invalid",
+      "The public image request needs an approved local path.",
+    );
+  const cached = blobs.get(url);
   if (cached) return cached;
   const result = ensureConnection().then(
     () =>
-      new Promise<string>((resolve, reject) => {
+      new Promise<Blob>((resolve, reject) => {
         const index = allowedUrls.indexOf(url);
         if (index < 0 || !port) {
           reject(
@@ -265,7 +272,7 @@ export function resolveOpaquePublicAsset(
         pending.set(requestId, {
           resolve: (blob) => {
             clearTimeout(timeout);
-            resolve(URL.createObjectURL(blob));
+            resolve(blob);
           },
           reject: (error) => {
             clearTimeout(timeout);
@@ -274,6 +281,27 @@ export function resolveOpaquePublicAsset(
         });
         port.postMessage({ type: REQUEST, requestId, index });
       }),
+  );
+  blobs.set(url, result);
+  result.catch(() => blobs.delete(url));
+  return result;
+}
+
+export function resolveOpaquePublicAsset(
+  raw: string,
+): string | Promise<string> {
+  if (!isOpaquePublicAssetPreview()) return raw;
+  if (closed)
+    throw new NativeOpaquePublicAssetError(
+      "source-public-asset-disposed",
+      "The public image channel closed.",
+    );
+  const url = opaquePublicAssetUrl(raw);
+  if (/^(?:data|blob):/i.test(url)) return url;
+  const cached = objectUrls.get(url);
+  if (cached) return cached;
+  const result = resolveOpaquePublicAssetBlob(url).then((blob) =>
+    URL.createObjectURL(blob),
   );
   objectUrls.set(url, result);
   result.catch(() => objectUrls.delete(url));
@@ -322,6 +350,7 @@ export function closeOpaquePublicAssets(): void {
       () => undefined,
     );
   objectUrls.clear();
+  blobs.clear();
   decodedImages.clear();
   allowedUrls = [];
   connection = null;

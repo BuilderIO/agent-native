@@ -1,6 +1,6 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -19,6 +19,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
@@ -33,6 +34,7 @@ import {
   SLIDES_DECK_RESULT_RENDERER,
 } from "../shared/action-ui.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { isRealSlide } from "../shared/blank-slide.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
@@ -177,7 +179,7 @@ export default defineAction({
   title: "Create Slides deck",
   description:
     "Create the real editable Agent-Native Slides deck, optionally already populated with slides, or atomically replace all slides in an existing deck. This is the primary Slides MCP write action: use it instead of creating or publishing a standalone HTML artifact with the host's file tools. Put slide markup in `slides[].content`; this action persists it and returns an Open in Slides link. " +
-    "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
+    "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the saved deck is ready to open in the full Slides app. " +
     "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; pass generationComplete=false on intermediate writes and true on the final write; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
@@ -242,13 +244,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Deck preview",
-      description: "Open the generated deck in the real Slides editor.",
-      iframeTitle: "Agent-Native Slides",
-      openLabel: "Open deck",
-      height: 680,
-    }),
   },
   http: { method: "POST" },
   mcpAnnotations: {
@@ -279,6 +274,14 @@ export default defineAction({
     let generationOutputId = deckId;
     const db = getDb();
     let browserOwnedDeck: typeof schema.decks.$inferSelect | undefined;
+    let browserGenerationContext:
+      | {
+          generationAttemptId?: string;
+          targetSlideCount?: number;
+          generationStartedAt?: number;
+          firstOutputAttemptId?: string;
+        }
+      | undefined;
     if (browserGenerationAttemptId !== undefined) {
       if (!deckId) {
         throw new Error(
@@ -291,14 +294,15 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId))
         .limit(1);
-      browserOwnedDeck = existing[0];
-      const persistedAttemptId = browserOwnedDeck
+      browserOwnedDeck = existing.at(0);
+      browserGenerationContext = browserOwnedDeck
         ? (
             JSON.parse(browserOwnedDeck.data) as {
-              generationContext?: { generationAttemptId?: string };
+              generationContext?: typeof browserGenerationContext;
             }
-          ).generationContext?.generationAttemptId
+          ).generationContext
         : undefined;
+      const persistedAttemptId = browserGenerationContext?.generationAttemptId;
       if (persistedAttemptId !== browserGenerationAttemptId) {
         throw new Error(
           "generationAttemptId does not match the deck's persisted generationContext",
@@ -461,6 +465,13 @@ export default defineAction({
           existingDeck,
           prevData,
         );
+        const browserFirstOutputAttemptId =
+          browserGenerationAttemptId !== undefined &&
+          slides.some(isRealSlide) &&
+          browserGenerationContext?.firstOutputAttemptId !==
+            browserGenerationAttemptId
+            ? browserGenerationAttemptId
+            : undefined;
         const data = {
           ...prevData,
           title: existingDeckTitle,
@@ -478,6 +489,14 @@ export default defineAction({
                       generationStartedAt,
                     }
                   : undefined,
+              }
+            : {}),
+          ...(browserFirstOutputAttemptId !== undefined
+            ? {
+                generationContext: {
+                  ...(browserGenerationContext ?? {}),
+                  firstOutputAttemptId: browserFirstOutputAttemptId,
+                },
               }
             : {}),
         };
@@ -504,6 +523,30 @@ export default defineAction({
             );
           assertDeckWriteApplied(updateResult, deckId, "deck replacement");
         });
+        if (browserFirstOutputAttemptId !== undefined) {
+          const targetSlideCount =
+            typeof browserGenerationContext?.targetSlideCount === "number" &&
+            Number.isFinite(browserGenerationContext.targetSlideCount) &&
+            browserGenerationContext.targetSlideCount > 0
+              ? browserGenerationContext.targetSlideCount
+              : null;
+          const browserGenerationStartedAt =
+            typeof browserGenerationContext?.generationStartedAt === "number" &&
+            Number.isFinite(browserGenerationContext.generationStartedAt) &&
+            browserGenerationContext.generationStartedAt >= 0
+              ? browserGenerationContext.generationStartedAt
+              : undefined;
+          const browserSessionId = getRequestContext()?.browserSessionId;
+          noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
+            deckId,
+            generationAttemptId,
+            targetSlideCount,
+            ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+            ...(browserGenerationStartedAt !== undefined
+              ? { generationStartedAt: browserGenerationStartedAt }
+              : {}),
+          });
+        }
         let loadedDesignSystem: Awaited<
           ReturnType<typeof loadAgentDesignSystemContext>
         > = null;

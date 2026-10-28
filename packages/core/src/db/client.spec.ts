@@ -274,6 +274,21 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
+  it("uses only DATABASE_URL when an explicit database is required", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("PLAN_DATABASE_URL", "postgres://plan.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { getDatabaseUrl } = await import("./client.js");
+
+    expect(getDatabaseUrl("", { explicitOnly: true })).toBe("");
+
+    vi.stubEnv("DATABASE_URL", "postgres://selected.example/db");
+    expect(getDatabaseUrl("", { explicitOnly: true })).toBe(
+      "postgres://selected.example/db",
+    );
+  });
+
   it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
     vi.stubEnv("APP_NAME", "plan");
     vi.stubEnv("DATABASE_URL", "");
@@ -1320,6 +1335,18 @@ describe("initClient hosted-runtime local database guard", () => {
 });
 
 describe("toPostgresParams", () => {
+  it("rewrites only generated SQL fragment bind markers", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT payload ? 'key', payload ?| ARRAY['tag'], payload ?& ARRAY['tag'] FROM records WHERE id = ${sql.value("thread-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe(
+      "SELECT payload ? 'key', payload ?| ARRAY['tag'], payload ?& ARRAY['tag'] FROM records WHERE id = $1",
+    );
+  });
+
   it("converts placeholders while preserving question marks inside SQL literals", async () => {
     const { toPostgresParams } = await import("./client.js");
 
@@ -1344,6 +1371,16 @@ describe("toPostgresParams", () => {
     );
   });
 
+  it("does not treat dollar delimiters inside identifiers as dollar quotes", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT foo$bar$col FROM records WHERE id = ${sql.value("record-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe("SELECT foo$bar$col FROM records WHERE id = $1");
+  });
+
   it("converts placeholders after a backslash SQL string literal", async () => {
     const { toPostgresParams } = await import("./client.js");
 
@@ -1354,6 +1391,16 @@ describe("toPostgresParams", () => {
     ).toBe(
       "SELECT * FROM org_members WHERE email LIKE $1 ESCAPE '\\' AND role = $2 LIMIT $3 OFFSET $4",
     );
+  });
+
+  it("converts fragment bind markers after escaped quotes in PostgreSQL E strings", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT E'it\'s' WHERE id = ${sql.value("member-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe("SELECT E'it\\'s' WHERE id = $1");
   });
 });
 
