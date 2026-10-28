@@ -3745,6 +3745,8 @@ interface AgentNativeMessageProjectionState {
     connectionPending: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
+    /** Ids given to tool input that streamed without one, by tool name. */
+    pendingToolInputIds?: Map<string, string>;
   };
 }
 
@@ -4092,6 +4094,16 @@ function steeredUserMessageEvent(raw: unknown):
   };
 }
 
+function pendingToolInputId(
+  message: { pendingToolInputIds?: Map<string, string> },
+  tool: string,
+): string {
+  const pending = (message.pendingToolInputIds ??= new Map<string, string>());
+  const id = pending.get(tool) ?? createRuntimeId("tool");
+  pending.set(tool, id);
+  return id;
+}
+
 function mapAgentNativeEvent(
   raw: unknown,
   input: {
@@ -4105,6 +4117,7 @@ function mapAgentNativeEvent(
       pendingApprovalToolCallId?: string | undefined;
       connectionPending: boolean;
       activityParticipants?: Set<string>;
+      pendingToolInputIds?: Map<string, string>;
     };
   },
 ): AgentChatRuntimeKnownEvent[] {
@@ -4230,8 +4243,32 @@ function mapAgentNativeEvent(
       },
     ];
   }
+  if (ev.type === "tool_input_delta") {
+    // Arguments stream long before the tool runs; generation previews render
+    // them as they arrive, so dropping these leaves a preview with nothing.
+    if (!ev.text) return [];
+    // An engine may stream input without a call id. Give that call one id
+    // for all its deltas and the tool_start that follows, so the preview and
+    // the finished tool are the same call.
+    const toolCallId =
+      ev.id || pendingToolInputId(input.message, ev.tool ?? "");
+    return [
+      {
+        type: "tool-delta",
+        ...base,
+        toolCallId,
+        ...(ev.tool ? { toolName: ev.tool } : {}),
+        inputTextDelta: ev.text,
+      },
+    ];
+  }
   if (ev.type === "tool_start") {
-    const toolCallId = ev.id ?? createRuntimeId("tool");
+    const pendingInputIds = input.message.pendingToolInputIds;
+    const pendingInputId =
+      pendingInputIds?.get(ev.tool ?? "") ?? pendingInputIds?.get("");
+    pendingInputIds?.delete(ev.tool ?? "");
+    pendingInputIds?.delete("");
+    const toolCallId = ev.id ?? pendingInputId ?? createRuntimeId("tool");
     const toolName = ev.tool ?? "unknown";
     const structuredMeta = agentNativeStructuredMeta(ev);
     const toolCall = input.message.content.find(

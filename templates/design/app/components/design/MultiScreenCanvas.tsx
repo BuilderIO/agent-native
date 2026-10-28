@@ -506,6 +506,12 @@ export function isApplePlatform(): boolean {
 const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
 const VECTOR_EDIT_HIT_RADIUS_SCREEN_PX = 8;
 
+import { GENERATED_FRAME_GAP } from "@shared/canvas-dimensions";
+
+import {
+  GeneratingScreenGhost,
+  useSettlingGenerationId,
+} from "./GeneratingScreenGhost";
 import {
   alignmentGuidesEqual,
   altHoverMeasurementEqual,
@@ -892,6 +898,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     onBoardTextContentChange,
   } = {},
   canvasBackground,
+  generatingDesignId = null,
+  activeDesignId = "",
   onDropFiles,
 }: MultiScreenCanvasGroupedProps) {
   const { resolvedTheme } = useTheme();
@@ -11282,6 +11290,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const scale = canvasZoom / 100;
   const chromeScale = scale > 0 ? 1 / scale : 1;
+  // Where a newly generated screen lands: right of the existing screens, the
+  // same gap `nextCanvasFramePosition` places it at.
+  const ghostDesignId = useSettlingGenerationId(
+    generatingDesignId,
+    activeDesignId,
+  );
+  const generatingScreenOrigin = useMemo(() => {
+    if (!ghostDesignId) return null;
+    const bounds = getFrameGroupBounds(
+      screens.map((screen, index) => ({
+        id: screen.id,
+        geometry:
+          frameGeometry[screen.id] ??
+          getInitialFrameGeometry(index, getResolvedMetadata(screen)),
+      })),
+    );
+    // Where `generate-design` saves a new screen: right of every frame, on
+    // the top row.
+    return { x: bounds ? bounds.right + GENERATED_FRAME_GAP : 0, y: 0 };
+  }, [frameGeometry, ghostDesignId, getResolvedMetadata, screens]);
   const showPixelGrid = pixelGridEnabled && canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
   const lastTracedToolRef = useRef<string | null>(null);
@@ -13435,6 +13463,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }}
           />
         )
+      ) : null}
+
+      {ghostDesignId && generatingScreenOrigin ? (
+        <GeneratingScreenGhost
+          designId={ghostDesignId}
+          origin={generatingScreenOrigin}
+          pan={pan}
+          scale={scale}
+        />
       ) : null}
 
       {duplicatePreview ? (

@@ -119,6 +119,8 @@ export function renderOverviewCanvas({
   } = editorHistory;
   const {
     canEditDesign,
+    generating,
+    pendingGenerationActive,
     pinMode,
     canCommentDesign,
     reviewSendingThreadId,
@@ -508,6 +510,8 @@ export function renderOverviewCanvas({
             : undefined,
         }}
         canvasBackground={canvasBackground}
+        generatingDesignId={generating || pendingGenerationActive ? id : null}
+        activeDesignId={id}
         onDeleteSelection={handleDeleteOverviewSelection}
         screenRootComputedStylesById={screenRootComputedStylesById}
         onPick={handleOverviewScreenPick}

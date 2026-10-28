@@ -196,6 +196,7 @@
     "./client/session-replay-privacy": "./dist/client/session-replay-privacy.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
+    "./client/generation-stream": "./dist/client/generation-stream/index.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/theme": "./dist/client/theme.js",
     "./client/uploads": "./dist/client/uploads/index.js",
