@@ -222,8 +222,8 @@ Put each report in one bucket:
   answered, duplicates of something already in this run. These get no
   reaction and no reply.
 
-Sentry, Analytics, and chat-health issues go in the same buckets, ranked
-with the Slack reports by people affected. They have no thread to react on,
+Issues from the error and health sources above go in the same buckets,
+ranked with the Slack reports by people affected. They have no thread to react on,
 so they appear only in the recap.
 
 Take the Fix reports in order of how many people they hurt, and claim as
@@ -278,8 +278,9 @@ apart from Steve's own 👀.
 Put every fix in one PR, and open it once every claimed Fix report has a
 fix or a failed attempt, so CI waits come after the fixing. Don't open one
 PR per item. In the PR body, add a
-`Reports` section listing the Slack link of every report the PR fixes. That
-list is the only set of threads a later `/ship` may close out as fixed.
+`## Reports` heading listing the link of every report the PR fixes: the
+Slack thread, or the Sentry, Analytics, or GitHub issue. That list is the
+only set of threads a later `/ship` may close out as fixed.
 
 Merge it the way this repo merges PRs. In a Factory workspace, that means
 the workflow's merge step after its merge gate, never a direct merge.
