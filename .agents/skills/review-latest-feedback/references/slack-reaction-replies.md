@@ -7,8 +7,10 @@ this task's `👀`, `✅`, or `🎫`, including marks left by earlier runs. Capt
 the exact Slack actor ID used by the connected tool at sweep start. A mark is
 owned by this task only when its reaction owner ID matches that actor ID. Keep
 the disposition, evidence, scopes, and human actions in the internal inventory.
-Post a reporter reply only when this run adds a root reaction. Use one short,
-plain-language sentence to explain only the reaction(s) added in this run. Do
+Post a reporter reply when this run adds a root reaction, or when a newer human
+reporter message needs a direct answer. A reaction reply uses one short,
+plain-language sentence to explain only the reaction(s) added in this run. An
+answer to a newer human message answers only that message. Do
 not send progress, merge, or deployment updates. Never explain absent or
 unchanged reactions or whether a tracker ticket exists. If reporter input is
 needed, add `🎫` and ask one direct question in that reply. Read back each new
@@ -113,8 +115,8 @@ listed in `fixedScopes[]`; one root `🎫` covers every action listed in
 evidence changes its status, not the historical `🎫` reaction. Unclaimed items
 and another actor's marks are not ours to reply to. Reconcile each report as
 one unit: update and read back applicable root reactions before advancing to
-the next report. Add `✅` as soon as any reported scope passes the
-direct post-change proof bar, including before merge; use
+the next report. Add `✅` as soon as any reported scope passes the direct post-change proof bar
+and the fix is merged to `main`; an open PR never gets `✅`. Use
 **Partially fixed** for the internal disposition when another scope remains.
 Do not wait for an entire multi-symptom report to be resolved before checking
 off its verified scope. Keep all existing reactions after scopes close. Read

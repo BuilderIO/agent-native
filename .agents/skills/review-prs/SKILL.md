@@ -322,6 +322,8 @@ recap and leave the PR thread alone. Do not comment or reply to ask for, announc
 or explain that owner review is needed. This silence rule applies even after an
 author update; do not send a thanks-only or status reply while that review gate is
 outstanding.
+This silence rule does not suppress replies required on the active user's own PR
+under `/ship`, `/ship-now`, or `/babysit-pr`; those follow the own-PR reply rules.
 
 When a reply is explicitly requested or needed to resolve a review thread, begin
 by thanking the author for the PR, or for their update when they have updated it
