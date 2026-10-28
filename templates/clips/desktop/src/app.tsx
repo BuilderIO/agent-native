@@ -4598,12 +4598,14 @@ export function App({
     beginOptions?: {
       revealPopoverIfMicOff?: boolean;
       confirmedInReadyPanel?: boolean;
+      skipReadyPanel?: boolean;
     },
   ) {
     if (
       isMacPlatform() &&
       !options?.resumeCapture &&
-      !beginOptions?.confirmedInReadyPanel
+      !beginOptions?.confirmedInReadyPanel &&
+      !beginOptions?.skipReadyPanel
     ) {
       openReadyToRecord(!beginOptions?.revealPopoverIfMicOff);
       return;
@@ -4642,7 +4644,12 @@ export function App({
     invoke("show_ready_to_record").catch((error) => {
       console.error("[clips] ready-to-record panel failed to open:", error);
       readyToRecordRef.current = null;
-      beginRecording(undefined, { confirmedInReadyPanel: true });
+      // Nobody saw the panel, so keep the mic-off prompt. It lives in the
+      // popover, which was just hidden.
+      beginRecording(undefined, {
+        skipReadyPanel: true,
+        revealPopoverIfMicOff: true,
+      });
     });
   }
 

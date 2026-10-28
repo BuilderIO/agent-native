@@ -60,6 +60,15 @@ function ColorField({
   );
 }
 
+// Enter starts recording only when no control has focus; a focused button
+// or field keeps its own Enter behaviour.
+function isControl(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("button, input, select, textarea, a[href]") !== null
+  );
+}
+
 export function ReadyToRecord() {
   const [state, setState] = useState<ReadyToRecordState | null>(null);
   const [cursor, setCursor] = useState<CursorEffectsConfig>(
@@ -105,10 +114,7 @@ export function ReadyToRecord() {
       if (event.key === "Escape") {
         event.preventDefault();
         finish("cancel");
-      } else if (
-        event.key === "Enter" &&
-        !(event.target instanceof HTMLInputElement)
-      ) {
+      } else if (event.key === "Enter" && !isControl(event.target)) {
         event.preventDefault();
         finish("start");
       }
@@ -159,7 +165,7 @@ export function ReadyToRecord() {
             <div className="rtr-tile-head">
               <IconPointerFilled size={22} aria-hidden />
               <span className="rtr-tile-title">Cursor</span>
-              <StatusValue on dot />
+              <StatusValue on={highlightOn || clickOn} dot />
             </div>
             <button
               type="button"

@@ -2937,6 +2937,9 @@ pub async fn native_fullscreen_recording_begin(
                 );
             }
             drop(guard);
+            if selected_window.is_none() {
+                crate::cursor_effects::start(&app);
+            }
             return Ok(info);
         }
 
@@ -3632,7 +3635,19 @@ pub async fn native_fullscreen_recording_pause(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
-    crate::cursor_effects::set_paused(&app, true);
+    let result = pause_native_recording(&app, &state);
+    // Hide cursor effects only once capture has paused, so a failed pause
+    // keeps them on the still-running recording.
+    if result.is_ok() {
+        crate::cursor_effects::set_paused(&app, true);
+    }
+    result
+}
+
+fn pause_native_recording(
+    app: &AppHandle,
+    state: &NativeFullscreenRecordingState,
+) -> Result<(), String> {
     let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
     let session = guard
         .as_mut()

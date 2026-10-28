@@ -36,11 +36,18 @@ fn config_path(app: &AppHandle) -> Option<PathBuf> {
 }
 
 pub fn load_config(app: &AppHandle) -> CursorEffectsConfig {
-    config_path(app)
-        .and_then(|path| std::fs::read(path).ok())
-        .and_then(|bytes| serde_json::from_slice::<CursorEffectsConfig>(&bytes).ok())
-        .and_then(|config| config.normalized().ok())
-        .unwrap_or_default()
+    let Some(bytes) = config_path(app).and_then(|path| std::fs::read(path).ok()) else {
+        return CursorEffectsConfig::default();
+    };
+    serde_json::from_slice::<CursorEffectsConfig>(&bytes)
+        .map_err(|e| e.to_string())
+        .and_then(CursorEffectsConfig::normalized)
+        .unwrap_or_else(|error| {
+            eprintln!(
+                "[clips-tray] cursor effects: {CONFIG_FILE} unreadable, using defaults: {error}"
+            );
+            CursorEffectsConfig::default()
+        })
 }
 
 fn save_config(app: &AppHandle, config: &CursorEffectsConfig) -> Result<(), String> {
