@@ -283,18 +283,20 @@ describe("unknownPanelConfigKeys", () => {
     const listDrilldown = {
       sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
     };
-    const [issue] = unknownPanelConfigKeys(
+    const issues = unknownPanelConfigKeys(
       panel({ drilldown: listDrilldown }, extra),
     );
 
-    expect(issue).toMatchObject({ kind: "invalid-value", key: "drilldown" });
-    expect(issue.message).toContain(
+    expect(issues).toMatchObject([{ kind: "invalid-value", key: "drilldown" }]);
+    const message = issues.map((issue) => issue.message).join("\n");
+    expect(message).toContain("without :list variables or {{?…}} blocks, not");
+    expect(message).toContain(
       "Record templates must not use list variables such as {{appFilter:list}}.",
     );
-    expect(issue.message).toContain(
+    expect(message).toContain(
       "In BigQuery: ('{{appFilter}}' IN ('', 'all') OR <column> IN UNNEST(SPLIT('{{appFilter}}', ',')))",
     );
-    expect(issue.message).toContain(
+    expect(message).toContain(
       "In first-party SQL: ('{{appFilter}}' IN ('', 'all') OR STRPOS(',' || '{{appFilter}}' || ',', ',' || <column> || ',') > 0).",
     );
     expect(

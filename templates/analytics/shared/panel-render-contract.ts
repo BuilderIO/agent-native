@@ -350,7 +350,7 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
       isValidPanelDrilldown(value) &&
       panelDrilldownSqlProblem(value.sql) === null,
     expected:
-      "an object with only sql, a non-empty SQL template of at most 50000 characters using drillX, drillSeries and dashboard filter variables",
+      "an object with only sql, a non-empty SQL template of at most 50000 characters using drillX, drillSeries and dashboard filter variables, without :list variables or {{?…}} blocks",
     problem: (value) =>
       isValidPanelDrilldown(value) ? panelDrilldownSqlProblem(value.sql) : null,
   },
