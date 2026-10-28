@@ -5976,9 +5976,15 @@ function AgentKitComposerSurface({
     props.suggestionPlacement === "context-chips" &&
     showSuggestions &&
     suggestions.length > 0;
+  const showSetupCard =
+    setupMissing &&
+    props.showMissingApiKeySetup !== false &&
+    props.setupCardOwner !== "host";
   // Starters for a docked chat share the follow-up row above the composer,
-  // so the chips never move when the first message lands.
+  // so the chips never move when the first message lands. The setup card
+  // tucks under the composer, so the row steps aside while the card shows.
   const showSuggestionsSlot =
+    !showSetupCard &&
     props.suggestionPlacement !== "hidden" &&
     (hasRenderedMessages ||
       (props.suggestionPlacement === "context-chips" &&
@@ -6037,9 +6043,7 @@ function AgentKitComposerSurface({
       {showPlanCallout ? (
         <PlanModeCallout onImplementPlan={onImplementPlan} />
       ) : null}
-      {setupMissing &&
-      props.showMissingApiKeySetup !== false &&
-      props.setupCardOwner !== "host" ? (
+      {showSetupCard ? (
         <BuilderSetupCard
           fullWidth
           attached

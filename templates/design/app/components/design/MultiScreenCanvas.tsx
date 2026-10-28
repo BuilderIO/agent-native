@@ -127,7 +127,10 @@ import { getMarqueeScreenSelectionIds } from "@/pages/design-editor/selection-st
 
 import { tweakBridgeScript } from "../../../.generated/bridge/tweak.generated";
 import { parseBreakpointWidthInput } from "./BreakpointBar";
-import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
+import {
+  isCanvasOverlayInteractionTarget,
+  isReviewForwardedWheel,
+} from "./canvas-interactions/review-overlay-interaction";
 import {
   canvasPrimitiveReactStyle,
   canvasVectorPaint,
@@ -767,6 +770,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     reviewTargetId,
     reviewFocusRequest,
     reviewCurrentUserEmail,
+    onReviewActiveThreadChange,
     onExitReviewPinMode,
     onDispatchCommentToAgent,
     onSendThreadToAgent,
@@ -10810,7 +10814,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const handleWheelEvent = useCallback(
     (event: WheelEvent) => {
-      if (focusedInteractRef.current || !event.isTrusted) return;
+      if (
+        focusedInteractRef.current ||
+        (!event.isTrusted && !isReviewForwardedWheel(event))
+      ) {
+        return;
+      }
       invalidateSnapGesture();
       if (event.cancelable) event.preventDefault();
       event.stopPropagation();
@@ -10831,28 +10840,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     const surface = surfaceRef.current;
     if (!surface) return;
-    // The comment click plane is portaled to body, so wheels over it never reach the surface.
-    const handlePlaneWheel = (event: WheelEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest("[data-review-click-plane]")
-      ) {
-        handleWheelEvent(event);
-      }
-    };
     surface.addEventListener("wheel", handleWheelEvent, {
-      capture: true,
-      passive: false,
-    });
-    document.addEventListener("wheel", handlePlaneWheel, {
       capture: true,
       passive: false,
     });
     return () => {
       surface.removeEventListener("wheel", handleWheelEvent, {
-        capture: true,
-      });
-      document.removeEventListener("wheel", handlePlaneWheel, {
         capture: true,
       });
     };
@@ -12770,6 +12763,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onReviewFocusBoardPoint={focusBoardReviewPoint}
                   reviewCurrentUserEmail={reviewCurrentUserEmail}
                   reviewFocusRequest={reviewFocusRequest}
+                  onReviewActiveThreadChange={onReviewActiveThreadChange}
                   onDispatchCommentToAgent={onDispatchCommentToAgent}
                   onSendThreadToAgent={onSendThreadToAgent}
                   reviewSendingThreadId={reviewSendingThreadId}
@@ -12812,6 +12806,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               canResolve={reviewCanResolve ?? false}
               currentUserEmail={reviewCurrentUserEmail}
               focusRequest={reviewFocusRequest}
+              onActiveThreadChange={onReviewActiveThreadChange}
               onFocusBoardPoint={focusBoardReviewPoint}
               onDispatchCommentToAgent={onDispatchCommentToAgent}
               onSendThreadToAgent={onSendThreadToAgent}
