@@ -91,6 +91,13 @@ describe("parseReports", () => {
     );
   });
 
+  it("reads a lowercase reports heading", () => {
+    assert.equal(
+      parseReports("## reports\n- https://app.slack.com/a")?.length,
+      1,
+    );
+  });
+
   it("returns null without a Reports section", () => {
     assert.equal(parseReports("## Summary\n- https://example.com"), null);
   });
@@ -126,6 +133,7 @@ describe("feedback-fix-proof", () => {
 
   it("cannot run when Reports is mentioned but not a heading", () => {
     assert.equal(gate("see # Reports below\n").status, 2);
+    assert.equal(gate("see # reports below\n").status, 2);
   });
 
   it("cannot run on a Reports section with no links", () => {
