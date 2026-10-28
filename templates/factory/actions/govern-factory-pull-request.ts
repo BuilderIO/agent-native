@@ -180,6 +180,12 @@ type ManualDispositionResult =
   | { kind: "recorded" }
   | { kind: "terminal"; status: "merged" | "resolved" | "dismissed" };
 
+function isTerminalFactoryItemStatus(
+  status: string,
+): status is "merged" | "resolved" | "dismissed" {
+  return status === "merged" || status === "resolved" || status === "dismissed";
+}
+
 async function recordManualPullRequestDisposition(input: {
   factoryId: string;
   headSha: string;
@@ -187,6 +193,7 @@ async function recordManualPullRequestDisposition(input: {
   orgId: string;
   ownerEmail: string;
   reason: string;
+  reopenAutoApproved?: boolean;
 }): Promise<ManualDispositionResult> {
   const now = new Date().toISOString();
   const decisionId = stableId(
@@ -196,19 +203,22 @@ async function recordManualPullRequestDisposition(input: {
     input.headSha,
   );
   return getDb().transaction(async (tx) => {
+    const statusesToPreserve = input.reopenAutoApproved
+      ? ["reconciliation_required", "merged", "resolved", "dismissed"]
+      : [
+          "auto_approved",
+          "reconciliation_required",
+          "merged",
+          "resolved",
+          "dismissed",
+        ];
     const updatedItems = await tx
       .update(triageItems)
       .set({ status: "needs_manual", updatedAt: now })
       .where(
         and(
           orgFactoryScopedItemWhere(input.itemId, input.orgId, input.factoryId),
-          notInArray(triageItems.status, [
-            "auto_approved",
-            "reconciliation_required",
-            "merged",
-            "resolved",
-            "dismissed",
-          ]),
+          notInArray(triageItems.status, statusesToPreserve),
         ),
       )
       .returning({ id: triageItems.id });
@@ -390,6 +400,7 @@ export default defineAction({
           .select({
             repository: triageItems.repository,
             pullRequestNumber: triageItems.pullRequestNumber,
+            status: triageItems.status,
           })
           .from(triageItems)
           .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
@@ -404,6 +415,13 @@ export default defineAction({
         throw new Error(
           "Factory item does not match the governed repository and pull request.",
         );
+      }
+      if (isTerminalFactoryItemStatus(item.status)) {
+        return {
+          ok: true,
+          action: "skipped",
+          reason: `Factory item is already ${item.status}; no pull-request approval was attempted.`,
+        };
       }
     }
     const github = createGitHubClient({ ownerEmail: userEmail, orgId });
@@ -539,6 +557,23 @@ export default defineAction({
       !snapshot.commentsTruncated &&
       !snapshot.reviewsTruncated &&
       !hasActiveCredibleSafetyFinding(snapshot.reviews, snapshot.comments);
+    const checksPassed = hasCompletePassingChecks(snapshot);
+    const reviewFeedback = reconcileBabysitState({
+      comments: snapshot.comments,
+      checks: snapshot.checks,
+      checksCoverage: snapshot.checksCoverage,
+      commentsTruncated: snapshot.commentsTruncated,
+      reviews: snapshot.reviews,
+      reviewsTruncated: snapshot.reviewsTruncated,
+      botAuthors: [
+        "github-actions",
+        "github-actions[bot]",
+        "dependabot[bot]",
+        "builderio[bot]",
+      ],
+    });
+    const reviewFeedbackHandled =
+      blockingReviewStatesClean && reviewFeedback.isClean;
     let currentApprovals;
     try {
       currentApprovals = currentPullRequestApprovalsWithIdentity(
@@ -710,6 +745,53 @@ export default defineAction({
       return { ok: true, action: "needs_manual", reason: manualReason };
     }
     if (currentApproval || attributedFactoryApproval) {
+      if (!reviewFeedbackHandled || !safetyFindingsClean) {
+        const manualReason = !blockingReviewStatesClean
+          ? "A current-head approval exists, but a newer blocking pull-request review needs manual handling."
+          : !safetyFindingsClean
+            ? "A current-head approval exists, but safety evidence is incomplete or contains an active finding."
+            : "A current-head approval exists, but checks or review feedback still need manual handling.";
+        await reconcileClaim(pullRequest.headSha, manualReason);
+        const disposition = await recordManualPullRequestDisposition({
+          factoryId,
+          headSha: pullRequest.headSha,
+          itemId,
+          orgId,
+          ownerEmail: userEmail,
+          reason: manualReason,
+          reopenAutoApproved: true,
+        });
+        if (disposition.kind === "terminal") {
+          return {
+            ok: true,
+            action: "skipped",
+            reason: `Pull-request evidence needs manual handling, but the Factory item is already ${disposition.status}; no disposition was recorded.`,
+          };
+        }
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "govern-factory-pull-request",
+            kind: "governance",
+            status: "skipped",
+            itemId,
+            source: "github",
+            sourceUrl: pullRequest.htmlUrl,
+            summary: manualReason,
+            details: {
+              repo,
+              pullRequestNumber,
+              currentHeadApproval: true,
+              blockingReviewStatesClean,
+              safetyFindingsClean,
+              reviewFeedbackHandled,
+            },
+          },
+          factoryId,
+        );
+        return { ok: true, action: "needs_manual", reason: manualReason };
+      }
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -936,23 +1018,6 @@ export default defineAction({
       };
     }
 
-    const checksPassed = hasCompletePassingChecks(snapshot);
-    const reviewFeedback = reconcileBabysitState({
-      comments: snapshot.comments,
-      checks: snapshot.checks,
-      checksCoverage: snapshot.checksCoverage,
-      commentsTruncated: snapshot.commentsTruncated,
-      reviews: snapshot.reviews,
-      reviewsTruncated: snapshot.reviewsTruncated,
-      botAuthors: [
-        "github-actions",
-        "github-actions[bot]",
-        "dependabot[bot]",
-        "builderio[bot]",
-      ],
-    });
-    const reviewFeedbackHandled =
-      blockingReviewStatesClean && reviewFeedback.isClean;
     const factoryTriggered = await hasVerifiedFactoryRun({
       itemId,
       orgId,
@@ -1474,6 +1539,37 @@ export default defineAction({
             action: "needs_manual",
             reason:
               "Review evidence changed before approval; no duplicate or unsafe approval was posted.",
+          };
+        }
+        const latestItems = await getDb()
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+          .limit(1);
+        type LatestItemResult =
+          | { found: true; item: (typeof latestItems)[number] }
+          | { found: false };
+        let latestItemResult: LatestItemResult = { found: false };
+        for (const item of latestItems) {
+          latestItemResult = { found: true, item };
+          break;
+        }
+        if (!latestItemResult.found) {
+          fail("Factory item disappeared before GitHub approval.", {
+            errorCode: "factory_item_not_found",
+            statusCode: 404,
+          });
+        }
+        const latestItem = latestItemResult.item;
+        if (isTerminalFactoryItemStatus(latestItem.status)) {
+          await reconcileClaim(
+            pullRequest.headSha,
+            `Factory item became ${latestItem.status} before GitHub approval; the approval was not posted.`,
+          );
+          return {
+            ok: true,
+            action: "skipped",
+            reason: `Factory item became ${latestItem.status} before GitHub approval; no approval was posted.`,
           };
         }
         const decisionId = stableId(
