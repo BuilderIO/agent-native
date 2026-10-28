@@ -43,7 +43,7 @@ export function privateDocumentRedirectScript(
     basePath,
   )}).signInJourney({at:page}).signInHref||page;var follow=false;if(${SESSION_HINT_EXPRESSION}){try{var key=${safeJsonForHtml(
     PRIVATE_LINK_ATTEMPT_KEY_PREFIX,
-  )}+${page};var now=Date.now();if(now-Number(sessionStorage.getItem(key))<${PRIVATE_LINK_ATTEMPT_WINDOW_MS}){sessionStorage.removeItem(key);}else{sessionStorage.setItem(key,String(now));follow=true;}}catch(e){}}location.replace(follow?page:signIn);})();`;
+  )}+${page};var now=Date.now();if(now-Number(sessionStorage.getItem(key))<${PRIVATE_LINK_ATTEMPT_WINDOW_MS}){sessionStorage.removeItem(key);}else{sessionStorage.setItem(key,String(now));follow=true;}}catch(e){follow=false;}}location.replace(follow?page:signIn);})();`;
 }
 
 // Whether to follow the session hint to the page this time. Without storage
@@ -63,6 +63,7 @@ function followSessionHint(pageHref: string): boolean {
     window.sessionStorage.setItem(key, String(now));
     return true;
   } catch {
+    // coercion-ok: blocked storage can't tell a return visit from a first one, so sign-in is the answer.
     return false;
   }
 }
