@@ -29,7 +29,7 @@ import {
 } from "./query.ts";
 
 describe("radar query safety", () => {
-  it("isolates selected live environment settings while allowing campaign secrets", () => {
+  it("isolates selected live settings and keeps campaign HMAC values paired", () => {
     expect(radarEnvironmentFiles("/analytics", "/live/.env")).toEqual([
       "/live/.env",
     ]);
@@ -46,7 +46,25 @@ describe("radar query safety", () => {
       ),
     ).toEqual({
       ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "fake-hmac-key",
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "p.d.f",
     });
+    const selectedFileValues = {
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "file-hmac-key",
+      ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "file.project.function",
+    };
+    expect({
+      ...selectedFileValues,
+      ...radarProcessEnvironment(
+        { ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY: "ambient-hmac-key" },
+        true,
+      ),
+    }).toEqual(selectedFileValues);
+    expect(
+      radarProcessEnvironment(
+        { ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION: "p.d.f" },
+        true,
+      ),
+    ).toEqual({});
     expect(radarEnvironmentFiles("/analytics")).toEqual([
       "/analytics/.env",
       "/analytics/.env.local",

@@ -184,8 +184,9 @@ export function isLocalDatabaseUrl(value: string): boolean {
   return ["localhost", "127.0.0.1", "::1"].includes(hostname);
 }
 
-const SELECTED_ENV_RUNTIME_KEYS = new Set([
+const SELECTED_ENV_CAMPAIGN_HMAC_KEYS = new Set([
   "ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY",
+  "ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION",
 ]);
 
 export function radarEnvironmentFiles(
@@ -221,11 +222,17 @@ export function radarProcessEnvironment(
   processValues: Record<string, string | undefined>,
   selectedFile: boolean,
 ): Record<string, string> {
+  const hasCampaignHmacPair = Boolean(
+    processValues.ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY &&
+    processValues.ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION,
+  );
   return Object.fromEntries(
     Object.entries(processValues).filter(
       (entry): entry is [string, string] =>
         entry[1] !== undefined &&
-        (!selectedFile || SELECTED_ENV_RUNTIME_KEYS.has(entry[0])),
+        (!selectedFile ||
+          (SELECTED_ENV_CAMPAIGN_HMAC_KEYS.has(entry[0]) &&
+            hasCampaignHmacPair)),
     ),
   );
 }

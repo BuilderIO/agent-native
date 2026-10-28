@@ -2562,6 +2562,7 @@ function hasPragma(node: ts.Node): boolean {
 export interface RawSqlGuardSource {
   source: string;
   addedLines: ReadonlySet<number>;
+  traceSqlCallLines?: ReadonlySet<number>;
   removedPragmaLines?: ReadonlySet<number>;
 }
 
@@ -3503,7 +3504,8 @@ export function addChangedSqlExecuteWrapperModules(
   };
 
   const changedSources = [...sources].filter(
-    ([, input]) => input.addedLines.size > 0,
+    ([, input]) =>
+      input.addedLines.size > 0 || (input.traceSqlCallLines?.size ?? 0) > 0,
   );
   for (const [file, input] of changedSources) {
     const sourceFile = ts.createSourceFile(
@@ -3515,10 +3517,10 @@ export function addChangedSqlExecuteWrapperModules(
     );
     const checker = createChecker(sourceFile);
     const analysis = buildSqlAnalysis(sourceFile, checker);
-    const addedLines = [...input.addedLines].sort(
-      (left, right) => left - right,
-    );
-    const changedSymbols = changedSqlSourceSymbols(analysis, addedLines);
+    const changedLines = [
+      ...new Set([...input.addedLines, ...(input.traceSqlCallLines ?? [])]),
+    ].sort((left, right) => left - right);
+    const changedSymbols = changedSqlSourceSymbols(analysis, changedLines);
     const visitChangedCalls = (node: ts.Node) => {
       if (
         ts.isCallExpression(node) &&
@@ -3536,7 +3538,7 @@ export function addChangedSqlExecuteWrapperModules(
             hasInterpolatedTemplate(
               argument,
               analysis,
-              addedLines,
+              changedLines,
               changedSymbols,
             )
           ) {
@@ -3674,6 +3676,7 @@ export function addChangedSqlExecuteWrapperModules(
 
 function addChangedSqlHelperCallers(
   sources: Map<string, RawSqlGuardSource>,
+  findCallerFiles = gitGrepMatches,
 ): void {
   const helperNames = new Set<string>();
   for (const [file, input] of sources) {
@@ -3692,7 +3695,7 @@ function addChangedSqlHelperCallers(
   const candidateFiles = new Set<string>();
   for (let offset = 0; offset < names.length; offset += 80) {
     const batch = names.slice(offset, offset + 80);
-    for (const file of gitGrepMatches(batch)) {
+    for (const file of findCallerFiles(batch)) {
       candidateFiles.add(path.resolve(rootDir, file));
     }
   }
@@ -3713,8 +3716,87 @@ function addChangedSqlHelperCallers(
         `could not read ${path.relative(rootDir, file)}: ${message}`,
       );
     }
-    sources.set(file, { source, addedLines: new Set() });
+    sources.set(file, {
+      source,
+      addedLines: new Set(),
+      traceSqlCallLines: changedSqlHelperCallsiteLines(
+        source,
+        file,
+        new Set(helperNames),
+      ),
+    });
   }
+}
+
+function changedSqlHelperCallsiteLines(
+  source: string,
+  file: string,
+  helperNames: ReadonlySet<string>,
+): Set<number> {
+  const sourceFile = ts.createSourceFile(
+    path.resolve(file),
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKind(file),
+  );
+  const importedNames = new Set<string>();
+  const namespaceImports = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !statement.importClause?.namedBindings
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause.namedBindings;
+    if (ts.isNamespaceImport(bindings)) {
+      namespaceImports.add(bindings.name.text);
+      continue;
+    }
+    for (const element of bindings.elements) {
+      const importedName = element.propertyName?.text ?? element.name.text;
+      if (helperNames.has(importedName)) importedNames.add(element.name.text);
+    }
+  }
+
+  const changedLines = new Set<number>();
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const callee = unwrapExecuteExpression(node.expression);
+      const isChangedHelperCall =
+        (ts.isIdentifier(callee) && importedNames.has(callee.text)) ||
+        (ts.isPropertyAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          namespaceImports.has(callee.expression.text) &&
+          helperNames.has(callee.name.text)) ||
+        (ts.isElementAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          namespaceImports.has(callee.expression.text) &&
+          helperNames.has(
+            staticStringPropertyName(callee.argumentExpression) ?? "",
+          ));
+      if (isChangedHelperCall) {
+        const startLine = lineNumberAt(sourceFile, node.getStart(sourceFile));
+        const endLine = lineNumberAt(sourceFile, node.end);
+        for (let line = startLine; line <= endLine; line += 1) {
+          changedLines.add(line);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return changedLines;
+}
+
+export function addChangedSqlCallSiteModules(
+  sources: Map<string, RawSqlGuardSource>,
+  findCallerFiles = gitGrepMatches,
+  resolveSourceFile = resolveImportedSourceFile,
+): void {
+  addChangedSqlHelperCallers(sources, findCallerFiles);
+  addChangedSqlExecuteWrapperModules(sources, resolveSourceFile);
 }
 
 function main() {
@@ -3792,8 +3874,7 @@ function main() {
 
   let findings: RawSqlInterpolationFinding[];
   try {
-    addChangedSqlHelperCallers(sources);
-    addChangedSqlExecuteWrapperModules(sources);
+    addChangedSqlCallSiteModules(sources);
     findings = findRawSqlInterpolationViolationsInSources(sources);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

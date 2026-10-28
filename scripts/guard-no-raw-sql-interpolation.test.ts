@@ -1,9 +1,11 @@
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
+  addChangedSqlCallSiteModules,
   addChangedSqlExecuteWrapperModules,
   findRawSqlInterpolationViolations,
   findRawSqlInterpolationViolationsInSources,
@@ -766,6 +768,53 @@ describe("raw SQL interpolation guard", () => {
           "const statement = `SELECT * FROM records WHERE id = ${recordId}`;",
       },
     ]);
+  });
+
+  it("discovers an unchanged wrapper from a changed SQL helper caller", () => {
+    const fixtureDir = mkdtempSync(
+      resolve(process.cwd(), ".tmp/raw-sql-wrapper-discovery-"),
+    );
+    const helperFile = resolve(fixtureDir, "sql-helpers.ts");
+    const callerFile = resolve(fixtureDir, "store.ts");
+    const wrapperFile = resolve(fixtureDir, "query-wrapper.ts");
+    const helper = [
+      "export function ownerFilter(ownerId: string) {",
+      "  return `owner_id = ${ownerId}`;",
+      "}",
+    ].join("\n");
+    const caller = [
+      'import { ownerFilter } from "./sql-helpers.js";',
+      'import { runQuery } from "./query-wrapper.js";',
+      "runQuery(`SELECT * FROM records WHERE ${ownerFilter(ownerId)}`);",
+    ].join("\n");
+    const wrapper = [
+      'import { getDbExec } from "@agent-native/core/db";',
+      "export function runQuery(query: string) {",
+      "  getDbExec().execute({ sql: query, args: [] });",
+      "}",
+    ].join("\n");
+
+    try {
+      writeFileSync(callerFile, caller);
+      writeFileSync(wrapperFile, wrapper);
+      const sources = new Map<string, RawSqlGuardSource>([
+        [helperFile, { source: helper, addedLines: new Set([2]) }],
+      ]);
+
+      addChangedSqlCallSiteModules(sources, () => [callerFile]);
+
+      expect(sources.has(callerFile)).toBe(true);
+      expect(sources.has(wrapperFile)).toBe(true);
+      expect(findRawSqlInterpolationViolationsInSources(sources)).toEqual([
+        {
+          file: relative(process.cwd(), helperFile),
+          line: 2,
+          snippet: "return `owner_id = ${ownerId}`;",
+        },
+      ]);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   it("traces imported wrappers that forward SQL through another wrapper", () => {
