@@ -1,3 +1,4 @@
+import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.hoisted(() => vi.fn());
@@ -12,7 +13,8 @@ const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 const getAppConfigMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@modelcontextprotocol/client", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@modelcontextprotocol/client")>()),
   auth: authMock,
   discoverOAuthServerInfo: discoverOAuthServerInfoMock,
   refreshAuthorization: refreshAuthorizationMock,
@@ -67,6 +69,7 @@ import {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
   McpOAuthClientProvider,
+  McpOAuthRefreshUnavailableError,
   readMcpOAuthCredentials,
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
@@ -868,6 +871,55 @@ describe("MCP OAuth client", () => {
         serverUrl: "https://mcp.example.com/mcp",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("keeps an expired Builder grant retryable and reports transient refresh failure", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure: (error) =>
+          error instanceof OAuthError &&
+          error.code === OAuthErrorCode.InvalidGrant,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+
+    expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a forced transient refresh failure as unavailable while the saved token remains connected", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() + 3_600_000,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+        forceRefresh: true,
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure: () => false,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+
+    expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
   });
 
   it("keeps a still-valid token when an early refresh fails", async () => {

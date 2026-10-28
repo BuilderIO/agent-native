@@ -1,10 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconCamera,
-  IconChevronDown,
-  IconLink,
-  IconUpload,
-} from "@tabler/icons-react";
+import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
@@ -116,12 +111,10 @@ export function ImportMenu({
                 openUploadPicker(uploadHref);
               }}
             >
-              <IconUpload />
               {t("preRecord.uploadVideo")}
             </DropdownMenuItem>
           ) : onUpload ? (
             <DropdownMenuItem onSelect={onUpload}>
-              <IconUpload />
               {t("preRecord.uploadVideo")}
             </DropdownMenuItem>
           ) : null}
@@ -135,7 +128,6 @@ export function ImportMenu({
                 onScreenshot();
               }}
             >
-              <IconCamera />
               {t("preRecord.takeScreenshot")}
             </DropdownMenuItem>
           ) : null}
@@ -145,7 +137,6 @@ export function ImportMenu({
                 setTimeout(() => setLoomDialogOpen(true), 0);
               }}
             >
-              <IconLink />
               {t("preRecord.importLoom")}
             </DropdownMenuItem>
           ) : null}

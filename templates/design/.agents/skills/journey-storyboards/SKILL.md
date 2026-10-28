@@ -97,14 +97,17 @@ Each call accepts at most 2,000 journey nodes and 900 frame entries, with a
 256 MiB total screenshot-byte limit.
 For independent app trees on one board, set `layoutMode: "appBands"`,
 `tree.app: "all"`, app-prefixed node keys such as `clips::...`, and
-`tree.appRootN` to the root denominator for each app. The layout places each
-tree in its own side-by-side band, keeps edges within that app, and labels root
-percentages against that app's denominator. It never adds app populations
+`tree.appRootN` to the root denominator for each app. Multiple cohorts from one
+app can share the board with keys such as `design::credits::...`; their root
+denominators are keyed by cohort instead. The first key segment stays the real
+source app, so frame `sourceApp` remains `design`. Each app or cohort gets its
+own side-by-side band, edges stay within that band, and root percentages use
+that band's denominator. The layout never adds app or cohort populations
 together. The main role/setup path is placed at the top of its band before
 independent route components; edges and cohort counts remain unchanged. The
 default `layoutMode: "tree"` draws one tree or forest as before.
-App-band percentages must match `n / appRootN[app]`; do not pass a global
-denominator for per-app roots.
+App-band percentages must match `n / appRootN[band]`; do not pass a global
+denominator for separate bands.
 `locale` selects the translated labels inside each standalone storyboard card;
 it defaults to `en-US`.
 `allowEncryptedPublicUploadFallback` defaults to `false`; set it to `true` only

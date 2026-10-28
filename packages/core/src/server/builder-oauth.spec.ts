@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const startMock = vi.hoisted(() => vi.fn());
@@ -14,6 +15,13 @@ const validateIssuerMock = vi.hoisted(() => vi.fn());
 const getRawTokensMock = vi.hoisted(() => vi.fn());
 const listOwnersMock = vi.hoisted(() => vi.fn());
 const resolveOrgMock = vi.hoisted(() => vi.fn());
+const {
+  MockMcpOAuthReauthorizationRequiredError,
+  MockMcpOAuthRefreshUnavailableError,
+} = vi.hoisted(() => ({
+  MockMcpOAuthReauthorizationRequiredError: class extends Error {},
+  MockMcpOAuthRefreshUnavailableError: class extends Error {},
+}));
 
 vi.mock("../mcp-client/oauth-client.js", () => ({
   startMcpOAuthAuthorization: startMock,
@@ -23,6 +31,9 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
   revokeMcpOAuthCredentials: revokeMock,
   getMcpOAuthAccessToken: getAccessTokenMock,
   resolveMcpOAuthCredentialAccess: resolveAccessStateMock,
+  McpOAuthReauthorizationRequiredError:
+    MockMcpOAuthReauthorizationRequiredError,
+  McpOAuthRefreshUnavailableError: MockMcpOAuthRefreshUnavailableError,
   markMcpOAuthReconnectRequired: markReconnectMock,
   validateMcpOAuthCallbackIssuer: validateIssuerMock,
 }));
@@ -49,6 +60,10 @@ vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
   readOrgMemberRole: readRoleMock,
 }));
 
+import {
+  McpOAuthReauthorizationRequiredError,
+  McpOAuthRefreshUnavailableError,
+} from "../mcp-client/oauth-client.js";
 import {
   BUILDER_OAUTH_ISSUER,
   BUILDER_OAUTH_RESOURCE,
@@ -833,7 +848,58 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
+      forceRefresh: undefined,
+      throwOnTransientRefreshFailure: true,
+      shouldMarkReconnectRequiredOnRefreshFailure: expect.any(Function),
     });
+    const refreshFailurePolicy =
+      getAccessTokenMock.mock.calls[0]?.[0]
+        ?.shouldMarkReconnectRequiredOnRefreshFailure;
+    expect(
+      refreshFailurePolicy?.(new Error("authorization server unavailable")),
+    ).toBe(false);
+    expect(
+      refreshFailurePolicy?.(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "refresh token revoked"),
+      ),
+    ).toBe(true);
+    expect(
+      refreshFailurePolicy?.(
+        new OAuthError(OAuthErrorCode.InvalidClient, "OAuth client rejected"),
+      ),
+    ).toBe(true);
+    expect(
+      refreshFailurePolicy?.(
+        new OAuthError(
+          OAuthErrorCode.UnauthorizedClient,
+          "OAuth client is unauthorized",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      refreshFailurePolicy?.(
+        new McpOAuthReauthorizationRequiredError("refresh token missing"),
+      ),
+    ).toBe(true);
+  });
+
+  it("tries the org grant when a personal grant refresh is temporarily unavailable", async () => {
+    getRawTokensMock.mockResolvedValue({});
+    readMock.mockResolvedValue(credentials());
+    getAccessTokenMock.mockImplementation(async (options) => {
+      if (options.scope === "user") {
+        throw new McpOAuthRefreshUnavailableError();
+      }
+      return "<ORG_ACCESS_TOKEN_EXAMPLE>";
+    });
+
+    await expect(getBuilderOAuthSession(ownerEmail)).resolves.toMatchObject({
+      accessToken: "<ORG_ACCESS_TOKEN_EXAMPLE>",
+      scope: "org",
+    });
+    expect(
+      getAccessTokenMock.mock.calls.map(([options]) => options.scope),
+    ).toEqual(["user", "org"]);
   });
 
   it("returns no session and does not double-mark when the resolver yields no token", async () => {

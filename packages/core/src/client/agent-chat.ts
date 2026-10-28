@@ -14,6 +14,7 @@ import {
   readClientAppState,
   writeClientAppState,
 } from "./application-state.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -1015,7 +1016,11 @@ function dispatchAgentChatRunning(isRunning: boolean, tabId?: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("agentNative.chatRunning", {
-      detail: { isRunning, ...(tabId ? { tabId } : {}) },
+      detail: {
+        isRunning,
+        ...(tabId ? { tabId } : {}),
+        browserTabId: getBrowserTabId(),
+      },
     }),
   );
 }

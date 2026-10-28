@@ -7,7 +7,8 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
-import { boolean, index, primaryKey } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { boolean, index, primaryKey, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const designs = table("designs", {
   id: text("id").primaryKey(),
@@ -380,4 +381,52 @@ export const designBoardReplayScreenshots = table(
     ...ownableColumns(),
   },
   (t) => [index("design_board_replay_screenshots_design_idx").on(t.designId)],
+);
+
+export const designReviewAgentRequests = table(
+  "design_review_agent_requests",
+  {
+    id: text("id").primaryKey(),
+    designId: text("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").notNull(),
+    rootCommentId: text("root_comment_id").notNull(),
+    triggerCommentId: text("trigger_comment_id"),
+    screenId: text("screen_id"),
+    requesterEmail: text("requester_email").notNull(),
+    submittedMode: text("submitted_mode").notNull(),
+    intent: text("intent"),
+    instructions: text("instructions").notNull().default(""),
+    submittedProvider: text("submitted_provider"),
+    submittedModel: text("submitted_model"),
+    submittedEngine: text("submitted_engine"),
+    status: text("status").notNull().default("queued"),
+    classificationThreadId: text("classification_thread_id"),
+    classificationTurnId: text("classification_turn_id"),
+    agentThreadId: text("agent_thread_id"),
+    agentTurnId: text("agent_turn_id"),
+    runId: text("run_id"),
+    model: text("model"),
+    engine: text("engine"),
+    resultJson: text("result_json"),
+    errorCode: text("error_code"),
+    error: text("error"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("design_review_agent_requests_active_thread_idx")
+      .on(t.designId, t.threadId)
+      .where(sql`${t.status} IN ('classifying', 'queued', 'running')`),
+    index("design_review_agent_requests_design_updated_idx").on(
+      t.designId,
+      t.updatedAt,
+    ),
+    index("design_review_agent_requests_requester_idx").on(
+      t.designId,
+      t.requesterEmail,
+      t.createdAt,
+    ),
+  ],
 );

@@ -227,6 +227,7 @@ export function SuggestionReviewCard({
                 >
                   <ThreadSuggestionBody
                     suggestions={group}
+                    defaultExpanded
                     canDecide={canDecide}
                     busy={() => deciding}
                     conflict={(suggestion) =>

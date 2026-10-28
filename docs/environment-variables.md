@@ -288,6 +288,7 @@ production deployment:
 | `DEV` / `MODE` / `SSR`                                                                                                                                                                | Vite-provided build-mode flags exposed through `import.meta.env`.                                                                                                                  |
 | `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*`                                                                              | Explicitly opt-in local or maintainer controls. Read the owning source before setting them.                                                                                        |
 | `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES` / `FORCE_COLOR` / `LC_ALL` / `LC_CTYPE` / `NO_COLOR` / `PNPM_HOME`                                                        | Local coding-agent, shell, package-manager, and test-lane tooling.                                                                                                                 |
+| `ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`                                                                                                                               | Proxy settings used by Core CLI archive downloads. Lowercase forms are also supported.                                                                                             |
 
 ## CI-only variables
 
@@ -336,8 +337,9 @@ repository values in GitHub Actions configuration, never in the repository.
 
 ### Beta E2E browser suite
 
-Read by the manual `Beta E2E (browser)` workflow and `e2e/beta/`, never by
-application runtime code. `BETA_E2E_SESSION_TOKENS` and
+Read by the manual `Beta E2E (browser)` workflow, the isolated Chat opt-in in
+`deploy-hosts.yml`, and `e2e/beta/`, never by application runtime code.
+`BETA_E2E_SESSION_TOKENS` and
 `BETA_E2E_OPENAI_API_KEY` are live credentials: supply them as GitHub Actions
 secrets only. See `e2e/beta/README.md` for how they are minted.
 
@@ -345,7 +347,9 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETA_E2E_APPS`                   | Comma-separated beta app ids to test, or `all`. An unknown id fails the run rather than selecting nothing.                                                                                                                                |
 | `BETA_E2E_AUTHED`                 | `1`/`0` to force the authenticated lane on or off. Unset means "run it when a session credential was supplied".                                                                                                                           |
+| `BETA_E2E_AUTH_STATE_DIR`         | Optional directory for Playwright session state and lane marker files. Disposable deployment checks use a temporary directory that is removed with the database.                                                                          |
 | `BETA_E2E_CLUSTER`                | Authenticated cluster selected by the workflow (`registry`, `chat`, or `journeys`); internal CI wiring, not a user credential.                                                                                                            |
+| `BETA_E2E_DISPOSABLE_CHAT_ORIGIN` | Optional Chat-only origin override, restricted to the disposable Netlify test site. Set only by the isolated deploy-host check.                                                                                                           |
 | `BETA_E2E_GREP`                   | Optional Playwright title filter from the workflow `grep` input. Passed through the environment so a dispatch input never reaches a shell line.                                                                                           |
 | `BETA_E2E_PROJECT`                | Playwright project one authenticated workflow slot runs (`journeys-session`, `chat`, ...). Workflow wiring only; read by the workflow's shell step, not by the suite.                                                                     |
 | `BETA_E2E_SHARD`                  | `n/m` for a slot that runs one `--shard` of its project, empty otherwise. Workflow wiring only.                                                                                                                                           |
@@ -363,6 +367,7 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_MODEL`                  | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                                                                                                         |
 | `BETA_E2E_ENGINE`                 | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                                                                                                           |
 | `BETA_E2E_GLOBAL_TIMEOUT_MINUTES` | Whole minutes for Playwright's `globalTimeout`, setup included. The workflow sets it a few minutes under each job's `timeout-minutes` so a hung run ends with a report instead of a cancelled job. Defaults to 20 in CI; ignored locally. |
+| `EXERCISE_CHAT_DURABILITY`        | Internal `deploy-hosts.yml` switch that enables the authenticated Chat reliability proof on the disposable Netlify deployment.                                                                                                            |
 | `SHARD_SELECTED`                  | Set per authenticated shard by the workflow: whether the shard's app is in the run's app selection. Workflow-internal; gates the shard's steps.                                                                                           |
 
 #### Scheduled Signup E2E isolation gate
@@ -384,7 +389,7 @@ or delivery fails, the reporter job fails visibly instead of opening an issue.
 | Variable                          | Purpose                                                                                                                                                             |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `QA_SLACK_BOT_TOKEN`              | Slack bot token (`chat:write`) for the scheduled reporters. Store it as a GitHub Actions secret.                                                                    |
-| `SLACK_CHANNEL`                   | Slack channel id the reporters use for `#qa-agent-native`. Workflow-internal.                                                                                       |
+| `SLACK_CHANNEL`                   | Slack channel id the reporters post to: `#qa-agent-native`, or `#dev-agent-native-alerts` for deploy-path alerts. Workflow-internal.                                |
 | `REPORT_DIR`                      | Scratch directory the Beta E2E reporter uses for jobs, artifacts, logs, and its digest. Workflow-internal.                                                          |
 | `UPDATE_BASELINE`                 | Whether the Beta E2E report covers the full suite and may replace shared notification state. Scoped reports preserve the prior full-suite state. Workflow-internal. |
 | `COLLECT_OUTCOME`                 | Result of collecting the Beta E2E run's jobs, artifacts, and logs; a failed collection produces a degraded report. Workflow-internal.                               |

@@ -17,7 +17,7 @@ import {
   IconBrandGithub,
   IconUsers,
 } from "@tabler/icons-react";
-import { Fragment, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -41,45 +41,6 @@ import { TAB_ID } from "@/lib/tab-id";
 const DOCS_URL = "https://www.agent-native.com/docs";
 const GITHUB_URL = "https://github.com/BuilderIO/agent-native";
 const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
-
-const EDIT_HINT_CODE = { file: "actions/hello.ts" };
-
-/** Placeholder values that `WithCode` swaps back out for code chips. */
-function codeSlots(code: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.keys(code).map((name) => [name, `\u0000${name}\u0000`]),
-  );
-}
-
-function WithCode({
-  text,
-  code,
-}: {
-  text: string;
-  code: Record<string, string>;
-}) {
-  return (
-    <>
-      {text
-        .split(/\u0000(\w+)\u0000/)
-        .map((part, index) =>
-          index % 2 === 1 ? (
-            <CodeChip key={index}>{code[part]}</CodeChip>
-          ) : (
-            <Fragment key={index}>{part}</Fragment>
-          ),
-        )}
-    </>
-  );
-}
-
-function CodeChip({ children }: { children: ReactNode }) {
-  return (
-    <code className="whitespace-nowrap rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.9em] text-foreground">
-      {children}
-    </code>
-  );
-}
 
 /**
  * The same AgentKit composer the chat page uses, so Connect AI and the model
@@ -164,7 +125,7 @@ function HomeAgentComposerInput({
     <AgentKitComposer
       threadId={threadId}
       requireAgentEngine
-      placeholder={t("home.composerPlaceholder")}
+      placeholder={t("chat.composerPlaceholder")}
       plusMenuMode="hidden"
       attachmentsEnabled={false}
       voiceEnabled
@@ -250,22 +211,10 @@ export default function HomePage() {
           aria-hidden="true"
           className="h-8 w-14 text-foreground"
         />
-        <div className="flex flex-col items-center gap-3">
-          <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            {t("home.title")}
-          </h1>
-          <p className="max-w-xl text-base text-muted-foreground">
-            <span className="block">{t("home.lead")}</span>
-            <span className="block">{t("home.leadTry")}</span>
-          </p>
-        </div>
+        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+          {t("home.title")}
+        </h1>
         <HomeAgentComposer />
-        <p className="max-w-lg text-sm text-muted-foreground">
-          <WithCode
-            text={t("home.editHint", codeSlots(EDIT_HINT_CODE))}
-            code={EDIT_HINT_CODE}
-          />
-        </p>
       </section>
 
       <Separator />

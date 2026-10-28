@@ -13364,6 +13364,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
   var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
   var frameLabelRenderKey = "";
+  var editingFrameLabel = false;
 
   function outermostFrameElements(): Element[] {
     if (!designCanvasBoardSurface) return [];
@@ -13406,6 +13407,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   }
 
   function refreshFrameNameLabels(): void {
+    if (editingFrameLabel) return;
     var frames = outermostFrameElements();
     var line = chromeLineScale();
     var fontSize = 11 * line;
@@ -13486,6 +13488,69 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         event.preventDefault();
         event.stopPropagation();
         selectFrameFromLabel(placement.frame, event as MouseEvent);
+      });
+      label.addEventListener("dblclick", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (
+          readOnly ||
+          interactionMode ||
+          isLayerInteractionBlocked(placement.frame)
+        )
+          return;
+        editingFrameLabel = true;
+        var input = document.createElement("input");
+        input.setAttribute("data-agent-native-frame-label-input", "");
+        input.setAttribute("aria-label", placement.text);
+        input.value = placement.text;
+        input.style.cssText =
+          label.style.cssText +
+          ";border:1px solid var(--design-editor-accent-color);background:var(--background);outline:none;";
+        var finished = false;
+        function finish(commit: boolean): void {
+          if (finished) return;
+          finished = true;
+          var name = input.value.trim();
+          editingFrameLabel = false;
+          frameLabelRenderKey = "";
+          refreshFrameNameLabels();
+          if (commit && name && name !== placement.text) {
+            window.parent.postMessage(
+              {
+                type: "frame-label-rename",
+                payload: getElementInfo(placement.frame),
+                name: name,
+              },
+              "*",
+            );
+          }
+        }
+        input.addEventListener("mousedown", function (e) {
+          e.stopPropagation();
+        });
+        input.addEventListener("click", function (e) {
+          e.stopPropagation();
+        });
+        input.addEventListener("dblclick", function (e) {
+          e.stopPropagation();
+        });
+        input.addEventListener("keydown", function (e) {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            finish(true);
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            finish(false);
+          }
+        });
+        input.addEventListener("blur", function () {
+          finish(true);
+        });
+        label.replaceWith(input);
+        input.focus();
+        input.select();
       });
       frameLabelLayer.appendChild(label);
     });

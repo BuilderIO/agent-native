@@ -92,7 +92,18 @@ class ChangeVersionStore {
   }
 }
 
-const store = new ChangeVersionStore();
+const CHANGE_VERSION_STORE_SYMBOL = Symbol.for(
+  "@agent-native/core/client/change-version-store",
+);
+const globalChangeVersionStore = globalThis as typeof globalThis & {
+  [CHANGE_VERSION_STORE_SYMBOL]?: ChangeVersionStore;
+};
+
+// Vite can load an optimized package root beside a directly served deep import.
+const store =
+  globalChangeVersionStore[CHANGE_VERSION_STORE_SYMBOL] ??
+  (globalChangeVersionStore[CHANGE_VERSION_STORE_SYMBOL] =
+    new ChangeVersionStore());
 
 export function bumpChangeVersion(source: string, version: number): boolean {
   return store.bump(source, version);

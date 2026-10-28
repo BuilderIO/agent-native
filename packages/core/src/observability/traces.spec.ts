@@ -2320,6 +2320,133 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ]);
   });
 
+  it("records the failing fields and each tool span's class and outcome", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation" || event.name === "$ai_span") {
+          events.push(event);
+        }
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "bad", tool: "save", input: {} });
+        send({ type: "tool_start", id: "ok", tool: "save", input: {} });
+        send({
+          type: "tool_done",
+          id: "bad",
+          tool: "save",
+          result: "Invalid action parameters",
+          isError: true,
+          completedSideEffect: false,
+          errorClass: "input_invalid",
+          invalidPaths: ["tweaks.2.type"],
+        });
+        send({
+          type: "tool_done",
+          id: "ok",
+          tool: "save",
+          result: "saved",
+          completedSideEffect: true,
+        });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+        };
+      },
+      loopOpts: {
+        engine: { name: "builder" },
+        model: "gpt-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      runId: "run-invalid-paths",
+      threadId: "thread-invalid-paths",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generation = events.find((e) => e.name === "$ai_generation");
+    const tools = generation?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(tools[0]).toMatchObject({
+      error_class: "input_invalid",
+      outcome: "no_side_effect",
+      invalid_paths: ["tweaks.2.type"],
+    });
+    expect(tools[1]).not.toHaveProperty("invalid_paths");
+
+    const spans = events.filter((e) => e.name === "$ai_span");
+    const failed = spans.find((s) => s.properties?.["$ai_is_error"] === true);
+    const saved = spans.find((s) => s.properties?.["$ai_is_error"] === false);
+    expect(failed?.properties).toMatchObject({
+      error_class: "input_invalid",
+      outcome: "no_side_effect",
+      invalid_paths: ["tweaks.2.type"],
+      $ai_error_type: "tool_error",
+    });
+    expect(saved?.properties).toMatchObject({
+      error_class: null,
+      outcome: "completed",
+    });
+    expect(saved?.properties).not.toHaveProperty("invalid_paths");
+  });
+
+  it("tags an interrupted tool span as interrupted and unknown", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_span") events.push(event);
+      },
+    });
+
+    await expect(
+      instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "tool_start", id: "hung", tool: "slow", input: {} });
+          throw new Error("run timed out");
+        },
+        loopOpts: {
+          engine: { name: "builder" },
+          model: "gpt-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        },
+        runId: "run-interrupted-span",
+        threadId: "thread-interrupted-span",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      }),
+    ).rejects.toThrow("run timed out");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      $ai_span_name: "slow",
+      error_class: "interrupted",
+      outcome: "unknown",
+      $ai_error_type: "interrupted",
+    });
+    expect(events[0]?.properties).not.toHaveProperty("invalid_paths");
+  });
+
   it("caps tracked tool detail while retaining complete rollup counts", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({

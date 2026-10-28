@@ -6,6 +6,7 @@ import {
   IconArchive,
   IconTrash,
   IconLink,
+  IconFileText,
 } from "@tabler/icons-react";
 import { type ComponentType, type ReactNode, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -30,6 +31,7 @@ type EmptyKind =
   | "space"
   | "archive"
   | "trash"
+  | "fromContent"
   | "search";
 
 const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
@@ -39,6 +41,7 @@ const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
   space: IconUsersGroup,
   archive: IconArchive,
   trash: IconTrash,
+  fromContent: IconFileText,
   search: IconVideo,
 };
 
@@ -47,6 +50,7 @@ const BACK_TO_LIBRARY_KINDS = new Set<EmptyKind>([
   "shared",
   "archive",
   "trash",
+  "fromContent",
 ]);
 
 interface AppEmptyStateProps {

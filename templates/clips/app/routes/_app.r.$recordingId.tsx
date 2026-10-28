@@ -48,20 +48,31 @@ import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
-import { isDefaultTitle } from "@shared/title-source";
+import {
+  isDefaultTitle,
+  shouldPollGeneratedTitle,
+  titleRegenerationSkipDisposition,
+  type RegenerateTitleResult,
+} from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
+  isWorkflowRequester,
   isRecentWorkflowGeneration,
+  matchesWorkflowRequest,
+  shouldScheduleWorkflowTimeoutFallback,
   type WorkflowKind,
+  type WorkflowStopAttempt,
+  workflowStopAttemptAfterFailure,
+  workflowGenerationProgressAt,
   workflowGenerationStaleAt,
+  workflowSessionTabId,
+  WORKFLOW_GENERATION_PROGRESS_MS,
 } from "@shared/workflow";
 import {
   IconCalendar,
   IconAlertTriangle,
   IconEdit,
-  IconHelpCircle,
   IconBolt,
-  IconMessage,
   IconExternalLink,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
@@ -497,6 +508,28 @@ export function buildRecordingBreadcrumbItems({
   ];
 }
 
+/**
+ * What the page shows for its player-data read. "share" hands the visitor to
+ * RecordingShareRedirect, which paints only the skeleton until the share page
+ * lands.
+ */
+export function recordingAccessView({
+  isPending,
+  accessStatus,
+  signedIn,
+}: {
+  isPending: boolean;
+  accessStatus: number | undefined;
+  signedIn: boolean;
+}): "pending" | "share" | "retry" | "page" {
+  if (isPending) return "pending";
+  if (accessStatus === 403 || (accessStatus === 401 && !signedIn)) {
+    return "share";
+  }
+  if (accessStatus === 401) return "retry";
+  return "page";
+}
+
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
@@ -525,8 +558,22 @@ interface GeneratedWorkflowState {
   content?: string;
   recordingId?: string;
   requestedAt?: string;
+  requestedBy?: string;
+  requestId?: string;
+  failureReason?: "cancelled" | "timed_out" | "session-rejected";
   error?: string;
 }
+
+type WorkflowGenerationStopInput = {
+  operation: "stop" | "settle";
+  recordingId: string;
+  requestedAt: string;
+  requestId?: string;
+  tabId: string;
+  stopReason?: "cancelled" | "timed_out";
+};
+
+type WorkflowGenerationStopResult = { reconciled?: boolean };
 
 function aiRequestProgressKey(kind: ClipsAiRequestKind): string {
   switch (kind) {
@@ -663,6 +710,10 @@ export default function RecordingPage() {
     });
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [chapterEditRequest, setChapterEditRequest] = useState(0);
+  const [tagEditRequest, setTagEditRequest] = useState(0);
+  const openingMetadataEditor = useRef(false);
+  const recordingOptionsRef = useRef<HTMLButtonElement>(null);
   const [currentMs, setCurrentMs] = useState(startMs);
   const requestedPlaybackRef = useRef<{
     recordingId: string;
@@ -885,7 +936,7 @@ export default function RecordingPage() {
           return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
         }
         if (data?.transcript?.status === "pending") return 3000;
-        if (shouldShowGeneratedTitleSkeleton(rec, data?.transcript?.status))
+        if (shouldPollGeneratedTitle(rec, data?.transcript?.status))
           return 3000;
         if (Date.now() < metadataRefreshUntil) return 2000;
         return false;
@@ -896,20 +947,11 @@ export default function RecordingPage() {
   const playerDataAccessStatus = playerDataQ.isError
     ? (playerDataQ.error as { status?: number } | undefined)?.status
     : undefined;
-  const playerDataUnauthorized = playerDataAccessStatus === 401;
-  const playerDataForbidden = playerDataAccessStatus === 403;
-
-  const shouldFallbackToShare =
-    playerDataForbidden || (playerDataUnauthorized && !session);
-  useEffect(() => {
-    if (!recordingId || !shouldFallbackToShare) return;
-    void navigate(
-      `/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`,
-      {
-        replace: true,
-      },
-    );
-  }, [legacyShareQuery, recordingId, shouldFallbackToShare, navigate]);
+  const accessView = recordingAccessView({
+    isPending: playerDataQ.isPending,
+    accessStatus: playerDataAccessStatus,
+    signedIn: Boolean(session),
+  });
 
   const recording = playerDataQ.data?.recording;
   const hostedFailureCode = (recording as any)?.failureCode;
@@ -1299,14 +1341,10 @@ export default function RecordingPage() {
     recording &&
     isDefaultTitle(recording.title),
   );
-  const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus, {
-        titleGenerationPaused,
-      })
-    : false;
-  const visibleTitle = recording
-    ? displayRecordingTitle(recording.title)
-    : "Untitled Clip";
+  const visibleTitle =
+    recording && !isDefaultTitle(recording.title)
+      ? (recording.title ?? "").trim()
+      : t("editableTitle.untitled");
   // A loose screenshot belongs under Screenshots, not Library. Both are views
   // of the same list, but the sidebar gives stills their own entry and that is
   // where someone who just took one goes looking. Anything filed in a space or
@@ -1402,16 +1440,286 @@ export default function RecordingPage() {
     generatedWorkflowQ.data?.recordingId === recording?.id
       ? generatedWorkflowQ.data
       : null;
+  const isGeneratedWorkflowRequester = isWorkflowRequester(
+    generatedWorkflow?.requestedBy,
+    session?.email,
+  );
+  const canStopWorkflow = canEdit && isGeneratedWorkflowRequester;
   const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
-  const [, refreshWorkflowGeneration] = useState(0);
+  const [workflowStopAttempt, setWorkflowStopAttempt] =
+    useState<WorkflowStopAttempt | null>(null);
+  const workflowStopInFlightRef = useRef<string | null>(null);
+  const reconcileWorkflowGeneration = useActionMutation<
+    WorkflowGenerationStopResult,
+    WorkflowGenerationStopInput
+  >("reconcile-workflow-generation");
+  const stopWorkflowGeneration = useCallback(
+    async (
+      workflow: GeneratedWorkflowState,
+      stopReason: "cancelled" | "timed_out",
+    ) => {
+      const recordingId = workflow.recordingId ?? recording?.id;
+      if (!recordingId || !workflow.requestedAt) return;
+      const tabId = workflowSessionTabId(
+        recordingId,
+        workflow.requestedAt,
+        workflow.requestId,
+      );
+      const result = await reconcileWorkflowGeneration.mutateAsync({
+        operation: "stop",
+        recordingId,
+        requestedAt: workflow.requestedAt,
+        ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+        tabId,
+        stopReason,
+      });
+      const refreshed = await generatedWorkflowQ.refetch();
+      const sameRequestStillGenerating =
+        refreshed.data?.status === "generating" &&
+        matchesWorkflowRequest(refreshed.data, {
+          requestedAt: workflow.requestedAt,
+          requestId: workflow.requestId,
+        });
+      if (!result.reconciled && !sameRequestStillGenerating) return result;
+      if (sameRequestStillGenerating) {
+        throw new Error(t("recordingPage.tryAgainMoment"));
+      }
+      return result;
+    },
+    [
+      generatedWorkflowQ.refetch,
+      reconcileWorkflowGeneration.mutateAsync,
+      recording?.id,
+      t,
+    ],
+  );
+  const cancelWorkflowGeneration = useCallback(
+    (workflow: GeneratedWorkflowState) => {
+      const recordingId = workflow.recordingId ?? recording?.id;
+      const requestedAt = workflow.requestedAt;
+      if (!canStopWorkflow || !recordingId || !requestedAt) return;
+      const attemptKey = `${recordingId}:${requestedAt}:${workflow.requestId ?? ""}`;
+      if (workflowStopInFlightRef.current === attemptKey) return;
+
+      function requestStop() {
+        if (workflowStopInFlightRef.current === attemptKey) return;
+        const requestedAt = workflow.requestedAt;
+        if (!requestedAt) return;
+        setWorkflowStopAttempt({
+          recordingId,
+          requestedAt,
+          ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+          reason: "cancelled",
+          failedAttempts: 0,
+          exhausted: false,
+          retryAt: null,
+        });
+        startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
+          action: { label: t("common.cancel"), onClick: requestStop },
+        });
+      }
+
+      requestStop();
+    },
+    [canStopWorkflow, recording?.id, startWorkflowToast, t],
+  );
   useEffect(() => {
+    const recordingId = generatedWorkflow?.recordingId;
+    const requestedAt = generatedWorkflow?.requestedAt;
+    if (
+      !canStopWorkflow ||
+      generatedWorkflow?.status !== "generating" ||
+      !requestedAt ||
+      !recordingId
+    ) {
+      return;
+    }
     if (workflowGenerationExpiry === null) return;
+    if (
+      !shouldScheduleWorkflowTimeoutFallback(
+        workflowGenerationExpiry,
+        workflowStopAttempt,
+        generatedWorkflow,
+      )
+    ) {
+      return;
+    }
     const timer = window.setTimeout(
-      () => refreshWorkflowGeneration((value) => value + 1),
+      () => {
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === recordingId &&
+          matchesWorkflowRequest(generatedWorkflow, current)
+            ? {
+                ...current,
+                reason: "timed_out",
+                failedAttempts: 0,
+                exhausted: false,
+              }
+            : {
+                recordingId,
+                requestedAt,
+                ...(generatedWorkflow.requestId
+                  ? { requestId: generatedWorkflow.requestId }
+                  : {}),
+                reason: "timed_out",
+                failedAttempts: 0,
+                exhausted: false,
+                retryAt: null,
+              },
+        );
+      },
       Math.max(0, workflowGenerationExpiry - Date.now()),
     );
     return () => window.clearTimeout(timer);
-  }, [refreshWorkflowGeneration, workflowGenerationExpiry]);
+  }, [
+    canStopWorkflow,
+    generatedWorkflow?.requestId,
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
+    workflowStopAttempt,
+    workflowGenerationExpiry,
+  ]);
+  useEffect(() => {
+    const workflow = generatedWorkflow;
+    const recordingId = workflow?.recordingId ?? recording?.id;
+    const requestedAt = workflow?.requestedAt;
+    if (
+      canStopWorkflow ||
+      !isGeneratedWorkflowRequester ||
+      workflow?.status !== "generating" ||
+      !recordingId ||
+      !requestedAt ||
+      workflowGenerationExpiry === null
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => {
+        const tabId = workflowSessionTabId(
+          recordingId,
+          requestedAt,
+          workflow.requestId,
+        );
+        void reconcileWorkflowGeneration
+          .mutateAsync({
+            operation: "settle",
+            recordingId,
+            requestedAt,
+            ...(workflow.requestId ? { requestId: workflow.requestId } : {}),
+            tabId,
+          })
+          .then(() => generatedWorkflowQ.refetch())
+          .catch((error) => {
+            console.warn("[clips] failed to expire an unclaimed workflow", {
+              recordingId,
+              requestedAt,
+              error,
+            });
+          });
+      },
+      Math.max(0, workflowGenerationExpiry - Date.now()) + 1_000,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [
+    canStopWorkflow,
+    isGeneratedWorkflowRequester,
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestId,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
+    generatedWorkflowQ.refetch,
+    reconcileWorkflowGeneration.mutateAsync,
+    recording?.id,
+    workflowGenerationExpiry,
+  ]);
+  useEffect(() => {
+    const workflow = generatedWorkflow;
+    if (!workflowStopAttempt) return;
+    if (
+      !canStopWorkflow ||
+      workflow?.status !== "generating" ||
+      workflowStopAttempt.recordingId !== workflow.recordingId ||
+      !matchesWorkflowRequest(workflow, workflowStopAttempt)
+    ) {
+      setWorkflowStopAttempt(null);
+      return;
+    }
+    if (workflowStopAttempt.exhausted) return;
+
+    if (
+      workflowStopAttempt.retryAt !== null &&
+      workflowStopAttempt.retryAt > Date.now()
+    ) {
+      const retryAt = workflowStopAttempt.retryAt;
+      const timer = window.setTimeout(() => {
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === workflowStopAttempt.recordingId &&
+          matchesWorkflowRequest(current, workflowStopAttempt) &&
+          current.retryAt === retryAt
+            ? { ...current, retryAt: null }
+            : current,
+        );
+      }, retryAt - Date.now());
+      return () => window.clearTimeout(timer);
+    }
+
+    const attemptKey = `${workflowStopAttempt.recordingId}:${workflowStopAttempt.requestedAt}:${workflowStopAttempt.requestId ?? ""}`;
+    if (workflowStopInFlightRef.current === attemptKey) return;
+    workflowStopInFlightRef.current = attemptKey;
+
+    let active = true;
+    const attemptStop = async () => {
+      try {
+        await stopWorkflowGeneration(workflow, workflowStopAttempt.reason);
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === workflowStopAttempt.recordingId &&
+          matchesWorkflowRequest(current, workflowStopAttempt)
+            ? null
+            : current,
+        );
+      } catch (error) {
+        if (active) {
+          startWorkflowToast(t("recordingPage.workflowStillGenerating"), {
+            description:
+              actionErrorMessage(error) ?? t("recordingPage.tryAgainMoment"),
+            action: {
+              label: t("common.cancel"),
+              onClick: () => cancelWorkflowGeneration(workflow),
+            },
+          });
+        }
+        setWorkflowStopAttempt((current) =>
+          current?.recordingId === workflowStopAttempt.recordingId &&
+          matchesWorkflowRequest(current, workflowStopAttempt)
+            ? workflowStopAttemptAfterFailure(current, error)
+            : current,
+        );
+      } finally {
+        if (workflowStopInFlightRef.current === attemptKey) {
+          workflowStopInFlightRef.current = null;
+        }
+      }
+    };
+    void attemptStop();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    canStopWorkflow,
+    cancelWorkflowGeneration,
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestId,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
+    startWorkflowToast,
+    stopWorkflowGeneration,
+    t,
+    workflowStopAttempt,
+  ]);
   const aiRequestStatus = aiRequestStatusQ.data?.kind
     ? aiRequestStatusQ.data
     : null;
@@ -1433,8 +1741,25 @@ export default function RecordingPage() {
     const status = generatedWorkflow?.status;
     if (!status) return;
     if (status === "generating") {
+      if (!generatedWorkflow.requestedAt) {
+        workflowLifecycleActiveRef.current = false;
+        failWorkflowToast(t("recordingPage.workflowFailed"), {
+          description: t("recordingPage.tryAgainMoment"),
+        });
+        return;
+      }
       workflowLifecycleActiveRef.current = true;
-      startWorkflowToast(t("recordingPage.workflowQueued"));
+      startWorkflowToast(
+        t("recordingPage.workflowQueued"),
+        canStopWorkflow
+          ? {
+              action: {
+                label: t("common.cancel"),
+                onClick: () => cancelWorkflowGeneration(generatedWorkflow),
+              },
+            }
+          : undefined,
+      );
       return;
     }
     if (!workflowLifecycleActiveRef.current) return;
@@ -1443,10 +1768,18 @@ export default function RecordingPage() {
       completeWorkflowToast(t("recordingPage.workflowReady"));
       playCompletionCue();
     } else if (status === "failed") {
-      failWorkflowToast(t("recordingPage.workflowFailed"), {
+      const failureMessage =
+        generatedWorkflow.failureReason === "cancelled"
+          ? t("recordingPage.workflowCancelled")
+          : generatedWorkflow.failureReason === "timed_out"
+            ? t("recordingPage.workflowTimedOut")
+            : t("recordingPage.workflowFailed");
+      failWorkflowToast(failureMessage, {
         ...(generatedWorkflow.error
           ? { description: generatedWorkflow.error }
-          : {}),
+          : generatedWorkflow.failureReason === "timed_out"
+            ? { description: t("recordingPage.tryAgainMoment") }
+            : {}),
       });
       cancelCompletionCue();
     } else {
@@ -1455,14 +1788,83 @@ export default function RecordingPage() {
     workflowLifecycleActiveRef.current = false;
   }, [
     cancelCompletionCue,
+    cancelWorkflowGeneration,
+    canStopWorkflow,
     completeWorkflowToast,
     failWorkflowToast,
     generatedWorkflow?.error,
+    generatedWorkflow?.failureReason,
     generatedWorkflow?.requestedAt,
     generatedWorkflow?.status,
     playCompletionCue,
     startWorkflowToast,
     t,
+  ]);
+
+  useEffect(() => {
+    if (
+      !generatedWorkflow ||
+      generatedWorkflow.status !== "generating" ||
+      !generatedWorkflow.recordingId ||
+      !generatedWorkflow.requestedAt
+    ) {
+      return;
+    }
+    if (
+      workflowStopAttempt?.recordingId === generatedWorkflow.recordingId &&
+      matchesWorkflowRequest(generatedWorkflow, workflowStopAttempt)
+    ) {
+      return;
+    }
+    const requestedAt = Date.parse(generatedWorkflow.requestedAt);
+    if (!Number.isFinite(requestedAt)) return;
+
+    const action = canStopWorkflow
+      ? {
+          label: t("common.cancel"),
+          onClick: () => cancelWorkflowGeneration(generatedWorkflow),
+        }
+      : undefined;
+    const progressUpdates = [
+      {
+        stage: "still_generating" as const,
+        afterMs: WORKFLOW_GENERATION_PROGRESS_MS.stillGenerating,
+        message: t("recordingPage.workflowStillGenerating"),
+      },
+      {
+        stage: "taking_longer" as const,
+        afterMs: WORKFLOW_GENERATION_PROGRESS_MS.takingLonger,
+        message: t("recordingPage.workflowTakingLonger"),
+      },
+    ];
+    const timers = progressUpdates.map(({ stage, afterMs, message }) =>
+      window.setTimeout(
+        () => {
+          if (
+            workflowGenerationProgressAt({
+              status: generatedWorkflow.status,
+              requestedAt: generatedWorkflow.requestedAt,
+            }) !== stage
+          ) {
+            return;
+          }
+          startWorkflowToast(message, action ? { action } : undefined);
+        },
+        Math.max(0, requestedAt + afterMs - Date.now()),
+      ),
+    );
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [
+    cancelWorkflowGeneration,
+    canStopWorkflow,
+    generatedWorkflow?.recordingId,
+    generatedWorkflow?.requestId,
+    generatedWorkflow?.requestedAt,
+    generatedWorkflow?.status,
+    startWorkflowToast,
+    t,
+    workflowStopAttempt,
   ]);
 
   useEffect(() => {
@@ -1921,8 +2323,11 @@ export default function RecordingPage() {
     },
     [canEdit, embedProvider, recording, setEmbedDuration],
   );
-  const regenerateTitle = useActionMutation("regenerate-title" as any, {
-    onSuccess: (result: any) => {
+  const regenerateTitle = useActionMutation<
+    RegenerateTitleResult,
+    { recordingId: string }
+  >("regenerate-title", {
+    onSuccess: (result) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
         const kind: ClipsAiRequestKind =
@@ -1942,18 +2347,23 @@ export default function RecordingPage() {
         activeAiRequestRef.current = null;
         completeAiRequestToast(t("recordingPage.titleUpdated"));
         playCompletionCue();
-      } else if (result?.reason === "builder_credits_paused") {
-        activeAiRequestRef.current = null;
-        cancelCompletionCue();
-        stopAiRequestToast(t("builderCredits.pausedTitle"), {
-          description: t("builderCredits.titleDescription"),
-        });
       } else if (result?.skipped) {
         activeAiRequestRef.current = null;
         cancelCompletionCue();
-        stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
-          description: t("recordingPage.tryAfterTranscription"),
-        });
+        const disposition = titleRegenerationSkipDisposition(result.reason);
+        if (disposition === "dismiss") {
+          dismissAiRequestToast();
+        } else if (disposition === "credits") {
+          stopAiRequestToast(t("builderCredits.pausedTitle"), {
+            description: t("builderCredits.titleDescription"),
+          });
+        } else if (disposition === "transcript") {
+          stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
+            description: t("recordingPage.tryAfterTranscription"),
+          });
+        } else {
+          stopAiRequestToast(t("recordingPage.aiRequestFailed"));
+        }
       }
     },
     onError: handleBackgroundAiError,
@@ -2251,11 +2661,17 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isPending || playerDataForbidden) {
-    return <RecordingWorkspaceSkeleton />;
+  if (accessView === "pending") return <RecordingWorkspaceSkeleton />;
+
+  if (accessView === "share") {
+    return (
+      <RecordingShareRedirect
+        to={`/share/${encodeURIComponent(recordingId)}?${legacyShareQuery}`}
+      />
+    );
   }
 
-  if (playerDataUnauthorized) {
+  if (accessView === "retry") {
     return (
       <Empty className="min-h-[calc(100dvh-3.5rem)] rounded-none border-0">
         <EmptyHeader>
@@ -2846,6 +3262,13 @@ export default function RecordingPage() {
         {canEdit && !editing ? (
           <RecordingOptionsMenu
             recordingId={recording.id}
+            triggerRef={recordingOptionsRef}
+            onCloseAutoFocus={(event) => {
+              if (openingMetadataEditor.current) {
+                event.preventDefault();
+                openingMetadataEditor.current = false;
+              }
+            }}
             canDelete={canDelete}
             canDownload={canDownloadRecording}
             downloadPending={downloading}
@@ -2854,78 +3277,35 @@ export default function RecordingPage() {
           >
             {canUseNativeEditor ? (
               <DropdownMenuItem onSelect={() => setEditing(true)}>
-                <IconEdit className="size-4" />
                 {t("recordingPage.edit")}
               </DropdownMenuItem>
             ) : null}
+            {isImage ? null : (
+              <DropdownMenuItem
+                onSelect={() => {
+                  openingMetadataEditor.current = true;
+                  setTimeout(() => setChapterEditRequest((n) => n + 1), 0);
+                }}
+              >
+                {t("chapterList.add")}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onSelect={() => {
+                openingMetadataEditor.current = true;
+                setTimeout(() => setTagEditRequest((n) => n + 1), 0);
+              }}
+            >
+              {t("recordingPage.addTag")}
+            </DropdownMenuItem>
             {/* Everything here reads the transcript or the timeline: asking
                 the agent about the clip, cleanup, filler words, silences,
                 chapters, an AI description, transcription. A screenshot has
-                none of those, so the menu keeps only what applies to it —
-                download and delete. */}
+                none of those, so those actions are hidden. */}
             {isImage ? null : (
               <>
                 <DropdownMenuItem onSelect={openAgentPanel}>
-                  <IconMessage className="h-4 w-4" />
                   {t("recordingPage.askAboutClip")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {isEmbedBacked ? null : (
-                  <>
-                    <DropdownMenuItem
-                      disabled={
-                        backgroundAiBusy ||
-                        !canAttemptTranscriptCleanup(transcriptStatus)
-                      }
-                      onSelect={() => {
-                        beginAiRequest("remove-filler-words");
-                        removeFillerWords.mutate({
-                          recordingId: recording.id,
-                        } as any);
-                      }}
-                    >
-                      {t("recordingPage.removeFillerWords")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={
-                        backgroundAiBusy ||
-                        !canAttemptTranscriptCleanup(transcriptStatus)
-                      }
-                      onSelect={() => {
-                        beginAiRequest("remove-silences");
-                        removeSilences.mutate({
-                          recordingId: recording.id,
-                          thresholdMs: 1200,
-                        } as any);
-                      }}
-                    >
-                      {t("recordingPage.removeSilences")}
-                    </DropdownMenuItem>
-                  </>
-                )}
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("regenerate-chapters");
-                    regenerateChapters.mutate({
-                      recordingId: recording.id,
-                      openInChat: true,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.autoChapters")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("regenerate-summary");
-                    regenerateSummary.mutate({
-                      recordingId: recording.id,
-                      openInChat: true,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.regenerateDescription")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
@@ -2933,6 +3313,63 @@ export default function RecordingPage() {
                     {t("recordingPage.enhanceRecording")}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
+                    {isEmbedBacked ? null : (
+                      <>
+                        <DropdownMenuItem
+                          disabled={
+                            backgroundAiBusy ||
+                            !canAttemptTranscriptCleanup(transcriptStatus)
+                          }
+                          onSelect={() => {
+                            beginAiRequest("remove-filler-words");
+                            removeFillerWords.mutate({
+                              recordingId: recording.id,
+                            });
+                          }}
+                        >
+                          {t("recordingPage.removeFillerWords")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={
+                            backgroundAiBusy ||
+                            !canAttemptTranscriptCleanup(transcriptStatus)
+                          }
+                          onSelect={() => {
+                            beginAiRequest("remove-silences");
+                            removeSilences.mutate({
+                              recordingId: recording.id,
+                              thresholdMs: 1200,
+                            });
+                          }}
+                        >
+                          {t("recordingPage.removeSilences")}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-chapters");
+                        regenerateChapters.mutate({
+                          recordingId: recording.id,
+                          openInChat: true,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.autoChapters")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-summary");
+                        regenerateSummary.mutate({
+                          recordingId: recording.id,
+                          openInChat: true,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.regenerateDescription")}
+                    </DropdownMenuItem>
                     {canTranscribe ? (
                       <DropdownMenuItem
                         disabled={requestTranscript.isPending}
@@ -2950,7 +3387,7 @@ export default function RecordingPage() {
                         beginAiRequest("regenerate-title");
                         regenerateTitle.mutate({
                           recordingId: recording.id,
-                        } as any);
+                        });
                       }}
                     >
                       {t("recordingPage.regenerateTitle")}
@@ -2968,20 +3405,8 @@ export default function RecordingPage() {
                           key={item.kind}
                           disabled={backgroundAiBusy}
                           onSelect={() => handleGenerateWorkflow(item.kind)}
-                          className={
-                            item.tooltipKey
-                              ? "justify-between gap-3"
-                              : undefined
-                          }
                         >
                           <span>{t(item.labelKey)}</span>
-                          {item.tooltipKey ? (
-                            // guard:allow-large-help-icon - menu item tooltip icon
-                            <IconHelpCircle
-                              aria-hidden="true"
-                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                            />
-                          ) : null}
                         </DropdownMenuItem>
                       );
 
@@ -3299,10 +3724,8 @@ export default function RecordingPage() {
                           title={recording.title}
                           canEdit={canEdit}
                           displayTitle={visibleTitle}
-                          showPendingSkeleton={showTitleSkeleton}
                           className="text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl"
                           inputClassName="h-9 text-xl font-semibold sm:text-2xl"
-                          skeletonClassName="h-7 w-72 max-w-full"
                         />
                         <div className="mt-2 flex min-w-0 items-center gap-2">
                           <ClipsAvatar
@@ -3386,6 +3809,11 @@ export default function RecordingPage() {
                         editsJson={recording.editsJson}
                         durationMs={recording.durationMs}
                         canEdit={canEdit}
+                        editRequest={chapterEditRequest}
+                        hideAddButton
+                        onReturnFocus={() =>
+                          recordingOptionsRef.current?.focus()
+                        }
                         onSeek={(ms) => playerRef.current?.seek(ms)}
                       />
                     )}
@@ -3393,6 +3821,8 @@ export default function RecordingPage() {
                       recordingId={recording.id}
                       tags={playerDataQ.data?.tags ?? []}
                       canEdit={canEdit}
+                      editRequest={tagEditRequest}
+                      onReturnFocus={() => recordingOptionsRef.current?.focus()}
                     />
                   </div>
                 </div>
@@ -3442,6 +3872,18 @@ export default function RecordingPage() {
   return viewer;
 }
 
+// The redirect runs only from here so the page can't send the visitor to the
+// share page while painting anything but the skeleton; a redirect and a
+// skeleton read from different checks is how a signed-out private Clip
+// flashed "Something went wrong".
+export function RecordingShareRedirect({ to }: { to: string }) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    void navigate(to, { replace: true });
+  }, [navigate, to]);
+  return <RecordingWorkspaceSkeleton />;
+}
+
 function RecordingWorkspaceSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -3464,10 +3906,6 @@ function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function displayRecordingTitle(title: string | null | undefined): string {
-  return isDefaultTitle(title) ? "Untitled Clip" : (title ?? "").trim();
-}
-
 function sanitizeFilename(name: string): string {
   return (
     name
@@ -3476,27 +3914,6 @@ function sanitizeFilename(name: string): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 80) || "clip"
   );
-}
-
-function shouldShowGeneratedTitleSkeleton(
-  recording: { title: string | null | undefined; createdAt?: string | null },
-  transcriptStatus?: string,
-  options: { titleGenerationPaused?: boolean } = {},
-): boolean {
-  if (options.titleGenerationPaused) return false;
-  if (!isDefaultTitle(recording.title)) return false;
-  if (transcriptStatus === "failed") return false;
-
-  const createdAtMs = Date.parse(recording.createdAt ?? "");
-  if (
-    Number.isFinite(createdAtMs) &&
-    Date.now() - createdAtMs > 2 * 60 * 1000 &&
-    transcriptStatus !== "pending"
-  ) {
-    return false;
-  }
-
-  return true;
 }
 
 function BuilderCreditsTitleNotice({ className }: { className?: string }) {

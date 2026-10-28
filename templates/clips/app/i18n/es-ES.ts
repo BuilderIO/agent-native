@@ -227,6 +227,7 @@ const messages = {
     spaces: "Espacios",
     meetings: "Reuniones",
     dictate: "Dictar",
+    fromContent: "Desde Content",
     archive: "Archivo",
     trash: "Papelera",
     agent: "Agente",
@@ -283,6 +284,10 @@ const messages = {
     archive: {
       title: "No hay grabaciones archivadas",
       body: "Los Clips archivados se quedan aquí hasta que quieras recuperarlos.",
+    },
+    fromContent: {
+      title: "Aún no hay subidas desde Content",
+      body: "Los vídeos que subes a una página de Content se guardan aquí como Clips.",
     },
     trash: {
       title: "La papelera está vacía",
@@ -348,6 +353,9 @@ const messages = {
     fillerCompleted: "Eliminación de palabras de relleno completada",
     workflowReady: "Flujo de trabajo listo",
     workflowFailed: "No se pudo generar el flujo de trabajo",
+    workflowCancelled: "Se canceló la generación del flujo de trabajo",
+    workflowTimedOut:
+      "La generación del flujo de trabajo superó el tiempo límite",
     transcriptionCompleted: "Transcripción completada",
     transcriptNotReady: "La transcripción aún no está lista",
     tryAfterTranscription:
@@ -362,6 +370,8 @@ const messages = {
     fillerQueued: "Eliminando palabras de relleno…",
     silenceQueued: "Eliminando silencios…",
     workflowQueued: "Generando flujo de trabajo…",
+    workflowStillGenerating: "El flujo de trabajo sigue generándose…",
+    workflowTakingLonger: "Esto está tardando más de lo habitual…",
     pageTitle: "Grabación de clips · Clips",
     loomMissingUrl: "A esta grabación Loom le falta su fuente URL.",
     finalizeFailed: "Finalización fallida ({{status}})",
@@ -1708,10 +1718,10 @@ const messages = {
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {
-    untitled: "Untitled Clip",
+    untitled: "Clip sin título",
     renameFailed: "Failed to rename clip",
     emptyTitle: "Title cannot be empty",
-    generatingTitle: "Generating title",
+    generatingTitle: "Generando título",
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
@@ -2344,6 +2354,8 @@ const messages = {
     goHome: "Ir al inicio",
     testMic: "Probar micrófono",
     archivePageTitle: "Archivo · Clips",
+    fromContentPageTitle: "Desde Content · Clips",
+    openContentPage: "Abrir página",
     insightsPageTitle: "Información · Clips",
     folderPageTitle: "Carpeta · Clips",
     spacePageTitle: "Espacio · Clips",

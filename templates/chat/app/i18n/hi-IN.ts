@@ -50,17 +50,12 @@ const messages = {
     untitledChat: "बिना शीर्षक वाली चैट",
   },
   home: {
-    composerPlaceholder: "Alex के लिए hello क्रिया कॉल करो",
     communityTitle: "हमसे जुड़ें",
     docsAddAction: "क्रिया जोड़ें",
     docsAddPage: "पेज जोड़ें",
     docsGettingStarted: "शुरुआत करें",
     docsKeyConcepts: "मुख्य अवधारणाएं",
     docsTitle: "दस्तावेज़",
-    editHint:
-      "{{file}} में बदलाव करके सेव करें, फिर नया अभिवादन देखने के लिए दोबारा पूछें।",
-    lead: "आपके ऐप का UI और उसका एजेंट एक ही क्रियाएं साझा करते हैं।",
-    leadTry: "एजेंट से hello क्रिया कॉल करने को कहें।",
     title: "शुरू करें",
   },
   navigation: {

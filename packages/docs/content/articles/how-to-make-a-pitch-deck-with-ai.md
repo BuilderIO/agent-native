@@ -2,7 +2,7 @@
 slug: how-to-make-a-pitch-deck-with-ai
 topic: presentations
 apps: [slides]
-use_case: startup-pitch-deck
+use_case: ai-pitch-deck-maker
 job_id: job-pitch-deck
 title: "How do you make a pitch deck with AI?"
 meta_description: "AI can draft the deck from your brief, but the story and the numbers are yours. What to give the AI, a slide outline to check against, and how to build one in Slides."

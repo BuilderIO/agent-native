@@ -285,7 +285,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 ### السياق المُجهّز في المحرر {#composer-context}
 
-تقبل `PromptComposer` و`TiptapComposer` الخاصية `submissionDisabled` لمنع الإرسال مع إبقاء إعداد المسودة والملفات والسياق متاحًا. عدم إعداد المزوّد يمنع الإرسال فقط. تظل `disabled` تعطل المحرر بالكامل.
+تقبل `PromptComposer` و`TiptapComposer` الخاصية `submissionDisabled` لمنع الإرسال مع إبقاء إعداد المسودة والملفات والسياق متاحًا. مع `requireAgentEngine`، يغلق عدم إعداد المزوّد `PromptComposer` أمام الكتابة ما دامت بطاقة الإعداد ظاهرة، وأي نقرة عليه تشير إلى البطاقة. إذا لم تكن هناك بطاقة ظاهرة، فإنه يمنع الإرسال فقط. تظل `disabled` تعطل المحرر بالكامل.
 
 تقبل `PromptComposer` و`TiptapComposer` و`AgentKitComposer` الخاصيتين `contextItems` و`contextMenuItems`. تتولى التطبيقات قراءة المصادر وتسميات القوائم المترجمة.
 

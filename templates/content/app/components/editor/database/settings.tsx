@@ -25,11 +25,9 @@ import { evaluateNormalizationFormula } from "@shared/properties";
 import {
   IconArrowLeft,
   IconCheck,
-  IconChevronDown,
   IconChevronRight,
   IconExternalLink,
   IconEye,
-  IconEyeOff,
   IconFileText,
   IconLayoutGrid,
   IconLayoutKanban,
@@ -541,6 +539,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      stagedPublicationTransition: changeSet.stagedPublicationTransition,
       effect,
       execution: latestExecution,
     };
@@ -2734,8 +2733,6 @@ function DatabaseOpenPagesInSetting({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 p-1">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
-          const Icon =
-            option === "full_page" ? IconExternalLink : IconLayoutGrid;
           return (
             <DropdownMenuItem
               key={option}
@@ -2745,7 +2742,6 @@ function DatabaseOpenPagesInSetting({
                 onChange(option);
               }}
             >
-              <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">
                   {databaseOpenPagesInLabel(option)}
@@ -3189,7 +3185,6 @@ export function DatabaseGroupMenu({
                 onHideEmptyGroupsChange(!hideEmptyGroups);
               }}
             >
-              <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
               <span className="flex-1">{dbText("hideEmptyGroups")}</span>
               {hideEmptyGroups ? (
                 <IconCheck className="size-4 text-muted-foreground" />
@@ -3202,7 +3197,6 @@ export function DatabaseGroupMenu({
                 onGroupsCollapsedChange(groupIds, true);
               }}
             >
-              <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
               {dbText("collapseAllGroups")}
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -3212,7 +3206,6 @@ export function DatabaseGroupMenu({
                 onGroupsCollapsedChange(groupIds, false);
               }}
             >
-              <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
               {dbText("expandAllGroups")}
             </DropdownMenuItem>
           </>

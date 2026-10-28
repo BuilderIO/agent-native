@@ -374,6 +374,16 @@ export const recordingContentBindings = table(
     // arrives late cannot undo a newer one.
     stateChangedAt: text("state_changed_at"),
     createdBy: text("created_by").notNull(),
+    // The file an editor picked, from Content: a start repeated with it
+    // reaches the same upload. Null for a link.
+    uploadKey: text("upload_key"),
+    // What the first start said of that file. A repeat must say the same,
+    // and gets the plan made for it.
+    uploadMimeType: text("upload_mime_type"),
+    uploadSizeBytes: bigint("upload_size_bytes", { mode: "number" }),
+    // When a start of it failed without Clips saying it left nothing: if it
+    // left no recording, the next repeat starts it again under the same id.
+    uploadStartFailedAt: text("upload_start_failed_at"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
@@ -381,6 +391,14 @@ export const recordingContentBindings = table(
     recordingDocumentUnique: uniqueIndex(
       "recording_content_bindings_recording_document_unique_idx",
     ).on(binding.recordingId, binding.contentApp, binding.documentId),
+    uploadKeyUnique: uniqueIndex(
+      "recording_content_bindings_upload_key_unique_idx",
+    ).on(
+      binding.contentApp,
+      binding.documentId,
+      binding.createdBy,
+      binding.uploadKey,
+    ),
     documentIndex: index("recording_content_bindings_document_idx").on(
       binding.contentApp,
       binding.documentId,
