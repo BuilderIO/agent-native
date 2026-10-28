@@ -24,6 +24,12 @@ const ONE_TARGET =
 export default defineAction({
   description:
     "Comment on a Clip placed in a page: start a thread at a moment of its video (videoTimestampMs), or reply to one of its threads (threadId from list-clip-comments). The comment is saved in Clips as the caller, who must be able to comment on the page. Fails with clip_comments_disabled when the Clip's comments are off.",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   schema: clipEmbedArgsSchema
     .extend({
       content: z

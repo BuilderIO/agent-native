@@ -19,6 +19,13 @@ const booleanArg = z.preprocess(
 export default defineAction({
   description:
     "Resolve or reopen a comment thread on a Clip placed in a page (threadId from list-clip-comments). Saved in Clips, which lets the thread's author or the Clip's editors do it and refuses anyone else with clip_forbidden. The caller must be able to comment on the page.",
+  // Resolving deletes nothing, and the same call reopens the thread.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   schema: clipEmbedArgsSchema.extend({
     threadId: z
       .string()
