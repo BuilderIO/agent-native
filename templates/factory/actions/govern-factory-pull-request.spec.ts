@@ -199,7 +199,6 @@ function governanceGitHub(input: {
   assignees?: Array<{ id: number; login: string }>;
   assigneeMember?: boolean;
   reviewerMembership?: boolean;
-  reviewerIdentityMismatch?: boolean;
   internalMember?: boolean;
   passingChecks?: boolean;
   initialSummary?: Record<string, unknown>;
@@ -261,10 +260,7 @@ function governanceGitHub(input: {
           (review) => review.authorId === userId,
         );
         return {
-          username:
-            reviewer && input.reviewerIdentityMismatch
-              ? `${username}-different`
-              : username,
+          username,
           isMember:
             userId === 123
               ? (input.internalMember ?? false)
@@ -653,12 +649,11 @@ describe("govern-factory-pull-request final check evidence", () => {
     );
   });
 
-  it("does not rely on reviewer membership when the verified login differs", async () => {
+  it("does not reuse an approval from a reviewer outside BuilderIO", async () => {
     await seedInternalApprovalPath();
     const github = governanceGitHub({
       internalMember: true,
-      reviewerMembership: true,
-      reviewerIdentityMismatch: true,
+      reviewerMembership: false,
       passingChecks: true,
       changedFiles: ["src/change.ts"],
       reviewEvents: [memberApprovalReview()],

@@ -147,10 +147,7 @@ async function eligibleBuilderMemberApprovals(
       reviewerId,
       approval.reviewerUsername,
     );
-    if (
-      membership.isMember &&
-      membership.username.trim().toLowerCase() === approval.reviewerLogin
-    ) {
+    if (membership.isMember) {
       return [approval];
     }
   }

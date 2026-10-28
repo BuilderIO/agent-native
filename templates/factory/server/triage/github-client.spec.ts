@@ -902,6 +902,33 @@ describe("GitHub triage client", () => {
       threadId: "PRRT_kwDOABC",
     });
   });
+
+  it.each([
+    ["user ID", { id: 18, login: "reviewer" }],
+    ["login", { id: 17, login: "renamed-reviewer" }],
+  ])(
+    "rejects organization membership when GitHub returns a different %s",
+    async (_field, user) => {
+      const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path === "/users/reviewer") return response(user);
+        throw new Error(`unexpected ${path}`);
+      });
+      const client = createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      });
+
+      await expect(
+        client.checkOrganizationMemberById("BuilderIO", 17, "reviewer"),
+      ).resolves.toEqual({
+        username: "reviewer",
+        isMember: false,
+        permission: null,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe("GitHub client reads and merges for workflows", () => {
