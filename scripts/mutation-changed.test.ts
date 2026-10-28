@@ -107,6 +107,18 @@ test("skips specs that read source text or import outside Core, which fail in St
   );
 });
 
+test("skips specs that import the repo-root catalog harness", () => {
+  const listing = ["plugin.spec.ts", "plugin.inventory.spec.ts", "plugin.ts"];
+  const files = {
+    "src/plugin.spec.ts": `import { start } from "./plugin";`,
+    "src/plugin.inventory.spec.ts": `import { repoRoot } from "./mcp/advertised-catalog.harness.js";`,
+  };
+  assert.deepEqual(
+    namedSpecs(["src/plugin.ts:1-2"], () => listing, readFrom(files)),
+    { include: ["src/plugin.spec.ts"], missing: [] },
+  );
+});
+
 test("reports a file whose only specs cannot run in the sandbox as missing", () => {
   const listing = ["plugin.surface.spec.ts", "plugin.ts"];
   const files = {
