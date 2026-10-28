@@ -37,18 +37,13 @@ export function isAutoTitleReplaceable(
 export function shouldPollGeneratedTitle(
   recording: {
     title: string | null | undefined;
-    titleSource?: string | null;
     createdAt?: string | null;
-    updatedAt?: string | null;
   },
   transcriptStatus?: string,
   now = Date.now(),
 ): boolean {
   if (transcriptStatus === "failed") return false;
-  const provisional = recording.titleSource === "context";
-  if (!provisional && !isDefaultTitle(recording.title)) return false;
-  const timestamp = Date.parse(
-    provisional ? (recording.updatedAt ?? "") : (recording.createdAt ?? ""),
-  );
+  if (!isDefaultTitle(recording.title)) return false;
+  const timestamp = Date.parse(recording.createdAt ?? "");
   return Number.isFinite(timestamp) && now - timestamp <= 2 * 60 * 1000;
 }

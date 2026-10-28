@@ -269,38 +269,6 @@ export default defineAction({
           fresh.titleSource === rec.titleSource &&
           fresh.updatedAt === rec.updatedAt));
 
-    let provisionalTitle: string | null = null;
-    if (
-      args.includeSummary &&
-      isAutoTitleReplaceable(rec.title, rec.titleSource)
-    ) {
-      provisionalTitle = fallbackTitleFromTranscript(transcriptText);
-      if (provisionalTitle) {
-        const freshRows = await db
-          .select({
-            title: schema.recordings.title,
-            titleSource: schema.recordings.titleSource,
-            updatedAt: schema.recordings.updatedAt,
-          })
-          .from(schema.recordings)
-          .where(eq(schema.recordings.id, args.recordingId))
-          .limit(1);
-        const fresh = freshRows[0] as (typeof freshRows)[number] | undefined;
-        if (fresh && isAutoTitleReplaceable(fresh.title, fresh.titleSource)) {
-          assertRecordingNotExpired(
-            await assertAccess("recording", args.recordingId, "editor"),
-          );
-          if (await writeTitleIfUnchanged(fresh, provisionalTitle, "context")) {
-            await writeAppState("refresh-signal", { ts: Date.now() });
-          } else {
-            provisionalTitle = null;
-          }
-        } else {
-          provisionalTitle = null;
-        }
-      }
-    }
-
     const agentsContext = await loadAgentsMdContext({
       ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
       purpose: "title",
@@ -420,7 +388,7 @@ export default defineAction({
         fresh.title?.trim().toLocaleLowerCase() ===
         fallbackTitle.trim().toLocaleLowerCase();
 
-      if (!titleMatchesCurrent || provisionalTitle === fallbackTitle) {
+      if (!titleMatchesCurrent) {
         assertRecordingNotExpired(
           await assertAccess("recording", args.recordingId, "editor"),
         );

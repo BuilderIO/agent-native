@@ -88,6 +88,9 @@ export function TagInput({
           <div
             role="group"
             className="flex flex-wrap items-center gap-1 min-h-[2.25rem] rounded-md border border-input bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-ring"
+            onPointerDown={(event) => {
+              if (event.target !== inputRef.current) event.preventDefault();
+            }}
             onClick={() => inputRef.current?.focus()}
             onBlur={(event) => {
               if (

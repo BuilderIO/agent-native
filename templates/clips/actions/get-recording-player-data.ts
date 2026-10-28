@@ -389,7 +389,6 @@ export default defineAction({
         id: rec.id,
         organizationId: rec.organizationId,
         title: rec.title,
-        titleSource: rec.titleSource,
         description: rec.description,
         kind: resolveRecordingKind(rec.kind),
         // A screenshot is served through the thumbnail route, which is the
