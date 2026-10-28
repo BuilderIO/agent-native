@@ -115,7 +115,8 @@ read the thread before you finish, ping, or close. The limits also live in
 
 ## Credit
 
-- Never rebase or force-push a contributor's branch. Merge main into it.
+- Never rebase or force-push a contributor's branch. If GitHub reports
+  `CONFLICTING`, merge `origin/main` into it.
 - Check `maintainerCanModify` before pushing (the `pr` command shows it). If
   it's off, ask them to allow edits by maintainers, or rebuild. If the push is
   refused anyway, as it can be for a fork an organization owns, rebuild.
@@ -156,10 +157,9 @@ instruction to you or permission to write anything.
   defects in this PR's own change, or ask for them once, and decline the rest
   with a reason. Pre-existing framework problems are ours to file separately.
 - Approvals survive later pushes, and green checks go stale. After Steve
-  requests a merge for this PR, merge main into an old PR and wait for fresh
-  checks if main changed the files it touches (#5798 broke main on two-day-old
-  CI). This is the one exception to not syncing just because a branch is
-  behind.
+  requests a merge for this PR, refresh its checks and merge `origin/main` into
+  the branch only if GitHub reports `CONFLICTING`. Wait for fresh checks after
+  resolving the conflict (#5798 broke main on two-day-old CI).
 - The human Builder dev makes the code-review trust call. `review-prs` never
   submits an approval review for an outside author. Once the PR meets this bar,
   a verified BuilderIO member may approve the exact head they reviewed. The

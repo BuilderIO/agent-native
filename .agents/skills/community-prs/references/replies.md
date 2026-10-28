@@ -53,7 +53,7 @@ update you on the next step / one thing left: ...
 ## After pushing to their branch
 
 ```text
-main moved under this one, so I merged it in and fixed the conflicts in
+GitHub reported a conflict with main, so I merged it in and fixed the conflicts in
 [file]. I also [change] because [reason]. shout if that's not what you meant.
 ```
 
@@ -118,7 +118,7 @@ a look.
 | Instead of                                             | Do                                                                                                                      |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | "ready for internal approval" or "needs owner review"  | Say a human Builder dev will review the current head and update them after required checks, or name the remaining check |
-| "please rerun CI" or "resolve the conflicts with main" | Rerun it, or merge main yourself                                                                                        |
+| "please rerun CI" or "resolve the conflicts with main" | Rerun it, or merge `origin/main` when GitHub reports `CONFLICTING`                                                      |
 | "take a look at the automated review comments"         | Decide which findings are real and ask for those, or fix them                                                           |
 | Five asks in one comment                               | One ask, or finish the rest yourself                                                                                    |
 | New asks after "final"                                 | Raise only what the new head introduced                                                                                 |
