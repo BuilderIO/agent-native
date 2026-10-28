@@ -420,6 +420,8 @@ class UseExpander {
     ) {
       return null;
     }
+    // A copy would drop the lock its source sits under.
+    if (isLocked(target)) return null;
     if (this.isSelectedById(target, id)) return null;
     if (this.stylesheetDependsOnUse(use, target)) return null;
     const x = length(attribute(use, "x"), viewport?.width);
@@ -685,6 +687,14 @@ class UseExpander {
   }
 }
 
+function countOccurrences(text: string, part: string): number {
+  let count = 0;
+  for (let at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + 1)) {
+    count += 1;
+  }
+  return count;
+}
+
 function applyEdits(source: string, edits: SourceEdit[]): string {
   let result = source;
   let previousStart = source.length + 1;
@@ -745,16 +755,20 @@ export function promoteAuthoredSvgArtworkInHtml(
   );
   const expander = new UseExpander(byId, styleText, hasLinkedStylesheet);
   const edits: SourceEdit[] = [];
+  const seenMarkup = new Map<string, number>();
   let promoted = 0;
   for (const svg of topLevelSvgs) {
     const startTag = svg.sourceCodeLocation?.startTag;
     const location = svg.sourceCodeLocation;
     if (!startTag || !location || !isArtworkSvg(svg)) continue;
-    // An edit promotes only the artwork it wrote, not SVGs it left as they were.
+    // An edit promotes only the artwork it wrote, not SVGs it left as they
+    // were; a new copy of an existing SVG counts as written.
+    const markup = html.slice(location.startOffset, location.endOffset);
+    const seen = (seenMarkup.get(markup) ?? 0) + 1;
+    seenMarkup.set(markup, seen);
     if (
-      options.previousHtml?.includes(
-        html.slice(location.startOffset, location.endOffset),
-      )
+      options.previousHtml !== undefined &&
+      seen <= countOccurrences(options.previousHtml, markup)
     ) {
       continue;
     }

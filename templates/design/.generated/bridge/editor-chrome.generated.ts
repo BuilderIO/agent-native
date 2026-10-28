@@ -18866,13 +18866,28 @@ export const editorChromeBridgeScript: string = `"use strict";
           originalStyleAttribute: shape.getAttribute("style")
         };
       });
+      var rejection = null;
+      for (var state of states) {
+        if (!state.toCanvas || state.offset && !svgShapeTranslateAfterMove(state.offset, state.toCanvas, {
+          dx: 0,
+          dy: 0
+        })) {
+          rejection = "Can't move hidden shapes";
+          break;
+        }
+        if (!state.offset) rejection = "Can't move shapes offset by a percentage";
+      }
+      if (rejection) {
+        startRejectedDrag(e, rejection, null);
+        return;
+      }
       var moved = false;
       function restore() {
-        states.forEach(function(state) {
-          if (state.originalStyleAttribute === null) {
-            state.el.removeAttribute("style");
+        states.forEach(function(state2) {
+          if (state2.originalStyleAttribute === null) {
+            state2.el.removeAttribute("style");
           } else {
-            state.el.style.translate = state.originalTranslate;
+            state2.el.style.translate = state2.originalTranslate;
           }
         });
       }
@@ -18885,12 +18900,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
           else dx = 0;
         }
-        states.forEach(function(state) {
-          var next = state.toCanvas && state.offset ? svgShapeTranslateAfterMove(state.offset, state.toCanvas, {
+        states.forEach(function(state2) {
+          var next = state2.toCanvas && state2.offset ? svgShapeTranslateAfterMove(state2.offset, state2.toCanvas, {
             dx: Math.round(dx),
             dy: Math.round(dy)
           }) : null;
-          if (next) state.el.style.translate = next;
+          if (next) state2.el.style.translate = next;
         });
         refreshOverlays();
       }
@@ -18919,20 +18934,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         cleanup();
         if (!moved) return;
         suppressNextShieldClickBriefly();
-        states.forEach(function(state) {
-          var styles = { translate: state.el.style.translate };
-          if (styles.translate === state.originalTranslate) return;
+        states.forEach(function(state2) {
+          var styles = { translate: state2.el.style.translate };
+          if (styles.translate === state2.originalTranslate) return;
           window.parent.postMessage(
             {
               type: "visual-style-change",
-              selector: getSelector(state.el),
+              selector: getSelector(state2.el),
               styles,
-              originalStyles: originalInlineStylesForPatch(state.el, styles),
-              payload: getElementInfo(state.el)
+              originalStyles: originalInlineStylesForPatch(state2.el, styles),
+              payload: getElementInfo(state2.el)
             },
             "*"
           );
-          recordSourceOwnership(state.el);
+          recordSourceOwnership(state2.el);
         });
         refreshOverlays();
         if (selectedEl) postElementSelect(selectedEl);

@@ -2886,6 +2886,12 @@ it.each([
     altKey: true,
     badge: "Can't duplicate SVG shapes by dragging",
   },
+  {
+    name: "an SVG shape offset by a percentage",
+    selectorGroups: [["#pct"]],
+    altKey: false,
+    badge: "Can't move shapes offset by a percentage",
+  },
 ])(
   "editor chrome bridge refuses to drag $name",
   { timeout: 30_000 },
@@ -2912,6 +2918,7 @@ it.each([
   <body>
     <svg id="art" data-an-primitive="pasted-svg" data-agent-native-node-id="art" viewBox="0 0 200 100" width="400" height="200">
       <rect id="a" data-agent-native-node-id="a" x="10" y="10" width="40" height="20" fill="#333"/>
+      <rect id="pct" data-agent-native-node-id="pct" x="100" y="10" width="40" height="20" fill="#333" style="translate: 10% 0px"/>
     </svg>
     <div id="card" data-agent-native-node-id="card"></div>
   </body>
@@ -2973,7 +2980,7 @@ it.each([
       }));
 
       expect(badgeText).toBe(badge);
-      expect(result).toEqual({ changes: 0, translate: "", shapes: 1 });
+      expect(result).toEqual({ changes: 0, translate: "", shapes: 2 });
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

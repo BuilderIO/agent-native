@@ -295,6 +295,30 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     expect(linked).toContain(`<use class="icon" href="#dot"/>`);
   });
 
+  it("keeps a use whose symbol sits under a lock", () => {
+    const html = screen(
+      `<svg viewBox="0 0 100 100" width="100" height="100"><defs data-agent-native-locked="true"><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot" width="10" height="10"/></svg>`,
+    );
+
+    expect(promoteAuthoredSvgArtworkInHtml(html).content).toContain(
+      `<use href="#dot" width="10" height="10"/>`,
+    );
+  });
+
+  it("promotes a new copy of artwork the edit left in place", () => {
+    const art = `<svg viewBox="0 0 100 100" width="100" height="100"><path d="M0 0h10"/></svg>`;
+
+    const { content, promoted } = promoteAuthoredSvgArtworkInHtml(
+      screen(`${art}${art}`),
+      { previousHtml: screen(art) },
+    );
+
+    expect(promoted).toBe(1);
+    expect(content).toContain(
+      `${art}<svg viewBox="0 0 100 100" width="100" height="100" data-an-primitive="pasted-svg">`,
+    );
+  });
+
   it("is stable when a promoted screen is saved again", () => {
     const once = annotateAgentScreenHtmlForPersist(
       screen(`${kit}${artwork}`),

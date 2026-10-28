@@ -24327,6 +24327,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         originalStyleAttribute: shape.getAttribute("style"),
       };
     });
+    // Every member must be movable, or the drag would leave some behind.
+    var rejection: string | null = null;
+    for (var state of states) {
+      if (
+        !state.toCanvas ||
+        (state.offset &&
+          !svgShapeTranslateAfterMove(state.offset, state.toCanvas, {
+            dx: 0,
+            dy: 0,
+          }))
+      ) {
+        rejection = "Can't move hidden shapes";
+        break;
+      }
+      if (!state.offset) rejection = "Can't move shapes offset by a percentage";
+    }
+    if (rejection) {
+      startRejectedDrag(e, rejection, null);
+      return;
+    }
     var moved = false;
     function restore() {
       states.forEach(function (state) {
