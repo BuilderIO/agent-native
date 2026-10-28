@@ -221,6 +221,7 @@ function governanceGitHub(input: {
   beforeEvidenceReturn?: (callNumber: number) => Promise<void>;
   afterApprovalReturn?: () => Promise<void>;
   approvalError?: unknown;
+  postApprovalSummaryError?: Error;
   beforeSummaryReturn?: (callNumber: number) => Promise<void>;
 }) {
   const initialSummary = pullRequestSummary({
@@ -250,6 +251,9 @@ function governanceGitHub(input: {
       summaryCalls += 1;
       if (summaryCalls === 5) await input.afterApprovalReturn?.();
       await input.beforeSummaryReturn?.(summaryCalls);
+      if (summaryCalls === 5 && input.postApprovalSummaryError) {
+        throw input.postApprovalSummaryError;
+      }
       const summaryOverrides =
         summaryCalls === 2
           ? input.revalidatedSummary
@@ -482,6 +486,26 @@ describe("govern-factory-pull-request final check evidence", () => {
     });
     expect(firstAttempt.approvePullRequest).toHaveBeenCalledTimes(1);
     expect(retry.approvePullRequest).not.toHaveBeenCalled();
+  });
+
+  it("preserves a manual hold when a non-approval run updates the item", async () => {
+    await seedInternalApprovalPath(false, "needs_manual");
+    const github = governanceGitHub({
+      internalMember: true,
+      changedFiles: ["src/change.ts"],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+
+    expect(result).toMatchObject({ ok: true, action: "needs_manual" });
+    expect(item.status).toBe("needs_manual");
+    expect(github.approvePullRequest).not.toHaveBeenCalled();
   });
 
   it("requires membership at both gates and complete check coverage", () => {
@@ -919,9 +943,103 @@ describe("govern-factory-pull-request final check evidence", () => {
     )[0];
 
     expect(result).toMatchObject({ ok: true, action: "skipped" });
-    expect(item.status).toBe("auto_approved");
+    expect(item.status).toBe("reconciliation_required");
     expect(decision.outcome).toBe("auto_approve");
     expect(lateApproval.approvePullRequest).not.toHaveBeenCalled();
+  });
+
+  it("recovers an accepted approval after the post-approval summary read fails", async () => {
+    await seedInternalApprovalPath();
+    const firstAttempt = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      postApprovalSummaryError: new Error("summary read unavailable"),
+    });
+
+    await expect(
+      runGovernance(firstAttempt, DEFAULT_FACTORY_ID, true),
+    ).rejects.toThrow("summary read unavailable");
+
+    const itemAfterError = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decisionAfterError = (
+      await db
+        .select({
+          outcome: triageDecisions.outcome,
+          reason: triageDecisions.reason,
+        })
+        .from(triageDecisions)
+        .where(eq(triageDecisions.id, governanceDecisionId()))
+    )[0];
+    expect(itemAfterError.status).toBe("reconciliation_required");
+    expect(decisionAfterError).toEqual({
+      outcome: "needs_manual",
+      reason:
+        "GitHub accepted the approval, but live state could not be revalidated afterward; reconciliation is required.",
+    });
+
+    const retryWithoutVisibleApproval = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+    });
+    await expect(
+      runGovernance(retryWithoutVisibleApproval, DEFAULT_FACTORY_ID, true),
+    ).rejects.toThrow(
+      "A pull-request approval intent already exists; reconcile the provider result before retrying.",
+    );
+
+    const lateApproval = governanceGitHub({
+      internalMember: true,
+      passingChecks: true,
+      changedFiles: ["src/change.ts"],
+      reviewEvents: [
+        memberApprovalReview({
+          author: "factory-bot",
+          authorType: "Bot",
+          body: `${FACTORY_APPROVAL_BODY_MARKER}${governanceDecisionId()}; recovered`,
+        }),
+      ],
+    });
+    serializeTriageMetadataMock.mockClear();
+    const recoveredResult = await runGovernance(
+      lateApproval,
+      DEFAULT_FACTORY_ID,
+      true,
+    );
+    const itemAfterRecovery = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+    const decisionAfterRecovery = (
+      await db
+        .select({ outcome: triageDecisions.outcome })
+        .from(triageDecisions)
+        .where(eq(triageDecisions.id, governanceDecisionId()))
+    )[0];
+
+    expect(recoveredResult).toMatchObject({ ok: true, action: "skipped" });
+    expect(itemAfterRecovery.status).toBe("reconciliation_required");
+    expect(decisionAfterRecovery.outcome).toBe("auto_approve");
+    expect(firstAttempt.approvePullRequest).toHaveBeenCalledTimes(1);
+    expect(
+      retryWithoutVisibleApproval.approvePullRequest,
+    ).not.toHaveBeenCalled();
+    expect(lateApproval.approvePullRequest).not.toHaveBeenCalled();
+    expect(serializeTriageMetadataMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autoApprovalHeadSha: "head-sha-1",
+        autoApprovalUrl: expect.any(String),
+        autoApprovedAt: expect.any(String),
+      }),
+    );
   });
 
   it("does not recover a marked approval from an unrelated manual decision", async () => {

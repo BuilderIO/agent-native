@@ -55,6 +55,8 @@ const AMBIGUOUS_APPROVAL_RESULT_REASON =
   "GitHub approval request outcome is ambiguous; reconciliation is required before retrying.";
 const APPROVAL_FINALIZATION_RECONCILIATION_REASON =
   "GitHub accepted the approval, but the Factory item changed before finalization; reconciliation is required.";
+const APPROVAL_POST_READ_RECONCILIATION_REASON =
+  "GitHub accepted the approval, but live state could not be revalidated afterward; reconciliation is required.";
 
 function hasUsableChangedFiles(
   changedFiles: readonly string[] | undefined,
@@ -1012,6 +1014,10 @@ export default defineAction({
                           triageDecisions.reason,
                           APPROVAL_FINALIZATION_RECONCILIATION_REASON,
                         ),
+                        eq(
+                          triageDecisions.reason,
+                          APPROVAL_POST_READ_RECONCILIATION_REASON,
+                        ),
                       ),
                     ),
                   ),
@@ -1027,7 +1033,8 @@ export default defineAction({
               .update(triageItems)
               .set({
                 metadataJson: serializeTriageMetadata(metadata),
-                ...(latestItem.status === "needs_manual"
+                ...(latestItem.status === "needs_manual" ||
+                latestItem.status === "reconciliation_required"
                   ? {}
                   : { status: "auto_approved" }),
                 updatedAt: new Date().toISOString(),
@@ -1277,6 +1284,10 @@ export default defineAction({
                   triageDecisions.reason,
                   APPROVAL_FINALIZATION_RECONCILIATION_REASON,
                 ),
+                ne(
+                  triageDecisions.reason,
+                  APPROVAL_POST_READ_RECONCILIATION_REASON,
+                ),
               ),
             )
             .returning({ id: triageDecisions.id });
@@ -1309,6 +1320,7 @@ export default defineAction({
             and(
               orgFactoryScopedItemWhere(itemId, orgId, factoryId),
               notInArray(triageItems.status, [
+                "needs_manual",
                 "reconciliation_required",
                 "auto_approved",
                 "merged",
@@ -1841,11 +1853,9 @@ export default defineAction({
             pullRequestNumber,
           );
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "unknown GitHub error";
           await reconcileClaim(
             pullRequest.headSha,
-            `Live GitHub state could not be revalidated after approval: ${message}. Reconciliation is required before finalizing.`,
+            APPROVAL_POST_READ_RECONCILIATION_REASON,
           );
           throw error;
         }
