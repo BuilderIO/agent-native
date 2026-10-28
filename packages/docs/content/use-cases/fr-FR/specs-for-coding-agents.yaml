@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: Rédigez des specs que votre agent de code lit
+seo_title: Specs pour Claude Code, Codex et Cursor
+meta_description: Agent-Native Content garde votre spec sur une page que Claude Code, Codex ou Cursor lit via MCP, pour coder depuis la version que modifie votre équipe.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Content fait de vos notes une spec partagée par vous, votre équipe et votre agent de code. Claude Code, Codex ou Cursor la lit en direct et suggère des changements à valider.
+  button:
+    label: Rédigez une spec
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: Une spec intitulée « Team invites » ouverte dans Content, avec les sections Goals, Non-goals, Decisions et Open questions, et l'arborescence des pages à gauche. Le chat de l'agent à droite a ajouté une décision sur la durée de validité des liens d'invitation.
+how_to:
+  heading: Comment rédiger une spec pour votre agent de code
+  steps:
+    - title: Rédigez la spec avec l'agent
+      body: Cliquez sur **+** dans la barre latérale, choisissez **Page** et collez vos notes, ou demandez à [l'agent intégré de Content](https://www.agent-native.com/docs/template-content/) de « rédiger un PRD pour une nouvelle fonctionnalité » à partir d'elles. Modifiez-la à la main, ou sélectionnez une section et demandez une réécriture.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: Le chat de l'agent demande une spec d'invitations d'équipe à partir de notes de réunion. La réponse de l'agent liste les sections rédigées, à côté de la nouvelle page.
+    - title: Ouvrez-la dans votre agent de code
+      body: Dans **Partager**, ouvrez **Agents** et choisissez **Ouvrir dans Claude Code** ou **Ouvrir dans Codex**. Votre agent lit la page, ou vous demande d'abord de connecter Content. Pour Cursor ou VS Code, ajoutez Content, cliquez sur **Copier les instructions pour l'agent** et collez-les.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: "Gros plan sur l'onglet Agents du menu Partager : Copier les instructions pour l'agent, Ouvrir dans Claude, Ouvrir dans Claude Code et Ouvrir dans Codex. En dessous, Connecter Content propose Add to Cursor, Add to VS Code et Autres agents."
+    - title: Tenez la spec à jour
+      body: Quand le développement tranche une question ouverte, demandez à votre agent de code de proposer la modification sur la page. Chaque suggestion indique la raison de l'agent. Cliquez sur la coche pour l'accepter, ou sur le X pour la refuser.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: Gros plan sur la section Open questions de la spec avec une modification suggérée par l'agent de code, marquée Agent, avec sa raison et les boutons Accepter (coche) et Refuser (X).
+features:
+  heading: Tout ce qu'il faut pour rédiger des specs pour votre agent de code
+  items:
+    - title: Des retours en commentaires
+      body: Demandez à l'agent de relire votre spec, et il commente les points faibles au lieu de réécrire votre texte.
+    - title: Une page par fonctionnalité
+      body: Rangez recherches, notes d'API et décisions sous chaque spec, et retrouvez-les en cherchant titres et texte.
+    - title: Un tableau de specs
+      body: Rangez vos specs en collection avec champs responsable et statut, en table ou en tableau, chaque ligne ouvrant sa page.
+    - title: Des notes pour votre agent
+      body: Indiquez dans la description de la page quelles sections sont figées, et chaque agent qui lit la spec le lit aussi.
+    - title: Lit les modifications non enregistrées
+      body: Votre agent de code voit les modifications encore ouvertes dans votre éditeur, donc la page telle qu'elle est.
+    - title: Relisez en équipe
+      body: Commentez un passage, @mentionnez un collègue, répondez en fil. L'historique des versions restaure une spec antérieure.
+integrations:
+  heading: Connectez Content aux outils que vous utilisez déjà
+  cards:
+    - title: Fonctionne avec votre agent de code
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Ouvrez une page dans Claude Code ou Codex depuis Partager, ou ajoutez Content à Cursor ou à GitHub Copilot dans VS Code en un clic.
+    - title: Reprenez la spec que vous avez déjà
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: Synchronisez une page avec Notion dans les deux sens, ou transformez un dossier GitHub de specs Markdown en collection.
+    - title: Connectez n'importe quoi via MCP
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: Connectez les outils de votre équipe via MCP, ou ajoutez n'importe quel serveur MCP par son URL.
+faqs:
+  heading: Des questions ? Nous avons les réponses
+  items:
+    - q: Agent-Native Content est-il gratuit ?
+      a: Oui, Agent-Native Content est gratuit et open source. Votre agent de code lit et modifie la spec avec son propre modèle, ce qui compte dans l'usage de votre agent. L'agent intégré de Content fonctionne avec les crédits Builder.io ou votre propre clé de modèle. Content est en alpha, attendez-vous à des changements.
+    - q: Quels agents de code peuvent lire ma spec ?
+      a: Claude Code et Codex ouvrent la page depuis **Partager** et vous demandent de vous connecter une fois. Cursor et GitHub Copilot dans VS Code y ajoutent Content en un clic. Claude Cowork, Goose et OpenCode se connectent depuis votre terminal, et tout client MCP avec connexion peut [se connecter à Content par son URL](https://www.agent-native.com/docs/external-agents/#private-content-links). Chaque agent ne voit que ce que votre compte peut voir.
+    - q: En quoi est-ce différent d'un fichier de spec dans mon repo ?
+      a: Un fichier de spec dans votre repo est une copie que seules les personnes qui travaillent dans le code ont tendance à modifier. Dans Content, votre équipe rédige et commente la page même que lit votre agent de code, et les changements de l'agent arrivent sous forme de suggestions. Si vous voulez aussi du Markdown dans le repo, Content [se synchronise avec un dossier local](https://www.agent-native.com/docs/template-content-sync/).
+    - q: Mon agent de code peut-il modifier la spec ?
+      a: Oui, avec les accès de votre compte. Demandez-lui de suggérer des modifications, et la page reste inchangée tant que vous ne les acceptez pas une par une. Il peut aussi modifier la page directement, mais si la page a changé depuis sa lecture, Content refuse la modification. L'[historique des versions](https://www.agent-native.com/docs/template-content-editing/) conserve les versions antérieures.
+    - q: Puis-je garder mes specs dans mon repo ?
+      a: Oui. Connectez un [dossier Markdown ou MDX local](https://www.agent-native.com/docs/template-content-local-files/) dans Content et récupérez, vérifiez ou poussez les changements, ou lancez Content depuis votre repo en une commande. Les conflits vous sont présentés pour relecture. Le navigateur ne peut pas lire seul les fichiers locaux, donc il faut une application Content locale ou Agent-Native Desktop.

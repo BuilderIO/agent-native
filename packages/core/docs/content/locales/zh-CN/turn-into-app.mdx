@@ -10,9 +10,13 @@ description: "/turn-into-app skill 可将对话、skill、电子表格或 Claude
 ## 开始之前 {#before-you-start}
 
 - 一个能够运行终端命令的 AI 智能体，例如 Claude Code、Codex 或 Cursor。网页版 Claude 或 ChatGPT 可以改为把任务交给 Builder。请参阅 [运行位置](#hosts)。
-- [Node.js](https://nodejs.org) 22.22 或更高版本。nodejs.org 的安装程序包含 `npx`，下方的安装命令由它运行。请用 `node --version` 检查你的版本。
-- [pnpm](https://pnpm.io) 位于你的 `PATH` 中。如果 `pnpm --version` 失败，请运行 `corepack enable`，它随 Node.js 一起提供。
+- [Node.js](https://nodejs.org)。nodejs.org 的安装程序包含 `npx`，下方的安装命令由它运行。
 - 一个用于新应用的空文件夹，以及约 45 分钟。
+
+skill 会询问应用是在你的电脑上运行，还是由 Builder 托管。两者各需要一样东西：
+
+- **在你的电脑上。** Node.js 22.22 或更高版本（用 `node --version` 检查），以及位于你的 `PATH` 中的 [pnpm](https://pnpm.io)。如果 `pnpm --version` 失败，请运行 `corepack enable`，它随 Node.js 一起提供。
+- **由 Builder 托管。** 一个免费的 Builder 账号。无需安装其他任何东西。
 
 构建应用不需要 AI 提供商的密钥。只有当你希望应用内的智能体回复你时，才需要它。
 
@@ -43,14 +47,16 @@ npx @agent-native/core@latest skills add turn-into-app
 
 ## 运行位置 {#hosts}
 
-| 宿主                                            | 发生的事情                                                                         |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Claude Code、Codex、Cursor 及其他本地编码智能体 | 在你的检出目录中构建、运行并审查应用。                                             |
-| 网页版 Claude 或 ChatGPT                        | 编写一份范围明确的简报，并通过 Dispatch 连接器交给 Builder。它自己不运行任何内容。 |
+| 宿主                                            | 发生的事情                                                                                   |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Claude Code、Codex、Cursor 及其他本地编码智能体 | 询问应用在哪里运行。选择你的电脑时，在你的检出目录中构建、运行并审查应用；否则交给 Builder。 |
+| 网页版 Claude 或 ChatGPT                        | 编写一份范围明确的简报，并通过 Dispatch 连接器交给 Builder。它自己不运行任何内容。           |
 
 当宿主具有真实的工作目录、终端和工作区时，才算本地宿主。拥有 Builder 或 Dispatch 连接器并不会使宿主成为浏览器宿主。
 
-在浏览器宿主上，skill 需要 Agent-Native Dispatch MCP 连接器（`https://dispatch.agent-native.com/mcp`，OAuth），并调用其 `start-workspace-app-creation` 操作。宿主无法运行或检查应用，因此在 Dispatch 返回的分支构建完成之前，报告会保持待处理或未验证状态。skill 只报告 Dispatch 实际返回的内容，绝不编造分支 URL。对于 ChatGPT 项目，或任何仅暴露 MCP 的宿主，请将 skill 指令放入项目指令或知识文件中。
+在本地宿主上，skill 会先展示简报，然后只问一个问题：**在你的电脑上**（需要 Node.js 和 pnpm；电脑开着时，应用从你的文件夹运行）或 **由 Builder 托管**（需要一个免费的 Builder 账号；Builder 构建应用并在线托管，免费套餐有每日额度上限）。当缺少 Node.js 22.22+ 或 pnpm 时，或在无法让本地应用保持运行的 Claude Cowork 中，它推荐 Builder；否则推荐你的电脑。如果你已经说明了在哪里运行、它在恢复之前的运行、应用的事实来源是你电脑上的文件（Local File Mode），或处于无头运行（会在你的电脑上构建）中，它就不会询问。如果你选择 Builder，它会附上你文件夹中的源文件，并且不在本地运行任何东西。
+
+无论从哪种宿主出发，Builder 托管都需要 Agent-Native Dispatch MCP 连接器（`https://dispatch.agent-native.com/mcp`，OAuth），并调用其 `start-workspace-app-creation` 操作。你这边不会运行任何东西，因此在 Dispatch 返回的分支构建完成之前，报告会保持待处理或未验证状态。skill 只报告 Dispatch 实际返回的内容，绝不编造分支 URL。在没有该连接器的本地智能体中，skill 会提议用 `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code`（或 `codex`、`cursor`、`cowork`）来设置它；请重启智能体并再次运行该 skill。如果没有 Node.js，它会引导你前往 `https://dispatch.agent-native.com/mcp/connect`，那里有每种智能体的设置步骤。它绝不会不经询问就改为本地构建。对于 ChatGPT 项目，或任何仅暴露 MCP 的宿主，请将 skill 指令放入项目指令或知识文件中。
 
 ## 来源 {#sources}
 
@@ -72,7 +78,7 @@ skill 会将来源简报保存为 `docs/brief.md`，并将界面设计追加到 
 ## 一次运行的流程 {#how-it-works}
 
 1. **简报。** 读取完整来源，并编写一份简短的简报：工作内容、最多三个智能体时刻、不变量、数据风险、事实来源和假设。
-2. **设计。** 确定原型、方向、外壳、首屏视口与示例数据以及智能体时刻，并将简报作为检查点发布一次，同时说明其余部分还需要多长时间。无需等待，直接继续。
+2. **设计。** 确定原型、方向、外壳、首屏视口与示例数据以及智能体时刻，并将简报作为检查点发布一次，同时说明其余部分还需要多长时间。在本地宿主上，它接着询问应用在哪里运行，并等待你的回答。否则无需等待，直接继续。选择 Builder 托管时，Dispatch 交接会取代第 3 到第 6 步。
 3. **脚手架。** 使用 chat 模板创建真正的应用，且绝不覆盖现有应用。
 
    ```bash
@@ -107,6 +113,8 @@ skill 的目标用时约为 45 分钟。如果审查开始时已过去 35 分钟
 pnpm dev
 ```
 
+要修改应用，请在同一个文件夹中让构建它的智能体来改。在 localhost 上，应用自己的智能体无法编辑应用的代码。由 Builder 托管的应用，其代码位于 Builder 中，因此要在那里修改。
+
 要在本地使用你自己的模型提供商，请在同一个 `.env` 中放入诸如 `ANTHROPIC_API_KEY` 之类的密钥。否则，应用仍会以示例数据打开，而在你使用智能体时，智能体侧边栏会提供共享的 Use Builder.io 或 Custom keys 设置。
 
 只有在你要求部署或提供商已配置时，skill 才会部署。一次正常的本地构建仍会打印一个 "production configuration errors" 块，退出码为 0。这就是部署清单：稳定的 `BETTER_AUTH_SECRET` 和持久的 `DATABASE_URL`，以及工作区内应用所需的 `A2A_SECRET`。skill 会将这些报告为待办步骤，并且不会创建占位值。请参阅[部署应用](/docs/deploy-an-app)和[部署工作区](/docs/workspace-deployment)。
@@ -120,10 +128,10 @@ pnpm dev
 - **浏览器宿主上的电子表格。** 无法附加工作簿；宿主会以文本形式传递有限的 CSV 渲染结果或有意公开的 URL，并且交接内容会说明遗漏了什么。 指向私有表格的链接不是来源；技能会要求经过认证的 Sheets 或 Drive 连接，或要求导出文件，绝不会使用公开导出 URL 来绕过访问控制。
 - **单元格颜色。** 文本预览无法证明颜色，因此在本地宿主上，skill 会同时读取公式和缓存值，并将颜色视为较弱的提示。
 - **Local File Mode 应用。** 事实来源是宿主文件的应用仅限本地，不会被部署。
-- **浏览器宿主交接。** 在 Dispatch 返回已构建的分支之前，结果处于未验证状态。skill 无法在那里运行应用或对其截图。
+- **Builder 交接。** 在 Dispatch 返回已构建的分支之前，结果处于未验证状态。skill 无法运行由 Builder 托管的应用，也无法对其截图。
 
 ## 后续步骤 {#whats-next}
 
 - [Skills 指南](/docs/skills-guide)：了解 skills 的安装和加载方式
-- [Dispatch](/docs/dispatch)：了解网页版 Claude 和 ChatGPT 使用的连接器
+- [Dispatch](/docs/dispatch)：了解 Builder 托管所用的连接器
 - [部署应用](/docs/deploy-an-app)：将生成的应用发布到生产环境

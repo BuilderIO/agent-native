@@ -5,12 +5,23 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-24
 
+### Added
+
+- Pick dashboard panels for the agent with the Select button in the chat composer.
+
 ### Improved
 
+- An empty Ask page shows the large composer, and the agent panel opens on the app's default model
+- The Content dashboard ranks articles by signups, adds Authors, New and rising, and Sources tabs, and names missing data sources in one notice.
 - Organization roster searches now find row-level dbt membership data more reliably.
 
 ### Fixed
 
+- Analytics now clearly indicates incomplete Gong user lists and HubSpot deal pages.
+- Date columns in dashboard tables no longer show the previous day in time zones west of UTC.
+- Gong transcript reads preserve the transcript alias for existing callers.
+- Phones can open the agent from the top bar on every page outside Ask
+- HubSpot and Gong searches keep their filters and page totals visible.
 - Analytics avoids showing partial warehouse results when a metric or plan request is ambiguous.
 - Analytics preserves verified results from successful time ranges when another requested range is unavailable.
 - Analytics uses a warehouse fallback for a failed metric only when requested and supported by a complete metric definition and result.
@@ -18,8 +29,16 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-23
 
+### Improved
+
+- Metric tiles can show their change from the period before, tables give the spare width to their first text column and right-align numbers, and callouts read as a list with a severity icon per row, in dashboards and emailed reports.
+
 ### Fixed
 
+- Content pageviews use their own GA4 property without changing other dashboards.
+- Content signup collection keeps actual query usage and the configured cap, including when collection fails
+- External agents need approval before changing recurring index builds.
+- Query cost tracking distinguishes unknown BigQuery usage from zero-byte results.
 - Analytics figures require complete, scope-matched warehouse evidence
 - Analytics keeps malformed metric values out of verified summaries
 - Analytics keeps verified metrics available when another requested dbt metric is unavailable
@@ -29,7 +48,22 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Analytics withholds warehouse figures when an owner-defined dbt metric query fails.
 - Warehouse figures stay hidden when a failed dbt query cannot verify the calculation.
 
+## 2026-10-22
+
+### Added
+
+- Tables, metric tiles and charts can show a number of seconds as a duration such as 16 min or 7.4 hours, and duration columns sort by time.
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+- Extension panels on dashboards are as tall as their content, so a one-line extension no longer leaves an empty band below it
+
 ## 2026-10-21
+
+### Added
+
+- You can pin a shared chat just for yourself, or hide it from your list and undo that from the toast.
 
 ### Improved
 
@@ -42,6 +76,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Preserve unknown replay availability in partial journeys
 
 ## 2026-10-20
+
+### Added
+
+- Custom SQL charts can open configured record details on click
 
 ### Fixed
 

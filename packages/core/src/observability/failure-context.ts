@@ -55,6 +55,7 @@ export function buildFailureContext(
     environment: resolveDeployEnvironment(),
     release: resolveServerRelease(),
     userScope: userScope(),
+    requestId: text(getRequestContext()?.requestId),
     occurredAt: new Date().toISOString(),
     ...explicit,
     threadId,

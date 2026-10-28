@@ -188,6 +188,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "رجوع",
   "onboarding.creditsSkipAnyway": "تخطي على أي حال",
   "onboarding.creditsUseCustomKeys": "استخدام مفاتيحك الخاصة",
+  "onboarding.creditsUseOwnApiKeys": "استخدم مفاتيح API الخاصة بي",
   "onboarding.creditsAboutLabel": "حول الأرصدة المجانية",
   "onboarding.creditsActivating": "جارٍ تفعيل الأرصدة المجانية",
   "onboarding.creditsActivatingTooltip":

@@ -2,6 +2,12 @@
 
 All notable user-facing changes to this app are documented here.
 
+## 2026-10-26
+
+### Improved
+
+- Task queue suggestions can use OpenAI when Jev is unavailable.
+
 ## 2026-08-22
 
 ### Fixed

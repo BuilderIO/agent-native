@@ -808,6 +808,10 @@ const editorPropertiesMessages = {
   duplicateProperty: "Duplicate property",
   editEndDate: "Edit {{name}} end date",
   editProperty: "Edit {{name}}",
+  builderStatusPublishInBuilder:
+    "Changes saved in Builder's editor can only be published from Builder.",
+  builderStatusUnpublishedChangesInBuilder:
+    "Unpublished changes come from Builder's editor, so they can't be set here.",
   editStartDate: "Edit {{name}} start date",
   editValue: "Edit {{name}} value",
   moveColumnLeft: "Move column left",
@@ -1531,6 +1535,16 @@ const enUS = {
       duplicate: "Duplicate",
       delete: "Delete",
       insertBelow: "Insert block below",
+      search: "Search actions...",
+      noResults: "No results",
+      block: "Block",
+      keyCtrl: "Ctrl",
+      keyShift: "Shift",
+      keyDelete: "Del",
+      lockedSource:
+        "Components from the source file can’t be duplicated or deleted here.",
+      lockedSuggesting: "Suggestions can’t add or remove this kind of block.",
+      lockedPage: "This page doesn’t allow that change.",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",

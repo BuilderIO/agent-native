@@ -736,6 +736,17 @@ const editor = {
     duplicate: "Dupliquer",
     delete: "Supprimer",
     insertBelow: "Insérer un bloc en dessous",
+    search: "Rechercher des actions...",
+    noResults: "Aucun résultat",
+    block: "Bloc",
+    keyCtrl: "Ctrl",
+    keyShift: "Maj",
+    keyDelete: "Suppr",
+    lockedSource:
+      "Les composants du fichier source ne peuvent pas être dupliqués ni supprimés ici.",
+    lockedSuggesting:
+      "Les suggestions ne peuvent pas ajouter ni retirer ce type de bloc.",
+    lockedPage: "Cette page n’autorise pas cette modification.",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:
@@ -923,6 +934,10 @@ const editor = {
     moveColumnLeft: "Déplacer la colonne vers la gauche",
     moveColumnRight: "Déplacer la colonne vers la droite",
     editProperty: "Modifier {{name}}",
+    builderStatusPublishInBuilder:
+      "Les modifications enregistrées dans l'éditeur de Builder ne peuvent être publiées que depuis Builder.",
+    builderStatusUnpublishedChangesInBuilder:
+      "Les modifications non publiées viennent de l'éditeur de Builder et ne peuvent pas être définies ici.",
     editStartDate: "Modifier la date de début de {{name}}",
     editValue: "Modifier la valeur {{name}}",
     empty: "Vide",
@@ -1080,7 +1095,7 @@ const editor = {
     todoListDescription: "Éléments de la liste de contrôle",
     toggle: "Basculer",
     toggleDescription: "Ligne à bascule de style notion",
-    turnInto: "Transformez-vous en",
+    turnInto: "Transformer en",
     video: "Vidéo",
     videoDescription: "Télécharger ou intégrer une vidéo",
   },

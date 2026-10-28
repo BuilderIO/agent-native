@@ -26,7 +26,8 @@ const actorLabel = (actor: ActivityEntry["actor"]) => actorLabelOf(actor, s);
 const describeRunCounts = (counts: RunActivity["counts"]) =>
   describeRunCountsOf(counts, s);
 const linkAction = (entry: ActivityEntry) => linkActionOf(entry, s);
-const runStatusView = (status: RunStatus) => runStatusViewOf(status, s);
+const runStatusView = (status: RunStatus, itemFailures = 0) =>
+  runStatusViewOf(status, s, itemFailures);
 
 function entry(over: Record<string, unknown>): ActivityEntry {
   return {
@@ -164,6 +165,13 @@ describe("runStatusView", () => {
     expect(runStatusView("succeeded")).toEqual({
       label: "OK",
       tone: "neutral",
+    });
+  });
+
+  it("marks a succeeded run that lost items as attention", () => {
+    expect(runStatusView("succeeded", 2)).toEqual({
+      label: "OK",
+      tone: "attention",
     });
   });
 });

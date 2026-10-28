@@ -13,7 +13,7 @@ import { READ_LIMITS } from "../server/workflow-host/read-models.js";
 
 export default defineAction({
   description:
-    "List the items workflows have taken, most recently active first, one page at a time: the Items tab. Each row: title, source, inbox status, where the item is (the node it is parked at with its wake time, or the node of its last event), attempts, why a person has to look (handed_off, attempts_exhausted, effect_needs_check), and its last event. Use needsYou for the items that need a person, parked for the ones waiting at a Wait, status for inbox statuses, source for slack, github, and so on, and search for a title or item id. Open one with get-item-journey.",
+    "List the items workflows have taken, most recently active first, one page at a time: the Items tab. Each row: title, a short preview of the item's own text (summary), source, inbox status, where the item is (the node it is parked at with its wake time, or the node of its last event), attempts, why a person has to look (handed_off, attempts_exhausted, effect_needs_check), and its last event. Use needsYou for the items that need a person, parked for the ones waiting at a Wait, status for inbox statuses, source for slack, github, and so on, and search for a title or item id. Open one with get-item-journey.",
   schema: z.object({
     factoryId: factoryIdSchema,
     workflowId: workflowIdSchema.optional(),

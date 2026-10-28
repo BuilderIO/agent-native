@@ -150,6 +150,10 @@ vi.mock("../server/db/index.js", () => ({
       trashedAt: "recordings.trashedAt",
     }),
     recordingShares: "recordingShares",
+    recordingContentBindings: {
+      recordingId: "recordingContentBindings.recordingId",
+      origin: "recordingContentBindings.origin",
+    },
     recordingTags: mockTables.recordingTags,
     recordingViews: Object.assign(mockTables.recordingViews, {
       recordingId: "recordingViews.recordingId",
