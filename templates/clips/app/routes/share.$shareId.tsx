@@ -1849,12 +1849,6 @@ export default function ShareRoute() {
                   <h1 className="truncate text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl">
                     {visibleTitle}
                   </h1>
-                  {recording &&
-                  shouldPollGeneratedTitle(recording, transcriptStatus) ? (
-                    <span role="status" className="sr-only">
-                      {t("sharePage.generatingTitle")}
-                    </span>
-                  ) : null}
                   <div className="mt-2 flex min-w-0 items-center gap-2">
                     <ClipsAvatar
                       email={ownerEmail}
