@@ -9,6 +9,7 @@ import {
   eq,
   exists,
   gte,
+  inArray,
   isNull,
   lt,
   ne,
@@ -332,7 +333,9 @@ export function builderExecutionConflict(message: string) {
 // Collections are separate sources, so the database lock a claim takes does not
 // keep two collections bound to the same Builder model apart. The live preflight
 // only protects a push if no other Content push to the entry can land between
-// its read and its write, so a push holds the entry from claim to write.
+// its read and its write, so a push holds the entry from claim to write. A
+// write whose outcome is unknown may still land, so it holds the entry too,
+// until the claim lease outlasts any request still in flight.
 async function builderEntryHasOtherLiveClaim(
   tx: ReturnType<typeof getDb>,
   args: {
@@ -368,7 +371,7 @@ async function builderEntryHasOtherLiveClaim(
         eq(rows.sourceRowId, args.entryId),
         eq(executions.sourceId, sources.id),
         ne(executions.id, args.executionId),
-        eq(executions.state, "running"),
+        inArray(executions.state, ["running", "reconciliation_required"]),
         gte(executions.updatedAt, args.staleBefore),
       ),
     )

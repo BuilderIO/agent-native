@@ -734,15 +734,20 @@ describe("Builder source review execution gates", () => {
       .where(eq(schema.contentDatabaseSourceExecutions.id, second.executionId));
     expect(waiting).toMatchObject({ state: "ready", attemptToken: null });
 
-    await first.deps.releaseExecutionClaim({
-      executionId: first.executionId,
-      attemptToken: "attempt-first",
-      restore: { state: "blocked", attemptToken: null },
-      summary: "Blocked before write.",
-      payload: { request: { method: "PATCH" } },
-      lastError: "Builder entry changed since this diff was approved.",
-      now: "2026-06-29T16:01:10.000Z",
+    const setFirst = (state: string, updatedAt: string) =>
+      db
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({ state, updatedAt })
+        .where(
+          eq(schema.contentDatabaseSourceExecutions.id, first.executionId),
+        );
+    // A timed-out write may still land, so it keeps the entry until its lease
+    // runs out.
+    await setFirst("reconciliation_required", "2026-06-29T16:01:05.000Z");
+    await expect(second.claim()).rejects.toMatchObject({
+      errorCode: "builder_entry_write_in_progress",
     });
+    await setFirst("reconciliation_required", "2026-06-29T15:40:00.000Z");
     await expect(second.claim()).resolves.toBe(true);
   });
 
