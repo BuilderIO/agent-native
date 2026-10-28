@@ -41,6 +41,14 @@ export function TimestampedCommentButton({
   );
 }
 
+type AddCommentVars = {
+  recordingId: string;
+  content: string;
+  videoTimestampMs: number;
+};
+
+type FailedSend = { key: number; vars: AddCommentVars };
+
 interface TimestampedCommentBarProps {
   commentAccessToken?: string;
   getCommentAccessToken?:
@@ -89,6 +97,8 @@ export function TimestampedCommentBar({
   );
   // Toasts do not paint over real fullscreen, so failure shows in the bar.
   const [failed, setFailed] = useState(false);
+  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  const failedSendKeyRef = useRef(0);
   // Every mutate() posts again, and isPending reaches render a tick late.
   const sendingRef = useRef(false);
   const addComment = useActionMutation("add-comment", {
@@ -105,7 +115,6 @@ export function TimestampedCommentBar({
     },
     onError: () => {
       refusedCommentAccessTokenRef.current = commentAccessTokenRef.current;
-      setFailed(true);
     },
     onSettled: () => {
       sendingRef.current = false;
@@ -117,19 +126,42 @@ export function TimestampedCommentBar({
     if (!content || sendingRef.current) return;
     sendingRef.current = true;
     setFailed(false);
-    addComment.mutate(
-      { recordingId, content, videoTimestampMs: atMs },
-      {
-        onSuccess: () => {
-          onAdded?.();
-          // The textarea stays editable while this sends, so newer text is
-          // the next draft, not this posted one.
-          if (draftRef.current.trim() !== content) return;
-          setDraft("");
-          onClose();
-        },
+    const vars = { recordingId, content, videoTimestampMs: atMs };
+    addComment.mutate(vars, {
+      onSuccess: () => {
+        onAdded?.();
+        // The textarea stays editable while this sends, so newer text is
+        // the next draft, not this posted one.
+        if (draftRef.current.trim() !== content) return;
+        setDraft("");
+        onClose();
       },
-    );
+      // Newer text keeps the composer, so this one waits beside it, at the
+      // time it was written for.
+      onError: () => {
+        if (draftRef.current.trim() === content) {
+          setFailed(true);
+          return;
+        }
+        failedSendKeyRef.current += 1;
+        const failedSend = { key: failedSendKeyRef.current, vars };
+        setFailedSends((list) => [...list, failedSend]);
+      },
+    });
+  };
+
+  const dropFailedSend = (failedSend: FailedSend) =>
+    setFailedSends((list) => list.filter((entry) => entry !== failedSend));
+
+  const retry = (failedSend: FailedSend) => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    addComment.mutate(failedSend.vars, {
+      onSuccess: () => {
+        onAdded?.();
+        dropFailedSend(failedSend);
+      },
+    });
   };
 
   // Closing the composer, or moving it into or out of the player, remounts the
@@ -143,6 +175,14 @@ export function TimestampedCommentBar({
         setFailed(false);
       }}
       failed={failed}
+      failedSends={failedSends}
+      retrying={
+        addComment.isPending
+          ? failedSends.find((entry) => entry.vars === addComment.variables)
+          : undefined
+      }
+      onRetry={retry}
+      onDelete={dropFailedSend}
       pending={addComment.isPending}
       atMs={atMs}
       onSubmit={submit}
@@ -157,6 +197,10 @@ function TimestampedCommentFields({
   draft,
   onDraftChange,
   failed,
+  failedSends,
+  retrying,
+  onRetry,
+  onDelete,
   pending,
   atMs,
   onSubmit,
@@ -166,6 +210,10 @@ function TimestampedCommentFields({
   draft: string;
   onDraftChange: (value: string) => void;
   failed: boolean;
+  failedSends: FailedSend[];
+  retrying: FailedSend | undefined;
+  onRetry: (failedSend: FailedSend) => void;
+  onDelete: (failedSend: FailedSend) => void;
   pending: boolean;
   atMs: number;
   onSubmit: () => void;
@@ -186,6 +234,50 @@ function TimestampedCommentFields({
       className={cn("absolute inset-x-0 bottom-0 z-30 p-3 sm:p-4", className)}
     >
       <div className="mx-auto w-full max-w-lg rounded-xl bg-background/95 p-2 shadow-lg ring-1 ring-foreground/10 backdrop-blur">
+        {failedSends.length > 0 ? (
+          <ul className="mb-1 max-h-32 overflow-y-auto border-b border-border px-2 pb-1">
+            {failedSends.map((failedSend) => (
+              <li key={failedSend.key}>
+                <p className="truncate text-sm leading-5 text-foreground">
+                  {failedSend.vars.content}
+                </p>
+                <div className="flex min-h-7 items-center gap-0.5 text-xs">
+                  <span className="me-1 font-mono tabular-nums text-muted-foreground">
+                    {msToClock(failedSend.vars.videoTimestampMs)}
+                  </span>
+                  {failedSend === retrying ? null : (
+                    <p role="alert" className="me-1 text-destructive">
+                      {t("notificationsRoute.sendFailed")}
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => onRetry(failedSend)}
+                    className="h-7 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {t("libraryGrid.retry")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={failedSend === retrying}
+                    onClick={() => {
+                      onDelete(failedSend);
+                      textareaRef.current?.focus();
+                    }}
+                    className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {t("commentsPanel.delete")}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <Textarea
           ref={textareaRef}
           value={draft}

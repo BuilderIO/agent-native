@@ -284,13 +284,14 @@ function ProofShare({
   );
 }
 
-// Like the share and recording routes: the page owns the draft and whether the
-// bar is open, and the bar paints inside the player only while the player is
-// fullscreen.
+// Like the share and recording routes: the page owns the draft, whether the
+// bar is open, and the time it comments at, taken from the playhead when it
+// opens; the bar paints inside the player only while the player is fullscreen.
 function FullscreenCommentPage({
   fullscreen,
   player,
   initialDraft = "",
+  getPlayheadMs,
   onClose,
   ...bar
 }: Omit<
@@ -300,16 +301,25 @@ function FullscreenCommentPage({
   fullscreen: boolean;
   player: HTMLElement;
   initialDraft?: string;
+  getPlayheadMs?: () => number;
 }) {
   const [draft, setDraft] = React.useState(initialDraft);
   const [open, setOpen] = React.useState(true);
+  const [atMs, setAtMs] = React.useState(bar.atMs);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        onClick={() => {
+          setAtMs(getPlayheadMs?.() ?? atMs);
+          setOpen(true);
+        }}
+      >
         commentsPanel.commentButton
       </button>
       <TimestampedCommentBar
         {...bar}
+        atMs={atMs}
         open={open}
         draft={draft}
         onDraftChange={setDraft}
@@ -462,6 +472,79 @@ describe("CommentsPanel reply composer", () => {
       });
     return { player, setFullscreen, bar, isOpen, close, reopen };
   }
+
+  // The page's proof renewal and the add-comment POST, each held until the
+  // test settles it, so a fullscreen send can fail after newer typing.
+  function deferredCommentTransport() {
+    const renewals: Array<(proof: string | Error) => void> = [];
+    const getCommentAccessToken = vi.fn(
+      (_refusedToken?: string | null) =>
+        new Promise<string>((resolve, reject) => {
+          renewals.push((proof) =>
+            proof instanceof Error ? reject(proof) : resolve(proof),
+          );
+        }),
+    );
+    const responses: Array<(status: number) => void> = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      () =>
+        new Promise((resolve) => {
+          responses.push((status) =>
+            resolve(
+              new Response(
+                JSON.stringify(
+                  status === 200
+                    ? { id: "comment-sent" }
+                    : { error: "Forbidden" },
+                ),
+                { status, headers: { "Content-Type": "application/json" } },
+              ),
+            ),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const settle = <T,>(queue: Array<(value: T) => void>, value: T) =>
+      act(async () => {
+        const next = queue.shift();
+        assert.isDefined(next, "Expected a held renewal or request");
+        next(value);
+        // React Query publishes the settled state to render a tick later.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    return {
+      getCommentAccessToken,
+      fetch,
+      renew: (proof: string | Error) => settle(renewals, proof),
+      respond: (status: number) => settle(responses, status),
+      sent: (call: number) => {
+        const init = fetch.mock.calls[call]?.[1];
+        return {
+          token: new Headers(init?.headers).get("x-clips-comment-token"),
+          body: JSON.parse(String(init?.body)),
+        };
+      },
+    };
+  }
+
+  const pageAlerts = () => document.body.querySelectorAll('[role="alert"]');
+  const failedBarComment = (content: string) =>
+    Array.from(document.body.querySelectorAll("li")).find((row) =>
+      row.textContent.includes(content),
+    );
+  const failedBarCommentButton = (content: string, label: string) =>
+    Array.from(
+      failedBarComment(content)?.querySelectorAll("button") ?? [],
+    ).find((button) => button.textContent === label);
+  const expectFailedBarComment = (content: string, clock: string) => {
+    const row = failedBarComment(content);
+    assert.isDefined(row, `Expected "${content}" kept as a failed comment`);
+    expect(row.textContent).toContain(clock);
+    expect(row.querySelector('[role="alert"]')?.textContent).toBe(
+      "notificationsRoute.sendFailed",
+    );
+  };
 
   const commentCard = (content: string) =>
     Array.from(container.querySelectorAll("li"))
@@ -1673,6 +1756,236 @@ describe("CommentsPanel reply composer", () => {
       expect(bar().composer.value).toBe("");
     },
   );
+
+  it.each(["renewal", "request"] as const)(
+    "keeps a fullscreen comment that fails behind newer typing beside it, to retry at its own time without touching the newer draft, through fullscreen changes and closing (%s fails)",
+    async (failing) => {
+      const transport = deferredCommentTransport();
+      let playheadMs = 12_000;
+      const onAdded = vi.fn();
+      const onClose = vi.fn();
+      const { player, setFullscreen, bar, isOpen, close, reopen } =
+        renderFullscreenCommentPage({
+          recordingId: "recording-1",
+          atMs: playheadMs,
+          getPlayheadMs: () => playheadMs,
+          initialDraft: "Fake first comment",
+          onAdded,
+          onClose,
+          commentAccessToken: "fake-stale-proof",
+          getCommentAccessToken: transport.getCommentAccessToken,
+        });
+      await act(async () => {
+        bar().send.click();
+      });
+      act(() => setTextareaValue(bar().composer, "Fake newer draft"));
+      if (failing === "renewal") {
+        await transport.renew(new Error("fake password changed"));
+      } else {
+        await transport.renew("fake-fresh-proof");
+        expect(transport.fetch).toHaveBeenCalledTimes(1);
+        await transport.respond(403);
+      }
+      const posts = failing === "renewal" ? 0 : 1;
+      const expectBoth = (fullscreen: boolean) => {
+        expect(player.contains(bar().composer)).toBe(fullscreen);
+        expect(bar().composer.value).toBe("Fake newer draft");
+        expect(bar().send.disabled).toBe(false);
+        expectFailedBarComment("Fake first comment", "0:12");
+        expect(pageAlerts()).toHaveLength(1);
+      };
+
+      expectBoth(true);
+      expect(transport.fetch).toHaveBeenCalledTimes(posts);
+      expect(onAdded).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      setFullscreen(false);
+      expectBoth(false);
+      close("Cancel");
+      expect(isOpen()).toBe(false);
+      playheadMs = 50_000;
+      reopen();
+      expect(bar().send.getAttribute("aria-label")).toBe(
+        "commentsPanel.commentAt 0:50",
+      );
+      expectBoth(false);
+      setFullscreen(true);
+      close("Escape");
+      expect(isOpen()).toBe(false);
+      reopen();
+      expectBoth(true);
+
+      // Same tick, before React Query publishes the pending state.
+      await act(async () => {
+        failedBarCommentButton(
+          "Fake first comment",
+          "libraryGrid.retry",
+        )?.click();
+        bar().send.click();
+        failedBarCommentButton(
+          "Fake first comment",
+          "libraryGrid.retry",
+        )?.click();
+      });
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(transport.getCommentAccessToken).toHaveBeenCalledTimes(2);
+      expect(transport.getCommentAccessToken).toHaveBeenLastCalledWith(
+        failing === "renewal" ? "fake-stale-proof" : "fake-fresh-proof",
+      );
+      expect(bar().send.disabled).toBe(true);
+      expect(pageAlerts()).toHaveLength(0);
+      await transport.renew("fake-retry-proof");
+      expect(transport.fetch).toHaveBeenCalledTimes(posts + 1);
+      expect(transport.sent(posts)).toEqual({
+        token: "fake-retry-proof",
+        body: {
+          recordingId: "recording-1",
+          content: "Fake first comment",
+          videoTimestampMs: 12_000,
+        },
+      });
+      await transport.respond(200);
+      expect(onAdded).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(2);
+      expect(isOpen()).toBe(true);
+      expect(bar().composer.value).toBe("Fake newer draft");
+      expect(failedBarComment("Fake first comment")).toBeUndefined();
+      expect(pageAlerts()).toHaveLength(0);
+
+      await act(async () => {
+        bar().send.click();
+      });
+      await transport.renew("fake-next-proof");
+      expect(transport.sent(posts + 1)).toEqual({
+        token: "fake-next-proof",
+        body: {
+          recordingId: "recording-1",
+          content: "Fake newer draft",
+          videoTimestampMs: 50_000,
+        },
+      });
+      await transport.respond(200);
+      expect(onAdded).toHaveBeenCalledTimes(2);
+      expect(isOpen()).toBe(false);
+      reopen();
+      expect(bar().composer.value).toBe("");
+    },
+  );
+
+  it.each([
+    { composer: "unchanged", draft: "Fake first comment", row: false },
+    { composer: "cleared", draft: "", row: true },
+  ])(
+    "shows a fullscreen comment that fails in one place, the composer while it still holds the text and otherwise a row to retry ($composer)",
+    async ({ draft, row }) => {
+      const transport = deferredCommentTransport();
+      const { bar } = renderFullscreenCommentPage({
+        recordingId: "recording-1",
+        atMs: 12_000,
+        initialDraft: "Fake first comment",
+        onClose: vi.fn(),
+        commentAccessToken: "fake-stale-proof",
+        getCommentAccessToken: transport.getCommentAccessToken,
+      });
+      await act(async () => {
+        bar().send.click();
+      });
+      act(() => setTextareaValue(bar().composer, draft));
+      await transport.renew(new Error("fake password changed"));
+
+      expect(bar().composer.value).toBe(draft);
+      expect(pageAlerts()).toHaveLength(1);
+      expect(Boolean(failedBarComment("Fake first comment"))).toBe(row);
+      expect(
+        Boolean(
+          failedBarCommentButton("Fake first comment", "libraryGrid.retry"),
+        ),
+      ).toBe(row);
+      if (row) expectFailedBarComment("Fake first comment", "0:12");
+    },
+  );
+
+  it("keeps fullscreen comments that fail behind newer typing apart, lists one that fails again once, and deletes one without a request", async () => {
+    const transport = deferredCommentTransport();
+    let playheadMs = 12_000;
+    const onAdded = vi.fn();
+    const { bar, close, reopen } = renderFullscreenCommentPage({
+      recordingId: "recording-1",
+      atMs: playheadMs,
+      getPlayheadMs: () => playheadMs,
+      initialDraft: "Fake first comment",
+      onAdded,
+      onClose: vi.fn(),
+      commentAccessToken: "fake-stale-proof",
+      getCommentAccessToken: transport.getCommentAccessToken,
+    });
+    const sendThenType = async (newer: string) => {
+      await act(async () => {
+        bar().send.click();
+      });
+      act(() => setTextareaValue(bar().composer, newer));
+    };
+    const rows = () => document.body.querySelectorAll("li");
+
+    await sendThenType("Fake second comment");
+    await transport.renew(new Error("fake password changed"));
+    close("Escape");
+    playheadMs = 20_000;
+    reopen();
+    await sendThenType("Fake third draft");
+    await transport.renew("fake-fresh-proof");
+    await transport.respond(403);
+
+    expect(bar().composer.value).toBe("Fake third draft");
+    expect(rows()).toHaveLength(2);
+    expectFailedBarComment("Fake first comment", "0:12");
+    expectFailedBarComment("Fake second comment", "0:20");
+    expect(pageAlerts()).toHaveLength(2);
+
+    await act(async () => {
+      failedBarCommentButton(
+        "Fake first comment",
+        "libraryGrid.retry",
+      )?.click();
+    });
+    await transport.renew(new Error("fake password changed again"));
+    expect(bar().composer.value).toBe("Fake third draft");
+    expect(rows()).toHaveLength(2);
+    expectFailedBarComment("Fake first comment", "0:12");
+    expectFailedBarComment("Fake second comment", "0:20");
+
+    await act(async () => {
+      failedBarCommentButton(
+        "Fake first comment",
+        "commentsPanel.delete",
+      )?.click();
+    });
+    expect(failedBarComment("Fake first comment")).toBeUndefined();
+    expect(rows()).toHaveLength(1);
+    expect(transport.getCommentAccessToken).toHaveBeenCalledTimes(3);
+    expect(transport.fetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      failedBarCommentButton(
+        "Fake second comment",
+        "libraryGrid.retry",
+      )?.click();
+    });
+    await transport.renew("fake-retry-proof");
+    expect(transport.sent(1)).toEqual({
+      token: "fake-retry-proof",
+      body: {
+        recordingId: "recording-1",
+        content: "Fake second comment",
+        videoTimestampMs: 20_000,
+      },
+    });
+    await transport.respond(200);
+    expect(onAdded).toHaveBeenCalledTimes(1);
+    expect(rows()).toHaveLength(0);
+    expect(pageAlerts()).toHaveLength(0);
+    expect(bar().composer.value).toBe("Fake third draft");
+  });
 
   it.each(["active", "resumed"])(
     "renews expired proof before a %s viewer submits",
