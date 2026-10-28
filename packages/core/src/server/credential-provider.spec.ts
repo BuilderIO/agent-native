@@ -95,6 +95,9 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
+  builderCreditsRefusalStatus,
+  resetBuilderCreditsRefusedWarningForTests,
+  resolveUsableBuilderGatewayDeployCredentials,
   canUseDeployCredentialFallbackForRequest,
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
@@ -3214,6 +3217,93 @@ describe("Builder gateway credential lane", () => {
     });
     await expect(resolveHasBuilderGatewayCredential()).resolves.toBe(true);
     expect(isBuilderGatewayDeployConfigured()).toBe(false);
+  });
+
+  it("does not resolve a gateway token without its space id where the pair is allowed", async () => {
+    process.env.NODE_ENV = "development";
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("Builder credits refusal reporting", () => {
+  const refusingRuntime = () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    mockGetRequestUserEmail.mockReturnValue("visitor@example.com");
+  };
+
+  beforeEach(() => {
+    resetBuilderCreditsRefusedWarningForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reports a deployed pair the runtime refuses when chat is not eligible", () => {
+    refusingRuntime();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({
+      builderCreditsRefused: true,
+    });
+    expect(builderCreditsRefusalStatus(true)).toEqual({});
+  });
+
+  it.each([
+    ["only the token", "btk-site-token", undefined],
+    ["only the space id", undefined, "space-abc"],
+    ["a blank token", "   ", "space-abc"],
+    ["a blank space id", "btk-site-token", "   "],
+  ])("reports nothing with %s deployed", (_label, token, spaceId) => {
+    refusingRuntime();
+    if (token !== undefined) process.env.BUILDER_GATEWAY_TOKEN = token;
+    if (spaceId !== undefined) process.env.BUILDER_GATEWAY_SPACE_ID = spaceId;
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({});
+  });
+
+  it("reports nothing where the runtime allows the pair", () => {
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({});
+  });
+
+  it("warns once per process naming both keys when the runtime refuses the pair", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    refusingRuntime();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/BUILDER_GATEWAY_TOKEN.*BUILDER_GATEWAY_SPACE_ID/),
+    );
+  });
+
+  it("does not warn when no pair is deployed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    refusingRuntime();
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

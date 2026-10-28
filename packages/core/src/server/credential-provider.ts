@@ -353,7 +353,7 @@ function isBuilderCreditsPairAllowedInRuntime(): boolean {
 }
 
 /** Deployed but refused by runtime policy, which is not the same as absent. */
-export function isBuilderCreditsPairRefusedByRuntime(): boolean {
+function isBuilderCreditsPairRefusedByRuntime(): boolean {
   return (
     Boolean(process.env[BUILDER_GATEWAY_TOKEN_ENV_VAR]?.trim()) &&
     Boolean(process.env[BUILDER_GATEWAY_SPACE_ID_ENV_VAR]?.trim()) &&
@@ -361,7 +361,20 @@ export function isBuilderCreditsPairRefusedByRuntime(): boolean {
   );
 }
 
+export function builderCreditsRefusalStatus(chatEligible: boolean): {
+  builderCreditsRefused?: true;
+} {
+  return !chatEligible && isBuilderCreditsPairRefusedByRuntime()
+    ? { builderCreditsRefused: true }
+    : {};
+}
+
 let warnedBuilderCreditsRefused = false;
+
+/** @internal Test isolation for the once-per-process refusal warning. */
+export function resetBuilderCreditsRefusedWarningForTests(): void {
+  warnedBuilderCreditsRefused = false;
+}
 
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();

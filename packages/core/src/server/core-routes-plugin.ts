@@ -280,8 +280,8 @@ import type { EnvKeyConfig } from "./create-server.js";
 import {
   assertCredentialStoreReadable,
   CredentialStoreUnavailableError,
+  builderCreditsRefusalStatus,
   getBuilderKeyConnections,
-  isBuilderCreditsPairRefusedByRuntime,
   prefetchSecrets,
   resolveSecret,
   resolveSecretDetailed,
@@ -6223,10 +6223,7 @@ export function createCoreRoutesPlugin(
                     return {
                       ...engineStatus,
                       chatEligible,
-                      ...(!chatEligible &&
-                      isBuilderCreditsPairRefusedByRuntime()
-                        ? { builderCreditsRefused: true as const }
-                        : {}),
+                      ...builderCreditsRefusalStatus(chatEligible),
                     };
                   },
                 ),
