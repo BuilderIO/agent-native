@@ -15,6 +15,7 @@
 //!   and right clicks use separate colours.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 // Only the macOS overlay draws; elsewhere the geometry is unused.
@@ -35,23 +36,41 @@ fn config_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join(CONFIG_FILE))
 }
 
-pub fn load_config(app: &AppHandle) -> CursorEffectsConfig {
-    let Some(bytes) = config_path(app).and_then(|path| std::fs::read(path).ok()) else {
-        return CursorEffectsConfig::default();
+/// Serialises settings writes: every colour-picker change saves, and two
+/// overlapping saves must not share the temporary file.
+static CONFIG_WRITE: Mutex<()> = Mutex::new(());
+
+/// Reads the saved settings. A missing file means defaults; a file that cannot
+/// be read or parsed is an error, so callers can report it.
+fn read_config(app: &AppHandle) -> Result<CursorEffectsConfig, String> {
+    let path = config_path(app).ok_or_else(|| "no app_data_dir".to_string())?;
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(CursorEffectsConfig::default());
+        }
+        Err(error) => return Err(format!("{CONFIG_FILE}: {error}")),
     };
     serde_json::from_slice::<CursorEffectsConfig>(&bytes)
-        .map_err(|e| e.to_string())
+        .map_err(|error| error.to_string())
         .and_then(CursorEffectsConfig::normalized)
-        .unwrap_or_else(|error| {
-            eprintln!(
-                "[clips-tray] cursor effects: {CONFIG_FILE} unreadable, using defaults: {error}"
-            );
-            CursorEffectsConfig::default()
-        })
+        .map_err(|error| format!("{CONFIG_FILE} is invalid: {error}"))
+}
+
+pub fn load_config(app: &AppHandle) -> CursorEffectsConfig {
+    read_config(app).unwrap_or_else(|error| {
+        eprintln!("[clips-tray] cursor effects: using defaults: {error}");
+        CursorEffectsConfig::default()
+    })
 }
 
 fn save_config(app: &AppHandle, config: &CursorEffectsConfig) -> Result<(), String> {
+    let _write = CONFIG_WRITE.lock().map_err(|e| e.to_string())?;
     let path = config_path(app).ok_or_else(|| "no app_data_dir".to_string())?;
+    // Keep a copy of a file we could not read before replacing it.
+    if read_config(app).is_err() {
+        let _ = std::fs::copy(&path, path.with_extension("json.bak"));
+    }
     let body = serde_json::to_vec_pretty(config).map_err(|e| format!("serialize: {e}"))?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &body).map_err(|e| format!("write tmp: {e}"))?;
@@ -63,7 +82,7 @@ fn save_config(app: &AppHandle, config: &CursorEffectsConfig) -> Result<(), Stri
 
 #[tauri::command]
 pub async fn get_cursor_effects(app: AppHandle) -> Result<CursorEffectsConfig, String> {
-    Ok(load_config(&app))
+    read_config(&app)
 }
 
 #[tauri::command]

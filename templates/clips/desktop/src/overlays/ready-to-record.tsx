@@ -81,6 +81,8 @@ export function ReadyToRecord() {
   stateRef.current = state;
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
+  const saveSeqRef = useRef(0);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +100,7 @@ export function ReadyToRecord() {
       })
       .catch((error) => {
         console.error("[clips-ready] cursor effects load failed:", error);
+        if (!cancelled) setCursorError(String(error));
       });
     return () => {
       cancelled = true;
@@ -130,15 +133,23 @@ export function ReadyToRecord() {
     emit(READY_TO_RECORD_EVENTS.toggle, { target }).catch(() => {});
   }
 
+  // Saves run one at a time, in order, so a colour drag cannot land an older
+  // value last; only the newest save's reply updates the panel.
   function updateCursor(patch: Partial<CursorEffectsConfig>) {
     const next = { ...cursorRef.current, ...patch };
+    cursorRef.current = next;
     setCursor(next);
     setCursorError(null);
-    invoke<CursorEffectsConfig>("set_cursor_effects", { config: next })
-      .then(setCursor)
-      .catch((error) => {
-        setCursorError(String(error));
-      });
+    const seq = ++saveSeqRef.current;
+    saveChainRef.current = saveChainRef.current.then(() =>
+      invoke<CursorEffectsConfig>("set_cursor_effects", { config: next })
+        .then((saved) => {
+          if (seq === saveSeqRef.current) setCursor(saved);
+        })
+        .catch((error) => {
+          if (seq === saveSeqRef.current) setCursorError(String(error));
+        }),
+    );
   }
 
   const availability = state

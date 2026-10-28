@@ -930,7 +930,6 @@ fn emit_native_upload_progress(
 }
 
 fn clear_recording_active(app: &AppHandle) {
-    crate::cursor_effects::stop(app);
     let mut changed = false;
     if let Some(state) = app.try_state::<crate::state::RecordingActive>() {
         if let Ok(mut active) = state.0.lock() {
@@ -3567,7 +3566,6 @@ pub async fn native_fullscreen_recording_cancel(
     preserve_display_override: Option<bool>,
     preserve_window_override: Option<bool>,
 ) -> Result<(), String> {
-    crate::cursor_effects::stop(&app);
     let cancelled_generation = state.warm_generation.fetch_add(1, Ordering::SeqCst);
     let mut camera_restore_error = None;
     #[cfg(target_os = "macos")]
@@ -3581,6 +3579,9 @@ pub async fn native_fullscreen_recording_cancel(
         if guard.as_ref().is_some_and(|session| {
             should_discard_cancelled_native_session(session, cancelled_generation)
         }) {
+            // Under the session lock, so a stale cancel that keeps a newer
+            // session also keeps that session's cursor effects.
+            crate::cursor_effects::stop(&app);
             guard.take()
         } else {
             None
