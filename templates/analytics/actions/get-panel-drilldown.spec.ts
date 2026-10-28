@@ -107,37 +107,52 @@ describe("get-panel-drilldown", () => {
   );
 
   it.each([
-    [
-      "bigquery",
-      "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
-    ],
-    [
-      "bigquery",
-      "SELECT visitor FROM events WHERE CASE WHEN '{{appFilter}}' = '' THEN TRUE ELSE app IN ({{appFilter:list}}) END",
-    ],
-    ["bigquery", "SELECT r{{appFilter:list}}"],
-    ["bigquery", "SELECT {{appFilter:list}}'suffix'"],
-    ["bigquery", "SELECT '{{appFilter:list}}'"],
-    [
-      "first-party",
-      "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
-    ],
-    [
-      "first-party",
-      "SELECT visitor FROM events WHERE app IN (U&{{appFilter:list}})",
-    ],
-    [
-      "first-party",
-      "SELECT visitor FROM events WHERE app IN ({{appFilter:list}}𝐀)",
-    ],
+    {
+      panelSource: "bigquery",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
+      },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE CASE WHEN '{{appFilter}}' = '' THEN TRUE ELSE app IN ({{appFilter:list}}) END",
+      },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: { sql: "SELECT r{{appFilter:list}}" },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: { sql: "SELECT {{appFilter:list}}'suffix'" },
+    },
+    {
+      panelSource: "bigquery",
+      drilldown: { sql: "SELECT '{{appFilter:list}}'" },
+    },
+    {
+      panelSource: "first-party",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}})",
+      },
+    },
+    {
+      panelSource: "first-party",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN (U&{{appFilter:list}})",
+      },
+    },
+    {
+      panelSource: "first-party",
+      drilldown: {
+        sql: "SELECT visitor FROM events WHERE app IN ({{appFilter:list}}𝐀)",
+      },
+    },
   ])(
-    "rejects a list variable in a %s record template and names the pattern to use: %s",
-    async (panelSource, sql) => {
-      const run = getPanelDrilldown.run({
-        ...panel,
-        panelSource,
-        drilldown: { sql },
-      });
+    "rejects a list variable in a $panelSource record template and names the pattern to use: $drilldown.sql",
+    async ({ panelSource, drilldown }) => {
+      const run = getPanelDrilldown.run({ ...panel, panelSource, drilldown });
       await expect(run).rejects.toThrow(
         "must not use list variables such as {{appFilter:list}}",
       );
