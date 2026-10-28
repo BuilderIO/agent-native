@@ -3,11 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
   isAutoTitleReplaceable,
   shouldPollGeneratedTitle,
+  titleRegenerationSkipDisposition,
 } from "./title-source";
 
 it("preserves a manually chosen default title for automatic work", () => {
   expect(isAutoTitleReplaceable("Untitled recording", "manual")).toBe(false);
   expect(isAutoTitleReplaceable("Untitled recording", "default")).toBe(true);
+});
+
+it("distinguishes a concurrent rename from transcript and provider failures", () => {
+  expect(titleRegenerationSkipDisposition("title_changed")).toBe("dismiss");
+  expect(titleRegenerationSkipDisposition("transcript_not_ready")).toBe(
+    "transcript",
+  );
+  expect(titleRegenerationSkipDisposition("builder_credits_paused")).toBe(
+    "credits",
+  );
+  expect(titleRegenerationSkipDisposition("unexpected_reason")).toBe("failed");
 });
 
 describe("title refinement polling", () => {

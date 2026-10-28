@@ -10,6 +10,24 @@ export const RECORDING_TITLE_SOURCES = [
 
 export type RecordingTitleSource = (typeof RECORDING_TITLE_SOURCES)[number];
 
+export type RegenerateTitleResult = {
+  updated?: boolean;
+  queued?: boolean;
+  skipped?: boolean;
+  reason?: string;
+  kind?: string;
+  requestedAt?: string | null;
+};
+
+export function titleRegenerationSkipDisposition(
+  reason: string | undefined,
+): "dismiss" | "transcript" | "credits" | "failed" {
+  if (reason === "title_changed") return "dismiss";
+  if (reason === "transcript_not_ready") return "transcript";
+  if (reason === "builder_credits_paused") return "credits";
+  return "failed";
+}
+
 export function isDefaultTitle(title: string | null | undefined): boolean {
   const trimmed = (title ?? "").trim();
   return !trimmed || trimmed === DEFAULT_RECORDING_TITLE;

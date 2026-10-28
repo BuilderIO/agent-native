@@ -48,7 +48,12 @@ import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
-import { isDefaultTitle, shouldPollGeneratedTitle } from "@shared/title-source";
+import {
+  isDefaultTitle,
+  shouldPollGeneratedTitle,
+  titleRegenerationSkipDisposition,
+  type RegenerateTitleResult,
+} from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isWorkflowRequester,
@@ -2319,8 +2324,11 @@ export default function RecordingPage() {
     },
     [canEdit, embedProvider, recording, setEmbedDuration],
   );
-  const regenerateTitle = useActionMutation("regenerate-title" as any, {
-    onSuccess: (result: any) => {
+  const regenerateTitle = useActionMutation<
+    RegenerateTitleResult,
+    { recordingId: string }
+  >("regenerate-title", {
+    onSuccess: (result) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
         const kind: ClipsAiRequestKind =
@@ -2340,18 +2348,23 @@ export default function RecordingPage() {
         activeAiRequestRef.current = null;
         completeAiRequestToast(t("recordingPage.titleUpdated"));
         playCompletionCue();
-      } else if (result?.reason === "builder_credits_paused") {
-        activeAiRequestRef.current = null;
-        cancelCompletionCue();
-        stopAiRequestToast(t("builderCredits.pausedTitle"), {
-          description: t("builderCredits.titleDescription"),
-        });
       } else if (result?.skipped) {
         activeAiRequestRef.current = null;
         cancelCompletionCue();
-        stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
-          description: t("recordingPage.tryAfterTranscription"),
-        });
+        const disposition = titleRegenerationSkipDisposition(result.reason);
+        if (disposition === "dismiss") {
+          dismissAiRequestToast();
+        } else if (disposition === "credits") {
+          stopAiRequestToast(t("builderCredits.pausedTitle"), {
+            description: t("builderCredits.titleDescription"),
+          });
+        } else if (disposition === "transcript") {
+          stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
+            description: t("recordingPage.tryAfterTranscription"),
+          });
+        } else {
+          stopAiRequestToast(t("recordingPage.aiRequestFailed"));
+        }
       }
     },
     onError: handleBackgroundAiError,
@@ -3375,7 +3388,7 @@ export default function RecordingPage() {
                         beginAiRequest("regenerate-title");
                         regenerateTitle.mutate({
                           recordingId: recording.id,
-                        } as any);
+                        });
                       }}
                     >
                       {t("recordingPage.regenerateTitle")}

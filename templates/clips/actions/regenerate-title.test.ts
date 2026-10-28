@@ -295,7 +295,7 @@ describe("regenerate-title fallback refinement", () => {
     ).resolves.toMatchObject({
       updated: false,
       skipped: true,
-      reason: "Recording title changed before generation completed",
+      reason: "title_changed",
     });
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });

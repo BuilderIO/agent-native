@@ -310,7 +310,7 @@ export default defineAction({
             return {
               updated: false,
               skipped: true,
-              reason: "Recording title changed before generation completed",
+              reason: "title_changed",
               recordingId: args.recordingId,
             };
           }
@@ -341,7 +341,7 @@ export default defineAction({
           return {
             updated: false,
             skipped: true,
-            reason: "Recording title changed before generation completed",
+            reason: "title_changed",
             recordingId: args.recordingId,
           };
         }
@@ -379,7 +379,7 @@ export default defineAction({
         return {
           updated: false,
           skipped: true,
-          reason: "Recording title changed before generation completed",
+          reason: "title_changed",
           recordingId: args.recordingId,
         };
       }
@@ -396,7 +396,7 @@ export default defineAction({
           return {
             updated: false,
             skipped: true,
-            reason: "Recording title changed before generation completed",
+            reason: "title_changed",
             recordingId: args.recordingId,
           };
         }
