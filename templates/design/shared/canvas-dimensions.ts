@@ -510,3 +510,6 @@ export function devicesForPrimaryViewport(
     ? ["mobile"]
     : [primaryViewport, "mobile"];
 }
+
+/** Space `generate-design` leaves to the right of existing frames. */
+export const GENERATED_FRAME_GAP = 96;

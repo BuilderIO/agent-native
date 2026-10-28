@@ -44,6 +44,7 @@ import {
   requestedCanvasDeviceVariants,
   DEFAULT_GENERATION_VIEWPORT,
   devicesForPrimaryViewport,
+  GENERATED_FRAME_GAP,
   GENERATION_VIEWPORT_SIZES,
   type GenerationViewport,
   resolveCanvasIntent,
@@ -149,7 +150,6 @@ const GENERATION_VIEWPORT_LABELS: Record<GenerationViewport, string> = {
   tablet: "Tablet",
   desktop: "Desktop",
 };
-const GENERATED_FRAME_GAP = 96;
 
 function breakpointSetForDevices(devices: readonly GenerationViewport[]) {
   const primaryWidth =

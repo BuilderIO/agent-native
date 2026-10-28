@@ -57,9 +57,11 @@ export function GeneratingScreenGhost({
   const done = preview?.status === "done";
   // Once the call lands, the saved screen takes this spot and "next to the
   // others" moves past it; the settling ghost must stay put over it.
-  const landedOriginRef = useRef(origin);
-  if (!done) landedOriginRef.current = origin;
-  const spot = done ? landedOriginRef.current : origin;
+  // The call's own `canvasFrames` position wins, as it does when it saves.
+  const target = preview?.position ?? origin;
+  const landedOriginRef = useRef(target);
+  if (!done) landedOriginRef.current = target;
+  const spot = done ? landedOriginRef.current : target;
 
   // The saved screen lands under the ghost the moment the call finishes, but
   // the content usually arrives in one late burst: let its draft finish

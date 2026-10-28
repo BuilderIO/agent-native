@@ -30,22 +30,30 @@ export const STREAMED_IN_CSS = `
  * has its attributes synced but its children left alone, for content another
  * renderer owns, such as a React portal's slot.
  *
- * With `owned`, only nodes in it are compared or removed. A morph adds every
- * node it inserts; nodes a runtime created after them (Alpine's `x-for`
- * clones, text from `x-text`) are not in the source, so a positional
- * comparison would otherwise overwrite or delete them.
+ * With `ownership`, only the nodes the stream inserted are compared or
+ * removed, and an attribute changes only while it still holds the value the
+ * stream gave it. A runtime working on the result (Alpine's `x-for` clones,
+ * `x-text`, `x-show`'s style, `:class`) is not in the source, so a positional
+ * comparison would otherwise overwrite or delete its work.
  *
  * This function is serialized into sandboxed preview frames with
  * `Function.prototype.toString`, so it must not reference anything outside
  * its own body.
  */
+export interface StreamOwnership {
+  /** Nodes the stream inserted. */
+  nodes: WeakSet<Node>;
+  /** The attributes the stream last gave each element it owns. */
+  attributes: WeakMap<Element, Map<string, string>>;
+}
+
 export function morphChildren(
   target: Node,
   source: Node,
   markAttribute: string,
   onInsert?: (element: Element) => void,
   keepChildren?: (element: Element) => boolean,
-  owned?: WeakSet<Node>,
+  ownership?: StreamOwnership,
 ): void {
   const doc = target.ownerDocument ?? (target as Document);
 
@@ -55,24 +63,46 @@ export function morphChildren(
       ? (node as HTMLTemplateElement).content
       : null;
   const own = (node: Node): void => {
-    if (!owned) return;
-    owned.add(node);
+    if (!ownership) return;
+    ownership.nodes.add(node);
+    if (node.nodeType === 1) recordAttributes(node as Element);
     node.childNodes.forEach(own);
     templateContent(node)?.childNodes.forEach(own);
   };
   const childrenToMatch = (node: Node) =>
-    Array.from(node.childNodes).filter((child) => !owned || owned.has(child));
+    Array.from(node.childNodes).filter(
+      (child) => !ownership || ownership.nodes.has(child),
+    );
 
-  const syncAttributes = (to: Element, from: Element) => {
-    for (const attr of Array.from(to.attributes)) {
-      if (attr.name === markAttribute) continue;
-      if (!from.hasAttribute(attr.name)) to.removeAttribute(attr.name);
+  // What the stream gave `element`, taken from `source` (by default the
+  // element itself, as it was inserted).
+  const recordAttributes = (element: Element, source: Element = element) => {
+    if (!ownership) return;
+    const applied = new Map<string, string>();
+    for (const attr of Array.from(source.attributes)) {
+      if (attr.name !== markAttribute) applied.set(attr.name, attr.value);
     }
-    for (const attr of Array.from(from.attributes)) {
-      if (to.getAttribute(attr.name) !== attr.value) {
-        to.setAttribute(attr.name, attr.value);
+    ownership.attributes.set(element, applied);
+  };
+  const syncAttributes = (to: Element, from: Element) => {
+    const applied = ownership?.attributes.get(to);
+    // Whether the live value is still the stream's: a runtime may own it.
+    const untouched = (name: string) =>
+      !ownership ||
+      (applied?.has(name)
+        ? to.getAttribute(name) === applied.get(name)
+        : !to.hasAttribute(name));
+    for (const attr of Array.from(to.attributes)) {
+      if (attr.name === markAttribute || from.hasAttribute(attr.name)) continue;
+      if (!ownership || applied?.get(attr.name) === attr.value) {
+        to.removeAttribute(attr.name);
       }
     }
+    for (const attr of Array.from(from.attributes)) {
+      if (to.getAttribute(attr.name) === attr.value) continue;
+      if (untouched(attr.name)) to.setAttribute(attr.name, attr.value);
+    }
+    recordAttributes(to, from);
   };
 
   const inserted: Element[] = [];
@@ -96,7 +126,7 @@ export function morphChildren(
     // A runtime replaced everything the stream put here (Alpine's x-text or
     // x-html): the content is the runtime's now, and the source's fallback
     // must not be appended beside it.
-    if (owned && current.length === 0 && to.childNodes.length > 0) return;
+    if (ownership && current.length === 0 && to.childNodes.length > 0) return;
     next.forEach((wanted, i) => {
       const existing = current.at(i);
       if (!existing) {

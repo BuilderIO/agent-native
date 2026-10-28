@@ -73,7 +73,10 @@ describe("morphChildren", () => {
   });
 
   it("leaves nodes a runtime added alone when it tracks what it inserted", () => {
-    const owned = new WeakSet<Node>();
+    const owned = {
+      nodes: new WeakSet<Node>(),
+      attributes: new WeakMap<Element, Map<string, string>>(),
+    };
     const root = document.createElement("div");
     const patchTo = (html: string) =>
       morphChildren(
@@ -105,7 +108,10 @@ describe("morphChildren", () => {
   });
 
   it("patches a template's content and keeps text a runtime replaced", () => {
-    const owned = new WeakSet<Node>();
+    const owned = {
+      nodes: new WeakSet<Node>(),
+      attributes: new WeakMap<Element, Map<string, string>>(),
+    };
     const root = document.createElement("div");
     const patchTo = (html: string) =>
       morphChildren(
@@ -129,6 +135,37 @@ describe("morphChildren", () => {
       '<li class="new">New</li>',
     );
     expect(span.textContent).toBe("Ada");
+  });
+
+  it("keeps an attribute a runtime changed and syncs the ones it left", () => {
+    const owned = {
+      nodes: new WeakSet<Node>(),
+      attributes: new WeakMap<Element, Map<string, string>>(),
+    };
+    const root = document.createElement("div");
+    const patchTo = (html: string) =>
+      morphChildren(
+        root,
+        fragment(html).content,
+        STREAMED_IN_ATTRIBUTE,
+        undefined,
+        undefined,
+        owned,
+      );
+    patchTo('<div class="card" title="One"></div>');
+    const card = root.firstElementChild as HTMLElement;
+    // A runtime toggles the class and adds its own style (Alpine's x-show).
+    card.className = "card open";
+    card.style.display = "none";
+
+    patchTo('<div class="card" title="Two"></div>');
+    expect(card.className).toBe("card open");
+    expect(card.style.display).toBe("none");
+    expect(card.title).toBe("Two");
+
+    // An attribute the stream gave and later dropped is removed.
+    patchTo('<div class="card"></div>');
+    expect(card.hasAttribute("title")).toBe(false);
   });
 
   it("reports each inserted element once, after the patch", () => {

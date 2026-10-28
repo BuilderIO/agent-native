@@ -217,8 +217,6 @@ const CANVAS_BACKGROUND_VAR = "var(--design-editor-canvas-bg)";
 const SCREEN_HEIGHT = 640;
 const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
-/** `nextCanvasFramePosition`'s default gap before a newly placed screen. */
-const NEW_SCREEN_GAP = 160;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
 const CROSS_SCREEN_MODIFIER_SNAPSHOT_TIMEOUT_MS = 50;
@@ -507,6 +505,8 @@ export function isApplePlatform(): boolean {
 
 const PEN_CLOSE_HIT_RADIUS_SCREEN_PX = 10;
 const VECTOR_EDIT_HIT_RADIUS_SCREEN_PX = 8;
+
+import { GENERATED_FRAME_GAP } from "@shared/canvas-dimensions";
 
 import {
   GeneratingScreenGhost,
@@ -11305,9 +11305,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           getInitialFrameGeometry(index, getResolvedMetadata(screen)),
       })),
     );
-    return bounds
-      ? { x: bounds.right + NEW_SCREEN_GAP, y: bounds.top }
-      : { x: 0, y: 0 };
+    // Where `generate-design` saves a new screen: right of every frame, on
+    // the top row.
+    return { x: bounds ? bounds.right + GENERATED_FRAME_GAP : 0, y: 0 };
   }, [frameGeometry, ghostDesignId, getResolvedMetadata, screens]);
   const showPixelGrid = pixelGridEnabled && canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);

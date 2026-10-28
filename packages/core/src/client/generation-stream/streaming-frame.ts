@@ -84,6 +84,7 @@ function frameScript(token: string): string {
   // Body nodes the stream put there. A runtime adds others (Alpine renders
   // x-for clones beside their template); later patches leave those alone.
   var streamedNodes = new WeakSet();
+  var ownership = { nodes: streamedNodes, attributes: new WeakMap() };
   var runBodyScript = function (node, source) {
     var live = liveScript(source);
     // Recorded now, so a patch before the swap does not queue it twice.
@@ -186,7 +187,7 @@ function frameScript(token: string): string {
         appliedHead.delete(key);
       });
     }
-    morph(document.body, parsed.body, MARK, undefined, undefined, streamedNodes);
+    morph(document.body, parsed.body, MARK, undefined, undefined, ownership);
     if (completed) syncBodyScripts(parsed.body);
     else if (lower.indexOf("</html") !== -1) complete();
   };

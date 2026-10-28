@@ -20,6 +20,8 @@ export interface GeneratingDesignPreview {
   html: string;
   width: number;
   height: number;
+  /** Where the call places the screen, when it says so in `canvasFrames`. */
+  position: { x: number; y: number } | null;
   status: StreamingToolInputStatus;
 }
 
@@ -48,6 +50,24 @@ const GENERATION_VIEWPORTS: readonly string[] = ["mobile", "tablet", "desktop"];
 
 function isGenerationViewport(value: unknown): value is GenerationViewport {
   return typeof value === "string" && GENERATION_VIEWPORTS.includes(value);
+}
+
+/** The canvas position a call gives the screen in `canvasFrames`, if any. */
+export function previewFramePosition(
+  input: PartialJson,
+  screenFilename: string | undefined,
+): { x: number; y: number } | null {
+  const frames = readJsonPath(input.value, ["canvasFrames"]);
+  const placed = Array.isArray(frames)
+    ? frames.find(
+        (frame) =>
+          screenFilename !== undefined &&
+          readJsonPath(frame, ["filename"]) === screenFilename,
+      )
+    : undefined;
+  const x = readJsonPath(placed, ["x"]);
+  const y = readJsonPath(placed, ["y"]);
+  return typeof x === "number" && typeof y === "number" ? { x, y } : null;
 }
 
 /**
@@ -121,7 +141,11 @@ export function useGeneratingDesignPreview({
       const size = previewFrameSize(input, screen?.filename);
       // A matched call previews from its first byte: the frame holds its
       // skeleton at the final size until the screen HTML starts.
-      return { html: screen?.content ?? "", ...size };
+      return {
+        html: screen?.content ?? "",
+        ...size,
+        position: previewFramePosition(input, screen?.filename),
+      };
     },
   });
   if (!preview) return null;

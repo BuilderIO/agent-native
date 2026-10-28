@@ -1,7 +1,10 @@
 import { parsePartialJson } from "@agent-native/core/client/generation-stream";
 import { describe, expect, it } from "vitest";
 
-import { previewFrameSize } from "./use-generating-design-preview";
+import {
+  previewFramePosition,
+  previewFrameSize,
+} from "./use-generating-design-preview";
 
 const size = (args: Record<string, unknown>, filename?: string) =>
   previewFrameSize(parsePartialJson(JSON.stringify(args)), filename);
@@ -48,5 +51,29 @@ describe("previewFrameSize", () => {
     expect(
       size({ prompt: "A 1080x1080 social post", devices: ["mobile"] }),
     ).toEqual({ width: 1080, height: 1080 });
+  });
+});
+
+describe("previewFramePosition", () => {
+  const position = (args: Record<string, unknown>, filename?: string) =>
+    previewFramePosition(parsePartialJson(JSON.stringify(args)), filename);
+
+  it("uses the position the call gives the screen", () => {
+    expect(
+      position(
+        { canvasFrames: [{ filename: "home.html", x: 2000, y: 120 }] },
+        "home.html",
+      ),
+    ).toEqual({ x: 2000, y: 120 });
+  });
+
+  it("has no position when the call leaves placement to the canvas", () => {
+    expect(position({ prompt: "A page" }, "home.html")).toBeNull();
+    expect(
+      position(
+        { canvasFrames: [{ filename: "other.html", x: 1, y: 2 }] },
+        "home.html",
+      ),
+    ).toBeNull();
   });
 });

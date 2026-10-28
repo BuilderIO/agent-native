@@ -404,6 +404,7 @@ function useSlideAutofit(
   fitKey: string,
   onOverflowChange?: (info: SlideOverflowInfo) => void,
   onAutofitSettled?: () => void,
+  enabled = true,
 ) {
   const overflowCallbackRef = useRef(onOverflowChange);
   overflowCallbackRef.current = onOverflowChange;
@@ -412,7 +413,7 @@ function useSlideAutofit(
 
   useIsomorphicLayoutEffect(() => {
     const root = ref.current;
-    if (!root || typeof ResizeObserver === "undefined") return;
+    if (!root || !enabled || typeof ResizeObserver === "undefined") return;
 
     let raf = 0;
     let disposed = false;
@@ -567,7 +568,7 @@ function useSlideAutofit(
       root.removeEventListener("load", scheduleMeasure, true);
       document.fonts?.removeEventListener("loadingdone", scheduleMeasure);
     };
-  }, [canvasWidth, canvasHeight, fitKey, ref]);
+  }, [canvasWidth, canvasHeight, fitKey, ref, enabled]);
 }
 
 function AutoFitContent({
@@ -590,6 +591,10 @@ function AutoFitContent({
   onAutofitSettled?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // A streaming preview is patched in place and drafted with overlay frames;
+  // fitting it would wrap the content the patch matches against and re-measure
+  // on every frame drawn. The saved slide that replaces it is fitted.
+  const streaming = useContext(SlideStreamingContext);
   useSlideAutofit(
     ref,
     canvasWidth,
@@ -597,6 +602,7 @@ function AutoFitContent({
     fitKey,
     onOverflowChange,
     onAutofitSettled,
+    !streaming,
   );
 
   return (

@@ -15,6 +15,7 @@ export {
   morphChildren,
   STREAMED_IN_ATTRIBUTE,
   STREAMED_IN_CSS,
+  type StreamOwnership,
 } from "./dom-morph.js";
 export {
   buildStreamingFrameDocument,

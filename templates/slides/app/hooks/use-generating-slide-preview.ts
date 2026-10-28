@@ -110,15 +110,25 @@ export function useGeneratingSlidePreviews({
     () => new Set(),
   );
   const [wasGenerating, setWasGenerating] = useState(generating);
+  let nextAbandoned = abandoned;
   if (wasGenerating !== generating) {
     setWasGenerating(generating);
     const cutOff = keyed.filter((call) => call.status === "streaming");
     if (!generating && cutOff.length > 0) {
-      setAbandoned(
-        new Set([...abandoned, ...cutOff.map((call) => call.callKey)]),
-      );
+      nextAbandoned = new Set([
+        ...nextAbandoned,
+        ...cutOff.map((call) => call.callKey),
+      ]);
     }
   }
+  // Calls the stream hook has evicted take their abandoned mark with them.
+  const liveCallKeys = new Set(keyed.map((call) => call.callKey));
+  if ([...nextAbandoned].some((key) => !liveCallKeys.has(key))) {
+    nextAbandoned = new Set(
+      [...nextAbandoned].filter((key) => liveCallKeys.has(key)),
+    );
+  }
+  if (nextAbandoned !== abandoned) setAbandoned(nextAbandoned);
 
   const [timings, setTimings] = useState<ReadonlyMap<string, Timing>>(
     () => new Map(),
