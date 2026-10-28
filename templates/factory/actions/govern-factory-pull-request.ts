@@ -111,19 +111,35 @@ async function recordManualPullRequestDisposition(input: {
       .returning({ id: triageItems.id });
     if (updatedItems.length === 0) {
       const existingItems = await tx
-        .select({ id: triageItems.id })
+        .select({ id: triageItems.id, status: triageItems.status })
         .from(triageItems)
         .where(
           orgFactoryScopedItemWhere(input.itemId, input.orgId, input.factoryId),
         )
         .limit(1);
-      if (existingItems.length === 0) {
+      const existingItem = existingItems.find(
+        (item) => item.id === input.itemId,
+      );
+      if (!existingItem) {
         fail("Factory item disappeared during PR governance.", {
           errorCode: "factory_item_not_found",
           statusCode: 404,
         });
       }
-      return;
+      switch (existingItem.status) {
+        case "reconciliation_required":
+          // Keep uncertain approval writes recoverable while recording the manual disposition.
+          break;
+        case "merged":
+        case "resolved":
+        case "dismissed":
+          return;
+        default:
+          fail("Factory item changed while recording PR disposition.", {
+            errorCode: "factory_item_status_changed",
+            statusCode: 409,
+          });
+      }
     }
     await tx
       .insert(triageDecisions)
