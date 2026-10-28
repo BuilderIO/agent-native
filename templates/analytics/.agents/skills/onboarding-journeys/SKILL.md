@@ -18,7 +18,8 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 2. Run the capture CLI from the agent-native checkout:
    `pnpm --filter analytics journey:capture --tree tree.json --out ./frames`
    (`--per-node 2 --concurrency 3`, `--min-aspect` / `--max-aspect`, `--dry-run`
-   to print the plan, `--upload` for private `attachmentRef`s).
+   to print the plan, `--upload` for private `attachmentRef`s, or
+   `--upload --upload-target cdn` for standard Builder CDN URLs).
 3. Call Design's `create-journey-canvas` with
    `{ title, tree, frames: [{ nodeKey, exampleIndex, imageUrl?, attachmentRef?, width, height, capturedAt }], designId? }`
    -> `{ designId, url, nodeCount, frameCount }`. Build `frames` from
@@ -315,12 +316,14 @@ extraction time. Each snapshot also says whether its frame capture or upload
 succeeded and includes the failure reason when it did not. This is visible
 user-role text at the seek, not proof of an exact source event or attempt-ID
 relationship. Unsupported transform, mask, or rounded clipping geometry fails
-the extraction explicitly. It is never uploaded, including when `--upload` stores PNGs
-through the private attachment action.
+the extraction explicitly. The prompt sidecar itself is never uploaded; PNG
+screenshots can use the private attachment action or the explicitly selected
+`cdn.builder.io` upload target.
 
 Keep recorded URLs and CSS intact for rrweb playback; network controls belong
 at the capture boundary. `--upload` stores PNGs through the private upload
-action, which checks recording access again. Design's own sandboxed template
+action by default; `--upload-target cdn` uses `upload-image` and accepts only
+HTTPS `cdn.builder.io` URLs. Design's own sandboxed template
 previews opt into the cooperative iframe recorder, so their child DOM can be
 replayed without granting the parent access to the preview document or
 credentials.
@@ -328,3 +331,18 @@ credentials.
 Viewport comes from the recording's first rrweb Meta event, stored by replay
 ingest in `session_recordings.metadata.viewport` (`first` and `last`). Older
 recordings have none.
+
+## Weekly snapshot CLI
+
+Use the cached weekly pipeline when generating or refreshing app storyboards:
+
+```bash
+pnpm --filter analytics journey:snapshot --week 2026-10-19 --apps clips,design,slides
+pnpm --filter analytics journey:snapshot --week 2026-10-19 --apps design --experiment first_run_builder_credits
+```
+
+`--week` is a closed UTC Monday week. The query starts the previous day to include sessions already underway. Without `--week`, the CLI selects the last full week. It runs the pinned cost preflight and reads one tree per missing app/week/cohort from deployed Analytics; complete trees are cached by app, dates, preset, app URL, and authenticated principal. `--dry-run` prints the request without network access. `--refresh` bypasses existing tree, screenshot, and Design caches and should be used only for an intentional refresh.
+
+The output lives under `.tmp/onboarding-journey-snapshots/runs/<week>/`: each app has one Design canvas, a per-app tree cache, screenshot manifests, and the shared `summary.md`. Each canvas has a 36 screenshot-backed frame ceiling allocated across its cohort bands. Multi-band canvases place independent trees side by side and keep each band's own root denominator. The optional experiment accepts `first_run_builder_credits` and `first_run_builder_credits_v2`; control and credits share one canvas, and `summary.md` reports per-arm forks and matching-step week-over-week changes. Clips first output is `recording_ready`.
+
+Design cohorts split web, `/mcp/oauth`, and unknown signup paths. Sessionless MCP OAuth signup events are reported as event counts; they have no web replay and must not be represented as screenshot steps. Captured PNGs use `journey:capture --upload-target cdn`; the CLI verifies each result is an HTTPS `cdn.builder.io` URL before passing it to Design. Capture failures remain explicit in the run summary, and the pipeline does not create screenshotless cards.

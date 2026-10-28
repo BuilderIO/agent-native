@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   allocateFrameBudgets,
+  combineSnapshotBands,
   compareTrees,
   defaultSnapshotWeek,
+  isBuilderCdnUrl,
   isReusableCaptureSelection,
   selectCaptureTree,
   SNAPSHOT_MAX_FRAMES,
@@ -69,6 +71,15 @@ function tree(nodes: SnapshotNode[], rootN = 10, app = "clips"): SnapshotTree {
 }
 
 describe("weekly snapshot preset", () => {
+  it("accepts only secure standard Builder CDN image URLs", () => {
+    expect(isBuilderCdnUrl("https://cdn.builder.io/image.png")).toBe(true);
+    expect(isBuilderCdnUrl("http://cdn.builder.io/image.png")).toBe(false);
+    expect(isBuilderCdnUrl("https://cdn.builder.io.evil.test/image.png")).toBe(
+      false,
+    );
+    expect(isBuilderCdnUrl("https://example.com/image.png")).toBe(false);
+  });
+
   it("defaults to the last full UTC week", () => {
     expect(defaultSnapshotWeek(new Date("2026-10-26T09:00:00.000Z"))).toBe(
       "2026-10-19",
@@ -98,8 +109,8 @@ describe("weekly snapshot preset", () => {
     expect(SNAPSHOT_PRESET).toMatchObject({
       emailFilter: "exclude_builder",
       excludeNonProductionHosts: true,
-      minAspect: 1.25,
-      maxAspect: 1.8,
+      minAspect: 1.2,
+      maxAspect: 2.1,
     });
   });
 
@@ -295,6 +306,51 @@ describe("snapshot tree planning", () => {
       SNAPSHOT_MAX_FRAMES,
     );
     expect(budgets.has("empty")).toBe(false);
+  });
+
+  it("combines cohort trees side by side without changing their denominators", () => {
+    const control = tree([
+      node("signup", "Signup", null, 1, 10),
+      node("signup > choice", "Setup choice", "signup", 2, 8, {
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      }),
+    ]);
+    const credits = tree(
+      [
+        node("signup", "Signup", null, 1, 20),
+        node("signup > choice", "Setup choice", "signup", 2, 12, {
+          pctOfRoot: 60,
+          pctOfParent: 60,
+        }),
+      ],
+      20,
+    );
+
+    const combined = combineSnapshotBands([
+      { key: "control", tree: control },
+      { key: "credits", tree: credits },
+    ]);
+
+    expect(combined.app).toBe("all");
+    expect(combined.rootN).toBe(30);
+    expect(combined.appRootN).toEqual({ control: 10, credits: 20 });
+    expect(combined.nodes).toMatchObject([
+      { key: "control::signup", parentKey: null, pctOfRoot: 100 },
+      {
+        key: "control::signup > choice",
+        parentKey: "control::signup",
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      },
+      { key: "credits::signup", parentKey: null, pctOfRoot: 100 },
+      {
+        key: "credits::signup > choice",
+        parentKey: "credits::signup",
+        pctOfRoot: 60,
+        pctOfParent: 60,
+      },
+    ]);
   });
 
   it("preserves parent-relative branch counts", () => {

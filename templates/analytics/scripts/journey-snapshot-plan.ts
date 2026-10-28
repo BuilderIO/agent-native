@@ -14,8 +14,8 @@ export const SNAPSHOT_PRESET = Object.freeze({
   maxTotalBytesBilled: 275_000_000_000,
   minWidth: 1100,
   maxWidth: 1920,
-  minAspect: 1.25,
-  maxAspect: 1.8,
+  minAspect: 1.2,
+  maxAspect: 2.1,
   requireKnownViewport: true,
   recency: "newest" as const,
   settleMs: 300,
@@ -48,6 +48,7 @@ export interface SnapshotTree {
   window: { from: string; to: string };
   app: string;
   rootN: number;
+  appRootN?: Record<string, number>;
   coverage: {
     sessionsWithEvents: number;
     sessionsWithReplay: number | null;
@@ -93,6 +94,12 @@ export function validateSnapshotCostEstimate(
     throw new Error("cost estimate is incomplete or exceeds the pinned budget");
   }
   return estimatedBytes as number;
+}
+
+export function isBuilderCdnUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !URL.canParse(value)) return false;
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname === "cdn.builder.io";
 }
 
 export function defaultSnapshotWeek(now = new Date()): string {
@@ -360,6 +367,72 @@ export function selectCaptureTree<T extends SnapshotTree>(
       })),
     },
     frameCount,
+  };
+}
+
+export function combineSnapshotBands(
+  bands: readonly SnapshotBand[],
+): SnapshotTree {
+  if (bands.length < 2) {
+    throw new Error(
+      "At least two cohorts are required for a side-by-side tree.",
+    );
+  }
+  const first = bands.at(0);
+  if (!first) throw new Error("A side-by-side tree needs two cohorts.");
+  const appRootN: Record<string, number> = {};
+  const nodes: SnapshotNode[] = [];
+  const nodeKeys = new Set<string>();
+
+  for (const band of bands) {
+    if (!/^[a-z][a-z0-9-]{0,127}$/.test(band.key)) {
+      throw new Error(`Invalid side-by-side cohort key: ${band.key}`);
+    }
+    if (
+      band.tree.window.from !== first.tree.window.from ||
+      band.tree.window.to !== first.tree.window.to
+    ) {
+      throw new Error("Side-by-side journey cohorts must use the same window.");
+    }
+    if (!Number.isSafeInteger(band.tree.rootN) || band.tree.rootN < 1) {
+      throw new Error(`Cohort ${band.key} needs a positive root denominator.`);
+    }
+    if (Object.prototype.hasOwnProperty.call(appRootN, band.key)) {
+      throw new Error(`Duplicate side-by-side cohort key: ${band.key}`);
+    }
+    appRootN[band.key] = band.tree.rootN;
+    for (const node of band.tree.nodes) {
+      const key = `${band.key}::${node.key}`;
+      if (key.length > 2048 || nodeKeys.has(key)) {
+        throw new Error(`Side-by-side journey node key is invalid: ${key}`);
+      }
+      nodeKeys.add(key);
+      nodes.push({
+        ...node,
+        key,
+        parentKey: node.parentKey ? `${band.key}::${node.parentKey}` : null,
+      });
+    }
+  }
+
+  const sessionsWithReplay = bands.reduce<number | null>((total, band) => {
+    const count = band.tree.coverage.sessionsWithReplay;
+    return total === null || count === null ? null : total + count;
+  }, 0);
+  return {
+    window: first.tree.window,
+    app: "all",
+    rootN: bands.reduce((total, band) => total + band.tree.rootN, 0),
+    appRootN,
+    coverage: {
+      sessionsWithEvents: bands.reduce(
+        (total, band) => total + band.tree.coverage.sessionsWithEvents,
+        0,
+      ),
+      sessionsWithReplay,
+      truncated: bands.some((band) => band.tree.coverage.truncated),
+    },
+    nodes,
   };
 }
 
