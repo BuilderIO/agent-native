@@ -26,6 +26,8 @@ import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
   buildActionMcpOutputContract,
   describeOutputContractIssue,
+  inputSchemaToJsonSchema,
+  maskedIssuePath,
   outputSchemaToJsonSchema,
   type JsonSchemaObject,
   type ActionMcpOutputContract,
@@ -2374,8 +2376,51 @@ export interface ActionExecutionOutcome {
   keyed?: boolean;
 }
 
-/** Rejected action input; execution phase determines whether effects are possible. */
-export class ActionInputValidationError extends Error {}
+/**
+ * Rejected action input; execution phase determines whether effects are possible.
+ * `paths` names the failing fields (`tweaks.2.type`) and never carries values:
+ * a segment the schema does not declare, such as a record key, is `*`.
+ */
+export class ActionInputValidationError extends Error {
+  readonly paths: readonly string[];
+
+  constructor(message: string, paths: readonly string[] = []) {
+    super(message);
+    this.paths = paths;
+  }
+}
+
+const inputIssueSchemas = new WeakMap<object, JsonSchemaObject | undefined>();
+
+/** Converted once, and only once an input is rejected: a rejection is the only reader. */
+function inputIssueSchema(
+  schema: StandardSchemaV1,
+): JsonSchemaObject | undefined {
+  if (inputIssueSchemas.has(schema)) return inputIssueSchemas.get(schema);
+  let converted: JsonSchemaObject | undefined;
+  try {
+    converted = inputSchemaToJsonSchema(schema);
+  } catch {
+    // coercion-ok: without a JSON Schema nothing is known to be declared, so
+    // every segment of an issue path is masked.
+  }
+  inputIssueSchemas.set(schema, converted);
+  return converted;
+}
+
+const MAX_TELEMETRY_INVALID_PATHS = 8;
+const MAX_TELEMETRY_INVALID_PATH_LENGTH = 120;
+
+/** Failing field paths bounded for telemetry; undefined when there are none. */
+export function telemetryInvalidPaths(
+  paths: readonly string[],
+): string[] | undefined {
+  if (paths.length === 0) return undefined;
+  // Masking folds sibling record keys into one path, so repeats are common.
+  return [...new Set(paths)]
+    .slice(0, MAX_TELEMETRY_INVALID_PATHS)
+    .map((path) => path.slice(0, MAX_TELEMETRY_INVALID_PATH_LENGTH));
+}
 
 function wrapRunWithExecutionBoundary(
   run: ActionExecutionRun,
@@ -2527,10 +2572,23 @@ async function validatedActionArgs(
   if (result.issues) {
     const missing: string[] = [];
     const other: string[] = [];
+    const paths: string[] = [];
+    const declared = inputIssueSchema(schema);
     for (const issue of result.issues) {
       const pathStr = issue.path
         ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
         : "";
+      if (issue.path?.length) {
+        paths.push(
+          maskedIssuePath(
+            issue.path.map((p) => {
+              const key = typeof p === "object" ? p.key : p;
+              return typeof key === "number" ? key : String(key);
+            }),
+            declared,
+          ).join("."),
+        );
+      }
       const msg = String(issue.message ?? "");
       if (
         pathStr &&
@@ -2569,6 +2627,7 @@ async function validatedActionArgs(
 
     throw new ActionInputValidationError(
       `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
+      paths,
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;

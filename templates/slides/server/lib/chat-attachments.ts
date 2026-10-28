@@ -430,7 +430,13 @@ function stripForwardedAttachmentData(
   if (saved.url) {
     (next as any).url = saved.url;
   } else if (attachment.url && !isVisualAttachment(attachment)) {
-    delete next.url;
+    if (next.data) {
+      delete next.url;
+    } else {
+      // With neither data nor URL the chat builder tells the model the file is
+      // unreadable; keep the URL as a reference and let actions read the saved path.
+      next.referenceOnly = true;
+    }
   }
   return next;
 }

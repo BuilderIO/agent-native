@@ -865,6 +865,10 @@ export {
   type SendBuilderBranchMessageResult,
 } from "./builder-branch.js";
 export {
+  BuilderBranchFilesError,
+  readBuilderBranchFiles,
+} from "./builder-branch-files.js";
+export {
   ensureFusionContainer,
   sendFusionBranchMessage,
   pushFusionBranch,

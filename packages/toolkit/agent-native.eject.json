@@ -1276,6 +1276,11 @@
       "dependencies": [
         "@agent-native/core",
         "@tabler/icons-react",
+        "@tiptap/core",
+        "@tiptap/extension-placeholder",
+        "@tiptap/pm",
+        "@tiptap/react",
+        "@tiptap/starter-kit",
         "clsx",
         "react",
         "react-markdown",

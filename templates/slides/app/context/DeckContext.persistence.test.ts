@@ -8006,8 +8006,10 @@ describe("DeckContext deck creation persistence", () => {
       await vi.advanceTimersByTimeAsync(500);
     });
     expect(
-      fetchMock.mock.calls.filter(([url]) =>
-        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          requestString(url).includes("/_agent-native/actions/patch-deck") &&
+          actionCallBody(init).deckId === "inline-undo-deck",
       ),
     ).toHaveLength(1);
 
@@ -9300,8 +9302,10 @@ describe("DeckContext deck creation persistence", () => {
     // One op per request: the server checks each content op against the slide
     // as it stood at the start of the batch, so chained ops would be stale.
     const requests = fetchMock.mock.calls
-      .filter(([url]) =>
-        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      .filter(
+        ([url, init]) =>
+          requestString(url).includes("/_agent-native/actions/patch-deck") &&
+          actionCallBody(init).deckId === "chain-deck",
       )
       .map(
         ([, init]) =>
