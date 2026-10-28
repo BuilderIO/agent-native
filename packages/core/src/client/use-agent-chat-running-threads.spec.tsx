@@ -6,37 +6,79 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   dispatchAgentChatRunning,
-  getAgentChatRunningThreadId,
+  getAgentChatSubmitTarget,
+  rememberAgentChatSubmitTarget,
   useAgentChatRunningThreads,
 } from "./use-agent-chat-running-threads.js";
 
-describe("getAgentChatRunningThreadId", () => {
-  it("keeps a tab's thread for listeners that subscribe after its events", () => {
-    dispatchAgentChatRunning({
-      isRunning: false,
-      tabId: "tab-late-listener",
-      threadId: "thread-late-listener",
-      reason: "run.completed",
-    });
-
-    expect(getAgentChatRunningThreadId("tab-late-listener")).toBe(
-      "thread-late-listener",
-    );
-    expect(getAgentChatRunningThreadId("tab-never-ran")).toBeNull();
-  });
-
-  it("reads a tab-only event as that tab's thread without replacing a reported one", () => {
-    dispatchAgentChatRunning({ isRunning: true, tabId: "tab-only" });
+describe("getAgentChatSubmitTarget", () => {
+  it("keeps a submission's tab and first running thread for late listeners", () => {
+    rememberAgentChatSubmitTarget("submit-late", "tab-late");
     dispatchAgentChatRunning({
       isRunning: true,
-      tabId: "tab-with-thread",
-      threadId: "thread-reported",
+      tabId: "tab-late",
+      threadId: "thread-late",
     });
-    dispatchAgentChatRunning({ isRunning: false, tabId: "tab-with-thread" });
+    dispatchAgentChatRunning({
+      isRunning: false,
+      tabId: "tab-late",
+      threadId: "thread-later-run",
+    });
 
-    expect(getAgentChatRunningThreadId("tab-only")).toBe("tab-only");
-    expect(getAgentChatRunningThreadId("tab-with-thread")).toBe(
-      "thread-reported",
+    expect(getAgentChatSubmitTarget("submit-late")).toEqual({
+      tabId: "tab-late",
+      threadId: "thread-late",
+    });
+    expect(getAgentChatSubmitTarget("submit-never-routed")).toBeNull();
+  });
+
+  it("never gives a new submission a thread its tab ran before it", () => {
+    dispatchAgentChatRunning({
+      isRunning: false,
+      tabId: "tab-reused",
+      threadId: "thread-earlier",
+    });
+    rememberAgentChatSubmitTarget("submit-reused", "tab-reused");
+
+    expect(getAgentChatSubmitTarget("submit-reused")).toEqual({
+      tabId: "tab-reused",
+      threadId: null,
+    });
+  });
+
+  it("reads tab-only and thread-only events the way the resolver does", () => {
+    rememberAgentChatSubmitTarget("submit-tab-only", "tab-only");
+    dispatchAgentChatRunning({ isRunning: true, tabId: "tab-only" });
+    rememberAgentChatSubmitTarget("submit-thread-only", "thread-only");
+    dispatchAgentChatRunning({ isRunning: true, threadId: "thread-only" });
+    rememberAgentChatSubmitTarget("submit-upgraded", "tab-upgraded");
+    dispatchAgentChatRunning({ isRunning: true, tabId: "tab-upgraded" });
+    dispatchAgentChatRunning({
+      isRunning: true,
+      tabId: "tab-upgraded",
+      threadId: "thread-upgraded",
+    });
+
+    expect(getAgentChatSubmitTarget("submit-tab-only")?.threadId).toBe(
+      "tab-only",
+    );
+    expect(getAgentChatSubmitTarget("submit-thread-only")?.threadId).toBe(
+      "thread-only",
+    );
+    expect(getAgentChatSubmitTarget("submit-upgraded")?.threadId).toBe(
+      "thread-upgraded",
+    );
+  });
+
+  it("forgets the oldest submissions once the history is full", () => {
+    rememberAgentChatSubmitTarget("submit-oldest", "tab-oldest");
+    for (let index = 0; index < 100; index += 1) {
+      rememberAgentChatSubmitTarget(`submit-filler-${index}`, "tab-filler");
+    }
+
+    expect(getAgentChatSubmitTarget("submit-oldest")).toBeNull();
+    expect(getAgentChatSubmitTarget("submit-filler-99")?.tabId).toBe(
+      "tab-filler",
     );
   });
 });

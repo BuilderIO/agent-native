@@ -1,5 +1,4 @@
 import {
-  getAgentChatRunningThreadId,
   getAgentChatSubmitTarget,
   sendToAgentChatAndConfirm,
 } from "@agent-native/core/client/agent-chat";
@@ -629,9 +628,10 @@ function getRunTabId(deckId: string, submitMessageId: string): string | null {
     runTabIds.set(key, stored);
     return stored;
   }
-  const reported = getAgentChatSubmitTarget(submitMessageId);
-  if (reported)
+  const reported = getAgentChatSubmitTarget(submitMessageId)?.tabId ?? null;
+  if (reported) {
     rememberNewDeckGenerationRunTab(deckId, submitMessageId, reported);
+  }
   return reported;
 }
 
@@ -647,16 +647,16 @@ function getRunConversationThreadId(
     getRunConversationThreadStorageKey(deckId, submitMessageId),
   );
   if (stored === null) {
-    const tabId = getRunTabId(deckId, submitMessageId);
-    const running = tabId ? getAgentChatRunningThreadId(tabId) : null;
-    if (running) {
+    const reported =
+      getAgentChatSubmitTarget(submitMessageId)?.threadId ?? null;
+    if (reported) {
       rememberNewDeckGenerationRunConversationThread(
         deckId,
         submitMessageId,
-        running,
+        reported,
       );
     }
-    return running;
+    return reported;
   }
   if (!stored.trim()) {
     throw new Error(

@@ -82,6 +82,7 @@ export {
   type AgentChatOpenThreadRequest,
   type AgentChatRequestMode,
   type AgentChatSubmitResult,
+  type AgentChatSubmitRoute,
   type AgentChatSubmitTarget,
   type BufferedAgentChatOpenRequest,
   type ParsedSubmitChat,
@@ -306,7 +307,6 @@ export { trackTurnSubmitted } from "../chat/turn-submitted-telemetry.js";
 export {
   AGENT_CHAT_RUNNING_EVENT,
   dispatchAgentChatRunning,
-  getAgentChatRunningThreadId,
   resolveAgentChatRunningThreadId,
   useAgentChatRunningThreads,
   type AgentChatPresentationPhase,

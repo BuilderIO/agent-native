@@ -36,34 +36,60 @@ export function resolveAgentChatRunningThreadId(
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-const RUNNING_THREAD_HISTORY_LIMIT = 100;
-const runningThreadIdsByTab = new Map<string, string>();
+export interface AgentChatSubmitRoute {
+  tabId: string;
+  /** The first thread the tab reported running after the submit was routed. */
+  threadId: string | null;
+}
+
+const SUBMIT_ROUTE_HISTORY_LIMIT = 100;
+const submitRoutes = new Map<
+  string,
+  AgentChatSubmitRoute & { threadReported: boolean }
+>();
+
+export function rememberAgentChatSubmitTarget(
+  submitMessageId: string,
+  tabId: string,
+): void {
+  submitRoutes.delete(submitMessageId);
+  submitRoutes.set(submitMessageId, {
+    tabId,
+    threadId: null,
+    threadReported: false,
+  });
+  if (submitRoutes.size > SUBMIT_ROUTE_HISTORY_LIMIT) {
+    const oldest = submitRoutes.keys().next().value;
+    if (oldest !== undefined) submitRoutes.delete(oldest);
+  }
+}
 
 export function rememberAgentChatRunningThread(
   detail: Partial<AgentChatRunningEventDetail> | null | undefined,
 ): void {
-  const tabId = detail?.tabId?.trim();
+  const reportedThreadId = detail?.threadId?.trim() || null;
+  // A thread-only event names its tab by the thread, and a tab-only event
+  // names its thread by the tab, as the resolver reads them.
+  const tabId = detail?.tabId?.trim() || reportedThreadId;
   if (!tabId) return;
-  const explicitThreadId = detail?.threadId?.trim();
-  // A tab-only event names the tab as its thread, as the resolver reads it,
-  // but must not replace a thread the tab already reported explicitly.
-  if (!explicitThreadId && runningThreadIdsByTab.has(tabId)) return;
-  const threadId = explicitThreadId || tabId;
-  runningThreadIdsByTab.delete(tabId);
-  runningThreadIdsByTab.set(tabId, threadId);
-  if (runningThreadIdsByTab.size > RUNNING_THREAD_HISTORY_LIMIT) {
-    const oldest = runningThreadIdsByTab.keys().next().value;
-    if (oldest !== undefined) runningThreadIdsByTab.delete(oldest);
+  for (const route of submitRoutes.values()) {
+    if (route.tabId !== tabId || route.threadReported) continue;
+    route.threadId = reportedThreadId ?? tabId;
+    route.threadReported = reportedThreadId !== null;
   }
 }
 
 /**
- * The conversation thread a chat tab last reported running. Like the submit
- * target, the running events can all pass before a lazily loaded route that
- * tracks the run has mounted.
+ * Where a submission was routed. The submit target and running events fire
+ * once, often before a lazily loaded route that tracks the submission has
+ * mounted, so late listeners read them here. The thread is scoped to this
+ * submission, never a thread the tab ran before it.
  */
-export function getAgentChatRunningThreadId(tabId: string): string | null {
-  return runningThreadIdsByTab.get(tabId) ?? null;
+export function getAgentChatSubmitTarget(
+  submitMessageId: string,
+): AgentChatSubmitRoute | null {
+  const route = submitRoutes.get(submitMessageId);
+  return route ? { tabId: route.tabId, threadId: route.threadId } : null;
 }
 
 export function dispatchAgentChatRunning(
