@@ -1,6 +1,6 @@
 name: Feedback fix proof
 
-# Feedback-sweep PRs list their reports under `## Reports`, each with a
+# Feedback-sweep PRs list their reports under a `Reports` heading, each with a
 # `fix-proof: proven` (or `visual:`) line. This re-runs every proof so a
 # skipped or invented one fails here instead of merging.
 on:
@@ -17,7 +17,7 @@ permissions:
 jobs:
   proof:
     name: Feedback fix proof
-    if: contains(github.event.pull_request.body, '## Reports')
+    if: contains(github.event.pull_request.body, '# Reports')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

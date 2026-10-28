@@ -154,10 +154,12 @@ describe("fix-proof", () => {
     assert.match(r.stderr, /interrupted/);
   });
 
-  it("cannot run a check with an argument containing whitespace", () => {
-    const r = proof("grep", "-q", "fixed app", "app.txt");
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /whitespace/);
+  it("cannot run a check with an empty or whitespace argument", () => {
+    for (const arg of ["fixed app", ""]) {
+      const r = proof("grep", "-q", arg, "app.txt");
+      assert.equal(r.status, 2);
+      assert.match(r.stderr, /empty or contains whitespace/);
+    }
   });
 
   it("rejects a check that fails on HEAD", () => {

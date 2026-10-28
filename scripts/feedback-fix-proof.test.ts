@@ -72,7 +72,7 @@ describe("parseReports", () => {
   it("reads numbered and bare-URL reports under a decorated heading", () => {
     const reports = parseReports(
       [
-        "## Reports (3)",
+        "### Reports (3)",
         "1. https://app.slack.com/a",
         "  visual: n/a",
         "https://app.slack.com/b",
@@ -125,7 +125,7 @@ describe("feedback-fix-proof", () => {
   });
 
   it("cannot run when Reports is mentioned but not a heading", () => {
-    assert.equal(gate("see ## Reports below\n").status, 2);
+    assert.equal(gate("see # Reports below\n").status, 2);
   });
 
   it("cannot run on a Reports section with no links", () => {

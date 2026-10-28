@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CI gate for feedback-sweep PRs: every report under the body's `## Reports`
+// CI gate for feedback-sweep PRs: every report under the body's `Reports`
 // heading needs a proof line, and every `fix-proof: proven` line is re-run
 // here, so a proof that was skipped or pasted from nowhere turns CI red.
 //
@@ -27,7 +27,7 @@ const PROVEN =
 
 export function parseReports(body: string): Report[] | null {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => /^#{2,6}\s+Reports\b/.test(line));
+  const start = lines.findIndex((line) => /^#{1,6}\s+Reports\b/.test(line));
   if (start === -1) return null;
   const reports: Report[] = [];
   for (const line of lines.slice(start + 1)) {
@@ -57,16 +57,16 @@ function main() {
     process.exit(2);
   }
   const reports = parseReports(body);
-  if (!reports && body.includes("## Reports")) {
+  // The workflow runs on this same substring, so it can never skip a
+  // heading the parser reads, and a near miss fails instead of passing.
+  if (!reports && body.includes("# Reports")) {
     console.error(
-      "feedback-fix-proof: could not run: the body mentions `## Reports` but has no `## Reports` heading line",
+      "feedback-fix-proof: could not run: the body mentions `# Reports` but has no `Reports` heading line",
     );
     process.exit(2);
   }
   if (!reports) {
-    console.log(
-      "feedback-fix-proof: no `## Reports` section; nothing to check",
-    );
+    console.log("feedback-fix-proof: no `Reports` heading; nothing to check");
     return;
   }
   if (reports.length === 0) {
