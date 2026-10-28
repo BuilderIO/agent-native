@@ -432,18 +432,26 @@ import {
 } from "../chat-threads/store.js";
 import { closeDbExec, getDbExec } from "../db/client.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
+import { processRecurringJobs } from "../jobs/scheduler.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
+import type { AgentChatPluginOptions } from "./agent-chat/plugin-options.js";
 import { runWithRequestContext } from "./request-context.js";
 
-async function createSweepHandler() {
+// `null` mounts the plugin with no options at all, the way an app that sets none does.
+async function createSweepHandler(options: AgentChatPluginOptions | null = {}) {
   const h3App = createApp();
-  createAgentChatPlugin({
-    actions: () => ({}),
-    a2aAgentDelegation: false,
-    frameworkTools: "minimal",
-    leanPrompt: true,
-    mcp: { enabled: false },
-  })({
+  createAgentChatPlugin(
+    options
+      ? {
+          actions: () => ({}),
+          a2aAgentDelegation: false,
+          frameworkTools: "minimal",
+          leanPrompt: true,
+          mcp: { enabled: false },
+          ...options,
+        }
+      : undefined,
+  )({
     h3App,
     hooks: {
       hook(name, callback) {
@@ -575,6 +583,36 @@ describe("queued submission inbox recurring sweep", () => {
       });
     },
   );
+
+  it("hands the job scheduler the extra app ids the app lists", async () => {
+    vi.stubEnv("AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS", "true");
+    vi.mocked(processRecurringJobs).mockClear();
+    const sweep = await createSweepHandler({
+      appId: "factory",
+      additionalJobAppIds: ["factory-workflows"],
+    });
+    const response = await sweep();
+
+    expect(response.status).toBe(200);
+    expect(processRecurringJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "factory",
+        additionalJobAppIds: ["factory-workflows"],
+      }),
+    );
+  });
+
+  it("starts the job scheduler for an app that sets no plugin options", async () => {
+    vi.stubEnv("AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS", "true");
+    vi.mocked(processRecurringJobs).mockClear();
+    const sweep = await createSweepHandler(null);
+    const response = await sweep();
+
+    expect(response.status).toBe(200);
+    expect(processRecurringJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ additionalJobAppIds: undefined }),
+    );
+  });
 
   it("reads queued receipt status only after resolving thread access", async () => {
     const threadId = `thread-${randomUUID()}`;

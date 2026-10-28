@@ -1,0 +1,101 @@
+slug: weekly-marketing-report
+app: analytics
+roles:
+  - marketing
+title: 不用試算表，也能做出每週行銷報告
+seo_title: 用 GA4 和 HubSpot 製作每週行銷報告
+meta_description: 用 Agent-Native Analytics，從 Google Analytics 和 HubSpot 製作每週行銷報告。問問這週表現如何，再把答案以儀表板分享出去。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics 把 Google Analytics 和 HubSpot 的資料變成你週一的行銷報告。問問這週表現如何，agent 會把每個答案保存在儀表板中，不必每週重做。
+  button:
+    label: 建立你的儀表板
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b9582619b1b42e4a44e6246e01ff7f8
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70d3b80ce73f472c95b94f7f5c0d65d6
+    alt: 在 Analytics 中開啟的每週行銷儀表板。最上方的指標卡片顯示本週的工作階段、自然搜尋註冊、HubSpot 新聯絡人和新建交易，各附與上週相比的變化。下方的長條圖比較本週與上週各管道的工作階段，折線圖顯示每天新建的 HubSpot 交易。右側的 agent 對話有一個問題「這週表現如何？」，以及一段簡短回答，指出自然搜尋成長最多。
+how_to:
+  heading: 如何用 AI 製作每週行銷報告
+  steps:
+    - title: 連接你的行銷資料
+      body: 開啟 **資料來源**，依照 Google Analytics 和 HubSpot 卡片上的[設定步驟](https://www.agent-native.com/docs/template-analytics-connectors/)操作，再點選 **測試連線**。Google Analytics 需要一個對你的資源具有「檢視者」權限的 Google Cloud 服務帳戶，只要設定一次。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0218d6c271db4bbe8534c00e6f5e85a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
+        alt: 「資料來源」頁面的特寫，Google Analytics 和 HubSpot 都列為已連線。旁邊開著 HubSpot 的設定面板，權杖已設定，「測試連線」顯示「Connection successful」。
+    - title: 問問這週表現如何
+      body: 像問分析師一樣提問。例如：「這週來自自然搜尋的註冊數和上週相比如何？」agent 會對你的資料執行即時查詢，並以圖表回答。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb
+        alt: agent 對話中的這個問題和回答。兩句話說明自然搜尋註冊數比上週成長，下方是本週與上週各管道註冊數的長條圖。
+    - title: 儲存並分享儀表板
+      body: 請 agent「把這個設為我的每週行銷儀表板」。點選 **分享**，給隊友或整個組織[檢視或編輯權限](https://www.agent-native.com/docs/sharing/)，或開啟 **電子郵件報告**，每天在你選的時間寄出。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F04feeeb2a1384ce0adecb7bee676b806
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F61fd64ac2bff4f53a3ca6cfbd97225fe
+        alt: 每週行銷儀表板，「電子郵件報告」對話框已開啟：傳送方式設為電子郵件和 Slack、兩個團隊地址、9:00 的傳送時間，以及「立即傳送」按鈕。
+features:
+  heading: 回報每週行銷成果所需的一切
+  items:
+    - title: 一個問題涵蓋兩個工具
+      body: 在同一個問題裡詢問 Google Analytics 的工作階段和 HubSpot 的聯絡人，agent 會把兩者並列回答。
+    - title: 搜尋排名和流量並列
+      body: 連接 DataForSEO，就能問關鍵字排名的變化，並和本週的自然搜尋工作階段一起看。
+    - title: 數字隨時保持最新
+      body: Google Analytics 圖表即時查詢，HubSpot 圖表自動更新，所以報告永遠顯示最新的一週。
+    - title: 重跑上週的分析
+      body: 把一次調查連同問題和步驟一起儲存，再請 agent 用本週的資料重新執行。
+    - title: 你團隊的定義
+      body: 管理員在「語意層」頁面設定什麼算潛在客戶、什麼算註冊，agent 每次回答都會使用這些定義。
+    - title: 針對任何圖表提問
+      body: 點選圖表並詢問有什麼變化。agent 會收到那張圖表和你的問題，並根據背後的資料回答。
+integrations:
+  heading: 將 Analytics 連接到你已在用的工具
+  cards:
+    - title: 帶入你的行銷資料
+      logos:
+        - name: Google Analytics
+        - name: HubSpot
+        - name: X
+      body: 從「資料來源」頁面連接 Google Analytics 取得流量、HubSpot 取得聯絡人和交易，以及 X 取得貼文互動。
+    - title: 把報告送到團隊看得到的地方
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: 透過 Slack webhook 每天把摘要和儀表板連結發到 Slack 頻道，也能把任何表格匯出到已連接的 Google Sheets 帳號。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Notion
+        - name: Webflow
+        - name: Exa
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Analytics 做的其他事
+  cards:
+    - title: 為你的新創公司打造 KPI 儀表板
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: 追蹤新創公司的營收、註冊數和流失率，並問 agent 數字為什麼變動。
+    - title: 找出新使用者在哪一步流失
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 找出新使用者流失的步驟，並觀看流失發生的工作階段。
+    - title: 用 HubSpot 和 Gong 資料檢視銷售管道
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: 用日常語言詢問 HubSpot 交易和 Gong 通話的問題。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Analytics 是免費的嗎？
+      a: 是的，Agent-Native Analytics 免費且開源。你連接自己的 Google Analytics 和 HubSpot 帳號。開始使用時，你可以為 agent 選擇免費的 Builder.io AI 點數或自己的 AI 模型金鑰，所以 AI 用量有上限。Analytics 目前是 alpha 版，功能會持續調整。
+    - q: 我可以連接哪些行銷資料來源？
+      a: Agent-Native Analytics 可連接 Google Analytics (GA4)、HubSpot、提供關鍵字排名和搜尋量的 DataForSEO，以及提供貼文互動的 X。它也能連接 BigQuery、Amplitude、Mixpanel、PostHog 和 Stripe。每個來源都需要各自的憑證，Google Analytics 則需要 Google Cloud 服務帳戶。
+    - q: Agent-Native Analytics 可以每週一寄出報告嗎？
+      a: 目前還不能每週排程。[儀表板電子郵件報告](https://www.agent-native.com/docs/template-analytics-dashboards/)每天在你選的時間和時區寄出，對象最多五個電子郵件地址、一個 Slack 頻道，或兩者都有。週一開會前，在 **電子郵件報告** 中點選 **立即傳送**，就能寄出最新的儀表板。
+    - q: 我需要懂 SQL 嗎？
+      a: 不需要。你用一般的話提問，agent 會選擇來源並撰寫查詢。想檢查時，可以請 agent 顯示任何答案背後的查詢。
+    - q: 這些數字可信嗎？
+      a: agent 給你數字之前，會先對你的資料執行即時查詢，沒有執行查詢的數字會標為「Unverified」。不過，第一週的報告寄給團隊之前，還是先和 Google Analytics 和 HubSpot 對照一下。
+    - q: Agent-Native Analytics 和 GA4、HubSpot 的報表有什麼不同？
+      a: Google Analytics 和 HubSpot 各自只報告自己的資料。Agent-Native Analytics 用一般的話回答橫跨兩者的問題，並把答案保存成一個儀表板，你只要提問就能繼續調整。這就是 [agentic 應用程式](https://www.agent-native.com/articles/what-is-an-agent-native-app/)：擁有 agent 的智慧，也有應用程式的直覺易用。

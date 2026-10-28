@@ -65,8 +65,7 @@ export default {
     recordingStarted: "Grabación iniciada",
     appBandHeading: "{app} · {count} sesiones",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sesiones{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} a {to} · cohortes separadas por aplicación{partial}",
+    journeyTitleAppBandsSummary: "{from} a {to} · cohortes separadas{partial}",
     sessionCount: "{count} sesiones",
     otherPaths: "Otras rutas",
     otherBranchesShown: "Se muestran {shown} de {total} ramas",
@@ -320,6 +319,10 @@ export default {
       chooseFrame: "Elegir marco",
       inspect: "Inspeccionar",
       exportSvg: "Exportar SVG",
+      moreActions: "Más acciones",
+      askAboutFile: "Preguntar sobre este archivo",
+      askAboutFilePrompt:
+        "Pregunta sobre este archivo de diseño vinculado. {{url}}",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
       currentDesign: "el Diseño actual",

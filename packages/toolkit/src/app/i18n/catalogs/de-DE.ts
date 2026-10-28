@@ -200,6 +200,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "Zurück",
   "onboarding.creditsSkipAnyway": "Trotzdem überspringen",
   "onboarding.creditsUseCustomKeys": "Eigene Schlüssel verwenden",
+  "onboarding.creditsUseOwnApiKeys": "Meine eigenen API-Schlüssel verwenden",
   "onboarding.creditsAboutLabel": "Über kostenlose Credits",
   "onboarding.creditsActivating": "Gratis-Credits werden aktiviert",
   "onboarding.creditsActivatingTooltip":

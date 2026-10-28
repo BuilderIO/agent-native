@@ -1888,38 +1888,19 @@ export function createAgentChatPlugin(
         try {
           const pathMod = await import("path");
           const cwd = process.cwd();
-          const skipFiles = new Set([
-            "helpers",
-            "run",
-            "registry",
-            "_utils",
-            "db-connect",
-            "db-status",
-            "migrate-production",
-          ]);
+          const { listDevActionFiles } = await import("./action-discovery.js");
+          const _fs = await lazyFs();
+          const files = await listDevActionFiles(cwd);
 
-          for (const dir of ["actions", "scripts"]) {
-            const actionsDir = pathMod.join(cwd, dir);
-            const _fs = await lazyFs();
-            if (!_fs.existsSync(actionsDir)) continue;
-            const files = _fs
-              .readdirSync(actionsDir)
-              .filter(
-                (f: string) =>
-                  f.endsWith(".ts") &&
-                  !f.startsWith("_") &&
-                  !/\.(test|spec)\.ts$/.test(f) &&
-                  !skipFiles.has(f.replace(/\.ts$/, "")),
-              );
-            for (const file of files) {
-              const name = file.replace(/\.ts$/, "");
+          {
+            for (const filePath of files) {
+              const name = pathMod.basename(filePath, ".ts");
               if (templateScriptsAll[name] || devScriptsForA2A[name]) continue;
 
               // Try to load the action module directly so we get the real
               // run function (not a shell wrapper). This makes HTTP endpoints
               // work correctly. Only fall back to shell wrapper if the import
               // fails (e.g., CLI-style scripts that throw at top level).
-              const filePath = pathMod.join(actionsDir, file);
               try {
                 const mod = await import(/* @vite-ignore */ filePath);
                 const def = actionDefinition(mod);
@@ -1953,7 +1934,7 @@ export function createAgentChatPlugin(
                 // action sets, so it gets all of them. The route stays the
                 // default POST.
                 console.warn(
-                  `[agent-native] Could not read ${dir}/${file}; it will run only from the app's UI and ask for approval first.`,
+                  `[agent-native] Could not read ${pathMod.relative(cwd, filePath)}; it will run only from the app's UI and ask for approval first.`,
                   error,
                 );
                 sniffed = {
@@ -10454,6 +10435,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           apiKey: options?.apiKey,
           model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
+          additionalJobAppIds: options?.additionalJobAppIds,
         };
         runNowSchedulerDeps = schedulerDeps;
         const processFailureAlertRetries = async () => {

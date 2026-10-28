@@ -977,6 +977,58 @@ describe("Builder source review execution gates", () => {
     expect(response.review.rows[0]?.bodyChange).toEqual(body);
   });
 
+  it("gives a revision an unused id when an earlier one with the same payload was sent", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+      unmatched: true,
+      bodyChange: {
+        summary: "Old approved body",
+        currentExcerpt: "",
+        proposedExcerpt: "Old",
+        currentHash: null,
+        proposedHash: "old-hash",
+        proposedContent: "Old body.",
+        proposedBlocksJson: "[]",
+        sidecarsJson: "{}",
+        warnings: [],
+      },
+    });
+    const db = getDb();
+    const [changeSet] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+    await db
+      .update(schema.documents)
+      .set({
+        content: "Fresh body after the approval.",
+        updatedAt: "2026-07-13T20:00:00.000Z",
+      })
+      .where(eq(schema.documents.id, changeSet.documentId));
+    const prepare = async () =>
+      (
+        await asOwner(() =>
+          prepareReview.run({
+            documentId: seeded.databaseDocumentId,
+            sourceId: seeded.sourceId,
+            changeSetIds: [seeded.changeSetId],
+            pushModeConfirmation: "autosave",
+          }),
+        )
+      ).review.rows[0]?.changeSetId;
+
+    const first = await prepare();
+    if (!first) throw new Error("The first prepare returned no change set.");
+    expect(first).not.toBe(seeded.changeSetId);
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "applied" })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, first));
+
+    await expect(prepare()).resolves.toBe(`${first}-2`);
+  });
+
   it("freezes an approved body after a failed dispatched attempt", async () => {
     const staleBody = {
       summary: "Approved body evidence",
@@ -1639,6 +1691,85 @@ describe("Builder source review execution gates", () => {
       .from(schema.contentDatabaseSourceChangeSets)
       .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
     expect(changeSet.state).toBe("pending_push");
+  });
+
+  it("refuses a transition on a page a collection editor can only view", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+      metadata: {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowPublicationTransitions: true,
+        allowedWriteModes: ["autosave", "publish"],
+      },
+    });
+    const collaborator = "collaborator@example.com";
+    await getDb()
+      .insert(schema.documentShares)
+      .values(
+        (
+          [
+            [seeded.databaseDocumentId, "editor"],
+            [seeded.rowDocumentId, "viewer"],
+          ] as const
+        ).map(([resourceId, role]) => ({
+          id: `share_${resourceId}_${collaborator}`,
+          resourceId,
+          principalType: "user" as const,
+          principalId: collaborator,
+          role,
+          createdBy: OWNER,
+          createdAt: "2026-06-29T15:00:00.000Z",
+        })),
+      );
+    const asCollaborator = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: collaborator }, fn);
+    const refusal = `Requires editor role on document ${seeded.rowDocumentId} (have viewer)`;
+
+    await expect(
+      asCollaborator(() =>
+        prepareExecution.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          changeSetId: seeded.changeSetId,
+          pushModeConfirmation: "publish",
+          publicationTransition: "publish",
+        }),
+      ),
+    ).rejects.toThrow(refusal);
+    await expect(
+      asCollaborator(() =>
+        prepareReview.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          changeSetIds: [seeded.changeSetId],
+          pushModeConfirmation: "publish",
+          transitions: {
+            [seeded.changeSetId]: { publicationTransition: "publish" },
+          },
+        }),
+      ),
+    ).rejects.toThrow(refusal);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceExecutions)
+        .where(
+          eq(schema.contentDatabaseSourceExecutions.sourceId, seeded.sourceId),
+        ),
+    ).toEqual([]);
+
+    const prepared = await asCollaborator(() =>
+      prepareReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        changeSetIds: [seeded.changeSetId],
+        pushModeConfirmation: "publish",
+      }),
+    );
+    expect(prepared.review.rows).toHaveLength(1);
+    expect(prepared.review.rows[0]?.effect).toBe("update_in_place");
   });
 
   it("preserves running and response-bearing execution evidence on prepare", async () => {

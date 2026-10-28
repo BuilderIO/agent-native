@@ -970,8 +970,8 @@ function LaunchpadLayout() {
 }
 
 /**
- * A starter home page: the centered hero (mark, title, lead, large composer,
- * hint) over a two-column resource footer, with no header row.
+ * A starter home page: the centered hero (mark, title, large composer) over a
+ * two-column resource footer, with no header row.
  */
 function HomeLayout() {
   return (
@@ -1000,19 +1000,7 @@ function HomeLayout() {
           }}
         >
           <Block style={{ width: 56, height: 32 }} />
-          <div
-            style={{
-              display: "flex",
-              width: "100%",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 12,
-            }}
-          >
-            <Block style={{ width: "min(100%, 280px)", height: 44 }} />
-            <Block style={{ width: "min(100%, 400px)", height: 16 }} />
-            <Block style={{ width: "min(100%, 320px)", height: 16 }} />
-          </div>
+          <Block style={{ width: "min(100%, 280px)", height: 44 }} />
           <Block
             style={{
               width: "100%",
@@ -1022,7 +1010,6 @@ function HomeLayout() {
               borderRadius: 28,
             }}
           />
-          <Block style={{ width: "min(100%, 360px)", height: 14 }} />
         </section>
         <div
           data-agent-native-app-skeleton-home-footer="true"

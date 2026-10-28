@@ -383,6 +383,35 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.clip-uploads",
+    surface: "editor",
+    label: "Upload a video into a page as a Clip while Clips in pages is on",
+    uiEntrypoints: [
+      "app/components/editor/extensions/VideoBlock.tsx",
+      "app/components/editor/clip-embed/ClipUploadGate.tsx",
+      "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
+      "app/components/editor/VisualEditor.tsx",
+    ],
+    durableEffect:
+      "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
+    uiImplementation:
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed.",
+    status: "action-backed",
+    actions: ["get-clip-upload-status", "create-clip-upload"],
+    exception:
+      "Both are hidden with agentTool: false because an upload needs the file's bytes in the editor's tab and a ticket only that tab can use; agents see uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/clip-upload-actions.test.ts",
+      "server/lib/clips-peer.test.ts",
+      "app/components/editor/extensions/video-block-clip-upload.test.tsx",
+      "app/components/editor/clip-embed/clip-uploads.test.ts",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
@@ -818,13 +847,14 @@ export const parityMatrix: ParityRow[] = [
       "Review, stage, validate, cancel, and execute Builder CMS source writes",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
+      "app/components/editor/DocumentProperties.tsx",
       "app/components/editor/database/DatabaseView.tsx",
       "app/components/editor/database-sources/BuilderSourceReviewDialog.tsx",
     ],
     durableEffect:
-      "Builder source write mode, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
+      "Builder source write mode, staged publish and unpublish picks, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
     uiImplementation:
-      "Builder source dialogs call review, write-mode, validation, staging, and execution actions.",
+      "Builder source dialogs call review, write-mode, validation, staging, and execution actions; the Builder status property's picker calls set-builder-entry-status.",
     status: "action-backed",
     actions: [
       "cancel-prepared-builder-source-update",
@@ -834,6 +864,7 @@ export const parityMatrix: ParityRow[] = [
       "prepare-builder-source-review",
       "preview-builder-source-review",
       "review-content-database-source-change-set",
+      "set-builder-entry-status",
       "set-content-database-source-write-mode",
       "stage-builder-source-bulk-update",
       "stage-builder-revision",
@@ -848,6 +879,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/builder-source-review-gates.db.test.ts",
       "actions/cancel-prepared-builder-source-update.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
+      "actions/set-builder-entry-status.db.test.ts",
       "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
     evalScenarioIds: ["builder-source-review-readonly"],

@@ -227,6 +227,7 @@ const messages = {
     spaces: "Espaços",
     meetings: "Reuniões",
     dictate: "Ditar",
+    fromContent: "Do Content",
     archive: "Arquivo",
     trash: "Lixeira",
     agent: "Agente",
@@ -283,6 +284,10 @@ const messages = {
     archive: {
       title: "Nenhuma gravação arquivada",
       body: "Clips arquivados ficam aqui até você querer trazê-los de volta.",
+    },
+    fromContent: {
+      title: "Nenhum envio do Content ainda",
+      body: "Os vídeos que você envia para uma página do Content são salvos aqui como Clips.",
     },
     trash: {
       title: "A lixeira está vazia",
@@ -2335,6 +2340,8 @@ const messages = {
     goHome: "Ir para o início",
     testMic: "Testar microfone",
     archivePageTitle: "Arquivo · Clips",
+    fromContentPageTitle: "Do Content · Clips",
+    openContentPage: "Abrir página",
     insightsPageTitle: "Informações · Clips",
     folderPageTitle: "Pasta · Clips",
     spacePageTitle: "Espaço · Clips",

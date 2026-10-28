@@ -1,0 +1,98 @@
+slug: ai-prototype-generator
+app: design
+roles:
+  - product
+  - design
+  - founders
+title: 브리프를 클릭할 수 있는 프로토타입으로 만들어 보세요
+seo_title: 제품 브리프를 위한 AI 프로토타입 생성기
+meta_description: "제품이나 디자인 브리프를 붙여 넣으면 Agent-Native Design이 클릭해 볼 수 있는 화면을 만들어요. AI 에이전트에게 여러 방향을 받고, 고른 방향을 다듬으세요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Design은 제품이나 디자인 브리프가 설명하는 화면을 직접 써 볼 수 있는 HTML로 만들어 줘요. AI 에이전트에게 몇 가지 방향을 받은 뒤, 고른 방향을 직접 또는 요청해서 다듬으세요."
+  button:
+    label: 브리프로 프로토타입 만들기
+    url: https://design.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F003e186182b74e3cbe462fe098559bc6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe8f432f3b71d432698c025a7147301bc
+    alt: "팀 경비 앱의 온보딩 방향으로 Guided checklist를 고른 Design 편집기. 데스크톱과 모바일 프레임이 보여요. 에이전트 채팅에는 붙여 넣은 브리프, Pick a direction 선택지, 그다음 에이전트가 바꾼 내용이 보여요."
+how_to:
+  heading: AI로 브리프를 프로토타입으로 만드는 방법
+  steps:
+    - title: 필요한 화면 설명하기
+      body: "Design 홈 화면의 프롬프트 입력창에 브리프를 붙여 넣으세요. 누구를 위한 것인지, 어떤 화면이나 흐름인지, 무엇을 해야 하는지요. 방향 세 가지를 요청하세요. 중요한 내용이 빠져 있으면 Design이 먼저 물어봐요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ef31fb673e2437fb4dd6ed256a7ba9d
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8209bd4f55d7432c94e05172c5475f17
+        alt: "Design 홈 프롬프트 입력창 확대 화면. 경비 앱 온보딩 흐름에 대한 짧은 브리프가 붙여 넣어져 있고, “Show me three directions”로 끝나요."
+    - title: 마음에 드는 방향 고르기
+      body: "Design이 캔버스에 세 방향을 나란히 놓아요. 각각 스타일이 다른, 실제로 동작하는 화면이에요. **인터랙션**에서 하나씩 써 보고 **방향 선택**에서 하나를 고르면, 에이전트가 나머지를 완성해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F137893c57370435d94967b9d5bc6a82a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fda7cdd9a2f3e42b58f44efec2b950fc9
+        alt: "세 가지 온보딩 방향이 나란히 놓인 캔버스와, 방향 이름마다 버튼이 있는 “Pick a direction”을 보여 주는 에이전트 채팅."
+    - title: 팀과 함께 다듬기
+      body: "**디자인** 탭에서 문구, 간격, 색상을 고치거나, 요소를 선택해 에이전트에게 요청하세요. 팀원이 댓글을 고정하면 **에이전트에게 보내기**를 클릭하고, 에이전트가 그 변경을 반영해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F406b66f9b62e49c09f697f5d08599b5e
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F566ca2f3c44f439aac2c5307c72aa572
+        alt: "초대 단계에 팀원의 댓글이 고정된 선택된 온보딩 화면. Comments 탭에 댓글 스레드가 열려 있고 Send to agent 버튼이 보여요."
+features:
+  heading: 브리프에서 프로토타입까지 필요한 모든 것
+  items:
+    - title: 처음부터 클릭할 수 있어요
+      body: "고른 방향은 인터랙션이 동작하는 HTML이 되고, 데스크톱과 모바일 프레임에 담겨요. **Design 미리보기**는 브라우저 탭에서 열어 줘요."
+    - title: 브리프의 표현 그대로
+      body: "에이전트는 내 용어와 주장을 그대로 써요. 브리프에 중요한 선택이 빠져 있으면 물어보거나 어떤 가정을 했는지 밝혀요."
+    - title: 완성 전에 점검해요
+      body: "에이전트는 디자인이 준비됐다고 알리기 전에, 프로토타입의 접근성과 시각적 품질을 직접 점검해요."
+    - title: 우리 브랜드로 만드는 프로토타입
+      body: "Figma 파일, 웹사이트, GitHub 저장소로 디자인 시스템을 만들면, 새 프로토타입이 우리 색상과 글꼴로 시작해요."
+    - title: 에이전트가 반영하는 피드백
+      body: "댓글은 해당 요소에 고정돼요. 에이전트가 그 지점을 고치고, 변경이 반영됐는지 확인한 뒤 스레드를 해결하거나 결정을 물어요."
+    - title: 코딩 에이전트에게 넘기기
+      body: "HTML이나 파일 ZIP으로 내보내거나, 코딩 에이전트에게 파일과 디자인 토큰을 넘기는 준비된 프롬프트를 복사하세요."
+integrations:
+  heading: 이미 쓰는 도구와 Design 연결하기
+  cards:
+    - title: 우리 브랜드에서 시작하기
+      logos:
+        - name: Figma
+        - name: GitHub
+      body: "Figma 프레임을 편집할 수 있는 화면으로 가져오거나, Figma 파일이나 GitHub 저장소로 디자인 시스템을 만드세요."
+    - title: 코딩 에이전트에게 넘기기
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: "프로토타입의 파일과 디자인 토큰이 담긴 준비된 프롬프트를 복사하거나, 코딩 에이전트가 Design의 MCP 서버로 디자인을 열게 하세요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: Granola
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Design으로 만들 수 있는 다른 것
+  cards:
+    - title: 출시 브리프를 랜딩 페이지 프로토타입으로 만들어 보세요
+      url: https://www.agent-native.com/use-cases/landing-page-prototypes/
+      body: "출시 브리프를 나란히 비교할 수 있는 여러 버전의 랜딩 페이지로 만들어 보세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Design은 무료인가요?
+      a: "네, Agent-Native Design은 무료 오픈 소스예요. 에이전트에는 Builder.io나 내 AI 키를 통한 AI 연결이 필요해요. Design은 알파 버전이라 발전하면서 바뀌는 부분이 있을 수 있어요."
+    - q: PRD나 제품 브리프에서 시작할 수 있나요?
+      a: "네. 브리프나 제품 요구사항 문서(PRD)의 관련 부분을 프롬프트 입력창에 붙여 넣고, 여러 안을 보고 싶다면 방향을 요청하세요. 에이전트는 내 용어와 정확한 주장을 그대로 쓰고, 브리프에 디자인을 바꿀 선택이 빠져 있으면 물어보거나 가정을 밝혀요. [디자인 브리프에 무엇을 넣을지](https://www.agent-native.com/articles/how-to-turn-a-design-brief-into-a-prototype-with-ai/)도 참고하세요."
+    - q: 프로토타입을 클릭해 볼 수 있나요?
+      a: "네. 화면마다 인터랙션이 동작하는 실제 HTML이고, 고른 방향에는 기본으로 데스크톱과 모바일 프레임이 생겨요. **인터랙션** 모드로 캔버스에서 써 보거나, **Design 미리보기**로 새 브라우저 탭에서 화면을 여세요."
+    - q: 우리 디자인 시스템이나 Figma 디자인을 쓸 수 있나요?
+      a: "네. [디자인 시스템](https://www.agent-native.com/docs/template-design-features/)은 Figma 파일, 웹사이트, GitHub 저장소, design.md 파일, 메모로 만들 수 있고, 새 디자인은 그 시스템을 따라요. Figma 프레임을 편집할 수 있는 화면으로 가져올 수도 있고, 정확히 맞추지 못한 부분은 Design이 목록으로 알려 줘요."
+    - q: 프로토타입이 프로덕션 코드인가요?
+      a: "아니요. 프로토타입은 출발점이고, 앱 로직, 연동, 테스트, 배포는 따로 만들어야 해요. HTML이나 파일 ZIP으로 내보내거나, **에이전트 프롬프트 복사**로 코딩 에이전트에게 파일, 디자인 토큰, 준비된 프롬프트를 넘기세요. Claude Code와 Codex는 [Design의 MCP 서버로 디자인을 열](https://www.agent-native.com/docs/template-design-integrations/) 수도 있어요."
+    - q: Design은 챗봇에게 UI를 요청하는 것과 무엇이 다른가요?
+      a: "Design에서는 에이전트가 캔버스에 프로토타입을 만들고, 거기서 클릭해 보고 방향을 비교하고 편집할 수 있어요. 팀의 댓글은 바로 에이전트에게 가요. 챗봇이라면 결과가 대화 안에만 머물러요. 그래서 Design은 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."

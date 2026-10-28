@@ -56,7 +56,13 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { useNavigate, Link, useSearchParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  Link,
+  useNavigationType,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
@@ -206,8 +212,12 @@ function isReadyHomeSuggestions(
 
 export default function Index() {
   const t = useT();
+  const location = useLocation();
+  const navigationType = useNavigationType();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isSaveTemplateGettingStarted =
+    searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [designFilter, setDesignFilter] = useState<DesignFilter>(
@@ -221,12 +231,20 @@ export default function Index() {
   );
   const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
   const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
-    storedHasAccessibleDesigns.status === "available" &&
-      storedHasAccessibleDesigns.value === true
+    isSaveTemplateGettingStarted
       ? "recent"
-      : "templates",
+      : storedHasAccessibleDesigns.status === "available" &&
+          storedHasAccessibleDesigns.value === true
+        ? "recent"
+        : "templates",
   );
   const homeLibraryTabWasSelectedRef = useRef(false);
+  const checklistSearch = searchParams.toString();
+  const previousChecklistLocationRef = useRef({
+    isSaveTemplateGettingStarted,
+    search: checklistSearch,
+    hash: location.hash,
+  });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -245,6 +263,43 @@ export default function Index() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
+
+  useEffect(() => {
+    const previousLocation = previousChecklistLocationRef.current;
+    const checklistQueryReplace =
+      navigationType === "REPLACE" &&
+      previousLocation.isSaveTemplateGettingStarted &&
+      isSaveTemplateGettingStarted &&
+      previousLocation.search !== checklistSearch;
+    previousChecklistLocationRef.current = {
+      isSaveTemplateGettingStarted,
+      search: checklistSearch,
+      hash: location.hash,
+    };
+
+    if (isSaveTemplateGettingStarted && !checklistQueryReplace) {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection("recent");
+    }
+
+    const targetId = location.hash.slice(1);
+    if (
+      !targetId ||
+      (checklistQueryReplace && previousLocation.hash === location.hash)
+    ) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    isSaveTemplateGettingStarted,
+    checklistSearch,
+    location.hash,
+    location.key,
+    navigationType,
+  ]);
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
@@ -316,18 +371,20 @@ export default function Index() {
 
     writeHomeLibraryHasRecents(hasAccessibleDesigns);
     if (!hasAccessibleDesigns) {
-      setHomeSection("templates");
+      if (isSaveTemplateGettingStarted || hasSearchResultsSection) return;
       homeLibraryTabWasSelectedRef.current = false;
+      setHomeSection("templates");
       return;
     }
     if (homeLibraryTabWasSelectedRef.current) return;
 
     setHomeSection("recent");
-    homeLibraryTabWasSelectedRef.current = true;
   }, [
     accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
     hasAccessibleDesigns,
+    hasSearchResultsSection,
+    isSaveTemplateGettingStarted,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -634,6 +691,7 @@ export default function Index() {
       const next = new URLSearchParams(searchParams);
       if (templateId) next.set("templateId", templateId);
       else next.delete("templateId");
+      if (next.toString() === searchParams.toString()) return;
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams],
@@ -1387,6 +1445,7 @@ export default function Index() {
         }
         composer={
           <div
+            id="design-home-composer"
             data-design-home-composer
             className={
               agentEngineMissing

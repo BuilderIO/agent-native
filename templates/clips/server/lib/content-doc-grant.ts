@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { resolveAccess, type AccessContext } from "@agent-native/core/sharing";
 
+import { isActiveUploadBinding } from "./content-uploads.js";
+
 /**
  * The Content document binding a request was vouched in through, and the
  * reader Content vouched for (null for a signed-out reader of a public doc).
@@ -35,9 +37,7 @@ export async function contentDocReaderRole(
   ctx: AccessContext,
 ): Promise<"viewer" | undefined> {
   const grant = grants.getStore();
-  if (!grant || grant.origin !== "upload" || grant.state !== "active") {
-    return undefined;
-  }
+  if (!grant || !isActiveUploadBinding(grant)) return undefined;
   if (resource.id !== grant.recordingId) return undefined;
   const userEmail = ctx.userEmail?.trim().toLowerCase() || null;
   if (userEmail !== grant.viewerEmail) return undefined;

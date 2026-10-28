@@ -7288,6 +7288,76 @@ describe("server/auth", () => {
       expect(isSessionResolutionUnavailable(event)).toBe(true);
     });
 
+    it("answers an action 503 and reports the real cause once when no session could be resolved", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const sessionLookupFailure = new Error("session database unavailable");
+      const captureError = vi.fn(() => "capture-1");
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      vi.doMock("./capture-error.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        captureError,
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: vi.fn(async () => {
+          throw sessionLookupFailure;
+        }),
+        getBetterAuthSync: () => undefined,
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async (query: any) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            if (sql?.includes("SELECT email, created_at FROM sessions")) {
+              throw new Error("legacy sessions unavailable");
+            }
+            return { rows: [] };
+          }),
+        }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await expect(autoMountAuth(app)).resolves.toBe(true);
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/session",
+        headers: { cookie: "an_session=legacy-session-token" },
+      });
+      await sessionHandler(event);
+
+      // The same request, resolved for an action: a typed retryable 503, never
+      // the 401 a signed-out visitor gets.
+      const { resolveAgentRunOwnerContext } =
+        await import("./agent-run-context.js");
+      await expect(resolveAgentRunOwnerContext(event)).rejects.toMatchObject({
+        statusCode: 503,
+        errorCode: "session_unavailable",
+      });
+
+      expect(captureError).toHaveBeenCalledTimes(1);
+      expect(captureError).toHaveBeenCalledWith(
+        sessionLookupFailure,
+        expect.objectContaining({
+          route: "auth.session-resolution",
+          tags: { auth: "session-resolution", source: "better-auth" },
+        }),
+      );
+      consoleError.mockRestore();
+    });
+
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -9654,7 +9724,7 @@ describe("server/auth", () => {
         await import("./ui-action-capability.js");
       const mounted = createMockApp();
       mountUiActionCapabilityRoute(mounted);
-      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", email: cookieOwner })}`;
+      const cookie = `${BUILDER_IDENTITY_COOKIE}=${encodeIdentityCookie({ uid: "builder-user", projectId: "builder-3b0a2", email: cookieOwner })}`;
       const event = createMockEvent({
         path: "/_agent-native/ui-capability",
         headers: { cookie, "sec-fetch-site": "same-origin" },

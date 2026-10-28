@@ -264,17 +264,21 @@ describe("a2aTaskMachine", () => {
   });
 
   it.each(TASK_EVENTS)(
-    "$event: source states and SQL list match the old SQL",
+    "$event: source states are bound in the SQL list",
     ({ event, from, sqlList }) => {
       expect(a2aTaskMachine.fromStates(event)).toEqual(from);
-      expect(taskIn(event)).toBe(sqlList);
+      expect(a2aTaskMachine.sqlStateList(event)).toBe(sqlList);
+      const fragment = taskIn(event);
+      expect(fragment.sql).toBe(`(${from.map(() => "?").join(", ")})`);
+      expect(fragment.args).toEqual(from);
     },
   );
 
   it.each(TASK_EVENTS)(
-    "$event: target matches the old SET clause",
+    "$event: target is bound for the SET clause",
     ({ event, from, to, sqlTo }) => {
-      expect(taskTarget(event)).toBe(sqlTo);
+      expect(taskTarget(event)).toMatchObject({ sql: "?", args: [to] });
+      expect(sqlTo).toBe(`'${to}'`);
       for (const state of from) {
         expect(a2aTaskMachine.transition(state, event)).toBe(to);
       }
@@ -295,11 +299,14 @@ describe("a2aTaskMachine", () => {
     }
   });
 
-  it("renders single-state predicates as quoted literals", () => {
-    expect(taskSql("processing")).toBe("'processing'");
-    expect(taskSql("working")).toBe("'working'");
-    expect(taskSql("failed")).toBe("'failed'");
-    expect(taskSql("canceled")).toBe("'canceled'");
+  it("binds single-state predicates", () => {
+    expect(taskSql("processing")).toMatchObject({
+      sql: "?",
+      args: ["processing"],
+    });
+    expect(taskSql("working")).toMatchObject({ sql: "?", args: ["working"] });
+    expect(taskSql("failed")).toMatchObject({ sql: "?", args: ["failed"] });
+    expect(taskSql("canceled")).toMatchObject({ sql: "?", args: ["canceled"] });
   });
 
   it("throws on a stored status outside TaskState", () => {
@@ -327,20 +334,30 @@ describe("a2aApprovalMachine", () => {
   });
 
   it.each(APPROVAL_EVENTS)(
-    "$event: source states and target match the old SQL",
+    "$event: source states and target are bound in SQL",
     ({ event, from, to, sqlTo }) => {
       expect(a2aApprovalMachine.fromStates(event)).toEqual(from);
-      expect(approvalTarget(event)).toBe(sqlTo);
+      expect(approvalTarget(event)).toMatchObject({ sql: "?", args: [to] });
+      expect(sqlTo).toBe(`'${to}'`);
       for (const state of from) {
         expect(a2aApprovalMachine.transition(state, event)).toBe(to);
       }
     },
   );
 
-  it("renders the claim predicate as the old SQL did", () => {
-    expect(approvalSql("pending")).toBe("'pending'");
-    expect(approvalSql("processing")).toBe("'processing'");
-    expect(approvalIn("reclaim")).toBe("'processing'");
+  it("binds approval state predicates", () => {
+    expect(approvalSql("pending")).toMatchObject({
+      sql: "?",
+      args: ["pending"],
+    });
+    expect(approvalSql("processing")).toMatchObject({
+      sql: "?",
+      args: ["processing"],
+    });
+    expect(approvalIn("reclaim")).toMatchObject({
+      sql: "(?)",
+      args: ["processing"],
+    });
   });
 
   it("rejects a settled approval being settled again", () => {

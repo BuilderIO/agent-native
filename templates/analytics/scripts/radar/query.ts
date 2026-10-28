@@ -65,6 +65,7 @@ function isRadarJsonbParameter(value: unknown): value is RadarJsonbParameter {
 export interface RadarQueryResult {
   rows: Record<string, unknown>[];
   bytesProcessed: number | null;
+  actualBytesProcessed: number | null;
   cacheHit: boolean;
 }
 
@@ -72,6 +73,7 @@ export class RadarQueryError extends Error {
   constructor(
     message: string,
     readonly exitCode: 1 | 2,
+    readonly httpStatus?: number,
   ) {
     super(message);
     this.name = "RadarQueryError";
@@ -128,11 +130,19 @@ interface BqPayload extends Record<string, unknown> {
 }
 
 let loadedEnv: EnvConfig | undefined;
+let runtimeEnvironment:
+  | { selectedFile: string; contents: string; databaseUrl: string }
+  | undefined;
 let loadedOrganizationId: string | undefined;
 let loadedFirstPartyBackend:
   | { sink: "postgres" | "dual" | "bigquery"; table: string | null }
   | undefined;
-let pgClient: ReturnType<typeof postgres> | undefined;
+let pgClient:
+  | {
+      client: ReturnType<typeof postgres>;
+      cacheNamespace: string;
+    }
+  | undefined;
 let bqAuth:
   | {
       token: string;
@@ -174,29 +184,83 @@ export function isLocalDatabaseUrl(value: string): boolean {
   return ["localhost", "127.0.0.1", "::1"].includes(hostname);
 }
 
+const SELECTED_ENV_CAMPAIGN_HMAC_KEYS = new Set([
+  "ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY",
+  "ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION",
+]);
+
+export function radarEnvironmentFiles(
+  templateDir: string,
+  override?: string,
+): string[] {
+  return override
+    ? [override]
+    : [path.join(templateDir, ".env"), path.join(templateDir, ".env.local")];
+}
+
+export function configureRadarRuntimeEnvironment(input: {
+  selectedFile: string;
+  contents: string;
+  databaseUrl: string;
+}): void {
+  if (
+    loadedEnv ||
+    pgClient ||
+    !path.isAbsolute(input.selectedFile) ||
+    !input.databaseUrl ||
+    isLocalDatabaseUrl(input.databaseUrl)
+  ) {
+    throw new RadarQueryError(
+      "The live radar environment must be selected before queries start and use a remote database URL.",
+      2,
+    );
+  }
+  runtimeEnvironment = input;
+}
+
+export function radarProcessEnvironment(
+  processValues: Record<string, string | undefined>,
+  selectedFile: boolean,
+): Record<string, string> {
+  const hasCampaignHmacPair = Boolean(
+    processValues.ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY &&
+    processValues.ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION,
+  );
+  return Object.fromEntries(
+    Object.entries(processValues).filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined &&
+        (!selectedFile ||
+          (SELECTED_ENV_CAMPAIGN_HMAC_KEYS.has(entry[0]) &&
+            hasCampaignHmacPair)),
+    ),
+  );
+}
+
 function loadEnv(): EnvConfig {
   if (loadedEnv) return loadedEnv;
 
   const templateDir = path.join(REPO_ROOT, "templates/analytics");
-  const override = process.env.ANALYTICS_ENV;
-  const files = override
-    ? [
-        override,
-        ...(override.endsWith(".env")
-          ? [override.replace(/\.env$/, ".env.local")]
-          : []),
-      ]
-    : [path.join(templateDir, ".env"), path.join(templateDir, ".env.local")];
+  const override =
+    runtimeEnvironment?.selectedFile ?? process.env.ANALYTICS_ENV;
+  const files = radarEnvironmentFiles(templateDir, override);
   const values: Record<string, string | undefined> = {};
   const encryptionMaterials = new Set<string>();
 
   for (const file of files) {
     if (!fs.existsSync(file)) continue;
     let contents: string;
-    try {
-      contents = fs.readFileSync(file, "utf8");
-    } catch {
-      throw new RadarQueryError("Analytics environment file is unreadable.", 2);
+    if (runtimeEnvironment?.selectedFile === file) {
+      contents = runtimeEnvironment.contents;
+    } else {
+      try {
+        contents = fs.readFileSync(file, "utf8");
+      } catch {
+        throw new RadarQueryError(
+          "Analytics environment file is unreadable.",
+          2,
+        );
+      }
     }
 
     for (const [key, value] of Object.entries(dotenv.parse(contents))) {
@@ -220,7 +284,9 @@ function loadEnv(): EnvConfig {
     }
   }
 
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(
+    radarProcessEnvironment(process.env, Boolean(override)),
+  )) {
     if (value === undefined) continue;
     if (
       key === "DATABASE_URL" &&
@@ -255,9 +321,15 @@ function isEncryptionKey(key: string): boolean {
   );
 }
 
-function getPostgres(): ReturnType<typeof postgres> {
+export function radarDatabaseCacheNamespace(databaseUrl: string): string {
+  return crypto.createHash("sha256").update(databaseUrl).digest("hex");
+}
+
+function getPostgres(): NonNullable<typeof pgClient> {
   if (pgClient) return pgClient;
-  const configured = process.env.ANALYTICS_RADAR_DATABASE_URL;
+  const configured = runtimeEnvironment
+    ? runtimeEnvironment.databaseUrl
+    : process.env.ANALYTICS_RADAR_DATABASE_URL;
   const databaseUrl = configured ?? loadEnv().values.DATABASE_URL;
   if (!databaseUrl) {
     throw new RadarQueryError(
@@ -271,12 +343,15 @@ function getPostgres(): ReturnType<typeof postgres> {
       2,
     );
   }
-  pgClient = postgres(databaseUrl, {
-    max: 1,
-    idle_timeout: 5,
-    connect_timeout: 20,
-    prepare: false,
-  });
+  pgClient = {
+    client: postgres(databaseUrl, {
+      max: 1,
+      idle_timeout: 5,
+      connect_timeout: 20,
+      prepare: false,
+    }),
+    cacheNamespace: radarDatabaseCacheNamespace(databaseUrl),
+  };
   return pgClient;
 }
 
@@ -650,6 +725,7 @@ function readCache(key: string, ttlMs: number): RadarQueryResult | undefined {
     return {
       rows: cached.rows,
       bytesProcessed: cached.bytesProcessed,
+      actualBytesProcessed: null,
       cacheHit: true,
     };
   } catch (error) {
@@ -715,8 +791,8 @@ export async function runPostgresQuery(
   options: { fresh?: boolean; cache?: boolean; cacheTtlMs?: number } = {},
 ): Promise<RadarQueryResult> {
   requireReadOnly(query);
-  const db = getPostgres();
-  const key = queryKey("postgres", query, [...params]);
+  const { client: db, cacheNamespace } = getPostgres();
+  const key = queryKey(`postgres:${cacheNamespace}`, query, [...params]);
   const boundParams = bindRadarPostgresParams(params, (value) =>
     db.json(value),
   );
@@ -747,6 +823,7 @@ export async function runPostgresQuery(
     const result: RadarQueryResult = {
       rows: rows as Record<string, unknown>[],
       bytesProcessed: null,
+      actualBytesProcessed: null,
       cacheHit: false,
     };
     if (cacheEnabled) writeCache(key, result);
@@ -825,6 +902,9 @@ export interface RadarBigQueryScanBudget {
   maxGb: number;
   maxBytes: number;
   reservedBytes: number;
+  actualBytesProcessed: number;
+  actualQueryCount: number;
+  unaccountedQueryCount: number;
   exceeded: boolean;
 }
 
@@ -840,6 +920,9 @@ export function setRadarBigQueryScanBudget(maxGb: number | undefined): void {
     maxGb: validatedMaxGb,
     maxBytes: validatedMaxGb * 1_000_000_000,
     reservedBytes: 0,
+    actualBytesProcessed: 0,
+    actualQueryCount: 0,
+    unaccountedQueryCount: 0,
     exceeded: false,
   };
 }
@@ -866,6 +949,47 @@ export function recordRadarBigQueryDryRunBytes(bytes: number): void {
     );
   }
   budget.reservedBytes = next;
+}
+
+function recordRadarBigQueryActualBytes(bytes: number): void {
+  const budget = activeBigQueryScanBudget;
+  if (!budget) return;
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new RadarQueryError(
+      "BigQuery returned invalid actual bytes processed.",
+      1,
+    );
+  }
+  const next = budget.actualBytesProcessed + bytes;
+  if (!Number.isSafeInteger(next)) {
+    throw new RadarQueryError(
+      "BigQuery actual bytes processed exceeded the safe integer range.",
+      1,
+    );
+  }
+  budget.actualBytesProcessed = next;
+  budget.actualQueryCount += 1;
+}
+
+export function recordRadarBigQueryJobUsage(
+  actualBytesProcessed: number | null,
+  complete: boolean,
+): void {
+  const budget = activeBigQueryScanBudget;
+  if (!budget) return;
+  if (actualBytesProcessed === null) {
+    budget.unaccountedQueryCount += 1;
+    return;
+  }
+  recordRadarBigQueryActualBytes(actualBytesProcessed);
+  if (!complete) budget.unaccountedQueryCount += 1;
+}
+
+export function parseActualBigQueryBytes(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !/^\d+$/.test(value)) return null;
+  const bytes = Number(value);
+  return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
 }
 
 function secretHash(value: string): Buffer {
@@ -923,6 +1047,36 @@ export async function resolveRadarOrganizationId(): Promise<string> {
   }
   loadedOrganizationId = rows[0].id;
   return loadedOrganizationId;
+}
+
+export interface RadarCampaignHmacConfig {
+  key: string;
+  functionName: string;
+}
+
+export function resolveRadarCampaignHmacConfig(): RadarCampaignHmacConfig {
+  const values = loadEnv().values;
+  const key = values.ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY;
+  const functionName = values.ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION;
+  if (!key || !functionName) {
+    throw new RadarQueryError(
+      "Secure BigQuery campaign matching requires ANALYTICS_RADAR_CAMPAIGN_HMAC_KEY and ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION.",
+      1,
+    );
+  }
+  const functionParts = functionName.replace(/^`|`$/g, "").split(".");
+  if (
+    functionParts.length !== 3 ||
+    !/^[A-Za-z0-9_-]+$/.test(functionParts[0] ?? "") ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(functionParts[1] ?? "") ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(functionParts[2] ?? "")
+  ) {
+    throw new RadarQueryError(
+      "ANALYTICS_RADAR_CAMPAIGN_HMAC_FUNCTION must be a project.dataset.function identifier.",
+      2,
+    );
+  }
+  return { key, functionName: functionParts.join(".") };
 }
 
 export async function resolveRadarFirstPartyBackend(): Promise<{
@@ -1225,6 +1379,7 @@ export async function bqRequest(
   token: string,
   init?: RequestInit,
   maxResponseBytes = MAX_BQ_RESULT_BYTES,
+  allowJobErrors = false,
 ): Promise<BqPayload> {
   let response: Response;
   try {
@@ -1243,6 +1398,7 @@ export async function bqRequest(
     throw new RadarQueryError(
       `BigQuery request failed (HTTP ${response.status}).`,
       1,
+      response.status,
     );
   }
   const body = response.body;
@@ -1295,7 +1451,7 @@ export async function bqRequest(
   if (payload.error) {
     throw new RadarQueryError("BigQuery rejected the read-only query.", 1);
   }
-  if (payload.status?.errorResult) {
+  if (payload.status?.errorResult && !allowJobErrors) {
     throw new RadarQueryError("BigQuery query job completed with an error.", 1);
   }
   return payload;
@@ -1437,13 +1593,7 @@ export async function runBigQuery(
   const key = queryKey("bigquery", query, [...params]);
   const baseUrl = `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(project)}`;
   const postUrl = `${baseUrl}/queries`;
-  const payload = {
-    query,
-    useLegacySql: false,
-    timeoutMs: 10_000,
-    parameterMode: params.length ? "NAMED" : undefined,
-    queryParameters: params.length ? encodeParameters(params) : undefined,
-  };
+  const payload = buildBigQueryQueryPayload(query, params, options);
   const dryRun = await bqRequest(postUrl, token, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1479,72 +1629,151 @@ export async function runBigQuery(
   recordRadarBigQueryDryRunBytes(bytesProcessed);
 
   const startedAt = Date.now();
-  const first = await bqRequest(postUrl, token, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      ...payload,
-      maximumBytesBilled: Math.floor(maxBytes),
-      maxResults: MAX_BQ_PAGE_SIZE,
-    }),
-  });
-  const jobId = first.jobReference?.jobId;
-  if (!jobId) {
-    throw new RadarQueryError("BigQuery did not return a query job id.", 1);
-  }
-
-  const fields = first.schema?.fields ?? [];
-  const accumulator: BigQueryRowsAccumulator = { rows: [], bytes: 0 };
-  appendBigQueryPayloadRows(accumulator, fields, first.rows ?? []);
-  const rows = accumulator.rows;
-  let pageToken = first.pageToken as string | undefined;
-  let jobComplete = first.jobComplete === true;
-  let location = first.jobReference?.location as string | undefined;
-
-  while (!jobComplete || pageToken) {
-    if (Date.now() - startedAt > 180_000) {
+  let submissionRejectedByHttp: true | undefined;
+  let actualBytesProcessed: number | null = null;
+  let jobComplete = false;
+  try {
+    let first: BqPayload;
+    try {
+      first = await bqRequest(
+        postUrl,
+        token,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            maximumBytesBilled: Math.floor(maxBytes),
+            maxResults: MAX_BQ_PAGE_SIZE,
+          }),
+        },
+        MAX_BQ_RESULT_BYTES,
+        true,
+      );
+    } catch (error) {
+      if (
+        error instanceof RadarQueryError &&
+        error.httpStatus !== undefined &&
+        error.httpStatus >= 400 &&
+        error.httpStatus < 500
+      ) {
+        submissionRejectedByHttp = true;
+      }
+      throw error;
+    }
+    const jobId = first.jobReference?.jobId;
+    actualBytesProcessed = parseActualBigQueryBytes(first.totalBytesProcessed);
+    jobComplete =
+      first.jobComplete === true || Boolean(first.status?.errorResult);
+    if (first.status?.errorResult) {
       throw new RadarQueryError(
-        "BigQuery query did not finish within 180 seconds.",
+        "BigQuery query job completed with an error.",
         1,
       );
     }
-    if (rows.length >= MAX_BQ_ROWS) {
+    if (!jobId) {
+      throw new RadarQueryError("BigQuery did not return a query job id.", 1);
+    }
+    const fields = first.schema?.fields ?? [];
+    const accumulator: BigQueryRowsAccumulator = { rows: [], bytes: 0 };
+    appendBigQueryPayloadRows(accumulator, fields, first.rows ?? []);
+    const rows = accumulator.rows;
+    let pageToken = first.pageToken as string | undefined;
+    let location = first.jobReference?.location as string | undefined;
+
+    while (!jobComplete || pageToken) {
+      if (Date.now() - startedAt > 180_000) {
+        throw new RadarQueryError(
+          "BigQuery query did not finish within 180 seconds.",
+          1,
+        );
+      }
+      if (rows.length >= MAX_BQ_ROWS) {
+        throw new RadarQueryError(
+          `BigQuery result exceeded the ${MAX_BQ_ROWS}-row safety cap; aggregate in SQL.`,
+          1,
+        );
+      }
+      const queryParams = new URLSearchParams({
+        maxResults: String(
+          Math.min(MAX_BQ_PAGE_SIZE, MAX_BQ_ROWS - rows.length),
+        ),
+        timeoutMs: "10000",
+      });
+      if (pageToken) queryParams.set("pageToken", pageToken);
+      if (location) queryParams.set("location", location);
+      const page = await bqRequest(
+        `${baseUrl}/queries/${encodeURIComponent(jobId)}?${queryParams.toString()}`,
+        token,
+        undefined,
+        MAX_BQ_RESULT_BYTES,
+        true,
+      );
+      const pageBytesProcessed = parseActualBigQueryBytes(
+        page.totalBytesProcessed,
+      );
+      if (pageBytesProcessed !== null) {
+        actualBytesProcessed = Math.max(
+          actualBytesProcessed ?? 0,
+          pageBytesProcessed,
+        );
+      }
+      pageToken = page.pageToken as string | undefined;
+      jobComplete =
+        page.jobComplete === true || Boolean(page.status?.errorResult);
+      location = page.jobReference?.location ?? location;
+      if (page.status?.errorResult) {
+        throw new RadarQueryError(
+          "BigQuery query job completed with an error.",
+          1,
+        );
+      }
+      if (page.schema?.fields) {
+        fields.splice(0, fields.length, ...page.schema.fields);
+      }
+      appendBigQueryPayloadRows(accumulator, fields, page.rows ?? []);
+    }
+
+    if (actualBytesProcessed === null) {
       throw new RadarQueryError(
-        `BigQuery result exceeded the ${MAX_BQ_ROWS}-row safety cap; aggregate in SQL.`,
+        "BigQuery query completed without actual bytes processed.",
         1,
       );
     }
-    const queryParams = new URLSearchParams({
-      maxResults: String(Math.min(MAX_BQ_PAGE_SIZE, MAX_BQ_ROWS - rows.length)),
-      timeoutMs: "10000",
-    });
-    if (pageToken) queryParams.set("pageToken", pageToken);
-    if (location) queryParams.set("location", location);
-    const page = await bqRequest(
-      `${baseUrl}/queries/${encodeURIComponent(jobId)}?${queryParams.toString()}`,
-      token,
-    );
-    if (page.schema?.fields) {
-      fields.splice(0, fields.length, ...page.schema.fields);
-    }
-    appendBigQueryPayloadRows(accumulator, fields, page.rows ?? []);
-    pageToken = page.pageToken as string | undefined;
-    jobComplete = page.jobComplete === true;
-    location = page.jobReference?.location ?? location;
-  }
 
-  const result: RadarQueryResult = {
-    rows,
-    bytesProcessed,
-    cacheHit: false,
+    const result: RadarQueryResult = {
+      rows,
+      bytesProcessed,
+      actualBytesProcessed,
+      cacheHit: false,
+    };
+    if (cacheEnabled) writeCache(key, result);
+    return result;
+  } finally {
+    if (submissionRejectedByHttp !== true) {
+      recordRadarBigQueryJobUsage(actualBytesProcessed, jobComplete);
+    }
+  }
+}
+
+export function buildBigQueryQueryPayload(
+  query: string,
+  params: readonly BqParameter[],
+  options: { fresh?: boolean } = {},
+): Record<string, unknown> {
+  return {
+    query,
+    useLegacySql: false,
+    useQueryCache: options.fresh !== true,
+    timeoutMs: 10_000,
+    parameterMode: params.length ? "NAMED" : undefined,
+    queryParameters: params.length ? encodeParameters(params) : undefined,
   };
-  if (cacheEnabled) writeCache(key, result);
-  return result;
 }
 
 export async function closeRadarQueries(): Promise<void> {
   if (!pgClient) return;
-  const client = pgClient;
+  const { client } = pgClient;
   pgClient = undefined;
   await client.end({ timeout: 2 });
 }

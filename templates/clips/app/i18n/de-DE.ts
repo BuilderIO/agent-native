@@ -231,6 +231,7 @@ const messages = {
     spaces: "Bereiche",
     meetings: "Treffen",
     dictate: "Diktieren",
+    fromContent: "Aus Content",
     archive: "Archiv",
     trash: "Papierkorb",
     agent: "Agent",
@@ -287,6 +288,10 @@ const messages = {
     archive: {
       title: "Keine archivierten Aufnahmen",
       body: "Archivierte Clips bleiben hier, bis du sie zurückholen möchtest.",
+    },
+    fromContent: {
+      title: "Noch keine Uploads aus Content",
+      body: "Videos, die du auf eine Content-Seite hochlädst, werden hier als Clips gespeichert.",
     },
     trash: {
       title: "Der Papierkorb ist leer",
@@ -602,7 +607,7 @@ const messages = {
     live: "Übersetzt: Live",
     generatingNotesInline: "Zusammenfassung wird erstellt…",
     regenerateNotes: "Zusammenfassung neu generieren",
-    share: "Aktie",
+    share: "Teilen",
     meetingOptions: "Besprechungsmöglichkeiten",
     removeMeeting: "Besprechung entfernen",
     removeThisMeeting: "Diese Besprechung entfernen?",
@@ -2361,6 +2366,8 @@ const messages = {
     goHome: "Zur Startseite",
     testMic: "Mikrofon testen",
     archivePageTitle: "Archiv · Clips",
+    fromContentPageTitle: "Aus Content · Clips",
+    openContentPage: "Seite öffnen",
     insightsPageTitle: "Einblicke · Clips",
     folderPageTitle: "Ordner · Clips",
     spacePageTitle: "Bereich · Clips",
