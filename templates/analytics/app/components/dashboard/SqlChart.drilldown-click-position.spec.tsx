@@ -97,14 +97,17 @@ describe("SqlChart drill-down click position", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderChart(chartType: "line" | "area" | "combo") {
+  async function renderChart(
+    chartType: "line" | "area" | "combo",
+    rows: Record<string, unknown>[] = ROWS,
+  ) {
     const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
     await act(async () => {
       root.render(
         <SqlChart
           panel={panel(chartType)}
           onDatumClick={onDatumClick}
-          resultOverride={{ rows: ROWS }}
+          resultOverride={{ rows }}
         />,
       );
     });
@@ -162,6 +165,45 @@ describe("SqlChart drill-down click position", () => {
     expect(onDatumClick).toHaveBeenCalledTimes(1);
     expect(onDatumClick).toHaveBeenCalledWith({
       x: "2026-10-19",
+      series: undefined,
+      value: undefined,
+    });
+  });
+
+  it("opens the row drawn under the click when a null x shifts the axis", async () => {
+    // Recharts leaves null x values off the axis and draws row i at the i-th
+    // tick, so the point drawn at the last tick is the 2026-09-28 row.
+    const onDatumClick = await renderChart("line", [
+      { day: null, people: 90 },
+      { day: "2026-09-28", people: 100 },
+      { day: "2026-10-05", people: 110 },
+    ]);
+    const plot = plotArea();
+
+    await clickChartAt(plot.left + plot.width - 4, plot.top + 10);
+
+    expect(onDatumClick).toHaveBeenCalledWith({
+      x: "2026-09-28",
+      series: undefined,
+      value: undefined,
+    });
+  });
+
+  it("opens the clicked row when x values repeat", async () => {
+    const onDatumClick = await renderChart(
+      "line",
+      ["Mon", "Tue", "Wed", "Mon"].map((day, index) => ({
+        day,
+        people: 100 + index,
+      })),
+    );
+    const plot = plotArea();
+    const step = plot.width / 3;
+
+    await clickChartAt(plot.left + step * 2 + step / 4, plot.top + 10);
+
+    expect(onDatumClick).toHaveBeenCalledWith({
+      x: "Wed",
       series: undefined,
       value: undefined,
     });

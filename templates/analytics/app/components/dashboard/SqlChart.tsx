@@ -66,6 +66,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -94,6 +95,7 @@ import {
   ResponsiveContainer,
   Tooltip,
   usePlotArea,
+  useXAxisDomain,
   useXAxisScale,
   XAxis,
   YAxis,
@@ -1626,27 +1628,25 @@ function rowDatum(
 type ChartRowLocator = (pointer: RelativePointer) => number | null;
 
 /**
- * The row whose x sits nearest the pointer, or null when the pointer is
+ * The index of the row plotted nearest the pointer, or null when the pointer is
  * outside the plot.
  */
 function ChartClickLocator({
-  rows,
-  xKey,
   locatorRef,
 }: {
-  rows: Record<string, unknown>[];
-  xKey: string;
   locatorRef: { current: ChartRowLocator | null };
 }) {
   const scale = useXAxisScale();
+  const domain = useXAxisDomain();
   const plot = usePlotArea();
-  useEffect(() => {
-    if (!scale || !plot) return;
-    // Repeated x values make Recharts place rows by index instead of value.
-    const byIndex =
-      new Set(rows.map((row) => String(row[xKey]))).size < rows.length;
-    const positions = rows.map((row, index) =>
-      scale(byIndex ? index : row[xKey], { position: "middle" }),
+  // Installed before paint, so a click never meets the previous data's locator.
+  useLayoutEffect(() => {
+    if (!scale || !domain || !plot) return;
+    // Recharts plots row i at the i-th domain value, not at the row's own x:
+    // null x values drop out of the domain, and repeated ones turn it into
+    // row indexes.
+    const positions = domain.map((value) =>
+      scale(value, { position: "middle" }),
     );
     locatorRef.current = ({ relativeX, relativeY }) => {
       const insidePlot =
@@ -1670,7 +1670,7 @@ function ChartClickLocator({
     return () => {
       locatorRef.current = null;
     };
-  }, [rows, xKey, scale, plot, locatorRef]);
+  }, [scale, domain, plot, locatorRef]);
   return null;
 }
 
@@ -1699,9 +1699,7 @@ function useChartClick(
         if (datum) onDatumClick(datum);
       },
     },
-    locator: (
-      <ChartClickLocator rows={rows} xKey={xKey} locatorRef={locatorRef} />
-    ),
+    locator: <ChartClickLocator locatorRef={locatorRef} />,
   };
 }
 
