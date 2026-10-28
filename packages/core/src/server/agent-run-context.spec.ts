@@ -4,6 +4,7 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const hasOrgScopeResolutionUnavailableMock = vi.hoisted(() => vi.fn());
+const getOrgScopeResolutionErrorMock = vi.hoisted(() => vi.fn());
 const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
 const isLoopbackRequestMock = vi.hoisted(() => vi.fn());
 const isDirectLoopbackRequestMock = vi.hoisted(() => vi.fn());
@@ -26,6 +27,7 @@ vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
   resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
   hasOrgScopeResolutionUnavailable: hasOrgScopeResolutionUnavailableMock,
+  getOrgScopeResolutionError: getOrgScopeResolutionErrorMock,
 }));
 
 vi.mock("../agent/run-store.js", () => ({
@@ -55,6 +57,10 @@ import {
   getRequestUserEmail,
   getRequestUserName,
 } from "./request-context.js";
+import {
+  SessionResolutionLookupError,
+  SessionResolutionUnavailableError,
+} from "./session-resolution-errors.js";
 import { markSessionResolutionUnavailable } from "./session-resolution-unavailable.js";
 
 function makeEvent(
@@ -74,6 +80,7 @@ describe("server/agent-run-context", () => {
     getOrgContextMock.mockReset();
     resolveOrgScopeForEmailMock.mockReset();
     hasOrgScopeResolutionUnavailableMock.mockReset();
+    getOrgScopeResolutionErrorMock.mockReset();
     getTurnInitiatorByRunMock.mockReset();
     isLoopbackRequestMock.mockReset();
     isDirectLoopbackRequestMock.mockReset();
@@ -249,18 +256,24 @@ describe("server/agent-run-context", () => {
     ).rejects.toBe(refusal);
   });
 
-  it("keeps organization scope unknown when an organization lookup fails", async () => {
-    getSessionMock.mockRejectedValue(new Error("session unavailable"));
-    getOrgContextMock.mockRejectedValue(new Error("org store unavailable"));
+  // oracle-change: unavailable scope must reject before running work, not return an ambiguous orgless context.
+  it("refuses to run when organization lookup failures leave scope unresolved", async () => {
+    const cause = new Error("fake session lookup failure");
+    getSessionMock.mockRejectedValue(cause);
+    getOrgContextMock.mockRejectedValue(new Error("fake org lookup failure"));
     resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
+    const work = vi.fn();
 
-    const requestContext = await resolveAgentRunRequestContext({
-      event: makeEvent(),
-      ownerContext: { owner: "alice@example.com", anonymous: false },
-    });
-
-    expect(requestContext.orgId).toBeUndefined();
-    expect(requestContext.orgScope).toBeUndefined();
+    await expect(
+      runWithAgentRunContext(
+        {
+          event: makeEvent(),
+          ownerContext: { owner: "alice@example.com", anonymous: false },
+        },
+        work,
+      ),
+    ).rejects.toMatchObject({ statusCode: 500, cause });
+    expect(work).not.toHaveBeenCalled();
   });
 
   it("uses deployment engine defaults for an explicitly configured anonymous owner", async () => {
@@ -279,9 +292,68 @@ describe("server/agent-run-context", () => {
     expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
-  it("keeps secondary route scope unknown when membership resolution fails", async () => {
-    getSessionMock.mockRejectedValue(new Error("session unavailable"));
-    getOrgContextMock.mockRejectedValue(new Error("org store unavailable"));
+  it.each(["session", "context", "email", "unknown"])(
+    "rejects %s lookup failure instead of falling back to Personal scope",
+    async (source) => {
+      const cause = Object.assign(new Error("fake membership timeout"), {
+        code: "57014",
+      });
+      if (source === "session") getSessionMock.mockRejectedValue(cause);
+      if (source === "context") getOrgContextMock.mockRejectedValue(cause);
+      if (source === "email")
+        resolveOrgScopeForEmailMock.mockRejectedValue(cause);
+      if (source === "unknown") {
+        resolveOrgScopeForEmailMock.mockResolvedValue({
+          status: "unknown",
+          cause,
+        });
+      }
+      const work = vi.fn();
+
+      await expect(
+        runWithAgentRunContext(
+          {
+            event: makeEvent(),
+            ownerContext: { owner: "alice@example.com", anonymous: false },
+          },
+          work,
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 503,
+        headers: { "Retry-After": "5" },
+        cause,
+      });
+      expect(work).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, "org-stale"])(
+    "preserves a cached permanent scope failure with org %s",
+    async (orgId) => {
+      const failure = new SessionResolutionLookupError(
+        Object.assign(new Error("fake membership denial"), { code: "42501" }),
+      );
+      getOrgContextMock.mockResolvedValue({
+        email: "alice@example.com",
+        orgId,
+      });
+      hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
+      getOrgScopeResolutionErrorMock.mockReturnValue(failure);
+
+      await expect(
+        resolveAgentRunOrgScope({
+          event: makeEvent(),
+          ownerContext: { owner: "alice@example.com", anonymous: false },
+        }),
+      ).rejects.toBe(failure);
+    },
+  );
+
+  it("retains typed failure identity when a later membership lookup cannot recover", async () => {
+    const failure = new SessionResolutionUnavailableError({
+      cause: new Error("fake outage"),
+    });
+    getOrgContextMock.mockRejectedValue(failure);
     resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
 
     await expect(
@@ -289,26 +361,57 @@ describe("server/agent-run-context", () => {
         event: makeEvent(),
         ownerContext: { owner: "alice@example.com", anonymous: false },
       }),
-    ).resolves.toEqual({});
+    ).rejects.toBe(failure);
   });
 
-  it("does not treat a swallowed membership read failure as personal scope", async () => {
+  it("keeps an unframed custom session transport error nonretryable", async () => {
+    const cause = Object.assign(new Error("fake provider connection refusal"), {
+      code: "ECONNREFUSED",
+    });
+    getSessionMock.mockRejectedValue(cause);
+
+    await expect(
+      resolveAgentRunOrgScope({
+        event: makeEvent(),
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      }),
+    ).rejects.toMatchObject({ statusCode: 500, cause });
+  });
+
+  it("refuses a missing session marked unavailable before choosing Personal scope", async () => {
     const event = makeEvent();
-    getSessionMock.mockResolvedValue({ orgId: null });
+    markSessionResolutionUnavailable(
+      event,
+      "fake-provider",
+      new Error("fake outage"),
+    );
     getOrgContextMock.mockResolvedValue({
       email: "alice@example.com",
       orgId: null,
     });
-    hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
-    resolveOrgScopeForEmailMock.mockResolvedValue({ status: "unknown" });
 
-    const requestContext = await resolveAgentRunRequestContext({
-      event,
-      ownerContext: { owner: "alice@example.com", anonymous: false },
+    await expect(
+      resolveAgentRunOrgScope({
+        event,
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "session_unavailable",
     });
+  });
 
-    expect(requestContext.orgId).toBeUndefined();
-    expect(requestContext.orgScope).toBeUndefined();
+  it("allows an organization lookup to recover a previous lookup failure", async () => {
+    getSessionMock.mockRejectedValue(new Error("fake session outage"));
+    getOrgContextMock.mockResolvedValue({ orgId: "org-recovered" });
+
+    await expect(
+      resolveAgentRunOrgScope({
+        event: makeEvent(),
+        ownerContext: { owner: "alice@example.com", anonymous: false },
+      }),
+    ).resolves.toEqual({ orgId: "org-recovered" });
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("falls back from session org to implicit org membership", async () => {

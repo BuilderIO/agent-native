@@ -29,6 +29,10 @@ import {
 } from "./request-context.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
 import {
+  SessionResolutionUnavailableError,
+  sessionResolutionFailure,
+} from "./session-resolution-errors.js";
+import {
   isSessionResolutionUnavailable,
   sessionResolutionUnavailableError,
 } from "./session-resolution-unavailable.js";
@@ -38,12 +42,15 @@ const resolveOrgScopeForEmail: (typeof import("../org/context.js"))["resolveOrgS
     import("../org/context.js").then(({ resolveOrgScopeForEmail }) =>
       resolveOrgScopeForEmail(...args),
     );
-async function hasOrgScopeResolutionUnavailable(
+async function getUnavailableOrgScopeError(
   event: H3Event,
-): Promise<boolean> {
-  const { hasOrgScopeResolutionUnavailable } =
-    await import("../org/context.js");
-  return hasOrgScopeResolutionUnavailable(event);
+): Promise<Error | undefined> {
+  const org = await import("../org/context.js");
+  if (!org.hasOrgScopeResolutionUnavailable(event)) return undefined;
+  return (
+    org.getOrgScopeResolutionError(event) ??
+    new SessionResolutionUnavailableError()
+  );
 }
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
   ...args
@@ -312,7 +319,7 @@ export async function resolveAgentRunOrgScope(options: {
   }
 
   let resolvedOrgId: string | undefined;
-  let orgLookupFailed = false;
+  let orgLookupFailure: Error | undefined;
 
   if (options.resolveOrgId) {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
@@ -321,23 +328,25 @@ export async function resolveAgentRunOrgScope(options: {
       const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
+      if (!session && isSessionResolutionUnavailable(options.event)) {
+        orgLookupFailure = sessionResolutionUnavailableError();
+      }
     } catch (error) {
       if (error instanceof ForbiddenError) throw error;
-      orgLookupFailed = true;
+      orgLookupFailure ??= sessionResolutionFailure(error);
     }
 
     if (!resolvedOrgId) {
       try {
         const orgContext = await getOrgContext(options.event);
-        resolvedOrgId = normalizeId(orgContext.orgId);
-        const scopeUnavailable = await hasOrgScopeResolutionUnavailable(
-          options.event,
-        );
-        if (!resolvedOrgId && scopeUnavailable) orgLookupFailed = true;
+        const scopeFailure = await getUnavailableOrgScopeError(options.event);
+        orgLookupFailure ??= scopeFailure;
+        resolvedOrgId = scopeFailure
+          ? undefined
+          : normalizeId(orgContext.orgId);
         if (
           !resolvedOrgId &&
-          !scopeUnavailable &&
-          !orgLookupFailed &&
+          !orgLookupFailure &&
           ownerContext.owner &&
           !ownerContext.anonymous &&
           normalizeId(orgContext.email)?.toLowerCase() ===
@@ -347,7 +356,7 @@ export async function resolveAgentRunOrgScope(options: {
         }
       } catch (error) {
         if (error instanceof ForbiddenError) throw error;
-        orgLookupFailed = true;
+        orgLookupFailure ??= sessionResolutionFailure(error);
       }
     }
   }
@@ -358,19 +367,19 @@ export async function resolveAgentRunOrgScope(options: {
       if (scope.status === "organization") {
         resolvedOrgId = normalizeId(scope.orgId);
       } else if (scope.status === "unknown") {
-        orgLookupFailed = true;
-      } else if (!orgLookupFailed) {
+        orgLookupFailure ??= sessionResolutionFailure(scope.cause);
+      } else if (!orgLookupFailure) {
         return { orgScope: "personal" };
       }
     } catch (error) {
       if (error instanceof ForbiddenError) throw error;
-      orgLookupFailed = true;
+      orgLookupFailure ??= sessionResolutionFailure(error);
     }
   }
 
   if (resolvedOrgId) return { orgId: resolvedOrgId };
-  // An absent org is personal only when every available membership lookup succeeded.
-  if (!orgLookupFailed && ownerContext.owner && !ownerContext.anonymous) {
+  if (orgLookupFailure) throw orgLookupFailure;
+  if (ownerContext.owner && !ownerContext.anonymous) {
     return { orgScope: "personal" };
   }
   return {};

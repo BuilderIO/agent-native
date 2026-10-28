@@ -3142,6 +3142,8 @@ describe("mountActionRoutes", () => {
     expect(anonymousRequest._status).toBe(401);
     expect(run).not.toHaveBeenCalled();
 
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+
     await expect(
       mounted[0]!.handler({
         _method: "GET",
