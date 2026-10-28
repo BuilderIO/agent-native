@@ -136,7 +136,10 @@ import {
   setTakeClipLimitMs,
 } from "./lib/clip-duration-limit";
 import { callClipsActionFor } from "./lib/clips-action";
-import { startUnavailableAuthRecovery } from "./lib/desktop-auth-recovery";
+import {
+  startUnavailableAuthRecovery,
+  trackAuthRecoveryResult,
+} from "./lib/desktop-auth-recovery";
 import {
   checkDesktopAuthSession,
   type AuthCheckResult,
@@ -1260,6 +1263,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
+  const [authRecoveryActive, setAuthRecoveryActive] = useState(false);
   const [labValues, setLabValues] = useState<Record<string, unknown>>({});
   const [labError, setLabError] = useState<string | null>(null);
   const t = useT();
@@ -1549,7 +1553,7 @@ export function App({
     const isCurrentRequest = () =>
       requestId === authCheckGenerationRef.current &&
       authServerUrlRef.current === requestServerUrl;
-    return checkDesktopAuthSession({
+    const result = await checkDesktopAuthSession({
       serverUrl: requestServerUrl,
       isCurrentRequest,
       fetchSession: fetch,
@@ -1560,6 +1564,11 @@ export function App({
       setSignedInAs,
       setServerReachable,
     });
+    return trackAuthRecoveryResult(
+      result,
+      isCurrentRequest,
+      setAuthRecoveryActive,
+    );
   }, [serverUrl]);
 
   const pushMeetingsSession = useCallback(async () => {
@@ -1587,9 +1596,9 @@ export function App({
   }, [checkAuth]);
 
   useEffect(() => {
-    if (authStatus !== "unavailable") return;
+    if (!authRecoveryActive) return;
     return startUnavailableAuthRecovery(checkAuth);
-  }, [authStatus, checkAuth]);
+  }, [authRecoveryActive, checkAuth]);
 
   useEffect(() => {
     invoke("meetings_watcher_set_server_url", { serverUrl }).catch(() => {

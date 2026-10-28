@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { startUnavailableAuthRecovery } from "./desktop-auth-recovery";
+import {
+  startUnavailableAuthRecovery,
+  trackAuthRecoveryResult,
+} from "./desktop-auth-recovery";
+import {
+  checkDesktopAuthSession,
+  type DesktopAuthStatus,
+} from "./desktop-auth-session";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -27,6 +34,87 @@ function makeRecoveryEnvironment() {
 }
 
 describe("startUnavailableAuthRecovery", () => {
+  it("retries an unavailable check while preserving the authenticated session UI", async () => {
+    vi.useFakeTimers();
+    const environment = makeRecoveryEnvironment();
+    let authStatus: DesktopAuthStatus = "authed";
+    let signedInAs: string | null = "account@example.test";
+    let recoveryActive = false;
+    let token = "stored-session-token";
+    const fetchSession = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("maintenance", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response('{"email":"account@example.test"}', { status: 200 }),
+      );
+    const setAuthStatus = (
+      next:
+        | DesktopAuthStatus
+        | ((current: DesktopAuthStatus) => DesktopAuthStatus),
+    ) => {
+      authStatus = typeof next === "function" ? next(authStatus) : next;
+    };
+    const checkAuth = async () => {
+      const result = await checkDesktopAuthSession({
+        serverUrl: "https://clips.example.test",
+        isCurrentRequest: () => true,
+        fetchSession,
+        saveToken: (_serverUrl, nextToken) => {
+          token = nextToken;
+        },
+        clearToken: () => {
+          token = "";
+        },
+        persistServerUrl: () => {},
+        setAuthStatus,
+        setSignedInAs: (email) => {
+          signedInAs = email;
+        },
+        setServerReachable: () => {},
+      });
+      return trackAuthRecoveryResult(
+        result,
+        () => true,
+        (active) => {
+          recoveryActive = active;
+        },
+      );
+    };
+
+    await expect(checkAuth()).resolves.toEqual({ state: "unavailable" });
+    expect(authStatus).toBe("authed");
+    expect(signedInAs).toBe("account@example.test");
+    expect(token).toBe("stored-session-token");
+    expect(recoveryActive).toBe(true);
+
+    const stop = startUnavailableAuthRecovery(checkAuth, environment.options);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(fetchSession).toHaveBeenCalledTimes(2);
+    expect(authStatus).toBe("authed");
+    expect(signedInAs).toBe("account@example.test");
+    expect(recoveryActive).toBe(false);
+    expect(token).toBe("stored-session-token");
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchSession).toHaveBeenCalledTimes(2);
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not let a superseded check change recovery state", () => {
+    const setRecoveryActive = vi.fn();
+
+    expect(
+      trackAuthRecoveryResult(
+        { state: "unavailable" },
+        () => false,
+        setRecoveryActive,
+      ),
+    ).toEqual({ state: "stale" });
+    expect(setRecoveryActive).not.toHaveBeenCalled();
+  });
+
   it("retries with backoff until the session is accepted, then stops", async () => {
     vi.useFakeTimers();
     const environment = makeRecoveryEnvironment();

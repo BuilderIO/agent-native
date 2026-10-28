@@ -7,6 +7,20 @@ interface RecoveryOptions {
   subscribeToResume?: (listener: () => void) => () => void;
 }
 
+export function trackAuthRecoveryResult(
+  result: AuthCheckResult,
+  isCurrentRequest: () => boolean,
+  setRecoveryActive: (active: boolean) => void,
+): AuthCheckResult {
+  if (!isCurrentRequest()) return { state: "stale" };
+  if (result.state === "unavailable") {
+    setRecoveryActive(true);
+  } else if (result.state === "authenticated" || result.state === "anonymous") {
+    setRecoveryActive(false);
+  }
+  return result;
+}
+
 function subscribeToWebViewResume(listener: () => void): () => void {
   const onVisibilityChange = () => listener();
   window.addEventListener("focus", listener);
