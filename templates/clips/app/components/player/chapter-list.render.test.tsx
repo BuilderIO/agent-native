@@ -124,4 +124,63 @@ describe("ChapterList", () => {
       "0:00 Intro\n0:55 Demo",
     );
   });
+
+  it("keeps an unsaved draft when the menu requests editing again", () => {
+    const props = {
+      ...baseProps,
+      canEdit: true,
+      chapters: [],
+      editsJson: null,
+      hideAddButton: true,
+    };
+    render(<ChapterList {...props} editRequest={0} />);
+    render(<ChapterList {...props} editRequest={1} />);
+    const textarea = container.querySelector("textarea");
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!textarea || !setValue) throw new Error("Chapter editor unavailable");
+    act(() => {
+      setValue.call(textarea, "0:00 Draft");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    render(<ChapterList {...props} editRequest={2} />);
+    expect(container.querySelector("textarea")?.value).toBe("0:00 Draft");
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("returns focus to the menu when an empty hidden editor is cancelled", () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    render(
+      <ChapterList
+        {...baseProps}
+        canEdit
+        chapters={[]}
+        editsJson={null}
+        hideAddButton
+        editRequest={0}
+        onReturnFocus={() => trigger.focus()}
+      />,
+    );
+    render(
+      <ChapterList
+        {...baseProps}
+        canEdit
+        chapters={[]}
+        editsJson={null}
+        hideAddButton
+        editRequest={1}
+        onReturnFocus={() => trigger.focus()}
+      />,
+    );
+    const cancel = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "common.cancel",
+    );
+    if (!cancel) throw new Error("Cancel button unavailable");
+    act(() => cancel.click());
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
 });

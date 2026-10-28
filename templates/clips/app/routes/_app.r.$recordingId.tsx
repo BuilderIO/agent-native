@@ -710,6 +710,7 @@ export default function RecordingPage() {
   const [chapterEditRequest, setChapterEditRequest] = useState(0);
   const [tagEditRequest, setTagEditRequest] = useState(0);
   const openingMetadataEditor = useRef(false);
+  const recordingOptionsRef = useRef<HTMLButtonElement>(null);
   const [currentMs, setCurrentMs] = useState(startMs);
   const requestedPlaybackRef = useRef<{
     recordingId: string;
@@ -3249,6 +3250,7 @@ export default function RecordingPage() {
         {canEdit && !editing ? (
           <RecordingOptionsMenu
             recordingId={recording.id}
+            triggerRef={recordingOptionsRef}
             onCloseAutoFocus={(event) => {
               if (openingMetadataEditor.current) {
                 event.preventDefault();
@@ -3811,6 +3813,9 @@ export default function RecordingPage() {
                         canEdit={canEdit}
                         editRequest={chapterEditRequest}
                         hideAddButton
+                        onReturnFocus={() =>
+                          recordingOptionsRef.current?.focus()
+                        }
                         onSeek={(ms) => playerRef.current?.seek(ms)}
                       />
                     )}

@@ -101,6 +101,7 @@ export function TagInput({
                   className="rounded-full hover:bg-primary/20 p-0.5"
                   onClick={(e) => {
                     e.stopPropagation();
+                    inputRef.current?.focus();
                     removeTag(tag);
                   }}
                 >
