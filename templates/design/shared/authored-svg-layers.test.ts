@@ -112,6 +112,67 @@ describe("promoteAuthoredSvgArtworkInHtml", () => {
     );
   });
 
+  it("keeps the paint a symbol gives its shapes", () => {
+    const { content } = promoteAuthoredSvgArtworkInHtml(
+      screen(
+        `<svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10" fill="#f00" stroke="#000"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot" width="10" height="10"/></svg>`,
+      ),
+    );
+
+    expect(content).toContain(
+      `<g data-agent-native-layer-name="dot"><g fill="#f00" stroke="#000"><circle cx="5" cy="5" r="4"></circle></g></g>`,
+    );
+  });
+
+  it("sizes a bare symbol use to the viewport it is drawn in", () => {
+    const { content } = promoteAuthoredSvgArtworkInHtml(
+      screen(
+        `<svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot"/></svg>`,
+      ),
+    );
+
+    expect(content).toContain(
+      `<g data-agent-native-layer-name="dot" transform="scale(10)">`,
+    );
+  });
+
+  it("resolves percentage use lengths and keeps ones it can't resolve", () => {
+    const { content } = promoteAuthoredSvgArtworkInHtml(
+      screen(
+        `<svg viewBox="0 0 200 100" width="200" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol></defs><use href="#dot" x="50%" y="10%" width="10" height="10"/><use href="#dot" x="2em" width="10" height="10"/></svg>`,
+      ),
+    );
+
+    expect(content).toContain(
+      `<g data-agent-native-layer-name="dot" transform="translate(100 10)">`,
+    );
+    expect(content).toContain(
+      `<use href="#dot" x="2em" width="10" height="10"/>`,
+    );
+  });
+
+  it("keeps a use whose shapes a stylesheet selects by id", () => {
+    const html = `<!doctype html><html><head><style>#dot-core{fill:red}</style></head><body><svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="dot" viewBox="0 0 10 10"><circle id="dot-core" cx="5" cy="5" r="4"/></symbol></defs><use href="#dot" width="10" height="10"/></svg></body></html>`;
+
+    const { content, promoted } = promoteAuthoredSvgArtworkInHtml(html);
+
+    expect(promoted).toBe(1);
+    expect(content).toContain(`<use href="#dot" width="10" height="10"/>`);
+  });
+
+  it("stops expanding when nested uses would copy too many shapes", () => {
+    const level = (name: string, child: string) =>
+      `<symbol id="${name}" viewBox="0 0 10 10">${Array.from({ length: 10 }, () => `<use href="#${child}" width="10" height="10"/>`).join("")}</symbol>`;
+    const html = screen(
+      `<svg viewBox="0 0 100 100" width="100" height="100"><defs><symbol id="l0" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></symbol>${level("l1", "l0")}${level("l2", "l1")}${level("l3", "l2")}${level("l4", "l3")}</defs><use href="#l4" width="10" height="10"/></svg>`,
+    );
+
+    const { content } = promoteAuthoredSvgArtworkInHtml(html);
+
+    expect(content).toContain(`<use href="#l4" width="10" height="10"/>`);
+    expect(content.length).toBeLessThan(html.length * 2);
+  });
+
   it("is stable when a promoted screen is saved again", () => {
     const once = annotateAgentScreenHtmlForPersist(
       screen(`${kit}${artwork}`),

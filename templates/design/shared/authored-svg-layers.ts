@@ -8,6 +8,8 @@ const EDITABLE_SVG_PRIMITIVE = "pasted-svg";
 // Icons stay one layer; anything with an edge at least this long is artwork.
 const MIN_ARTWORK_EDGE = 64;
 const MAX_USE_DEPTH = 8;
+// Nested `<use>` copies multiply, so cap the shapes one screen can gain.
+const MAX_EXPANDED_ELEMENTS = 2000;
 const DRAWABLE_TAGS = new Set([
   "path",
   "rect",
@@ -33,6 +35,19 @@ const RESOURCE_TAGS = new Set([
 ]);
 const RAW_TEXT_TAGS = new Set(["style", "script"]);
 const USE_GEOMETRY_ATTRIBUTES = new Set(["href", "x", "y", "width", "height"]);
+// The instance's geometry, which the expansion turns into a transform.
+const VIEWPORT_ATTRIBUTES = new Set([
+  "id",
+  "x",
+  "y",
+  "width",
+  "height",
+  "viewBox",
+  "preserveAspectRatio",
+  "refX",
+  "refY",
+  NODE_ID_ATTRIBUTE,
+]);
 const LOCAL_URL_REFERENCE = /url\(\s*(["']?)#([^"')\s]+)\1\s*\)/g;
 
 type HtmlAttribute = { name: string; value: string; prefix?: string };
@@ -54,6 +69,10 @@ type HtmlNode = {
 type SourceEdit = { start: number; end: number; text: string };
 
 type Box = { x: number; y: number; width: number; height: number };
+
+type Size = { width: number; height: number };
+
+class ExpansionBudgetExceeded extends Error {}
 
 function attribute(node: HtmlNode, name: string): string | null {
   return node.attrs?.find((attr) => attr.name === name)?.value ?? null;
@@ -84,6 +103,21 @@ function number(value: string | null): number | null {
   return match ? Number(match[1]) : null;
 }
 
+// `undefined` when the attribute is absent, `null` when it is set to a value
+// that can't be resolved to user units here.
+function length(
+  value: string | null,
+  reference: number | undefined,
+): number | null | undefined {
+  if (value === null || value.trim() === "auto") return undefined;
+  const absolute = number(value);
+  if (absolute !== null) return absolute;
+  const percent = /^\s*(-?(?:\d+(?:\.\d+)?|\.\d+))%\s*$/.exec(value);
+  return percent && reference !== undefined
+    ? (Number(percent[1]) * reference) / 100
+    : null;
+}
+
 function styleLength(node: HtmlNode, property: string): number | null {
   for (const declaration of (attribute(node, "style") ?? "").split(";")) {
     const colon = declaration.indexOf(":");
@@ -102,6 +136,25 @@ function viewBox(node: HtmlNode): Box | null {
   if (parts.length !== 4 || !parts.every(Number.isFinite)) return null;
   const [x, y, width, height] = parts as [number, number, number, number];
   return width > 0 && height > 0 ? { x, y, width, height } : null;
+}
+
+function viewportSize(svg: HtmlNode): Size | null {
+  const box = viewBox(svg);
+  if (box) return { width: box.width, height: box.height };
+  const width = number(attribute(svg, "width"));
+  const height = number(attribute(svg, "height"));
+  return width !== null && height !== null ? { width, height } : null;
+}
+
+function nearestViewport(node: HtmlNode): Size | null {
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) {
+    if (parent.tagName === "svg") return viewportSize(parent);
+  }
+  return null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function longestEdge(svg: HtmlNode): number {
@@ -216,49 +269,66 @@ function hrefTarget(use: HtmlNode): string | null {
 class UseExpander {
   private readonly usedIds: Set<string>;
   private instance = 0;
+  private remaining = MAX_EXPANDED_ELEMENTS;
 
-  constructor(private readonly byId: Map<string, HtmlNode>) {
+  constructor(
+    private readonly byId: Map<string, HtmlNode>,
+    private readonly styleText: string,
+  ) {
     this.usedIds = new Set(byId.keys());
   }
 
-  expand(use: HtmlNode, chain: string[] = []): string | null {
+  /** Returns null when the `<use>` should stay as written. */
+  expandInPlace(use: HtmlNode): string | null {
+    if (this.remaining <= 0) return null;
+    try {
+      return this.expand(use, nearestViewport(use));
+    } catch (error) {
+      if (error instanceof ExpansionBudgetExceeded) return null;
+      throw error;
+    }
+  }
+
+  private expand(
+    use: HtmlNode,
+    viewport: Size | null,
+    chain: string[] = [],
+  ): string | null {
     const id = hrefTarget(use);
     const target = id ? this.byId.get(id) : undefined;
     if (!id || !target || chain.includes(id) || chain.length >= MAX_USE_DEPTH) {
       return null;
     }
-    const scope = this.scopeIds(target);
-    const nextChain = [...chain, id];
-    const x = number(attribute(use, "x")) ?? 0;
-    const y = number(attribute(use, "y")) ?? 0;
+    if (this.isSelectedById(target, id)) return null;
+    const x = length(attribute(use, "x"), viewport?.width);
+    const y = length(attribute(use, "y"), viewport?.height);
+    if (x === null || y === null) return null;
     const transforms = [attribute(use, "transform") ?? ""];
-    if (x !== 0 || y !== 0) transforms.push(`translate(${x} ${y})`);
+    if (x || y) transforms.push(`translate(${x ?? 0} ${y ?? 0})`);
+    const nextChain = [...chain, id];
     let content: string;
     if (target.tagName === "symbol" || target.tagName === "svg") {
-      const box = viewBox(target);
-      const width =
-        number(attribute(use, "width")) ??
-        number(attribute(target, "width")) ??
-        box?.width;
-      const height =
-        number(attribute(use, "height")) ??
-        number(attribute(target, "height")) ??
-        box?.height;
-      if (box && width && height) {
-        transforms.push(
-          viewBoxTransform(
-            box,
-            width,
-            height,
-            attribute(target, "preserveAspectRatio"),
-          ),
-        );
-      }
+      if (attribute(target, "transform") !== null) return null;
+      const instance = this.instanceViewport(use, target, viewport);
+      if (!instance) return null;
+      transforms.push(...instance.transforms);
+      const scope = this.scopeIds(target);
       content = children(target)
-        .map((child) => this.serialize(child, scope, nextChain))
+        .map((child) => this.serialize(child, scope, nextChain, instance.inner))
         .join("");
+      // The referenced root's own paint and style still cascade to its shapes.
+      const inherited = this.serializeAttributes(
+        (target.attrs ?? []).filter(
+          (attr) => !VIEWPORT_ATTRIBUTES.has(attr.name),
+        ),
+        scope,
+      );
+      if (inherited) content = `<g${inherited}>${content}</g>`;
     } else {
-      content = this.serialize(target, scope, nextChain, { dropId: true });
+      const scope = this.scopeIds(target);
+      content = this.serialize(target, scope, nextChain, viewport, {
+        dropId: true,
+      });
     }
     const attributes = (use.attrs ?? [])
       .filter(
@@ -279,6 +349,70 @@ class UseExpander {
     return `<g${attributes.join("")}>${content}</g>`;
   }
 
+  // A symbol or nested svg instance is sized by the use, then by its own
+  // width and height, then fills the viewport it is drawn in (100%).
+  private instanceViewport(
+    use: HtmlNode,
+    target: HtmlNode,
+    viewport: Size | null,
+  ): { transforms: string[]; inner: Size | null } | null {
+    const offsetX = length(attribute(target, "x"), viewport?.width);
+    const offsetY = length(attribute(target, "y"), viewport?.height);
+    const ownWidth = length(attribute(target, "width"), viewport?.width);
+    const ownHeight = length(attribute(target, "height"), viewport?.height);
+    const useWidth = length(attribute(use, "width"), viewport?.width);
+    const useHeight = length(attribute(use, "height"), viewport?.height);
+    if (
+      offsetX === null ||
+      offsetY === null ||
+      ownWidth === null ||
+      ownHeight === null ||
+      useWidth === null ||
+      useHeight === null
+    ) {
+      return null;
+    }
+    const width = useWidth ?? ownWidth ?? viewport?.width;
+    const height = useHeight ?? ownHeight ?? viewport?.height;
+    const transforms: string[] = [];
+    if (offsetX || offsetY) {
+      transforms.push(`translate(${offsetX ?? 0} ${offsetY ?? 0})`);
+    }
+    const box = viewBox(target);
+    if (!box) {
+      return {
+        transforms,
+        inner:
+          width !== undefined && height !== undefined
+            ? { width, height }
+            : viewport,
+      };
+    }
+    if (!width || !height || width < 0 || height < 0) return null;
+    transforms.push(
+      viewBoxTransform(
+        box,
+        width,
+        height,
+        attribute(target, "preserveAspectRatio"),
+      ),
+    );
+    return { transforms, inner: { width: box.width, height: box.height } };
+  }
+
+  // Copies get new ids, which a stylesheet `#id` rule would stop matching.
+  private isSelectedById(target: HtmlNode, id: string): boolean {
+    if (!this.styleText) return false;
+    const ids = [id];
+    for (const node of descendants(target)) {
+      const nested = attribute(node, "id");
+      if (nested) ids.push(nested);
+    }
+    return ids.some((candidate) =>
+      new RegExp(`#${escapeRegExp(candidate)}(?![\\w-])`).test(this.styleText),
+    );
+  }
+
   // Each expansion gets its own copy of the ids inside the referenced
   // element, so gradients and clips it owns still resolve and never collide.
   private scopeIds(target: HtmlNode): Map<string, string> {
@@ -295,29 +429,11 @@ class UseExpander {
     return scope;
   }
 
-  private serialize(
-    node: HtmlNode,
+  private serializeAttributes(
+    attrs: HtmlAttribute[],
     scope: Map<string, string>,
-    chain: string[],
-    options: { dropId?: boolean } = {},
   ): string {
-    if (node.nodeName === "#text") {
-      const parent = node.parentNode?.tagName;
-      return parent && RAW_TEXT_TAGS.has(parent)
-        ? (node.value ?? "")
-        : escapeText(node.value ?? "");
-    }
-    if (!isElement(node)) return "";
-    if (node.tagName === "use") {
-      const expanded = this.expand(node, chain);
-      if (expanded !== null) return expanded;
-    }
-    const attributes = (node.attrs ?? [])
-      .filter(
-        (attr) =>
-          attr.name !== NODE_ID_ATTRIBUTE &&
-          !(options.dropId && attr.name === "id"),
-      )
+    return attrs
       .map((attr) => {
         let value = attr.value;
         if (attr.name === "id") value = scope.get(value) ?? value;
@@ -335,8 +451,40 @@ class UseExpander {
         return ` ${qualifiedName(attr)}="${escapeAttribute(value)}"`;
       })
       .join("");
+  }
+
+  private serialize(
+    node: HtmlNode,
+    scope: Map<string, string>,
+    chain: string[],
+    viewport: Size | null,
+    options: { dropId?: boolean } = {},
+  ): string {
+    if (node.nodeName === "#text") {
+      const parent = node.parentNode?.tagName;
+      return parent && RAW_TEXT_TAGS.has(parent)
+        ? (node.value ?? "")
+        : escapeText(node.value ?? "");
+    }
+    if (!isElement(node)) return "";
+    this.remaining -= 1;
+    if (this.remaining < 0) throw new ExpansionBudgetExceeded();
+    if (node.tagName === "use") {
+      const expanded = this.expand(node, viewport, chain);
+      if (expanded !== null) return expanded;
+    }
+    const attributes = this.serializeAttributes(
+      (node.attrs ?? []).filter(
+        (attr) =>
+          attr.name !== NODE_ID_ATTRIBUTE &&
+          !(options.dropId && attr.name === "id"),
+      ),
+      scope,
+    );
+    const inner =
+      node.tagName === "svg" ? (viewportSize(node) ?? viewport) : viewport;
     const content = children(node)
-      .map((child) => this.serialize(child, scope, chain))
+      .map((child) => this.serialize(child, scope, chain, inner))
       .join("");
     return `<${node.tagName}${attributes}>${content}</${node.tagName}>`;
   }
@@ -383,7 +531,15 @@ export function promoteAuthoredSvgArtworkInHtml(html: string): {
     }
     return true;
   });
-  const expander = new UseExpander(byId);
+  const styleText = elements
+    .filter((element) => element.tagName === "style")
+    .map((element) =>
+      children(element)
+        .map((child) => child.value ?? "")
+        .join(""),
+    )
+    .join("\n");
+  const expander = new UseExpander(byId, styleText);
   const edits: SourceEdit[] = [];
   let promoted = 0;
   for (const svg of topLevelSvgs) {
@@ -406,7 +562,7 @@ export function promoteAuthoredSvgArtworkInHtml(html: string): {
       if (use.parentNode?.tagName === "use") continue;
       const location = use.sourceCodeLocation;
       if (!location) continue;
-      const expanded = expander.expand(use);
+      const expanded = expander.expandInPlace(use);
       if (expanded === null) continue;
       edits.push({
         start: location.startOffset,
