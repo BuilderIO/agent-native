@@ -2,7 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createDraftOutlines, DRAFTING_ATTRIBUTE } from "./draft-outlines";
+import {
+  createDraftOutlines,
+  DRAFT_FINISH_MS,
+  DRAFTING_ATTRIBUTE,
+} from "./draft-outlines";
 
 interface RecordedAnimation {
   target: Element;
@@ -188,9 +192,9 @@ describe("createDraftOutlines", () => {
     const delays = animations
       .filter((animation) => animation.options.fill === "backwards")
       .map((animation) => animation.options.delay ?? 0);
-    // 100 arrivals 55ms apart would reach 5.4s; the queue stops at 3.2s.
-    expect(Math.max(...delays)).toBe(3200 + 208);
-    expect(delays[58]).toBe(58 * 55 + 208);
+    // 100 arrivals 55ms apart would reach 5.4s; the queue stops at 1.2s.
+    expect(Math.max(...delays)).toBe(1200 + 208);
+    expect(delays[20]).toBe(20 * 55 + 208);
 
     // A later arrival is measured from its own arrival time.
     clock = 10_000;
@@ -225,8 +229,8 @@ describe("createDraftOutlines", () => {
     createDraftOutlines(container, "blue").track(list);
 
     const last = list.lastElementChild as Element;
-    // 40 gaps share 1100ms, so each is 27.5ms instead of 55ms.
-    expect(reveals(last)[0]?.options.delay).toBe(208 + 110 + 1100);
+    // 40 gaps share 1000ms, so each is 25ms instead of 55ms.
+    expect(reveals(last)[0]?.options.delay).toBe(208 + 110 + 1000);
   });
 
   it("caps how late any element in one arrival can start", () => {
@@ -239,7 +243,7 @@ describe("createDraftOutlines", () => {
     const delays = animations
       .filter((animation) => animation.options.fill === "backwards")
       .map((animation) => animation.options.delay ?? 0);
-    expect(Math.max(...delays)).toBe(3200 + 208);
+    expect(Math.max(...delays)).toBe(1200 + 208);
   });
 
   it("strokes a frame once an element's turn comes and its box is big enough", () => {
@@ -323,6 +327,35 @@ describe("createDraftOutlines", () => {
     expect(fade?.options.duration).toBe(300);
     fade?.onfinish?.();
     expect(boxes(container)).toHaveLength(0);
+  });
+
+  it("finishes an element's draft within DRAFT_FINISH_MS", () => {
+    const container = build("<section></section>");
+    const section = container.firstElementChild as Element;
+    place(section, 0, 0, 300, 200);
+    createDraftOutlines(container, "blue").track(section);
+
+    let fadeAt: number | null = null;
+    for (
+      let time = 16;
+      time <= DRAFT_FINISH_MS && fadeAt === null;
+      time += 16
+    ) {
+      frameAt(time);
+      const [box] = boxes(container);
+      if (animations.some((a) => a.target === box)) fadeAt = time;
+    }
+    const fade = animations.find(
+      (a) => a.target !== section && a.keyframes[0]?.opacity === 1,
+    );
+    expect(fadeAt).not.toBeNull();
+    expect((fadeAt ?? 0) + Number(fade?.options.duration)).toBeLessThanOrEqual(
+      DRAFT_FINISH_MS,
+    );
+    const [reveal] = reveals(section);
+    expect(
+      Number(reveal?.options.delay) + Number(reveal?.options.duration),
+    ).toBeLessThanOrEqual(DRAFT_FINISH_MS);
   });
 
   it("keeps a frame up while its box is still growing", () => {

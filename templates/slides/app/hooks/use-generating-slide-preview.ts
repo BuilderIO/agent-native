@@ -1,4 +1,5 @@
 import {
+  DRAFT_FINISH_MS,
   isJsonStringComplete,
   readJsonPath,
   useStreamingToolInputs,
@@ -7,17 +8,11 @@ import {
 import { useEffect, useState } from "react";
 
 /**
- * How long a finished slide stays in the preview after its call lands. The
- * gateway delivers a slide in one late burst, so its frames are still drawing
- * when the saved slide arrives.
+ * How long a finished slide stays in the preview after its call lands, so the
+ * last content streamed into it finishes drafting before the saved slide
+ * replaces it.
  */
-export const GENERATED_SLIDE_SETTLE_MS = 1600;
-
-/**
- * The gap between slides that arrive together. A whole deck usually lands in
- * one burst; revealing it slide by slide lets each one draw in turn.
- */
-export const GENERATED_SLIDE_STAGGER_MS = 900;
+export const GENERATED_SLIDE_SETTLE_MS = DRAFT_FINISH_MS;
 
 /** A failed write stays on screen long enough to read. */
 const FAILED_SLIDE_HOLD_MS = 5000;
@@ -31,20 +26,15 @@ export interface GeneratingSlidePreviewContent {
 }
 
 export interface GeneratingSlidePreviews {
-  /** Slides the agent is writing, in deck order, revealed one at a time. */
+  /** Slides the agent is writing, in deck order, as they stream in. */
   slides: GeneratingSlidePreviewContent[];
   /** These slides replace the whole deck (a `create-deck` call). */
   replacesDeck: boolean;
   /**
    * The first call behind `slides`, known as soon as it parses, before any
-   * of its slides is revealed or lands.
+   * of its slides has content or lands.
    */
   callKey: string | null;
-}
-
-interface Timing {
-  revealAt: number;
-  doneAt: number | null;
 }
 
 const NO_PREVIEWS: GeneratingSlidePreviews = {
@@ -71,8 +61,8 @@ function slideContents(input: PartialJson, tool: string): string[] | null {
 
 /**
  * The slides the agent's `create-deck` and `add-slide` calls have streamed so
- * far. Slides that arrive together are revealed one after another, and a
- * call's slides stay until the last of them has landed and drawn.
+ * far. Each slide shows as soon as its content starts streaming, and a
+ * call's slides stay until it has landed and their last content has drafted.
  */
 export function useGeneratingSlidePreviews({
   deckId,
@@ -130,47 +120,30 @@ export function useGeneratingSlidePreviews({
   }
   if (nextAbandoned !== abandoned) setAbandoned(nextAbandoned);
 
-  const [timings, setTimings] = useState<ReadonlyMap<string, Timing>>(
+  // When each call landed; a landed call stays while its last content drafts.
+  const [landedAt, setLandedAt] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
   );
   const [now, setNow] = useState(() => performance.now());
-  const timingKey = keyed
-    .flatMap((call) =>
-      call.slides.map(
-        ({ key }) => `${call.status === "streaming" ? "" : "!"}${key}`,
-      ),
-    )
+  const landedKey = keyed
+    .map((call) => `${call.status === "streaming" ? "" : "!"}${call.callKey}`)
     .join("\n");
   useEffect(() => {
-    if (!timingKey) {
-      setTimings((current) => (current.size > 0 ? new Map() : current));
-      return;
-    }
     const at = performance.now();
     setNow(at);
-    setTimings((current) => {
-      let next: Map<string, Timing> | null = null;
-      let previousReveal = Number.NEGATIVE_INFINITY;
-      for (const line of timingKey.split("\n")) {
+    setLandedAt((current) => {
+      let next: Map<string, number> | null = null;
+      const live = new Set<string>();
+      for (const line of landedKey ? landedKey.split("\n") : []) {
         const landed = line.startsWith("!");
         const key = landed ? line.slice(1) : line;
-        const known = current.get(key);
-        const revealAt =
-          known?.revealAt ??
-          Math.max(at, previousReveal + GENERATED_SLIDE_STAGGER_MS);
-        const doneAt = known?.doneAt ?? (landed ? at : null);
-        if (!known || known.doneAt !== doneAt) {
+        live.add(key);
+        if (landed && !current.has(key)) {
           next ??= new Map(current);
-          next.set(key, { revealAt, doneAt });
+          next.set(key, at);
         }
-        previousReveal = revealAt;
       }
-      // Calls the stream hook retired take their timings with them.
-      const live = new Set(
-        timingKey
-          .split("\n")
-          .map((line) => (line.startsWith("!") ? line.slice(1) : line)),
-      );
+      // Calls the stream hook retired take their landing time with them.
       for (const key of (next ?? current).keys()) {
         if (live.has(key)) continue;
         next ??= new Map(current);
@@ -178,42 +151,32 @@ export function useGeneratingSlidePreviews({
       }
       return next ?? current;
     });
-  }, [timingKey]);
+  }, [landedKey]);
 
-  // A call is finished once its last slide has landed and drawn.
   const finishedAt = keyed.map((call) => {
     if (abandoned.has(call.callKey)) return Number.NEGATIVE_INFINITY;
-    const hold =
-      call.status === "failed"
+    const landed = landedAt.get(call.callKey);
+    if (landed === undefined) return null;
+    return (
+      landed +
+      (call.status === "failed"
         ? FAILED_SLIDE_HOLD_MS
-        : GENERATED_SLIDE_SETTLE_MS;
-    let latest: number | null = Number.NEGATIVE_INFINITY;
-    for (const { key } of call.slides) {
-      const timing = timings.get(key);
-      if (!timing || timing.doneAt === null || latest === null) {
-        latest = null;
-        continue;
-      }
-      latest = Math.max(latest, timing.revealAt, timing.doneAt);
-    }
-    return latest === null ? null : latest + hold;
+        : GENERATED_SLIDE_SETTLE_MS)
+    );
   });
   const firstActive = finishedAt.findIndex(
     (finished) => finished === null || finished > now,
   );
 
-  const wakeAt = keyed.reduce<number | null>((soonest, call, index) => {
-    const candidates = [
-      ...call.slides.map(({ key }) => timings.get(key)?.revealAt),
-      finishedAt[index] ?? undefined,
-    ];
-    for (const candidate of candidates) {
-      if (candidate !== undefined && candidate > now) {
-        soonest = soonest === null ? candidate : Math.min(soonest, candidate);
-      }
-    }
-    return soonest;
-  }, null);
+  const wakeAt = finishedAt.reduce<number | null>(
+    (soonest, finished) =>
+      finished !== null && finished > now
+        ? soonest === null
+          ? finished
+          : Math.min(soonest, finished)
+        : soonest,
+    null,
+  );
   useEffect(() => {
     if (wakeAt === null) return;
     const timer = window.setTimeout(
@@ -228,18 +191,12 @@ export function useGeneratingSlidePreviews({
     .slice(firstActive)
     .filter((call) => !abandoned.has(call.callKey));
   const slides = shown.flatMap((call) =>
-    call.slides.flatMap(({ key, content }) => {
-      const timing = timings.get(key);
-      if (!timing || timing.revealAt > now) return [];
-      return [
-        {
-          key,
-          content,
-          failed: call.status === "failed",
-          settling: call.status === "done",
-        },
-      ];
-    }),
+    call.slides.map(({ key, content }) => ({
+      key,
+      content,
+      failed: call.status === "failed",
+      settling: call.status === "done",
+    })),
   );
   return {
     slides,

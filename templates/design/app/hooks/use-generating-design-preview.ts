@@ -1,4 +1,5 @@
 import {
+  DRAFT_FINISH_MS,
   isJsonStringComplete,
   parsePartialJson,
   readJsonPath,
@@ -41,10 +42,10 @@ function isStreamingScreenFile(
 }
 
 /**
- * How long a finished call's preview stays up so the frames drafted from its
- * last burst of content finish drawing before the saved screen replaces it.
+ * How long a finished call's preview stays up so the last content streamed
+ * into it finishes drafting before the saved screen replaces it.
  */
-export const GENERATION_DRAFT_SETTLE_MS = 1600;
+export const GENERATION_DRAFT_SETTLE_MS = DRAFT_FINISH_MS;
 
 const GENERATION_VIEWPORTS: readonly string[] = ["mobile", "tablet", "desktop"];
 

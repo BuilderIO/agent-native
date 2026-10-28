@@ -63,9 +63,8 @@ export function GeneratingScreenGhost({
   if (!done) landedOriginRef.current = target;
   const spot = done ? landedOriginRef.current : target;
 
-  // The saved screen lands under the ghost the moment the call finishes, but
-  // the content usually arrives in one late burst: let its draft finish
-  // drawing before handing the spot over.
+  // The saved screen lands under the ghost the moment the call finishes: let
+  // the last streamed content finish drafting before handing the spot over.
   useEffect(() => {
     setSettled(false);
     if (!done) return;

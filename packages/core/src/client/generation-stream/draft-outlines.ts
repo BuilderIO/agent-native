@@ -11,6 +11,15 @@ export interface DraftOutlines {
 export const DRAFTING_ATTRIBUTE = "data-agent-native-drafting";
 
 /**
+ * How long an element that starts drafting takes to finish: its frame draws,
+ * holds and fades, and its content has faded in. A preview that keeps
+ * showing this long after the last of its content arrives lets that content
+ * finish drafting before the saved version replaces it. Keep it in step with
+ * the timings inside `createDraftOutlines`, which can't reference it.
+ */
+export const DRAFT_FINISH_MS = 1100;
+
+/**
  * Drafts streamed-in content the way a designer would block it out: every
  * new element's frame is stroked in, containers first, then each child in
  * document order a beat after its parent and after its earlier siblings, so
@@ -35,9 +44,12 @@ export function createDraftOutlines(
   /** Delay between one sibling's frame and the next. */
   const SIBLING_MS = 55;
   /** Long lists compress so the last sibling still starts promptly. */
-  const MAX_SIBLING_SPREAD_MS = 1100;
-  /** No element in one arrival starts later than this after it. */
-  const MAX_SEQUENCE_MS = 3200;
+  const MAX_SIBLING_SPREAD_MS = 1000;
+  /**
+   * No element starts later than this after it arrives, so the draft never
+   * falls far behind the content streaming in.
+   */
+  const MAX_SEQUENCE_MS = 1200;
   const DRAW_MS = 260;
   /** How long a drawn frame holds before it fades, once its box is still. */
   const HOLD_MS = 520;

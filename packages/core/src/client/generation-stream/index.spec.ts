@@ -7,6 +7,7 @@ describe("@agent-native/core/client/generation-stream", () => {
     expect(Object.keys(generationStream).sort()).toEqual(
       [
         "DRAFTING_ATTRIBUTE",
+        "DRAFT_FINISH_MS",
         "SKELETON_ATTRIBUTE",
         "STREAMED_IN_ATTRIBUTE",
         "STREAMED_IN_CSS",

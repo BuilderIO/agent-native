@@ -8,6 +8,7 @@ export {
 export { renderableHtmlPrefix } from "./renderable-html.js";
 export {
   createDraftOutlines,
+  DRAFT_FINISH_MS,
   DRAFTING_ATTRIBUTE,
   type DraftOutlines,
 } from "./draft-outlines.js";

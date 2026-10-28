@@ -995,8 +995,8 @@ function RawSlideHtmlContent({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const streaming = useContext(SlideStreamingContext);
-  // A streamed slide often arrives whole in one burst; mounting it empty lets
-  // the first patch draft every element in instead of rendering it static.
+  // Mounting a streamed slide empty lets the first patch draft whatever has
+  // already arrived instead of rendering it static.
   const renderedHtmlRef = useRef(streaming ? "" : html);
   const dangerousHtmlRef = useRef({ __html: renderedHtmlRef.current });
   const [mermaidSlots, setMermaidSlots] = useState<HTMLElement[]>([]);
