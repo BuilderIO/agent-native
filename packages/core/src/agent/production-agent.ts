@@ -8181,6 +8181,7 @@ export async function runAgentLoop(opts: {
   const blockedA2ATargets = new Map<string, string>();
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
+  let followUpOnlyTurns = 0;
   let preserveReasoningEffortForEmptyResponseRetries = false;
   let consecutiveMaxTokensContinuations = 0;
   let truncatedToolCallRetries = 0;
@@ -9090,11 +9091,15 @@ export async function runAgentLoop(opts: {
       // Only a follow-up call with no reply asks again. A reply sent beside
       // its follow-ups is the final answer: clearing it to ask again leaves
       // the model recapping a reply the user no longer sees.
+      // Past the cap, an empty turn takes the bounded empty-response retries
+      // below instead of asking again until the loop's iteration limit.
       if (
         followUpResults.length > 0 &&
         hasEmptyFinalResponse &&
-        terminalStopReason !== "max_tokens"
+        terminalStopReason !== "max_tokens" &&
+        followUpOnlyTurns < EMPTY_FINAL_RESPONSE_RETRY_LIMIT
       ) {
+        followUpOnlyTurns += 1;
         // Whitespace the model streamed before its follow-ups is not a reply,
         // and the next turn's answer would land after it.
         if (streamedAssistantText) await send({ type: "clear" });
@@ -9234,6 +9239,7 @@ export async function runAgentLoop(opts: {
 
     finalGuardRetries = 0;
     emptyFinalResponseRetries = 0;
+    followUpOnlyTurns = 0;
     preserveReasoningEffortForEmptyResponseRetries = false;
     consecutiveMaxTokensContinuations = 0;
 

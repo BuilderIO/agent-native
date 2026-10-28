@@ -852,6 +852,24 @@ describe("native agent follow-up publication", () => {
     ]);
   });
 
+  it("stops asking again after repeated metadata-only turns", async () => {
+    const metadataOnly = () => step([call()], "end_turn");
+    const { opts, events, requests } = setup(
+      Array.from({ length: 8 }, metadataOnly),
+    );
+    opts.maxIterations = 20;
+
+    await runAgentLoop(opts);
+
+    expect(requests.length).toBeLessThan(8);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "empty_final_response",
+      }),
+    );
+  });
+
   it("keeps a streamed reply sent beside metadata on screen", async () => {
     const { opts, events, requests } = setup([
       [
