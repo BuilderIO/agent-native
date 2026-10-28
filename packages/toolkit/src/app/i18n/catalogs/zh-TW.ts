@@ -137,7 +137,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "包含於 Builder.io 免費額度",
   "onboarding.builderIncludedFreeWithAccount":
     "擁有 Builder.io 帳戶即可免費使用",
-  "onboarding.builderMonthlyCredits": "每天 15 點免費額度，每月最多 60 點",
+  "onboarding.builderMonthlyCredits": "每天 15 點免費點數，每月最多 60 點",
   "onboarding.builderIncludedFree": "免費包含",
   "onboarding.builderMoreServices": "+ {{count}} 項其他服務",
   "onboarding.builderLlmCredits": "LLM 點數",
@@ -166,9 +166,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
-  "onboarding.creditsTitle": "用每天 15 點免費額度試用，每月最多 60 點",
+  "onboarding.creditsTitle": "用每天 15 點免費點數試用，每月最多 60 點",
   "onboarding.creditsTitleClips":
-    "免費試用視訊儲存空間，並每天獲得 15 點額度，每月最多 60 點",
+    "免費試用視訊儲存空間，並每天獲得 15 點點數，每月最多 60 點",
   "onboarding.creditsActivate": "啟用免費額度",
   "onboarding.creditsFinePrint":
     "這將建立一個免費的 Builder.io 帳戶。繼續表示您同意我們的",
