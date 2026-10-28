@@ -1,4 +1,4 @@
-import type { H3Event } from "h3";
+import { mockEvent, type H3Event } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
@@ -83,7 +83,12 @@ import {
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
 import { OAuthAccountOwnedByOtherUserError } from "../oauth-tokens/store.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { decodeOAuthState, encodeOAuthState } from "./google-oauth.js";
+import {
+  SessionResolutionUnavailableError,
+  SessionResolutionLookupError,
+} from "./session-resolution-errors.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
   canConnectWorkspaceProviderOAuth,
@@ -148,6 +153,100 @@ function sigmaMetadataResponse(apiBaseUrl: string): Response {
 }
 
 describe("workspace provider OAuth", () => {
+  it.each([
+    {
+      name: "unsigned-in",
+      signedIn: false,
+      orgId: null,
+      role: null,
+      status: 401,
+    },
+    { name: "Personal", signedIn: true, orgId: null, role: null, status: 403 },
+    {
+      name: "non-admin member",
+      signedIn: true,
+      orgId: "org-acme",
+      role: "member",
+      status: 403,
+    },
+  ])(
+    "retains the normal $name refusal",
+    async ({ signedIn, orgId, role, status }) => {
+      const email = "requester@example.test";
+      callbackMocks.getSession.mockResolvedValue(signedIn ? { email } : null);
+      callbackMocks.getOrgContext.mockResolvedValue({ email, orgId, role });
+      const event = mockEvent(
+        new Request(
+          "https://example.test/_agent-native/connections/oauth/jira/start?appId=brain&scope=organization",
+        ),
+      );
+      await handleWorkspaceProviderOAuthStart(event, "jira");
+      expect(event.res.status).toBe(status);
+      expect(resolveSecretMock).not.toHaveBeenCalled();
+      expect(callbackMocks.saveOAuthTokens).not.toHaveBeenCalled();
+    },
+  );
+
+  describe.each(["start", "callback"] as const)(
+    "%s org resolution",
+    (phase) => {
+      it.each(["transient", "permanent", "forbidden"] as const)(
+        "preserves %s failures before provider work",
+        async (kind) => {
+          vi.stubEnv("BETTER_AUTH_SECRET", "fake-oauth-test-encryption-key");
+          const email = "requester@example.test";
+          callbackMocks.getSession.mockResolvedValue({ email });
+          const cause = Object.assign(
+            new Error("fake private workspace lookup failure"),
+            { code: "57014" },
+          );
+          const failure =
+            kind === "transient"
+              ? new SessionResolutionUnavailableError({ cause })
+              : kind === "permanent"
+                ? new SessionResolutionLookupError(cause)
+                : new ForbiddenError();
+          callbackMocks.getOrgContext.mockRejectedValue(failure);
+          const fetchMock = vi.fn();
+          vi.stubGlobal("fetch", fetchMock);
+          const flow: WorkspaceProviderOAuthFlow = {
+            provider: "jira",
+            flowId: "fake-flow",
+            verifier: "fake-verifier",
+            redirectUri:
+              "https://example.test/_agent-native/connections/oauth/jira/callback",
+            owner: email,
+            orgId: "org-acme",
+            appId: "brain",
+            scope: "organization",
+            expiresAt: Date.now() + 60_000,
+          };
+          const url =
+            phase === "start"
+              ? "https://example.test/_agent-native/connections/oauth/jira/start?appId=brain&scope=organization"
+              : `${flow.redirectUri}?code=fake-code&state=fake-state`;
+          const cookie = `an_workspace_oauth_jira=${encodeURIComponent(encryptSecretValue(JSON.stringify(flow)))}`;
+          const event = mockEvent(new Request(url, { headers: { cookie } }));
+          const result =
+            phase === "start"
+              ? handleWorkspaceProviderOAuthStart(event, "jira")
+              : handleWorkspaceProviderOAuthCallback(event, "jira");
+          await expect(result).rejects.toBe(failure);
+          expect(event.res.headers.getSetCookie()).toEqual([]);
+          expect(resolveSecretMock).not.toHaveBeenCalled();
+          expect(fetchMock).not.toHaveBeenCalled();
+          expect(callbackMocks.saveOAuthTokens).not.toHaveBeenCalled();
+          expect(
+            callbackMocks.upsertWorkspaceConnection,
+          ).not.toHaveBeenCalled();
+          expect(
+            callbackMocks.upsertWorkspaceConnectionGrant,
+          ).not.toHaveBeenCalled();
+        },
+      );
+    },
+  );
+
   it("keeps the return URL in the encrypted OAuth flow cookie", async () => {
     const email = "requester@example.com";
     const returnUrl = "/dispatch/chat/thread-1?private=value#selected";

@@ -1923,7 +1923,7 @@ async function requireWorkspaceProviderOAuthAccess(
     })
   | null
 > {
-  const context = await getOrgContext(event).catch(() => null);
+  const context = await getOrgContext(event);
   if (!context || !context.orgId) {
     setResponseStatus(event, 403);
     return null;
