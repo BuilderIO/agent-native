@@ -66,7 +66,7 @@ export default {
     journeyTitleSummary:
       "{app} · du {from} au {to} · {count} sessions{partial}",
     journeyTitleAppBandsSummary:
-      "{from} au {to} · cohortes distinctes par application{partial}",
+      "{from} au {to} · cohortes distinctes{partial}",
     sessionCount: "{count} sessions",
     otherPaths: "Autres parcours",
     otherBranchesShown: "Affichage de {shown} branches sur {total}",

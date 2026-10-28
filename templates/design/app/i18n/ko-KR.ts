@@ -63,7 +63,7 @@ export default {
     recordingStarted: "녹화 시작",
     appBandHeading: "{app} · 세션 {count}개",
     journeyTitleSummary: "{app} · {from}~{to} · 세션 {count}개{partial}",
-    journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
+    journeyTitleAppBandsSummary: "{from}~{to} · 분리된 코호트{partial}",
     sessionCount: "세션 {count}개",
     otherPaths: "기타 경로",
     otherBranchesShown: "분기 {total}개 중 {shown}개 표시",

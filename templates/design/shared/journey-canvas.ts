@@ -295,7 +295,9 @@ export const journeyTreeSchema = z
     appRootN: z
       .record(z.string().regex(/^[a-z][a-z0-9-]{0,127}$/), count.min(1))
       .optional()
-      .describe("Per-app root denominators for separate app-band layouts."),
+      .describe(
+        "Per-app or per-cohort root denominators for app-band layouts.",
+      ),
     coverage: z.object({
       sessionsWithEvents: count,
       sessionsWithReplay: count.nullable(),
@@ -583,55 +585,52 @@ export const createJourneyCanvasInputSchema = z
         );
       }
       const appRootN = input.tree.appRootN ?? {};
-      const hasAppRootN = (app: string) =>
-        Object.prototype.hasOwnProperty.call(appRootN, app);
-      const apps = new Set<string>();
+      const bands = new Set<string>();
       input.tree.nodes.forEach((node, index) => {
-        const app = /^([a-z][a-z0-9-]{0,127})::/.exec(node.key)?.[1];
-        if (!app) {
+        const sourceApp = appKeyForNode(node.key);
+        const band = appBandKeyForNode(node.key);
+        if (!sourceApp || !band) {
           issue(
             ["tree", "nodes", index, "key"],
             "App-band nodes need an app-prefixed key such as clips::....",
           );
           return;
         }
-        apps.add(app);
+        bands.add(band);
         if (node.parentKey !== null) {
-          const parentApp = /^([a-z][a-z0-9-]{0,127})::/.exec(
-            node.parentKey,
-          )?.[1];
-          if (parentApp !== app) {
+          const parentBand = appBandKeyForNode(node.parentKey);
+          if (parentBand !== band) {
             issue(
               ["tree", "nodes", index, "parentKey"],
               "App-band parent links must stay within the same app cohort.",
             );
           }
         }
+        const bandRootN = recordValueAt(appRootN, band);
         if (
-          hasAppRootN(app) &&
-          appRootN[app] !== undefined &&
+          bandRootN !== undefined &&
           hasCohortMetrics(node) &&
-          Math.abs(node.pctOfRoot - (node.n / appRootN[app]!) * 100) > 0.011
+          Math.abs(node.pctOfRoot - (node.n / bandRootN) * 100) > 0.011
         ) {
           issue(
             ["tree", "nodes", index, "pctOfRoot"],
-            `Node "${node.key}" percent does not use the ${app} cohort denominator.`,
+            `Node "${node.key}" percent does not use the ${band} cohort denominator.`,
           );
         }
       });
-      for (const app of apps) {
-        if (!hasAppRootN(app) || appRootN[app] === undefined) {
+      for (const band of bands) {
+        if (recordValueAt(appRootN, band) === undefined) {
           issue(
-            ["tree", "appRootN", app],
-            `Pass the root denominator for the ${app} cohort.`,
+            ["tree", "appRootN", band],
+            `Pass the root denominator for the ${band} cohort.`,
           );
         }
       }
-      for (const app of Object.keys(input.tree.appRootN ?? {})) {
-        if (!apps.has(app)) {
+      for (const band of Object.keys(input.tree.appRootN ?? {})) {
+        if (!bands.has(band)) {
           issue(
-            ["tree", "appRootN", app],
-            `The ${app} cohort has no nodes in this tree.`,
+            ["tree", "appRootN", band],
+            `The ${band} cohort has no nodes in this tree.`,
           );
         }
       }
@@ -1214,13 +1213,16 @@ function otherNodeSessionDetail(args: {
   const formattedCount = formatInt(count, messages.htmlLanguage);
   const formattedPercent = formatPercent(pctOfParent, messages.htmlLanguage);
   if (!parent || !hasCohortMetrics(parent)) {
-    const appKey = appKeyForNode(node.key);
-    if (layoutMode === "appBands" && appKey && tree.appRootN?.[appKey]) {
+    const bandKey = appBandKeyForNode(node.key);
+    if (layoutMode === "appBands" && bandKey) {
       return interpolateJourneyCanvasMessage(messages.sessionsOfAppRoot, {
         count: formattedCount,
         percent: formattedPercent,
-        app: appDisplayName(appKey),
-        rootCount: formatInt(tree.appRootN[appKey], messages.htmlLanguage),
+        app: appDisplayName(bandKey),
+        rootCount: formatInt(
+          appBandRootCount(tree, bandKey),
+          messages.htmlLanguage,
+        ),
       });
     }
     return interpolateJourneyCanvasMessage(messages.sessionsOfAll, {
@@ -1592,6 +1594,43 @@ function cardHeaderHeight(
 
 function appKeyForNode(nodeKey: string): string | null {
   return /^([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[1] ?? null;
+}
+
+function appBandKeyForNode(nodeKey: string): string | null {
+  return (
+    /^([a-z][a-z0-9-]{0,127})::([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[2] ??
+    appKeyForNode(nodeKey)
+  );
+}
+
+function recordValueAt<T>(
+  record: Readonly<Record<string, T>>,
+  key: string,
+): T | undefined {
+  return Object.prototype.hasOwnProperty.call(record, key)
+    ? record[key]
+    : undefined;
+}
+
+function appBandRootCount(
+  tree: CreateJourneyCanvasInput["tree"],
+  bandKey: string,
+): number {
+  const rootN = tree.appRootN
+    ? recordValueAt(tree.appRootN, bandKey)
+    : undefined;
+  if (rootN === undefined) {
+    throw new Error(`App-band tree is missing the ${bandKey} root count.`);
+  }
+  return rootN;
+}
+
+function requiredAppBandKey(nodeKey: string): string {
+  const bandKey = appBandKeyForNode(nodeKey);
+  if (!bandKey) {
+    throw new Error(`App-band node has no source app prefix: ${nodeKey}`);
+  }
+  return bandKey;
 }
 
 function orderAppBandComponents(
@@ -2151,7 +2190,7 @@ export function planJourneyCanvas(
   }
 
   const layoutNodes: JourneyLayoutNode[] = [];
-  const layoutAppById = new Map<string, string>();
+  const layoutBandById = new Map<string, string>();
   const layoutEntryById = new Map<string, Rendered>();
   const dropoffOf = new Map<string, z.infer<typeof cohortJourneyNodeSchema>>();
   const dropoffDetailOf = new Map<string, string>();
@@ -2162,9 +2201,9 @@ export function planJourneyCanvas(
     const incomingLabelSize = incomingLabel
       ? edgeLabelSize(incomingLabel)
       : undefined;
-    const appKey = appKeyForNode(entry.node.key);
-    if (appKey) {
-      layoutAppById.set(entry.layoutId, appKey);
+    const bandKey = appBandKeyForNode(entry.node.key);
+    if (bandKey) {
+      layoutBandById.set(entry.layoutId, bandKey);
       layoutEntryById.set(entry.layoutId, entry);
     }
     layoutNodes.push(
@@ -2237,9 +2276,9 @@ export function planJourneyCanvas(
           ),
         },
       });
-      const appKey = appKeyForNode(entry.node.key);
-      if (appKey) {
-        layoutAppById.set(`d${entry.index}`, appKey);
+      const bandKey = appBandKeyForNode(entry.node.key);
+      if (bandKey) {
+        layoutBandById.set(`d${entry.index}`, bandKey);
         layoutEntryById.set(`d${entry.index}`, entry);
       }
     }
@@ -2248,14 +2287,18 @@ export function planJourneyCanvas(
   const appBandLayout =
     input.layoutMode === "appBands"
       ? layoutJourneyAppBands(
-          [...new Set(ordered.map((entry) => appKeyForNode(entry.node.key)!))]
-            .filter((app) => app !== null)
-            .map((app) => ({
-              key: app,
-              rootN: tree.appRootN![app]!,
+          [
+            ...new Set(
+              ordered.map((entry) => appBandKeyForNode(entry.node.key)),
+            ),
+          ]
+            .filter((band): band is string => band !== null)
+            .map((band) => ({
+              key: band,
+              rootN: appBandRootCount(tree, band),
               nodes: orderAppBandComponents(
                 layoutNodes.filter(
-                  (node) => layoutAppById.get(node.key) === app,
+                  (node) => layoutBandById.get(node.key) === band,
                 ),
                 layoutEntryById,
               ),
@@ -2459,9 +2502,9 @@ export function planJourneyCanvas(
                 entry.node.pctOfRoot,
                 messages.htmlLanguage,
               ),
-              app: appDisplayName(appKeyForNode(entry.node.key)!),
+              app: appDisplayName(requiredAppBandKey(entry.node.key)),
               rootCount: formatInt(
-                tree.appRootN![appKeyForNode(entry.node.key)!]!,
+                appBandRootCount(tree, requiredAppBandKey(entry.node.key)),
                 messages.htmlLanguage,
               ),
             })

@@ -774,6 +774,54 @@ describe("create-journey-canvas input", () => {
     );
   });
 
+  it("supports independent cohort bands from one source app", () => {
+    const base = rawInput();
+    const controlRoot = node("design::control::root", null, 60, {
+      pctOfRoot: 100,
+      pctOfParent: 100,
+    });
+    const controlChild = node(
+      "design::control::child",
+      "design::control::root",
+      30,
+      { pctOfRoot: 50, pctOfParent: 50 },
+    );
+    const creditsRoot = node("design::credits::root", null, 40, {
+      pctOfRoot: 100,
+      pctOfParent: 100,
+    });
+    const input = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 100,
+        appRootN: { control: 60, credits: 40 },
+        nodes: [controlRoot, controlChild, creditsRoot],
+      },
+      frames: [
+        frame(controlRoot.key, 0, { sourceApp: "design" }),
+        frame(controlChild.key, 0, { sourceApp: "design" }),
+        frame(creditsRoot.key, 0, { sourceApp: "design" }),
+      ],
+    });
+
+    expect(problems(input)).toEqual([]);
+    const result = planJourneyCanvas(parse(input), "design-cohort-bands");
+    const screen = (key: string) =>
+      result.screens.find((candidate) => candidate.nodeKey === key)!;
+    const fragments = result.boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(screen(controlRoot.key).html).toContain(
+      "60 sessions · 100% of Control cohort (n=60)",
+    );
+    expect(screen(creditsRoot.key).html).toContain(
+      "40 sessions · 100% of Credits cohort (n=40)",
+    );
+    expect(fragments).toContain("Control · 60 sessions");
+    expect(fragments).toContain("Credits · 40 sessions");
+  });
+
   it("rejects data: and non-https image URLs with a clear message", () => {
     const dataUrl = problems(
       rawInput({
@@ -1691,7 +1739,7 @@ describe("planJourneyCanvas", () => {
     expect(
       fragments.match(/data-agent-native-layer-name="Journey edge"/g),
     ).toHaveLength(2);
-    expect(fragments).toContain("separate per-app cohorts");
+    expect(fragments).toContain("separate cohorts");
     expect(fragments).not.toContain("140 sessions");
   });
 

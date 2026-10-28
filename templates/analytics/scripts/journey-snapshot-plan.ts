@@ -47,6 +47,7 @@ export interface SnapshotNode {
 export interface SnapshotTree {
   window: { from: string; to: string };
   app: string;
+  populationGrain?: "sessions" | "signup_events";
   rootN: number;
   appRootN?: Record<string, number>;
   coverage: {
@@ -59,6 +60,14 @@ export interface SnapshotTree {
   notes?: string[];
   followUp?: { status?: string };
   [key: string]: unknown;
+}
+
+export function snapshotPopulationUnit(
+  tree: Pick<SnapshotTree, "populationGrain">,
+): "sessions" | "signup events" {
+  return tree.populationGrain === "signup_events"
+    ? "signup events"
+    : "sessions";
 }
 
 export interface SnapshotBand {
@@ -407,11 +416,17 @@ export function selectCaptureTree<T extends SnapshotTree>(
 
 export function combineSnapshotBands(
   bands: readonly SnapshotBand[],
+  sourceApp?: string,
 ): SnapshotTree {
   const first = arrayItemAt(bands, 0);
   if (bands.length < 2 || !first) {
     throw new Error(
       "At least two cohorts are required for a side-by-side tree.",
+    );
+  }
+  if (sourceApp !== undefined && !/^[a-z][a-z0-9-]{0,127}$/.test(sourceApp)) {
+    throw new Error(
+      `Invalid source app for side-by-side cohorts: ${sourceApp}`,
     );
   }
   const appRootN: Record<string, number> = {};
@@ -435,8 +450,9 @@ export function combineSnapshotBands(
       throw new Error(`Duplicate side-by-side cohort key: ${band.key}`);
     }
     appRootN[band.key] = band.tree.rootN;
+    const prefix = sourceApp ? `${sourceApp}::${band.key}` : band.key;
     for (const node of band.tree.nodes) {
-      const key = `${band.key}::${node.key}`;
+      const key = `${prefix}::${node.key}`;
       if (key.length > 2048 || nodeKeys.has(key)) {
         throw new Error(`Side-by-side journey node key is invalid: ${key}`);
       }
@@ -444,7 +460,7 @@ export function combineSnapshotBands(
       nodes.push({
         ...node,
         key,
-        parentKey: node.parentKey ? `${band.key}::${node.parentKey}` : null,
+        parentKey: node.parentKey ? `${prefix}::${node.parentKey}` : null,
       });
     }
   }

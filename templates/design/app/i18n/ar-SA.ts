@@ -63,8 +63,7 @@ export default {
     recordingStarted: "بدأ التسجيل",
     appBandHeading: "{app} · {count} جلسة",
     journeyTitleSummary: "{app} · من {from} إلى {to} · {count} جلسة{partial}",
-    journeyTitleAppBandsSummary:
-      "من {from} إلى {to} · مجموعات مستقلة لكل تطبيق{partial}",
+    journeyTitleAppBandsSummary: "من {from} إلى {to} · مجموعات منفصلة{partial}",
     sessionCount: "\u200f{count} جلسة",
     otherPaths: "مسارات أخرى",
     otherBranchesShown: "يُعرض {shown} من أصل {total} فرعًا",

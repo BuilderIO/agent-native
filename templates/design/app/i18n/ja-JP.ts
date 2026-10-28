@@ -63,8 +63,7 @@ export default {
     appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:
       "{app} · {from} から {to} · {count} セッション{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} から {to} · アプリごとの別コホート{partial}",
+    journeyTitleAppBandsSummary: "{from} から {to} · 別々のコホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
     otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",

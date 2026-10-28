@@ -12,6 +12,7 @@ import {
   SNAPSHOT_MAX_FRAMES,
   SNAPSHOT_PRESET,
   snapshotCanvasCacheKey,
+  snapshotPopulationUnit,
   snapshotTreeCacheKey,
   snapshotPresetHash,
   treeTopForks,
@@ -72,6 +73,13 @@ function tree(nodes: SnapshotNode[], rootN = 10, app = "clips"): SnapshotTree {
 }
 
 describe("weekly snapshot preset", () => {
+  it("labels sessionless OAuth signup trees at event grain", () => {
+    expect(snapshotPopulationUnit({ populationGrain: "signup_events" })).toBe(
+      "signup events",
+    );
+    expect(snapshotPopulationUnit({})).toBe("sessions");
+  });
+
   it("accepts only secure standard Builder CDN image URLs", () => {
     expect(isBuilderCdnUrl("https://cdn.builder.io/image.png")).toBe(true);
     expect(isBuilderCdnUrl("http://cdn.builder.io/image.png")).toBe(false);
@@ -385,26 +393,29 @@ describe("snapshot tree planning", () => {
       20,
     );
 
-    const combined = combineSnapshotBands([
-      { key: "control", tree: control },
-      { key: "credits", tree: credits },
-    ]);
+    const combined = combineSnapshotBands(
+      [
+        { key: "control", tree: control },
+        { key: "credits", tree: credits },
+      ],
+      "design",
+    );
 
     expect(combined.app).toBe("all");
     expect(combined.rootN).toBe(30);
     expect(combined.appRootN).toEqual({ control: 10, credits: 20 });
     expect(combined.nodes).toMatchObject([
-      { key: "control::signup", parentKey: null, pctOfRoot: 100 },
+      { key: "design::control::signup", parentKey: null, pctOfRoot: 100 },
       {
-        key: "control::signup > choice",
-        parentKey: "control::signup",
+        key: "design::control::signup > choice",
+        parentKey: "design::control::signup",
         pctOfRoot: 80,
         pctOfParent: 80,
       },
-      { key: "credits::signup", parentKey: null, pctOfRoot: 100 },
+      { key: "design::credits::signup", parentKey: null, pctOfRoot: 100 },
       {
-        key: "credits::signup > choice",
-        parentKey: "credits::signup",
+        key: "design::credits::signup > choice",
+        parentKey: "design::credits::signup",
         pctOfRoot: 60,
         pctOfParent: 60,
       },

@@ -65,8 +65,7 @@ export default {
     recordingStarted: "Gravação iniciada",
     appBandHeading: "{app} · {count} sessões",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sessões{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} a {to} · coortes separadas por aplicativo{partial}",
+    journeyTitleAppBandsSummary: "{from} a {to} · coortes separadas{partial}",
     sessionCount: "{count} sessões",
     otherPaths: "Outros caminhos",
     otherBranchesShown: "Exibindo {shown} de {total} ramificações",
