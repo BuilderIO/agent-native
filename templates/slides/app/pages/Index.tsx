@@ -359,6 +359,7 @@ function readStoredReferenceSelection(): StoredReferenceSelectionResult {
 
 function savePromptForRetry(
   prompt: string,
+  draftScope: string,
   options: {
     context?: string;
     modelSelection?: DeckModelSelection;
@@ -394,10 +395,7 @@ function savePromptForRetry(
       signInHandoffSaved = true;
     } catch {}
   }
-  const draftSaved = savePromptToComposerDraft(
-    SLIDES_NEW_DECK_DRAFT_SCOPE,
-    prompt,
-  );
+  const draftSaved = savePromptToComposerDraft(draftScope, prompt);
   return signInHandoffSaved && draftSaved;
 }
 
@@ -698,11 +696,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       staleTime: 0,
     },
   );
-  const [firstRunCompletedIdentityScope, setFirstRunCompletedIdentityScope] =
-    useState<string | null>(null);
   useEffect(() => {
-    const handleFirstRunCompleted = () =>
-      setFirstRunCompletedIdentityScope(homeSuggestionsIdentityScope);
+    const handleFirstRunCompleted = () => void homeSuggestionsProfile.refetch();
     window.addEventListener(
       "agent-native:first-run-completed",
       handleFirstRunCompleted,
@@ -712,11 +707,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         "agent-native:first-run-completed",
         handleFirstRunCompleted,
       );
-  }, [homeSuggestionsIdentityScope]);
-  const firstRunCompletedForIdentity =
-    firstRunCompletedIdentityScope === homeSuggestionsIdentityScope;
+  }, [homeSuggestionsProfile.refetch]);
   const homeSuggestionRole =
-    firstRunCompletedForIdentity && homeSuggestionsProfile.data !== undefined
+    homeSuggestionsProfile.data !== undefined
       ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
       : (shellSuggestionRole ?? "general");
   useEffect(() => {
@@ -1148,12 +1141,22 @@ export default function Index({ active = true }: { active?: boolean }) {
       } = {},
     ) => {
       if (
-        !savePromptForRetry(prompt, {
-          context: options.context,
-          modelSelection: options.modelSelection,
-          referenceSelection: options.referenceSelection,
-          persistAcrossSignIn: true,
-        })
+        !savePromptForRetry(
+          prompt,
+          `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+          {
+            ...(options.context !== undefined
+              ? { context: options.context }
+              : {}),
+            ...(options.modelSelection !== undefined
+              ? { modelSelection: options.modelSelection }
+              : {}),
+            ...(options.referenceSelection !== undefined
+              ? { referenceSelection: options.referenceSelection }
+              : {}),
+            persistAcrossSignIn: true,
+          },
+        )
       ) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
@@ -1170,7 +1173,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setShowSignInDialog(true);
     },
-    [setNewDeckPromptOpen],
+    [homeSuggestionDraftScope, setNewDeckPromptOpen],
   );
 
   const setSignInDialogOpen = useCallback((open: boolean) => {
@@ -1219,18 +1222,24 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryPrompt(saved);
     setNewDeckRetryModelSelection(savedModelSelection);
     setNewDeckRetryReferenceSelection(savedReferenceSelection);
-    savePromptToComposerDraft(SLIDES_NEW_DECK_DRAFT_SCOPE, saved);
+    savePromptToComposerDraft(
+      `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+      saved,
+    );
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     setSelectedDesignSystemId(savedReferenceSelection?.designSystemId ?? null);
     setSelectedReferenceDeckId(null);
     setShowNewDeckPrompt(true);
-  }, [session]);
+  }, [homeSuggestionDraftScope, session]);
 
   useEffect(() => {
     const state = location.state as DeckGenerationRetryState | null;
     if (!state?.retryPrompt) return;
-    savePromptToComposerDraft(SLIDES_NEW_DECK_DRAFT_SCOPE, state.retryPrompt);
+    savePromptToComposerDraft(
+      `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+      state.retryPrompt,
+    );
     setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     setNewDeckRetryFiles(state.retryFiles ?? []);
     setNewDeckRetryReferenceSelection(
@@ -1245,7 +1254,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     setNewDeckRetryModelSelection(state.modelSelection);
     setShowNewDeckPrompt(true);
     void navigate(".", { replace: true, state: null });
-  }, [location.state, navigate]);
+  }, [homeSuggestionDraftScope, location.state, navigate]);
 
   const handleCreateDeckBlank = () => {
     const selectedDesignSystem = selectedDesignSystemId
@@ -1411,10 +1420,14 @@ export default function Index({ active = true }: { active?: boolean }) {
       }
       settlePendingDeckAttachments("commit");
       if (
-        !savePromptForRetry(prompt, {
-          context: additionalContext,
-          modelSelection,
-        })
+        !savePromptForRetry(
+          prompt,
+          `${SLIDES_NEW_DECK_DRAFT_SCOPE}:${homeSuggestionDraftScope}`,
+          {
+            context: additionalContext,
+            ...(modelSelection !== undefined ? { modelSelection } : {}),
+          },
+        )
       ) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }

@@ -196,6 +196,19 @@ describe("AppShellSkeleton home layout", () => {
         { id: "three", label: "Design a shop", prompt: "Design a shop" },
       ],
       loadSuggestionMessages: async () => ({
+        shell: {
+          appName: "Design FR",
+          pageTitle: "Accueil",
+          promptTitle: "Que voulez-vous concevoir?",
+          promptPlaceholder: "Décrivez votre design",
+          suggestedPromptsLabel: "Suggestions",
+          home: "Accueil",
+          templates: "Modèles",
+          designSystems: "Systèmes de design",
+          recent: "Récents",
+          browseAll: "Tout voir",
+          skipPrompt: "Passer",
+        },
         home: {
           suggestions: {
             general: { one: "Créer un portfolio" },
@@ -205,6 +218,21 @@ describe("AppShellSkeleton home layout", () => {
           },
         },
       }),
+      localizeMessages: (messages) => {
+        const shell = (messages as { shell: Record<string, string> }).shell;
+        return {
+          appName: shell.appName,
+          pageTitle: shell.pageTitle,
+          promptTitle: shell.promptTitle,
+          promptPlaceholder: shell.promptPlaceholder,
+          suggestedPromptsLabel: shell.suggestedPromptsLabel,
+          sidebarItems: [{ label: shell.home, to: "/home", icon: IconHome }],
+          templatesLabel: shell.templates,
+          recentLabel: shell.recent,
+          browseAllLabel: shell.browseAll,
+          skipPromptLabel: shell.skipPrompt,
+        };
+      },
       renderComposer: (props) => (
         <textarea
           aria-label={props.ariaLabel}
@@ -230,7 +258,12 @@ describe("AppShellSkeleton home layout", () => {
         await Promise.resolve();
       });
 
-      expect(container.textContent).toContain("Portfolio");
+      expect(container.textContent).toContain("Accueil");
+      expect(container.textContent).toContain("Modèles");
+      expect(container.textContent).toContain("Que voulez-vous concevoir?");
+      expect(
+        container.querySelector<HTMLTextAreaElement>("textarea")?.placeholder,
+      ).toBe("Décrivez votre design");
       expect(
         container.querySelector<HTMLButtonElement>(
           '[data-home-suggestion-id="one"]',

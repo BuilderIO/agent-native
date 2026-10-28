@@ -169,7 +169,11 @@ function designFirstPaintSuggestions(
   });
 }
 
-function DesignFirstPaintLibrary() {
+function DesignFirstPaintLibrary({
+  messages,
+}: {
+  messages: typeof designEnglish;
+}) {
   const location = useLocation();
   const [value, setValue] = useState<DesignHomeLibraryTab>(
     () =>
@@ -186,8 +190,8 @@ function DesignFirstPaintLibrary() {
         setDesignHomeLibraryTab(nextValue);
       }}
       labels={{
-        templates: designEnglish.navigation.templates,
-        recent: designEnglish.home.recent,
+        templates: messages.navigation.templates,
+        recent: messages.home.recent,
       }}
       browseAll={
         <Button
@@ -197,7 +201,7 @@ function DesignFirstPaintLibrary() {
           asChild
         >
           <Link to="/templates">
-            {designEnglish.home.browseAllTemplates}
+            {messages.home.browseAllTemplates}
             <IconArrowRight />
           </Link>
         </Button>
@@ -207,10 +211,10 @@ function DesignFirstPaintLibrary() {
           templates={[]}
           loading
           pendingId={null}
-          pendingLabel={designEnglish.templatesPage.opening}
+          pendingLabel={messages.templatesPage.opening}
           disabled={false}
-          loadingLabel={designEnglish.templatesPage.loading}
-          emptyLabel={designEnglish.promptDialog.noTemplatesFound}
+          loadingLabel={messages.templatesPage.loading}
+          emptyLabel={messages.promptDialog.noTemplatesFound}
           onSelect={() => {}}
         />
       }
@@ -219,36 +223,44 @@ function DesignFirstPaintLibrary() {
   );
 }
 
+function designFirstPaintCopy(messages: typeof designEnglish) {
+  return {
+    appName: messages.navigation.brand,
+    pageTitle: messages.home.pageTitle,
+    promptTitle: messages.home.designPromptTitle,
+    promptPlaceholder: messages.home.describeBuild,
+    suggestedPromptsLabel: messages.home.suggestedPrompts,
+    sidebarItems: [
+      {
+        label: messages.navigation.home,
+        to: "/home",
+        icon: IconHome,
+      },
+      {
+        label: messages.navigation.templates,
+        to: "/templates",
+        icon: IconTemplate,
+      },
+      {
+        label: messages.navigation.designSystems,
+        to: "/design-systems",
+        icon: IconComponents,
+      },
+    ],
+    templatesLabel: messages.navigation.templates,
+    recentLabel: messages.home.recent,
+    browseAllLabel: messages.home.browseAllTemplates,
+    library: <DesignFirstPaintLibrary messages={messages} />,
+    skipPromptLabel: messages.promptDialog.skipPrompt,
+  };
+}
+
 const designFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   appId: "design",
-  appName: designEnglish.navigation.brand,
-  pageTitle: designEnglish.home.pageTitle,
+  ...designFirstPaintCopy(designEnglish),
   headerHeight: 56,
-  promptTitle: designEnglish.home.designPromptTitle,
-  promptPlaceholder: designEnglish.home.describeBuild,
-  suggestedPromptsLabel: designEnglish.home.suggestedPrompts,
-  sidebarItems: [
-    {
-      label: designEnglish.navigation.home,
-      to: "/home",
-      icon: IconHome,
-    },
-    {
-      label: designEnglish.navigation.templates,
-      to: "/templates",
-      icon: IconTemplate,
-    },
-    {
-      label: designEnglish.navigation.designSystems,
-      to: "/design-systems",
-      icon: IconComponents,
-    },
-  ],
-  templatesLabel: designEnglish.navigation.templates,
-  recentLabel: designEnglish.home.recent,
-  browseAllLabel: designEnglish.home.browseAllTemplates,
-  library: <DesignFirstPaintLibrary />,
-  skipPromptLabel: designEnglish.promptDialog.skipPrompt,
+  localizeMessages: (messages) =>
+    designFirstPaintCopy(messages as typeof designEnglish),
   suggestionRole: "general",
   renderComposer: (props) => (
     <div data-design-inline-prompt data-agentkit-composer-size="large">

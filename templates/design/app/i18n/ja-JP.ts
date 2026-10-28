@@ -2980,7 +2980,7 @@ export default {
       },
       design: {
         portfolioHome: "短い紹介、事例グリッド",
-        designSystem: "カラーと文字のトークン、コンポーネン",
+        designSystem: "カラー、文字、コンポーネント",
         bankingApp: "残高、取引一覧",
         travelBooking: "目的地フィルター、旅程カード",
         coffeeShop: "おすすめの豆、産地紹介",
@@ -2994,7 +2994,7 @@ export default {
         componentPlayground: "プロパティ操作、状態バリエーション",
         databaseConsole: "クエリエディター、スキーマツリー",
         issueTriage: "フィルター、優先度バッジ",
-        authSettings: "プロバイダーカード、コールバックUR",
+        authSettings: "認証設定",
         workflowBuilder: "ステップノード、実行履歴",
         developerPortfolio: "プロジェクトカード、ツール一覧",
       },
@@ -3021,7 +3021,7 @@ export default {
       ops: {
         inventoryDashboard: "在庫数、補充アラート",
         staffScheduler: "シフト表、勤務可能状況",
-        vendorPortal: "チェックリスト、書類のアップロード状",
+        vendorPortal: "ベンダーポータル",
         incidentResponse: "重大度、イベント履歴",
         expenseApprovals: "領収書、規定アラート",
         warehouseReceiving: "配送情報、スキャン状態",

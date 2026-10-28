@@ -87,6 +87,7 @@ describe("composer text with chips", () => {
         draftScope,
         initialText: "Selected suggestion prompt",
         initialTextKey: "suggestion-1",
+        initialTextOverridesSavedDraft: true,
       });
 
       expect(composerRef.current?.getDraftSnapshot?.().text).toBe(

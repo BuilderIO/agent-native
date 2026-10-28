@@ -138,15 +138,19 @@ function slidesFirstPaintSuggestions(
   });
 }
 
-function SlidesFirstPaintLibrary() {
+function SlidesFirstPaintLibrary({
+  messages,
+}: {
+  messages: typeof slidesEnglish;
+}) {
   const [value, setValue] = useState<SlidesHomeLibraryTab>("templates");
   return (
     <SlidesHomeLibrary
       value={value}
       onValueChange={setValue}
       labels={{
-        templates: slidesEnglish.templatesPage.title,
-        recent: slidesEnglish.home.recent,
+        templates: messages.templatesPage.title,
+        recent: messages.home.recent,
       }}
       browseAll={
         <Button
@@ -156,7 +160,7 @@ function SlidesFirstPaintLibrary() {
           asChild
         >
           <Link to="/templates">
-            {slidesEnglish.templatesPage.browseAll}
+            {messages.templatesPage.browseAll}
             <IconArrowRight />
           </Link>
         </Button>
@@ -168,9 +172,9 @@ function SlidesFirstPaintLibrary() {
           loading
           onSelect={() => {}}
           labels={{
-            loading: slidesEnglish.templatesPage.loading,
-            empty: slidesEnglish.templatesPage.empty,
-            retry: slidesEnglish.home.retry,
+            loading: messages.templatesPage.loading,
+            empty: messages.templatesPage.empty,
+            retry: messages.home.retry,
           }}
         />
       }
@@ -179,35 +183,43 @@ function SlidesFirstPaintLibrary() {
   );
 }
 
+function slidesFirstPaintCopy(messages: typeof slidesEnglish) {
+  return {
+    appName: messages.navigation.brand,
+    pageTitle: messages.header.decks,
+    promptTitle: messages.home.firstDeckPromptTitle,
+    promptPlaceholder: messages.home.newDeckPlaceholder,
+    suggestedPromptsLabel: messages.home.suggestedPrompts,
+    sidebarItems: [
+      {
+        label: messages.header.decks,
+        to: "/home",
+        icon: IconLayoutGrid,
+      },
+      {
+        label: messages.templatesPage.title,
+        to: "/templates",
+        icon: IconTemplate,
+      },
+      {
+        label: messages.navigation.designSystems,
+        to: "/design-systems",
+        icon: IconComponents,
+      },
+    ],
+    templatesLabel: messages.home.decksTitle,
+    recentLabel: messages.home.recent,
+    browseAllLabel: messages.home.showAllDecks,
+    library: <SlidesFirstPaintLibrary messages={messages} />,
+  };
+}
+
 const slidesFirstPaintHome: Omit<AppShellFirstPaintHome, "suggestions"> = {
   appId: "slides",
-  appName: slidesEnglish.navigation.brand,
-  pageTitle: slidesEnglish.header.decks,
+  ...slidesFirstPaintCopy(slidesEnglish),
   headerHeight: 56,
-  promptTitle: slidesEnglish.home.firstDeckPromptTitle,
-  promptPlaceholder: slidesEnglish.home.newDeckPlaceholder,
-  suggestedPromptsLabel: slidesEnglish.home.suggestedPrompts,
-  sidebarItems: [
-    {
-      label: slidesEnglish.header.decks,
-      to: "/home",
-      icon: IconLayoutGrid,
-    },
-    {
-      label: slidesEnglish.templatesPage.title,
-      to: "/templates",
-      icon: IconTemplate,
-    },
-    {
-      label: slidesEnglish.navigation.designSystems,
-      to: "/design-systems",
-      icon: IconComponents,
-    },
-  ],
-  templatesLabel: slidesEnglish.home.decksTitle,
-  recentLabel: slidesEnglish.home.recent,
-  browseAllLabel: slidesEnglish.home.showAllDecks,
-  library: <SlidesFirstPaintLibrary />,
+  localizeMessages: (messages) =>
+    slidesFirstPaintCopy(messages as typeof slidesEnglish),
   suggestionRole: "general",
   renderComposer: (props) => (
     <div data-agentkit-composer-size="large">

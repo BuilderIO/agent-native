@@ -82,6 +82,39 @@ export interface AppShellFirstPaintHome {
     labelMessageKey?: string;
   }[];
   loadSuggestionMessages?: (locale: string) => Promise<unknown>;
+  localizeMessages?: (messages: unknown) => Partial<AppShellFirstPaintHome>;
+}
+
+function readSuggestionMessage(
+  messages: unknown,
+  key: string | undefined,
+): string | undefined {
+  if (!key) return undefined;
+  let message: unknown = messages;
+  for (const part of key.split(".")) {
+    if (!message || typeof message !== "object") break;
+    message = (message as Record<string, unknown>)[part];
+  }
+  return typeof message === "string" ? message : undefined;
+}
+
+function localizeFirstPaintHome(
+  config: AppShellFirstPaintHome,
+  messages: unknown,
+): AppShellFirstPaintHome {
+  return {
+    ...config,
+    ...(config.localizeMessages?.(messages) ?? {}),
+    suggestions: config.suggestions.map((suggestion) => ({
+      ...suggestion,
+      label:
+        readSuggestionMessage(messages, suggestion.labelMessageKey) ??
+        suggestion.label,
+      prompt:
+        readSuggestionMessage(messages, suggestion.messageKey) ??
+        suggestion.prompt,
+    })),
+  };
 }
 
 function Block({
@@ -416,62 +449,7 @@ function FirstPaintPromptLibrary({
   const submittedRef = useRef(false);
   const [initialText, setInitialText] = useState<string>();
   const [initialTextKey, setInitialTextKey] = useState<number>();
-  const [suggestions, setSuggestions] = useState(config.suggestions);
-
-  useEffect(() => {
-    if (!config.loadSuggestionMessages) return;
-    let active = true;
-    const applyLocale = () => {
-      const locale = document.documentElement.dataset.locale ?? "en-US";
-      if (locale === "en-US") {
-        setSuggestions(config.suggestions);
-        return;
-      }
-      void config
-        .loadSuggestionMessages?.(locale)
-        .then((messages) => {
-          if (!active || !messages || typeof messages !== "object") return;
-          setSuggestions(
-            config.suggestions.map((suggestion) => {
-              const readMessage = (key: string | undefined) => {
-                if (!key) return undefined;
-                let message: unknown = messages;
-                for (const part of key.split(".")) {
-                  if (!message || typeof message !== "object") break;
-                  message = (message as Record<string, unknown>)[part];
-                }
-                return typeof message === "string" ? message : undefined;
-              };
-              return {
-                ...suggestion,
-                label:
-                  readMessage(suggestion.labelMessageKey) ?? suggestion.label,
-                prompt: readMessage(suggestion.messageKey) ?? suggestion.prompt,
-              };
-            }),
-          );
-        })
-        .catch((error: unknown) => {
-          if (active) {
-            console.error(
-              `[agent-native] Could not localize ${config.appId} home suggestions`,
-              error,
-            );
-          }
-        });
-    };
-
-    applyLocale();
-    const observer = new MutationObserver(applyLocale);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-locale"],
-    });
-    return () => {
-      active = false;
-      observer.disconnect();
-    };
-  }, [config.appId, config.loadSuggestionMessages, config.suggestions]);
+  const suggestions = config.suggestions;
 
   const composer = config.renderComposer({
     ariaLabel: config.promptPlaceholder,
@@ -1545,6 +1523,52 @@ export function AppShellSkeleton({
   layout?: AppShellSkeletonLayout;
   firstPaintHome?: AppShellFirstPaintHome;
 }) {
+  const [localeMessages, setLocaleMessages] = useState<unknown>(null);
+  useEffect(() => {
+    const loadMessages = firstPaintHome?.loadSuggestionMessages;
+    if (!loadMessages) return;
+    let active = true;
+    const applyLocale = () => {
+      const locale = document.documentElement.dataset.locale ?? "en-US";
+      if (locale === "en-US") {
+        setLocaleMessages(null);
+        return;
+      }
+      void loadMessages(locale)
+        .then((messages) => {
+          if (active && messages && typeof messages === "object") {
+            setLocaleMessages(messages);
+          }
+        })
+        .catch((error: unknown) => {
+          if (active) {
+            console.error(
+              `[agent-native] Could not localize ${firstPaintHome.appId} home shell`,
+              error,
+            );
+          }
+        });
+    };
+
+    applyLocale();
+    const observer = new MutationObserver(applyLocale);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-locale"],
+    });
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [
+    firstPaintHome?.appId,
+    firstPaintHome?.loadSuggestionMessages,
+    firstPaintHome?.localizeMessages,
+  ]);
+  const localizedFirstPaintHome =
+    firstPaintHome && localeMessages
+      ? localizeFirstPaintHome(firstPaintHome, localeMessages)
+      : firstPaintHome;
   const layouts: Record<AppShellSkeletonLayout, ReactNode> = {
     assistant: <AssistantLayout />,
     "assistant-new": <AssistantNewChatLayout />,
@@ -1556,7 +1580,11 @@ export function AppShellSkeleton({
     list: <ListLayout />,
     mail: <MailLayout />,
     "prompt-library": (
-      <PromptLibraryLayout {...(firstPaintHome ? { firstPaintHome } : {})} />
+      <PromptLibraryLayout
+        {...(localizedFirstPaintHome
+          ? { firstPaintHome: localizedFirstPaintHome }
+          : {})}
+      />
     ),
     welcome: <WelcomeLayout />,
   };

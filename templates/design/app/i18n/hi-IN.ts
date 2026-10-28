@@ -2930,7 +2930,7 @@ export default {
       },
       design: {
         portfolioHome: "संक्षिप्त परिचय केस स्टडी",
-        designSystem: "रंग और",
+        designSystem: "डिज़ाइन सिस्टम",
         bankingApp: "बैलेंस लेनदेन",
         travelBooking: "गंतव्य फ़िल्टर यात्रा कार्ड",
         coffeeShop: "चुनी हुई कॉफ़ी उत्पत्ति",

@@ -466,11 +466,8 @@ export default function Index() {
       staleTime: 0,
     },
   );
-  const [firstRunCompletedIdentityScope, setFirstRunCompletedIdentityScope] =
-    useState<string | null>(null);
   useEffect(() => {
-    const handleFirstRunCompleted = () =>
-      setFirstRunCompletedIdentityScope(homeSuggestionsIdentityScope);
+    const handleFirstRunCompleted = () => void homeSuggestionsProfile.refetch();
     window.addEventListener(
       "agent-native:first-run-completed",
       handleFirstRunCompleted,
@@ -480,11 +477,9 @@ export default function Index() {
         "agent-native:first-run-completed",
         handleFirstRunCompleted,
       );
-  }, [homeSuggestionsIdentityScope]);
-  const firstRunCompletedForIdentity =
-    firstRunCompletedIdentityScope === homeSuggestionsIdentityScope;
+  }, [homeSuggestionsProfile.refetch]);
   const homeSuggestionRole =
-    firstRunCompletedForIdentity && homeSuggestionsProfile.data !== undefined
+    homeSuggestionsProfile.data !== undefined
       ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
       : (shellSuggestionRole ?? "general");
   useEffect(() => {

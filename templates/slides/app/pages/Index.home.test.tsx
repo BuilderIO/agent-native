@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { writeFirstPaintPromptDraft } from "@agent-native/toolkit/app-shell";
+import { getComposerDraftKey } from "@agent-native/toolkit/composer/draft-key";
 // @vitest-environment happy-dom
 import {
   act,
@@ -40,7 +41,14 @@ const suggestionQuery = vi.hoisted(() => ({
   profileFetching: false,
   profileError: false,
   profileScope: null as readonly unknown[] | null,
+  profileRefetch: vi.fn(),
 }));
+const signedInNewDeckDraftKey = getComposerDraftKey(
+  `slides-new-deck:${JSON.stringify(["viewer-a", "org-a"])}`,
+);
+const anonymousNewDeckDraftKey = getComposerDraftKey(
+  "slides-new-deck:anonymous",
+);
 const homeSuggestionSubmit = vi.hoisted(() => ({ invokeSubmit: false }));
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
@@ -241,7 +249,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       const enabled = options?.enabled !== false;
       return {
         data:
-          enabled && !suggestionQuery.profileError
+          enabled &&
+          !suggestionQuery.profileError &&
+          !suggestionQuery.profileFetching
             ? { onboardingRole: suggestionQuery.profileRole }
             : undefined,
         isLoading: enabled && suggestionQuery.profileFetching,
@@ -251,6 +261,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           !suggestionQuery.profileError &&
           !suggestionQuery.profileFetching,
         isError: enabled && suggestionQuery.profileError,
+        refetch: suggestionQuery.profileRefetch,
       };
     }
     return { data: undefined, isLoading: false };
@@ -554,6 +565,7 @@ beforeEach(() => {
   suggestionQuery.profileFetching = false;
   suggestionQuery.profileError = false;
   suggestionQuery.profileScope = null;
+  suggestionQuery.profileRefetch.mockReset();
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
   defaultDesignSystems.systems = [];
@@ -1393,9 +1405,9 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.getByRole("textbox", { name: "Presentation prompt" }),
     ).toHaveProperty("value", prompt);
-    expect(
-      window.localStorage.getItem("an-composer-draft:slides-new-deck"),
-    ).toContain(prompt);
+    expect(window.localStorage.getItem(signedInNewDeckDraftKey)).toContain(
+      prompt,
+    );
   });
 
   it("restores the prompt when saving a source deck rejects", async () => {
@@ -2357,7 +2369,7 @@ describe("Slides prompt-led home", () => {
       screen.getByRole("textbox", { name: "Presentation prompt" }),
     ).toBeTruthy();
     const suggestions = await screen.findAllByRole("button", {
-      name: /home\.suggestionLabels\.general\./,
+      name: /home\.suggestionLabels\.design\./,
     });
     expect(suggestions).toHaveLength(3);
     expect(
@@ -2370,7 +2382,7 @@ describe("Slides prompt-led home", () => {
     ).toHaveLength(0);
   });
 
-  it("keeps the shell suggestion pool through profile hydration until onboarding completes", async () => {
+  it("adopts the profile role for returning users and refreshes it after onboarding", async () => {
     suggestionQuery.profileRole = "marketing";
     suggestionQuery.profileFetching = true;
     const { rerenderHome } = renderHome();
@@ -2385,7 +2397,7 @@ describe("Slides prompt-led home", () => {
     await act(async () => rerenderHome());
     expect(
       screen.getByLabelText("home.suggestedPrompts").textContent,
-    ).toContain("home.suggestionLabels.general.");
+    ).toContain("home.suggestionLabels.marketing.");
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-native:first-run-completed"));
@@ -2393,6 +2405,7 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.getByLabelText("home.suggestedPrompts").textContent,
     ).toContain("home.suggestionLabels.marketing.");
+    expect(suggestionQuery.profileRefetch).toHaveBeenCalledOnce();
   });
 
   it("uses the general pool when the profile is missing or has an unknown role", async () => {
@@ -3158,7 +3171,7 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].initialModelSelection).toEqual(
       modelSelection,
     );
-    expect(localStorage.getItem("an-composer-draft:slides-new-deck")).toContain(
+    expect(localStorage.getItem(anonymousNewDeckDraftKey)).toContain(
       "My saved outline",
     );
     expect(createDeck).not.toHaveBeenCalled();
@@ -3254,7 +3267,7 @@ describe("Slides prompt-led home", () => {
       name: "Presentation prompt",
     });
     expect((prompt as HTMLTextAreaElement).value).toBe("Retry my presentation");
-    expect(localStorage.getItem("an-composer-draft:slides-new-deck")).toContain(
+    expect(localStorage.getItem(signedInNewDeckDraftKey)).toContain(
       "Retry my presentation",
     );
     expect(promptProps.mock.lastCall![0].initialModelSelection).toEqual(
@@ -3331,7 +3344,7 @@ describe("Slides prompt-led home", () => {
     expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
       prompt,
     );
-    expect(localStorage.getItem("an-composer-draft:slides-new-deck")).toContain(
+    expect(localStorage.getItem(signedInNewDeckDraftKey)).toContain(
       "Continue after sign-in",
     );
     expect(promptProps.mock.lastCall![0].initialModelSelection).toEqual(

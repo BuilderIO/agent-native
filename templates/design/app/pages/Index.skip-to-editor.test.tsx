@@ -178,6 +178,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
           !mocks.suggestionProfileError &&
           !mocks.suggestionProfileFetching,
         isError: enabled && mocks.suggestionProfileError,
+        refetch: mocks.refetch,
       };
     }
     if (name === "list-designs") {
@@ -875,7 +876,7 @@ describe("Index skip to editor", () => {
     expect(bar?.textContent).toContain("home.suggestionLabels.general.");
   });
 
-  it("keeps the shell pool through profile hydration and applies the role after onboarding", async () => {
+  it("adopts the profile role for returning users and refreshes it after onboarding", async () => {
     await act(async () => root.render(null));
     mocks.suggestionProfileFetching = true;
     mocks.suggestionRole = null;
@@ -891,9 +892,10 @@ describe("Index skip to editor", () => {
     const bar = container.querySelector<HTMLElement>(
       '[aria-label="home.suggestedPrompts"]',
     );
-    expect(bar?.textContent).toContain("home.suggestionLabels.general.");
-    expect(bar?.textContent).not.toContain("home.suggestionLabels.marketing.");
+    expect(bar?.textContent).toContain("home.suggestionLabels.marketing.");
+    expect(bar?.textContent).not.toContain("home.suggestionLabels.general.");
 
+    mocks.refetch.mockClear();
     await act(async () => {
       window.dispatchEvent(new Event("agent-native:first-run-completed"));
     });
@@ -906,6 +908,7 @@ describe("Index skip to editor", () => {
     expect(completedBar?.textContent).not.toContain(
       "home.suggestionLabels.general.",
     );
+    expect(mocks.refetch).toHaveBeenCalled();
   });
 
   it("keeps suggestions available before AI setup and after connection", async () => {
@@ -1293,7 +1296,7 @@ describe("Index search empty state", () => {
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
     expect(container.textContent).not.toContain("home.pickStartingPoint");
-    expect(container.textContent).toContain("home.suggestionLabels.general.");
+    expect(container.textContent).toContain("home.suggestionLabels.design.");
   });
 
   it("keeps searched shared designs visible when the user owns no designs", async () => {
