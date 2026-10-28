@@ -88,7 +88,7 @@ async function recordManualPullRequestDisposition(input: {
 }): Promise<void> {
   const now = new Date().toISOString();
   const decisionId = stableId(
-    "pr-governance",
+    "pr-governance-manual",
     input.orgId,
     input.itemId,
     input.headSha,
@@ -314,7 +314,17 @@ export default defineAction({
             status: "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+          .where(
+            and(
+              orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+              notInArray(triageItems.status, [
+                "reconciliation_required",
+                "merged",
+                "resolved",
+                "dismissed",
+              ]),
+            ),
+          );
       }
       return {
         ok: true,
@@ -419,6 +429,33 @@ export default defineAction({
     if (currentApproval && !internalMember.isMember) {
       const manualReason =
         "Factory governance does not approve external authors; the existing current-head approval does not change that, so this pull request needs a manual disposition.";
+      let livePullRequest: Awaited<
+        ReturnType<typeof github.getPullRequestSummary>
+      >;
+      try {
+        livePullRequest = await github.getPullRequestSummary(
+          repository,
+          pullRequestNumber,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "unknown GitHub error";
+        await reconcileClaim(
+          pullRequest.headSha,
+          `Live GitHub state could not be revalidated before recording the external manual disposition: ${message}. Reconciliation is required before approval.`,
+        );
+        throw error;
+      }
+      if (
+        livePullRequest.headSha !== pullRequest.headSha ||
+        livePullRequest.state !== "open" ||
+        livePullRequest.draft
+      ) {
+        const staleReason =
+          "Live GitHub pull-request state changed before the external manual disposition was recorded; the latest state must be reviewed.";
+        await reconcileClaim(pullRequest.headSha, staleReason);
+        return { ok: true, action: "needs_manual", reason: staleReason };
+      }
       await reconcileClaim(pullRequest.headSha, manualReason);
       await recordManualPullRequestDisposition({
         factoryId,
@@ -656,6 +693,11 @@ export default defineAction({
               and(
                 orgFactoryScopedItemWhere(itemId, orgId, factoryId),
                 ne(triageItems.status, "auto_approved"),
+                notInArray(triageItems.status, [
+                  "merged",
+                  "resolved",
+                  "dismissed",
+                ]),
               ),
             );
         }
@@ -857,7 +899,17 @@ export default defineAction({
                 : "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+          .where(
+            and(
+              orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+              notInArray(triageItems.status, [
+                "reconciliation_required",
+                "merged",
+                "resolved",
+                "dismissed",
+              ]),
+            ),
+          );
       }
       return {
         ok: true,
@@ -1027,7 +1079,16 @@ export default defineAction({
               status: "reconciliation_required",
               updatedAt: new Date().toISOString(),
             })
-            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+            .where(
+              and(
+                orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                notInArray(triageItems.status, [
+                  "merged",
+                  "resolved",
+                  "dismissed",
+                ]),
+              ),
+            );
         });
         return {
           ok: true,
@@ -1241,7 +1302,17 @@ export default defineAction({
                       status: "needs_manual",
                       updatedAt: new Date().toISOString(),
                     })
-                    .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+                    .where(
+                      and(
+                        orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                        notInArray(triageItems.status, [
+                          "reconciliation_required",
+                          "merged",
+                          "resolved",
+                          "dismissed",
+                        ]),
+                      ),
+                    );
                 }
               });
               if (definitiveRejection) {

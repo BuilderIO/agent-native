@@ -9,6 +9,8 @@ const { PGlite } = createRequire(new URL("../package.json", import.meta.url))(
 );
 
 import { triageDecisions, triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/lib/factory-ids.js";
+import { stableId } from "../server/triage/ids.js";
 
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
@@ -19,7 +21,11 @@ const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const recordFactoryAuditMock = vi.hoisted(() => vi.fn());
 const createGitHubClientMock = vi.hoisted(() => vi.fn());
-const stableIdMock = vi.hoisted(() => vi.fn());
+
+const governanceDecisionId = (headSha = "head-sha-1") =>
+  stableId("pr-governance", "org-1", "item-1", headSha);
+const manualDispositionId = (headSha = "head-sha-1") =>
+  stableId("pr-governance-manual", "org-1", "item-1", headSha);
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -42,7 +48,6 @@ vi.mock("../server/triage/github-client.js", () => ({
   GitHubRequestError: class GitHubRequestError extends Error {},
   createGitHubClient: createGitHubClientMock,
 }));
-vi.mock("../server/triage/ids.js", () => ({ stableId: stableIdMock }));
 vi.mock("../server/triage/metadata.js", () => ({
   parseTriageMetadata: vi.fn(),
   serializeTriageMetadata: vi.fn(),
@@ -111,6 +116,14 @@ beforeEach(async () => {
       org_id text,
       factory_id text
     );
+    CREATE TABLE factory_runs (
+      item_id text NOT NULL,
+      provider text,
+      provider_task_id text,
+      status text NOT NULL,
+      org_id text,
+      factory_id text
+    );
   `);
   getDbMock.mockReturnValue(db);
   resolveFactoryRepositoryMock.mockResolvedValue("BuilderIO/agent-native");
@@ -120,14 +133,17 @@ beforeEach(async () => {
   });
   workspaceMemberIdentityFromContextMock.mockReturnValue(context);
   requireFactoryAutomationMock.mockResolvedValue(undefined);
-  stableIdMock.mockReturnValue("decision-1");
 });
 
 afterEach(async () => {
   await client.close();
 });
 
-async function seedItem(status: string, includeClaim = false) {
+async function seedItem(
+  status: string,
+  includeClaim = false,
+  factoryId = "factory-1",
+) {
   await db.insert(triageItems).values({
     id: "item-1",
     source: "github",
@@ -146,11 +162,11 @@ async function seedItem(status: string, includeClaim = false) {
     updatedAt: "2026-10-28T12:00:00.000Z",
     ownerEmail: "owner@example.test",
     orgId: "org-1",
-    factoryId: "factory-1",
+    factoryId,
   });
   if (!includeClaim) return;
   await db.insert(triageDecisions).values({
-    id: "decision-1",
+    id: governanceDecisionId(),
     itemId: "item-1",
     ruleId: null,
     mode: "automation",
@@ -169,16 +185,22 @@ async function seedItem(status: string, includeClaim = false) {
 function governanceGitHub(input: {
   currentApproval?: boolean;
   changedFiles?: string[];
+  revalidatedSummary?: Record<string, unknown>;
 }) {
+  const initialSummary = pullRequestSummary({
+    number: 42,
+    userId: 123,
+    userLogin: "external-author",
+    headRepository: "BuilderIO/agent-native",
+  });
+  const revalidatedSummary = input.revalidatedSummary
+    ? pullRequestSummary({ ...initialSummary, ...input.revalidatedSummary })
+    : initialSummary;
   return {
-    getPullRequestSummary: vi.fn().mockResolvedValue(
-      pullRequestSummary({
-        number: 42,
-        userId: 123,
-        userLogin: "external-author",
-        headRepository: "BuilderIO/agent-native",
-      }),
-    ),
+    getPullRequestSummary: vi
+      .fn()
+      .mockResolvedValueOnce(initialSummary)
+      .mockResolvedValue(revalidatedSummary),
     getPullRequestEvidence: vi.fn().mockResolvedValue({
       comments: [],
       commentsTruncated: false,
@@ -197,11 +219,14 @@ function governanceGitHub(input: {
   };
 }
 
-async function runGovernance(github: ReturnType<typeof governanceGitHub>) {
+async function runGovernance(
+  github: ReturnType<typeof governanceGitHub>,
+  factoryId = "factory-1",
+) {
   createGitHubClientMock.mockReturnValue(github);
   return action.run(
     {
-      factoryId: "factory-1",
+      factoryId,
       repo: "BuilderIO/agent-native",
       pullRequestNumber: 42,
       itemId: "item-1",
@@ -214,6 +239,11 @@ async function runGovernance(github: ReturnType<typeof governanceGitHub>) {
 }
 
 describe("govern-factory-pull-request final check evidence", () => {
+  it("uses distinct governance identities for different PR heads", () => {
+    expect(governanceDecisionId("head-sha-2")).not.toBe(governanceDecisionId());
+    expect(manualDispositionId("head-sha-2")).not.toBe(manualDispositionId());
+  });
+
   it("requires membership at both gates and complete check coverage", () => {
     const membership = { afterClaim: true, beforeApproval: true };
     const failedChecks = {
@@ -276,7 +306,7 @@ describe("govern-factory-pull-request final check evidence", () => {
           reason: triageDecisions.reason,
         })
         .from(triageDecisions)
-        .where(eq(triageDecisions.id, "decision-1"))
+        .where(eq(triageDecisions.id, manualDispositionId()))
     )[0];
 
     expect(result).toMatchObject({ ok: true, action: "needs_manual" });
@@ -309,7 +339,7 @@ describe("govern-factory-pull-request final check evidence", () => {
           reason: triageDecisions.reason,
         })
         .from(triageDecisions)
-        .where(eq(triageDecisions.id, "decision-1"))
+        .where(eq(triageDecisions.id, manualDispositionId()))
     )[0];
 
     expect(result).toMatchObject({ ok: true, action: "needs_manual" });
@@ -319,6 +349,78 @@ describe("govern-factory-pull-request final check evidence", () => {
       reason: expect.stringContaining("does not approve external authors"),
     });
     expect(github.createPullRequestReview).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a changed head", { headSha: "new-head-sha" }],
+    ["a closed pull request", { state: "closed", merged: true }],
+    ["a draft pull request", { draft: true }],
+  ])(
+    "does not record an external disposition after %s",
+    async (_label, summary) => {
+      await seedItem("pr_observed");
+      const github = governanceGitHub({
+        currentApproval: true,
+        changedFiles: ["src/change.ts"],
+        revalidatedSummary: summary,
+      });
+
+      const result = await runGovernance(github);
+      const decisions = await db
+        .select({ id: triageDecisions.id })
+        .from(triageDecisions);
+      const item = (
+        await db
+          .select({ status: triageItems.status })
+          .from(triageItems)
+          .where(eq(triageItems.id, "item-1"))
+      )[0];
+
+      expect(result).toMatchObject({ ok: true, action: "needs_manual" });
+      expect(github.getPullRequestSummary).toHaveBeenCalledTimes(2);
+      expect(decisions).toEqual([]);
+      expect(item.status).toBe("pr_observed");
+    },
+  );
+
+  it("preserves a finalized approval when a later manual disposition is recorded", async () => {
+    await seedItem("auto_approved");
+    await db.insert(triageDecisions).values({
+      id: governanceDecisionId(),
+      itemId: "item-1",
+      ruleId: null,
+      mode: "automation",
+      outcome: "auto_approve",
+      reason: "Factory approval was finalized earlier.",
+      guardResultsJson: "[]",
+      model: "factory-pr-governance",
+      promptVersion: 1,
+      createdAt: "2026-10-28T12:00:00.000Z",
+      ownerEmail: "owner@example.test",
+      orgId: "org-1",
+      factoryId: "factory-1",
+    });
+    const github = governanceGitHub({
+      currentApproval: true,
+      changedFiles: ["src/change.ts"],
+    });
+
+    await runGovernance(github);
+    await runGovernance(github);
+    const decisions = await db
+      .select({ id: triageDecisions.id, outcome: triageDecisions.outcome })
+      .from(triageDecisions)
+      .where(eq(triageDecisions.itemId, "item-1"));
+
+    expect(decisions).toHaveLength(2);
+    expect(decisions).toContainEqual({
+      id: governanceDecisionId(),
+      outcome: "auto_approve",
+    });
+    expect(decisions).toContainEqual({
+      id: manualDispositionId(),
+      outcome: "needs_manual",
+    });
   });
 
   it("records missing changed-file evidence without clearing reconciliation state", async () => {
@@ -339,7 +441,7 @@ describe("govern-factory-pull-request final check evidence", () => {
           reason: triageDecisions.reason,
         })
         .from(triageDecisions)
-        .where(eq(triageDecisions.id, "decision-1"))
+        .where(eq(triageDecisions.id, manualDispositionId()))
     )[0];
 
     expect(result).toMatchObject({ ok: true, action: "needs_manual" });
@@ -351,5 +453,24 @@ describe("govern-factory-pull-request final check evidence", () => {
       ),
     });
     expect(github.createPullRequestReview).not.toHaveBeenCalled();
+  });
+
+  it("preserves reconciliation-required status when governance declines approval", async () => {
+    await seedItem("reconciliation_required", false, DEFAULT_FACTORY_ID);
+    const github = governanceGitHub({
+      currentApproval: false,
+      changedFiles: ["src/change.ts"],
+    });
+
+    const result = await runGovernance(github, DEFAULT_FACTORY_ID);
+    const item = (
+      await db
+        .select({ status: triageItems.status })
+        .from(triageItems)
+        .where(eq(triageItems.id, "item-1"))
+    )[0];
+
+    expect(result).toMatchObject({ ok: true, action: "needs_manual" });
+    expect(item.status).toBe("reconciliation_required");
   });
 });
