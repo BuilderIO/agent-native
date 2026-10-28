@@ -8,12 +8,12 @@ import { getRequestUserEmail } from "../server/request-context.js";
 import type { McpServerConfig } from "./config.js";
 import { mergedConfigKey } from "./remote-store.js";
 
-const resolveWorkspaceConnectionForApp = vi.hoisted(() => vi.fn());
+const resolveWorkspaceConnectionsForApp = vi.hoisted(() => vi.fn());
 const resolveOAuthAccessToken = vi.hoisted(() => vi.fn());
 const createProviderApiRuntime = vi.hoisted(() => vi.fn());
 
 vi.mock("../workspace-connections/store.js", () => ({
-  resolveWorkspaceConnectionForApp,
+  resolveWorkspaceConnectionsForApp,
 }));
 vi.mock("../provider-api/index.js", () => ({ createProviderApiRuntime }));
 
@@ -29,9 +29,26 @@ const hubspotKey = mergedConfigKey(
   alice.userEmail,
 );
 
+function hubspotConnection(
+  id: string,
+  overrides: {
+    ownerEmail?: string;
+    scope?: string;
+    status?: string;
+  } = {},
+) {
+  return {
+    id,
+    provider: "hubspot",
+    status: overrides.status ?? "connected",
+    ownerEmail: overrides.ownerEmail ?? "alice@example.com",
+    config: { workspaceConnectionScope: overrides.scope ?? "user" },
+  };
+}
+
 beforeEach(() => {
   defineAppConfig({ app: { id: "crm", workspaceId: "crm" } });
-  resolveWorkspaceConnectionForApp.mockReset();
+  resolveWorkspaceConnectionsForApp.mockReset();
   resolveOAuthAccessToken.mockReset();
   createProviderApiRuntime
     .mockReset()
@@ -43,20 +60,17 @@ afterEach(() => {
 });
 
 describe("addWorkspaceConnectionMcpServers", () => {
-  it("adds HubSpot MCP for the caller's own connection, with no stored token", async () => {
-    resolveWorkspaceConnectionForApp.mockResolvedValue({
-      available: true,
-      connection: { id: "hubspot-alice" },
-    });
+  it("adds HubSpot MCP for the caller's own personal connection, with no stored token", async () => {
+    resolveWorkspaceConnectionsForApp.mockResolvedValue([
+      hubspotConnection("hubspot-alice"),
+    ]);
     const servers: Record<string, McpServerConfig> = {};
 
     await addWorkspaceConnectionMcpServers(servers, alice);
 
-    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith({
+    expect(resolveWorkspaceConnectionsForApp).toHaveBeenCalledWith({
       appId: "crm",
       provider: "hubspot",
-      connectionOwnerEmail: "alice@example.com",
-      requireConnected: true,
     });
     expect(servers[hubspotKey]).toMatchObject({
       type: "http",
@@ -72,12 +86,13 @@ describe("addWorkspaceConnectionMcpServers", () => {
     expect(servers[hubspotKey]).not.toHaveProperty("headers");
   });
 
-  it("adds nothing without a connection the caller owns", async () => {
-    resolveWorkspaceConnectionForApp.mockResolvedValue({
-      available: false,
-      connection: null,
-      reason: "No HubSpot connection.",
-    });
+  it("never uses an organization or app connection, even one the caller created", async () => {
+    resolveWorkspaceConnectionsForApp.mockResolvedValue([
+      hubspotConnection("hubspot-org", { scope: "organization" }),
+      hubspotConnection("hubspot-app", { scope: "app" }),
+      hubspotConnection("hubspot-bob", { ownerEmail: "bob@example.com" }),
+      hubspotConnection("hubspot-stale", { status: "needs_reauth" }),
+    ]);
     const servers: Record<string, McpServerConfig> = {};
 
     await addWorkspaceConnectionMcpServers(servers, alice);
@@ -85,29 +100,63 @@ describe("addWorkspaceConnectionMcpServers", () => {
     expect(servers).toEqual({});
   });
 
-  it("keeps a HubSpot MCP server the user already added instead of duplicating it", async () => {
+  it("picks the personal connection when the caller also created a shared one", async () => {
+    resolveWorkspaceConnectionsForApp.mockResolvedValue([
+      hubspotConnection("hubspot-org", { scope: "organization" }),
+      hubspotConnection("hubspot-alice"),
+    ]);
+    const servers: Record<string, McpServerConfig> = {};
+
+    await addWorkspaceConnectionMcpServers(servers, alice);
+
+    expect(servers[hubspotKey]).toMatchObject({
+      workspaceConnection: { connectionId: "hubspot-alice" },
+    });
+  });
+
+  it("keeps a server already configured for the same endpoint", async () => {
     const servers: Record<string, McpServerConfig> = {
       user_abc_hubspot: { type: "http", url: "https://mcp.hubspot.com/" },
     };
 
     await addWorkspaceConnectionMcpServers(servers, alice);
 
-    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+    expect(resolveWorkspaceConnectionsForApp).not.toHaveBeenCalled();
     expect(Object.keys(servers)).toEqual(["user_abc_hubspot"]);
   });
 
-  it("leaves HubSpot out, without failing, when the connection can't be read", async () => {
-    resolveWorkspaceConnectionForApp.mockRejectedValue(new Error("db down"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("still adds HubSpot MCP beside a different hubspot.com server", async () => {
+    resolveWorkspaceConnectionsForApp.mockResolvedValue([
+      hubspotConnection("hubspot-alice"),
+    ]);
+    const servers: Record<string, McpServerConfig> = {
+      user_abc_other: { type: "http", url: "https://dev.hubspot.com/mcp" },
+    };
+
+    await addWorkspaceConnectionMcpServers(servers, alice);
+
+    expect(servers[hubspotKey]).toMatchObject({
+      workspaceConnection: { connectionId: "hubspot-alice" },
+    });
+  });
+
+  it("reports an unreadable connection on the server instead of dropping it", async () => {
+    resolveWorkspaceConnectionsForApp.mockRejectedValue(new Error("db down"));
     const servers: Record<string, McpServerConfig> = {};
 
     await expect(
       addWorkspaceConnectionMcpServers(servers, alice),
     ).resolves.toBeUndefined();
 
-    expect(servers).toEqual({});
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
+    const server = servers[hubspotKey];
+    expect(server).toMatchObject({
+      type: "http",
+      url: "https://mcp.hubspot.com",
+    });
+    expect(server).not.toHaveProperty("workspaceConnection");
+    expect(
+      server?.type === "http" ? server.configurationError?.message : undefined,
+    ).toMatch(/could not be read/);
   });
 });
 

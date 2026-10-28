@@ -7,7 +7,7 @@
 import { getAppConfig } from "../app-config/index.js";
 import type { ProviderApiId } from "../provider-api/index.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { mcpServerUrlMatchesProvider } from "../shared/mcp-provider-hosts.js";
+import { normalizeMcpUrl } from "../shared/mcp-provider-hosts.js";
 import type { McpHttpServerConfig, McpServerConfig } from "./config.js";
 import type { McpPrincipal } from "./principal.js";
 import { mergedConfigKey } from "./remote-store.js";
@@ -36,11 +36,12 @@ function currentAppId(): string | null {
 }
 
 /**
- * Add one MCP server per provider whose workspace connection is the
- * principal's own and is granted to this app. Organization-shared and other
- * users' connections never qualify, so an MCP call always acts as the caller.
- * A server the user already added for the same provider wins, so tools are
- * not duplicated.
+ * Add one MCP server per provider for which the principal has a connected
+ * personal workspace connection granted to this app. Organization- and
+ * app-scoped connections never qualify, even ones the principal created: they
+ * may have been authorized as another provider user, and an MCP call must act
+ * as the caller. A server already configured for the same endpoint wins, so
+ * tools are not duplicated.
  */
 export async function addWorkspaceConnectionMcpServers(
   servers: Record<string, McpServerConfig>,
@@ -48,42 +49,16 @@ export async function addWorkspaceConnectionMcpServers(
 ): Promise<void> {
   const appId = currentAppId();
   if (!appId) return;
-  const { resolveWorkspaceConnectionForApp } =
+  const { resolveWorkspaceConnectionsForApp } =
     await import("../workspace-connections/store.js");
+  const caller = principal.userEmail.trim().toLowerCase();
   for (const [provider, url] of WORKSPACE_CONNECTION_MCP_SERVERS) {
     const alreadyConfigured = Object.values(servers).some(
       (server) =>
         server.type === "http" &&
-        mcpServerUrlMatchesProvider(provider, server.url) === true,
+        normalizeMcpUrl(server.url) === normalizeMcpUrl(url),
     );
     if (alreadyConfigured) continue;
-    let connectionId: string | null = null;
-    try {
-      const resolved = await runWithRequestContext(
-        {
-          userEmail: principal.userEmail,
-          ...(principal.orgId ? { orgId: principal.orgId } : {}),
-        },
-        () =>
-          resolveWorkspaceConnectionForApp({
-            appId,
-            provider,
-            connectionOwnerEmail: principal.userEmail,
-            requireConnected: true,
-          }),
-      );
-      if (resolved.available && resolved.connection) {
-        connectionId = resolved.connection.id;
-      }
-    } catch (error) {
-      // An unreadable connection must not take down every other MCP server.
-      console.warn(
-        `[mcp-client] Skipped the ${provider} MCP server: its workspace connection could not be read.`,
-        error instanceof Error ? error.message : error,
-      );
-      continue;
-    }
-    if (!connectionId) continue;
     const key = mergedConfigKey(
       "user",
       {
@@ -94,10 +69,42 @@ export async function addWorkspaceConnectionMcpServers(
       },
       principal.userEmail,
     );
+    const description = `${provider} through your ${provider} workspace connection`;
+    let connectionId: string | null = null;
+    try {
+      const connections = await runWithRequestContext(
+        {
+          userEmail: principal.userEmail,
+          ...(principal.orgId ? { orgId: principal.orgId } : {}),
+        },
+        () => resolveWorkspaceConnectionsForApp({ appId, provider }),
+      );
+      connectionId =
+        connections.find(
+          (connection) =>
+            connection.status === "connected" &&
+            connection.ownerEmail.trim().toLowerCase() === caller &&
+            connection.config.workspaceConnectionScope === "user",
+        )?.id ?? null;
+    } catch (error) {
+      // Keep other MCP servers working, but report this one as unreadable
+      // rather than as an absent connection.
+      servers[key] = {
+        type: "http",
+        url,
+        description,
+        configurationError: new Error(
+          `The ${provider} workspace connection could not be read.`,
+          { cause: error },
+        ),
+      };
+      continue;
+    }
+    if (!connectionId) continue;
     servers[key] = {
       type: "http",
       url,
-      description: `${provider} through your ${provider} workspace connection`,
+      description,
       workspaceConnection: {
         provider,
         connectionId,
