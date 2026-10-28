@@ -4664,11 +4664,18 @@ export function App({
   function revealPopoverUnlessStarted(
     start: Promise<RecorderHandle | null> | undefined,
   ) {
-    void start
-      ?.catch(() => null)
-      .then((handle) => {
-        if (!handle) invoke("show_popover").catch(() => {});
-      });
+    const revealPopover = () => {
+      invoke("show_popover").catch(() => {});
+    };
+    void start?.then(
+      (handle) => {
+        if (!handle) revealPopover();
+      },
+      (error: unknown) => {
+        console.error("[clips] recording start failed:", error);
+        revealPopover();
+      },
+    );
   }
 
   function closeReadyToRecord() {

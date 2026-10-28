@@ -102,7 +102,7 @@ export function isReadyToRecordToggle(
   return value === "camera" || value === "mic" || value === "systemAudio";
 }
 
-export function sourceLabel(source: CaptureSource): string {
+export function captureSourceLabel(source: CaptureSource): string {
   switch (source) {
     case "full-screen":
       return "Full screen";

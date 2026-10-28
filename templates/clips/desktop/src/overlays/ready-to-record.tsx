@@ -19,7 +19,7 @@ import {
   cursorEffectsAvailability,
   DEFAULT_CURSOR_EFFECTS,
   onOffLabel,
-  sourceLabel,
+  captureSourceLabel,
   type CursorEffectsConfig,
   type ReadyToRecordState,
   type ReadyToRecordToggle,
@@ -341,7 +341,7 @@ export function ReadyToRecord() {
 
         <footer className="rtr-footer">
           <span className="rtr-hint">
-            {state ? `${sourceLabel(state.source)} · ` : ""}Esc to cancel
+            {state ? `${captureSourceLabel(state.source)} · ` : ""}Esc to cancel
           </span>
           <button
             type="button"
