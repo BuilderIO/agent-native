@@ -176,6 +176,30 @@ describe("createDraftOutlines", () => {
     expect(reveals(three as Element)[0]?.options.delay).toBe(318);
   });
 
+  it("never queues an arrival more than the sequence cap behind", () => {
+    const container = build(
+      Array.from({ length: 100 }, (_, i) => `<div>${i}</div>`).join(""),
+    );
+    const drafts = createDraftOutlines(container, "blue");
+    for (const element of Array.from(container.children)) {
+      drafts.track(element);
+    }
+
+    const delays = animations
+      .filter((animation) => animation.options.fill === "backwards")
+      .map((animation) => animation.options.delay ?? 0);
+    // 100 arrivals 55ms apart would reach 5.4s; the queue stops at 3.2s.
+    expect(Math.max(...delays)).toBe(3200 + 208);
+    expect(delays[58]).toBe(58 * 55 + 208);
+
+    // A later arrival is measured from its own arrival time.
+    clock = 10_000;
+    const late = document.createElement("div");
+    container.appendChild(late);
+    drafts.track(late);
+    expect(reveals(late)[0]?.options.delay).toBe(208);
+  });
+
   it("compresses long sibling lists so the last one starts promptly", () => {
     const items = Array.from({ length: 41 }, (_, i) => `<li>${i}</li>`).join(
       "",

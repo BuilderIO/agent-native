@@ -232,11 +232,12 @@ export function createDraftOutlines(
   return {
     track: (element) => {
       const now = view.performance.now();
-      const startAt = Math.max(now, cursor);
       // Elements arriving together (a streamed chunk, a runtime rendering a
-      // list) queue up in document order instead of firing at once.
+      // list) queue up in document order instead of firing at once, but no
+      // element starts later than MAX_SEQUENCE_MS after it arrived.
+      const startAt = Math.min(Math.max(now, cursor), now + MAX_SEQUENCE_MS);
       cursor = startAt + SIBLING_MS;
-      schedule(element, startAt, startAt, now);
+      schedule(element, startAt, now, now);
       if (!frame && live.size > 0) frame = view.requestAnimationFrame(tick);
     },
     dispose: () => {
