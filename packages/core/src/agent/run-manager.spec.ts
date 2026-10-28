@@ -5365,6 +5365,7 @@ describe("run manager soft timeout", () => {
     }
   });
 
+  // raw-sql-ok: This test passes error codes and run IDs, not SQL.
   it.each([
     [
       RUN_BUDGET_EXHAUSTED_ERROR_CODE,
@@ -5382,9 +5383,10 @@ describe("run manager soft timeout", () => {
       const events: AgentChatEvent[] = [];
 
       try {
+        // raw-sql-ok: These interpolated values are run and thread IDs.
         const run = startRun(
-          "run-incomplete-" + code + "-no-capture",
-          "thread-incomplete-" + code + "-no-capture",
+          `run-incomplete-${code}-no-capture`,
+          `thread-incomplete-${code}-no-capture`,
           async () => {
             throw new IncompleteAgentRunError(
               { code, message },
