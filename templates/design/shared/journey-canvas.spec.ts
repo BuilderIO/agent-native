@@ -820,6 +820,27 @@ describe("create-journey-canvas input", () => {
       frames: [frame("design::step::variant", 0, { sourceApp: "design" })],
     });
     expect(problems(legacyTripleKey)).toEqual([]);
+
+    const mismatchedCohortKey = rawInput({
+      layoutMode: "appBands",
+      tree: {
+        ...base.tree,
+        app: "all",
+        rootN: 1,
+        appRootN: { "design::control": 1 },
+        nodes: [
+          node("design::control::step", null, 1, {
+            cohortKey: "credits",
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+        ],
+      },
+      frames: [frame("design::control::step", 0, { sourceApp: "design" })],
+    });
+    expect(problems(mismatchedCohortKey).join("\n")).toContain(
+      "The cohortKey must match the app::cohort prefix in the node key.",
+    );
   });
 
   it("supports independent cohort bands from one source app", () => {

@@ -614,6 +614,15 @@ export const createJourneyCanvasInputSchema = z
           );
           return;
         }
+        if (
+          node.cohortKey &&
+          encodedAppBandCohortKey(node.key) !== node.cohortKey
+        ) {
+          issue(
+            ["tree", "nodes", index, "cohortKey"],
+            "The cohortKey must match the app::cohort prefix in the node key.",
+          );
+        }
         bands.add(band);
         if (node.parentKey !== null) {
           const parentIndex = byKey.get(node.parentKey);
@@ -1615,6 +1624,13 @@ function cardHeaderHeight(
 
 function appKeyForNode(nodeKey: string): string | null {
   return /^([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[1] ?? null;
+}
+
+function encodedAppBandCohortKey(nodeKey: string): string | null {
+  return (
+    /^([a-z][a-z0-9-]{0,127})::([a-z][a-z0-9-]{0,127})::/.exec(nodeKey)?.[2] ??
+    null
+  );
 }
 
 function appBandKeyForNode(
