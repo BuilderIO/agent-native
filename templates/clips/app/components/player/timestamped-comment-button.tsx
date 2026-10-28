@@ -231,9 +231,8 @@ function TimestampedCommentFields({
   return (
     <div
       data-player-ui
-      // Fullscreen puts this in the player beside its z-40 playback comment
-      // cards, which must not cover the open composer's rows and buttons.
-      className={cn("absolute inset-x-0 bottom-0 z-50 p-3 sm:p-4", className)}
+      // Fullscreen puts this beside z-40 playback cards and the z-50 CTA.
+      className={cn("absolute inset-x-0 bottom-0 z-[45] p-3 sm:p-4", className)}
     >
       <div className="mx-auto w-full max-w-lg rounded-xl bg-background/95 p-2 shadow-lg ring-1 ring-foreground/10 backdrop-blur">
         {failedSends.length > 0 ? (
