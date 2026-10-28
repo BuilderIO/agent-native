@@ -21,7 +21,12 @@
  * - verifying the user is a member of `spaceId` with the right role;
  * - mapping the Builder space onto a Design org for sharing/RBAC.
  */
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core/action";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
@@ -61,6 +66,20 @@ function allowedFirebaseProjects(token: string): string[] {
   // against Google's keys, so this pins "a real Firebase token", not "Builder".
   const aud = decodeJwt(token).aud;
   return typeof aud === "string" ? [aud] : [];
+}
+
+/**
+ * The owner key Design uses for a Builder user. Design keys everything it
+ * stores by the session's email, so using the Builder email would merge a
+ * Builder user into any Design account that shares it, and orphan their work
+ * when they change email. The key is derived from the stable Builder uid
+ * instead, so Builder users never share an account with anyone else. It is
+ * not a deliverable address (`.invalid`), and is lowercase so the places that
+ * normalize emails cannot make two users collide.
+ */
+export function builderOwnerEmail(uid: string): string {
+  const digest = createHash("sha256").update(uid).digest("hex").slice(0, 32);
+  return `b-${digest}@builder-identity.invalid`;
 }
 
 export interface BuilderIdentity {
@@ -149,7 +168,7 @@ export function rememberDelegatedCredential(
   token: string,
 ): void {
   const exp = decodeJwt(token).exp;
-  delegatedCredentials.set(identity.email.toLowerCase(), {
+  delegatedCredentials.set(builderOwnerEmail(identity.uid), {
     token,
     uid: identity.uid,
     spaceId: identity.spaceId,
@@ -345,9 +364,10 @@ export async function getBuilderIdentitySession(event: H3Event) {
   const identity = cookie ? decodeIdentityCookie(cookie) : null;
   if (!identity) return null;
   return {
-    email: identity.email,
+    email: builderOwnerEmail(identity.uid),
     userId: `builder:${identity.uid}`,
-    name: identity.name,
+    // The Builder email is for display only, never an owner key.
+    name: identity.name ?? identity.email,
     emailVerified: true,
   };
 }
