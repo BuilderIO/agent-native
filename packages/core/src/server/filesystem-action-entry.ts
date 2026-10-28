@@ -88,6 +88,9 @@ export function preserveActionFlags(
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
+  if (typeof entry.eagerInputStreaming === "boolean") {
+    out.eagerInputStreaming = entry.eagerInputStreaming;
+  }
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }
