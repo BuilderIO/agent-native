@@ -18,7 +18,8 @@ Review the newest relevant human pull requests in `BuilderIO/agent-native`.
 Under the default internal-author policy below, approve eligible fixes from
 verified BuilderIO organization members. Never approve an external or
 unverified author. When Steve explicitly gives the blanket instruction defined
-below, follow that instruction over conflicting default approval gates.
+below, follow that instruction over ordinary approval gates; the non-waivable
+safeguards in this skill still apply.
 
 Approval and merge readiness are separate. **Ready for Steve's final maintainer
 approval/merge** means implementation is complete, required checks have passed,
@@ -78,8 +79,9 @@ evidence sweep below. For PRs with a verified eligible current-head approval and
 no newer event, skip duplicate code review but check merge readiness and merge
 only when Steve explicitly requested that merge. Eligible Liam PRs with only
 older-head approvals enter the sweep so the current head can be reviewed. The
-blanket approval instruction below uses its own approval-only path and does not
-require the full evidence sweep.
+blanket approval instruction may waive ordinary approval gates, but it does not
+bypass the complete diff and safety review. It need not produce a readiness
+disposition or a full-sweep recap.
 
 For every PR you inspect, read:
 
@@ -114,14 +116,24 @@ the patch looks safe or the issue is obviously valid.
 ## Explicit blanket approval instruction
 
 When Steve explicitly says “approve all BuilderIO member PRs” or gives an
-equivalent blanket instruction, approve every currently open, non-draft PR in
+equivalent blanket instruction, approve each currently open, non-draft PR in
 `BuilderIO/agent-native` authored by a human whose current BuilderIO membership
 has been verified. Exclude all bot-authored PRs and the exact login
-`steve8708`. This direct instruction overrides every conflicting default in
-this skill, including ordinary check, review-feedback, UX-owner,
-independent-review, ultra-scary safety, and narrower author-specific approval
-gates. Do not omit or merely flag an eligible PR because one of those gates
-would otherwise apply.
+`steve8708`. This direct instruction overrides ordinary approval gates,
+including check, review-feedback, UX-owner, and narrower author-specific gates.
+It does not waive membership verification, the external-author prohibition,
+the ultra-scary safety gate, or the independent-review requirement for PRs
+changing review or approval policy, agent-safety instructions, membership
+verification, or CI/deployment security controls. Active credible safety
+findings remain approval-blocking. If a non-waivable gate applies, do not
+approve that PR; report the exact gate.
+
+Before approving, inspect the complete changed-file list and diff, current
+review findings, and current check results needed to identify non-waivable
+safety concerns. The approval can serve as code-review evidence in a later
+readiness pass only because this path requires that full diff review; it remains
+reusable only under the reviewer eligibility, current-head, and no-newer-event
+rules above. Do not infer a code assessment from the blanket instruction alone.
 
 For each eligible PR, target its exact live head. Re-read the head immediately
 before acting; submit at most one approval for that head, and do not duplicate
@@ -129,9 +141,9 @@ an existing current-head approval. If the head changes, target the new live
 head. If membership or the exact current head cannot be verified, do not
 approve that PR and report the specific verification failure. This instruction
 authorizes approvals only: do not merge, comment, or reply unless Steve
-separately asks. Use this approval-only path without a full evidence sweep or a
-risk inventory; keep the recap to the approval outcomes and any verification
-exceptions unless Steve asks for more detail.
+separately asks. Keep the recap concise with approval outcomes and any
+verification or non-waivable safety exceptions; do not add an ordinary-gate or
+risk inventory unless Steve asks for more detail.
 
 ## External-contribution scope gate
 
