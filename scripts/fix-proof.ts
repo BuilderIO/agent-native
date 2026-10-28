@@ -54,6 +54,12 @@ function run(): { status: number; signal: string | null; tail: string } {
 }
 
 if (command.length === 0) couldNotRun("pass the check after `--`");
+// The proof line joins the command with spaces and CI splits it back, so an
+// argument with whitespace would re-run as a different check.
+if (command.some((arg) => /\s/.test(arg)))
+  couldNotRun(
+    "an argument contains whitespace, which the proof line can't carry; use a pattern without spaces or a script",
+  );
 if (
   realpathSync(git("rev-parse", "--show-toplevel").trim()) !==
   realpathSync(process.cwd())

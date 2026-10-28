@@ -36,4 +36,5 @@ jobs:
       - name: Re-run each report's proof
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: node --experimental-strip-types --no-warnings scripts/feedback-fix-proof.ts

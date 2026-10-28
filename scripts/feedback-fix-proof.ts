@@ -11,6 +11,9 @@
 //
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
 //
+// Each proof's fix commit must be on this branch and not on its base
+// (BASE_SHA, or the merge-base with origin/main).
+//
 // Exit 0: every report proven. Exit 1: a report has no proof, or a proof
 // did not hold on re-run. Exit 2: could not run.
 import { spawnSync } from "node:child_process";
@@ -24,12 +27,15 @@ const PROVEN =
 
 export function parseReports(body: string): Report[] | null {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => /^##\s+Reports\s*$/.test(line));
+  const start = lines.findIndex((line) => /^#{2,6}\s+Reports\b/.test(line));
   if (start === -1) return null;
   const reports: Report[] = [];
   for (const line of lines.slice(start + 1)) {
-    if (/^#{1,2}\s/.test(line)) break;
-    const link = /^[-*]\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
+    if (/^#{1,6}\s/.test(line)) break;
+    // A list item (bulleted or numbered) or a bare URL starts a report.
+    const link =
+      /^(?:[-*+]|\d+[.)])\s.*?(https?:\/\/[^\s)>]+)/.exec(line)?.[1] ??
+      /^(https?:\/\/[^\s)>]+)/.exec(line)?.[1];
     if (link) {
       reports.push({ link, proven: [], visual: false });
       continue;
@@ -38,7 +44,8 @@ export function parseReports(body: string): Report[] | null {
     if (!report) continue;
     const proof = PROVEN.exec(line.replace(/`/g, "").trim());
     if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
-    else if (/^\s*visual:\s*\S+/.test(line)) report.visual = true;
+    else if (/^\s*visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(line))
+      report.visual = true;
   }
   return reports;
 }
@@ -50,6 +57,12 @@ function main() {
     process.exit(2);
   }
   const reports = parseReports(body);
+  if (!reports && body.includes("## Reports")) {
+    console.error(
+      "feedback-fix-proof: could not run: the body mentions `## Reports` but has no `## Reports` heading line",
+    );
+    process.exit(2);
+  }
   if (!reports) {
     console.log(
       "feedback-fix-proof: no `## Reports` section; nothing to check",
@@ -69,12 +82,31 @@ function main() {
       `NO PROOF: ${r.link} (add a fix-proof or visual: line under it)`,
     );
 
+  const base =
+    process.env.BASE_SHA ||
+    spawnSync("git", ["merge-base", "HEAD", "origin/main"], {
+      encoding: "utf8",
+    }).stdout.trim();
+  if (!base) {
+    console.error(
+      "feedback-fix-proof: could not run: set BASE_SHA or fetch origin/main",
+    );
+    process.exit(2);
+  }
+  const isAncestor = (a: string, b: string) =>
+    spawnSync("git", ["merge-base", "--is-ancestor", a, b]).status === 0;
+
   let worst = missing.length ? 1 : 0;
   for (const proof of new Set(reports.flatMap((r) => r.proven))) {
     const [fix, command] = proof.split("\t");
+    if (!isAncestor(fix, "HEAD") || isAncestor(fix, base)) {
+      console.log(`NOT IN THIS PR: proof commit ${fix} is not on this branch`);
+      worst = Math.max(worst, 1);
+      continue;
+    }
     console.log(`\n=== re-running proof for ${fix}: ${command}`);
-    // Split on spaces, like fix-proof prints it; a proof command can't rely
-    // on shell quoting.
+    // fix-proof refuses arguments with whitespace, so splitting on it
+    // round-trips the command it printed.
     const r = spawnSync(
       process.execPath,
       [

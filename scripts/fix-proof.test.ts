@@ -45,6 +45,8 @@ unlinkSync(join(repo, "link.txt"));
 symlinkSync(outside, join(repo, "link.txt"));
 write("check.sh", "grep -q fixed app.txt\n");
 write("check-input.sh", 'grep -q fixed "$1"\n');
+write("check-log.sh", "touch out.log; grep -q fixed app.txt\n");
+write("interrupted.sh", "exit 130\n");
 write("input.txt", "fixed\n");
 write("app.test.ts", "check\n");
 sh("git", "add", "-A");
@@ -100,7 +102,7 @@ describe("fix-proof", () => {
   });
 
   it("ignores untracked files the check writes", () => {
-    const r = proof("sh", "-c", "touch out.log; grep -q fixed app.txt");
+    const r = proof("sh", "check-log.sh");
     rmSync(join(repo, "out.log"));
     assert.equal(r.status, 0, r.stdout + r.stderr);
   });
@@ -147,7 +149,15 @@ describe("fix-proof", () => {
   });
 
   it("cannot run when the check was interrupted", () => {
-    assert.equal(proof("sh", "-c", "exit 130").status, 2);
+    const r = proof("sh", "interrupted.sh");
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /interrupted/);
+  });
+
+  it("cannot run a check with an argument containing whitespace", () => {
+    const r = proof("grep", "-q", "fixed app", "app.txt");
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /whitespace/);
   });
 
   it("rejects a check that fails on HEAD", () => {

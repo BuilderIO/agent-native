@@ -19,6 +19,7 @@ git("config", "user.name", "t");
 writeFileSync(join(repo, "app.txt"), "broken\n");
 git("add", "-A");
 git("commit", "-qm", "base");
+const base = git("rev-parse", "--short=9", "HEAD");
 writeFileSync(join(repo, "app.txt"), "fixed\n");
 git("add", "-A");
 git("commit", "-qm", "fix");
@@ -30,7 +31,7 @@ const gate = (body: string) =>
   spawnSync(process.execPath, [SCRIPT], {
     cwd: repo,
     encoding: "utf8",
-    env: { ...process.env, PR_BODY: body },
+    env: { ...process.env, PR_BODY: body, BASE_SHA: base },
   });
 
 describe("parseReports", () => {
@@ -68,6 +69,28 @@ describe("parseReports", () => {
     ]);
   });
 
+  it("reads numbered and bare-URL reports under a decorated heading", () => {
+    const reports = parseReports(
+      [
+        "## Reports (3)",
+        "1. https://app.slack.com/a",
+        "  visual: n/a",
+        "https://app.slack.com/b",
+        "  visual: https://example.com/after.png",
+        "- https://app.slack.com/c",
+        "  visual: https://example.com/before.png https://example.com/after.png",
+      ].join("\n"),
+    );
+    assert.deepEqual(
+      reports?.map((r) => [r.link, r.visual]),
+      [
+        ["https://app.slack.com/a", false],
+        ["https://app.slack.com/b", false],
+        ["https://app.slack.com/c", true],
+      ],
+    );
+  });
+
   it("returns null without a Reports section", () => {
     assert.equal(parseReports("## Summary\n- https://example.com"), null);
   });
@@ -91,6 +114,18 @@ describe("feedback-fix-proof", () => {
     const r = gate(`## Reports\n- https://app.slack.com/a\n${proven("true")}`);
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /also passes without the fix/);
+  });
+
+  it("fails a proof whose commit is not on this branch", () => {
+    const r = gate(
+      `## Reports\n- https://app.slack.com/a\n${proven("grep -q fixed app.txt").replace(fix, base)}`,
+    );
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /NOT IN THIS PR/);
+  });
+
+  it("cannot run when Reports is mentioned but not a heading", () => {
+    assert.equal(gate("see ## Reports below\n").status, 2);
   });
 
   it("cannot run on a Reports section with no links", () => {
