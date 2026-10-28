@@ -3178,14 +3178,17 @@ export default function DeckEditor() {
     slides: deck?.slides ?? [],
     blankContent: defaultSlideContent.blank,
   });
+  // A slide streaming in shows whichever chat asked for it, including an
+  // add-slide on an existing deck from the main chat.
+  const streamingSlideActive = streamedSlides.length > 0;
   const generatingSlideVisible =
     canEdit &&
     (isNewDeckGenerating ||
-      (addSlideGenerating && !fillingPlaceholderSlideId) ||
+      ((addSlideGenerating || streamingSlideActive) &&
+        !fillingPlaceholderSlideId) ||
       showNewDeckGeneratingOverlay);
   // While the user stays on the newest slide, the canvas follows the slide the
   // agent is writing, from its first streamed burst until its draft settles.
-  const streamingSlideActive = streamedSlides.length > 0;
   const [canvasFollowsStream, setCanvasFollowsStream] = useState(false);
   const [followedStream, setFollowedStream] = useState(false);
   if (streamingSlideActive !== followedStream) {

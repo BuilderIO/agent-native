@@ -19,6 +19,7 @@ export {
 } from "./dom-morph.js";
 export {
   buildStreamingFrameDocument,
+  connectStreamingFrame,
   isStreamingFrameReadyMessage,
   postStreamingFrameHtml,
   SKELETON_ATTRIBUTE,

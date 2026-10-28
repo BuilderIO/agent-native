@@ -1,5 +1,6 @@
 import {
   buildStreamingFrameDocument,
+  connectStreamingFrame,
   isStreamingFrameReadyMessage,
   postStreamingFrameHtml,
   renderableHtmlPrefix,
@@ -41,7 +42,9 @@ export function StreamingHtmlFrame({
   style,
 }: StreamingHtmlFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const readyRef = useRef(false);
+  // The private channel to the document this component wrote; null until it
+  // is ready, and again once the frame navigates away.
+  const portRef = useRef<MessagePort | null>(null);
   const renderable = useMemo(() => renderableHtmlPrefix(html), [html]);
   const latestRef = useRef(renderable);
   latestRef.current = renderable;
@@ -54,13 +57,12 @@ export function StreamingHtmlFrame({
     [baseHref, token],
   );
   // How many times the frame has loaded this document. The first load is the
-  // document itself; any later one means a script navigated the frame away,
-  // and nothing may be posted to whatever it loaded.
+  // document itself; any later one means a script navigated the frame away.
   const loadsRef = useRef(0);
   const navigatedRef = useRef(false);
 
   const accentRef = useRef<string | undefined>(accent);
-  const send = (frame: HTMLIFrameElement, value: string) => {
+  const send = (frame: HTMLIFrameElement, port: MessagePort, value: string) => {
     if (!accentRef.current) {
       accentRef.current =
         getComputedStyle(frame)
@@ -68,20 +70,27 @@ export function StreamingHtmlFrame({
           .trim() || undefined;
     }
     sentRef.current = value;
-    postStreamingFrameHtml(frame, value, { accent: accentRef.current });
+    postStreamingFrameHtml(port, value, { accent: accentRef.current });
+  };
+
+  const closePort = () => {
+    portRef.current?.close();
+    portRef.current = null;
   };
 
   const markReady = () => {
     const frame = frameRef.current;
-    if (!frame || navigatedRef.current || readyRef.current) return;
-    readyRef.current = true;
-    if (sentRef.current !== latestRef.current) send(frame, latestRef.current);
+    if (!frame || navigatedRef.current || portRef.current) return;
+    const port = connectStreamingFrame(frame);
+    if (!port) return;
+    portRef.current = port;
+    send(frame, port, latestRef.current);
   };
 
   // A layout effect, so the listener is in place before the new document can
   // post that it is ready; a passive effect could miss that one message.
   useLayoutEffect(() => {
-    readyRef.current = false;
+    closePort();
     sentRef.current = null;
     loadsRef.current = 0;
     navigatedRef.current = false;
@@ -91,7 +100,10 @@ export function StreamingHtmlFrame({
       }
     };
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      closePort();
+    };
   }, [shell, token]);
 
   const onLoad = () => {
@@ -103,20 +115,14 @@ export function StreamingHtmlFrame({
       return;
     }
     navigatedRef.current = true;
-    readyRef.current = false;
+    closePort();
   };
 
   useEffect(() => {
     const frame = frameRef.current;
-    if (
-      !frame ||
-      !readyRef.current ||
-      navigatedRef.current ||
-      sentRef.current === renderable
-    ) {
-      return;
-    }
-    send(frame, renderable);
+    const port = portRef.current;
+    if (!frame || !port || sentRef.current === renderable) return;
+    send(frame, port, renderable);
   }, [renderable]);
 
   return (

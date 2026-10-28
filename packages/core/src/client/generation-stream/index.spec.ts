@@ -15,6 +15,7 @@ describe("@agent-native/core/client/generation-stream", () => {
         "TOOL_DONE_EVENT",
         "TOOL_INPUT_EVENT",
         "buildStreamingFrameDocument",
+        "connectStreamingFrame",
         "createDraftOutlines",
         "isJsonStringComplete",
         "isStreamingFrameReadyMessage",

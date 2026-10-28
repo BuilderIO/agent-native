@@ -13,6 +13,8 @@ export const STREAMING_FRAME_MESSAGE = "agent-native:streaming-frame";
 export const SKELETON_ATTRIBUTE = "data-skeleton";
 export const STREAMING_FRAME_READY_MESSAGE =
   "agent-native:streaming-frame-ready";
+export const STREAMING_FRAME_CONNECT_MESSAGE =
+  "agent-native:streaming-frame-connect";
 
 function escapeAttribute(value: string): string {
   return value
@@ -97,13 +99,28 @@ function frameScript(token: string): string {
       return live;
     });
   };
+  // Matched by text, not position: a script inserted before another must not
+  // make the one after it look changed and run twice.
   var syncBodyScripts = function (parsedBody) {
     var wanted = parsedBody.querySelectorAll("script");
-    Array.prototype.slice.call(document.body.querySelectorAll("script")).filter(function (node) {
+    var live = Array.prototype.slice.call(document.body.querySelectorAll("script")).filter(function (node) {
       return streamedNodes.has(node);
-    }).forEach(function (node, index) {
+    });
+    var ran = new Map();
+    live.forEach(function (node) {
+      var text = ranScripts.get(node);
+      if (text !== undefined) ran.set(text, (ran.get(text) || 0) + 1);
+    });
+    live.forEach(function (node, index) {
       var source = wanted[index];
-      if (source && ranScripts.get(node) !== source.text) runBodyScript(node, source);
+      if (!source) return;
+      var left = ran.get(source.text) || 0;
+      if (left > 0) {
+        ran.set(source.text, left - 1);
+        ranScripts.set(node, source.text);
+        return;
+      }
+      runBodyScript(node, source);
     });
   };
   var complete = function () {
@@ -191,11 +208,20 @@ function frameScript(token: string): string {
     if (completed) syncBodyScripts(parsed.body);
     else if (lower.indexOf("</html") !== -1) complete();
   };
+  // The parent hands over a private port once, and every document arrives on
+  // it. A page the frame is navigated to never holds the port, so it cannot
+  // receive what streams after the navigation.
+  var port = null;
   window.addEventListener("message", function (event) {
-    if (event.source !== window.parent) return;
+    if (port || event.source !== window.parent) return;
     var data = event.data;
-    if (!data || data.type !== ${JSON.stringify(STREAMING_FRAME_MESSAGE)} || typeof data.html !== "string") return;
-    apply(data.html, typeof data.accent === "string" ? data.accent : null);
+    if (!data || data.type !== ${JSON.stringify(STREAMING_FRAME_CONNECT_MESSAGE)} || !event.ports || !event.ports[0]) return;
+    port = event.ports[0];
+    port.onmessage = function (message) {
+      var update = message.data;
+      if (!update || update.type !== ${JSON.stringify(STREAMING_FRAME_MESSAGE)} || typeof update.html !== "string") return;
+      apply(update.html, typeof update.accent === "string" ? update.accent : null);
+    };
   });
   window.parent.postMessage({ type: ${JSON.stringify(STREAMING_FRAME_READY_MESSAGE)}, token: ${JSON.stringify(token)} }, "*");
 })();`;
@@ -226,22 +252,39 @@ export function buildStreamingFrameDocument(
 }
 
 /**
- * Sends the document so far. `accent` is a resolved CSS color; when present,
- * each new element's frame is drawn in it before the element fills in.
+ * Opens the private channel streamed documents travel on. Call it once, on
+ * the frame's ready message; the port only reaches the document that sent
+ * it, so nothing posted on it can reach a page the frame navigates to.
+ */
+export function connectStreamingFrame(
+  frame: HTMLIFrameElement,
+): MessagePort | null {
+  const target = frame.contentWindow;
+  if (!target) return null;
+  const channel = new MessageChannel();
+  // The frame is sandboxed without same-origin, so its origin is opaque. The
+  // port is the only thing sent this way.
+  target.postMessage({ type: STREAMING_FRAME_CONNECT_MESSAGE }, "*", [
+    channel.port2,
+  ]);
+  return channel.port1;
+}
+
+/**
+ * Sends the document so far over the frame's port. `accent` is a resolved
+ * CSS color; when present, each new element's frame is drawn in it before the
+ * element fills in.
  */
 export function postStreamingFrameHtml(
-  frame: HTMLIFrameElement,
+  port: MessagePort,
   html: string,
   options: { accent?: string | undefined } = {},
-): boolean {
-  const target = frame.contentWindow;
-  if (!target) return false;
-  // The frame is sandboxed without same-origin, so its origin is opaque.
-  target.postMessage(
-    { type: STREAMING_FRAME_MESSAGE, html, accent: options.accent },
-    "*",
-  );
-  return true;
+): void {
+  port.postMessage({
+    type: STREAMING_FRAME_MESSAGE,
+    html,
+    accent: options.accent,
+  });
 }
 
 export function isStreamingFrameReadyMessage(
