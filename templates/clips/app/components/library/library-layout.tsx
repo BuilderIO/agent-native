@@ -30,7 +30,6 @@ import {
   IconLayoutSidebarLeftExpand,
   IconShare,
   IconDots,
-  IconEdit,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
@@ -803,7 +802,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                             }, 0);
                                           }}
                                         >
-                                          <IconEdit className="me-2 size-3.5" />
                                           {t("spaceDialog.renameSpace")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
@@ -815,7 +813,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                           }}
                                           className="text-destructive"
                                         >
-                                          <IconTrash className="me-2 size-3.5" />
                                           {t("spaceDialog.deleteSpace")}
                                         </DropdownMenuItem>
                                       </DropdownMenuContent>
@@ -826,7 +823,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                               <ContextMenuContent>
                                 <ContextMenuItem asChild>
                                   <NavLink to={`/spaces/${s.id}`}>
-                                    <IconUsersGroup className="me-2 size-3.5" />
                                     {t("clipsFinalRaw.view")}
                                   </NavLink>
                                 </ContextMenuItem>
@@ -841,7 +837,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                         }, 0);
                                       }}
                                     >
-                                      <IconEdit className="me-2 size-3.5" />
                                       {t("spaceDialog.renameSpace")}
                                     </ContextMenuItem>
                                     <ContextMenuItem
@@ -853,7 +848,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                       }}
                                       className="text-destructive focus:text-destructive"
                                     >
-                                      <IconTrash className="me-2 size-3.5" />
                                       {t("spaceDialog.deleteSpace")}
                                     </ContextMenuItem>
                                   </>

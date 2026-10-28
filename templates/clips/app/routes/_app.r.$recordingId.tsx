@@ -67,7 +67,6 @@ import {
   IconCalendar,
   IconAlertTriangle,
   IconEdit,
-  IconHelpCircle,
   IconBolt,
   IconExternalLink,
   IconLayoutSidebarRightCollapse,
@@ -3370,20 +3369,8 @@ export default function RecordingPage() {
                           key={item.kind}
                           disabled={backgroundAiBusy}
                           onSelect={() => handleGenerateWorkflow(item.kind)}
-                          className={
-                            item.tooltipKey
-                              ? "justify-between gap-3"
-                              : undefined
-                          }
                         >
                           <span>{t(item.labelKey)}</span>
-                          {item.tooltipKey ? (
-                            // guard:allow-large-help-icon - menu item tooltip icon
-                            <IconHelpCircle
-                              aria-hidden="true"
-                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                            />
-                          ) : null}
                         </DropdownMenuItem>
                       );
 
