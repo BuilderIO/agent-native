@@ -414,6 +414,7 @@ export function createRealtimeVoicePreferenceUpdate(
       type: "session.update",
       session: {
         delegation: {
+          type: "responses",
           responses: {
             reasoning: {
               effort: realtimeVoiceReasoningEffort(
