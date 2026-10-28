@@ -42,6 +42,8 @@ export function createDraftOutlines(
   /** How long a drawn frame holds before it fades, once its box is still. */
   const HOLD_MS = 520;
   const SETTLE_MS = 240;
+  /** A frame fades by then even if its box never holds still (a CSS animation). */
+  const MAX_FRAME_MS = 2400;
   const FADE_MS = 300;
   const REVEAL_MS = 260;
   const GIVE_UP_MS = 2500;
@@ -155,9 +157,11 @@ export function createDraftOutlines(
       box.style.top = `${(rect.top - origin.top) / scaleY + scrollY}px`;
       box.style.width = `${width}px`;
       box.style.height = `${height}px`;
+      const expired = now - entry.shownAt > MAX_FRAME_MS;
       if (
-        Math.abs(width - entry.width) > 0.5 ||
-        Math.abs(height - entry.height) > 0.5
+        !expired &&
+        (Math.abs(width - entry.width) > 0.5 ||
+          Math.abs(height - entry.height) > 0.5)
       ) {
         entry.width = width;
         entry.height = height;
@@ -165,8 +169,9 @@ export function createDraftOutlines(
         return;
       }
       if (
-        now - entry.stableSince > SETTLE_MS &&
-        now - entry.shownAt > DRAW_MS + HOLD_MS
+        expired ||
+        (now - entry.stableSince > SETTLE_MS &&
+          now - entry.shownAt > DRAW_MS + HOLD_MS)
       ) {
         entry.leaving = true;
         const fade = box.animate([{ opacity: 1 }, { opacity: 0 }], {

@@ -310,6 +310,28 @@ describe("createDraftOutlines", () => {
     expect(animations.some((a) => a.target === box)).toBe(false);
   });
 
+  it("fades a frame whose box never holds still", () => {
+    const container = build("<section></section>");
+    const section = container.firstElementChild as Element;
+    place(section, 0, 0, 300, 200);
+    createDraftOutlines(container, "blue").track(section);
+
+    frameAt(10);
+    const [box] = boxes(container);
+    // A running CSS transform changes the measured box every frame.
+    for (let time = 26; time < 2400; time += 16) {
+      place(section, 0, 0, 300 + (time % 7), 200);
+      frameAt(time);
+    }
+    expect(animations.some((a) => a.target === box)).toBe(false);
+    place(section, 0, 0, 309, 200);
+    frameAt(2420);
+    expect(animations.find((a) => a.target === box)?.keyframes).toEqual([
+      { opacity: 1 },
+      { opacity: 0 },
+    ]);
+  });
+
   it("drops elements that never get a usable box or leave the page", () => {
     const container = build("<div>tiny</div><div>gone</div>");
     const [tiny, gone] = Array.from(container.children);

@@ -238,6 +238,18 @@ describe("useStreamingToolInput", () => {
     expect(result.current?.map((call) => call.status)).toEqual(["done"]);
   });
 
+  it("bounds calls that never finish", () => {
+    const { result } = renderHook(() =>
+      useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),
+    );
+    for (let index = 0; index < 40; index++) {
+      input(`cut-${index}`, `{"deckId":"deck-a","content":"${index}"}`);
+    }
+    flushFrames();
+    expect(result.current).toHaveLength(32);
+    expect(result.current?.[0]?.value).toBe("8");
+  });
+
   it("keeps only the newest finished calls", () => {
     const { result } = renderHook(() =>
       useStreamingToolInputs(slidePreviewOptions("deck-a", 1)),

@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   buildStreamingFrameDocument,
+  isStreamingFrameReadyMessage,
   STREAMING_FRAME_MESSAGE,
+  STREAMING_FRAME_READY_MESSAGE,
 } from "./streaming-frame";
 
 function frameScript(doc: string): string {
@@ -122,5 +124,30 @@ describe("streaming frame script", () => {
     const script =
       document.head.querySelector<HTMLScriptElement>("script[src]");
     expect(script?.async).toBe(false);
+  });
+});
+
+describe("isStreamingFrameReadyMessage", () => {
+  it("accepts only its own frame's ready message carrying its token", () => {
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    const ready = (
+      token: string,
+      source: Window | null = frame.contentWindow,
+    ) =>
+      new MessageEvent("message", {
+        data: { type: STREAMING_FRAME_READY_MESSAGE, token },
+        source,
+      });
+
+    expect(buildStreamingFrameDocument({ token: "abc" })).toContain('"abc"');
+    expect(isStreamingFrameReadyMessage(ready("abc"), frame, "abc")).toBe(true);
+    expect(isStreamingFrameReadyMessage(ready("xyz"), frame, "abc")).toBe(
+      false,
+    );
+    expect(
+      isStreamingFrameReadyMessage(ready("abc", window), frame, "abc"),
+    ).toBe(false);
+    frame.remove();
   });
 });

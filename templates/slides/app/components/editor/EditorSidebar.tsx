@@ -24,6 +24,7 @@ import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
 import { DeferredPopoverFallback } from "@/components/editor/DeferredPopoverFallback";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
+import type { GeneratingSlideContentStore } from "@/components/editor/GeneratingSlidesTracker";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -64,9 +65,10 @@ interface EditorSidebarProps {
   /** Slides the agent is writing, in order, after the saved ones. */
   generatingSlides?: {
     key: string;
-    content?: string | undefined;
     failed?: boolean | undefined;
   }[];
+  /** Where each generating slide's streamed HTML is read from, by its key. */
+  generatingSlideStore?: GeneratingSlideContentStore | undefined;
   /** The newest generating slide is on the canvas. */
   generatingSlideSelected?: boolean;
   onAddSlide?: () => void;
@@ -575,7 +577,8 @@ function SortableSlideThumb({
 
 function GeneratingSlideSkeleton({
   index,
-  content,
+  contentKey,
+  contentStore,
   failed,
   aspectRatio,
   designSystem,
@@ -583,8 +586,9 @@ function GeneratingSlideSkeleton({
   onSelect,
 }: {
   index: number;
-  content?: string;
-  failed?: boolean;
+  contentKey?: string | undefined;
+  contentStore?: GeneratingSlideContentStore | undefined;
+  failed?: boolean | undefined;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   selected?: boolean;
@@ -608,7 +612,8 @@ function GeneratingSlideSkeleton({
         </span>
         <div className="flex-1 min-w-0">
           <GeneratingSlidePreview
-            content={content}
+            contentKey={contentKey}
+            contentStore={contentStore}
             failed={failed}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
@@ -633,6 +638,7 @@ export default function EditorSidebar({
   aspectRatio,
   designSystem,
   generatingSlides = [],
+  generatingSlideStore,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
   onAddSlide,
@@ -1034,7 +1040,8 @@ export default function EditorSidebar({
             <GeneratingSlideSkeleton
               key={generatingSlide.key}
               index={slides.length + offset}
-              content={generatingSlide.content}
+              contentKey={generatingSlide.key}
+              contentStore={generatingSlideStore}
               failed={generatingSlide.failed}
               aspectRatio={aspectRatio}
               designSystem={designSystem}

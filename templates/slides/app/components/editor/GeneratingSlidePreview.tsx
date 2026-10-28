@@ -5,6 +5,10 @@ import { GeneratingFrame } from "@agent-native/toolkit/app/generation";
 import SlideRenderer, {
   SlideStreamingContext,
 } from "@/components/deck/SlideRenderer";
+import {
+  type GeneratingSlideContentStore,
+  useGeneratingSlideContent,
+} from "@/components/editor/GeneratingSlidesTracker";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { cn } from "@/lib/utils";
@@ -34,7 +38,9 @@ function slideRootBackground(html: string): string | undefined {
 }
 
 export default function GeneratingSlidePreview({
-  content,
+  content: givenContent,
+  contentKey,
+  contentStore,
   failed = false,
   settling = false,
   aspectRatio,
@@ -45,6 +51,9 @@ export default function GeneratingSlidePreview({
 }: {
   /** The slide HTML streamed so far. */
   content?: string | null;
+  /** Reads the streamed HTML from `contentStore` instead of `content`. */
+  contentKey?: string | undefined;
+  contentStore?: GeneratingSlideContentStore | undefined;
   /** The add-slide call errored; what streamed is not a slide. */
   failed?: boolean;
   /** The call has landed; let the draft finish before the saved slide shows. */
@@ -57,6 +66,11 @@ export default function GeneratingSlidePreview({
 }) {
   const t = useT();
   const cssRatio = (aspectRatio ?? "16:9").replace(":", " / ");
+  const content = useGeneratingSlideContent(
+    contentStore,
+    contentKey,
+    givenContent,
+  );
   const renderable = content ? renderableHtmlPrefix(content) : "";
   const surfaceClassName = cn(
     "w-full rounded-lg border border-border bg-muted/20",

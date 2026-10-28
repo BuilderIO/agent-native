@@ -21,7 +21,7 @@ function escapeAttribute(value: string): string {
     .replace(/</g, "&lt;");
 }
 
-function frameScript(): string {
+function frameScript(token: string): string {
   // `__name` covers bundlers that wrap nested functions for keepNames.
   return `(function () {
   var __name = function (fn) { return fn; };
@@ -190,7 +190,7 @@ function frameScript(): string {
     if (!data || data.type !== ${JSON.stringify(STREAMING_FRAME_MESSAGE)} || typeof data.html !== "string") return;
     apply(data.html, typeof data.accent === "string" ? data.accent : null);
   });
-  window.parent.postMessage({ type: ${JSON.stringify(STREAMING_FRAME_READY_MESSAGE)} }, "*");
+  window.parent.postMessage({ type: ${JSON.stringify(STREAMING_FRAME_READY_MESSAGE)}, token: ${JSON.stringify(token)} }, "*");
 })();`;
 }
 
@@ -202,12 +202,20 @@ function frameScript(): string {
  * complete, and elements already on screen stay put while new ones draft in.
  */
 export function buildStreamingFrameDocument(
-  options: { baseHref?: string | undefined } = {},
+  options: {
+    baseHref?: string | undefined;
+    /**
+     * Echoed in the frame's ready message so the parent can tell this
+     * document from one the frame navigated to. Pass the same value to
+     * `isStreamingFrameReadyMessage`.
+     */
+    token?: string | undefined;
+  } = {},
 ): string {
   const base = options.baseHref
     ? `<base href="${escapeAttribute(options.baseHref)}">`
     : "";
-  return `<!doctype html><html><head><meta charset="utf-8">${base}<style>${STREAMED_IN_CSS}</style><script>${frameScript()}</script></head><body></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8">${base}<style>${STREAMED_IN_CSS}</style><script>${frameScript(options.token ?? "")}</script></head><body></body></html>`;
 }
 
 /**
@@ -232,11 +240,13 @@ export function postStreamingFrameHtml(
 export function isStreamingFrameReadyMessage(
   event: MessageEvent,
   frame: HTMLIFrameElement | null,
+  token = "",
 ): boolean {
+  const data = event.data as { type?: unknown; token?: unknown } | null;
   return (
     !!frame &&
     event.source === frame.contentWindow &&
-    (event.data as { type?: unknown } | null)?.type ===
-      STREAMING_FRAME_READY_MESSAGE
+    data?.type === STREAMING_FRAME_READY_MESSAGE &&
+    (data.token ?? "") === token
   );
 }

@@ -46,10 +46,18 @@ export function StreamingHtmlFrame({
   const latestRef = useRef(renderable);
   latestRef.current = renderable;
   const sentRef = useRef<string | null>(null);
+  // A fresh token per document: only the document this component wrote may
+  // claim to be ready, not one the frame was navigated to.
+  const token = useMemo(() => frameToken(), [baseHref]);
   const shell = useMemo(
-    () => buildStreamingFrameDocument({ baseHref }),
-    [baseHref],
+    () => buildStreamingFrameDocument({ baseHref, token }),
+    [baseHref, token],
   );
+  // How many times the frame has loaded this document. The first load is the
+  // document itself; any later one means a script navigated the frame away,
+  // and nothing may be posted to whatever it loaded.
+  const loadsRef = useRef(0);
+  const navigatedRef = useRef(false);
 
   const accentRef = useRef<string | undefined>(accent);
   const send = (frame: HTMLIFrameElement, value: string) => {
@@ -65,7 +73,7 @@ export function StreamingHtmlFrame({
 
   const markReady = () => {
     const frame = frameRef.current;
-    if (!frame) return;
+    if (!frame || navigatedRef.current || readyRef.current) return;
     readyRef.current = true;
     if (sentRef.current !== latestRef.current) send(frame, latestRef.current);
   };
@@ -75,16 +83,39 @@ export function StreamingHtmlFrame({
   useLayoutEffect(() => {
     readyRef.current = false;
     sentRef.current = null;
+    loadsRef.current = 0;
+    navigatedRef.current = false;
     const onMessage = (event: MessageEvent) => {
-      if (isStreamingFrameReadyMessage(event, frameRef.current)) markReady();
+      if (isStreamingFrameReadyMessage(event, frameRef.current, token)) {
+        markReady();
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [shell]);
+  }, [shell, token]);
+
+  const onLoad = () => {
+    loadsRef.current += 1;
+    if (loadsRef.current === 1) {
+      // The frame's script is listening by the time it loads, so the first
+      // load is a second chance at the handshake.
+      markReady();
+      return;
+    }
+    navigatedRef.current = true;
+    readyRef.current = false;
+  };
 
   useEffect(() => {
     const frame = frameRef.current;
-    if (!frame || !readyRef.current || sentRef.current === renderable) return;
+    if (
+      !frame ||
+      !readyRef.current ||
+      navigatedRef.current ||
+      sentRef.current === renderable
+    ) {
+      return;
+    }
     send(frame, renderable);
   }, [renderable]);
 
@@ -92,9 +123,7 @@ export function StreamingHtmlFrame({
     <iframe
       ref={frameRef}
       srcDoc={shell}
-      // The frame's script is listening by the time it loads, so load is a
-      // second chance at the handshake.
-      onLoad={markReady}
+      onLoad={onLoad}
       sandbox="allow-scripts"
       title={title}
       tabIndex={-1}
@@ -102,4 +131,10 @@ export function StreamingHtmlFrame({
       style={{ border: 0, display: "block", pointerEvents: "none", ...style }}
     />
   );
+}
+
+function frameToken(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }

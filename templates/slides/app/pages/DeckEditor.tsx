@@ -88,6 +88,12 @@ import EditorToolbar, {
 } from "@/components/editor/EditorToolbar";
 import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
+import {
+  createGeneratingSlideContentStore,
+  GeneratingSlidesTracker,
+  type GeneratingSlidesSummary,
+  NO_GENERATING_SLIDES,
+} from "@/components/editor/GeneratingSlidesTracker";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
 import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane";
@@ -145,7 +151,6 @@ import { useDeckAccessReload } from "@/hooks/use-deck-access-reload";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
-import { useGeneratingSlidePreviews } from "@/hooks/use-generating-slide-preview";
 import {
   clearNewDeckGenerationRun,
   NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT,
@@ -1265,14 +1270,16 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  // The tracker below follows the agent's slide writes; the editor re-renders
+  // only when a slide appears, lands or finishes, not as its HTML streams in.
+  const [streamSummary, setStreamSummary] =
+    useState<GeneratingSlidesSummary>(NO_GENERATING_SLIDES);
+  const [generatingSlideStore] = useState(createGeneratingSlideContentStore);
   const {
     slides: streamedSlides,
     replacesDeck: streamReplacesDeck,
     callKey: streamCallKey,
-  } = useGeneratingSlidePreviews({
-    deckId: id ?? "",
-    generating,
-  });
+  } = streamSummary;
   // The canvas shows the newest slide the agent is writing.
   const streamedSlide = streamedSlides.at(-1);
   // Saved slides wait behind their previews until those finish drawing, so
@@ -5687,12 +5694,12 @@ export default function DeckEditor() {
                     recentEdits={deckRecentEdits}
                     aspectRatio={deck.aspectRatio}
                     designSystem={designSystem}
+                    generatingSlideStore={generatingSlideStore}
                     generatingSlides={
                       generatingSlideVisible
                         ? streamedSlides.length > 0
-                          ? streamedSlides.map(({ key, content, failed }) => ({
+                          ? streamedSlides.map(({ key, failed }) => ({
                               key,
-                              content,
                               failed,
                             }))
                           : [{ key: "next-slide" }]
@@ -5807,13 +5814,20 @@ export default function DeckEditor() {
           </>
         )}
 
+        <GeneratingSlidesTracker
+          deckId={id}
+          generating={generating}
+          store={generatingSlideStore}
+          onSummary={setStreamSummary}
+        />
         {(canvasFollowsStream ||
           (generatingSlideSelected && generatingSlideVisible)) && (
           <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
             <div className="m-auto w-full max-w-6xl">
               <GeneratingSlidePreview
                 key={streamedSlide?.key}
-                content={streamedSlide?.content}
+                contentKey={streamedSlide?.key}
+                contentStore={generatingSlideStore}
                 failed={streamedSlide?.failed}
                 settling={streamedSlide?.settling}
                 aspectRatio={deck.aspectRatio}
@@ -5891,7 +5905,8 @@ export default function DeckEditor() {
             <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
-                  content={streamedSlide?.content}
+                  contentKey={streamedSlide?.key}
+                  contentStore={generatingSlideStore}
                   failed={streamedSlide?.failed}
                   aspectRatio={deck.aspectRatio}
                   designSystem={designSystem}

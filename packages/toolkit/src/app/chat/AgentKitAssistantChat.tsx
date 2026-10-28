@@ -7356,7 +7356,13 @@ function dispatchAgentKitCompatibilityEvent(
     const tool = event.toolCall;
     const input = asRecord(tool.input) ?? {};
     const argsText = JSON.stringify(input);
-    toolInputArgs.set(tool.id, { text: argsText, fromStart: true });
+    // A start that carries no input is not the whole input: deltas fill it.
+    toolInputArgs.set(
+      tool.id,
+      Object.keys(input).length > 0
+        ? { text: argsText, fromStart: true }
+        : { text: toolInputArgs.get(tool.id)?.text ?? "", fromStart: false },
+    );
     window.dispatchEvent(
       new CustomEvent("agent-native:tool-start", {
         detail: { tool: tool.name, input },

@@ -77,6 +77,12 @@ const NO_INPUTS: never[] = [];
 const MAX_FINISHED_CALLS = 8;
 
 /**
+ * Calls tracked at once, finished or not. A run that is stopped or loses its
+ * connection leaves its call streaming forever; this keeps those bounded.
+ */
+const MAX_TRACKED_CALLS = 32;
+
+/**
  * Call ids remembered for their scope, so a late event for a call from an
  * earlier scope or another target is still ignored. Bounded, oldest first.
  */
@@ -184,6 +190,7 @@ export function useStreamingToolInputs<T>(
           value: null,
         };
         calls.push(call);
+        if (calls.length > MAX_TRACKED_CALLS) calls.shift();
       }
       // A sender that tracks the call passes the arguments so far; one that
       // does not (a repeated id-less call) passes only this delta's text.
