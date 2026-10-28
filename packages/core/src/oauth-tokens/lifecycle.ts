@@ -544,6 +544,26 @@ export async function resolveOAuthCredentialAccess<
     return { state, accessToken: null };
   }
   if (!state.credential.tokens.refresh_token) {
+    if (state.kind === "expired") {
+      await markReconnectRequired(
+        identity,
+        state,
+        options.legacyAccountKey === true,
+      );
+      state = await readStoredOAuthCredentialState<T>(identity, {
+        allowLegacy: options.allowLegacy,
+        legacyAccountKey: options.legacyAccountKey,
+        now: dependencies.now(),
+        validateCredential: options.validateCredential,
+      });
+      return {
+        state,
+        accessToken:
+          state.kind === "connected"
+            ? state.credential.tokens.access_token
+            : null,
+      };
+    }
     return {
       state,
       accessToken:

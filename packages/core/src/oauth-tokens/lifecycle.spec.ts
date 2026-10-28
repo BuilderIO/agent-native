@@ -356,6 +356,22 @@ describe("OAuth credential lifecycle", () => {
     });
   });
 
+  it("marks expired credentials without a refresh token as reconnect_required", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1, refresh: "" }),
+    );
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        refresh: vi.fn(),
+      }),
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
+  });
+
   it("reports nothing to mark when no credential is stored", async () => {
     await expect(markOAuthReconnectRequired(identity)).resolves.toBe(false);
     await expect(readOAuthCredentialState(identity)).resolves.toEqual({

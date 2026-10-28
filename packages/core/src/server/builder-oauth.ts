@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 
+import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
+
 import {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
+  McpOAuthReauthorizationRequiredError,
   markMcpOAuthReconnectRequired,
   readMcpOAuthCredentials,
   revokeMcpOAuthCredentials,
@@ -41,6 +44,15 @@ export const BUILDER_OAUTH_SCOPES = [
   "builder:designsystem:write",
 ] as const;
 export type BuilderOAuthPermissionScope = (typeof BUILDER_OAUTH_SCOPES)[number];
+
+function shouldMarkBuilderReconnectRequiredOnRefreshFailure(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof McpOAuthReauthorizationRequiredError ||
+    (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidGrant)
+  );
+}
 
 const BUILDER_OAUTH_KEY = "builder-general-resource-v1";
 
@@ -432,6 +444,9 @@ export async function getBuilderOAuthSession(
     const accessToken = await getMcpOAuthAccessToken({
       ...options,
       forceRefresh: access.forceRefresh,
+      throwOnTransientRefreshFailure: true,
+      shouldMarkReconnectRequiredOnRefreshFailure:
+        shouldMarkBuilderReconnectRequiredOnRefreshFailure,
     });
     if (!accessToken) continue;
     const credentials = await readMcpOAuthCredentials(options);

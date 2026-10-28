@@ -33,6 +33,22 @@ import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const MAX_OAUTH_REDIRECTS = 5;
+
+export class McpOAuthRefreshUnavailableError extends Error {
+  constructor() {
+    super(
+      "MCP OAuth token refresh failed; the saved connection can be retried.",
+    );
+    this.name = "McpOAuthRefreshUnavailableError";
+  }
+}
+
+export class McpOAuthReauthorizationRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "McpOAuthReauthorizationRequiredError";
+  }
+}
 const MAX_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MCP_OAUTH_PRIVATE_ORIGINS_ENV = "AGENT_NATIVE_MCP_OAUTH_PRIVATE_ORIGINS";
 
@@ -1148,6 +1164,8 @@ export async function getMcpOAuthAccessToken(options: {
   scopeId: string;
   serverUrl: string;
   forceRefresh?: boolean;
+  throwOnTransientRefreshFailure?: boolean;
+  shouldMarkReconnectRequiredOnRefreshFailure?: (error: unknown) => boolean;
 }): Promise<string | null> {
   const validation = validateRemoteUrl(options.serverUrl);
   if (!validation.ok || !validation.url) return null;
@@ -1161,11 +1179,15 @@ export async function getMcpOAuthAccessToken(options: {
         serverUrlsMatch(credential.serverUrl, serverUrl),
       expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
       forceRefresh: options.forceRefresh,
+      shouldMarkReconnectRequiredOnRefreshFailure:
+        options.shouldMarkReconnectRequiredOnRefreshFailure,
       refresh: async ({ credential: credentials }) => {
         const refreshToken = credentials.tokens.refresh_token;
         const discovery = credentials.discoveryState;
         if (!refreshToken || !discovery?.authorizationServerUrl) {
-          throw new Error("MCP OAuth refresh is unavailable.");
+          throw new McpOAuthReauthorizationRequiredError(
+            "MCP OAuth refresh is unavailable.",
+          );
         }
         const expectedIssuer = issuerForDiscovery(discovery);
         if (
@@ -1173,7 +1195,9 @@ export async function getMcpOAuthAccessToken(options: {
           credentials.clientInformation.issuer !== expectedIssuer ||
           credentials.tokens.issuer !== expectedIssuer
         ) {
-          throw new Error("MCP OAuth refresh issuer binding is invalid.");
+          throw new McpOAuthReauthorizationRequiredError(
+            "MCP OAuth refresh issuer binding is invalid.",
+          );
         }
         const resource = discovery.resourceMetadata?.resource
           ? rfc8707ResourceUrl(discovery.resourceMetadata.resource)
@@ -1208,5 +1232,12 @@ export async function getMcpOAuthAccessToken(options: {
       },
     },
   );
+  if (
+    options.throwOnTransientRefreshFailure &&
+    !result.accessToken &&
+    result.state.kind === "expired"
+  ) {
+    throw new McpOAuthRefreshUnavailableError();
+  }
   return result.accessToken;
 }
