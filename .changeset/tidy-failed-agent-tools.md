@@ -8,4 +8,6 @@ Stop plan-mode write rejections through the same failure handler, with a visible
 
 Keep cached reads from resetting failure counts, including when rebuilding a continuation from durable results. Admit parallel calls within the remaining equivalent-error budget and retain the failure explanation when model closeout is empty.
 
+Keep equivalent-error counts under exact tool names, so colon-containing names cannot share a budget or retain each other's errors across a mutation.
+
 Preserve provider error statuses and recovery guidance when computing repeating-error keys; discard only recognized validation argument echoes.

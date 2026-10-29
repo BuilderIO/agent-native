@@ -8213,10 +8213,8 @@ export async function runAgentLoop(opts: {
   const toolFailureBudget = (name: string) => {
     const failures = failureStreaks.get(name) ?? 0;
     let equivalentFailures = 0;
-    for (const [key, count] of repeatedToolErrorsAnyArgs) {
-      if (key.startsWith(`${name}:`)) {
-        equivalentFailures = Math.max(equivalentFailures, count);
-      }
+    for (const count of repeatedToolErrorsAnyArgs.get(name)?.values() ?? []) {
+      equivalentFailures = Math.max(equivalentFailures, count);
     }
     return {
       failures: Math.max(failures, equivalentFailures),
@@ -8252,7 +8250,7 @@ export async function runAgentLoop(opts: {
       }
     }
     for (const key of repeatedToolErrorsAnyArgs.keys()) {
-      if (!key.startsWith(`${name}:`)) repeatedToolErrorsAnyArgs.delete(key);
+      if (key !== name) repeatedToolErrorsAnyArgs.delete(key);
     }
   };
   const settleRepeatedToolCall = (callId: string) => {
@@ -9663,12 +9661,14 @@ export async function runAgentLoop(opts: {
         const count = (repeatedToolErrors.get(errorKey) ?? 0) + 1;
         repeatedToolErrors.set(errorKey, count);
 
-        const anyArgsKey = `${toolCall.name}:${normalizeToolErrorForBreaker(
-          sanitizedResult,
-        )}`;
-        const anyArgsCount =
-          (repeatedToolErrorsAnyArgs.get(anyArgsKey) ?? 0) + 1;
-        repeatedToolErrorsAnyArgs.set(anyArgsKey, anyArgsCount);
+        let toolErrors = repeatedToolErrorsAnyArgs.get(toolCall.name);
+        if (!toolErrors) {
+          toolErrors = new Map<string, number>();
+          repeatedToolErrorsAnyArgs.set(toolCall.name, toolErrors);
+        }
+        const anyArgsKey = normalizeToolErrorForBreaker(sanitizedResult);
+        const anyArgsCount = (toolErrors.get(anyArgsKey) ?? 0) + 1;
+        toolErrors.set(anyArgsKey, anyArgsCount);
         if (
           failureCount >= MAX_TOOL_FAILURE_STREAK &&
           count < MAX_IDENTICAL_TOOL_ERRORS &&

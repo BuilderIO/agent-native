@@ -375,7 +375,9 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     expect(result.sameArguments).toEqual(
       new Map([[`read:{"id":1}:same error`, 1]]),
     );
-    expect(result.sameTool).toEqual(new Map([["read:same error", 1]]));
+    expect(result.sameTool).toEqual(
+      new Map([["read", new Map([["same error", 1]])]]),
+    );
   });
 
   it("keeps the successful mutating action's own error counts", () => {
@@ -408,7 +410,7 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     ]);
 
     expect(result.sameArguments.get(`write:{"id":1}:same error`)).toBe(2);
-    expect(result.sameTool.get("write:same error")).toBe(2);
+    expect(result.sameTool.get("write")?.get("same error")).toBe(2);
   });
 
   it("counts a committed failure's error and resets the others", () => {
@@ -435,7 +437,9 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     expect(result.sameArguments).toEqual(
       new Map([[`write:{"id":1}:do not retry`, 1]]),
     );
-    expect(result.sameTool).toEqual(new Map([["write:do not retry", 1]]));
+    expect(result.sameTool).toEqual(
+      new Map([["write", new Map([["do not retry", 1]])]]),
+    );
   });
 
   it("applies replayed write boundaries without counting replayed errors", () => {
@@ -484,8 +488,8 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
     );
     expect(result.sameTool).toEqual(
       new Map([
-        ["write:same error", 1],
-        ["read:same error", 1],
+        ["write", new Map([["same error", 1]])],
+        ["read", new Map([["same error", 1]])],
       ]),
     );
   });

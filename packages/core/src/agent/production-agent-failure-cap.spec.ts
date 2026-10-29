@@ -12,6 +12,120 @@ import { classifyToolCallJournal } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
 describe("failed tool attempts", () => {
+  it.each(["mutation", "continuation"])(
+    "keeps colon-prefixed tool names separate across a %s boundary",
+    async (boundary) => {
+      const lookup = vi.fn(async () => {
+        throw new Error("Service busy");
+      });
+      const save = vi.fn(async () => "Saved the view");
+      const lookupAction = defineAction({
+        description: "Look up a view",
+        readOnly: true,
+        schema: z.object({ attempt: z.number() }),
+        run: lookup,
+      });
+      const saveAction = defineAction({
+        description: "Save a view",
+        readOnly: false,
+        schema: z.object({}),
+        run: save,
+      });
+      const calls =
+        boundary === "continuation"
+          ? [{ name: "view", input: {} }]
+          : [
+              { name: "view:lookup", input: { attempt: 0 } },
+              { name: "view:lookup", input: { attempt: 1 } },
+              { name: "view", input: {} },
+              { name: "view:lookup", input: { attempt: 2 } },
+              { name: "view:lookup", input: { attempt: 3 } },
+              { name: "view:lookup", input: { attempt: 4 } },
+            ];
+      let step = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test",
+        supportedModels: ["test"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          const call = calls[step++];
+          if (call) {
+            yield { type: "tool-call", id: `call-${step}`, ...call };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Finished checking the views." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const priorEvents: AgentChatEvent[] = Array.from(
+        { length: 3 },
+        (_, attempt): AgentChatEvent[] => [
+          {
+            type: "tool_start",
+            id: `prior-${attempt}`,
+            tool: "view:lookup",
+            input: { attempt },
+          },
+          {
+            type: "tool_done",
+            id: `prior-${attempt}`,
+            tool: "view:lookup",
+            input: { attempt },
+            result: "Error running view:lookup: Service busy",
+            isError: true,
+            completedSideEffect: false,
+          },
+        ],
+      ).flat();
+      const read =
+        boundary === "continuation"
+          ? vi
+              .spyOn(runStore, "getCurrentTurnEventsForThread")
+              .mockResolvedValue(priorEvents)
+          : undefined;
+      const events: AgentChatEvent[] = [];
+      try {
+        await runAgentLoop({
+          engine,
+          model: "test",
+          systemPrompt: "Test",
+          tools: [],
+          messages: [
+            { role: "user", content: [{ type: "text", text: "Check views" }] },
+          ],
+          actions: {
+            "view:lookup": lookupAction as unknown as ActionEntry,
+            view: saveAction as unknown as ActionEntry,
+          },
+          ...(read
+            ? { threadId: "fixture-thread", turnId: "fixture-turn" }
+            : {}),
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        });
+      } finally {
+        read?.mockRestore();
+      }
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(lookup).toHaveBeenCalledTimes(boundary === "mutation" ? 5 : 0);
+      if (boundary === "continuation") {
+        expect(events.filter((event) => event.type === "error")).toEqual([]);
+      }
+    },
+  );
+
   it("stops plan-mode write rejections with a visible approval remedy", async () => {
     const run = vi.fn(async () => "saved");
     const action = defineAction({
