@@ -8,6 +8,7 @@ import {
   issueLocalhostBridgeOperationCapability,
 } from "@agent-native/core/visual-edit-bridge-capability";
 
+import { isBuilderIdentityEnabled } from "../server/lib/builder-identity.js";
 import { isBuilderHostOrigin } from "../shared/builder-host-origins.js";
 import {
   LOCALHOST_BRIDGE_RELAY_HEADER,
@@ -15,7 +16,6 @@ import {
   localhostBridgeRelayChallengeResourceId,
   type LocalhostBridgeRelay,
 } from "../shared/visual-edit-bridge-relay.js";
-import { isBuilderIdentityEnabled } from "../server/lib/builder-identity.js";
 import {
   ensureMotionLocalhostRelayChain,
   motionLocalhostRelayIdentity,
