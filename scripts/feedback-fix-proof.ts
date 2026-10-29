@@ -9,6 +9,9 @@
 //   - https://app.slack.com/archives/C0.../p456
 //     visual: <before screenshot url> <after screenshot url>
 //
+// Visual-only evidence is not machine proof. A passing run names each report
+// that still needs a human to inspect its before/after screenshots before merge.
+//
 //   PR_BODY="$(gh pr view N --json body -q .body)" node scripts/feedback-fix-proof.ts
 //   ... feedback-fix-proof.ts --has-reports   prints has_reports=true|false
 //
@@ -25,7 +28,14 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type Report = { link: string; proven: string[]; visual: boolean };
+export type Report = {
+  link: string;
+  proven: string[];
+  visual: [before: string, after: string] | null;
+};
+type VisualReport = Report & {
+  visual: [before: string, after: string];
+};
 
 const PROVEN =
   /fix-proof: proven, red at [0-9a-f]+ \(exit \d+\), green at ([0-9a-f]{7,40}): (.+)$/;
@@ -187,15 +197,17 @@ export function parseReports(body: string): Report[] | null {
           ...(at === -1 ? line : line.slice(0, at)).matchAll(
             /https?:\/\/[^\s)>]+/g,
           ),
-        ].map(([link]): Report => ({ link, proven: [], visual: false }));
+        ].map(([link]): Report => ({ link, proven: [], visual: null }));
     reports.push(...onLine);
     const targets = onLine.length ? onLine : reports.slice(-1);
     const proof =
       at === -1 ? null : PROVEN.exec(line.slice(at).replace(/`\s*$/, ""));
+    const visual = /^visual:\s*(https?:\/\/\S+)\s+(https?:\/\/\S+)\s*$/.exec(
+      evidence.replace(/`\s*$/, ""),
+    );
     for (const report of targets) {
       if (proof) report.proven.push(`${proof[1]}\t${proof[2].trim()}`);
-      if (/^visual:\s*https?:\/\/\S+\s+https?:\/\/\S+/.test(evidence))
-        report.visual = true;
+      if (visual) report.visual = [visual[1], visual[2]];
     }
   }
   return reports;
@@ -224,10 +236,19 @@ function main() {
   }
 
   const missing = reports.filter((r) => r.proven.length === 0 && !r.visual);
+  const visualOnly = reports.filter(
+    (r): r is VisualReport => r.proven.length === 0 && r.visual !== null,
+  );
   for (const r of missing)
     console.log(
       `NO PROOF: ${r.link} (add a fix-proof or visual: line under it)`,
     );
+  for (const r of visualOnly) {
+    const [before, after] = r.visual;
+    console.log(
+      `HUMAN VALIDATION REQUIRED BEFORE MERGE: ${r.link} (inspect before ${before} and after ${after})`,
+    );
+  }
 
   const base =
     process.env.BASE_SHA ||
@@ -297,7 +318,15 @@ function main() {
     if (status !== 0) worst = Math.max(worst, status === 2 ? 2 : 1);
   }
   if (worst) process.exit(worst);
-  console.log(`\nfeedback-fix-proof: all ${reports.length} reports proven`);
+  if (visualOnly.length) {
+    console.log(
+      `\nfeedback-fix-proof: ${reports.length - visualOnly.length} reports machine-proven; ${visualOnly.length} require human visual validation before merge`,
+    );
+  } else {
+    console.log(
+      `\nfeedback-fix-proof: all ${reports.length} reports machine-proven`,
+    );
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main();

@@ -10,6 +10,7 @@ import type {
 
 const DEFAULT_BASE_URL = "https://api.github.com";
 const MAX_PAGE_SIZE = 100;
+const APPROVAL_REQUEST_TIMEOUT_MS = 10_000;
 
 type FetchLike = typeof fetch;
 
@@ -80,6 +81,8 @@ export interface GitHubPullRequest {
   htmlUrl: string;
   userId: number;
   userLogin: string;
+  /** GitHub's `user.type` for the pull-request author when provided. */
+  userType?: string;
   headSha: string;
   headRef: string;
   baseRef: string;
@@ -101,6 +104,8 @@ export interface GitHubIssue {
 }
 
 export interface GitHubPullRequestSummary extends GitHubPullRequest {
+  /** Current GitHub assignees, identified by immutable user ID and login. */
+  assignees: readonly GitHubPullRequestAssignee[];
   /** `owner/name` of the repository the branch is pushed to; null once GitHub no longer has it (a deleted fork). */
   headRepository: string | null;
   /** `owner/name` of the repository the pull request merges into. */
@@ -113,6 +118,11 @@ export interface GitHubPullRequestSummary extends GitHubPullRequest {
   mergeable: boolean | null;
   mergeableState: string | null;
   reviewComments: number;
+}
+
+export interface GitHubPullRequestAssignee {
+  id: number;
+  login: string;
 }
 
 export interface GitHubMemberCheck {
@@ -290,6 +300,7 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
     htmlUrl: requiredString(item.html_url, "pull request URL"),
     userId: requiredNumber(user.id, "pull request author ID"),
     userLogin: requiredString(user.login, "pull request author"),
+    ...(typeof user.type === "string" ? { userType: user.type } : {}),
     headSha: requiredString(head.sha, "pull request head SHA"),
     headRef: requiredString(head.ref, "pull request head branch"),
     baseRef: requiredString(base.ref, "pull request base ref"),
@@ -324,6 +335,24 @@ function parsePullRequestRepositories(
       "pull request base default branch",
     ),
   };
+}
+
+function parsePullRequestAssignees(
+  value: unknown,
+): GitHubPullRequestAssignee[] {
+  return requireArray(value, "pull request assignees").map((assignee) => {
+    const item = record(assignee);
+    const id = requiredNumber(item.id, "pull request assignee ID");
+    if (!Number.isInteger(id) || id < 1) {
+      throw new Error(
+        "GitHub response has an invalid pull request assignee ID",
+      );
+    }
+    return {
+      id,
+      login: requiredString(item.login, "pull request assignee login"),
+    };
+  });
 }
 
 function requireArray(value: unknown, field: string): unknown[] {
@@ -528,6 +557,11 @@ function parseReview(
   const reviewer = record(item.user);
   return {
     author,
+    ...(typeof reviewer.id === "number" &&
+    Number.isSafeInteger(reviewer.id) &&
+    reviewer.id > 0
+      ? { authorId: reviewer.id }
+      : {}),
     state: normalizeReviewState(
       requiredString(item.state, "review state").toUpperCase(),
     ),
@@ -618,6 +652,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
 
   let cachedAppConfig: GitHubAppConfig | null | undefined;
   let cachedInstallationToken: { value: string; expiresAt: number } | undefined;
+  let cachedConnectorToken: string | undefined;
   let cachedAppBotIdentity: { login: string; id: number } | undefined;
 
   async function connectorSecret(key: string): Promise<string | undefined> {
@@ -654,7 +689,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
     return cachedAppConfig;
   }
 
-  async function token(): Promise<string> {
+  async function token(signal?: AbortSignal): Promise<string> {
     const app = await appConfig();
     if (app) {
       const now = Math.floor(Date.now() / 1000);
@@ -675,6 +710,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
             Authorization: `Bearer ${jwt}`,
             "X-GitHub-Api-Version": "2022-11-28",
           },
+          signal,
         },
       )) as JsonResponse;
       if (!response.ok) {
@@ -692,10 +728,12 @@ export function createGitHubClient(options: GitHubClientOptions) {
       cachedInstallationToken = { value, expiresAt };
       return value;
     }
+    if (cachedConnectorToken) return cachedConnectorToken;
     const value = await connectorSecret("GITHUB_TOKEN");
     if (!value)
       throw new Error("GITHUB_TOKEN is not configured for this workspace");
-    return value;
+    cachedConnectorToken = value;
+    return cachedConnectorToken;
   }
 
   async function graphqlRequest<T>(
@@ -743,7 +781,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
   ): Promise<T> {
     let requestAttempted = false;
     try {
-      const authorization = `Bearer ${await token()}`;
+      const authorization = `Bearer ${await token(init.signal ?? undefined)}`;
       requestAttempted = true;
       const response = (await fetchImpl(`${baseUrl}${path}`, {
         ...init,
@@ -1050,6 +1088,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       const pullRequest = parsePullRequest(item);
       return {
         ...pullRequest,
+        assignees: parsePullRequestAssignees(item.assignees),
         ...parsePullRequestRepositories(item),
         additions: requiredNumber(item.additions, "pull request additions"),
         deletions: requiredNumber(item.deletions, "pull request deletions"),
@@ -1223,6 +1262,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
               ...(body ? { body: body.slice(0, 4_000) } : {}),
               ...(commitSha ? { commit_id: commitSha } : {}),
             }),
+            signal: AbortSignal.timeout(APPROVAL_REQUEST_TIMEOUT_MS),
           },
         ),
       );

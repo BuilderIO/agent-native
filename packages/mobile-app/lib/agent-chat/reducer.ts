@@ -65,6 +65,26 @@ function withUpdatedAssistant(
   return { ...state, messages: [...state.messages, created] };
 }
 
+/**
+ * The part a keyed delta continues. The adapter keys every delta of a reply by
+ * its message id, so without a break at each tool call or change of kind,
+ * text after a call joins the text before it, a cleared draft cannot be cut
+ * back to that call, and resumed reasoning jumps above the text between.
+ */
+function continuedPart(
+  parts: ChatContentPart[],
+  kind: "text" | "reasoning",
+  partId: string,
+): number {
+  for (let index = parts.length - 1; index >= 0; index--) {
+    const part = parts.at(index);
+    if (!part || part.type === "tool-call") return -1;
+    if (part.type === kind && part.partId === partId) return index;
+    if (part.type === (kind === "text" ? "reasoning" : "text")) return -1;
+  }
+  return -1;
+}
+
 function appendDelta(
   parts: ChatContentPart[],
   kind: "text" | "reasoning",
@@ -72,7 +92,7 @@ function appendDelta(
   partId: string | undefined,
 ): ChatContentPart[] {
   const index = partId
-    ? parts.findIndex((p) => p.type === kind && p.partId === partId)
+    ? continuedPart(parts, kind, partId)
     : ((): number => {
         const last = parts[parts.length - 1];
         return last && last.type === kind && !last.partId
@@ -108,6 +128,29 @@ function updateToolPart(
     }
   }
   return parts;
+}
+
+/**
+ * Drops the draft the server discarded: text and reasoning back to the last
+ * finished tool call, as the server and the web client cut it. A running tool
+ * with real input stays mounted so the retry does not hide and reshow it.
+ */
+function clearDraft(parts: ChatContentPart[]): ChatContentPart[] {
+  const next = [...parts];
+  for (let index = next.length - 1; index >= 0; index--) {
+    const part = next.at(index);
+    if (!part) continue;
+    if (part.type === "tool-call" && part.status !== "running") break;
+    if (part.type === "text" || part.type === "reasoning") {
+      next.splice(index, 1);
+    } else if (
+      part.type === "tool-call" &&
+      (part.inputText === "" || part.inputText === "{}")
+    ) {
+      next.splice(index, 1);
+    }
+  }
+  return next;
 }
 
 function stringifyResult(result: unknown): string | undefined {
@@ -160,6 +203,10 @@ export function applyWireEvent(
       );
       return { ...next, activity: null };
     }
+    case "clear":
+      return assistantMessageIndex(state, assistantId) >= 0
+        ? withUpdatedAssistant(state, assistantId, clearDraft)
+        : state;
     case "activity":
       return { ...state, activity: event.label ?? event.tool ?? "Working" };
     case "tool_start": {

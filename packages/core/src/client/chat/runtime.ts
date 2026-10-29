@@ -28,6 +28,7 @@ import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import {
   appendMissingFinalResponseWarning,
+  clearAssistantDraftContent,
   findApprovalToolCallIndex,
   type ContentPart,
   type SSEEvent,
@@ -430,6 +431,11 @@ export interface AgentChatRuntimeMessageDoneEvent extends AgentChatRuntimeEventB
   readonly message: AgentChatRuntimeMessage;
 }
 
+/** Replaces a streaming message's content without finishing it. */
+export interface AgentChatRuntimeMessageReplaceEvent extends AgentChatRuntimeEventBase<"message-replace"> {
+  readonly message: AgentChatRuntimeMessage;
+}
+
 export interface AgentChatRuntimeToolStartEvent extends AgentChatRuntimeEventBase<"tool-start"> {
   readonly toolCall: AgentChatRuntimeToolCall;
 }
@@ -740,6 +746,7 @@ export type AgentChatRuntimeKnownEvent =
   | AgentChatRuntimeMessageStartEvent
   | AgentChatRuntimeMessageDeltaEvent
   | AgentChatRuntimeMessageDoneEvent
+  | AgentChatRuntimeMessageReplaceEvent
   | AgentChatRuntimeToolStartEvent
   | AgentChatRuntimeToolDeltaEvent
   | AgentChatRuntimeToolDoneEvent
@@ -4134,6 +4141,34 @@ function mapAgentNativeEvent(
   };
   if (ev.type === "auto_continue") {
     return [{ type: "continuation", ...base }];
+  }
+  // Skipping this leaves the saved reply as a suffix of the live one, and
+  // reload renders it as a second reply.
+  if (ev.type === "clear") {
+    clearAssistantDraftContent(input.message.content);
+    if (!input.message.started) return [];
+    const content: AgentChatRuntimeKnownContentPart[] = input.message.content
+      .filter(
+        (
+          part,
+        ): part is Exclude<
+          AgentNativeMessageContentState,
+          { type: "tool-call" }
+        > => part.type === "text" || part.type === "reasoning",
+      )
+      .map((part) => ({ ...part }));
+    // Text the retry writes after a kept tool call is a new paragraph. The
+    // replacement carries no tool calls, so an empty part marks that break.
+    if (input.message.content.at(-1)?.type === "tool-call") {
+      content.push({ type: "text", text: "" });
+    }
+    return [
+      {
+        type: "message-replace",
+        ...base,
+        message: { id: input.messageId, role: "assistant", content },
+      },
+    ];
   }
   if (ev.type === "text" || ev.type === "thinking" || ev.type === "reasoning") {
     const text = ev.text ?? "";
