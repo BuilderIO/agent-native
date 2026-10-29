@@ -155,8 +155,8 @@ describe("suggestion decomposition", () => {
       const after = `New paragraph.\n\n${before}`;
       const operations = markdownSuggestionOperations(before, after);
       expect(operations).toHaveLength(1);
-      expect(operations[0].anchor).toMatchObject({ from: 0, to: 0 });
-      expect(operations[0].after.changedText).toBe("New paragraph.\n\n");
+      expect(operations[0]?.anchor).toMatchObject({ from: 0, to: 0 });
+      expect(operations[0]?.after.changedText).toBe("New paragraph.\n\n");
       expectIntactOperations(before, after, operations);
     });
 
