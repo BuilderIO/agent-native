@@ -383,6 +383,7 @@ async function waitFor(
   timeoutMs: number,
   probe: () => Promise<boolean>,
   abortReason: () => string | null = () => null,
+  timeoutContext: () => string | null = () => null,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: unknown;
@@ -398,9 +399,14 @@ async function waitFor(
     }
     await sleep(1_000);
   }
+  const context = timeoutContext();
+  const diagnostics = [
+    ...(lastError ? [`last error: ${errorMessage(lastError)}`] : []),
+    ...(context ? [context] : []),
+  ];
   throw new Error(
     `Timed out after ${timeoutMs}ms waiting for ${label}${
-      lastError ? ` (last error: ${errorMessage(lastError)})` : ""
+      diagnostics.length ? ` (${diagnostics.join("; ")})` : ""
     }.`,
   );
 }
@@ -1505,6 +1511,7 @@ async function exerciseScheduledStaleChatContinuation(
           return true;
         }),
       () => terminalFailure,
+      () => observedRouteFailure,
     );
   } finally {
     try {
