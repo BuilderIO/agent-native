@@ -192,12 +192,18 @@ describe("preview queue", () => {
     const firstUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(firstUrl.searchParams.getAll("family")).toHaveLength(20);
 
+    // Each response is read and its faces loaded asynchronously; a macrotask
+    // turn lets that settle (a fixed count of microtask ticks varies with the
+    // Node version reading the Response body).
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
     while (pending.length) {
       pending.shift()?.();
-      for (let index = 0; index < 10; index += 1) await Promise.resolve();
+      await settle();
     }
+    await vi.waitFor(() =>
+      expect(getGoogleFontPreviewStatus("Family 99")).toBe("loaded"),
+    );
     expect(fetchMock).toHaveBeenCalledTimes(5);
-    expect(getGoogleFontPreviewStatus("Family 99")).toBe("loaded");
     expect(added).toContain(googleFontPreviewFamily("Family 0"));
 
     requestGoogleFontPreviews(fonts);
