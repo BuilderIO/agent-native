@@ -365,6 +365,7 @@ describe("private media references", () => {
     assert(exec.transaction);
     const statements: string[] = [];
     await exec.transaction(async (tx) => {
+      // raw-sql-ok: records and forwards the checks' own statements unchanged.
       const recorded: DbExec = {
         execute(input) {
           statements.push(typeof input === "string" ? input : input.sql);
