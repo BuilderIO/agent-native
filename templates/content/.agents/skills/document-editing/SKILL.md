@@ -301,6 +301,8 @@ On a collection page, each Blocks field tab has its own comments. Pass `fieldId`
 
 A thread can sit on a whole video instead of on text. Pass `blockId` with the video's `id` attribute from `get-document`'s content (`<video src="…" id="video-…">`), plus `fieldId` for a video in another tab. The thread quotes no text; people see it beside the video, and `list-comments` returns `block_id` and `block_type` on it. A video saved without an `id` has none to pass: give it a new unique `video-` id with `edit-document`, then comment with that id. `add-comment` refuses the id such a video goes by until then (`comment_block_id_unsaved`), because that id passes to another video when videos with its source are added or reordered. Each video's `id` is its own: when you copy a `<video>` line, give the copy a new unique `video-` id or none. An edit that gives a second video an id the page already uses is refused (`DOCUMENT_VIDEO_ID_SHARED`); a new page isn't checked, since no thread is on it yet. Videos that already share an id show none of its threads, and `add-comment` refuses that id (`comment_block_id_shared`); give the video you mean a new id with `edit-document` first. Never give it a `block_id` from `list-comments`; one no video carries may be a deleted video's, and reusing it moves that thread onto this video. A thread made before videos had ids quotes the word "Video"; on a page with exactly one video it shows on that video, and with more it stays on its quote.
 
+A Clip block (`<ClipEmbed recordingId="…" />`, behind the `content.clip-embed` flag) keeps its comments in Clips, so `list-comments` never returns them and every page holding that Clip shows the same ones. People see each open thread as its own card beside the Clip, at its moment of the video. `list-clip-comments` returns a Clip's open threads in the order of their moments, with replies; `add-clip-comment` starts a thread at `videoTimestampMs` (milliseconds from the start of the video) or replies with a `threadId` from that list; `resolve-clip-comment` resolves a thread, which Clips lets only the thread's author and the Clip's editors do (`clip_forbidden`). Writing needs comment access to the page. Clip comments take no `mentions` and no Ask AI, and Content sends no email for them. When the Clip's comments are off, every write fails with `clip_comments_disabled`, and so does reading for anyone but the Clip's owner.
+
 ```bash
 # List threads (returns anchor fields + parsed mentions)
 pnpm action list-comments --documentId abc123
@@ -325,6 +327,12 @@ pnpm action add-comment --documentId abc123 --threadId t123 --parentId c123 --co
 # Resolve / reopen the whole thread
 pnpm action update-comment --id c123 --resolved true
 pnpm action update-comment --id c123 --resolved false
+
+# A Clip's comments: list, start one at 0:42, reply, resolve
+pnpm action list-clip-comments --documentId abc123 --recordingId rec456
+pnpm action add-clip-comment --documentId abc123 --recordingId rec456 --videoTimestampMs 42000 --content "Cut this pause"
+pnpm action add-clip-comment --documentId abc123 --recordingId rec456 --threadId cc789 --content "Done"
+pnpm action resolve-clip-comment --documentId abc123 --recordingId rec456 --threadId cc789 --resolved true
 ```
 
 `--authorName` sets the comment's display name; it defaults to a name derived from the author's email.

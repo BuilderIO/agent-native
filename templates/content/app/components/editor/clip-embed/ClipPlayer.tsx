@@ -19,13 +19,25 @@ export function ClipPlayer({
   markers,
   onMediaError,
   resumeRef,
+  onSeekReady,
+  onPlayhead,
+  onOpenMarker,
+  onComment,
 }: {
   grant: ClipPlayback;
-  markers: ClipCommentMarker[];
+  markers: readonly ClipCommentMarker[];
   onMediaError: () => void;
   /** Where the reader was when an earlier player of this Clip went away,
    *  such as behind an outage; the next player starts there. */
   resumeRef?: MutableRefObject<MediaState | null>;
+  /** Handed a way to move the video, and null once the player goes. */
+  onSeekReady?: (seek: ((ms: number) => void) | null) => void;
+  /** Told the playhead's place as it plays or is moved. */
+  onPlayhead?: (ms: number) => void;
+  /** A marker was clicked: the first thread at its moment. */
+  onOpenMarker?: (threadId: string) => void;
+  /** Starts a comment at the playhead; without it there's no Comment button. */
+  onComment?: (ms: number) => void;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -85,6 +97,14 @@ export function ClipPlayer({
     element.currentTime = Math.max(0, ms / 1000);
     setCurrentMs(element.currentTime * 1000);
   };
+  const seekRef = useRef(seek);
+  seekRef.current = seek;
+  useEffect(() => {
+    if (!onSeekReady) return;
+    onSeekReady((ms) => seekRef.current(ms));
+    return () => onSeekReady(null);
+  }, [onSeekReady]);
+  useEffect(() => onPlayhead?.(currentMs), [currentMs, onPlayhead]);
   const togglePlay = () => {
     const element = video();
     if (!element) return;
@@ -138,6 +158,18 @@ export function ClipPlayer({
         speed={speed}
         isFullscreen={fullscreen}
         comments={markers}
+        onOpenComment={onOpenMarker}
+        onComment={
+          onComment
+            ? () => {
+                const element = video();
+                element?.pause();
+                onComment(
+                  Math.round(element ? element.currentTime * 1000 : currentMs),
+                );
+              }
+            : undefined
+        }
         onPlayPause={togglePlay}
         onSeek={seek}
         onSeekRelative={(deltaMs) =>

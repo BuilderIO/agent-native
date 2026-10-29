@@ -8,6 +8,7 @@ import {
   commentBlockKey,
   commentStackFront,
   commentStackKey,
+  commentThreadReplyCount,
   groupCommentStacks,
   measureCommentBlocks,
 } from "./comment-stacks";
@@ -250,5 +251,36 @@ describe("a stack's front thread", () => {
     expect(
       commentStackFront([first, newer], new Map([["elsewhere", 5]])).threadId,
     ).toBe("newer");
+  });
+});
+
+describe("commentThreadReplyCount", () => {
+  it("counts the replies a thread holds", () => {
+    expect(
+      commentThreadReplyCount(
+        thread("page", {
+          times: ["2026-10-20T10:00:00Z", "2026-10-20T11:00:00Z"],
+        }),
+      ),
+    ).toBe(1);
+  });
+
+  it("takes a Clip thread's count from Clips, which can hold replies back", () => {
+    const listed = thread("clip", {
+      times: ["2026-10-20T10:00:00Z", "2026-10-20T11:00:00Z"],
+    });
+    expect(
+      commentThreadReplyCount({
+        ...listed,
+        clip: {
+          recordingId: "rec_1",
+          threadId: "c1",
+          videoTimestampMs: 0,
+          canComment: true,
+          canResolve: false,
+          replyCount: 7,
+        },
+      }),
+    ).toBe(7);
   });
 });
