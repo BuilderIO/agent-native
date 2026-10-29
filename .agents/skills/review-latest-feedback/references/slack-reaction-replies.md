@@ -118,17 +118,14 @@ listed in `fixedScopes[]`; one root `🎫` covers every action listed in
 evidence changes its status, not the historical `🎫` reaction. Unclaimed items
 and another actor's marks are not ours to reply to. Reconcile each report as
 one unit: update and read back applicable root reactions before advancing to
-the next report. Add `✅` as soon as any reported scope passes the direct post-change proof bar
-and the fix is merged to `main`; an open PR never gets `✅`. Use
+the next report. Add `✅` once a reported scope passes the direct post-change proof bar on `main`.
+An open PR never gets `✅`. Use
 **Partially fixed** for the internal disposition when another scope remains.
 Do not wait for an entire multi-symptom report to be resolved before checking
 off its verified scope. Keep all existing reactions after scopes close. Read
 back every reaction and any reply sent. Never remove or clean up any reaction.
-An open PR can
-earn `✅` as soon as the relevant
-`verifying-changes` proof bar passes. During that period, `✅` marks the
-verified scope and `👀` may remain whether or not another scope or merge is
-open; the marks are independent. The current disposition says what remains.
+While a fix PR is open, `👀` may remain; `✅` still waits for the merge to `main`.
+The marks are independent. The current disposition says what remains.
 For UI behavior, a focused
 regression qualifies only if it exercises the changed component and asserts the
 reported visible result or persisted state; callback-only assertions, mocked
