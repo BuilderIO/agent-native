@@ -99,6 +99,7 @@ import {
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
+  chainServerDrivenContinuation,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
@@ -7594,6 +7595,105 @@ describe("createProductionAgentHandler", () => {
       }
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("does not replay a consumed queue promotion claim to a background worker", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const queuedMessage: {
+      id: string;
+      text: string;
+      promotionClaim?: { id: string; expiresAt: number };
+    } = {
+      id: "queued-background-replay",
+      text: "Run the queued prompt",
+      promotionClaim: {
+        id: "claim-background-replay",
+        expiresAt: Date.now() + 60_000,
+      },
+    };
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-background-replay",
+        threadData: JSON.stringify({ queuedMessages: [queuedMessage] }),
+      } as never);
+    const onRunPrepared = vi.fn(
+      async (details: { queuedMessageClaimId?: string }) => {
+        if (details.queuedMessageClaimId === queuedMessage.promotionClaim?.id) {
+          delete queuedMessage.promotionClaim;
+        }
+      },
+    );
+    mockTryClaimRunSlot.mockReset();
+    mockTryClaimRunSlot.mockResolvedValue({
+      claimed: true,
+      activeRunId: null,
+    });
+    mockInsertRun.mockClear();
+    mockFireInternalDispatch.mockClear();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run the queued prompt",
+          threadId: "thread-background-replay",
+          queuedMessageId: "queued-background-replay",
+          queuedMessageClaimId: "claim-background-replay",
+        }),
+      }),
+    );
+
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queuedMessageId: "queued-background-replay",
+          queuedMessageClaimId: "claim-background-replay",
+        }),
+      );
+      expect(queuedMessage).not.toHaveProperty("promotionClaim");
+      const slotOptions = (mockTryClaimRunSlot.mock.calls[0] as any)[3];
+      expect(slotOptions.dispatchMode).toBe("background");
+      const dispatchPayload = JSON.parse(slotOptions.dispatchPayload);
+      expect(dispatchPayload.queuedMessageId).toBe("queued-background-replay");
+      expect(dispatchPayload).not.toHaveProperty("queuedMessageClaimId");
+      expect(mockInsertRun).not.toHaveBeenCalled();
+      const dispatchedBody = (mockFireInternalDispatch.mock.calls[0] as any)[0]
+        .body;
+      expect(dispatchedBody[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+        payloadRef: true,
+      });
+      expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+      mockTryClaimRunSlot.mockReset();
+      mockTryClaimRunSlot.mockResolvedValue({
+        claimed: true,
+        activeRunId: null,
+      });
     }
   });
 
@@ -23579,6 +23679,71 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       startedAt: Date.now(),
     };
   }
+
+  it.each([false, true])(
+    "does not replay a consumed queued-message claim in a continuation (insert failure=%s)",
+    async (insertFails) => {
+      let dispatchPayload: string | undefined;
+      let dispatchedBody: Record<string, unknown> | undefined;
+
+      await chainServerDrivenContinuation({
+        event: {},
+        run: makeRun([{ type: "text", text: "Continuing this turn." }]),
+        effectiveThreadId: "t1",
+        effectiveTurnId: "turn1",
+        requestBody: {
+          threadId: "t1",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "already-consumed-claim",
+          message: "continue the queued request",
+        },
+        backgroundContinuationCount: 0,
+        chainViaDurableBackground: false,
+        deps: {
+          countRunsForTurn: async () => 1,
+          readTurnStartedAt: async () => null,
+          isTurnAborted: async () => false,
+          recordRunDiagnostic: async () => {},
+          insertRun: async (_runId, _threadId, _turnId, options) => {
+            if (insertFails) throw new Error("insert unavailable");
+            dispatchPayload = options.dispatchPayload;
+          },
+          markBackgroundContinuationChunkTerminal: async () => true,
+          fireInternalDispatch: async ({ body }) => {
+            dispatchedBody = body;
+          },
+          updateRunHeartbeat: async () => {},
+          readBackgroundRunClaim: async () => null,
+          updateRunStatusIfRunning: async () => false,
+          markRunAborted: async () => true,
+          isRunAborted: async () => false,
+          setRunTerminalReason: async () => {},
+          setRunError: async () => {},
+          emitRunText: async () => {},
+          generateRunId: () => "next-run",
+          sleep: async () => {},
+        },
+      });
+
+      if (insertFails) {
+        expect(dispatchPayload).toBeUndefined();
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+        expect(dispatchedBody).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+      } else {
+        expect(JSON.parse(dispatchPayload!)).not.toHaveProperty(
+          "queuedMessageClaimId",
+        );
+        expect(JSON.parse(dispatchPayload!)).toMatchObject({
+          queuedMessageId: "queued-1",
+          internalContinuation: true,
+        });
+        expect(dispatchedBody).not.toHaveProperty("queuedMessageClaimId");
+      }
+    },
+  );
 
   it("does NOT chain a foreground (non-background-worker) run", () => {
     expect(
