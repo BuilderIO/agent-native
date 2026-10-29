@@ -143,9 +143,9 @@ App-specific notes:
   shares, and public visibility before it ever consults the space. Stamping
   only the space would leave its public and shared pages open. So
   `delete-content-space` stamps the space and trashes every live document in
-  it with the same `trashed_at` value; restoring the space restores only the
-  documents whose `trashed_at` matches, so pages trashed before the space stay
-  in the trash.
+  it, marking them through the existing `trash_root_id` / `trash_origin`
+  columns as trashed by the space; restoring the space restores only those,
+  so pages trashed before the space stay in the trash.
 - **Tasks**: bulk delete returns the ids it stamped so one Undo restores the
   whole batch.
 - **Factory**: unschedule the workflow's job on soft delete and reschedule on
