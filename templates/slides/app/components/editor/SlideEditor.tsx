@@ -7668,11 +7668,17 @@ export default function SlideEditor({
         }
         // Flex sizes a Fill or Hug member whatever width or height it is
         // given, so the axes this handle drags are Fixed before it moves.
-        if (inFlowLayout) {
+        // A refusal writes nothing, and a resize under the old flex sizing
+        // would move nothing, so the gesture does not start.
+        if (
+          inFlowLayout &&
           fixSlideLayoutSizing(element, [
             ...(/[ew]/.test(handle) ? (["horizontal"] as const) : []),
             ...(/[ns]/.test(handle) ? (["vertical"] as const) : []),
-          ]);
+          ]).status === "refused"
+        ) {
+          toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
+          return false;
         }
         const origin = getObjectGeometry(element);
         const transform = readSlideObjectTransformSnapshot(element);
@@ -7884,7 +7890,7 @@ export default function SlideEditor({
           if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           if (inFlowLayout) {
             const resized = getObjectGeometry(element);
-            fixSlideLayoutSizing(element, [
+            const pinned = fixSlideLayoutSizing(element, [
               ...(resized.width !== resizeOrigin.width
                 ? (["horizontal"] as const)
                 : []),
@@ -7892,6 +7898,11 @@ export default function SlideEditor({
                 ? (["vertical"] as const)
                 : []),
             ]);
+            if (pinned.status === "refused") {
+              restoreSlideObjectStyle(element, originalStyle);
+              toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
+              return { handled: true };
+            }
           }
           const html = readCurrentSlideContentHtml();
           if (restoreMarkdownTree) {
@@ -7998,6 +8009,7 @@ export default function SlideEditor({
       resolveSelectedElement,
       scaleMode,
       selectElementForStyling,
+      t,
     ],
   );
 
@@ -9276,12 +9288,20 @@ export default function SlideEditor({
         e.preventDefault();
         const vertical =
           readSlideAutoLayoutFrame(flowGroup)?.mode === "vertical";
+        // A reversed flow paints its first member last, so the arrow that
+        // points forward on screen steps backward through the order.
+        const sign = getComputedStyle(flowGroup).flexDirection.endsWith(
+          "reverse",
+        )
+          ? -1
+          : 1;
         const step =
-          dx !== 0 && !vertical
+          sign *
+          (dx !== 0 && !vertical
             ? Math.sign(dx)
             : dy !== 0 && vertical
               ? Math.sign(dy)
-              : 0;
+              : 0);
         const index = slideFlowIndexOf(flowGroup, element);
         if (
           step === 0 ||

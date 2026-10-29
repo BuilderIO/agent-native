@@ -494,6 +494,54 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("puts a member a stylesheet places into flow without moving it", async () => {
+    const page = await openPage(
+      `<style>.placed { position: absolute; }</style>${GROUP.replace(
+        '<div data-slide-object-id="third" style="position: absolute;',
+        '<div class="placed" data-slide-object-id="third" style="',
+      )}`,
+    );
+    const before = await memberRects(page);
+    const outcome = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      const result = window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+      const third = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="third"]',
+      )!;
+      return { result, position: getComputedStyle(third).position };
+    });
+    expect(outcome).toEqual({
+      result: { status: "applied" },
+      position: "static",
+    });
+    expectSameRects(await memberRects(page), before);
+    await page.close();
+  });
+
+  it("refuses a member a stylesheet keeps placed and leaves the group as it was", async () => {
+    const page = await openPage(
+      `<style>.pinned { position: absolute !important; }</style>${GROUP.replace(
+        '<div data-slide-object-id="third" style="position: absolute;',
+        '<div class="pinned" data-slide-object-id="third" style="',
+      )}`,
+    );
+    const outcome = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      const before = group.outerHTML;
+      const result = window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+      return { result, untouched: group.outerHTML === before };
+    });
+    expect(outcome).toEqual({
+      result: {
+        status: "refused",
+        reason: "placed-by-stylesheet",
+        objectIds: ["third"],
+      },
+      untouched: true,
+    });
+    await page.close();
+  });
+
   it("refuses a member that is not rendered and leaves the group as it was", async () => {
     const page = await openPage();
     const outcome = await page.evaluate(() => {

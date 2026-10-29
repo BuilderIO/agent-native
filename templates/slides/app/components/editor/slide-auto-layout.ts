@@ -62,6 +62,7 @@ export type SlideAutoLayoutResult =
         | "not-group"
         | "not-in-layout"
         | "unidentified-children"
+        | "placed-by-stylesheet"
         | Extract<LayoutWrite, { status: "unreadable" }>["reason"];
       objectIds: readonly string[];
     };
@@ -397,12 +398,18 @@ export function enableSlideGroupAutoLayout(
   const anchors = new Set(
     Array.from(members.values()).filter(anchorsPlacedContent),
   );
+  const startStyles = [group, ...members.values()].map(
+    (element) => [element, element.getAttribute("style")] as const,
+  );
+  const startOrder = Array.from(group.childNodes);
   for (const id of write.order ?? []) {
     const member = members.get(id);
     if (member) group.append(member);
   }
+  const joining = new Set<HTMLElement>();
   applyWrite(group, write, members, (member, patch) => {
     if (patch.position !== null) return patch;
+    joining.add(member);
     // A member joins at the size it had, which flex would shrink under a
     // smaller group; Fixed means it keeps that size.
     return {
@@ -411,6 +418,26 @@ export function enableSlideGroupAutoLayout(
       ...(anchors.has(member) ? { position: "relative" } : {}),
     };
   });
+  // Clearing the inline position leaves a stylesheet one in force, so a
+  // member placed by a class is put in flow explicitly; one the stylesheet
+  // still places after that cannot join, and nothing is written.
+  const paintsPlaced = (member: HTMLElement) =>
+    ["absolute", "fixed"].includes(computedStyleOf(member).position);
+  const held = Array.from(joining).filter((member) => {
+    if (paintsPlaced(member)) member.style.setProperty("position", "static");
+    return paintsPlaced(member);
+  });
+  if (held.length > 0) {
+    for (const [element, style] of startStyles) {
+      if (style === null) element.removeAttribute("style");
+      else element.setAttribute("style", style);
+    }
+    group.append(...startOrder);
+    return refused(
+      "placed-by-stylesheet",
+      held.map((member) => member.getAttribute(OBJECT_ID) ?? ""),
+    );
+  }
   // Flex stretches a member with no cross size of its own, which is every
   // fit text box: pack them to the start unless the layout said otherwise.
   if (!write.frame.alignItems)
