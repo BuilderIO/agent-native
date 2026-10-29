@@ -403,6 +403,92 @@ describe("permanent recording deletion with durable media cleanup", () => {
       payload: null,
     });
   });
+  it("can finish cleanup for a failed recording with no outstanding upload evidence", async () => {
+    await client.exec("UPDATE recordings SET status='failed'");
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "complete",
+      deleted: 1,
+    });
+  });
+  it("keeps already-journaled Builder provenance valid after email rekeying", async () => {
+    const producer = await beginMediaProduction({
+      recordingId: "rec-1",
+      ownerEmail: owner,
+    });
+    await finishMediaProduction(producer, {
+      url: builderVideo,
+      provider: "builder",
+      builderUpload: {
+        recordingId: "rec-1",
+        ownerEmail: owner,
+        producerId: producer,
+        objectKey: "builder:fake-space:0123456789abcdef0123456789abcdef",
+      },
+    });
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    const nextOwner = "renamed@example.test";
+    await client.query("UPDATE recording_media_cleanups SET owner_email=$1", [
+      nextOwner,
+    ]);
+    await client.query(
+      "UPDATE recording_media_cleanup_objects SET owner_email=$1",
+      [nextOwner],
+    );
+    await client.query("UPDATE recording_media_producers SET owner_email=$1", [
+      nextOwner,
+    ]);
+    await runRecordingMediaCleanup("rec-1");
+    expect(
+      mocks.builder.mock.calls.map(([object]) => object).pop(),
+    ).toMatchObject({
+      ownerEmail: nextOwner,
+      payload: {
+        builderUpload: { ownerEmail: nextOwner, producerId: producer },
+      },
+    });
+  });
+  it("leaves a routine worker interruption pending", async () => {
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1", {
+      signal: AbortSignal.abort(),
+    });
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "pending",
+      reason: "cleanup_interrupted",
+    });
+  });
+  it.each(["uncertain", "active"])(
+    "recovers known output from a stale %s producer without declaring its unknown outcome complete",
+    async (status) => {
+      const producer = await beginMediaProduction({
+        recordingId: "rec-1",
+        ownerEmail: owner,
+      });
+      await finishMediaProduction(producer, {
+        url: video + "-late",
+        provider: "s3",
+        storageFingerprint: "fake-bucket",
+        uploadConfirmed: false,
+      });
+      await client.query(
+        "UPDATE recording_media_producers SET status=$1,updated_at='2026-01-01T00:00:00Z' WHERE id=$2",
+        [status, producer],
+      );
+      await action.run({ id: "rec-1" });
+      await runRecordingMediaCleanup("rec-1");
+      expect(mocks.remove).toHaveBeenCalledTimes(2);
+      expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+        status: "blocked",
+        reason: "producer_unresolved",
+        deleted: 2,
+      });
+      await runRecordingMediaCleanup("rec-1");
+      expect(mocks.remove).toHaveBeenCalledTimes(2);
+    },
+  );
   it.each([
     video.replace("video.mp4", "%76ideo.mp4"),
     video.replace("video.mp4", "discard/%2e%2e/video.mp4"),

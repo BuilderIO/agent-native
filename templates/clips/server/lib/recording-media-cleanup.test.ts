@@ -446,10 +446,17 @@ describe("recording-media-cleanup", () => {
       text: vi.fn(async () => ""),
     });
 
-    it("does not equate metadata and serving misses with physical storage absence", async () => {
+    it("lets a legacy redaction retry finish when its exact stored URL no longer serves", async () => {
       mockFetch
         .mockResolvedValueOnce(respond(404))
         .mockResolvedValueOnce(respond(404));
+      await expect(deleteStoredMediaUrl(url)).resolves.toBe(true);
+    });
+
+    it("does not equate access denial with absent redaction media", async () => {
+      mockFetch
+        .mockResolvedValueOnce(respond(404))
+        .mockResolvedValueOnce(respond(403));
       await expect(deleteStoredMediaUrl(url)).resolves.toBe(false);
     });
 

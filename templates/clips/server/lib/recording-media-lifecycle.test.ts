@@ -19,6 +19,9 @@ const {
   captureRecordingMediaCleanup,
   beginMediaProduction,
   finishMediaProduction,
+  withRecordingMediaProduction,
+  journalMediaObject,
+  openCleanupPayload,
 } = await import("./recording-media-lifecycle.js");
 
 const video =
@@ -104,6 +107,81 @@ afterEach(async () => {
 });
 
 describe("durable permanent media removal", () => {
+  it("records provenance for a new screenshot before its recording row is inserted", async () => {
+    const result = await withRecordingMediaProduction(
+      {
+        recordingId: "new-image",
+        ownerEmail: recording.ownerEmail,
+        recordAsset: false,
+        newRecording: true,
+      },
+      async () => ({ url: alias, provider: "builder" }),
+    );
+    expect(result.url).toBe(alias);
+    const producer = (
+      await client.query<{ payload: string }>(
+        "SELECT payload FROM recording_media_producers WHERE recording_id='new-image'",
+      )
+    ).rows.shift();
+    expect(producer && openCleanupPayload(producer.payload)).toMatchObject({
+      builderUpload: { recordingId: "new-image" },
+    });
+  });
+  it("refuses a new-recording producer when its id belongs to another owner", async () => {
+    await expect(
+      beginMediaProduction({
+        recordingId: recording.id,
+        ownerEmail: "other@example.test",
+        newRecording: true,
+      }),
+    ).rejects.toThrow(/deleted|not found/i);
+  });
+  it("keeps Builder provenance usable after the registered producer owner's email is rekeyed", async () => {
+    const nextOwner = "renamed@example.test";
+    await withRecordingMediaProduction(
+      {
+        recordingId: recording.id,
+        ownerEmail: recording.ownerEmail,
+        recordAsset: false,
+      },
+      async () => ({ url: alias, provider: "builder" }),
+    );
+    const producer = (
+      await client.query<{ payload: string }>(
+        "SELECT payload FROM recording_media_producers",
+      )
+    ).rows.shift();
+    if (!producer) throw new Error("Missing producer");
+    const output = openCleanupPayload<
+      import("./recording-media-production-context.js").ProducedMediaReference
+    >(producer.payload);
+    const proof = output.builderUpload;
+    if (!proof) throw new Error("Missing Builder provenance");
+    await client.query("UPDATE recording_media_producers SET owner_email=$1", [
+      nextOwner,
+    ]);
+    await client.query("UPDATE recordings SET owner_email=$1", [nextOwner]);
+    await db.transaction(async (tx) => {
+      await captureRecordingMediaCleanup(tx, {
+        ...recording,
+        ownerEmail: nextOwner,
+      });
+      await journalMediaObject(tx, {
+        recordingId: recording.id,
+        ownerEmail: nextOwner,
+        url: alias,
+        builderUpload: proof,
+      });
+    });
+    const object = (
+      await client.query<{ payload: string }>(
+        "SELECT payload FROM recording_media_cleanup_objects",
+      )
+    ).rows.shift();
+    expect(object && openCleanupPayload(object.payload)).toMatchObject({
+      builderUpload: { ownerEmail: nextOwner },
+    });
+  });
   it("records Builder ownership only for an explicitly hidden upload made by this recording", async () => {
     upload.mockResolvedValue({ url: alias, provider: "builder" });
     await uploadRecordingMedia({

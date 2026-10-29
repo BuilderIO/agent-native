@@ -137,6 +137,39 @@ function knownExternalMedia(raw: string): boolean {
   );
 }
 
+export async function resolveBuilderUploadCustody(
+  tx: CleanupTransaction,
+  input: {
+    recordingId: string;
+    ownerEmail: string;
+    objectKey: string;
+    proof: BuilderUploadProvenance;
+  },
+): Promise<BuilderUploadProvenance> {
+  const proof = input.proof;
+  if (
+    proof.objectKey !== input.objectKey ||
+    proof.recordingId !== input.recordingId ||
+    !proof.producerId
+  )
+    throw new Error("Upload provenance does not match recording media");
+  if (proof.ownerEmail === input.ownerEmail) return proof;
+  const custody = await tx
+    .select({ id: schema.recordingMediaProducers.id })
+    .from(schema.recordingMediaProducers)
+    .where(
+      and(
+        eq(schema.recordingMediaProducers.id, proof.producerId),
+        eq(schema.recordingMediaProducers.recordingId, input.recordingId),
+        eq(schema.recordingMediaProducers.ownerEmail, input.ownerEmail),
+      ),
+    )
+    .limit(1);
+  if (!custody.length)
+    throw new Error("Upload provenance custody is unavailable");
+  return { ...proof, ownerEmail: input.ownerEmail };
+}
+
 export async function journalMediaObject(
   tx: CleanupTransaction,
   input: {
@@ -161,13 +194,13 @@ export async function journalMediaObject(
     .limit(1);
   const key = rows.shift()?.key ?? null;
   if (!key) throw new Error("Media identity is unreadable");
-  if (
-    input.builderUpload &&
-    (input.builderUpload.objectKey !== key ||
-      input.builderUpload.recordingId !== input.recordingId ||
-      input.builderUpload.ownerEmail !== input.ownerEmail)
-  )
-    throw new Error("Upload provenance does not match recording media");
+  const builderUpload = input.builderUpload
+    ? await resolveBuilderUploadCustody(tx, {
+        ...input,
+        objectKey: key,
+        proof: input.builderUpload,
+      })
+    : undefined;
   const table = schema.recordingMediaCleanupObjects;
   const previousRows = await tx
     .select()
@@ -184,7 +217,7 @@ export async function journalMediaObject(
   const payload: CleanupPayload = {
     ...oldPayload,
     ...input.scope,
-    ...(input.builderUpload ? { builderUpload: input.builderUpload } : {}),
+    ...(builderUpload ? { builderUpload } : {}),
     urls: [...new Set([...(oldPayload?.urls ?? []), input.url])],
     ...(input.provider ? { storageProvider: input.provider } : {}),
     ...(input.storageId ? { storageId: input.storageId } : {}),
@@ -320,17 +353,6 @@ export async function captureRecordingMediaCleanup(
     .from(schema.recordingBrowserDiagnostics)
     .where(eq(schema.recordingBrowserDiagnostics.recordingId, recording.id))
     .limit(1);
-  const active = await tx
-    .select({ id: schema.recordingMediaProducers.id })
-    .from(schema.recordingMediaProducers)
-    .where(
-      and(
-        eq(schema.recordingMediaProducers.recordingId, recording.id),
-        eq(schema.recordingMediaProducers.status, "active"),
-      ),
-    )
-    .limit(1);
-  if (recording.status !== "ready" && !active.length) unresolvedProducer = true;
   const manifest: CleanupManifest = {
     stateKeys: states.map((s) => s.key),
     contextFootageIds,
@@ -415,6 +437,7 @@ export async function captureRecordingMediaCleanup(
 export async function beginMediaProduction(input: {
   recordingId: string;
   ownerEmail: string;
+  newRecording?: boolean;
 }): Promise<string> {
   return getDb().transaction(async (tx) => {
     const recordings = await tx
@@ -428,7 +451,23 @@ export async function beginMediaProduction(input: {
       )
       .for("update")
       .limit(1);
-    if (!recordings.length) throw new Error("Recording deleted or not found");
+    if (!recordings.length) {
+      if (!input.newRecording)
+        throw new Error("Recording deleted or not found");
+      // guard:allow-unscoped — collision detection returns no foreign recording data to the caller.
+      const collision = await tx
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, input.recordingId))
+        .limit(1);
+      const deleted = await tx
+        .select({ id: schema.recordingMediaCleanups.id })
+        .from(schema.recordingMediaCleanups)
+        .where(eq(schema.recordingMediaCleanups.id, input.recordingId))
+        .limit(1);
+      if (collision.length || deleted.length)
+        throw new Error("Recording deleted or not found");
+    }
     const now = new Date().toISOString(),
       id = randomUUID();
     await tx.insert(schema.recordingMediaProducers).values({
@@ -479,7 +518,12 @@ export async function finishMediaProduction(
 export async function withRecordingMediaProduction<
   T extends FileUploadResult | null,
 >(
-  input: { recordingId: string; ownerEmail: string; recordAsset?: boolean },
+  input: {
+    recordingId: string;
+    ownerEmail: string;
+    recordAsset?: boolean;
+    newRecording?: boolean;
+  },
   produce: () => Promise<T>,
 ): Promise<T> {
   const id = await beginMediaProduction(input);

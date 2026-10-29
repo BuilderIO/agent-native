@@ -14,6 +14,7 @@ import {
   eq,
   inArray,
   isNull,
+  isNotNull,
   lte,
   ne,
   notInArray,
@@ -29,6 +30,7 @@ import {
   openCleanupPayload,
   sealCleanupPayload,
   removeCapturedAppState,
+  resolveBuilderUploadCustody,
   type CleanupPayload,
   type CleanupManifest,
   type CleanupTransaction,
@@ -259,6 +261,7 @@ export async function runRecordingMediaCleanup(
       return fn(tx);
     });
   let failureReason: string | null = null;
+  let interrupted = false;
   try {
     await runWithRequestContext(
       {
@@ -283,7 +286,18 @@ export async function runRecordingMediaCleanup(
               and(
                 eq(producers.recordingId, id),
                 eq(producers.ownerEmail, intent.ownerEmail),
-                eq(producers.status, "finished"),
+                or(
+                  eq(producers.status, "finished"),
+                  eq(producers.status, "uncertain"),
+                  and(
+                    eq(producers.status, "active"),
+                    isNotNull(producers.payload),
+                    lte(
+                      producers.updatedAt,
+                      new Date(Date.now() - 600_000).toISOString(),
+                    ),
+                  ),
+                ),
               ),
             )
             .limit(100);
@@ -322,7 +336,11 @@ export async function runRecordingMediaCleanup(
             }
             await tx
               .update(producers)
-              .set({ status: "journaled", payload: null, updatedAt: iso() })
+              .set(
+                producer.status === "finished"
+                  ? { status: "journaled", payload: null, updatedAt: iso() }
+                  : { status: "uncertain_journaled", updatedAt: iso() },
+              )
               .where(eq(producers.id, producer.id));
           }
         });
@@ -396,6 +414,16 @@ export async function runRecordingMediaCleanup(
           };
           let result: MediaCleanupStep;
           try {
+            const proof = payload.builderUpload;
+            if (proof)
+              payload.builderUpload = await underLease((tx) =>
+                resolveBuilderUploadCustody(tx, {
+                  recordingId: id,
+                  ownerEmail: intent.ownerEmail,
+                  objectKey: object.objectKey,
+                  proof,
+                }),
+              );
             if (object.provider === "builder")
               result = await deleteBuilderMediaForCleanup(
                 {
@@ -579,20 +607,27 @@ export async function runRecordingMediaCleanup(
         }
       },
     );
-  } catch {
+  } catch (error) {
+    interrupted =
+      error instanceof Error &&
+      ["cleanup_deadline", "cleanup_lease_lost"].includes(error.message);
     failureReason = "cleanup_interrupted";
   } finally {
-    const delay = Math.min(
-      3_600_000,
-      30_000 * 2 ** Math.min(intent.attempts, 7),
-    );
+    const delay = interrupted
+      ? 30_000
+      : Math.min(3_600_000, 30_000 * 2 ** Math.min(intent.attempts, 7));
     await db
       .update(intents)
       .set({
         leaseToken: null,
         leaseUntil: null,
         nextAttemptAt: new Date(Date.now() + delay).toISOString(),
-        ...(failureReason ? { status: "blocked", reason: failureReason } : {}),
+        ...(failureReason
+          ? {
+              status: interrupted ? "pending" : "blocked",
+              reason: failureReason,
+            }
+          : {}),
         updatedAt: iso(),
       })
       .where(and(eq(intents.id, id), eq(intents.leaseToken, leaseToken)));

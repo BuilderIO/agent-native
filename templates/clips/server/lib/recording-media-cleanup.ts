@@ -264,8 +264,15 @@ export async function deleteStoredMediaUrl(
   }
   // Existing synchronous edits consume the request acknowledgement. Permanent
   // deletion uses the durable worker's separate, stricter storage evidence.
-  if (builderAssetUrl(url))
-    return (await requestBuilderAssetDeletion(url)) === "accepted";
+  if (builderAssetUrl(url)) {
+    if ((await requestBuilderAssetDeletion(url)) === "accepted") return true;
+    const response = await fetch(url, {
+      headers: { Range: "bytes=0-0" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    await response.body?.cancel();
+    return response.status === 404 || response.status === 410;
+  }
   return false;
 }
 

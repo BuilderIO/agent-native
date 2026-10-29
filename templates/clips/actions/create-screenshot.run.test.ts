@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
   uploadFile: vi.fn(async () => ({ url: "https://store.example/new.png" })),
+  produce: vi.fn(async (_scope: unknown, fn: () => Promise<unknown>) => fn()),
   getDefaultRecordingVisibility: vi.fn(
     async (_orgId?: string, _userEmail?: string, explicit?: string) =>
       explicit ?? "private",
@@ -30,6 +31,9 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: (...args: unknown[]) => mocks.uploadFile(...(args as [])),
+}));
+vi.mock("../server/lib/recording-media-lifecycle.js", () => ({
+  withRecordingMediaProduction: mocks.produce,
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
@@ -74,6 +78,7 @@ function run(args: Record<string, unknown> = {}) {
 beforeEach(() => {
   mocks.rows = [];
   mocks.uploadFile.mockClear();
+  mocks.produce.mockClear();
   mocks.getDefaultRecordingVisibility.mockClear();
 });
 
@@ -82,6 +87,15 @@ describe("create-screenshot", () => {
     const result = await run();
     expect(result.imageUrl).toMatch(/^\/api\/thumbnail\//);
     expect(JSON.stringify(result)).not.toContain("store.example");
+    expect(mocks.produce).toHaveBeenCalledWith(
+      {
+        recordingId: "id-1",
+        ownerEmail: "owner@example.com",
+        recordAsset: false,
+        newRecording: true,
+      },
+      expect.any(Function),
+    );
   });
 
   it("passes explicit visibility to the resolver", async () => {

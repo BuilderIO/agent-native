@@ -209,7 +209,7 @@ export async function s3MediaCleanupFingerprint(
   mode: ClipsS3StorageMode,
 ): Promise<string | null> {
   const cfg = await readS3ConfigForMode(mode);
-  return cfg && objectKeyFromUrl({ ...cfg, publicBaseUrl: null }, url)
+  return cfg && objectKeyFromUrl(cfg, url)
     ? cleanupStorageFingerprint(cfg)
     : null;
 }

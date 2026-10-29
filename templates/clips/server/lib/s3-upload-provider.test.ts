@@ -103,6 +103,9 @@ describe("s3FileUploadProvider", () => {
       url: output.url,
       uploadConfirmed: true,
     });
+    expect(await s3MediaCleanupFingerprint(output.url, "own")).toBe(
+      journal[0]?.storageFingerprint,
+    );
     values.S3_BUCKET = "bucket-b";
     const calls = mockSsrfSafeFetch.mock.calls.length;
     expect(
@@ -121,7 +124,9 @@ describe("s3FileUploadProvider", () => {
       ),
     ).toMatchObject({ phase: "blocked", reason: "credential_space_mismatch" });
     expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(calls);
-    expect(await s3MediaCleanupFingerprint(output.url, "own")).toBeNull();
+    expect(await s3MediaCleanupFingerprint(output.url, "own")).not.toBe(
+      journal[0]?.storageFingerprint,
+    );
   });
 
   it("keeps a successful DELETE unconfirmed when bytes still exist or versions cannot be excluded", async () => {
