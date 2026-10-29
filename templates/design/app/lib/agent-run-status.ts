@@ -1,3 +1,4 @@
+import { isContinuationTerminalReason } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 
 export type AgentRunStatusRead =
@@ -8,8 +9,32 @@ export type AgentRunStatusRead =
       runId?: string;
       turnId?: string;
       terminalReason?: string;
+      awaitingRedispatch?: boolean;
     }
   | { ok: false };
+
+const SETTLED_RUN_STATUSES = new Set([
+  "idle",
+  "completed",
+  "errored",
+  "aborted",
+]);
+
+/**
+ * Whether the thread has no run in progress and none waiting to continue.
+ * `unknown` is what the route reports for a thread it will not reveal, so it
+ * is never settled.
+ */
+export function isAgentRunSettled(
+  run: Extract<AgentRunStatusRead, { ok: true }>,
+): boolean {
+  if (run.active || run.awaitingRedispatch) return false;
+  if (!SETTLED_RUN_STATUSES.has(run.status)) return false;
+  const reason = run.terminalReason?.startsWith("aborted:")
+    ? run.terminalReason.slice("aborted:".length)
+    : run.terminalReason;
+  return !isContinuationTerminalReason(reason);
+}
 
 export interface PreviousRunBaseline {
   runId: string | null;
@@ -37,6 +62,7 @@ export async function readAgentRunStatus(
       runId?: unknown;
       turnId?: unknown;
       terminalReason?: unknown;
+      awaitingRedispatch?: unknown;
     };
     if (typeof state.active !== "boolean" || typeof state.status !== "string") {
       return { ok: false };
@@ -53,6 +79,9 @@ export async function readAgentRunStatus(
         : {}),
       ...(typeof state.terminalReason === "string" && state.terminalReason
         ? { terminalReason: state.terminalReason }
+        : {}),
+      ...(state.awaitingRedispatch === true
+        ? { awaitingRedispatch: true }
         : {}),
     };
   } catch {

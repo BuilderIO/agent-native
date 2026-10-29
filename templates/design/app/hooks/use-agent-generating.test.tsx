@@ -1972,6 +1972,65 @@ describe("useAgentGenerating", () => {
     container.remove();
   });
 
+  it("keeps a resumed run when another submitted run starts on its tab", async () => {
+    const onRunConfirmed = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: true,
+        status: "running",
+        runId: "tracked-run",
+        turnId: "tracked-turn",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Probe
+          onComplete={vi.fn()}
+          onRunConfirmed={onRunConfirmed}
+          onStopped={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      latest?.track("design_tab", {
+        currentRunId: "tracked-run",
+        currentTurnId: "tracked-turn",
+      });
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "design_tab",
+            tabId: "design_tab",
+            runId: "other-run",
+            reason: "run.submitted",
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+
+    expect(onRunConfirmed).not.toHaveBeenCalledWith(
+      "design_tab",
+      "other-run",
+      expect.anything(),
+    );
+    expect(onRunConfirmed).toHaveBeenCalledWith(
+      "design_tab",
+      "tracked-run",
+      "tracked-turn",
+    );
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("clears an unconfirmed generation after the start timeout", async () => {
     const onComplete = vi.fn();
     const onStale = vi.fn();

@@ -4,7 +4,7 @@ import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import { readAgentRunStatus } from "@/lib/agent-run-status";
+import { isAgentRunSettled, readAgentRunStatus } from "@/lib/agent-run-status";
 import {
   formatComposerContext,
   hasComposerSystemContext,
@@ -114,10 +114,11 @@ async function startRetryGeneration(
   clearAutoRetryTimer();
   if (mode === "auto" && previousRunTabId) {
     // A stale mark is only a missed signal; resubmitting while the first run
-    // still writes puts two agents on the same design.
+    // still writes puts two agents on the same design. Only a settled thread
+    // is safe to submit to.
     const run = await readAgentRunStatus(previousRunTabId);
     if (!run.ok) return;
-    if (run.active) {
+    if (run.active || run.awaitingRedispatch) {
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
       const { autoRetry: _autoRetry, ...retained } = promptState;
@@ -140,6 +141,7 @@ async function startRetryGeneration(
       trackActiveRun(previousRunTabId, runIds);
       return;
     }
+    if (!isAgentRunSettled(run)) return;
   }
   const fileContext = formatUploadedFileContext(promptState.files);
   let images: string[];

@@ -843,6 +843,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
             if (
               detail.reason === "run.submitted" &&
               !generationRunObservedRef.current &&
+              currentRunIdRef.current === null &&
               detail.runId !== previousRunIdRef.current
             ) {
               // A message this tab submitted starts a new run on a new turn

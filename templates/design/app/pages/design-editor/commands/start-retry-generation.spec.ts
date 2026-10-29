@@ -6,7 +6,8 @@ const mocks = vi.hoisted(() => ({
   readAgentRunStatus: vi.fn(),
 }));
 
-vi.mock("@/lib/agent-run-status", () => ({
+vi.mock("@/lib/agent-run-status", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agent-run-status")>()),
   readAgentRunStatus: mocks.readAgentRunStatus,
 }));
 
@@ -157,6 +158,39 @@ describe("runStartRetryGeneration auto retry", () => {
     expect(args.trackActiveRun).not.toHaveBeenCalled();
     expect(mocks.patchPendingGeneration).not.toHaveBeenCalled();
     expect(args.setRetryablePrompt).not.toHaveBeenCalled();
+  });
+
+  it("does not submit when the server will not reveal the previous thread", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "unknown",
+      active: false,
+    });
+    const args = createArgs({ previousRunTabId: "question-tab" });
+
+    await runStartRetryGeneration(args, promptState, 2, "auto");
+
+    expect(args.agentSubmit).not.toHaveBeenCalled();
+    expect(args.trackActiveRun).not.toHaveBeenCalled();
+    expect(args.setRetryablePrompt).not.toHaveBeenCalled();
+  });
+
+  it("follows a run waiting to be redispatched instead of submitting", async () => {
+    mocks.readAgentRunStatus.mockResolvedValue({
+      ok: true,
+      status: "completed",
+      active: false,
+      runId: "deferred-run",
+      awaitingRedispatch: true,
+    });
+    const args = createArgs({ previousRunTabId: "question-tab" });
+
+    await runStartRetryGeneration(args, promptState, 2, "auto");
+
+    expect(args.agentSubmit).not.toHaveBeenCalled();
+    expect(args.trackActiveRun).toHaveBeenCalledWith("question-tab", {
+      currentRunId: "deferred-run",
+    });
   });
 
   it("submits the retry once the previous run is idle", async () => {
