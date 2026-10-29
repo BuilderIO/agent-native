@@ -44,9 +44,37 @@ export const communityInstallVerificationErrors = defineActionErrors(
 function verificationFail(
   message: string,
   code: Parameters<typeof communityInstallVerificationErrors.fail>[1],
-  options: { statusCode: number },
+  options: { statusCode: number; details?: Record<string, unknown> },
 ): never {
   return communityInstallVerificationErrors.fail(message, code, options);
+}
+
+const READBACK_STAGES = new Set([
+  "status_request",
+  "status_shape",
+  "status_binding",
+  "status_currentness",
+  "download_url_request",
+  "download_url_shape",
+  "download_url_binding",
+  "bundle_download",
+  "bundle_read",
+  "bundle_digest",
+  "bundle_parse",
+  "target_subtree_missing",
+  "post_read_currentness",
+  "app_integrity",
+  "snapshot_ref",
+]);
+
+function readbackStage(error: unknown): string {
+  const stage =
+    error && typeof error === "object"
+      ? (error as { readbackStage?: unknown }).readbackStage
+      : undefined;
+  return typeof stage === "string" && READBACK_STAGES.has(stage)
+    ? stage
+    : "unknown";
 }
 
 function requireHumanOrgOwner(): { orgId: string; ownerEmail: string } {
@@ -180,7 +208,7 @@ function failBranchReadback(error: unknown): never {
       verificationFail(
         "Builder could not provide a complete, identity-bound branch snapshot.",
         "community_verification_readback_unverified",
-        { statusCode: 422 },
+        { statusCode: 422, details: { readbackStage: readbackStage(error) } },
       );
     }
     if (error.code === "invalid_request") {
@@ -194,7 +222,10 @@ function failBranchReadback(error: unknown): never {
   verificationFail(
     "Builder branch readback is unavailable. Try again later.",
     "community_verification_readback_unavailable",
-    { statusCode: 503 },
+    {
+      statusCode: 503,
+      details: { readbackStage: readbackStage(error) },
+    },
   );
 }
 
@@ -273,14 +304,14 @@ export async function verifyCuratedCommunityApp(input: {
         verificationFail(
           "Builder branch files do not match the reviewed community template.",
           "community_verification_integrity_failed",
-          { statusCode: 422 },
+          { statusCode: 422, details: { readbackStage: "app_integrity" } },
         );
       case "ref_mismatch":
       case "invalid_snapshot":
         verificationFail(
           "Builder could not provide a complete, identity-bound branch snapshot.",
           "community_verification_readback_unverified",
-          { statusCode: 422 },
+          { statusCode: 422, details: { readbackStage: "snapshot_ref" } },
         );
       case "invalid_source":
         verificationFail(

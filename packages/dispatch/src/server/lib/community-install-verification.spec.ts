@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   class MockBuilderBranchFilesError extends Error {
-    constructor(readonly code: string) {
+    constructor(
+      readonly code: string,
+      readonly readbackStage?: string,
+    ) {
       super(code);
     }
   }
@@ -292,12 +295,29 @@ describe("verifyCuratedCommunityApp", () => {
 
   it("maps Builder read failures to typed errors without returning a receipt", async () => {
     mocks.readBuilderBranchFiles.mockRejectedValue(
-      new BuilderBranchFilesError("unverified"),
+      new BuilderBranchFilesError("unverified", "status_currentness"),
     );
 
     await expect(verifyCuratedCommunityApp(input)).rejects.toMatchObject({
       errorCode: "community_verification_readback_unverified",
       statusCode: 422,
+      details: { readbackStage: "status_currentness" },
     });
+  });
+
+  it("keeps older and unrecognized Core diagnostics explicitly unknown", async () => {
+    for (const error of [
+      new BuilderBranchFilesError("unverified"),
+      new BuilderBranchFilesError(
+        "unverified",
+        "https://provider.invalid/private",
+      ),
+    ]) {
+      mocks.readBuilderBranchFiles.mockRejectedValueOnce(error);
+      await expect(verifyCuratedCommunityApp(input)).rejects.toMatchObject({
+        errorCode: "community_verification_readback_unverified",
+        details: { readbackStage: "unknown" },
+      });
+    }
   });
 });

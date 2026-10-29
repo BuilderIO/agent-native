@@ -307,6 +307,30 @@ describe("readBuilderBranchFiles", () => {
   });
 
   it.each([
+    ["status_shape", { status: "ok" }],
+    ["status_binding", status({ branch: { name: "feature/other" } })],
+    [
+      "status_binding",
+      status({
+        branch: { name: "feature/other", lastCommitHash: "malformed" },
+      }),
+    ],
+    [
+      "status_currentness",
+      status({ branch: { lastActivityAt: BACKUP_AT + 1 } }),
+    ],
+  ] as const)(
+    "labels %s failures with a fixed stage",
+    async (stage, before) => {
+      queueSuccessfulApiReadbacks({ before });
+
+      await expect(
+        expectCode(readBuilderBranchFiles(input), "unverified"),
+      ).resolves.toMatchObject({ readbackStage: stage });
+    },
+  );
+
+  it.each([
     ["stale backup", { check: { state: "stale", outcome: "hash-mismatch" } }],
     [
       "forced offline backup",
@@ -368,8 +392,22 @@ describe("readBuilderBranchFiles", () => {
       .mockResolvedValueOnce(jsonResponse(status()));
     mocks.ssrfSafeFetch.mockResolvedValueOnce(new Response("different bytes"));
 
-    await expectCode(readBuilderBranchFiles(input), "integrity_failed");
+    await expect(
+      expectCode(readBuilderBranchFiles(input), "integrity_failed"),
+    ).resolves.toMatchObject({ readbackStage: "bundle_digest" });
     expect(mocks.readBuilderGitBundle).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a missing app subtree while preserving integrity failure", async () => {
+    queueSuccessfulApiReadbacks();
+    mocks.readBuilderGitBundle.mockReset();
+    mocks.readBuilderGitBundle.mockRejectedValueOnce(
+      new BuilderGitBundleError("target_missing"),
+    );
+
+    await expect(
+      expectCode(readBuilderBranchFiles(input), "integrity_failed"),
+    ).resolves.toMatchObject({ readbackStage: "target_subtree_missing" });
   });
 
   it.each([401, 403, 500])(
@@ -519,6 +557,7 @@ describe("readBuilderBranchFiles", () => {
       "unavailable",
     );
     expect(truncated.message).not.toContain("truncated signed URL response");
+    expect(truncated).toMatchObject({ readbackStage: "bundle_read" });
   });
 
   it("fails closed when bundle extraction fails without exposing internal errors", async () => {
