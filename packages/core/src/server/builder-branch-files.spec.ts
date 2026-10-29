@@ -797,21 +797,36 @@ describe("readBuilderBranchBackupStatus", () => {
     });
   });
 
-  it("fails explicitly when an invalid provider status has no backup object", async () => {
-    const value = status();
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
-        ...value,
-        backupStatuses: {
-          code: { state: "invalid", outcome: "no-backup" },
-        },
-      }),
-    );
+  it.each([
+    ["the exact no-backup result", "no-backup", undefined, "status_no_backup"],
+    [
+      "a different absent-backup result",
+      "no-session-id",
+      undefined,
+      "status_shape",
+    ],
+    [
+      "a branch identity mismatch before no-backup classification",
+      "no-backup",
+      { projectId: "another-project" },
+      "status_binding",
+    ],
+  ])(
+    "classifies %s without returning metadata",
+    async (_label, outcome, branch, stage) => {
+      const value = status({ branch });
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse({
+          ...value,
+          backupStatuses: { code: { state: "invalid", outcome } },
+        }),
+      );
 
-    await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
-      (error) => expect(error).toMatchObject({ readbackStage: "status_shape" }),
-    );
-  });
+      await expectCode(readBuilderBranchBackupStatus(input), "unverified").then(
+        (error) => expect(error).toMatchObject({ readbackStage: stage }),
+      );
+    },
+  );
 
   it("reports backup currentness and branch activity without verifying files", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(

@@ -22,6 +22,7 @@ export type BuilderBranchReadbackStage =
   | "status_request"
   | "status_shape"
   | "status_binding"
+  | "status_no_backup"
   | "status_currentness"
   | "post_read_status_request"
   | "post_read_status_shape"
@@ -325,13 +326,9 @@ export async function readBuilderBranchBackupStatus(input: BranchRef) {
   if (!result.success) return unverified("status_shape");
   const { branch, backupStatuses } = result.data;
   const backup = backupStatuses.code.backup;
-  if (!backup) return unverified("status_shape");
   if (
     branch.projectId !== input.projectId ||
-    branch.name !== input.branchName ||
-    backup.projectId !== input.projectId ||
-    backup.branchName !== input.branchName ||
-    branch.ownerId !== backup.ownerId
+    branch.name !== input.branchName
   ) {
     return unverified("status_binding");
   }
@@ -339,6 +336,22 @@ export async function readBuilderBranchBackupStatus(input: BranchRef) {
     branch.deleted !== undefined &&
     branch.state !== undefined &&
     branch.deleted !== (branch.state === "deleted")
+  ) {
+    return unverified("status_binding");
+  }
+  if (!backup) {
+    if (
+      backupStatuses.code.state === "invalid" &&
+      backupStatuses.code.outcome === "no-backup"
+    ) {
+      return unverified("status_no_backup");
+    }
+    return unverified("status_shape");
+  }
+  if (
+    backup.projectId !== input.projectId ||
+    backup.branchName !== input.branchName ||
+    branch.ownerId !== backup.ownerId
   ) {
     return unverified("status_binding");
   }

@@ -392,6 +392,20 @@ describe("verifyCuratedCommunityApp", () => {
     });
   });
 
+  it("preserves a typed no-backup status failure for the inspection action", async () => {
+    mocks.readBuilderBranchBackupStatus.mockRejectedValueOnce(
+      new BuilderBranchFilesError("unverified", "status_no_backup"),
+    );
+
+    await expect(
+      inspectCommunityBuilderBackup({ branchName: input.branchName }),
+    ).rejects.toMatchObject({
+      errorCode: "community_verification_readback_unverified",
+      statusCode: 422,
+      details: { readbackStage: "status_no_backup" },
+    });
+  });
+
   it("keeps older and unrecognized Core diagnostics explicitly unknown", async () => {
     for (const error of [
       new BuilderBranchFilesError("unverified"),

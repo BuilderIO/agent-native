@@ -128,6 +128,9 @@ unpushed changes. It only reads existing status metadata; it does not request a
 backup, download a bundle, or verify app files.
 `backupPartial` returns `missing` or `invalid` when the provider flag is absent
 or malformed; it never coerces those cases to `false`.
+An explicit provider `invalid`/`no-backup` status with no backup object is a
+typed `status_no_backup` failure; other missing backup objects remain malformed
+status failures.
 `verificationPerformed` is always `false`. Use
 `verify-curated-community-app` for the separate hash verification step.
 The verifier requests a bundle-download URL and may refresh provider backup

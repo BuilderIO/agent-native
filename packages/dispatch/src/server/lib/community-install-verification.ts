@@ -54,6 +54,7 @@ const READBACK_STAGES = new Set([
   "status_request",
   "status_shape",
   "status_binding",
+  "status_no_backup",
   "status_currentness",
   "post_read_status_request",
   "post_read_status_shape",
