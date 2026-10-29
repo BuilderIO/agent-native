@@ -593,7 +593,11 @@ export function updateSlideAutoLayoutFrame(
     return refused(failed.write.reason, failed.write.nodeIds);
   }
   for (const { member, write } of memberWrites) {
-    if (write.status === "ok") applyWrite(member, write, new Map());
+    // A nested group that hugs freezes its own Fill members; those patches
+    // are addressed to them.
+    if (write.status === "ok") {
+      applyWrite(member, write, membersById(member) ?? new Map());
+    }
   }
   return { status: "applied" };
 }

@@ -7567,6 +7567,9 @@ export default function SlideEditor({
       // A member in an auto layout group is sized in place; the group keeps
       // placing it, so it is never promoted to a freeform object.
       const inFlowLayout = slideAutoLayoutGroupOf(element) !== null;
+      // A text box in flow keeps sizing its height to its text; a resize only
+      // ever pins its width.
+      const sizesToText = inFlowLayout && isFitTextObject(element);
       let restoreMarkdownTree: (() => void) | undefined;
       let restoreDescendants: (() => void) | undefined;
       let promotedToFreeform = false;
@@ -7675,7 +7678,9 @@ export default function SlideEditor({
           inFlowLayout &&
           fixSlideLayoutSizing(element, [
             ...(/[ew]/.test(handle) ? (["horizontal"] as const) : []),
-            ...(/[ns]/.test(handle) ? (["vertical"] as const) : []),
+            ...(/[ns]/.test(handle) && !sizesToText
+              ? (["vertical"] as const)
+              : []),
           ]).status === "refused"
         ) {
           toast.error(t("contextToolbar.autoLayoutUnmeasurable"));
@@ -7891,13 +7896,20 @@ export default function SlideEditor({
           if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           if (inFlowLayout) {
             const resized = getObjectGeometry(element);
+            const widthChanged = resized.width !== resizeOrigin.width;
+            // A text box's height follows its text as the width rewraps it;
+            // that is not a resize of the height.
+            const heightChanged =
+              resized.height !== resizeOrigin.height && !sizesToText;
+            // Dragged and brought back: the member keeps the sizing it had,
+            // not the Fixed the gesture started with.
+            if (!widthChanged && !heightChanged) {
+              restoreSlideObjectStyle(element, originalStyle);
+              return { handled: true };
+            }
             const pinned = fixSlideLayoutSizing(element, [
-              ...(resized.width !== resizeOrigin.width
-                ? (["horizontal"] as const)
-                : []),
-              ...(resized.height !== resizeOrigin.height
-                ? (["vertical"] as const)
-                : []),
+              ...(widthChanged ? (["horizontal"] as const) : []),
+              ...(heightChanged ? (["vertical"] as const) : []),
             ]);
             if (pinned.status === "refused") {
               restoreSlideObjectStyle(element, originalStyle);

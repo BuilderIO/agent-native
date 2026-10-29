@@ -585,6 +585,35 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("drops a member where the pointer is in a reversed row", async () => {
+    const page = await openPage();
+    const result = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      // The first member now paints rightmost and the third leftmost.
+      group.style.flexDirection = "row-reverse";
+      const member = (id: string) =>
+        group.querySelector<HTMLElement>(`[data-slide-object-id="${id}"]`)!;
+      const rightEdge = member("first").getBoundingClientRect().right;
+      const index = api.resolveSlideFlowInsertionIndex(group, member("third"), {
+        x: rightEdge - 2,
+        y: member("first").getBoundingClientRect().top + 5,
+      });
+      api.moveSlideFlowMember(group, member("third"), index);
+      const painted = ["first", "second", "third"]
+        .map((id) => ({ id, left: member(id).getBoundingClientRect().left }))
+        .sort((a, b) => b.left - a.left)
+        .map(({ id }) => id);
+      return { index, rightToLeft: painted };
+    });
+    expect(result).toEqual({
+      index: 0,
+      rightToLeft: ["third", "first", "second"],
+    });
+    await page.close();
+  });
+
   it("refuses a member that is not rendered and leaves the group as it was", async () => {
     const page = await openPage();
     const outcome = await page.evaluate(() => {
