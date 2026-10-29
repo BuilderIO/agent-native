@@ -1068,10 +1068,6 @@ async function exerciseApp(
 
     if (exerciseChatDurability) {
       await step(
-        "a signed Netlify scheduled tick completes one stale Chat continuation",
-        () => exerciseScheduledStaleChatContinuation(databaseUrl, email),
-      );
-      await step(
         "authenticated busy Chat POST retains its reference attachment through reload",
         () =>
           exerciseDisposableChatReliability(
@@ -1080,6 +1076,10 @@ async function exerciseApp(
             email,
             session,
           ),
+      );
+      await step(
+        "a signed Netlify scheduled tick completes one stale Chat continuation",
+        () => exerciseScheduledStaleChatContinuation(databaseUrl, email),
       );
     }
   }
