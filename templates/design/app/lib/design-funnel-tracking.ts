@@ -229,6 +229,7 @@ export function useDesignReadyViewTracking({
   latest.current = { designId, isOwner, designLoaded, files };
   const runsRef = useRef(new Map<string, TrackedAgentRun>());
   const cancelSendsRef = useRef(new Set<() => void>());
+  const lifecycleRef = useRef(0);
 
   const send = useRef((callback: () => void) => {
     // runWhenTabVisible calls back synchronously when the tab is visible, so
@@ -244,6 +245,7 @@ export function useDesignReadyViewTracking({
   flushCompletedRunsRef.current = () => {
     const current = latest.current;
     if (!current.designId || !current.designLoaded) return;
+    const lifecycle = lifecycleRef.current;
     const screenCount = generationOutputFiles(current.files).length;
 
     for (const [runId, run] of runsRef.current) {
@@ -295,6 +297,7 @@ export function useDesignReadyViewTracking({
           { method: "GET", uiOnly: true },
         )
           .then((result) => {
+            if (lifecycleRef.current !== lifecycle) return;
             const visible = latest.current;
             if (
               result.status !== "has_output" ||
@@ -329,6 +332,8 @@ export function useDesignReadyViewTracking({
     // Keep starts that arrive before the first generated design has loaded.
     const runs = runsRef.current;
     const cancelSends = cancelSendsRef.current;
+    const lifecycle = lifecycleRef.current + 1;
+    lifecycleRef.current = lifecycle;
     let disposed = false;
     const isDisposed = () => disposed;
     const onRunning = (event: Event) => {
@@ -410,6 +415,7 @@ export function useDesignReadyViewTracking({
     window.addEventListener(AGENT_CHAT_RUNNING_EVENT, onRunning);
     return () => {
       disposed = true;
+      if (lifecycleRef.current === lifecycle) lifecycleRef.current += 1;
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, onRunning);
       for (const cancel of cancelSends) cancel();
       cancelSends.clear();

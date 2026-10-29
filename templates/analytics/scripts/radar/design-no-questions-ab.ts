@@ -139,7 +139,11 @@ ready AS (
     AND e.properties ->> 'telemetry_origin' = 'client'
     AND e.properties ->> 'turn_id' = a.exposed_turn_id
     AND e.properties ->> 'is_owner' = 'true'
-    AND coalesce(nullif(e.properties ->> 'screen_count', '')::int, 0) > 0
+    AND CASE
+      WHEN (e.properties ->> 'screen_count') ~ '^[0-9]{1,9}$'
+        THEN (e.properties ->> 'screen_count')::int > 0
+      ELSE false
+    END
     AND nullif(e.properties ->> 'output_id', '') IS NOT NULL
   GROUP BY a.person_key
 ),

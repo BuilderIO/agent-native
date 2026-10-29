@@ -106,6 +106,12 @@ describe("Design no-questions readout query", () => {
       expect(readyEvents).toContain("turn_id");
       expect(readyEvents).not.toContain("telemetry_origin' = 'server'");
       if (_name === "PostgreSQL") {
+        expect(readyEvents).toContain(
+          "(e.properties ->> 'screen_count') ~ '^[0-9]{1,9}$'",
+        );
+        expect(readyEvents).toContain(
+          "THEN (e.properties ->> 'screen_count')::int > 0",
+        );
         expect(sql).toContain("e.properties ->> 'output_id' = r.output_id");
         expect(sql).toContain("e.properties ->> 'telemetry_origin' = 'server'");
         expect(sql).not.toContain(

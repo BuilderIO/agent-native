@@ -358,6 +358,31 @@ describe("design_ready_viewed", () => {
     expect(readyEvents()).toHaveLength(0);
   });
 
+  it("does not report ready when the output receipt resolves after editor unmount", async () => {
+    let resolveOutput: (value: unknown) => void = () => {};
+    mocks.callAction.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveOutput = resolve)),
+    );
+    await renderReady({ files: [screen("a")] });
+    await agentRun({ isRunning: true });
+    await renderReady({ files: [screen("a", "t2")] });
+    await agentRun({ isRunning: false });
+
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "get-design-generation-output",
+      { designId: "design-1", runId: "run-1", turnId: "turn-1" },
+      { method: "GET", uiOnly: true },
+    );
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      resolveOutput({ status: "has_output" });
+      await Promise.resolve();
+    });
+
+    expect(readyEvents()).toHaveLength(0);
+  });
+
   it("never fires for a run the server reports errored, aborted, or truncated", async () => {
     for (const [index, run] of [
       { ok: true, status: "errored", active: false, runId: "run-0" },

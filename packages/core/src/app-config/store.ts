@@ -103,12 +103,12 @@ function resolve(
   }
   const parsed = appConfigSchema.parse(merged);
   if (
-    questionIntakeEnvironment?.enabled === false &&
+    questionIntakeEnvironment?.enabled !== undefined &&
     parsed.agent.questionIntake
   ) {
     parsed.agent.questionIntake = {
       ...parsed.agent.questionIntake,
-      enabled: false,
+      enabled: questionIntakeEnvironment.enabled,
     };
   }
   if (
