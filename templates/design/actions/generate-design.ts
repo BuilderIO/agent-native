@@ -587,7 +587,7 @@ const generateDesignAction = defineAction({
                 .literal("hubspot-email")
                 .optional()
                 .describe(
-                  "Optional internal email authoring type; when supplied, include its meta marker and email-safe HTML. Any HTML frame can be validated and exported with export-hubspot-html.",
+                  "Optional internal email authoring type for email-safe HTML with its corresponding meta marker.",
                 ),
               fileType: z
                 .enum(["html", "css", "jsx", "asset"])

@@ -227,6 +227,8 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   },
   toolParameterDescriptions: {
     "generate-design": {
+      tweaks:
+        "Optional controls bound to CSS custom properties present in the design, such as colors, spacing, radius, typography, and dark mode.",
       canvasFrames:
         "Optional overview-canvas placements keyed by filename or file ID, each with numeric x, y, width, and height values.",
       devices:
