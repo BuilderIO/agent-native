@@ -798,6 +798,27 @@ describe("design_ready_viewed", () => {
     },
   );
 
+  it("preserves pending result-link backoff when screen files change", async () => {
+    vi.useFakeTimers();
+    try {
+      setUrl("?generation_attempt_id=attempt_1234567890abcdef");
+      mocks.callAction.mockResolvedValue({ status: "pending", result: null });
+      await renderReady({ files: [screen("a")] });
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      await renderReady({ files: [screen("a", "new-version")] });
+      expect(mocks.callAction).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not poll again when a result link has no provenance", async () => {
     vi.useFakeTimers();
     try {

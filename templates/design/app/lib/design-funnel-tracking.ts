@@ -209,6 +209,7 @@ export function useDesignReadyViewTracking({
     () => (designId ? readUrlGenerationAttemptId() : null),
     [designId, search],
   );
+  const hasGenerationOutput = generationOutputFiles(files).length > 0;
   const latest = useRef({ designId, isOwner, designLoaded, files });
   latest.current = { designId, isOwner, designLoaded, files };
   const runsRef = useRef(new Map<string, TrackedAgentRun>());
@@ -517,7 +518,7 @@ export function useDesignReadyViewTracking({
       !designLoaded ||
       !isOwner ||
       !urlAttemptId ||
-      generationOutputFiles(files).length === 0
+      !hasGenerationOutput
     )
       return;
     let cancelled = false;
@@ -589,7 +590,7 @@ export function useDesignReadyViewTracking({
       cancelVisible?.();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [designId, designLoaded, files, isOwner, urlAttemptId]);
+  }, [designId, designLoaded, hasGenerationOutput, isOwner, urlAttemptId]);
 
   useEffect(() => {
     try {
