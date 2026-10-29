@@ -5493,7 +5493,7 @@ function repeatedToolFailureStop(
 ): TerminalActionStop {
   return {
     message:
-      `I stopped because ${name} failed ${count} times without a successful call. ` +
+      `I stopped because ${name} failed ${count} times without a fresh successful execution. ` +
       `Last error: ${clipHead(stopErrorLine(lastError), MAX_STOP_ERROR_LINE_CHARS)}\n\n` +
       "Anything completed before this is saved.",
     errorCode: "repeated_tool_failure",
@@ -10778,7 +10778,9 @@ export async function runAgentLoop(opts: {
             intent.planModeRead,
           )
         ) {
-          const result = planModeBlockedMessage(toolCall.name);
+          const result = finalizeToolErrorResult(
+            planModeBlockedMessage(toolCall.name),
+          );
           await emitToolDone({
             type: "tool_done",
             id: toolCall.id,

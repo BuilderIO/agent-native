@@ -263,7 +263,7 @@ export const updateContentDatabaseViewAgentSchema = z.discriminatedUnion(
         filterMode: z
           .enum(["and", "or"])
           .describe(
-            "How to combine the replacement filters. Use and for multiple exclusions. To retain source or filters while adding constraints, put the source filters in one or filterGroupId group and combine that group with the new filters using and.",
+            "How to combine the replacement filters. Use and for multiple exclusions. To retain source or filters while adding constraints, give those filters the same filterGroupId and filterGroupMode: or, then combine that group with the new filters using filterMode: and.",
           ),
       })
       .strict(),
