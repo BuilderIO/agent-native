@@ -22,12 +22,14 @@ describe("no new hard delete guard", () => {
       "  .where(eq(schema.slideComments.deckId, id));",
       "await getDb().delete(schema.assets);",
       "await exec.execute({ sql: `DELETE FROM decks WHERE id = ${id}` });",
+      "await transaction.delete(schema.documents);",
+      "await getDatabase().delete(schema.runs);",
       "seen.delete(id);",
       "url.searchParams.delete('tab');",
       "await db.update(schema.decks).set({ deletedAt: now });",
     ].join("\n");
 
-    assert.deepEqual(flaggedLines(source), [1, 3, 5, 6]);
+    assert.deepEqual(flaggedLines(source), [1, 3, 5, 6, 7, 8]);
   });
 
   it("only reports deletes on lines this branch added", () => {

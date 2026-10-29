@@ -46,8 +46,8 @@ const IN_SCOPE =
 const SKIPPED =
   /(\.spec\.|\.test\.|\/__tests__\/|\/e2e\/|\/dist\/|\/node_modules\/)/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
-const DB_HANDLE = /^(?:db|tx|trx|database|\w+Db|\w+Tx)$/;
-const DB_GETTER = /^get\w*Db$/;
+const DB_HANDLE = /^(?:db|tx|trx|database|transaction|\w+Db|\w+Tx)$/;
+const DB_GETTER = /^get\w*(?:Db|Database)$/;
 
 export interface HardDeleteFinding {
   file: string;
