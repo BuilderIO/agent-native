@@ -1,8 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  callerHasThreadAccess,
   getCurrentTurnRunIdsForThread,
   getRunStatus,
 } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -41,6 +46,16 @@ export default defineAction({
       .limit(1);
     const attempt = attempts.find((row) => row.designId === designId);
     if (!attempt) return { status: "missing" as const, result: null };
+    const userEmail = getRequestUserEmail()?.trim().toLowerCase();
+    const orgId = getRequestOrgId();
+    if (
+      !userEmail ||
+      !(await callerHasThreadAccess(userEmail, attempt.threadId, "viewer", {
+        ...(orgId ? { orgId } : {}),
+      }))
+    ) {
+      return { status: "unavailable" as const, result: null };
+    }
     const runIds = await getCurrentTurnRunIdsForThread(
       attempt.threadId,
       attempt.turnId,

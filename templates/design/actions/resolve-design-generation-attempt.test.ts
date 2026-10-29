@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   access: vi.fn(),
+  threadAccess: vi.fn(),
   rows: vi.fn(),
   runIds: vi.fn(),
   status: vi.fn(),
@@ -11,8 +12,13 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (action: unknown) => action,
 }));
 vi.mock("@agent-native/core/server", () => ({
+  callerHasThreadAccess: mocks.threadAccess,
   getCurrentTurnRunIdsForThread: mocks.runIds,
   getRunStatus: mocks.status,
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "owner@example.test",
+  getRequestOrgId: () => "org-1",
 }));
 vi.mock("@agent-native/core/sharing", () => ({ resolveAccess: mocks.access }));
 vi.mock("drizzle-orm", () => ({ and: vi.fn(), eq: vi.fn() }));
@@ -34,6 +40,7 @@ describe("generation attempt resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.access.mockResolvedValue({ role: "owner" });
+    mocks.threadAccess.mockResolvedValue(true);
     mocks.rows.mockResolvedValue([
       { designId: "design-1", threadId: "thread-1", turnId: "turn-1" },
     ]);
@@ -85,6 +92,15 @@ describe("generation attempt resolution", () => {
   it("propagates a provenance read failure", async () => {
     mocks.rows.mockRejectedValue(new Error("database unavailable"));
     await expect(action.run(args)).rejects.toThrow("database unavailable");
+  });
+  it("checks thread access before reading run IDs or status", async () => {
+    mocks.threadAccess.mockResolvedValue(false);
+    expect(await action.run(args)).toEqual({
+      status: "unavailable",
+      result: null,
+    });
+    expect(mocks.runIds).not.toHaveBeenCalled();
+    expect(mocks.status).not.toHaveBeenCalled();
   });
   it("rejects a non-owner before reading provenance", async () => {
     mocks.access.mockResolvedValue({ role: "viewer" });

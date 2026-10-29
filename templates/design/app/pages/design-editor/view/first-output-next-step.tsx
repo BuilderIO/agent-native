@@ -52,6 +52,7 @@ export function DesignFirstOutputNextStep({
     null,
   );
   const enrolledRef = useRef(false);
+  const [retrySequence, setRetrySequence] = useState(0);
   const [variant, setVariant] = useState<"control" | "next_step" | null>(null);
 
   useEffect(() => {
@@ -73,6 +74,18 @@ export function DesignFirstOutputNextStep({
         handleReady,
       );
   }, [outputId]);
+
+  useEffect(() => {
+    const retry = () => {
+      if (!enrolledRef.current) setRetrySequence((value) => value + 1);
+    };
+    window.addEventListener("focus", retry);
+    window.addEventListener("online", retry);
+    return () => {
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("online", retry);
+    };
+  }, []);
 
   useEffect(() => {
     if (!ready || !actionsAvailable || !userScope || enrolledRef.current)
@@ -102,9 +115,10 @@ export function DesignFirstOutputNextStep({
         setVariant(result.variant);
       })
       .catch((error: unknown) => {
+        enrolledRef.current = false;
         console.error("Failed to enroll in first output experiment", error);
       });
-  }, [ready, actionsAvailable, userScope, outputId]);
+  }, [ready, actionsAvailable, userScope, outputId, retrySequence]);
 
   if (!actionsAvailable || variant !== "next_step") return null;
 

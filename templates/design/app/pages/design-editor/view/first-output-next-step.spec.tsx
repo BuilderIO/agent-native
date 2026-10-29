@@ -140,6 +140,31 @@ describe("Design first-output next steps", () => {
     }
   });
 
+  it("retries an exhausted enrollment when the browser reconnects", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mocks.callAction.mockRejectedValue(new Error("offline"));
+      await render();
+      await ready();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(mocks.callAction).toHaveBeenCalledTimes(3);
+      mocks.callAction.mockResolvedValue({ variant: "next_step" });
+      await act(async () => {
+        window.dispatchEvent(new Event("online"));
+      });
+      expect(mocks.callAction).toHaveBeenCalledTimes(4);
+      expect(
+        document.querySelector("[data-first-output-next-step]"),
+      ).not.toBeNull();
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("does not enroll until actions are available", async () => {
     mocks.callAction.mockResolvedValue({ variant: "next_step" });
     await render(false);

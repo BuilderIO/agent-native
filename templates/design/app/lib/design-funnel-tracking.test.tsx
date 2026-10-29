@@ -677,6 +677,9 @@ describe("design_ready_viewed", () => {
       { method: "GET", uiOnly: true },
     );
     expect(listener).toHaveBeenCalledOnce();
+    await renderReady({ files: [screen("a", "new-version")] });
+    await flushRunStatus();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
     const call = listener.mock.calls.find((item) => item.length > 0);
     expect((call?.[0] as CustomEvent | undefined)?.detail).toEqual({
       designId: "design-1",

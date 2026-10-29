@@ -216,6 +216,7 @@ export function useDesignReadyViewTracking({
   const receiptRetryTimersRef = useRef(new Map<string, number>());
   const lifecycleRef = useRef(0);
   const attemptDeadlinesRef = useRef(new Map<string, number>());
+  const resolvedAttemptsRef = useRef(new Set<string>());
 
   const send = useRef((callback: () => void) => {
     // runWhenTabVisible calls back synchronously when the tab is visible, so
@@ -525,6 +526,7 @@ export function useDesignReadyViewTracking({
     let checks = 0;
     let loggedError = false;
     const key = `${designId}:${urlAttemptId}`;
+    if (resolvedAttemptsRef.current.has(key)) return;
     const deadline =
       attemptDeadlinesRef.current.get(key) ?? Date.now() + 10 * 60 * 1000;
     attemptDeadlinesRef.current.set(key, deadline);
@@ -539,15 +541,17 @@ export function useDesignReadyViewTracking({
           { designId, attemptId: urlAttemptId } as never,
           { method: "GET", uiOnly: true },
         );
+        if (isCancelled() || Date.now() >= deadline) return;
         if (
-          isCancelled() ||
-          Date.now() >= deadline ||
           status === "missing" ||
           status === "unavailable" ||
           status === "terminal"
-        )
+        ) {
+          resolvedAttemptsRef.current.add(key);
           return;
+        }
         if (status === "ready" && result) {
+          resolvedAttemptsRef.current.add(key);
           window.dispatchEvent(
             new CustomEvent("design:verified-generation-ready", {
               detail: { designId, ...result },
