@@ -88,6 +88,7 @@ export interface DispatchMcpAccessibleApp {
   mcpUrl?: string;
   color: string;
   granted: boolean;
+  mountedPathUnavailable?: boolean;
 }
 
 function normalizeAppId(value: string): string {
@@ -576,7 +577,9 @@ function appendParamsToPath(
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
+function safeAppOrigin(
+  app: Pick<DispatchMcpAccessibleApp, "url">,
+): string | null {
   try {
     const url = new URL(app.url);
     return url.protocol === "http:" || url.protocol === "https:"
@@ -585,6 +588,30 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
   } catch {
     return null;
   }
+}
+
+function isDispatchAppPageUrl(url: string): boolean {
+  if (safeAppOrigin({ url }) === null) return false;
+  const { pathname } = new URL(url);
+  const basePath = getConfiguredAppBasePath();
+  return (
+    pathname.startsWith("/dispatch/apps/") ||
+    (basePath !== "" && pathname.startsWith(`${basePath}/dispatch/apps/`))
+  );
+}
+
+function mountedWorkspaceAppHomeUrl(app: {
+  path: string;
+  url: string | null;
+}): string | null {
+  const appUrl = app.url;
+  const origin = appUrl ? safeAppOrigin({ url: appUrl }) : null;
+  const path = safeAppPath(app.path);
+  if (!origin || !path) return null;
+  const url = new URL(path, `${origin}/`);
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/+$/, "");
 }
 
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
@@ -771,17 +798,43 @@ export async function listDispatchMcpApps(): Promise<{
   settings: DispatchMcpAppAccessSettings;
   apps: DispatchMcpAccessibleApp[];
 }> {
-  const [settings, agents] = await Promise.all([
+  const [settings, agents, mountedApps] = await Promise.all([
     getDispatchMcpAppAccessSettings(),
     discoverAgents("dispatch"),
+    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
+      console.warn(
+        "[dispatch] Workspace app lookup failed during MCP app discovery",
+        { status: httpStatusFromError(error) },
+      );
+      return [];
+    }),
   ]);
+  const mountedAppsById = new Map(
+    mountedApps.map((app) => [normalizeAppId(app.id), app]),
+  );
   return {
     settings,
     apps: [
       dispatchSelfApp(settings),
       ...agents
         .filter((agent) => normalizeAppId(agent.id) !== DISPATCH_APP_ID)
-        .map((agent) => toAccessibleApp(agent, settings)),
+        .map((agent) => {
+          const accessible = toAccessibleApp(agent, settings);
+          const mountedApp = mountedAppsById.get(normalizeAppId(agent.id));
+          const mountedUrl = mountedApp?.url;
+          const sameOriginMount =
+            !!mountedUrl &&
+            safeAppOrigin({ url: mountedUrl }) === safeAppOrigin(accessible);
+          const homeUrl =
+            mountedApp && sameOriginMount
+              ? mountedWorkspaceAppHomeUrl(mountedApp)
+              : null;
+          if (homeUrl) return { ...accessible, homeUrl };
+          // A Dispatch app-page URL is only usable through a verified mount.
+          return isDispatchAppPageUrl(accessible.url)
+            ? { ...accessible, mountedPathUnavailable: true }
+            : accessible;
+        }),
     ],
   };
 }
@@ -790,7 +843,9 @@ export async function listGrantedDispatchMcpApps(): Promise<
   DispatchMcpAccessibleApp[]
 > {
   const { apps } = await listDispatchMcpApps();
-  return apps.filter((app) => app.granted && safeAppOrigin(app));
+  return apps.filter(
+    (app) => app.granted && !app.mountedPathUnavailable && safeAppOrigin(app),
+  );
 }
 
 export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
@@ -816,6 +871,11 @@ export async function resolveGrantedDispatchMcpApp(
   if (!match.granted) {
     throw new Error(
       `Dispatch MCP access to "${match.id}" is not granted. Open Dispatch > Agents to change MCP app access.`,
+    );
+  }
+  if (match.mountedPathUnavailable) {
+    throw new Error(
+      `Dispatch MCP app "${match.id}" is unavailable until its Workspace mount resolves. Try again shortly.`,
     );
   }
   if (!safeAppOrigin(match)) {
@@ -854,6 +914,8 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       mode: "all-apps",
       selectedAppIds: [],
     });
+    // A Dispatch app-page URL is only routable through a verified mount.
+    if (isDispatchAppPageUrl(accessible.url)) continue;
     candidatesById.set(agent.id, {
       ...accessible,
       homeUrl: defaultWorkspaceSsoHomeUrl(accessible, builtinHomeUrls),
@@ -862,12 +924,15 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
   }
   for (const app of mountedApps) {
     if (app.isDispatch || !app.url) continue;
+    const homeUrl = mountedWorkspaceAppHomeUrl(app);
+    if (!homeUrl) continue;
     const mcpUrl = workspaceGatewayMcpUrl(app.url);
     candidatesById.set(app.id, {
       id: app.id,
       name: app.name,
       description: app.description,
       url: app.url,
+      homeUrl,
       ...(mcpUrl ? { mcpUrl } : {}),
       color: DISPATCH_COLOR,
       granted: true,
@@ -1077,16 +1142,17 @@ export async function openGrantedDispatchMcpApp(input: {
         view,
         params: input.params,
       });
-  const url = `${appBaseUrl(target)}${relUrl}`;
+  const url = `${appHomeBaseUrl(target)}${relUrl}`;
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;
   if (input.embed) {
     try {
-      embedSession = await createGrantedDispatchMcpEmbedSession({
+      embedSession = await createEmbedSessionForResolvedGrantedApp({
         app: target.id,
+        resolvedApp: target,
         url,
-        chrome: input.chrome,
+        ...(input.chrome ? { chrome: input.chrome } : {}),
       });
     } catch (error) {
       console.warn(
@@ -1391,6 +1457,7 @@ async function createTargetMcpUserCredentials(input: {
 async function resolveEmbedTarget(
   input: {
     app?: string;
+    resolvedApp?: DispatchMcpAccessibleApp;
     url?: string;
     path?: string;
   },
@@ -1400,9 +1467,9 @@ async function resolveEmbedTarget(
     urlError: string;
   },
 ): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
-  const explicitApp = input.app?.trim()
-    ? await options.resolveApp(input.app)
-    : null;
+  const explicitApp =
+    input.resolvedApp ??
+    (input.app?.trim() ? await options.resolveApp(input.app) : null);
   if (explicitApp && input.path) {
     const path = safeAppPath(input.path);
     if (!path) throw new Error("path must be a safe app-relative route");
@@ -1449,6 +1516,7 @@ async function resolveEmbedTarget(
 
 async function resolveDispatchEmbedTarget(input: {
   app?: string;
+  resolvedApp?: DispatchMcpAccessibleApp;
   url?: string;
   path?: string;
 }): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
@@ -1523,6 +1591,7 @@ function publicEmbedSession({
 
 async function createGrantedDispatchMcpEmbedSessionResult(input: {
   app?: string;
+  resolvedApp?: DispatchMcpAccessibleApp;
   url?: string;
   path?: string;
   chrome?: "full" | "minimal";
@@ -1550,6 +1619,24 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   expiresAt?: number;
   app: string;
 }> {
+  // Copy only public fields so a caller cannot supply a pre-resolved app.
+  const { app, url, path, chrome } = input;
+  return publicEmbedSession(
+    await createGrantedDispatchMcpEmbedSessionResult({
+      ...(app === undefined ? {} : { app }),
+      ...(url === undefined ? {} : { url }),
+      ...(path === undefined ? {} : { path }),
+      ...(chrome === undefined ? {} : { chrome }),
+    }),
+  );
+}
+
+async function createEmbedSessionForResolvedGrantedApp(input: {
+  app: string;
+  resolvedApp: DispatchMcpAccessibleApp;
+  url: string;
+  chrome?: "full" | "minimal";
+}): Promise<ReturnType<typeof publicEmbedSession>> {
   return publicEmbedSession(
     await createGrantedDispatchMcpEmbedSessionResult(input),
   );

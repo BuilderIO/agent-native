@@ -37,8 +37,6 @@ import {
   IconTrash,
   IconGitBranch,
   IconSearch,
-  IconDatabase,
-  IconFileText,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1025,11 +1023,9 @@ function WorkspaceSidebarItem({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => onCreatePageInSpace(space)}>
-                <IconFileText className="me-2 size-4" />
                 {t("sidebar.page")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onCreateDatabaseInSpace(space)}>
-                <IconDatabase className="me-2 size-4" />
                 {t("sidebar.collection")}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -1083,7 +1079,6 @@ function WorkspaceSidebarItem({
                       {folder.repository?.branch ||
                       folder.repository?.commit ? (
                         <span className="flex items-center gap-1 truncate font-mono text-[10px] text-muted-foreground">
-                          <IconGitBranch size={11} />
                           {folder.repository.branch ??
                             folder.repository.commit?.slice(0, 8)}
                         </span>
@@ -3242,13 +3237,11 @@ export function DocumentSidebar({
           <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
-            <IconFileText className="me-2 size-4" />
             {t("sidebar.page")}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
           >
-            <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -3370,13 +3363,11 @@ export function DocumentSidebar({
           <DropdownMenuItem
             onClick={() => void handleCreatePageInSpace(selectedSpace)}
           >
-            <IconFileText className="me-2 size-4" />
             {t("sidebar.page")}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => void handleCreateDatabaseInSpace(selectedSpace)}
           >
-            <IconDatabase className="me-2 size-4" />
             {t("sidebar.collection")}
           </DropdownMenuItem>
         </DropdownMenuContent>

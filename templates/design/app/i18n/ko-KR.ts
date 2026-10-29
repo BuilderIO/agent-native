@@ -63,7 +63,7 @@ export default {
     recordingStarted: "녹화 시작",
     appBandHeading: "{app} · 세션 {count}개",
     journeyTitleSummary: "{app} · {from}~{to} · 세션 {count}개{partial}",
-    journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
+    journeyTitleAppBandsSummary: "{from}~{to} · 분리된 코호트{partial}",
     sessionCount: "세션 {count}개",
     otherPaths: "기타 경로",
     otherBranchesShown: "분기 {total}개 중 {shown}개 표시",
@@ -2710,6 +2710,159 @@ export default {
   },
   home: {
     suggestedPrompts: "추천 프롬프트",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "KPI 카드, 전환 차트, 활동 표를 갖춘 제품 분석 대시보드를 데이터 중심의 자신감 있는 톤으로 디자인하세요.",
+        roadmapWorkspace:
+          "분기 일정, 우선순위, 고객 피드백이 있는 로드맵 작업 공간을 차분하고 협력적인 톤으로 만드세요.",
+        onboardingFlow:
+          "진행 단계, 목표 선택, 계정 설정이 있는 예산 앱 온보딩을 안심을 주는 톤으로 디자인하세요.",
+        featureComparison:
+          "요금제 카드, 기능 비교표, FAQ가 있는 SaaS 비교 페이지를 전환에 초점을 둔 직접적인 톤으로 만드세요.",
+        feedbackPortal:
+          "요청 보드, 투표, 상태 필터가 있는 고객 피드백 포털을 열린 커뮤니티 톤으로 디자인하세요.",
+        releaseNotes:
+          "버전 타임라인, 주요 기능, 이전 안내가 있는 릴리스 노트 허브를 간결한 편집 톤으로 만드세요.",
+        projectWorkspace:
+          "칸반 열, 담당자, 마일스톤이 있는 제품 작업 공간을 생산성 중심으로 디자인하세요.",
+        launchWaitlist:
+          "히어로, 고객 증거, 가입 양식이 있는 출시 대기자 페이지를 낙관적인 톤으로 만드세요.",
+      },
+      design: {
+        portfolioHome:
+          "짧은 소개, 사례 그리드, 프로필, 연락처가 있는 디자이너 포트폴리오를 세련된 편집 톤으로 디자인하세요.",
+        designSystem:
+          "색상과 글꼴 토큰, 컴포넌트 갤러리, 사용 안내가 있는 디자인 시스템 문서를 정확한 톤으로 만드세요.",
+        bankingApp:
+          "잔액, 거래 목록, 저축 목표가 있는 모바일 뱅킹 홈 화면을 차분하고 믿음직하게 디자인하세요.",
+        travelBooking:
+          "목적지 필터, 일정 카드, 지도가 있는 여행 검색 화면을 가볍고 모험적인 톤으로 만드세요.",
+        coffeeShop:
+          "추천 원두, 원산지 이야기, 구독 CTA가 있는 커피숍을 따뜻하고 감각적인 톤으로 디자인하세요.",
+        musicFestival:
+          "라인업, 일정, 행사장 지도가 있는 음악 축제 페이지를 포스터처럼 활기차게 만드세요.",
+        accessibilityAudit:
+          "점수 요약, 문제 목록, 필터가 있는 접근성 감사 대시보드를 명확한 고대비 톤으로 디자인하세요.",
+        artBook:
+          "작품, 인용문, 장 탐색이 있는 아트북 편집 페이지를 절제된 갤러리 톤으로 만드세요.",
+      },
+      developer: {
+        apiDocs:
+          "사이드 탐색, 코드 예시, 요청 작성기가 있는 API 문서 포털을 정확한 기술 톤으로 디자인하세요.",
+        deploymentDashboard:
+          "환경 카드, 실시간 로그, 롤백 제어가 있는 배포 대시보드를 차분한 운영 톤으로 만드세요.",
+        componentPlayground:
+          "속성 제어, 상태 변형, 코드 패널이 있는 컴포넌트 플레이그라운드를 깔끔한 개발자 톤으로 디자인하세요.",
+        databaseConsole:
+          "쿼리 편집기, 스키마 트리, 결과 표가 있는 데이터베이스 콘솔을 절제된 기술 톤으로 만드세요.",
+        issueTriage:
+          "필터, 우선순위 배지, 담당자 대기열이 있는 이슈 분류 보드를 명확하고 집중된 톤으로 디자인하세요.",
+        authSettings:
+          "공급자 카드, 콜백 URL, 권한 목록이 있는 인증 설정을 안전하고 안심을 주는 톤으로 만드세요.",
+        workflowBuilder:
+          "단계 노드, 실행 기록, 브랜치 선택이 있는 CI 워크플로 빌더를 정확한 기술 톤으로 디자인하세요.",
+        developerPortfolio:
+          "프로젝트 카드, 도구 목록, 타임라인이 있는 개발자 포트폴리오를 차분한 다크 톤으로 만드세요.",
+      },
+      marketing: {
+        campaignLanding:
+          "강한 히어로, 혜택, 고객 증거, 가입 CTA가 있는 캠페인 랜딩 페이지를 활기차게 디자인하세요.",
+        emailBuilder:
+          "제목 미리보기, 콘텐츠 블록, 대상 요약이 있는 이메일 편집기를 명확하고 친근한 톤으로 만드세요.",
+        socialCalendar:
+          "채널 탭, 예약 게시물, 성과 지표가 있는 소셜 캘린더를 밝은 편집 톤으로 디자인하세요.",
+        brandCampaign:
+          "헤드라인, 아트 디렉션, 자산 갤러리가 있는 브랜드 캠페인 페이지를 일관되고 자신감 있게 만드세요.",
+        webinarRegistration:
+          "발표자 카드, 일정, 가입 양식이 있는 웨비나 페이지를 신뢰감 있고 환영하는 톤으로 디자인하세요.",
+        seoBrief:
+          "키워드 그룹, 개요, 경쟁사 메모가 있는 SEO 브리프를 조사에 집중된 톤으로 만드세요.",
+        launchMetrics:
+          "채널 카드, 전환 차트, 캠페인 표가 있는 출시 지표 대시보드를 분석적인 톤으로 디자인하세요.",
+        newsletterSignup:
+          "편집 미리보기, 주제 선택, 이메일 입력란이 있는 뉴스레터 페이지를 따뜻하고 간결하게 만드세요.",
+      },
+      sales: {
+        leadWorkspace:
+          "연락처, 활동 타임라인, 자격 필드가 있는 영업 리드 작업 공간을 전문적이고 단호한 톤으로 디자인하세요.",
+        accountBrief:
+          "회사 요약, 이해관계자, 최근 신호가 있는 계정 조사 자료를 명확한 임원 톤으로 만드세요.",
+        productDemo:
+          "사용 사례 탭, 제품 화면, 고객 증거가 있는 제품 데모 페이지를 자신감 있고 설득력 있게 디자인하세요.",
+        proposalBuilder:
+          "범위 섹션, 가격 카드, 일정이 있는 제안서 빌더를 세련된 컨설팅 톤으로 만드세요.",
+        pipelineDashboard:
+          "단계 열, 거래 금액, 예측 차트가 있는 파이프라인 대시보드를 간결한 비즈니스 톤으로 디자인하세요.",
+        meetingBooking:
+          "예약 시간, 일정 미리보기, 양식이 있는 미팅 예약 페이지를 전문적이고 환영하는 톤으로 만드세요.",
+        customerStory:
+          "과제, 결과, 인용문, 지표가 있는 고객 사례 페이지를 근거 중심의 편집 톤으로 디자인하세요.",
+        accountHandoff:
+          "고객 목표, 연락처, 미완료 작업이 있는 계정 인수인계 작업 공간을 차분하고 협력적으로 만드세요.",
+      },
+      ops: {
+        inventoryDashboard:
+          "재고 수준, 재주문 알림, 카테고리 필터가 있는 재고 대시보드를 실용적인 운영 톤으로 디자인하세요.",
+        staffScheduler:
+          "교대 일정, 가능 시간, 휴가 요청이 있는 직원 스케줄러를 한눈에 읽기 쉽게 만드세요.",
+        vendorPortal:
+          "체크리스트, 문서 업로드 상태, 연락처가 있는 공급업체 포털을 명확하고 안심을 주는 톤으로 디자인하세요.",
+        incidentResponse:
+          "심각도 배너, 이벤트 타임라인, 담당자 패널이 있는 사고 대응 화면을 차분하고 집중된 톤으로 만드세요.",
+        expenseApprovals:
+          "영수증 미리보기, 정책 표시, 합계가 있는 비용 승인 대기열을 중립적이고 효율적으로 디자인하세요.",
+        warehouseReceiving:
+          "배송 정보, 스캔 상태, 품목 목록이 있는 창고 입고 화면을 매우 명확하게 만드세요.",
+        automationControl:
+          "자동화 카드, 실행 기록, 실패 알림이 있는 워크플로 제어판을 자신감 있는 운영 톤으로 디자인하세요.",
+        helpdeskQueue:
+          "요청 카드, 상태 필터, 담당자 제어가 있는 내부 헬프데스크 대기열을 명확하고 친절하게 만드세요.",
+      },
+      individual: {
+        personalPortfolio:
+          "짧은 소개, 선택한 작업, 기술, 연락처가 있는 개인 포트폴리오를 따뜻한 편집 톤으로 디자인하세요.",
+        mealPlanner:
+          "주간 레시피, 장보기 목록, 식단 필터가 있는 식사 계획 앱 화면을 실용적이고 친근하게 만드세요.",
+        homeBudget:
+          "월간 요약, 카테고리 차트, 청구서 목록이 있는 가계 예산 대시보드를 차분하고 든든하게 디자인하세요.",
+        tripPlanner:
+          "일정 타임라인, 지도, 예약 카드가 있는 여행 플래너를 가볍고 모험적인 톤으로 만드세요.",
+        readingJournal:
+          "책 표지, 진행 메모, 별점이 있는 독서 기록장을 조용한 문학 톤으로 디자인하세요.",
+        invoiceTracker:
+          "고객 목록, 결제 상태, 만기일이 있는 프리랜서 송장 추적기를 깔끔하고 전문적으로 만드세요.",
+        habitTracker:
+          "일일 체크인, 연속 기록 카드, 진행 차트가 있는 습관 앱을 부드럽고 동기를 주는 톤으로 디자인하세요.",
+        neighborhoodEvents:
+          "행사 카드, 지역 필터, RSVP 제어가 있는 동네 행사 페이지를 따뜻한 커뮤니티 톤으로 만드세요.",
+      },
+      general: {
+        saasHomepage:
+          "히어로, 기능 섹션, 고객 증거가 있는 SaaS 홈페이지를 명확하고 환영하는 톤으로 디자인하세요.",
+        analyticsDashboard:
+          "KPI 카드, 추세 차트, 활동 표가 있는 분석 대시보드를 차분한 데이터 중심 톤으로 만드세요.",
+        habitApp:
+          "일일 목표, 진행 링, 알림이 있는 모바일 습관 앱 홈 화면을 친근하고 격려하는 톤으로 디자인하세요.",
+        onlineStore:
+          "추천 상품, 카테고리 카드, 고객 리뷰가 있는 온라인 스토어 홈을 따뜻하고 세련되게 만드세요.",
+        creativePortfolio:
+          "짧은 소개, 프로젝트 그리드, 프로필이 있는 크리에이티브 포트폴리오를 표현력 있는 편집 톤으로 디자인하세요.",
+        bookingPage:
+          "예약 가능 시간표, 서비스 카드, 후기가 있는 예약 페이지를 명확하고 믿음직하게 만드세요.",
+        adminDashboard:
+          "사이드 탐색, 요약 카드, 최근 활동이 있는 관리자 대시보드를 실용적이고 절제된 톤으로 디자인하세요.",
+        communityEvent:
+          "일정, 장소 정보, 발표자가 있는 커뮤니티 행사 페이지를 축제처럼 따뜻하게 만드세요.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "다음 단계",
+      refineWithPrompt: "프롬프트로 다듬기",
+      export: "내보내기",
+      shareLink: "링크 공유",
+      dismiss: "닫기",
+    },
     import: "가져오기",
     importOptions: "가져오기 옵션",
     figmaLink: "Figma 링크",
@@ -2787,6 +2940,89 @@ export default {
     paginationPrevious: "이전",
     paginationNext: "다음",
     paginationPage: "{{totalPages}}페이지 중 {{page}}페이지",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "KPI 카드 전환 차트",
+        roadmapWorkspace: "분기 일정 우선순위 고객",
+        onboardingFlow: "진행 단계 목표 선택",
+        featureComparison: "요금제 카드 기능 비교표",
+        feedbackPortal: "요청 보드 투표 상태",
+        releaseNotes: "버전 타임라인 주요 기능",
+        projectWorkspace: "칸반 열 담당자 마일스톤이",
+        launchWaitlist: "히어로 고객 증거 가입",
+      },
+      design: {
+        portfolioHome: "짧은 소개 사례 그리드",
+        designSystem: "색상과 글꼴 토큰 컴포넌트",
+        bankingApp: "잔액 거래 목록 저축",
+        travelBooking: "목적지 필터 일정 카드",
+        coffeeShop: "추천 원두 원산지 이야기",
+        musicFestival: "라인업 일정 행사장 지도가",
+        accessibilityAudit: "점수 요약 문제 목록",
+        artBook: "작품 인용문 장 탐색이",
+      },
+      developer: {
+        apiDocs: "사이드 탐색 코드 예시",
+        deploymentDashboard: "환경 카드 실시간 로그",
+        componentPlayground: "속성 제어 상태 변형",
+        databaseConsole: "쿼리 편집기 스키마 트리",
+        issueTriage: "필터 우선순위 배지 담당자",
+        authSettings: "공급자 카드 콜백 URL",
+        workflowBuilder: "단계 노드 실행 기록",
+        developerPortfolio: "프로젝트 카드 도구 목록",
+      },
+      marketing: {
+        campaignLanding: "강한 히어로 혜택 고객",
+        emailBuilder: "제목 미리보기 콘텐츠 블록",
+        socialCalendar: "채널 탭 예약 게시물",
+        brandCampaign: "헤드라인 아트 디렉션 자산",
+        webinarRegistration: "발표자 카드 일정 가입",
+        seoBrief: "키워드 그룹 개요 경쟁사",
+        launchMetrics: "채널 카드 전환 차트",
+        newsletterSignup: "뉴스레터 가입",
+      },
+      sales: {
+        leadWorkspace: "연락처 활동 타임라인 자격",
+        accountBrief: "회사 요약 이해관계자 최근",
+        productDemo: "사용 사례 탭 제품",
+        proposalBuilder: "범위 섹션 가격 카드",
+        pipelineDashboard: "단계 열 거래 금액",
+        meetingBooking: "예약 시간 일정 미리보기",
+        customerStory: "과제 결과 인용문 지표가",
+        accountHandoff: "고객 목표 연락처 미완료",
+      },
+      ops: {
+        inventoryDashboard: "재고 수준 재주문 알림",
+        staffScheduler: "교대 일정 가능 시간",
+        vendorPortal: "체크리스트 문서 업로드 상태",
+        incidentResponse: "심각도 배너 이벤트 타임라인",
+        expenseApprovals: "영수증 미리보기 정책 표시",
+        warehouseReceiving: "배송 정보 스캔 상태",
+        automationControl: "자동화 카드 실행 기록",
+        helpdeskQueue: "요청 카드 상태 필터",
+      },
+      individual: {
+        personalPortfolio: "짧은 소개 선택한 작업",
+        mealPlanner: "주간 레시피 장보기 목록",
+        homeBudget: "월간 요약 카테고리 차트",
+        tripPlanner: "일정 타임라인 지도 예약",
+        readingJournal: "책 표지 진행 메모",
+        invoiceTracker: "고객 목록 결제 상태",
+        habitTracker: "일일 체크인 연속 기록",
+        neighborhoodEvents: "행사 카드 지역 필터",
+      },
+      general: {
+        saasHomepage: "히어로 기능 섹션 고객",
+        analyticsDashboard: "KPI 카드 추세 차트",
+        habitApp: "일일 목표 진행 링",
+        onlineStore: "추천 상품 카테고리 카드",
+        creativePortfolio: "짧은 소개 프로젝트 그리드",
+        bookingPage: "예약 가능 시간표 서비스",
+        adminDashboard: "사이드 탐색 요약 카드",
+        communityEvent: "일정 장소 정보 발표자가",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "시각 편집",
@@ -3202,6 +3438,65 @@ export default {
     searching: "검색 중…",
     reactionFailed: "리액션을 업데이트하지 못했습니다",
     moveFailed: "댓글을 이동하지 못했습니다",
+    threadTitle: "댓글",
+    agentBadge: "에이전트",
+    closeThread: "스레드 닫기",
+    deleteThread: "스레드 삭제",
+    deleteThreadTitle: "스레드를 삭제할까요?",
+    deleteThreadDescription: "검토에서 스레드가 삭제됩니다.",
+    pin: {
+      thread_other: "{{authors}}의 스레드, 댓글 {{count}}개",
+      authorsOther_other: "외 {{count}}명",
+      unread: "읽지 않음",
+      resolved: "해결됨",
+      draft: "초안 댓글",
+    },
+    reaction: {
+      label_other: "{{emoji}}, 리액션 {{count}}개",
+      labelMine_other: "{{emoji}}, 리액션 {{count}}개 (내 리액션 포함)",
+    },
+    filtersActive: "필터 적용됨",
+    suggestChanges: "변경 제안",
+    replyInThread: "스레드에 답글 달기",
+    applyChangesAndResolve: "변경 사항 적용 후 해결",
+    agent: {
+      sectionLabel: "에이전트",
+      queued: "{{agent}} 대기 중",
+      working: "{{agent}} 작업 중…",
+      replied: "{{agent}}이(가) 답글을 달았습니다",
+      suggested: "{{agent}}이(가) 변경을 제안했습니다",
+      applied: "{{agent}}이(가) 변경을 적용하고 스레드를 해결했습니다",
+      needsInput: "{{agent}}에게 입력이 필요합니다",
+      failed: "{{agent}}이(가) 작업을 완료하지 못했습니다",
+      cancelled: "중지됨",
+      cancel: "취소",
+      openChat: "채팅 열기",
+      retry: "다시 시도",
+      fallbackName: "AI",
+      setupRequired: "에이전트를 사용하려면 AI 모델을 연결하세요",
+      startFailed: "에이전트를 시작할 수 없습니다",
+      cancelFailed: "에이전트를 중지할 수 없습니다",
+      busy: "이 스레드에서 이미 에이전트가 작업 중입니다",
+      error: {
+        engineNotConfigured: "연결된 AI 모델이 없습니다",
+        noResult: "에이전트가 응답 없이 끝났습니다",
+        timeout: "에이전트가 제때 응답하지 않았습니다",
+        permission: "더 이상 편집 권한이 없습니다",
+        threadUnavailable: "이 스레드는 더 이상 열려 있지 않습니다",
+        targetChanged: "에이전트가 작업하는 동안 디자인이 변경되었습니다",
+        applyUnavailable: "에이전트는 이 화면을 편집할 수 없습니다",
+        applyIncomplete:
+          "디자인은 편집되었지만 스레드는 해결되지 않았습니다. 변경 사항을 검토하세요.",
+        cancelledAfterEdit:
+          "디자인을 편집한 뒤 중지되었습니다. 변경 사항을 검토하세요.",
+        generic: "문제가 발생했습니다",
+      },
+    },
+    newThread: "새 스레드",
+    threadsCount_other: "{{count}}개의 스레드",
+    boardGroup: "캔버스",
+    send: "보내기",
+    pinLabel_other: "댓글 {{count}}개가 있는 스레드",
     status: {
       draft: "초안",
       in_review: "검토 중",

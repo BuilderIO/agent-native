@@ -716,22 +716,36 @@ export async function toHttpServerConfigAsync(
   stored: StoredRemoteMcpServer,
 ): Promise<McpHttpServerConfig> {
   let headers = await materializeHeaders(scope, scopeId, stored);
+  let oauthAccessRefresh: McpHttpServerConfig["oauthAccessRefresh"];
   if (stored.oauthSecretKey) {
-    const accessToken = await getMcpOAuthAccessToken({
+    const accessOptions = {
       key: stored.oauthSecretKey,
       scope,
       scopeId,
       serverUrl: stored.url,
+    };
+    const accessToken = await getMcpOAuthAccessToken({
+      ...accessOptions,
     });
     if (accessToken) {
       headers ??= {};
       headers.Authorization = `Bearer ${accessToken}`;
     }
+    oauthAccessRefresh = {
+      identity: createHash("sha256")
+        .update(
+          JSON.stringify([scope, scopeId, stored.oauthSecretKey, stored.url]),
+        )
+        .digest("hex"),
+      refresh: () =>
+        getMcpOAuthAccessToken({ ...accessOptions, forceRefresh: true }),
+    };
   }
   return {
     type: "http",
     url: stored.url,
     headers,
+    ...(oauthAccessRefresh ? { oauthAccessRefresh } : {}),
     ...(stored.firstParty ? { firstParty: true } : {}),
     ...(stored.firstPartyAppId
       ? { firstPartyAppId: stored.firstPartyAppId }

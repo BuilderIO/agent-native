@@ -24,6 +24,7 @@ import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
 import { DeferredPopoverFallback } from "@/components/editor/DeferredPopoverFallback";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
+import type { GeneratingSlideContentStore } from "@/components/editor/GeneratingSlidesTracker";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -61,7 +62,14 @@ interface EditorSidebarProps {
   recentEdits?: AttributedRecentEdit[];
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
-  generatingSlide?: { index: number };
+  /** Slides the agent is writing, in order, after the saved ones. */
+  generatingSlides?: {
+    key: string;
+    failed?: boolean | undefined;
+  }[];
+  /** Where each generating slide's streamed HTML is read from, by its key. */
+  generatingSlideStore?: GeneratingSlideContentStore | undefined;
+  /** The newest generating slide is on the canvas. */
   generatingSlideSelected?: boolean;
   onAddSlide?: () => void;
   addSlideGenerating?: boolean;
@@ -569,12 +577,18 @@ function SortableSlideThumb({
 
 function GeneratingSlideSkeleton({
   index,
+  contentKey,
+  contentStore,
+  failed,
   aspectRatio,
   designSystem,
   selected,
   onSelect,
 }: {
   index: number;
+  contentKey?: string | undefined;
+  contentStore?: GeneratingSlideContentStore | undefined;
+  failed?: boolean | undefined;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   selected?: boolean;
@@ -598,6 +612,9 @@ function GeneratingSlideSkeleton({
         </span>
         <div className="flex-1 min-w-0">
           <GeneratingSlidePreview
+            contentKey={contentKey}
+            contentStore={contentStore}
+            failed={failed}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
             thumbnail
@@ -620,7 +637,8 @@ export default function EditorSidebar({
   recentEdits,
   aspectRatio,
   designSystem,
-  generatingSlide,
+  generatingSlides = [],
+  generatingSlideStore,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
   onAddSlide,
@@ -1005,7 +1023,7 @@ export default function EditorSidebar({
               />
             ))}
           </SortableContext>
-          {slides.length === 0 && !generatingSlide && (
+          {slides.length === 0 && generatingSlides.length === 0 && (
             <div className="flex flex-col items-center gap-2 p-8 text-center">
               <span className="flex size-6 items-center justify-center rounded-sm bg-muted">
                 <IconPresentation className="size-3 text-foreground" />
@@ -1018,15 +1036,22 @@ export default function EditorSidebar({
               </div>
             </div>
           )}
-          {generatingSlide && (
+          {generatingSlides.map((generatingSlide, offset) => (
             <GeneratingSlideSkeleton
-              index={generatingSlide.index}
+              key={generatingSlide.key}
+              index={slides.length + offset}
+              contentKey={generatingSlide.key}
+              contentStore={generatingSlideStore}
+              failed={generatingSlide.failed}
               aspectRatio={aspectRatio}
               designSystem={designSystem}
-              selected={generatingSlideSelected}
+              selected={
+                generatingSlideSelected &&
+                offset === generatingSlides.length - 1
+              }
               onSelect={onSelectGeneratingSlide}
             />
-          )}
+          ))}
         </div>
       </div>
       {describeSlideId && describeSlideIndex !== -1 && describeAnchorEl && (

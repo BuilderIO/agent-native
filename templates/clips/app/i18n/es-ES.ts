@@ -1718,10 +1718,10 @@ const messages = {
     openDesktopApp: "Open desktop app",
   },
   editableTitle: {
-    untitled: "Untitled Clip",
+    untitled: "Clip sin título",
     renameFailed: "Failed to rename clip",
     emptyTitle: "Title cannot be empty",
-    generatingTitle: "Generating title",
+    generatingTitle: "Generando título",
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },

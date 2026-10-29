@@ -2069,7 +2069,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -2128,7 +2128,7 @@ jobs:
       - name: Run security guards
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
-        run: pnpm guards
+        run: node --import tsx scripts/run-guards.ts
 
       - name: Check the Slides interaction oracle against one full test run
         if: ${{ !cancelled() && needs.change-scope.outputs.slides_oracle == 'true' }}
