@@ -45,6 +45,7 @@ function createArgs(
     invalidCanvasDimensionsMessage: "Invalid canvas dimensions.",
     id: "design-1",
     previousRunTabId: null,
+    retryInFlightRef: { current: false },
     trackActiveRun: vi.fn(),
     setGenerationChatTabId: vi.fn(),
     setGenerationIssue: vi.fn(),
@@ -121,6 +122,29 @@ describe("runStartRetryGeneration auto retry", () => {
     );
     expect(args.setGenerationIssue).toHaveBeenCalledWith(null);
     expect(args.setRetryablePrompt).toHaveBeenCalledWith(null);
+  });
+
+  it("refuses a second retry while the first is still reading run state", async () => {
+    let finishRead: (value: {
+      ok: true;
+      status: string;
+      active: boolean;
+    }) => void = () => {};
+    mocks.readAgentRunStatus.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+    );
+    const args = createArgs({ previousRunTabId: "question-tab" });
+
+    const first = runStartRetryGeneration(args, promptState, 2, "auto");
+    await runStartRetryGeneration(args, promptState, 2, "manual");
+    expect(args.agentSubmit).not.toHaveBeenCalled();
+
+    finishRead({ ok: true, status: "idle", active: false });
+    await first;
+    expect(args.agentSubmit).toHaveBeenCalledTimes(1);
+    expect(args.retryInFlightRef.current).toBe(false);
   });
 
   it("does not submit while the previous run state is unreadable", async () => {

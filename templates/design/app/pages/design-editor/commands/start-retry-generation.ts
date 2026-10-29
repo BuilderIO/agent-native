@@ -44,6 +44,7 @@ export interface StartRetryGenerationArgs {
   id: string | undefined;
   outputBaselineFiles?: Array<{ id: string; contentHash: string }>;
   previousRunTabId: string | null;
+  retryInFlightRef: { current: boolean };
   trackActiveRun: (
     tabId: string,
     options: { currentRunId?: string; currentTurnId?: string },
@@ -70,6 +71,23 @@ export interface StartRetryGenerationArgs {
 }
 
 export async function runStartRetryGeneration(
+  args: StartRetryGenerationArgs,
+  promptState: RetryablePrompt,
+  attempt: number,
+  mode: "manual" | "auto",
+) {
+  // A rerender or a Retry click while a status or context read is pending
+  // must not start a second submission of the same generation.
+  if (args.retryInFlightRef.current) return;
+  args.retryInFlightRef.current = true;
+  try {
+    await startRetryGeneration(args, promptState, attempt, mode);
+  } finally {
+    args.retryInFlightRef.current = false;
+  }
+}
+
+async function startRetryGeneration(
   {
     agentSubmit,
     canEditDesign,

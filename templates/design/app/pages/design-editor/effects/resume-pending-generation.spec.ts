@@ -280,6 +280,7 @@ describe("runResumePendingGeneration", () => {
       canEditDesign: true,
       clearAutoRetryTimer: vi.fn(),
       previousRunTabId: null,
+      retryInFlightRef: { current: false },
       trackActiveRun: vi.fn(),
       setRetryablePrompt: vi.fn(),
     };
@@ -309,6 +310,7 @@ describe("runResumePendingGeneration", () => {
       canEditDesign: true,
       clearAutoRetryTimer: vi.fn(),
       previousRunTabId: null,
+      retryInFlightRef: { current: false },
       trackActiveRun: vi.fn(),
       setRetryablePrompt: vi.fn(),
     };
@@ -364,6 +366,7 @@ describe("runResumePendingGeneration", () => {
       canEditDesign: true,
       clearAutoRetryTimer: vi.fn(),
       previousRunTabId: null,
+      retryInFlightRef: { current: false },
       trackActiveRun: vi.fn(),
       setRetryablePrompt: vi.fn(),
     };

@@ -1501,6 +1501,7 @@ export function useEditorGenerationAndAccess({
     [],
   );
 
+  const retryInFlightRef = useRef(false);
   const startRetryGeneration = useCallback(
     async (
       promptState: NonNullable<typeof retryablePrompt>,
@@ -1523,6 +1524,7 @@ export function useEditorGenerationAndAccess({
           ),
           id,
           previousRunTabId: generationChatTabId,
+          retryInFlightRef,
           trackActiveRun: trackAgentGeneration,
           setGenerationChatTabId,
           setGenerationIssue,
