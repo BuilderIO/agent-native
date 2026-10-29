@@ -134,9 +134,18 @@ function createDb(
         };
       }),
     })),
-    transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
-      run(db),
-    ),
+    // Writes made inside a transaction are discarded when it throws.
+    transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
+      const inserted = db.insertedRows.length;
+      const updated = db.updatedRows.length;
+      try {
+        return await run(db);
+      } catch (error) {
+        db.insertedRows.length = inserted;
+        db.updatedRows.length = updated;
+        throw error;
+      }
+    }),
   };
   return db;
 }
@@ -487,7 +496,10 @@ describe("approve-deck-access-request", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(db.transaction).toHaveBeenCalledTimes(1);
-    expect(db.insertedRows).toHaveLength(1);
+    // The share insert ran inside the transaction and was rolled back with it.
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(db.insertedRows).toHaveLength(0);
+    expect(db.updatedRows).toHaveLength(0);
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 });

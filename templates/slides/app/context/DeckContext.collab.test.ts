@@ -359,9 +359,33 @@ describe("two people editing one deck", () => {
     await settle();
 
     expect(server.deck().title).toBe("Ashley's title");
+    // A title collision is a deck conflict, not a conflict on every slide.
     expect(david.mod.getDeckSaveError(initialDeck.id)).toMatchObject({
-      errorCode: "slide_content_conflict",
+      errorCode: "deck_revision_conflict",
     });
+    expect(david.mod.getDeckContentConflicts(initialDeck.id)).toEqual([]);
+  });
+
+  it("keeps a collaborator's star when a whole-deck save did not change it", async () => {
+    const { server, david, ashley } = await openTwoClients();
+
+    act(() => {
+      ashley.decks().updateDeck(initialDeck.id, { starred: true });
+    });
+    await settle();
+
+    const davidsCopy = requireDeck(david.decks().getDeck(initialDeck.id));
+    expect(davidsCopy.starred).toBeFalsy();
+    act(() => {
+      david.decks().setDeckSlides(initialDeck.id, davidsCopy.slides, {
+        persistence: "immediate",
+        forcePersistence: true,
+      });
+    });
+    await settle();
+
+    expect(david.mod.getDeckSaveError(initialDeck.id)).toBeUndefined();
+    expect(server.deck().starred).toBe(true);
   });
 
   it("tells the editor plainly when a collaborator deleted the slide it was skipping", async () => {

@@ -847,6 +847,9 @@ const deckSaveErrors = new Map<string, DeckSaveError>();
 const deckUnavailableErrors = new Map<string, DeckSaveError>();
 const DECK_CREATE_FAILED = "deck_create_failed";
 const staleContentConflicts = new Map<string, Set<string> | null>();
+// Deck-level fields a held whole-deck save collided on. Kept apart from the
+// slide conflicts so a title collision is not reported as one on every slide.
+const staleDeckFieldConflicts = new Map<string, readonly string[]>();
 const staleFullReplaceDrafts = new Map<string, Deck>();
 const verifiedFullReplaceOps = new WeakSet<
   Extract<GranularOp, { op: "full-replace" }>
@@ -1046,6 +1049,7 @@ const FULL_REPLACE_DECK_FIELDS = [
   "designSystemId",
   "tweaks",
   "aspectRatio",
+  "starred",
   "sourceImport",
   "generationContext",
 ] as const;
@@ -1362,6 +1366,7 @@ type FullReplaceConflictError = Error & {
   errorCode: "full_replace_conflict";
   remoteDeck: Deck;
   conflictingSlideIds: ReadonlySet<string>;
+  conflictingDeckFields: readonly FullReplaceDeckField[];
 };
 
 function isFullReplaceConflict(
@@ -1407,6 +1412,7 @@ async function assertFullReplaceCurrent(
       errorCode: "full_replace_conflict" as const,
       remoteDeck: latest.deck,
       conflictingSlideIds: conflicts,
+      conflictingDeckFields: fields.conflicts,
     },
   );
 }
@@ -1783,15 +1789,32 @@ function holdStaleFullReplace(
   deckId: string,
   deck: Deck,
   conflictingSlideIds: ReadonlySet<string> | null,
+  conflictingDeckFields: readonly string[] = [],
 ) {
   staleFullReplaceDrafts.set(deckId, deck);
+  const deckFieldsOnly =
+    conflictingSlideIds !== null &&
+    conflictingSlideIds.size === 0 &&
+    conflictingDeckFields.length > 0;
+  if (conflictingDeckFields.length > 0) {
+    staleDeckFieldConflicts.set(deckId, [
+      ...new Set([
+        ...(staleDeckFieldConflicts.get(deckId) ?? []),
+        ...conflictingDeckFields,
+      ]),
+    ]);
+  }
   const previous = staleContentConflicts.get(deckId);
   if (previous === null || conflictingSlideIds === null) {
     staleContentConflicts.set(deckId, null);
   } else {
     const conflicts = new Set(previous ?? []);
     for (const slideId of conflictingSlideIds) conflicts.add(slideId);
-    staleContentConflicts.set(deckId, conflicts.size > 0 ? conflicts : null);
+    // An empty set means no slide is in conflict; null means every slide.
+    staleContentConflicts.set(
+      deckId,
+      conflicts.size > 0 || deckFieldsOnly ? conflicts : null,
+    );
   }
 
   pendingOpsQueue.delete(deckId);
@@ -1800,13 +1823,22 @@ function holdStaleFullReplace(
   pendingSaves.delete(deckId);
   pendingPersistedResultHandlers.delete(deckId);
   immediateFlushRequests.delete(deckId);
-  markDeckSaveFailed(
-    deckId,
-    {
-      errorCode: "slide_content_conflict",
-    },
-    `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
-  );
+  const slideConflicts = staleContentConflicts.get(deckId);
+  if (slideConflicts?.size === 0) {
+    markDeckSaveFailed(
+      deckId,
+      { errorCode: "deck_revision_conflict" },
+      `Failed to save deck ${deckId}: another writer changed ${conflictingDeckFields.join(", ")}; local draft retained`,
+    );
+  } else {
+    markDeckSaveFailed(
+      deckId,
+      {
+        errorCode: "slide_content_conflict",
+      },
+      `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+    );
+  }
   notifySaveListeners();
 }
 
@@ -2855,7 +2887,14 @@ function drainPendingDeckOps(
           err.remoteDeck,
           err.conflictingSlideIds,
         );
-        if (draft) holdStaleFullReplace(deckId, draft, err.conflictingSlideIds);
+        if (draft) {
+          holdStaleFullReplace(
+            deckId,
+            draft,
+            err.conflictingSlideIds,
+            err.conflictingDeckFields,
+          );
+        }
         deckSaveRetryAttempts.delete(deckId);
         deckRevisionConflictRetryAttempts.delete(deckId);
         return;
@@ -3278,6 +3317,7 @@ function enqueueDeckOp(
     deckRevisionConflictRetryAttempts.delete(deckId);
     clearDeckSaveFailure(deckId);
     staleContentConflicts.delete(deckId);
+    staleDeckFieldConflicts.delete(deckId);
     staleContentDrafts.delete(deckId);
     staleContentRemoteSlides.delete(deckId);
     staleSlideFieldDrafts.delete(deckId);
@@ -3440,6 +3480,7 @@ function discardPendingDeckOps(deckId: string) {
   clearDeckSaveFailure(deckId);
   deckUnavailableErrors.delete(deckId);
   staleContentConflicts.delete(deckId);
+  staleDeckFieldConflicts.delete(deckId);
   staleFullReplaceDrafts.delete(deckId);
   staleContentRetrySlides.delete(deckId);
   staleContentDrafts.delete(deckId);
