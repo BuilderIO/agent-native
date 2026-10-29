@@ -23,6 +23,10 @@ export type BuilderBranchReadbackStage =
   | "status_shape"
   | "status_binding"
   | "status_currentness"
+  | "post_read_status_request"
+  | "post_read_status_shape"
+  | "post_read_status_binding"
+  | "post_read_status_currentness"
   | "download_url_request"
   | "download_url_shape"
   | "download_url_binding"
@@ -94,6 +98,26 @@ const downloadSchema = z.object({
 });
 
 type BranchRef = { projectId: string; branchName: string };
+type StatusReadPhase = "before_read" | "after_read";
+type StatusFailure = "request" | "shape" | "binding" | "currentness";
+
+const statusFailureStages = {
+  before_read: {
+    request: "status_request",
+    shape: "status_shape",
+    binding: "status_binding",
+    currentness: "status_currentness",
+  },
+  after_read: {
+    request: "post_read_status_request",
+    shape: "post_read_status_shape",
+    binding: "post_read_status_binding",
+    currentness: "post_read_status_currentness",
+  },
+} satisfies Record<
+  StatusReadPhase,
+  Record<StatusFailure, BuilderBranchReadbackStage>
+>;
 
 function backupIdentityFingerprint(
   backup: z.infer<typeof backupSchema>,
@@ -117,21 +141,24 @@ function unverified(stage: BuilderBranchReadbackStage): never {
   );
 }
 
-function primaryCommit(snapshot: string): string | undefined {
+function primaryCommit(
+  snapshot: string,
+  failureStage: BuilderBranchReadbackStage,
+): string | undefined {
   if (SHA.test(snapshot)) return snapshot;
   const pairs = snapshot.split(",");
   const entries: string[] = [];
   for (const pair of pairs) {
     const separator = pair.indexOf(":");
-    if (separator < 1) unverified("status_currentness");
+    if (separator < 1) unverified(failureStage);
     let folder: string;
     try {
       folder = decodeURIComponent(pair.slice(0, separator));
     } catch {
-      return unverified("status_currentness");
+      return unverified(failureStage);
     }
     const commit = pair.slice(separator + 1);
-    if (!SHA.test(commit)) unverified("status_currentness");
+    if (!SHA.test(commit)) unverified(failureStage);
     if (folder === "code") entries.push(commit);
   }
   return entries.length === 1 ? entries[0] : undefined;
@@ -273,7 +300,7 @@ export async function readBuilderBranchFiles(
     }
   }
 
-  async function readStatus() {
+  async function readStatus(phase: StatusReadPhase) {
     let rawStatus: unknown;
     try {
       rawStatus = await request("/projects/branch/status");
@@ -282,13 +309,13 @@ export async function readBuilderBranchFiles(
         throw new BuilderBranchFilesError(
           error.code,
           error.message,
-          "status_request",
+          statusFailureStages[phase].request,
         );
       }
       throw error;
     }
     const result = statusSchema.safeParse(rawStatus);
-    if (!result.success) return unverified("status_shape");
+    if (!result.success) return unverified(statusFailureStages[phase].shape);
     const { branch, backupStatuses } = result.data;
     const backup = backupStatuses.code.backup;
     if (
@@ -298,14 +325,17 @@ export async function readBuilderBranchFiles(
       backup.branchName !== input.branchName ||
       branch.ownerId !== backup.ownerId
     ) {
-      return unverified("status_binding");
+      return unverified(statusFailureStages[phase].binding);
     }
-    const branchCommit = primaryCommit(branch.lastCommitHash);
+    const branchCommit = primaryCommit(
+      branch.lastCommitHash,
+      statusFailureStages[phase].currentness,
+    );
     if (
       backup.at < branch.lastActivityAt ||
       branchCommit !== backup.lastCommitHash
     )
-      return unverified("status_currentness");
+      return unverified(statusFailureStages[phase].currentness);
     return backup;
   }
 
@@ -329,7 +359,7 @@ export async function readBuilderBranchFiles(
   }
   const download = downloadSchema.safeParse(rawDownload);
   if (!download.success) return unverified("download_url_shape");
-  const before = await readStatus();
+  const before = await readStatus("before_read");
   const beforeFingerprint = backupIdentityFingerprint(before);
   const filePath =
     before.ownerId +
@@ -417,7 +447,7 @@ export async function readBuilderBranchFiles(
         : "bundle_parse",
     );
   }
-  const after = await readStatus();
+  const after = await readStatus("after_read");
   if (backupIdentityFingerprint(after) !== beforeFingerprint)
     return unverified("post_read_currentness");
   return {

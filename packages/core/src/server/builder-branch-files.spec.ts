@@ -155,12 +155,23 @@ const input = {
 };
 
 function queueSuccessfulApiReadbacks(
-  options: { before?: unknown; after?: unknown; downloadBody?: unknown } = {},
+  options: {
+    before?: unknown;
+    after?: unknown;
+    afterFailure?: Error;
+    downloadBody?: unknown;
+  } = {},
 ) {
   vi.mocked(fetch)
     .mockResolvedValueOnce(jsonResponse(options.downloadBody ?? download()))
-    .mockResolvedValueOnce(jsonResponse(options.before ?? status()))
-    .mockResolvedValueOnce(jsonResponse(options.after ?? status()));
+    .mockResolvedValueOnce(jsonResponse(options.before ?? status()));
+  if (options.afterFailure) {
+    vi.mocked(fetch).mockRejectedValueOnce(options.afterFailure);
+  } else {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(options.after ?? status()),
+    );
+  }
   mocks.ssrfSafeFetch.mockResolvedValueOnce(new Response(BUNDLE));
   mocks.readBuilderGitBundle.mockResolvedValueOnce(GIT_FILES);
 }
@@ -478,15 +489,45 @@ describe("readBuilderBranchFiles", () => {
     await expectCode(readBuilderBranchFiles(input), "unverified");
   });
 
+  it.each([
+    [
+      "post_read_status_request",
+      { afterFailure: new Error("private transport detail") },
+      "unavailable",
+    ],
+    ["post_read_status_shape", { after: { status: "ok" } }, "unverified"],
+    [
+      "post_read_status_binding",
+      { after: status({ branch: { name: "feature/other" } }) },
+      "unverified",
+    ],
+    [
+      "post_read_status_currentness",
+      { after: status({ branch: { lastCommitHash: "malformed" } }) },
+      "unverified",
+    ],
+  ] as const)(
+    "labels second status %s failures",
+    async (stage, options, code) => {
+      queueSuccessfulApiReadbacks(options);
+
+      await expect(
+        expectCode(readBuilderBranchFiles(input), code),
+      ).resolves.toMatchObject({ readbackStage: stage });
+    },
+  );
+
   it("rejects a changed owner when both status snapshots are internally valid", async () => {
     const changedOwner = "another-space";
+    const after = status();
+    after.branch.ownerId = changedOwner;
+    after.backupStatuses.code.backup.ownerId = changedOwner;
     queueSuccessfulApiReadbacks({
-      after: status({
-        branch: { ownerId: changedOwner },
-        check: { backup: { ownerId: changedOwner } },
-      }),
+      after,
     });
-    await expectCode(readBuilderBranchFiles(input), "unverified");
+    await expect(
+      expectCode(readBuilderBranchFiles(input), "unverified"),
+    ).resolves.toMatchObject({ readbackStage: "post_read_currentness" });
   });
 
   it("accepts a workspace app ID ending in a hyphen", async () => {
