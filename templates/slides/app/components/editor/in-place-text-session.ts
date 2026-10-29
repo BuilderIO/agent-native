@@ -307,13 +307,16 @@ export function stripFreeformReservation(el: HTMLElement) {
 }
 
 /**
- * Applied to every serialized slide: flow blocks keep their size lock on the
- * live element, and saving it would pin a paragraph that grew to its old height.
+ * Runs on the live copy only, before the merge: the stored base keeps any lock
+ * it already has, so the merge reads the removal and drops it from the stored markup.
  */
 export function stripSizeLocks(root: ParentNode) {
   for (const el of root.querySelectorAll<HTMLElement>("[style*='contain']")) {
     dropSizeLock(el);
+    // Stored locks can carry the longhands alone, as the reported slide did.
     el.style.removeProperty("contain-intrinsic-size");
+    el.style.removeProperty("contain-intrinsic-width");
+    el.style.removeProperty("contain-intrinsic-height");
     if (!el.getAttribute("style")) el.removeAttribute("style");
   }
 }

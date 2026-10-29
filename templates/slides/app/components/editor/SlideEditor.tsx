@@ -809,7 +809,6 @@ function prepareSerializationRoot(root: ParentNode): void {
   root.querySelectorAll("[data-slide-crop-overlay]").forEach((overlay) => {
     overlay.remove();
   });
-  stripSizeLocks(root);
   for (const child of Array.from(root.children)) {
     stripTransientSlideLayoutSpacers(child);
   }
@@ -2672,6 +2671,9 @@ export default function SlideEditor({
         text?.isActive && slideContent.contains(text.element)
           ? text.cloneWithoutPlaceholders(slideContent)
           : (slideContent.cloneNode(true) as HTMLElement);
+      // Only the live copy loses the lock: the base still carries a stored lock,
+      // so the merge sees it removed and drops it from the stored markup too.
+      stripSizeLocks(clone);
       if (source) {
         return mergeRenderedEdits({
           stored: source.stored,
