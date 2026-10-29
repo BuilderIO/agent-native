@@ -39,7 +39,6 @@ export function CommentSubmissionWidget({
             placeholder={t("commentsPanel.leaveComment")}
             rows={2}
             className="h-auto min-h-[54px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-5 text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
-            submitOnEnter
           />
         </div>
         <Button

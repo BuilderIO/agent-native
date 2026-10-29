@@ -39,6 +39,8 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import {
   InlineMarkdown,
+  isComposingKey,
+  isCommentSendKey,
   type InlineMarkdownProtectedSpan,
 } from "@agent-native/toolkit/app/review";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
@@ -9097,6 +9099,7 @@ function CommentMentionEditor({
             );
             return;
           }
+          if (isComposingKey(event)) return;
           if (suggestionsOpen && event.key === "Enter" && members[0]) {
             event.preventDefault();
             selectMember(members[selectedIndex] ?? members[0]);
@@ -9107,12 +9110,7 @@ function CommentMentionEditor({
             setQuery(null);
             return;
           }
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            onSubmitShortcut?.();
-            return;
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          if (isCommentSendKey(event)) {
             event.preventDefault();
             onSubmitShortcut?.();
           }

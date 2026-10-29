@@ -209,7 +209,6 @@ export default function NotificationsRoute() {
                 onSubmit={() => void handleSendReply()}
                 placeholder={t("notificationsRoute.replyPlaceholder")}
                 autoFocus
-                submitOnEnter
                 className="min-h-10 flex-1 resize-none bg-background text-sm"
               />
               <Button

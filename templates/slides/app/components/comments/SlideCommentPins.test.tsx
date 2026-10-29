@@ -46,7 +46,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 
-vi.mock("@agent-native/toolkit/app/review", () => ({
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
   InlineMarkdown: ({ content }: { content: string }) => <span>{content}</span>,
 }));
 
@@ -205,11 +208,7 @@ describe("SlideCommentPins", () => {
     fireEvent.click(plane, { clientX: 300, clientY: 150 });
     const input = screen.getByPlaceholderText("Add a comment...");
     fireEvent.change(input, { target: { value: "candidate" } });
-    fireEvent.keyDown(input, {
-      key: "Enter",
-      ctrlKey: true,
-      isComposing: true,
-    });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
     fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
 
     expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();

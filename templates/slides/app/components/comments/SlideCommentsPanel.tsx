@@ -4,7 +4,11 @@ import {
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import {
+  InlineMarkdown,
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
@@ -222,13 +226,8 @@ export function CommentItem({
                 if (error) setError(null);
               }}
               onKeyDown={(event) => {
-                if (
-                  event.nativeEvent.isComposing ||
-                  event.nativeEvent.keyCode === 229
-                ) {
-                  return;
-                }
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                if (isComposingKey(event)) return;
+                if (isCommentSendKey(event)) {
                   event.preventDefault();
                   void save();
                 }
@@ -396,9 +395,11 @@ function PendingCommentInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-            return;
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+          if (isComposingKey(e)) return;
+          if (isCommentSendKey(e)) {
+            e.preventDefault();
+            void submit();
+          }
           if (e.key === "Escape") onCancel();
         }}
         placeholder={t("comments.addCommentPlaceholder")}
@@ -486,9 +487,11 @@ export function ReplyInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-            return;
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+          if (isComposingKey(e)) return;
+          if (isCommentSendKey(e)) {
+            e.preventDefault();
+            void submit();
+          }
           if (e.key === "Escape") onDone();
         }}
         placeholder={t("comments.replyPlaceholder")}

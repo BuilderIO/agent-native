@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isCommentSendKey } from "@agent-native/toolkit/app/review";
 import { IconArrowUp, IconMessagePlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -97,7 +98,7 @@ export function TimestampedCommentBar({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            if (isCommentSendKey(e)) {
               e.preventDefault();
               submit();
             }

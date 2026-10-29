@@ -303,7 +303,6 @@ describe("ReviewCommentComposer", () => {
         onSubmit={onSubmit}
         showCommentAction={false}
         showAgentAction
-        submitOnEnter
       />,
     );
     const event = keydown("Enter");
@@ -406,11 +405,7 @@ describe("ReviewCommentComposer", () => {
     const onSubmit = vi.fn();
     let state = { value: "", mentions: [] as ReviewMention[] };
     await render(
-      <Harness
-        submitOnEnter
-        onSubmit={onSubmit}
-        onState={(next) => (state = next)}
-      />,
+      <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
     );
     typeText("Hello");
     const shiftEnter = keydown("Enter", { shiftKey: true });
@@ -424,15 +419,48 @@ describe("ReviewCommentComposer", () => {
     expect(state).toEqual({ value: "Hello\nworld", mentions: [] });
   });
 
+  it("sends on Enter and Cmd/Ctrl+Enter, but not while an input method is composing", async () => {
+    const onSubmit = vi.fn();
+    await render(<Harness initialValue="Hello" onSubmit={onSubmit} />);
+
+    keydown("Enter", { isComposing: true });
+    const legacyComposing = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(legacyComposing, "keyCode", { value: 229 });
+    act(() => {
+      editorDom().dispatchEvent(legacyComposing);
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    keydown("Enter", { metaKey: true });
+    keydown("Enter", { ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves Enter for new lines when submitOnEnter is off, and still sends on Cmd/Ctrl+Enter", async () => {
+    const onSubmit = vi.fn();
+    await render(
+      <Harness
+        initialValue="Hello"
+        submitOnEnter={false}
+        onSubmit={onSubmit}
+      />,
+    );
+    keydown("Enter");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    keydown("Enter", { ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledWith("human");
+  });
+
   it("opens the picker above the field on @ and picks with the keyboard", async () => {
     const onSubmit = vi.fn();
     let state = { value: "", mentions: [] as ReviewMention[] };
     await render(
-      <Harness
-        submitOnEnter
-        onSubmit={onSubmit}
-        onState={(next) => (state = next)}
-      />,
+      <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
     );
     typeText("Hey ");
     const atKey = keydown("@");

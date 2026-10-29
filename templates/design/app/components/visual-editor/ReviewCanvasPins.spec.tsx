@@ -241,7 +241,11 @@ function MockReviewCommentComposer(props: {
             props.onEscape?.();
             return;
           }
-          if (props.submitOnEnter && event.key === "Enter" && !event.shiftKey) {
+          if (
+            props.submitOnEnter !== false &&
+            event.key === "Enter" &&
+            !event.shiftKey
+          ) {
             event.preventDefault();
             submit(props.enterSubmitTarget ?? "human");
           }

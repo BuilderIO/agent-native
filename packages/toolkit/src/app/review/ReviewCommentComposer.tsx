@@ -28,6 +28,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 
+import { isComposingKey, isCommentSendKey } from "./comment-send-key.js";
 import {
   ReviewComposerEditor,
   type ReviewComposerEditorHandle,
@@ -75,6 +76,11 @@ export interface ReviewCommentComposerProps {
   agentLabel?: string;
   contextLabel?: string | undefined;
   autoFocus?: boolean | undefined;
+  /**
+   * Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too,
+   * as in every comment box. Pass `false` to make Enter start a new line,
+   * leaving Cmd/Ctrl+Enter to send.
+   */
   submitOnEnter?: boolean | undefined;
   enterSubmitTarget?: ReviewResolutionTarget;
   onEscape?: (() => void) | undefined;
@@ -114,7 +120,7 @@ export function ReviewCommentComposer({
   agentLabel = "Send to agent",
   contextLabel,
   autoFocus = false,
-  submitOnEnter = false,
+  submitOnEnter = true,
   enterSubmitTarget = "human",
   onEscape,
   variant = "expanded",
@@ -265,7 +271,7 @@ export function ReviewCommentComposer({
       }
       return false;
     }
-    const isComposing = event.isComposing || event.keyCode === 229;
+    const isComposing = isComposingKey(event);
     if (mentionListOpen && !isComposing) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -305,10 +311,8 @@ export function ReviewCommentComposer({
       }
     }
     if (
-      submitOnEnter &&
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !isComposing
+      isCommentSendKey(event) &&
+      (submitOnEnter || event.metaKey || event.ctrlKey)
     ) {
       event.preventDefault();
       submitVisibleAction(enterSubmitTarget);

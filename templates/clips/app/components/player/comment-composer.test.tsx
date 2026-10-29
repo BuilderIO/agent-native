@@ -32,6 +32,7 @@ describe("CommentComposer mention autocomplete", () => {
   function renderComposer(
     currentMembers: typeof members,
     onMentionAdd = vi.fn<(entry: MentionEntry) => void>(),
+    onSubmit = vi.fn(),
   ) {
     let updateMembers!: (nextMembers: typeof members) => void;
 
@@ -43,7 +44,7 @@ describe("CommentComposer mention autocomplete", () => {
         <CommentComposer
           value={value}
           onChange={setValue}
-          onSubmit={vi.fn()}
+          onSubmit={onSubmit}
           onMentionAdd={onMentionAdd}
           members={availableMembers}
         />
@@ -169,5 +170,37 @@ describe("CommentComposer mention autocomplete", () => {
       email: members[1]?.email,
       name: members[1]?.name,
     });
+  });
+
+  it("sends on Enter and Cmd/Ctrl+Enter, but not on Shift+Enter or while composing", () => {
+    const onSubmit = vi.fn();
+    const onMentionAdd = vi.fn<(entry: MentionEntry) => void>();
+    const { textarea } = renderComposer(members, onMentionAdd, onSubmit);
+    const keydown = (init: KeyboardEventInit) => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      act(() => {
+        textarea.dispatchEvent(event);
+      });
+      return event;
+    };
+
+    act(() => typeInto(textarea, "@m"));
+    keydown({ isComposing: true });
+    expect(onMentionAdd).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    act(() => typeInto(textarea, "Looks good"));
+    expect(keydown({ shiftKey: true }).defaultPrevented).toBe(false);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    expect(keydown({}).defaultPrevented).toBe(true);
+    keydown({ metaKey: true });
+    keydown({ ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(3);
   });
 });

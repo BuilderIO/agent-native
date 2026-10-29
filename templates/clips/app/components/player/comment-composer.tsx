@@ -1,4 +1,8 @@
 import {
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
+import {
   forwardRef,
   useEffect,
   useLayoutEffect,
@@ -38,7 +42,6 @@ interface CommentComposerProps {
   disabled?: boolean;
   rows?: number;
   className?: string;
-  submitOnEnter?: boolean;
   "aria-label"?: string;
 }
 
@@ -93,7 +96,6 @@ export const CommentComposer = forwardRef<
     disabled = false,
     rows = 2,
     className,
-    submitOnEnter = false,
     "aria-label": ariaLabel,
   },
   ref,
@@ -227,7 +229,7 @@ export const CommentComposer = forwardRef<
   const menuOpen = query !== null && filtered.length > 0;
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menuOpen) {
+    if (menuOpen && !isComposingKey(event)) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setHighlight((current) => (current + 1) % filtered.length);
@@ -254,11 +256,7 @@ export const CommentComposer = forwardRef<
 
     if (applyMarkdownShortcut(event)) return;
 
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      (submitOnEnter || event.metaKey || event.ctrlKey)
-    ) {
+    if (isCommentSendKey(event)) {
       event.preventDefault();
       onSubmit();
       return;

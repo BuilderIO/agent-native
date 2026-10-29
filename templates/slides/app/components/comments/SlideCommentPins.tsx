@@ -3,6 +3,10 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconCheck,
@@ -723,16 +727,8 @@ export function SlideCommentPins({
                       if (error) setError(null);
                     }}
                     onKeyDown={(event) => {
-                      if (
-                        event.nativeEvent.isComposing ||
-                        event.nativeEvent.keyCode === 229
-                      ) {
-                        return;
-                      }
-                      if (
-                        event.key === "Enter" &&
-                        (event.metaKey || event.ctrlKey)
-                      ) {
+                      if (isComposingKey(event)) return;
+                      if (isCommentSendKey(event)) {
                         event.preventDefault();
                         void submit();
                       }
