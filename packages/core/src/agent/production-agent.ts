@@ -6526,13 +6526,11 @@ async function waitForInterruptedToolLedgerEntry(opts: {
 export function normalizeToolErrorForBreaker(error: string): string {
   return (
     stripDiagnosticSnippets(error)
-      // The argument echo, up to the next sentence boundary.
+      // Providers also use "Received:"; only validation argument echoes can be dropped.
       .replace(
-        /Received:\s*[\s\S]*?(?:\.\s(?=Expected:|The tool was not executed)|$)/g,
-        "",
+        /(\bInvalid action parameters\b[\s\S]*?)Received:\s*(?:[\s\S]*?\.\s(?=Expected:|The tool was not executed)|[\[{][\s\S]*?…\.?\s*$)/g,
+        "$1",
       )
-      // Bare JSON payloads some providers inline instead of a Received: span.
-      .replace(/\{[\s\S]{0,2000}?\}/g, "{}")
       .replace(
         /\bready again in about \d+s\b/g,
         "ready again after the cooldown",

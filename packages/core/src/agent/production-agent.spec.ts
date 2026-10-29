@@ -16020,13 +16020,46 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("normalizes truncated nested argument echoes to the same breaker key", () => {
-    const prefix = "Invalid action parameters — Invalid input. ";
-    const error = (key: string) =>
-      `${prefix}Received: {"patch":{"filter":{"group":null}},"idempotencyKey":"${key}","order":[…`;
-    expect(normalizeToolErrorForBreaker(error("first"))).toBe(prefix.trim());
-    expect(normalizeToolErrorForBreaker(error("second"))).toBe(prefix.trim());
-  });
+  it.each(["…", "…."])(
+    "normalizes truncated nested argument echoes ending in %s to the same breaker key",
+    (ending) => {
+      const prefix = "Invalid action parameters — Invalid input. ";
+      const error = (key: string) =>
+        `${prefix}Received: {"patch":{"filter":{"group":null}},"idempotencyKey":"${key}","order":[${ending}`;
+      expect(normalizeToolErrorForBreaker(error("first"))).toBe(prefix.trim());
+      expect(normalizeToolErrorForBreaker(error("second"))).toBe(prefix.trim());
+    },
+  );
+
+  it.each([
+    [
+      "Request failed. Received: 404 Not Found. Check the repo name",
+      "Request failed. Received: 500 Server Error. Retry later",
+      "404 Not Found",
+      "500 Server Error",
+    ],
+    [
+      'Request failed. Received: {"status":404}. Retry later…',
+      'Request failed. Received: {"status":500}. Retry later…',
+      "404",
+      "500",
+    ],
+    [
+      'Request failed. {"status":404}. Retry later',
+      'Request failed. {"status":500}. Retry later',
+      "404",
+      "500",
+    ],
+  ])(
+    "preserves distinct provider failures: %s",
+    (first, second, firstDetail, secondDetail) => {
+      const firstKey = normalizeToolErrorForBreaker(first);
+      const secondKey = normalizeToolErrorForBreaker(second);
+      expect(firstKey).toContain(firstDetail);
+      expect(secondKey).toContain(secondDetail);
+      expect(firstKey).not.toBe(secondKey);
+    },
+  );
 
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
     let streamCalls = 0;
