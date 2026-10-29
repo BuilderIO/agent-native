@@ -297,10 +297,13 @@
     color: var(--agentkit-text-muted);
   }
 
+  /* Keyed on attributes, not :first-of-type: a :first-of-type above the subject
+     makes WebKit restyle the whole page whenever an element is inserted at the
+     top of <body>, which every Radix menu and popover does as it opens. */
   .agentkit-composer-stack
     [data-agent-message-queue="true"]
     li
-    > div:first-of-type {
+    > [data-agent-message-queue-body="true"] {
     min-inline-size: 0;
     flex: 1;
   }
@@ -308,8 +311,8 @@
   .agentkit-composer-stack
     [data-agent-message-queue="true"]
     li
-    > div:first-of-type
-    > div:first-child {
+    > [data-agent-message-queue-body="true"]
+    > [data-agent-message-queue-text="true"] {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

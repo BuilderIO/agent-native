@@ -148,6 +148,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -7869,11 +7870,14 @@ function DatabaseInlineFilterControl({
   const filterIsComplete =
     !contentDatabaseFilterOperatorNeedsValue(filter.operator) ||
     filter.value.trim().length > 0;
+  const outsideClickShield = useMenuOutsideClickShield(open, onOpenChange);
   // Not modal, nor are the menus inside it: a modal menu restyles <body> to
   // block pointer events and lock scrolling, which forces a style pass over
-  // every table cell each time a chip opens or closes.
+  // every table cell each time a chip opens or closes. The shield blocks the
+  // page instead.
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
+      {outsideClickShield.shield}
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -7900,7 +7904,11 @@ function DatabaseInlineFilterControl({
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[260px] p-0">
+      <DropdownMenuContent
+        align="start"
+        className="w-[260px] p-0"
+        {...outsideClickShield.contentProps}
+      >
         <div
           className="grid gap-1 p-1"
           onKeyDown={(event) => event.stopPropagation()}
@@ -8035,6 +8043,53 @@ function DatabaseInlineFilterControl({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+// Covers the page under an open non-modal menu so the click that dismisses it
+// doesn't also open the cell beneath, as a modal menu's blocking would. The
+// shield sits just under the menu layer (z-[290]), above everything else.
+// Spread `contentProps` onto the menu's content.
+function useMenuOutsideClickShield(
+  open: boolean,
+  onOpenChange: (open: boolean) => void,
+) {
+  const dismissedByShield = useRef(false);
+  const shield = open
+    ? createPortal(
+        <div
+          aria-hidden="true"
+          data-menu-outside-click-shield=""
+          className="fixed inset-0 z-[289]"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => {
+            dismissedByShield.current = true;
+            onOpenChange(false);
+          }}
+        />,
+        document.body,
+      )
+    : null;
+  const contentProps = {
+    // The menu would close on pointerdown, removing the shield before the
+    // click lands, so the click would reach whatever is underneath.
+    onPointerDownOutside: (event: Event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.hasAttribute("data-menu-outside-click-shield")
+      ) {
+        event.preventDefault();
+      }
+    },
+    // Leave focus where the click put it, as an outside click on a non-modal
+    // menu does. In WebKit, moving focus off the chip when it reopens restyles
+    // much of the page.
+    onCloseAutoFocus: (event: Event) => {
+      if (!dismissedByShield.current) return;
+      dismissedByShield.current = false;
+      event.preventDefault();
+    },
+  };
+  return { shield, contentProps };
 }
 
 function databaseToolbarIconButtonClass(active = false) {

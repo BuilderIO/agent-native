@@ -1673,7 +1673,8 @@ describe("DatabaseView UI regressions", () => {
     ).toBeTruthy();
   });
 
-  it("redraws no rows when a filter chip opens and only the changed row on a refetch", async () => {
+  // Three rows filtered on a Status property, with that filter's chip.
+  async function renderStatusFilteredTable() {
     const status: DocumentProperty = {
       definition: {
         id: "status",
@@ -1724,15 +1725,16 @@ describe("DatabaseView UI regressions", () => {
     };
     databaseQueryState.tableQueryAnswered = true;
     await renderDatabaseView();
-    expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
-
     const chip = [...container.querySelectorAll("button")].find((button) =>
       button.textContent.trim().startsWith("Status"),
     );
-    expect(chip).toBeTruthy();
-    cellRendersByItemId.clear();
+    if (!chip) throw new Error("The Status filter chip did not render.");
+    return { chip, row };
+  }
+
+  async function mousePointerDown(target: Element) {
     await act(async () => {
-      chip?.dispatchEvent(
+      target.dispatchEvent(
         new PointerEvent("pointerdown", {
           bubbles: true,
           button: 0,
@@ -1741,7 +1743,15 @@ describe("DatabaseView UI regressions", () => {
       );
       await Promise.resolve();
     });
-    expect(chip?.getAttribute("aria-expanded")).toBe("true");
+  }
+
+  it("redraws no rows when a filter chip opens and only the changed row on a refetch", async () => {
+    const { chip, row } = await renderStatusFilteredTable();
+    expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
+
+    cellRendersByItemId.clear();
+    await mousePointerDown(chip);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
     expect([...cellRendersByItemId.keys()]).toEqual([]);
 
     // A refetch after one agent write: structural sharing keeps the other
@@ -1751,5 +1761,29 @@ describe("DatabaseView UI regressions", () => {
     cellRendersByItemId.clear();
     await renderDatabaseView();
     expect([...cellRendersByItemId.keys()]).toEqual(["item-b"]);
+  });
+
+  it("closes a filter chip's menu on an outside click without passing the click to the table", async () => {
+    const { chip } = await renderStatusFilteredTable();
+    await mousePointerDown(chip);
+    // The menu starts listening for outside pointerdowns on the next task.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const shield = document.querySelector("[data-menu-outside-click-shield]");
+    if (!shield) throw new Error("No click shield covers the page.");
+    const tableClick = vi.fn();
+    container.addEventListener("click", tableClick);
+
+    await mousePointerDown(shield);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => {
+      shield.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      document.querySelector("[data-menu-outside-click-shield]"),
+    ).toBeNull();
+    expect(tableClick).not.toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(chip);
   });
 });
