@@ -6,6 +6,7 @@ import { createItemsStrings } from "../items-strings";
 import {
   isSlackSource,
   itemPhase as phaseOf,
+  itemPreview,
   needsYouText as needsYouTextOf,
   sourceLabel as sourceLabelOf,
   statusLabel as statusLabelOf,
@@ -151,5 +152,44 @@ describe("sourceLabel", () => {
     expect(isSlackSource("slack")).toBe(true);
     expect(isSlackSource("github")).toBe(false);
     expect(isSlackSource(null)).toBe(false);
+  });
+});
+
+describe("itemPreview", () => {
+  it("reads a Slack message as plain words", () => {
+    expect(
+      itemPreview({
+        title: "Slack user Enzo",
+        summary:
+          "*Deploy*   is down\n<@U123> see <https://example.com|the log>",
+        source: "slack",
+      }),
+    ).toBe("Deploy is down @U123 see the log");
+  });
+
+  it("keeps another source's text as written, on one line", () => {
+    expect(
+      itemPreview({
+        title: "Fix the build",
+        summary: "The build  fails\non main",
+        source: "github",
+      }),
+    ).toBe("The build fails on main");
+  });
+
+  it("shows nothing when there is no text or it only repeats the title", () => {
+    expect(
+      itemPreview({ title: "Slack user Enzo", summary: null, source: "slack" }),
+    ).toBeNull();
+    expect(
+      itemPreview({ title: "Fix the build", summary: " ", source: "github" }),
+    ).toBeNull();
+    expect(
+      itemPreview({
+        title: "Fix the build",
+        summary: "Fix the build",
+        source: "github",
+      }),
+    ).toBeNull();
   });
 });

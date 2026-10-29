@@ -489,6 +489,7 @@ export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
   resource: Resource,
   scope: AutomationScope,
+  additionalJobAppIds?: readonly string[],
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
@@ -498,7 +499,12 @@ export async function canQueueAutomationRunNow(
     actor.appId,
     resource.owner,
   );
-  if (!jobBelongsToApp(meta, actor.appId) && !recoveredFactory) return false;
+  if (
+    !jobBelongsToApp(meta, actor.appId, additionalJobAppIds) &&
+    !recoveredFactory
+  ) {
+    return false;
+  }
   const access = await resolveAutomationAccess(actor, resource.id);
   if (access?.capabilities.canOperate) return true;
   const resourceOrgId = organizationIdFromResourceOwner(resource.owner);

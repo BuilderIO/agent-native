@@ -1,0 +1,104 @@
+slug: ai-dictation
+app: clips
+roles:
+  - engineering
+  - product
+title: プロンプトはタイプせず、話して入力
+seo_title: どのアプリにも入力できるAIディクテーション
+meta_description: AIディクテーションでClaude CodeやSlack、ドキュメントに話しかければ、整ったテキストがカーソル位置に入力されます。Agent-Native Clipsはすべてのディクテーションを保存し、後から検索できます。
+updated: 2026-10-26
+hero:
+  body: 話したプロンプトやチケット、返信が、Claude CodeからSlackまで、整ったテキストでカーソル位置に入ります。Agent-Native Clipsはすべてのディクテーションを保存し、頼めばエージェントが書き直します。
+  button:
+    label: ディクテーションを始める
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb42e201ec33f4acf8f8b6d39f67a2503
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3b0e34d91eee4240a0211ba4ca9b0859
+    alt: 本日のディクテーションが並ぶClipsの「ディクテーション」ページ。コーディングエージェント向けの長いプロンプト、バグチケット、Slackの更新連絡があり、プロンプトのカードが開いて「オリジナル」と「クリーンアップ済み」のテキストが表示されています。
+how_to:
+  heading: AIディクテーションの使い方
+  steps:
+    - title: どのアプリにもディクテーション
+      body: Clips Desktopをインストールし、Claude CodeやLinear、Slackをクリックして、話している間ショートカット（デフォルトはFn、設定で変更可能）を押し続けます。離すと、Clipsがカーソルの位置に言葉を入力します。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F493f3728ed1246bb841a651e3aa76300
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb3785ba8ec804690836d94e31ff92e17
+        alt: コーディングエージェントのチャット画面。Webhookの再試行についてディクテーションしたプロンプトが送信され、エージェントが変更を加えました。メッセージ欄にはカーソルが待機し、下のClipsのピルが緑の波形を立ち上げて次のプロンプトを聞き取っています。
+    - title: Clipsに自分の言葉を教える
+      body: 「ディクテーション」ページの「辞書」を開き、製品名やライブラリ名、同僚の名前を追加します。Clipsが聞き間違え続ける言葉には「用語 → 置き換え」の形で登録できます。CSVファイルを読み込めば、リストをまとめて追加できます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F855c88996488417e8dc3a532a0fd21a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff4e9c0557a1344f6a55e7e9c4356a5ab
+        alt: Clipsの辞書パネル。「用語を追加」「読み込む」「CSVを書き出す」が表示されています。その下には、Agent-Native、「web hooks → webhooks」、「kube control → kubectl」などの用語が並んでいます。
+    - title: 過去のディクテーションを探す
+      body: Clipsで Cmd+K を押して話した言葉を入力すると、一致するディクテーションが、話したアプリの名前とともに表示されます。1つ選ぶと、「ディクテーション」ページで開きます。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5e344071b49f4e51ae5eef2708c46605
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F13f558e09094404f975350ad0c359acc
+        alt: 「webhook」と入力したClipsの検索メニュー。「ディクテーション」の下に、Cursorにディクテーションしたプロンプトと、Slackにディクテーションしたメッセージの2件の過去のディクテーションが表示されています。
+features:
+  heading: 入力する代わりにディクテーションするための機能がすべて揃っています
+  items:
+    - title: クリップボードはそのまま
+      body: Clipsはアプリに貼り付けたあとクリップボードを元に戻すので、コピーしておいたリンクはそのまま残ります。ターミナルでは貼り付けではなく入力します。
+    - title: 元に戻せるAIクリーンアップ
+      body: Clipsは聞き間違い、句読点、大文字を直し、言い直しを削除。自動またはワンクリックで、元のテキストも残ります。
+    - title: 修正から学習
+      body: Clipsが貼り付けた直後に聞き間違いを直すと、デスクトップアプリがその修正を辞書に追加するので、次回のディクテーションは正しく入力されます。
+    - title: 長いプロンプトもハンズフリー
+      body: ショートカットを2回タップすると、考えながら話す間も聞き取りが続きます。もう1回タップで停止、Escで破棄できます。
+    - title: もう一度貼り付け
+      body: Cmd+Ctrl+V を押すと、直前のディクテーションを別のテキストフィールドに貼り付け直せます。カーソルの位置が違っていたときに便利です。
+    - title: エージェントに質問
+      body: 「第3四半期の予算について何て言った？」や「このとりとめのない話を箇条書きにして」と頼めば、エージェントが履歴をもとに対応します。
+integrations:
+  heading: いつものツールとClipsを連携
+  cards:
+    - title: コーディングエージェントにプロンプトを送る
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+      body: Claude Code、Cursor、Codexに、ファイル、エッジケース、実行するテストまで、作業内容をまるごと話して伝えられます。
+    - title: 普段の作業場所にそのまま書く
+      logos:
+        - name: Slack
+        - name: Gmail
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8a604ea4db60420eaa356fa7821e0b57
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+      body: 近況報告や返信、下書きを、メッセージやドキュメントに直接ディクテーションできます。Slackでは、Clipsが文末のピリオドを省きます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Linear
+        - name: GitHub
+        - name: Notion
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Clipsでできるその他のこと
+  cards:
+    - title: ボットなしで通話の議事録を作成
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: ご自身のパソコンから会議を録音し、要約、ノート、アクションアイテムを手に入れます。
+    - title: コンソールログとネットワークログ付きでバグを録画
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: Chromeでバグを一度再現すれば、コーディングエージェントに録画とページのログが渡ります。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Clipsは無料ですか？
+      a: はい。Agent-Native Clipsは無料のオープンソースで、デスクトップアプリでは音声ディクテーションがデフォルトでオンです。AIクリーンアップはBuilder.io AIクレジットまたはご自身のキーで実行されるため、無制限ではありません。Clipsはアルファ版のため、今後変更が加わる可能性があります。
+    - q: パソコン内蔵のディクテーションとは何が違いますか？
+      a: 内蔵のディクテーションは設定不要ですが、[話した内容を検索できる履歴](https://www.agent-native.com/articles/what-should-you-look-for-in-dictation-software/)は残りません。Clipsは、すべてのディクテーションを元のテキストとクリーンアップ後のテキストで保存し、あなたの言葉を学習して、AIでテキストを整えます。Clipsエージェントは、話した内容を探し出して、とりとめのない話を箇条書きにするなど書き直すこともできます。
+    - q: Clipsはチーム内の専門用語を正しく書けますか？
+      a: はい、用語を辞書に登録すれば可能です。1行に1語ずつ、または聞き間違えやすい言葉には「用語 → 置き換え」の形で追加します。用語のCSVファイルを読み込むこともできます。Clipsが貼り付けた直後に言葉を直すと、デスクトップアプリがその修正を辞書に保存し、次回に活かします。
+    - q: ディクテーションは保存されますか？過去のものを探せますか？
+      a: すべてのディクテーションは、元のテキストとクリーンアップ後のテキスト、時刻、長さとともに保存され、「ディクテーション」ページに日ごとにまとめて表示されます。Cmd+K を押して話した内容で検索するか、[Clipsエージェント](https://www.agent-native.com/docs/template-clips-agent/)に「昨日ディクテーションした内容を見せて」のように尋ねてください。ディクテーションはいつでも削除できます。
+    - q: 音声はパソコンの外に送信されますか？
+      a: 必ずしもそうではありません。Clips Desktopは、内蔵の音声認識またはLocal Whisperを使って、お使いのデバイス上で文字起こしできます（[Clipsの文字起こしエンジン](https://www.agent-native.com/docs/template-clips-features/)）。Builder.ioやご自身のキーを使う場合、ClipsはクリーンアップのためにディクテーションをそのAIサービスに送信します。各ディクテーションのテキストは、ご自身のClipsアカウントに保存されます。

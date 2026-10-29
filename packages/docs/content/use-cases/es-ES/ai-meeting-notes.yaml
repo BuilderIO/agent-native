@@ -1,0 +1,99 @@
+slug: ai-meeting-notes
+app: clips
+roles:
+  - everyone
+title: Obtén notas de reunión sin bots en la llamada
+seo_title: Notas de reuniones con IA sin bots en tu llamada
+meta_description: Obtén la transcripción, un resumen y las tareas de cada llamada. Agent-Native Clips graba en tu propio ordenador, así que puedes buscar o preguntar por cualquier reunión más tarde.
+updated: 2026-10-26
+hero:
+  body: "Agent-Native Clips convierte tus llamadas en notas: transcripción, resumen y tareas por persona. Graba tu micro y el audio de la llamada en tu ordenador, y puedes buscar o preguntar por cada llamada."
+  button:
+    label: Toma notas de reuniones
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b1f55d396c64beea49da96d9d02b38c
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F03741a45126c451e8458872aebd9f480
+    alt: Una reunión semanal de producto ya terminada en Clips. El panel de notas, a la izquierda, muestra un resumen breve, los puntos clave y las tareas agrupadas por asistente. A la derecha, la transcripción con las intervenciones de cada persona.
+how_to:
+  heading: Cómo tomar notas de reuniones con IA
+  steps:
+    - title: Conecta tu calendario
+      body: Instala Clips Desktop, activa Reuniones en los Ajustes de Clips y conecta Google Calendar en la página Reuniones. Tus próximas reuniones aparecen en la pestaña Agenda.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F58ac771a7a8547ecbb770e5e560f8ecd
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d5d38e3c0124bbb8a51b2d0b89582c4
+        alt: Primer plano de la pestaña Agenda de la página Reuniones, con las reuniones de hoy de Google Calendar y los botones Unirse y Abrir notas en la reunión que empieza en 2 minutos.
+    - title: Empieza las notas desde el recordatorio
+      body: Clips Desktop muestra un recordatorio un minuto antes de cada reunión del calendario. Su botón Join entra en la llamada y empieza las notas al instante, y el menú del botón las empieza sin entrar. Clips captura entonces tu micrófono y el audio de la llamada.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff048f1dd0e18443d93fdeb4a4f03fada
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe58e7dd45fa3459fb1cdb3840fed0126
+        alt: "Primer plano del recordatorio de Clips Desktop para la reunión semanal de producto. Su botón Join Meet & open Clips tiene el menú abierto: Join only, Start notes only y Snooze 5 min."
+    - title: Lee tus notas y tareas
+      body: "Cuando acaba la llamada, la página de la reunión muestra tus notas y las notas de IA junto a la transcripción: un resumen, los puntos clave y las tareas por asistente. [Revisa las notas de reuniones con IA](https://www.agent-native.com/articles/how-to-use-ai-to-take-meeting-notes/) con la transcripción antes de compartirlas."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0ba0a151caef41e8904d6535671c47bc
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbdf5e7b84ab64a288c0837959eedb85b
+        alt: "Primer plano del panel de notas de IA de una reunión terminada: el resumen, cuatro puntos clave y las tareas agrupadas bajo dos asistentes."
+features:
+  heading: Todo lo que necesitas de cada reunión
+  items:
+    - title: Sin bots en tus llamadas
+      body: Clips Desktop graba tu micrófono y el audio de la llamada en tu propio ordenador, así que la reunión se ve igual para todos los demás.
+    - title: Tareas por persona
+      body: Cada tarea indica quién es el responsable, según quién dijo qué en la llamada. Añade, edita o elimina tareas antes de compartirlas.
+    - title: Pregunta durante la llamada
+      body: "Pregunta sobre la reunión mientras ocurre: qué te has perdido, un resumen de los últimos cinco minutos o una buena pregunta para hacer a continuación."
+    - title: Busca por lo que se dijo
+      body: Encuentra una reunión por palabras de la transcripción, las notas o un asistente, o pregúntaselo al agente.
+    - title: Notas que enlazan al momento
+      body: Haz clic en cualquier punto clave de las notas de IA para saltar al momento exacto de la transcripción en que se dijo.
+    - title: Notas de reunión para compartir
+      body: Un único enlace comparte el resumen, los puntos clave, las tareas y la transcripción completa, sin el vídeo ni los comentarios de la grabación.
+integrations:
+  heading: Conecta Clips con las herramientas que ya usas
+  cards:
+    - title: Tu calendario y tus llamadas
+      logos:
+        - name: Google Calendar
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65489ae9899a403081cb5ca4746ae335
+        - name: Google Meet
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa0e5adb3a2ab488eb415513ba971f315
+        - name: Microsoft Teams
+      body: Clips muestra tus reuniones de Google Calendar y toma notas en Google Meet, Microsoft Teams y otras videollamadas.
+    - title: Pregunta al agente desde Slack
+      logos:
+        - name: Slack
+        - name: Microsoft Teams
+      body: Cuando conectes Slack o Microsoft Teams, escribe al agente de Clips desde ahí para encontrar una reunión, sus notas o las tareas que te tocan.
+    - title: Conecta lo que quieras con MCP
+      logos:
+        - name: Notion
+        - name: Linear
+        - name: monday.com
+        - name: Apollo
+      more: true
+      body: Conecta las herramientas que usa tu equipo mediante MCP, o añade cualquier servidor MCP con su URL.
+other_uses:
+  heading: Otras cosas que puedes hacer con Agent-Native Clips
+  cards:
+    - title: Graba bugs con sus registros de consola y de red
+      url: https://www.agent-native.com/use-cases/ai-bug-reporting-tool/
+      body: Cada grabación está lista para pasársela a tu agente de código, para que vea qué falló.
+    - title: Dicta tus prompts en vez de escribirlos
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: Mantén pulsada una tecla y habla, y Clips escribe el texto ya limpio en la aplicación que estés usando.
+faqs:
+  heading: ¿Dudas? Aquí tienes las respuestas
+  items:
+    - q: ¿Agent-Native Clips es gratis?
+      a: Sí, Agent-Native Clips es gratuito y de código abierto. Los resúmenes, los títulos y la limpieza de transcripciones funcionan por defecto con [créditos de IA de Builder.io](https://www.agent-native.com/docs/template-clips-features/). Cuando se acaban los créditos, esas funciones se detienen hasta que añadas créditos o conectes tu propia clave de Gemini. Clips está en alfa, así que espera cambios.
+    - q: ¿Entra un bot en mis reuniones?
+      a: "No. Clips toma notas desde tu propio ordenador: Clips Desktop graba tu micrófono y el audio de la llamada, así que no entra nada en tu llamada de Zoom, Google Meet o Microsoft Teams. Como no entra ningún bot, avisa a los demás de que estás tomando notas."
+    - q: ¿Con qué calendarios y aplicaciones de videollamada funciona Clips?
+      a: Clips solo se conecta con Google Calendar. Las notas funcionan en Zoom, Google Meet, Microsoft Teams, Webex o cualquier otra llamada cuyo audio reproduzca tu ordenador. En Mac, Clips Desktop también detecta esas llamadas cuando no están en tu calendario y te ofrece empezar las notas. Las voces de los demás asistentes solo se capturan en Mac.
+    - q: ¿Clips toma notas de reuniones en Windows?
+      a: Clips Desktop funciona en Mac, Windows y Linux, pero la captura de las voces de los demás asistentes solo funciona en Mac. En Windows y Linux, Clips graba solo tu micrófono, así que los asistentes remotos no aparecen en la transcripción ni en las tareas.
+    - q: ¿En qué se diferencia Clips del asistente de notas con IA de Zoom o Google Meet?
+      a: "El asistente de notas con IA de una aplicación de llamadas está ligado a las llamadas de esa aplicación. Clips guarda todas tus reuniones, de cualquier aplicación, en una única biblioteca. Pregunta al [agente de Clips](https://www.agent-native.com/docs/template-clips-agent/) «¿a qué se comprometió Daniel el martes pasado?» y buscará en tus reuniones por lo que se dijo. Eso es una [aplicación agéntica](https://www.agent-native.com/articles/what-is-an-agent-native-app/): la inteligencia de un agente, la intuición de una aplicación."

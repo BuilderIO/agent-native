@@ -61,7 +61,7 @@ export default {
     recordingStarted: "录制开始时间",
     appBandHeading: "{app} · {count} 个会话",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 个会话{partial}",
-    journeyTitleAppBandsSummary: "{from} 至 {to} · 各应用独立队列{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 独立群组{partial}",
     sessionCount: "{count} 个会话",
     otherPaths: "其他路径",
     otherBranchesShown: "已显示 {shown}/{total} 个分支",
@@ -302,6 +302,9 @@ export default {
       chooseFrame: "选择画框",
       inspect: "检查",
       exportSvg: "导出 SVG",
+      moreActions: "更多操作",
+      askAboutFile: "询问此文件",
+      askAboutFilePrompt: "询问有关此关联设计文件的问题。{{url}}",
       actionsPrefill: "检查后发送",
       retry: "重试",
       currentDesign: "当前 Design",
@@ -2619,6 +2622,159 @@ export default {
   },
   home: {
     suggestedPrompts: "推荐提示",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "设计一个产品分析仪表板，包含KPI卡片、转化图表和活动表格，整体采用自信的数据驱动风格。",
+        roadmapWorkspace:
+          "设计一个路线图工作区，包含季度时间线、优先级标签和客户反馈面板，整体采用平和协作的风格。",
+        onboardingFlow:
+          "设计一个预算应用的引导流程，包含进度步骤、目标选择和账户设置，整体采用令人安心的风格。",
+        featureComparison:
+          "设计一个SaaS功能对比页面，包含套餐卡片、功能矩阵和常见问题，整体采用直接且注重转化的风格。",
+        feedbackPortal:
+          "设计一个客户反馈门户，包含需求看板、投票控件和状态筛选，整体采用开放的社区风格。",
+        releaseNotes:
+          "设计一个版本更新中心，包含版本时间线、功能亮点和迁移说明，整体采用简洁的编辑风格。",
+        projectWorkspace:
+          "设计一个产品团队工作区，包含看板列、负责人标签和里程碑，整体采用专注效率的风格。",
+        launchWaitlist:
+          "设计一个产品发布候补名单页面，包含主视觉、客户证明和报名表单，整体采用乐观的风格。",
+      },
+      design: {
+        portfolioHome:
+          "设计一个设计师作品集首页，包含简短介绍、案例网格、个人简介和联系入口，整体采用精致的编辑风格。",
+        designSystem:
+          "设计一个设计系统参考页，包含颜色与字体令牌、组件画廊和使用说明，整体采用精准的文档风格。",
+        bankingApp:
+          "设计一个手机银行应用首页，包含余额卡片、交易列表和储蓄目标，整体采用平静可信的风格。",
+        travelBooking:
+          "设计一个旅行预订搜索页面，包含目的地筛选、行程卡片和地图面板，整体采用轻盈冒险的风格。",
+        coffeeShop:
+          "设计一个咖啡店网店，包含精选咖啡、产地故事和订阅入口，整体采用温暖细腻的风格。",
+        musicFestival:
+          "设计一个音乐节活动页面，包含演出阵容、日程和场地地图，整体采用充满活力的海报风格。",
+        accessibilityAudit:
+          "设计一个无障碍审查仪表板，包含评分摘要、问题列表和筛选控件，整体采用清晰高对比风格。",
+        artBook:
+          "设计一个艺术书编辑页面，包含沉浸式作品、重点引言和章节导航，整体采用克制的画廊风格。",
+      },
+      developer: {
+        apiDocs:
+          "设计一个API文档门户，包含侧边导航、代码示例和请求构建器，整体采用精准的技术风格。",
+        deploymentDashboard:
+          "设计一个部署仪表板，包含环境卡片、实时日志和回滚控件，整体采用平静的运维风格。",
+        componentPlayground:
+          "设计一个组件试验场，包含属性控件、状态变体和代码面板，整体采用清爽的开发者风格。",
+        databaseConsole:
+          "设计一个数据库控制台，包含查询编辑器、结构树和结果表格，整体采用克制的技术风格。",
+        issueTriage:
+          "设计一个问题分诊看板，包含筛选、优先级徽标和负责人队列，整体采用清晰专注的风格。",
+        authSettings:
+          "设计一个身份验证设置页，包含服务商卡片、回调网址和权限列表，整体采用安全安心的风格。",
+        workflowBuilder:
+          "设计一个CI工作流构建器，包含步骤节点、运行历史和分支选择，整体采用精准的技术风格。",
+        developerPortfolio:
+          "设计一个开发者作品集，包含项目卡片、工具栈和时间线，整体采用沉稳的深色风格。",
+      },
+      marketing: {
+        campaignLanding:
+          "设计一个营销落地页，包含醒目主视觉、核心优势、客户证明和报名入口，整体采用活力风格。",
+        emailBuilder:
+          "设计一个邮件营销编辑器，包含主题预览、内容区块和受众摘要，整体采用清晰友好的风格。",
+        socialCalendar:
+          "设计一个社交内容日历，包含渠道标签、定时帖子和效果指标，整体采用明亮的编辑风格。",
+        brandCampaign:
+          "设计一个品牌活动页面，包含标题、艺术指导和素材画廊，整体采用自信统一的风格。",
+        webinarRegistration:
+          "设计一个网络研讨会报名页，包含讲者卡片、议程和报名表单，整体采用可信亲切的风格。",
+        seoBrief:
+          "设计一个SEO内容简报，包含关键词组、内容提纲和竞品备注，整体采用专注研究的风格。",
+        launchMetrics:
+          "设计一个发布指标仪表板，包含渠道卡片、转化图表和活动表格，整体采用分析型风格。",
+        newsletterSignup:
+          "设计一个 newsletter 订阅页，包含编辑预览、主题选择和邮箱输入框，整体采用温暖简洁的风格。",
+      },
+      sales: {
+        leadWorkspace:
+          "设计一个销售线索工作区，包含联系信息、活动时间线和资格字段，整体采用果断专业的风格。",
+        accountBrief:
+          "设计一个客户账户研究简报，包含公司概况、相关人员和近期动态，整体采用清晰的管理层风格。",
+        productDemo:
+          "设计一个产品演示页，包含场景标签、产品截图和客户证明，整体采用自信有说服力的风格。",
+        proposalBuilder:
+          "设计一个提案构建器，包含范围章节、价格卡片和时间安排，整体采用精致的顾问风格。",
+        pipelineDashboard:
+          "设计一个销售管道仪表板，包含阶段列、商机金额和预测图表，整体采用简洁商务风格。",
+        meetingBooking:
+          "设计一个会议预约页，包含日历时段、议程预览和表单，整体采用专业亲切的风格。",
+        customerStory:
+          "设计一个客户案例页面，包含挑战、成果、引言和指标，整体采用基于证据的编辑风格。",
+        accountHandoff:
+          "设计一个账户交接工作区，包含客户目标、联系人和待办事项，整体采用平静协作的风格。",
+      },
+      ops: {
+        inventoryDashboard:
+          "设计一个库存仪表板，包含库存水平、补货提醒和类别筛选，整体采用实用的运维风格。",
+        staffScheduler:
+          "设计一个员工排班表，包含班次网格、可用时间和请假申请，整体做到一目了然。",
+        vendorPortal:
+          "设计一个供应商入驻门户，包含检查清单、文件上传状态和联系人，整体采用清晰安心的风格。",
+        incidentResponse:
+          "设计一个事故响应页面，包含严重程度横幅、事件时间线和负责人面板，整体采用冷静专注的风格。",
+        expenseApprovals:
+          "设计一个费用审批队列，包含收据预览、政策提醒和金额汇总，整体采用中性高效的风格。",
+        warehouseReceiving:
+          "设计一个仓库收货页面，包含货运详情、扫描状态和商品列表，整体做到清晰易懂。",
+        automationControl:
+          "设计一个工作流控制面板，包含自动化卡片、运行历史和失败提醒，整体采用可靠的运维风格。",
+        helpdeskQueue:
+          "设计一个内部帮助台队列，包含请求卡片、状态筛选和分配控件，整体采用清晰友好的风格。",
+      },
+      individual: {
+        personalPortfolio:
+          "设计一个个人作品集，包含简短简介、精选作品、技能和联系方式，整体采用温暖的编辑风格。",
+        mealPlanner:
+          "设计一个餐食规划应用页面，包含每周食谱、购物清单和饮食筛选，整体采用实用友好的风格。",
+        homeBudget:
+          "设计一个家庭预算仪表板，包含月度摘要、分类图表和账单清单，整体采用平静支持的风格。",
+        tripPlanner:
+          "设计一个旅行规划器，包含行程时间线、地图和预订卡片，整体采用轻盈冒险的风格。",
+        readingJournal:
+          "设计一个阅读日志，包含书籍封面、进度笔记和星级评分，整体采用安静的文学风格。",
+        invoiceTracker:
+          "设计一个自由职业发票追踪器，包含客户列表、付款状态和到期日期，整体采用整洁专业的风格。",
+        habitTracker:
+          "设计一个习惯追踪应用，包含每日打卡、连续记录卡片和进度图表，整体采用温和激励的风格。",
+        neighborhoodEvents:
+          "设计一个社区活动页面，包含活动卡片、本地筛选和报名控件，整体采用热情友好的社区风格。",
+      },
+      general: {
+        saasHomepage:
+          "设计一个SaaS首页，包含主视觉、功能板块和客户证明，整体采用清晰亲切的风格。",
+        analyticsDashboard:
+          "设计一个分析仪表板，包含KPI卡片、趋势图表和活动表格，整体采用平静的数据驱动风格。",
+        habitApp:
+          "设计一个习惯应用手机首页，包含每日目标、进度环和提醒，整体采用友好鼓励的风格。",
+        onlineStore:
+          "设计一个网店首页，包含精选商品、类别卡片和客户评价，整体采用温暖精致的风格。",
+        creativePortfolio:
+          "设计一个创意作品集页面，包含简短介绍、项目网格和个人简介，整体采用富有表现力的编辑风格。",
+        bookingPage:
+          "设计一个服务预约页，包含可预约日历、服务卡片和评价摘录，整体采用清晰可信的风格。",
+        adminDashboard:
+          "设计一个管理仪表板，包含侧边导航、摘要卡片和近期活动，整体采用克制实用的风格。",
+        communityEvent:
+          "设计一个社区活动页面，包含活动安排、场地信息和演讲者，整体采用欢迎庆祝的风格。",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "后续步骤",
+      refineWithPrompt: "使用提示词优化",
+      export: "导出",
+      shareLink: "分享链接",
+      dismiss: "关闭",
+    },
     import: "导入",
     importOptions: "导入选项",
     figmaLink: "Figma 链接",
@@ -2695,6 +2851,89 @@ export default {
     paginationPrevious: "上一页",
     paginationNext: "下一页",
     paginationPage: "第 {{page}} / {{totalPages}} 页",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "产品分析仪表板",
+        roadmapWorkspace: "路线图工作区",
+        onboardingFlow: "预算应用的引导流程",
+        featureComparison: "SaaS功能对比页面",
+        feedbackPortal: "客户反馈门户",
+        releaseNotes: "版本更新中心",
+        projectWorkspace: "产品团队工作区",
+        launchWaitlist: "产品发布候补名单页面",
+      },
+      design: {
+        portfolioHome: "设计师作品集首页",
+        designSystem: "设计系统参考页",
+        bankingApp: "手机银行应用首页",
+        travelBooking: "旅行预订搜索页面",
+        coffeeShop: "咖啡店网店",
+        musicFestival: "音乐节活动页面",
+        accessibilityAudit: "无障碍审查仪表板",
+        artBook: "艺术书编辑页面",
+      },
+      developer: {
+        apiDocs: "API文档门户",
+        deploymentDashboard: "部署仪表板",
+        componentPlayground: "组件试验场",
+        databaseConsole: "数据库控制台",
+        issueTriage: "问题分诊看板",
+        authSettings: "身份验证设置页",
+        workflowBuilder: "CI工作流构建器",
+        developerPortfolio: "开发者作品集",
+      },
+      marketing: {
+        campaignLanding: "营销落地页",
+        emailBuilder: "邮件营销编辑器",
+        socialCalendar: "社交内容日历",
+        brandCampaign: "品牌活动页面",
+        webinarRegistration: "网络研讨会报名页",
+        seoBrief: "SEO内容简报",
+        launchMetrics: "发布指标仪表板",
+        newsletterSignup: "电子报订阅",
+      },
+      sales: {
+        leadWorkspace: "销售线索工作区",
+        accountBrief: "客户账户研究简报",
+        productDemo: "产品演示页",
+        proposalBuilder: "提案构建器",
+        pipelineDashboard: "销售管道仪表板",
+        meetingBooking: "会议预约页",
+        customerStory: "客户案例页面",
+        accountHandoff: "账户交接工作区",
+      },
+      ops: {
+        inventoryDashboard: "库存仪表板",
+        staffScheduler: "员工排班表",
+        vendorPortal: "供应商入驻门户",
+        incidentResponse: "事故响应页面",
+        expenseApprovals: "费用审批队列",
+        warehouseReceiving: "仓库收货页面",
+        automationControl: "工作流控制面板",
+        helpdeskQueue: "内部帮助台队列",
+      },
+      individual: {
+        personalPortfolio: "个人作品集",
+        mealPlanner: "餐食规划应用页面",
+        homeBudget: "家庭预算仪表板",
+        tripPlanner: "旅行规划器",
+        readingJournal: "阅读日志",
+        invoiceTracker: "自由职业发票追踪器",
+        habitTracker: "习惯追踪应用",
+        neighborhoodEvents: "社区活动页面",
+      },
+      general: {
+        saasHomepage: "SaaS首页",
+        analyticsDashboard: "分析仪表板",
+        habitApp: "习惯应用手机首页",
+        onlineStore: "网店首页",
+        creativePortfolio: "创意作品集页面",
+        bookingPage: "服务预约页",
+        adminDashboard: "管理仪表板",
+        communityEvent: "社区活动页面",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "视觉编辑",
@@ -3090,6 +3329,63 @@ export default {
     searching: "搜索中…",
     reactionFailed: "无法更新反应",
     moveFailed: "无法移动评论",
+    threadTitle: "评论",
+    agentBadge: "智能体",
+    closeThread: "关闭讨论",
+    deleteThread: "删除讨论",
+    deleteThreadTitle: "删除讨论？",
+    deleteThreadDescription: "这会从审阅中移除该讨论。",
+    pin: {
+      thread_other: "{{authors}} 的讨论，{{count}} 条评论",
+      authorsOther_other: "另外 {{count}} 人",
+      unread: "未读",
+      resolved: "已解决",
+      draft: "草稿评论",
+    },
+    reaction: {
+      label_other: "{{emoji}}，{{count}} 个回应",
+      labelMine_other: "{{emoji}}，{{count}} 个回应，包括你的",
+    },
+    filtersActive: "已应用筛选",
+    suggestChanges: "建议修改",
+    replyInThread: "在讨论中回复",
+    applyChangesAndResolve: "应用修改并解决",
+    agent: {
+      sectionLabel: "智能体",
+      queued: "{{agent}} 排队中",
+      working: "{{agent}} 正在工作…",
+      replied: "{{agent}} 已回复",
+      suggested: "{{agent}} 已提出修改建议",
+      applied: "{{agent}} 已应用修改并解决讨论",
+      needsInput: "{{agent}} 需要你的输入",
+      failed: "{{agent}} 无法完成",
+      cancelled: "已停止",
+      cancel: "取消",
+      openChat: "打开聊天",
+      retry: "重试",
+      fallbackName: "AI",
+      setupRequired: "连接 AI 模型后才能使用智能体",
+      startFailed: "无法启动智能体",
+      cancelFailed: "无法停止智能体",
+      busy: "已有智能体正在处理此讨论",
+      error: {
+        engineNotConfigured: "未连接 AI 模型",
+        noResult: "智能体未作答即已结束",
+        timeout: "智能体未及时响应",
+        permission: "你已没有编辑权限",
+        threadUnavailable: "此讨论已不再开放",
+        targetChanged: "智能体工作时设计已发生变化",
+        applyUnavailable: "智能体无法编辑此画面",
+        applyIncomplete: "设计已编辑，但讨论未解决。请检查修改。",
+        cancelledAfterEdit: "设计编辑后已停止。请检查修改。",
+        generic: "出错了",
+      },
+    },
+    newThread: "新讨论",
+    threadsCount_other: "{{count}} 个讨论",
+    boardGroup: "画布",
+    send: "发送",
+    pinLabel_other: "包含 {{count}} 条评论的讨论",
     status: {
       draft: "草稿",
       in_review: "审阅中",

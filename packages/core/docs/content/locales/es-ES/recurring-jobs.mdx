@@ -62,6 +62,7 @@ Eso es todo. El cuerpo es un mensaje que el agente ejecuta en cada disparo progr
 | `runAs`      | `"creator"` \| `"shared"`             | `"creator"`     | `"creator"` se ejecuta con la identidad del propietario del trabajo y `ANTHROPIC_API_KEY`. `"shared"` utiliza la clave de la organización. |
 | `createdBy`  | correo electrónico                    | _(automático)_  | Se completa cuando el trabajo se crea a través del Recursos del Agente UI o por el agente.                                                 |
 | `orgId`      | cadena                                | _(automático)_  | Alcance de la organización; heredado de la organización activa del creador.                                                                |
+| `appId`      | cadena                                | _(automático)_  | La aplicación cuyo planificador ejecuta el trabajo. El planificador omite los trabajos que nombran otra aplicación.                        |
 | `lastRun`    | Marca de tiempo ISO                   | _(gestionado)_  | Escrito por el planificador después de cada ejecución.                                                                                     |
 | `lastStatus` | `"success"` \| `"error"` \| …         | _(gestionado)_  | Último resultado.                                                                                                                          |
 | `lastError`  | cadena                                | _(gestionado)_  | Mensaje de error si la última ejecución falló.                                                                                             |
@@ -239,6 +240,20 @@ indica y nombra el motivo.
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS` se lee en dos ámbitos.** En Netlify, Vercel y Cloudflare decide el entorno de **compilación**: el disparador de la plataforma sigue activándose para vaciar las automatizaciones por eventos y limpiar ejecuciones, pero una compilación con el interruptor activado omite los trabajos programados, diga lo que diga el entorno implementado. En un servidor de larga duración, el entorno de **ejecución** controla el temporizador en proceso. Establécelo donde tu host lo lea. La compilación registra su decisión, de modo que la página **Automations** puede indicar que las programaciones nunca se ejecutarán en lugar de mostrar una fecha de próxima ejecución que nada respetará.
 
 </Callout>
+
+### Ejecutar trabajos bajo otro `appId` {#additional-job-app-ids}
+
+El planificador ejecuta un trabajo cuando el `appId` del trabajo coincide con el `appId` de su aplicación. Para ejecutar también los archivos de trabajo con otro `appId`, indique las etiquetas adicionales en `additionalJobAppIds`:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+Una compilación que no incluya la etiqueta omite esos archivos sin reclamarlos, ejecutarlos ni escribir en ellos, lo que permite que dos implementaciones sobre una misma base de datos repartan sus trabajos. La opción solo amplía qué archivos recoge esta aplicación. El lease del planificador, el historial de ejecuciones y las filas de salud siguen bajo `appId`, así que las implementaciones que comparten una base de datos siguen turnándose con un mismo lease. Si la aplicación pone en cola **Run now** para esos trabajos, pase la misma lista como `additionalJobAppIds` a `queueAutomationRunNow`.
 
 ## Depurar un trabajo {#debugging}
 

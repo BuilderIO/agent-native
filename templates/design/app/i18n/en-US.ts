@@ -246,6 +246,9 @@ export default {
       chooseFrame: "Choose frame",
       inspect: "Inspect",
       exportSvg: "Export SVG",
+      moreActions: "More actions",
+      askAboutFile: "Ask about this file",
+      askAboutFilePrompt: "Ask about this linked design file. {{url}}",
       actionsPrefill: "Review, then send",
       retry: "Retry",
       currentDesign: "the current Design",
@@ -2641,6 +2644,159 @@ export default {
   },
   home: {
     suggestedPrompts: "Suggested prompts",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Build a product analytics dashboard with KPI cards, a conversion chart, an activity table, and a confident data-led tone.",
+        roadmapWorkspace:
+          "Design a roadmap workspace with a quarter timeline, priority tags, a customer feedback panel, and a calm collaborative tone.",
+        onboardingFlow:
+          "Create a budgeting app onboarding flow with progress steps, goal choices, account setup, and a reassuring tone.",
+        featureComparison:
+          "Create a SaaS feature comparison page with plan cards, a feature matrix, an FAQ, and a direct conversion-focused tone.",
+        feedbackPortal:
+          "Design a customer feedback portal with a request board, voting controls, status filters, and an open community tone.",
+        releaseNotes:
+          "Build a release notes hub with a version timeline, feature highlights, migration notes, and a crisp editorial tone.",
+        projectWorkspace:
+          "Create a product team workspace with kanban columns, owner chips, milestones, and a focused productivity tone.",
+        launchWaitlist:
+          "Design a product launch waitlist page with a hero, proof points, signup form, and an optimistic tone.",
+      },
+      design: {
+        portfolioHome:
+          "Design a designer portfolio homepage with a concise intro, case study grid, about section, contact CTA, and a polished editorial tone.",
+        designSystem:
+          "Build a design system reference page with color and type tokens, a component gallery, usage notes, and a precise documentation tone.",
+        bankingApp:
+          "Create a mobile banking app home screen with a balance card, transaction list, savings goals, and a calm trustworthy tone.",
+        travelBooking:
+          "Design a travel booking search screen with destination filters, itinerary cards, a map panel, and an airy adventurous tone.",
+        coffeeShop:
+          "Create a coffee shop storefront with featured blends, origin stories, a subscription CTA, and a warm tactile tone.",
+        musicFestival:
+          "Design a music festival event page with a lineup, schedule, venue map, and an energetic poster-inspired tone.",
+        accessibilityAudit:
+          "Build an accessibility audit dashboard with a score summary, issue list, filter controls, and a clear high-contrast tone.",
+        artBook:
+          "Design an art book editorial page with immersive artwork, a pull quote, chapter navigation, and a restrained gallery tone.",
+      },
+      developer: {
+        apiDocs:
+          "Build an API docs portal with left navigation, code samples, a request builder, a version badge, and a precise technical tone.",
+        deploymentDashboard:
+          "Design a deployment dashboard with environment cards, live logs, rollback controls, and a calm operational tone.",
+        componentPlayground:
+          "Create a component playground with prop controls, state variants, a code panel, and a clean developer-focused tone.",
+        databaseConsole:
+          "Build a database console with a query editor, schema tree, results table, and a restrained technical tone.",
+        issueTriage:
+          "Design an issue triage board with filters, priority badges, an owner queue, and a clear focused tone.",
+        authSettings:
+          "Create an auth settings page with provider cards, a callback URL, a permission list, and a secure reassuring tone.",
+        workflowBuilder:
+          "Build a CI workflow builder with step nodes, run history, a branch selector, and a precise technical tone.",
+        developerPortfolio:
+          "Design a developer portfolio with project cards, a tool stack, a timeline, and a dark focused tone.",
+      },
+      marketing: {
+        campaignLanding:
+          "Design a campaign landing page with a sharp hero, benefit blocks, customer proof, a signup CTA, and an energetic tone.",
+        emailBuilder:
+          "Build an email campaign editor with a subject preview, content blocks, audience summary, and a clear friendly tone.",
+        socialCalendar:
+          "Create a social content calendar with channel tabs, scheduled posts, performance cues, and a bright editorial tone.",
+        brandCampaign:
+          "Design a brand campaign page with a headline, art direction, asset gallery, and a confident cohesive tone.",
+        webinarRegistration:
+          "Build a webinar registration page with speaker cards, an agenda, a signup form, and a credible inviting tone.",
+        seoBrief:
+          "Create an SEO content brief with keyword groups, outline sections, competitor notes, and a focused research tone.",
+        launchMetrics:
+          "Design a launch metrics dashboard with channel cards, a conversion chart, a campaign table, and an analytical tone.",
+        newsletterSignup:
+          "Create a newsletter signup page with an editorial preview, topic choices, an email field, and a warm concise tone.",
+      },
+      sales: {
+        leadWorkspace:
+          "Build a sales lead workspace with contact details, an activity timeline, qualification fields, and a decisive professional tone.",
+        accountBrief:
+          "Design an account research brief with a company snapshot, stakeholders, recent signals, and a clear executive tone.",
+        productDemo:
+          "Create a product demo page with use-case tabs, product screenshots, customer proof, and a confident persuasive tone.",
+        proposalBuilder:
+          "Build a proposal builder with scope sections, pricing cards, a timeline, and a polished consultative tone.",
+        pipelineDashboard:
+          "Design a pipeline dashboard with stage columns, deal values, a forecast chart, and a crisp business tone.",
+        meetingBooking:
+          "Create a meeting booking page with calendar slots, an agenda preview, a form, and a welcoming professional tone.",
+        customerStory:
+          "Design a customer story page with the challenge, results, a quote, and metrics in an evidence-led editorial tone.",
+        accountHandoff:
+          "Build an account handoff workspace with customer goals, contacts, open actions, and a calm collaborative tone.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Build an inventory dashboard with stock levels, reorder alerts, category filters, and a practical operational tone.",
+        staffScheduler:
+          "Design a staff scheduler with a shift grid, availability badges, time-off requests, and an easy-to-scan tone.",
+        vendorPortal:
+          "Create a vendor onboarding portal with a checklist, document upload states, contact details, and a clear reassuring tone.",
+        incidentResponse:
+          "Build an incident response screen with a severity banner, event timeline, owner panel, and a focused calm tone.",
+        expenseApprovals:
+          "Design an expense approval queue with receipt previews, policy flags, totals, and a neutral efficient tone.",
+        warehouseReceiving:
+          "Create a warehouse receiving app screen with shipment details, scan status, an item list, and a high-clarity tone.",
+        automationControl:
+          "Build a workflow control panel with automation cards, run history, failure alerts, and a confident operational tone.",
+        helpdeskQueue:
+          "Design an internal helpdesk queue with request cards, status filters, assignee controls, and a clear helpful tone.",
+      },
+      individual: {
+        personalPortfolio:
+          "Design a personal portfolio with a short bio, selected work, skills, and contact links, using a warm editorial tone.",
+        mealPlanner:
+          "Create a meal planning app screen with weekly recipes, a grocery list, dietary filters, and a friendly practical tone.",
+        homeBudget:
+          "Build a home budget dashboard with a monthly summary, category chart, bill list, and a calm supportive tone.",
+        tripPlanner:
+          "Design a trip planner with an itinerary timeline, map, reservation cards, and an airy adventurous tone.",
+        readingJournal:
+          "Create a reading journal with book covers, progress notes, star ratings, and a quiet literary tone.",
+        invoiceTracker:
+          "Build a freelance invoice tracker with a client list, payment status, due dates, and a tidy professional tone.",
+        habitTracker:
+          "Design a habit tracker app with daily check-ins, streak cards, a progress chart, and a gentle motivating tone.",
+        neighborhoodEvents:
+          "Create a neighborhood events page with event cards, local filters, RSVP controls, and a welcoming community tone.",
+      },
+      general: {
+        saasHomepage:
+          "Create a SaaS homepage with a hero, feature sections, customer proof, and a clear inviting tone.",
+        analyticsDashboard:
+          "Design an analytics dashboard with KPI cards, a trend chart, an activity table, and a calm data-led tone.",
+        habitApp:
+          "Build a mobile habit app home screen with daily goals, progress rings, reminders, and a friendly encouraging tone.",
+        onlineStore:
+          "Create an online store homepage with featured products, category cards, customer reviews, and a warm polished tone.",
+        creativePortfolio:
+          "Design a creative portfolio page with a short intro, project grid, about section, and an expressive editorial tone.",
+        bookingPage:
+          "Build a service booking page with an availability calendar, service cards, review snippets, and a clear trustworthy tone.",
+        adminDashboard:
+          "Create an admin dashboard with side navigation, summary cards, recent activity, and a restrained practical tone.",
+        communityEvent:
+          "Design a community event page with an event schedule, venue details, speakers, and a welcoming celebratory tone.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Next steps",
+      refineWithPrompt: "Refine with a prompt",
+      export: "Export",
+      shareLink: "Share link",
+      dismiss: "Dismiss",
+    },
     import: "Import",
     importOptions: "Import options",
     figmaLink: "Figma link",
@@ -2718,6 +2874,89 @@ export default {
     paginationPrevious: "Previous",
     paginationNext: "Next",
     paginationPage: "Page {{page}} of {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "Product Analytics Dashboard",
+        roadmapWorkspace: "Roadmap Workspace",
+        onboardingFlow: "Budgeting App Onboarding Flow",
+        featureComparison: "SaaS Feature Comparison Page",
+        feedbackPortal: "Customer Feedback Portal",
+        releaseNotes: "Release Notes Hub",
+        projectWorkspace: "Product Team Workspace",
+        launchWaitlist: "Product Launch Waitlist Page",
+      },
+      design: {
+        portfolioHome: "Designer Portfolio Homepage",
+        designSystem: "Design System Reference Page",
+        bankingApp: "Mobile Banking App Home",
+        travelBooking: "Travel Booking Search Screen",
+        coffeeShop: "Coffee Shop Storefront",
+        musicFestival: "Music Festival Event Page",
+        accessibilityAudit: "Accessibility Audit Dashboard",
+        artBook: "Art Book Editorial Page",
+      },
+      developer: {
+        apiDocs: "API Docs Portal",
+        deploymentDashboard: "Deployment Dashboard",
+        componentPlayground: "Component Playground",
+        databaseConsole: "Database Console",
+        issueTriage: "Issue Triage Board",
+        authSettings: "Auth Settings Page",
+        workflowBuilder: "CI Workflow Builder",
+        developerPortfolio: "Developer Portfolio",
+      },
+      marketing: {
+        campaignLanding: "Campaign Landing Page",
+        emailBuilder: "Email Campaign Editor",
+        socialCalendar: "Social Content Calendar",
+        brandCampaign: "Brand Campaign Page",
+        webinarRegistration: "Webinar Registration Page",
+        seoBrief: "SEO Content Brief",
+        launchMetrics: "Launch Metrics Dashboard",
+        newsletterSignup: "Newsletter Signup Page",
+      },
+      sales: {
+        leadWorkspace: "Sales Lead Workspace",
+        accountBrief: "Account Research Brief",
+        productDemo: "Product Demo Page",
+        proposalBuilder: "Proposal Builder",
+        pipelineDashboard: "Pipeline Dashboard",
+        meetingBooking: "Meeting Booking Page",
+        customerStory: "Customer Story Page",
+        accountHandoff: "Account Handoff Workspace",
+      },
+      ops: {
+        inventoryDashboard: "Inventory Dashboard",
+        staffScheduler: "Staff Scheduler",
+        vendorPortal: "Vendor Onboarding Portal",
+        incidentResponse: "Incident Response Screen",
+        expenseApprovals: "Expense Approval Queue",
+        warehouseReceiving: "Warehouse Receiving App Screen",
+        automationControl: "Workflow Control Panel",
+        helpdeskQueue: "Internal Helpdesk Queue",
+      },
+      individual: {
+        personalPortfolio: "Personal Portfolio",
+        mealPlanner: "Meal Planning App Screen",
+        homeBudget: "Home Budget Dashboard",
+        tripPlanner: "Trip Planner",
+        readingJournal: "Reading Journal",
+        invoiceTracker: "Freelance Invoice Tracker",
+        habitTracker: "Habit Tracker App",
+        neighborhoodEvents: "Neighborhood Events Page",
+      },
+      general: {
+        saasHomepage: "SaaS Homepage",
+        analyticsDashboard: "Analytics Dashboard",
+        habitApp: "Mobile Habit App Home",
+        onlineStore: "Online Store Homepage",
+        creativePortfolio: "Creative Portfolio Page",
+        bookingPage: "Service Booking Page",
+        adminDashboard: "Admin Dashboard",
+        communityEvent: "Community Event Page",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "Visual edit",
@@ -3134,6 +3373,71 @@ export default {
     searching: "Searching…",
     reactionFailed: "Could not update the reaction",
     moveFailed: "Could not move the comment",
+    threadTitle: "Comment",
+    agentBadge: "Agent",
+    closeThread: "Close thread",
+    deleteThread: "Delete thread",
+    deleteThreadTitle: "Delete thread?",
+    deleteThreadDescription: "This removes the thread from the review.",
+    pin: {
+      thread_one: "Thread by {{authors}}, {{count}} comment",
+      thread_other: "Thread by {{authors}}, {{count}} comments",
+      authorsOther_one: "{{count}} other",
+      authorsOther_other: "{{count}} others",
+      unread: "unread",
+      resolved: "resolved",
+      draft: "Draft comment",
+    },
+    reaction: {
+      label_one: "{{emoji}}, {{count}} reaction",
+      label_other: "{{emoji}}, {{count}} reactions",
+      labelMine_one: "{{emoji}}, {{count}} reaction, including you",
+      labelMine_other: "{{emoji}}, {{count}} reactions, including you",
+    },
+    filtersActive: "Filters applied",
+    suggestChanges: "Suggest changes",
+    replyInThread: "Reply in thread",
+    applyChangesAndResolve: "Apply changes and resolve",
+    agent: {
+      sectionLabel: "Agents",
+      queued: "{{agent}} is queued",
+      working: "{{agent}} is working…",
+      replied: "{{agent}} replied",
+      suggested: "{{agent}} suggested changes",
+      applied: "{{agent}} applied changes and resolved",
+      needsInput: "{{agent}} needs your input",
+      failed: "{{agent}} couldn’t finish",
+      cancelled: "Stopped",
+      cancel: "Cancel",
+      openChat: "Open chat",
+      retry: "Try again",
+      fallbackName: "AI",
+      setupRequired: "Connect an AI model to use agents",
+      startFailed: "Could not start the agent",
+      cancelFailed: "Could not stop the agent",
+      busy: "An agent is already working on this thread",
+      error: {
+        engineNotConfigured: "No AI model is connected",
+        noResult: "The agent finished without answering",
+        timeout: "The agent did not respond in time",
+        permission: "You no longer have edit access",
+        threadUnavailable: "This thread is no longer open",
+        targetChanged: "The design changed while the agent worked",
+        applyUnavailable: "An agent can’t edit this screen",
+        applyIncomplete:
+          "The design was edited but the thread wasn’t resolved. Review the change.",
+        cancelledAfterEdit:
+          "Stopped after the design was edited. Review the change.",
+        generic: "Something went wrong",
+      },
+    },
+    newThread: "New thread",
+    threadsCount_one: "{{count}} thread",
+    threadsCount_other: "{{count}} threads",
+    boardGroup: "Board",
+    send: "Send",
+    pinLabel_one: "Comment thread with {{count}} comment",
+    pinLabel_other: "Comment thread with {{count}} comments",
     status: {
       draft: "Draft",
       in_review: "In review",

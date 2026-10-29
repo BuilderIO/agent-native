@@ -2729,6 +2729,13 @@ audio.media-block__content {
   border-top: 1px solid hsl(var(--border) / 0.8);
   padding: 6px 8px 6px 6px;
 }
+/* A send button whose label doesn't fit beside the tools, such as Suggest in
+   a margin card, moves to its own line instead of spilling past the border. */
+[data-comment-composer][data-state="expanded"]
+  [data-agent-composer-slot="toolbar"] {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
 [data-comment-composer][data-state="resting"] .comment-composer-root {
   flex-direction: row;
   align-items: center;

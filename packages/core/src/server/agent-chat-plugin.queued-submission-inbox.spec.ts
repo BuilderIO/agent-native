@@ -1,3 +1,4 @@
+import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
@@ -423,6 +424,7 @@ import {
 } from "../agent/tool-approval-store.js";
 import {
   createThread,
+  getThread,
   getQueuedSubmissionReceipt,
   grantThreadUserShare,
   listQueuedSubmissionReceipts,
@@ -432,18 +434,26 @@ import {
 } from "../chat-threads/store.js";
 import { closeDbExec, getDbExec } from "../db/client.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
+import { processRecurringJobs } from "../jobs/scheduler.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
+import type { AgentChatPluginOptions } from "./agent-chat/plugin-options.js";
 import { runWithRequestContext } from "./request-context.js";
 
-async function createSweepHandler() {
+// `null` mounts the plugin with no options at all, the way an app that sets none does.
+async function createSweepHandler(options: AgentChatPluginOptions | null = {}) {
   const h3App = createApp();
-  createAgentChatPlugin({
-    actions: () => ({}),
-    a2aAgentDelegation: false,
-    frameworkTools: "minimal",
-    leanPrompt: true,
-    mcp: { enabled: false },
-  })({
+  createAgentChatPlugin(
+    options
+      ? {
+          actions: () => ({}),
+          a2aAgentDelegation: false,
+          frameworkTools: "minimal",
+          leanPrompt: true,
+          mcp: { enabled: false },
+          ...options,
+        }
+      : undefined,
+  )({
     h3App,
     hooks: {
       hook(name, callback) {
@@ -575,6 +585,36 @@ describe("queued submission inbox recurring sweep", () => {
       });
     },
   );
+
+  it("hands the job scheduler the extra app ids the app lists", async () => {
+    vi.stubEnv("AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS", "true");
+    vi.mocked(processRecurringJobs).mockClear();
+    const sweep = await createSweepHandler({
+      appId: "factory",
+      additionalJobAppIds: ["factory-workflows"],
+    });
+    const response = await sweep();
+
+    expect(response.status).toBe(200);
+    expect(processRecurringJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "factory",
+        additionalJobAppIds: ["factory-workflows"],
+      }),
+    );
+  });
+
+  it("starts the job scheduler for an app that sets no plugin options", async () => {
+    vi.stubEnv("AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS", "true");
+    vi.mocked(processRecurringJobs).mockClear();
+    const sweep = await createSweepHandler(null);
+    const response = await sweep();
+
+    expect(response.status).toBe(200);
+    expect(processRecurringJobs).toHaveBeenCalledWith(
+      expect.objectContaining({ additionalJobAppIds: undefined }),
+    );
+  });
 
   it("reads queued receipt status only after resolving thread access", async () => {
     const threadId = `thread-${randomUUID()}`;
@@ -2243,6 +2283,154 @@ describe("queued submission inbox recurring sweep", () => {
     } finally {
       clock.mockRestore();
       consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("renews a promotion claim while queued admission is pending", async () => {
+    const threadId = "queued-promotion-renewal-thread";
+    const messageId = "queued-promotion-renewal-message";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    // raw-sql-ok: createThread binds this fixture id through the shared store.
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: messageId },
+      },
+      { actor },
+    );
+
+    let signalAdmissionStarted!: () => void;
+    const admissionStarted = new Promise<void>((resolve) => {
+      signalAdmissionStarted = resolve;
+    });
+    let finishAdmission!: () => void;
+    const admissionPaused = new Promise<void>((resolve) => {
+      finishAdmission = resolve;
+    });
+    inboxHarness.admit = async (body) => {
+      signalAdmissionStarted();
+      await admissionPaused;
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: `run-${String(body.queuedMessageId)}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${messageId}`;
+    };
+
+    const sweep = await createSweepHandler();
+    let sweepPromise: ReturnType<typeof sweep> | undefined;
+    const scheduleInterval = globalThis.setInterval;
+    const cancelInterval = globalThis.clearInterval;
+    const renewalTimer = {} as ReturnType<typeof setInterval>;
+    const renewalCallbacks: Array<() => void> = [];
+    let renewalTimerCleared = false;
+    const setIntervalSpy = vi
+      .spyOn(globalThis, "setInterval")
+      .mockImplementation((handler, delay, ...args) => {
+        if (delay === 20_000) {
+          renewalCallbacks.push(
+            AsyncResource.bind(handler as () => void, "queued-claim-renewal"),
+          );
+          return renewalTimer;
+        }
+        return scheduleInterval(handler, delay, ...args);
+      });
+    const clearIntervalSpy = vi
+      .spyOn(globalThis, "clearInterval")
+      .mockImplementation((timer) => {
+        if (timer === renewalTimer) {
+          renewalTimerCleared = true;
+          return;
+        }
+        cancelInterval(timer);
+      });
+    const claimStartedAt = Date.now();
+    let now = claimStartedAt;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const readClaimExpiry = async () => {
+      const thread = await getThread(threadId);
+      const threadData = JSON.parse(thread?.threadData ?? "{}") as {
+        queuedMessages?: Array<{ promotionClaim?: { expiresAt?: number } }>;
+      };
+      return threadData.queuedMessages?.[0]?.promotionClaim?.expiresAt;
+    };
+    const waitForClaimExpiry = async (expected: number) => {
+      let actual: number | undefined;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        actual = await readClaimExpiry();
+        if (actual === expected) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(
+        `Promotion claim was not renewed to ${expected}; got ${actual}`,
+      );
+    };
+    try {
+      sweepPromise = sweep();
+      await admissionStarted;
+      expect(renewalCallbacks).toHaveLength(1);
+      const renewClaim = renewalCallbacks[0];
+      if (!renewClaim)
+        throw new Error("Claim renewal timer was not registered");
+      now += 20_000;
+      renewClaim();
+      await waitForClaimExpiry(claimStartedAt + 80_000);
+      now += 20_000;
+      renewClaim();
+      await waitForClaimExpiry(claimStartedAt + 100_000);
+      now = claimStartedAt + 60_000;
+      renewClaim();
+      expect(renewalTimerCleared).toBe(true);
+      expect(await readClaimExpiry()).toBe(claimStartedAt + 100_000);
+
+      now = claimStartedAt + 100_001;
+      const expiredReceipt = await getQueuedSubmissionReceipt(
+        threadId,
+        messageId,
+      );
+      if (!expiredReceipt)
+        throw new Error("Queued receipt disappeared before claim recovery");
+      const replacementClaim = await mutateThreadQueuedMessages(threadId, {
+        type: "claimFromInbox",
+        receipt: expiredReceipt,
+        claimId: "recovery-sweeper",
+      });
+      expect(replacementClaim?.claimedMessage?.promotionClaim).toMatchObject({
+        id: "recovery-sweeper",
+        expiresAt: claimStartedAt + 160_001,
+      });
+      await mutateThreadQueuedMessages(threadId, {
+        type: "release",
+        messageId,
+        claimId: "recovery-sweeper",
+      });
+
+      finishAdmission();
+      expect((await sweepPromise).status).toBe(200);
+      expect(renewalTimerCleared).toBe(true);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({
+        state: "submitted",
+        submittedRunId: `run-${messageId}`,
+      });
+    } finally {
+      finishAdmission();
+      await sweepPromise?.catch(() => undefined);
+      clock.mockRestore();
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
     }
   }, 20_000);
 

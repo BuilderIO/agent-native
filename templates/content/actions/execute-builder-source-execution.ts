@@ -4,7 +4,19 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, exists, isNull, lt, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  eq,
+  exists,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -48,9 +60,14 @@ import {
   builderCmsReferenceIdKey,
 } from "./_builder-cms-source-adapter.js";
 import {
+  builderCmsEditConflictKey,
   builderCmsSourceFieldMatches,
   builderCmsUnpublishedChangesAfterWrite,
+  readBuilderCmsEditConflicts,
+  readBuilderCmsPublicationIntent,
   readBuilderCmsUnpublishedChanges,
+  withBuilderCmsEditConflicts,
+  withBuilderCmsPublicationIntent,
   withBuilderCmsUnpublishedChanges,
 } from "./_builder-cms-unpublished-changes.js";
 import type {
@@ -108,6 +125,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     >,
   ) => Promise<DatabaseRecord | null>;
   assertEditor: (database: DatabaseRecord) => Promise<void>;
+  assertPageEditor: (documentId: string) => Promise<void>;
   getSourceSnapshot: (
     database: DatabaseRecord,
   ) => Promise<ContentDatabaseSource | null>;
@@ -142,6 +160,11 @@ export interface ExecuteBuilderSourceExecutionDeps {
     now: string;
     staleBefore: string;
     attemptToken: string;
+    /**
+     * The existing entry this execution overwrites. Its claim is refused while
+     * another source's push to the same entry holds a live claim.
+     */
+    builderEntry?: { model: string; entryId: string } | null;
   }) => Promise<boolean>;
   renewExecutionClaim: (args: {
     executionId: string;
@@ -305,6 +328,55 @@ export function builderExecutionAffectedRows(result: unknown) {
 
 export function builderExecutionConflict(message: string) {
   return Object.assign(new Error(message), { statusCode: 409 });
+}
+
+// Collections are separate sources, so the database lock a claim takes does not
+// keep two collections bound to the same Builder model apart. The live preflight
+// only protects a push if no other Content push to the entry can land between
+// its read and its write, so a push holds the entry from claim to write. A
+// write whose outcome is unknown may still land, so it holds the entry too,
+// until the claim lease outlasts any request still in flight.
+async function builderEntryHasOtherLiveClaim(
+  tx: ReturnType<typeof getDb>,
+  args: {
+    model: string;
+    entryId: string;
+    executionId: string;
+    staleBefore: string;
+  },
+) {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-builder-entry-write:${args.model}:${args.entryId}`}, 0::bigint))`,
+  );
+  const executions = schema.contentDatabaseSourceExecutions;
+  const changeSets = schema.contentDatabaseSourceChangeSets;
+  const rows = schema.contentDatabaseSourceRows;
+  const sources = schema.contentDatabaseSources;
+  const claims = await tx
+    .select({ id: executions.id })
+    .from(sources)
+    .innerJoin(rows, eq(rows.sourceId, sources.id))
+    .innerJoin(
+      changeSets,
+      and(
+        eq(changeSets.sourceId, sources.id),
+        eq(changeSets.databaseItemId, rows.databaseItemId),
+      ),
+    )
+    .innerJoin(executions, eq(executions.changeSetId, changeSets.id))
+    .where(
+      and(
+        eq(sources.sourceType, "builder-cms"),
+        eq(sources.sourceTable, args.model),
+        eq(rows.sourceRowId, args.entryId),
+        eq(executions.sourceId, sources.id),
+        ne(executions.id, args.executionId),
+        inArray(executions.state, ["running", "reconciliation_required"]),
+        gte(executions.updatedAt, args.staleBefore),
+      ),
+    )
+    .limit(1);
+  return claims.length > 0;
 }
 
 function isReclaimableRunningExecution(
@@ -491,7 +563,29 @@ export function builderCmsReconciledSourceValuesJson(args: {
     ...(args.snapshotSourceValues ?? {}),
     ...parseSourceValues(args.existingSourceValuesJson),
   };
-  const next = { ...existing };
+  const effect = args.plan.payload.effect;
+  // A push settles the staged change it sent, and the one it started with
+  // when it sent the other transition instead. One staged while it was in
+  // flight, or left out of its review, still waits for a push.
+  const staged = readBuilderCmsPublicationIntent(existing);
+  const settledIntent =
+    staged.state === "staged" &&
+    (staged.transition === effect ||
+      ((effect === "publish" || effect === "unpublish") &&
+        staged.transition === args.changeSet.stagedPublicationTransition))
+      ? withBuilderCmsPublicationIntent(existing, null)
+      : { ...existing };
+  // It settles the edit conflicts it pushed over too: the review showed
+  // them, and the push overwrote Builder's change.
+  const pushedKeys = args.changeSet.fieldChanges.map(builderCmsEditConflictKey);
+  if (args.changeSet.bodyChange) pushedKeys.push(BUILDER_CMS_BODY_CONTENT_KEY);
+  const next =
+    readBuilderCmsEditConflicts(existing).state === "recorded"
+      ? withBuilderCmsEditConflicts(settledIntent, {
+          ownedKeys: pushedKeys,
+          conflictedKeys: [],
+        })
+      : settledIntent;
   const published = builderCmsPublishedAfterWrite({
     effect: args.plan.payload.effect,
     livePreflight: args.plan.payload.livePreflight,
@@ -745,6 +839,12 @@ function livePreflightBlockMessage(args: {
   }
   if (args.effect === "unpublish" && args.liveState.published !== "published") {
     return "Entry is not currently published.";
+  }
+  // An autosave in Builder's editor can leave the entry's update time alone,
+  // so the timestamp check above doesn't catch one made after the review.
+  // Content's own unpublished save doesn't account for it either.
+  if (args.effect === "publish" && args.liveState.hasAutosaves === true) {
+    return "This entry has unpublished changes saved in Builder's editor, which Content can't see. Publish it from Builder.";
   }
   return null;
 }
@@ -1087,6 +1187,9 @@ export function realExecutionDeps(
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
     },
+    assertPageEditor: async (documentId) => {
+      await assertAccess("document", documentId, "editor");
+    },
     getSourceSnapshot: async (database) => {
       const [target] = changeSetId
         ? await getDb()
@@ -1249,6 +1352,16 @@ export function realExecutionDeps(
             )
             .limit(1);
           if (!scope) return null;
+          if (
+            args.builderEntry &&
+            (await builderEntryHasOtherLiveClaim(transactionDb, {
+              ...args.builderEntry,
+              executionId: args.executionId,
+              staleBefore: args.staleBefore,
+            }))
+          ) {
+            return "entry_busy" as const;
+          }
           await lockContentDatabaseMutation(transactionDb, scope.databaseId);
           const updated = await tx
             .update(schema.contentDatabaseSourceExecutions)
@@ -1335,6 +1448,13 @@ export function realExecutionDeps(
           return true;
         }
         throw error;
+      }
+      if (result === "entry_busy") {
+        await discardUncommittedPayload(prepared);
+        fail(
+          "Another Content collection is pushing to this Builder entry. Try again in a moment.",
+          { errorCode: "builder_entry_write_in_progress", statusCode: 409 },
+        );
       }
       if (builderExecutionAffectedRows(result) === 0) {
         await discardUncommittedPayload(prepared);
@@ -1807,6 +1927,11 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (changeSet.direction !== "outbound") {
       throw new Error("Only outbound Builder change sets can be executed.");
     }
+    // A collection editor may only view a page, and publishing or
+    // unpublishing one needs edit access to it, as staging the pick does.
+    if (args.publicationTransition && changeSet.documentId) {
+      await deps.assertPageEditor(changeSet.documentId);
+    }
 
     const resolvedPushMode = resolveBuilderCmsExecutionPushMode({
       source,
@@ -2119,6 +2244,9 @@ export async function executeBuilderSourceExecutionWithDeps(
       now,
       staleBefore: staleRunningCutoff(now),
       attemptToken,
+      builderEntry: preflightEntryId
+        ? { model: plan.payload.target.model, entryId: preflightEntryId }
+        : null,
     });
     if (!claimed) {
       throw builderExecutionConflict("Builder execution is already running.");
@@ -2149,9 +2277,10 @@ export async function executeBuilderSourceExecutionWithDeps(
     let writePayload: BuilderCmsExecutionPayload = validatedPayload;
     if (preflightEntryId) {
       // This check runs after the claim so it sits as close to the write as
-      // possible. A Builder save that lands after this read and before the
-      // write below is still overwritten: the check narrows that race but
-      // cannot close it without a conditional write on Builder's side.
+      // possible. The claim keeps other Content pushes to this entry out, but a
+      // save made in Builder that lands after this read and before the write
+      // below is still overwritten: closing that needs a conditional write on
+      // Builder's side.
       let liveState: BuilderCmsEntryLiveState;
       try {
         liveState = await deps.readLiveEntry({
@@ -2236,6 +2365,21 @@ export async function executeBuilderSourceExecutionWithDeps(
         ),
         livePreflight,
       };
+    }
+    // The claim and live preflight can take a while, so the page edit access
+    // a publish or unpublish needs is checked again just before it is sent.
+    if (args.publicationTransition && changeSet.documentId) {
+      try {
+        await deps.assertPageEditor(changeSet.documentId);
+      } catch (error) {
+        await releaseClaim({
+          state: execution.state,
+          summary: `${plan.summary} Execution stopped before write.`,
+          payload: validatedPayload,
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     }
     const writePlan: BuilderCmsExecutionPlan = {
       ...plan,

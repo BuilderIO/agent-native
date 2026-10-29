@@ -225,6 +225,7 @@ const messages = {
     spaces: "スペース",
     meetings: "ミーティング",
     dictate: "ディクテーション",
+    fromContent: "Content から",
     archive: "アーカイブ",
     trash: "ゴミ箱",
     agent: "エージェント",
@@ -280,6 +281,10 @@ const messages = {
     archive: {
       title: "アーカイブした録画はありません",
       body: "アーカイブした Clips は、戻すまでここに保管されます。",
+    },
+    fromContent: {
+      title: "Content からのアップロードはまだありません",
+      body: "Content のページにアップロードした動画は、Clips としてここに保存されます。",
     },
     trash: {
       title: "ゴミ箱は空です",
@@ -1690,10 +1695,10 @@ const messages = {
     openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (ローカライズ済み)",
+    untitled: "無題のクリップ",
     renameFailed: "Failed to rename clip (ローカライズ済み)",
     emptyTitle: "Title cannot be empty (ローカライズ済み)",
-    generatingTitle: "Generating title (ローカライズ済み)",
+    generatingTitle: "タイトルの生成",
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },
@@ -2330,6 +2335,8 @@ const messages = {
     goHome: "ホームへ移動",
     testMic: "マイクをテスト",
     archivePageTitle: "アーカイブ · Clips",
+    fromContentPageTitle: "Content から · Clips",
+    openContentPage: "ページを開く",
     insightsPageTitle: "インサイト · Clips",
     folderPageTitle: "フォルダー · Clips",
     spacePageTitle: "スペース · Clips",

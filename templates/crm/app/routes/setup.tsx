@@ -259,7 +259,7 @@ export default function SetupRoute() {
               Using a Salesforce sandbox?{" "}
               <a
                 className="font-medium text-foreground underline underline-offset-4"
-                href="/_agent-native/connections/oauth/salesforce/start?environment=sandbox"
+                href="/_agent-native/connections/oauth/salesforce/start?environment=sandbox&appId=crm"
               >
                 Authorize the sandbox directly
               </a>

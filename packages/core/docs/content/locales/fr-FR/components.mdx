@@ -287,7 +287,7 @@ vous-même. Il s'agit du champ, pas de l'intégralité du temps d'exécution du 
 
 ### Contexte préparé dans le compositeur {#composer-context}
 
-`PromptComposer` et `TiptapComposer` acceptent `submissionDisabled` pour bloquer l’envoi tout en permettant de préparer le brouillon, les fichiers et le contexte. L’absence de configuration du fournisseur bloque l’envoi, pas la préparation. `disabled` désactive toujours tout le compositeur.
+`PromptComposer` et `TiptapComposer` acceptent `submissionDisabled` pour bloquer l’envoi tout en permettant de préparer le brouillon, les fichiers et le contexte. Avec `requireAgentEngine`, l’absence de configuration du fournisseur empêche d’écrire dans `PromptComposer` tant qu’une carte de configuration est affichée, et un clic dessus désigne la carte. Sans carte affichée, elle bloque seulement l’envoi. `disabled` désactive toujours tout le compositeur.
 
 `PromptComposer`, `TiptapComposer` et `AgentKitComposer` acceptent `contextItems` et `contextMenuItems`. Les applications gèrent la lecture des sources et les libellés localisés.
 

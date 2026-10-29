@@ -1,0 +1,108 @@
+slug: ai-bug-reporting-tool
+app: clips
+roles:
+  - product
+  - engineering
+  - design
+title: 콘솔과 네트워크 로그까지 담아 버그를 녹화하세요
+seo_title: 콘솔 로그가 담기는 AI 버그 리포트 도구
+meta_description: "Chrome에서 버그를 보여 주세요. Agent-Native Clips가 녹화를 페이지의 오류와 실패한 요청이 담긴 링크 하나로 만들어 엔지니어나 코딩 에이전트에게 건네줘요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Clips는 버그 녹화를 엔지니어나 코딩 에이전트가 바로 처리할 수 있는 링크 하나로 만들어 줘요. Chrome에서 버그를 보여 주면 페이지의 오류와 실패한 요청이 함께 담겨요."
+  button:
+    label: 버그 녹화하기
+    url: https://clips.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe36fd7fdff9b49bca2c6787f302964c6
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff375e2d60b2048508c23ea90a9761e08
+    alt: "Clips에서 열린 버그 녹화. 오류 메시지가 뜬 결제 페이지에서 일시 정지되어 있어요. 영상 옆 디버그 탭에는 빨간색 콘솔 오류와 500 상태로 실패한 요청이 나열돼요."
+how_to:
+  heading: AI로 버그를 리포트하는 방법
+  steps:
+    - title: Chrome에서 녹화 시작하기
+      body: "툴바에서 Clips Chrome 확장 프로그램을 클릭하고 소스를 고르세요. 브라우저 탭, 창, 전체 화면 중에서 선택할 수 있어요. 카메라와 마이크를 켜거나 끈 뒤 Start recording을 클릭하세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6996593713c74108967e120111378c14
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff7991811f7a346e0a99cf9fe81496e34
+        alt: "웹 앱 위에 뜬 Clips 확장 프로그램 팝업 확대 화면. 소스로 Browser tab이 선택되어 있고, 카메라와 마이크가 켜져 있으며, Start recording 버튼이 보여요."
+    - title: 버그를 보여 주고 설명하기
+      body: "문제가 생기는 단계를 클릭하며 따라가고, 기대했던 동작을 말로 설명하세요. 녹화하는 동안 확장 프로그램이 페이지의 오류와 보낸 요청을 저장해요. 엔지니어가 Chrome 개발자 도구에서 직접 찾아야 했던 정보예요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe01ffb73c62c427b8077f05657fdeb47
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff895d85667344971baec96eb0b2ec956
+        alt: "웹 앱의 결제 페이지 위에 뜬 Clips 녹화 컨트롤과 카메라 버블. 페이지에는 “Something went wrong” 메시지가 보여요."
+    - title: 링크 하나로 공유하기
+      body: "녹화를 멈추면 Clips가 녹화 링크를 복사해 줘요. 티켓, 채팅, 코딩 에이전트에 붙여넣으세요. 공유 메뉴의 에이전트 탭에서는 Claude, Claude Code, Codex로 바로 열 수도 있어요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F10933b64225545e1b5ecd666f5803832
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2894036362f7409d8a4961536719b399
+        alt: "에이전트 탭이 열린 Clips 공유 메뉴 확대 화면. 에이전트 프롬프트 복사 버튼과 Claude에서 열기, Claude Code에서 열기, Codex에서 열기 버튼이 보여요."
+features:
+  heading: 버그를 리포트하는 데 필요한 모든 것
+  items:
+    - title: 코딩 에이전트를 위해 만들었어요
+      body: "링크를 Claude Code, Cursor, Codex에 붙여넣으세요. 에이전트가 영상을 내려받지 않고도 전사, 프레임, 로그를 읽어요."
+    - title: 콘솔과 네트워크 로그
+      body: "Clips는 최대 다섯 개 탭의 콘솔 메시지, 오류, 요청을 저장하고, 요청마다 상태, 소요 시간, 실패 여부를 함께 담아요."
+    - title: 녹화 전 30초
+      body: "Clips는 녹화 버튼을 누르기 최대 30초 전까지 거슬러 올라가요. 페이지가 로드되는 동안 생긴 오류도 리포트에 담길 수 있어요."
+    - title: 민감한 정보는 저장하지 않아요
+      body: "Clips는 요청 본문, 헤더, 쿠키, 입력한 내용을 저장하지 않고, 토큰이나 비밀번호처럼 보이는 값은 가려요."
+    - title: 오류로 바로 이동하기
+      body: "클립의 디버그 탭에서 오류나 실패한 요청 옆의 시간을 클릭하면 영상이 그 순간으로 이동해요."
+    - title: 모든 버그 리포트 검색하기
+      body: "말한 내용으로 버그 리포트를 찾거나, 라이브러리의 모든 녹화에 대해 Clips 에이전트에게 물어보세요."
+integrations:
+  heading: 이미 쓰는 도구와 Clips 연결하기
+  cards:
+    - title: AI 에이전트에게 넘기기
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: ChatGPT
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9dad7db0d3d24127aaf6d7eb1bfa2b09
+          mono: true
+      body: "클립을 Claude Code나 Codex에서 열거나 링크를 Cursor, ChatGPT에 붙여넣으면, 에이전트가 무슨 일이 있었는지 되묻지 않고 바로 시작해요."
+    - title: 버그를 등록하는 곳에 바로 올리기
+      logos:
+        - name: Slack
+        - name: GitHub
+        - name: Jira
+      body: "Clips Slack 앱을 쓰면 공개 녹화를 Slack에서 바로 재생할 수 있어요. 확장 프로그램을 설치하면 GitHub 이슈와 Jira 티켓에서도 링크 미리보기가 나와요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Sentry
+        - name: Linear
+        - name: FullStory
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Clips로 할 수 있는 다른 일
+  cards:
+    - title: 통화에 봇 없이 회의 노트를 받아 보세요
+      url: https://www.agent-native.com/use-cases/ai-meeting-notes/
+      body: "통화에 봇 없이 모든 회의의 요약, 노트, 작업 항목을 받아 보세요."
+    - title: 프롬프트를 타이핑 대신 말로 입력하세요
+      url: https://www.agent-native.com/use-cases/ai-dictation/
+      body: "타이핑 대신 말하면, 정리된 텍스트가 사용 중인 앱에 바로 입력됩니다."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Clips는 무료인가요?
+      a: "네. Agent-Native Clips는 Chrome 확장 프로그램을 포함해 무료 오픈 소스예요. 제목, 요약, 전사 정리는 기본적으로 Builder.io AI 크레딧으로 실행되므로 AI 사용량은 무제한이 아니고, 녹화 영상을 저장할 공간도 필요해요. Clips는 알파 버전이라 발전하면서 바뀌는 부분이 있을 수 있어요."
+    - q: Clips는 내 브라우저에서 무엇을 캡처하나요?
+      a: "Clips Chrome 확장 프로그램은 최대 다섯 개 탭에서 [콘솔 메시지, JavaScript 오류, 네트워크 요청](https://www.agent-native.com/docs/template-clips-features/#chrome-extension-browser-logs)을 캡처하고, 녹화 버튼을 누르기 최대 30초 전까지 거슬러 올라가요. 요청마다 주소, 상태, 소요 시간, 실패 여부가 남아요. 편집자는 클립의 디버그 탭에서 모두 볼 수 있고, 에이전트는 링크로 받아요."
+    - q: Clips가 비밀번호나 개인 정보도 녹화하나요?
+      a: "Clips는 요청과 응답 본문, 헤더, 쿠키, 입력한 텍스트를 저장하지 않고, 토큰, 비밀번호, 키처럼 보이는 값은 가려요. 확장 프로그램 설정에서 개발자 로그를 끌 수도 있어요. 새 녹화는 링크가 있으면 누구나 볼 수 있으니, 내부 정보가 보이는 버그 리포트는 비공개나 우리 조직 공개로 바꾸세요."
+    - q: 버그 녹화를 Claude Code, Cursor, Codex에 어떻게 전달하나요?
+      a: "클립 링크를 Claude Code, Cursor, Codex에 붙여넣으면 에이전트가 영상을 내려받지 않고도 [전사, 프레임, 브라우저 로그를 읽어요](https://www.agent-native.com/docs/template-clips-integrations/#agent-readable-clips). 비공개 클립이라면 공유 메뉴의 에이전트 탭에서 에이전트 프롬프트 복사를 클릭하세요. 두 시간 동안 유효한 링크가 에이전트에게 전달돼요. 이 탭에서 클립을 Claude Code나 Codex로 바로 열 수도 있어요."
+    - q: 다른 브라우저나 데스크톱 앱에서도 로그를 캡처하나요?
+      a: "아니요. 콘솔과 네트워크 로그는 Clips Chrome 확장 프로그램에서만 가져와요. Clips Desktop과 웹 앱도 화면, 카메라, 음성을 녹화하고 전사와 요약을 만들어 주지만, 녹화에 브라우저 로그는 포함되지 않아요."
+    - q: Clips는 Jira 같은 버그 트래커인가요?
+      a: "아니요. Clips는 [엔지니어가 바로 처리할 수 있는 버그 리포트](https://www.agent-native.com/articles/how-to-write-a-bug-report/)를 만들고, 보관은 트래커가 맡아요. 링크를 Jira, GitHub, Linear, Slack에 붙여넣으세요. 코딩 에이전트나 [Clips 에이전트](https://www.agent-native.com/docs/template-clips-agent/)는 녹화 자체와 로그를 직접 읽어요. 그래서 Clips는 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."

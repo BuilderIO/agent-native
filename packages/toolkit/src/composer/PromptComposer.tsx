@@ -28,6 +28,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate-context.js";
 import { Button } from "../ui/button.js";
 import {
   Dialog,
@@ -169,6 +170,11 @@ export interface PromptComposerProps {
    * whether this composer shows its own setup card.
    */
   setupCardVisible?: boolean;
+  /**
+   * Reports whether the loaded model list offers only connect paths, so a
+   * host that owns the setup card can show it before readiness answers.
+   */
+  onModelConnectionRequiredChange?: (required: boolean) => void;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
@@ -231,6 +237,10 @@ export interface PromptComposerProps {
   initialText?: string;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
   initialTextKey?: string | number;
+  /** Let an explicit host handoff replace a saved draft. */
+  initialTextOverridesSavedDraft?: boolean;
+  /** Skip onTextChange notifications caused only by initial draft setup. */
+  suppressInitialTextChange?: boolean;
   /** Chips placed into `initialText`, as the composer handle's `setText` takes them. */
   initialReferences?: readonly ComposerTextReference[];
   /** Optional host-owned control rendered directly after the "+" button. */
@@ -787,6 +797,7 @@ function PromptComposerInner({
   submissionDisabled,
   showMissingApiKeySetup = true,
   setupCardVisible: hostSetupCardVisible,
+  onModelConnectionRequiredChange,
   sendButtonDisabled,
   submitting,
   willQueue = false,
@@ -817,6 +828,8 @@ function PromptComposerInner({
   extensionTools = false,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
+  suppressInitialTextChange = false,
   initialReferences,
   modeControl,
   requireAgentEngine = false,
@@ -970,7 +983,21 @@ function PromptComposerInner({
   const engineState = engineStatusChecksEnabled
     ? agentEngineConfigured.state
     : "configured";
-  const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
+  const [modelListNeedsConnection, setModelListNeedsConnection] =
+    useState(false);
+  const handleModelConnectionRequiredChange = useCallback(
+    (required: boolean) => {
+      setModelListNeedsConnection(required);
+      onModelConnectionRequiredChange?.(required);
+    },
+    [onModelConnectionRequiredChange],
+  );
+  // The model list knows nothing is connected well before the readiness
+  // check answers; an answer of "configured" still wins.
+  const missingApiKey =
+    engineStatusChecksEnabled &&
+    (engineState === "missing" ||
+      (engineState !== "configured" && modelListNeedsConnection));
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const [providerCheckPending, setProviderCheckPending] = useState(false);
   const heldProviderDraftRef = useRef<ComposerDraftSnapshot | null>(null);
@@ -981,13 +1008,16 @@ function PromptComposerInner({
     }
   }, []);
   const engineSubmissionBlocked = shouldGateComposerForEngine(engineState);
-  // A missing provider leaves the draft editable; the send gate below holds
-  // the draft and points at the setup card instead.
-  const composerDisabled = Boolean(disabled);
   const ownSetupCardVisible = Boolean(
     missingApiKey && showMissingApiKeySetup && BuilderSetupCard,
   );
   const setupCardVisible = hostSetupCardVisible ?? ownSetupCardVisible;
+  // With nothing connected the prompt is closed to typing and a click on it
+  // points at the setup card; without a card on screen it stays open, since a
+  // closed prompt with nothing to explain it is a dead end.
+  const composerDisabled = Boolean(
+    disabled || (missingApiKey && setupCardVisible),
+  );
   const handleDisabledComposerClick = useCallback(() => {
     if (missingApiKey) setSetupBouncePulse((pulse) => pulse + 1);
     onDisabledClick?.();
@@ -1058,11 +1088,12 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   useEffect(() => {
-    if (!autoFocus || composerDisabled) return;
+    if (!autoFocus || composerDisabled || firstRunOwnsSurface) return;
     const id = window.setTimeout(() => localRef.current?.focus(), 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, composerDisabled]);
+  }, [autoFocus, composerDisabled, firstRunOwnsSurface]);
 
   const handleSubmit = useCallback(
     async (
@@ -1127,7 +1158,9 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          (composerDisabled || missingApiKey) &&
+          (composerDisabled ||
+            (engineStatusChecksEnabled && engineState === "missing") ||
+            (missingApiKey && setupCardVisible)) &&
             "agent-composer-area--attached-above",
           className,
         )}
@@ -1185,6 +1218,8 @@ function PromptComposerInner({
           conversationStarted={conversationStarted}
           initialText={initialText}
           initialTextKey={initialTextKey}
+          initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
+          suppressInitialTextChange={suppressInitialTextChange}
           initialReferences={initialReferences}
           onSubmit={handleSubmit}
           onEmptySubmit={onEmptySubmit}
@@ -1255,6 +1290,7 @@ function PromptComposerInner({
           onConnectLocalRuntime={onConnectLocalRuntime}
           imageModelMenu={imageModelMenu}
           setupCardVisible={setupCardVisible}
+          onModelConnectionRequiredChange={handleModelConnectionRequiredChange}
         />
       </AgentComposerFrame>
     </>

@@ -12,11 +12,16 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/toolkit/app/shared";
-import { CLIPS_MEETINGS, CLIPS_VOICE_DICTATION } from "@shared/labs";
+import {
+  CLIPS_MEETINGS,
+  CLIPS_SCREENSHOTS,
+  CLIPS_VOICE_DICTATION,
+} from "@shared/labs";
 import {
   IconInbox,
   IconPhoto,
   IconArchive,
+  IconFileText,
   IconCalendar,
   IconMicrophone2,
   IconTrash,
@@ -29,7 +34,6 @@ import {
   IconLayoutSidebarLeftExpand,
   IconShare,
   IconDots,
-  IconEdit,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
@@ -195,6 +199,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const t = useT();
   const isRecordingRoute = location.pathname.startsWith("/r/");
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const screenshotsLabEnabled = useLab(CLIPS_SCREENSHOTS);
   const voiceDictationLabEnabled = useLab(CLIPS_VOICE_DICTATION);
   const recordingScope = useMemo(() => {
     const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
@@ -244,6 +249,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     kind: "image",
   });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
+  const { data: fromContentCount } = useRecordingsCount({
+    view: "from-content",
+  });
   const { data: archiveCount } = useRecordingsCount({ view: "archive" });
   const { data: trashCount } = useRecordingsCount({ view: "trash" });
   const suggestionCountArgs = useMemo(() => {
@@ -265,6 +273,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       };
     }
     if (location.pathname === "/shared") return { view: "shared" as const };
+    if (location.pathname === "/from-content") {
+      return { view: "from-content" as const };
+    }
     if (location.pathname === "/archive") return { view: "archive" as const };
     if (location.pathname === "/trash") return { view: "trash" as const };
     if (spaceId && location.pathname.startsWith(`/spaces/${spaceId}`)) {
@@ -468,7 +479,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     match: (path: string) => boolean;
-    count?: number;
+    count?: number | undefined;
   }[] = [
     {
       to: "/library",
@@ -507,6 +518,18 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         p.startsWith("/spaces/") ||
         (p.startsWith("/r/") && recordingSection === "spaces"),
     },
+    // Only for someone who has uploaded from a Content page.
+    ...(fromContentCount || location.pathname === "/from-content"
+      ? [
+          {
+            to: "/from-content",
+            label: t("navigation.fromContent"),
+            icon: IconFileText,
+            match: (p: string) => p === "/from-content",
+            count: fromContentCount,
+          },
+        ]
+      : []),
     ...(meetingsLabEnabled
       ? [
           {
@@ -546,7 +569,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   ];
 
   const primaryNavItems = navItems.filter(
-    ({ to }) => to !== "/archive" && to !== "/trash",
+    ({ to }) =>
+      to !== "/archive" &&
+      to !== "/trash" &&
+      (to !== "/screenshots" || screenshotsLabEnabled),
   );
   const lifecycleNavItems = navItems.filter(
     ({ to }) => to === "/archive" || to === "/trash",
@@ -784,7 +810,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                             }, 0);
                                           }}
                                         >
-                                          <IconEdit className="me-2 size-3.5" />
                                           {t("spaceDialog.renameSpace")}
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
@@ -796,7 +821,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                           }}
                                           className="text-destructive"
                                         >
-                                          <IconTrash className="me-2 size-3.5" />
                                           {t("spaceDialog.deleteSpace")}
                                         </DropdownMenuItem>
                                       </DropdownMenuContent>
@@ -807,7 +831,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                               <ContextMenuContent>
                                 <ContextMenuItem asChild>
                                   <NavLink to={`/spaces/${s.id}`}>
-                                    <IconUsersGroup className="me-2 size-3.5" />
                                     {t("clipsFinalRaw.view")}
                                   </NavLink>
                                 </ContextMenuItem>
@@ -822,7 +845,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                         }, 0);
                                       }}
                                     >
-                                      <IconEdit className="me-2 size-3.5" />
                                       {t("spaceDialog.renameSpace")}
                                     </ContextMenuItem>
                                     <ContextMenuItem
@@ -834,7 +856,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                       }}
                                       className="text-destructive focus:text-destructive"
                                     >
-                                      <IconTrash className="me-2 size-3.5" />
                                       {t("spaceDialog.deleteSpace")}
                                     </ContextMenuItem>
                                   </>

@@ -1,5 +1,12 @@
 import type { WorkflowStore } from "../../workflow/adapter.js";
-import { buildGraph } from "../../workflow/story-graphs.fixture.js";
+import {
+  workflowGraphSchema,
+  type WorkflowGraph,
+} from "../../workflow/contract.js";
+import {
+  STORY_GRAPHS,
+  buildGraph,
+} from "../../workflow/story-graphs.fixture.js";
 import { createInMemoryWorkflowStore } from "../../workflow/testing/in-memory-store.js";
 
 /**
@@ -39,6 +46,7 @@ let rows = new Map<string, Row>();
 let nextId = 1;
 let tick = 1;
 let beforeConditionalWrite: ((path: string) => void) | undefined;
+let sentryFallbackConfigured = false;
 const removedRunHistory: { owner: string; automation: string }[] = [];
 const knownFactories = new Set<string>([FACTORY_ID]);
 
@@ -51,6 +59,7 @@ export function reset(): void {
   nextId = 1;
   tick = 1;
   beforeConditionalWrite = undefined;
+  sentryFallbackConfigured = false;
   removedRunHistory.length = 0;
   knownFactories.clear();
   knownFactories.add(FACTORY_ID);
@@ -74,6 +83,15 @@ export const memberModule = {
     orgId: ORG_ID,
   }),
 };
+
+/** Whether the factory's settings name a Sentry organization; none until a spec says so. */
+export const sentryFallbackModule = {
+  readSentryFallbackConfigured: async () => sentryFallbackConfigured,
+};
+
+export function setSentryFallbackConfigured(configured: boolean): void {
+  sentryFallbackConfigured = configured;
+}
 
 export const factoryDefinitionsModule = {
   readFactoryDefinition: async (_orgId: string, factoryId: string) =>
@@ -217,6 +235,33 @@ export function simpleGraph(
     ],
     edges: [["start", "out", "finish"]],
   });
+}
+
+/** The Builder-to-merge story reading `nodes.check.status`, which `builder.check` does not return: what a save accepted before outputs were declared. */
+export function graphReadingUndeclaredOutput(): WorkflowGraph {
+  return workflowGraphSchema.parse(
+    JSON.parse(
+      JSON.stringify(STORY_GRAPHS["builder-to-merge"]).replace(
+        /nodes\.check\.state/g,
+        "nodes.check.status",
+      ),
+    ),
+  );
+}
+
+/** The incident story with its Sentry Source naming no project, so the factory's settings decide what it polls. */
+export function graphWithUnscopedSentry(): WorkflowGraph {
+  const graph = STORY_GRAPHS["incident-to-postmortem"];
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.kind === "source" &&
+      node.settings.source === "inbox-poll" &&
+      node.settings.poller === "sentry"
+        ? { ...node, settings: { ...node.settings, filter: undefined } }
+        : node,
+    ),
+  };
 }
 
 /** Parses, but names an operation the catalog does not have. */

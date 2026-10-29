@@ -251,6 +251,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  eagerInputStreaming: true,
   run: async (
     {
       title,

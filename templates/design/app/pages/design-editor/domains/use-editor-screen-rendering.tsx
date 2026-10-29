@@ -279,6 +279,7 @@ export function useEditorScreenRendering({
   } = editorContentAndComponents;
   const {
     reviewFocusRequest,
+    setOpenReviewThreadId,
     selectionRevisionRef,
     handleDispatchCommentToAgent,
     handleSendReviewThreadToAgent,
@@ -558,10 +559,10 @@ export function useEditorScreenRendering({
         return false;
       }
       if (patch.content === content) return true;
-      applyFileContentUpdate(screenId, patch.content, {
+      const publication = applyFileContentUpdate(screenId, patch.content, {
         skipPreview: true,
       });
-      return true;
+      return publication.status === "accepted";
     },
     [
       activeCanvasSourceType,
@@ -1163,6 +1164,7 @@ export function useEditorScreenRendering({
           reviewCanResolve={canEditDesign}
           reviewCurrentUserEmail={session?.email}
           reviewFocusRequest={reviewFocusRequest}
+          onReviewActiveThreadChange={setOpenReviewThreadId}
           onDispatchCommentToAgent={handleDispatchCommentToAgent}
           onSendThreadToAgent={handleSendReviewThreadToAgent}
           reviewSendingThreadId={reviewSendingThreadId}
@@ -1286,6 +1288,7 @@ export function useEditorScreenRendering({
       design?.title,
       session?.email,
       reviewFocusRequest,
+      setOpenReviewThreadId,
       handleDispatchCommentToAgent,
       handleSendReviewThreadToAgent,
       reviewSendingThreadId,

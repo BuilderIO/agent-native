@@ -187,6 +187,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "वापस जाएँ",
   "onboarding.creditsSkipAnyway": "फिर भी छोड़ें",
   "onboarding.creditsUseCustomKeys": "कस्टम कीज़ का उपयोग करें",
+  "onboarding.creditsUseOwnApiKeys": "मेरी API कुंजियों का उपयोग करें",
   "onboarding.creditsAboutLabel": "मुफ़्त क्रेडिट के बारे में",
   "onboarding.creditsActivating": "मुफ़्त क्रेडिट सक्रिय हो रहे हैं",
   "onboarding.creditsActivatingTooltip":

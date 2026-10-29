@@ -1,0 +1,97 @@
+slug: ai-pitch-deck-maker
+app: slides
+roles:
+  - founders
+title: "حوّل ملاحظاتك إلى عرض للمستثمرين"
+seo_title: "صانع عروض المستثمرين بالذكاء الاصطناعي للمؤسسين"
+meta_description: "ابدأ عرضك للمستثمرين من مستند أو موقعك الإلكتروني أو ملاحظات أولية. يصيغه Agent-Native Slides شريحةً بشريحة، وتعدّله بيدك أو بطلب من الوكيل."
+updated: 2026-10-23
+hero:
+  body: "يصيغ Agent-Native Slides عرضك للمستثمرين مما لديك بالفعل: مستند أو ملف PDF أو موقعك الإلكتروني أو ملاحظات أولية. يبنيه الوكيل شريحةً بشريحة، وتعدّل أنت أي شريحة بيدك أو بطلب منه."
+  button:
+    label: "ابنِ عرضك"
+    url: https://slides.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8c62a5083d6f4836a73b216a59d6399f
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fec52329368a54aa5aa2df755a202c6ef
+    alt: "عرض للمستثمرين مكتمل إلى نصفه في محرر Slides. تُظهر لوحة الوكيل المخطط الذي وضعه من ملاحظات اجتماع المؤسس، والشرائح الجديدة تمتلئ واحدةً تلو الأخرى."
+how_to:
+  heading: "كيف تصنع عرضًا للمستثمرين بالذكاء الاصطناعي"
+  steps:
+    - title: "ابدأ من موادك الخاصة"
+      body: "في الشاشة الرئيسية لـ Slides، صِف العرض الذي تريده: شركتك، ولمن هو، وكم ينبغي أن يكون طوله. أرفق أي ملاحظات أو مستندات أو مواد مرجعية لديك، ثم أنشئ العرض."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F12aade25b35944b396142acc3b8ff40c
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff68c26a237fc45909db278af5b701e61
+        alt: "لقطة مقرّبة لمربع الطلب في Slides: وصف عرض المؤسس مكتوب فيه، وملف ملاحظات مرفق، وأزرار الاقتراحات أسفله."
+    - title: "شاهد الوكيل يبني كل شريحة"
+      body: "يضع وكيل Slides أولًا مخططًا لعرضك التقديمي، ثم يبني كل شريحة في المحرر وأنت تشاهد. وإن لم يستطع قراءة ملف PDF أو موقع إلكتروني، يخبرك بذلك."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F40529b37d7614ccc8ec582e933e57034
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F3d3dd1d6c9eb4aafb791d086b46b4cd1
+        alt: "محرر Slides وقد اكتملت الشريحتان 1 و2، والشريحة 3 (الحل) قيد الإنشاء على اللوحة. تُظهر محادثة الوكيل المخطط وعبارة «إضافة الشريحة 3 · الحل»."
+    - title: "اعرض العرض النهائي أو صدّره"
+      body: "اعرض عرضك التقديمي بملء الشاشة من Slides، أو صدّره. يمكنك تصدير ملف PowerPoint قابل للتعديل، أو ملف لاستيراده في Google Slides، أو ملف HTML واحد."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe65004f2089b48b6aaeb185fe529a28a
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb621a0dad79042cc8bc145cc29c855b8
+        alt: "لقطة مقرّبة لقائمة التصدير في Slides مفتوحة فوق شريحة العنوان النهائية، مع خيارات HTML وPDF وPowerPoint وGoogle Slides."
+features:
+  heading: "كل ما تحتاجه لبناء عرضك وتقديمه"
+  items:
+    - title: "عروض للمستثمرين من ملاحظاتك"
+      body: "ابدأ من طلب نصي أو ملاحظاتك أو مستند أو عرضك السابق. أخبر الوكيل عن شركتك وجولتك التمويلية، وسيبني العرض."
+    - title: "تعديل بالذكاء الاصطناعي وتعديل مرئي"
+      body: "عدّل النص والتخطيط على الشريحة بنفسك، أو حدّد سطرًا واطلب من الوكيل. لا يتغيّر إلا ما طلبته."
+    - title: "علامتك التجارية على كل شريحة"
+      body: "احفظ ألوانك وخطوطك وشعارك كنظام تصميم، فيبدو كل عرض تصنعه وكأنه من شركتك."
+    - title: "الصور والشعارات"
+      body: "اطلب من الوكيل إنشاء صور، أو العثور على صور جاهزة، أو جلب شعارات العملاء والشركاء لشرائح النمو."
+    - title: "التعاون مع شريكك المؤسس"
+      body: "عدّل العرض نفسه مع شريكك المؤسس والوكيل، وعلّق على أي شريحة، واستعد أي نسخة سابقة."
+    - title: "قدّم وشارك وصدّر"
+      body: "قدّم مع ملاحظات المتحدث، أو شارك رابط عرض فقط مع المستثمرين، أو صدّر ملف PowerPoint قابلًا للتعديل."
+integrations:
+  heading: "اربط Slides بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "أحضر ملاحظاتك ومستنداتك"
+      logos:
+        - name: Google Docs
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F63ad007ebdd44420b6e9d1b3039062f6
+        - name: Google Drive
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F778b9f7274c74fc99a9f62b5b308f486
+        - name: Word
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa8807a334022457f95d4e4c53a136db8
+      body: "ابدأ العرض من الملاحظات والمستندات التي لديك بالفعل، وسيحوّلها الوكيل إلى شرائح قابلة للتعديل."
+    - title: "أرسله بالصيغة التي يريدها المستثمرون"
+      logos:
+        - name: PowerPoint
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6daf6df1ab8a4539bbce373af10d5f9a
+        - name: Google Slides
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85b879db4a0c47caa8427a51379782d1
+        - name: PDF
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F41bdb33bacf14c309dd75ac568c13486
+      body: "صدّر ملف PowerPoint قابلًا للتعديل، أو افتحه في Google Slides، أو أرسل ملف PDF."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Stripe
+        - name: Amplitude
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP عبر رابطه."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Slides مجاني؟"
+      a: "نعم، Agent-Native Slides مجاني ومفتوح المصدر. يحتاج بناء العرض إلى اتصال بالذكاء الاصطناعي، إما عبر Builder.io أو عبر مفتاحك الخاص، ويحتاج إنشاء الصور إلى مفتاح Gemini أو OpenAI الخاص بك. لا يزال Slides في مرحلة ألفا، فتوقّع تغييرات مع تطوّره."
+    - q: "هل يمكنني تصدير عرضي التقديمي إلى PowerPoint أو Google Slides؟"
+      a: "يصدّر Slides ملف PowerPoint (PPTX) قابلًا للتعديل. أما لـ Google Slides، فيعطيك ملف PPTX مع رابط استيراد تفتحه بنفسك في Google Slides. ويمكنك أيضًا تصدير العرض كملف HTML واحد."
+    - q: "هل يمكن أن يبدأ Slides من ملاحظاتي أو مستندي أو موقعي الإلكتروني؟"
+      a: "صِف عرضك في الشاشة الرئيسية لـ Slides وأرفق ملاحظاتك أو مستندًا، أو أضف رابط موقعك. يمكنك أيضًا استيراد مستند Google Docs أو ملف Word أو ملف PowerPoint. وإن لم يستطع الوكيل قراءة ملف PDF أو موقع إلكتروني، يخبرك بذلك بدلًا من التخمين."
+    - q: "ما الفرق بين Slides وبين أن تطلب من روبوت محادثة كتابة شرائحك؟"
+      a: "يعطيك روبوت المحادثة نصًا تنسخه إلى الشرائح بنفسك. أما في Slides، فيبني الوكيل العرض الفعلي في محرر تراه أمامك. يمكنك تغيير أي شريحة بيدك أو بطلب من الوكيل، على العرض نفسه، ويمكن التراجع عن كل تغيير. وهذا ما يجعل Slides [تطبيقًا وكيليًا](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل، وسهولة التطبيق."
+    - q: "هل يمكن لشريكي المؤسس تعديل العرض معي؟"
+      a: "يمكنك أنت وشريكك المؤسس والوكيل تعديل العرض نفسه في الوقت ذاته. ويمكنك التعليق على شريحة أو على جزء منها. يحفظ Slides نسخة قبل كل تغيير مهم، فتستطيع استعادة نسخة سابقة في أي وقت."
+    - q: "كم شريحة ينبغي أن يحتوي العرض التقديمي للمستثمرين؟"
+      a: "نحو عشر شرائح طول مناسب لعرض أول ([ما الذي يتضمنه عرض المستثمرين](https://www.agent-native.com/articles/how-to-make-a-pitch-deck-with-ai/))، ويقترح Slides «أنشئ عرضا من 10 شرائح من هذا المستند». أخبر الوكيل بطول مختلف إن أردت، وسيضع المخطط بما يناسبه."

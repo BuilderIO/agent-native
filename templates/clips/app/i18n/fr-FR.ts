@@ -229,6 +229,7 @@ const messages = {
     spaces: "Espaces",
     meetings: "Réunions",
     dictate: "Dicter",
+    fromContent: "Depuis Content",
     archive: "Archiver",
     trash: "Corbeille",
     agent: "Agent",
@@ -285,6 +286,10 @@ const messages = {
     archive: {
       title: "Aucun enregistrement archivé",
       body: "Les Clips archivés restent ici jusqu’à ce que vous souhaitiez les récupérer.",
+    },
+    fromContent: {
+      title: "Aucun envoi depuis Content pour l’instant",
+      body: "Les vidéos que vous envoyez sur une page Content sont enregistrées ici en tant que Clips.",
     },
     trash: {
       title: "La corbeille est vide",
@@ -1717,10 +1722,10 @@ const messages = {
     openDesktopApp: "Open desktop app (Localisé)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (Localisé)",
+    untitled: "Extrait sans titre",
     renameFailed: "Failed to rename clip (Localisé)",
     emptyTitle: "Title cannot be empty (Localisé)",
-    generatingTitle: "Generating title (Localisé)",
+    generatingTitle: "Génération du titre",
     placeholder: "Clip title (Localisé)",
     editLabel: "Edit clip title (Localisé)",
   },
@@ -2362,6 +2367,8 @@ const messages = {
     goHome: "Aller à l’accueil",
     testMic: "Tester le micro",
     archivePageTitle: "Archives · Clips",
+    fromContentPageTitle: "Depuis Content · Clips",
+    openContentPage: "Ouvrir la page",
     insightsPageTitle: "Analyses · Clips",
     folderPageTitle: "Dossier · Clips",
     spacePageTitle: "Espace · Clips",

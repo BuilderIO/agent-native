@@ -94,6 +94,7 @@
         "./src/app/observability/index.ts"
       ],
       "@agent-native/toolkit/app/onboarding": ["./src/app/onboarding/index.ts"],
+      "@agent-native/toolkit/app/generation": ["./src/app/generation/index.ts"],
       "@agent-native/toolkit/app/progress": ["./src/app/progress/index.ts"],
       "@agent-native/toolkit/app/resources": ["./src/app/resources/index.ts"],
       "@agent-native/toolkit/app/review": ["./src/app/review/index.ts"],

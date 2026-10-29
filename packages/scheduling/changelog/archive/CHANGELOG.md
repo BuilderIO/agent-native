@@ -1,3 +1,28 @@
+## 0.1.24
+
+### Patch Changes
+
+- f43d34c: Add a Microsoft Teams conferencing provider with delegated OAuth and Microsoft Graph meeting creation and cancellation.
+- f43d34c: Batch selected-calendar reads and bound external availability checks to reduce
+  slot lookup latency without overwhelming calendar providers.
+- f43d34c: Add a safe manifest-driven package lifecycle CLI with Scheduling as the first inspectable, installable, and ejectable package.
+- f43d34c: Re-validate availability before creating bookings and make booking writes transactional.
+- Updated dependencies [f43d34c]
+  - @agent-native/toolkit@0.4.6
+
+## 0.1.23
+
+### Patch Changes
+
+- 86697e9: Depend on `@agent-native/toolkit` via `workspace:^` instead of `workspace:*`. Publishing now pins a caret range (e.g. `^0.4.3`) rather than an exact version, so an app that scaffolds `@agent-native/toolkit@latest` separately can dedupe against it through normal semver resolution instead of installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`).
+
+## 0.1.22
+
+### Patch Changes
+
+- Updated dependencies [680b1eb]
+  - @agent-native/toolkit@0.4.4
+
 ## 0.1.21
 
 ### Patch Changes

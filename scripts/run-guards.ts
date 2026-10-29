@@ -18,6 +18,7 @@ const guards = [
   "guard:no-unscoped-queries",
   "guard:identity-columns-registered",
   "guard:no-raw-app-identity-env",
+  "guard:no-raw-sql-interpolation",
   "guard:no-env-credentials",
   "guard:env-documentation",
   "guard:no-unscoped-credentials",

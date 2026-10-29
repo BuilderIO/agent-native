@@ -9,6 +9,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
 import {
@@ -101,6 +102,107 @@ describe("collab flushUpdates", () => {
     await expect(result.flushUpdates()).resolves.toBe(true);
     expect(updatesSent).toBe(1);
   });
+
+  it("flushes pending edits with keepalive on pagehide and remains editable after pageshow", async () => {
+    const result = await mountReady();
+    const ydoc = result.ydoc!;
+    ydoc.getText("t").insert(0, "before");
+    window.dispatchEvent(
+      new PageTransitionEvent("pagehide", { persisted: true }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const updateCalls = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).endsWith("/update"));
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]![1]?.keepalive).toBe(true);
+    expect(ydoc.isDestroyed).toBe(false);
+
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true }),
+    );
+    ydoc.getText("t").insert(6, " after");
+    await expect(result.flushUpdates()).resolves.toBe(true);
+    expect(updatesSent).toBe(2);
+    expect(ydoc.getText("t").toString()).toBe("before after");
+  });
+
+  it("coalesces identical exit snapshots without postponing new edits", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const originalFetch = fetchMock.getMockImplementation()!;
+    const result = await mountReady();
+    const requests: RequestInit[] = [];
+    const finish: Array<(response: Response) => void> = [];
+    fetchMock.mockImplementation((input, init) => {
+      if (!String(input).endsWith("/update")) return originalFetch(input, init);
+      if (init?.keepalive) requests.push(init);
+      return new Promise<Response>((resolve) => {
+        finish.push(resolve);
+      });
+    });
+    result.ydoc!.getText("t").insert(0, "before");
+    window.dispatchEvent(new Event("pagehide"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(requests).toHaveLength(1);
+    window.dispatchEvent(new Event("pageshow"));
+    result.ydoc!.getText("t").insert(6, " after");
+    window.dispatchEvent(new Event("pagehide"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(requests).toHaveLength(2);
+    act(() => root.unmount());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(requests).toHaveLength(2);
+    await act(async () => {
+      for (const resolve of finish) resolve(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+
+  it.each([200, 500])(
+    "sends restored edits before teardown while the first keepalive later settles with %s",
+    async (firstStatus) => {
+      const result = await mountReady();
+      const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+      let finishFirst!: (response: Response) => void;
+      const updateRequests: RequestInit[] = [];
+      vi.mocked(fetch).mockImplementation((input, init) => {
+        if (!String(input).endsWith("/update"))
+          return originalFetch(input, init);
+        updateRequests.push(init!);
+        if (updateRequests.length === 1)
+          return new Promise<Response>((resolve) => {
+            finishFirst = resolve;
+          });
+        return Promise.resolve(new Response("{}"));
+      });
+      result.ydoc!.getText("t").insert(0, "before");
+      window.dispatchEvent(new Event("pagehide"));
+      window.dispatchEvent(new Event("pageshow"));
+      result.ydoc!.getText("t").insert(6, " after");
+      window.dispatchEvent(new Event("pagehide"));
+      const keepaliveRequests = updateRequests.filter(
+        (request) => request.keepalive,
+      );
+      expect(keepaliveRequests).toHaveLength(2);
+      const received = new Y.Doc();
+      try {
+        const { update } = JSON.parse(String(keepaliveRequests[1]!.body));
+        Y.applyUpdate(received, new Uint8Array(Buffer.from(update, "base64")));
+        expect(received.getText("t").toString()).toBe("before after");
+      } finally {
+        received.destroy();
+      }
+      act(() => root.unmount());
+      await act(async () => {
+        finishFirst(new Response("{}", { status: firstStatus }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    },
+  );
 
   it("resolves false while delivery fails, then true once it succeeds", async () => {
     const result = await mountReady();

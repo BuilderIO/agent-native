@@ -10,11 +10,9 @@ import type {
 } from "@agent-native/core/review";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
-  IconCheck,
   IconArrowBackUp,
   IconCircleCheck,
   IconCornerDownRight,
-  IconChevronDown,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,7 +24,6 @@ import {
   useLayoutEffect,
   useMemo,
   useCallback,
-  useId,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -163,6 +160,7 @@ import {
   ReviewCommentMenu,
   ReviewReactionList,
 } from "./ReviewDiscussionTools";
+import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
 import {
@@ -440,6 +438,8 @@ export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
  */
 export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
 const PENDING_COMMENT_CARD_ESTIMATE = 112;
+/** How much of a new entry must show in a capped card to count as in view. */
+const NEW_ENTRY_MIN_VISIBLE = 64;
 /** An open stack's Collapse row, laid out like a card above its threads. */
 const STACK_HEADER_LAYOUT_ID = "comment-stack-header";
 const STACK_HEADER_HEIGHT = 28;
@@ -947,7 +947,22 @@ export function usePendingCommentDraft(documentId: string) {
   const currentDocumentId = useRef(documentId);
   currentDocumentId.current = documentId;
   const setPendingComment = useCallback(
-    (selection: PendingCommentSelection | null) => {
+    (
+      selection: PendingCommentSelection | null,
+      options?: { keepWritten?: boolean },
+    ) => {
+      // Opening another thread leaves a comment someone has started, so
+      // nothing they wrote is lost; an empty one closes as before.
+      if (!selection && options?.keepWritten && current.current) {
+        const { text, mentions, aiDraft } = pendingDraftRef.current.draft;
+        if (
+          current.current.submitting ||
+          text.trim() ||
+          mentions.length ||
+          aiDraft
+        )
+          return;
+      }
       pendingDraftRef.current.discard();
       current.current = selection
         ? {
@@ -1514,8 +1529,9 @@ export function CommentsSidebar({
       ) ?? null)
     : null;
   // A new comment outside the open stack folds it, as does leaving it with
-  // nothing selected.
+  // nothing selected. A thread opened while the comment waits keeps its own.
   const pendingFoldsOpenStack =
+    !selectedThreadId &&
     pendingStackKey !== undefined &&
     pendingStackKey !== (openedStack?.key ?? null);
   const expandedStack =
@@ -2587,9 +2603,12 @@ export function CommentsSidebar({
       pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
     );
   }
-  const layoutFocusId = pendingLayout
-    ? PENDING_COMMENT_LAYOUT_ID
-    : selectedLayoutThreadId;
+  // A thread opened while a new comment waits takes the slot; the waiting
+  // comment keeps its place beside its own highlight.
+  const layoutFocusId =
+    pendingLayout && !selectedThreadId
+      ? PENDING_COMMENT_LAYOUT_ID
+      : selectedLayoutThreadId;
   // An open stack is laid out as one block, its Collapse row on top: its
   // threads' cards, and a new comment in it.
   // The stack has its threads in document order, which their highlights'
@@ -3174,6 +3193,7 @@ export function CommentsSidebar({
       expanded={expandedProposalIds.has(proposalId)}
       onExpandedChange={(expanded) => setProposalExpanded(proposalId, expanded)}
       deciding={members.some(suggestionBusy)}
+      acceptDisabled={members.some(isUnplaceable)}
       canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
       onDecide={(decision) =>
         onDecideSuggestionProposal?.(
@@ -3191,7 +3211,6 @@ export function CommentsSidebar({
           ? (height) => handleThreadCardHeightChange(leaderThreadId, height)
           : undefined
       }
-      t={t}
     >
       {members.map((member) => renderSuggestionCard(member, 0, () => {}, true))}
     </ProposalGroup>
@@ -3816,119 +3835,6 @@ function ResolvedByAiMark({
   );
 }
 
-function ProposalGroup({
-  proposalId,
-  summary,
-  totalCount,
-  members,
-  active,
-  expanded,
-  onExpandedChange,
-  deciding,
-  canDecide,
-  onDecide,
-  onHeightChange,
-  children,
-  t,
-}: {
-  proposalId: string;
-  summary: string;
-  totalCount: number;
-  members: ResourceSuggestion[];
-  active: boolean;
-  expanded: boolean;
-  onExpandedChange: (expanded: boolean) => void;
-  deciding: boolean;
-  canDecide: boolean;
-  onDecide: (decision: SuggestionDecision) => void;
-  onHeightChange?: (height: number) => void;
-  children: ReactNode;
-  t: ReturnType<typeof useT>;
-}) {
-  const groupRef = useRef<HTMLDivElement>(null);
-  const detailsId = useId();
-  useLayoutEffect(() => {
-    if (active) onExpandedChange(true);
-  }, [active]);
-  useLayoutEffect(() => {
-    const element = groupRef.current;
-    if (!element || !onHeightChange) return;
-    const measure = () =>
-      onHeightChange(element.getBoundingClientRect().height);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [onHeightChange]);
-  const pending = members.filter((member) => member.status === "pending");
-  const undecided = pending.length === totalCount;
-  return (
-    <div
-      ref={groupRef}
-      data-suggestion-proposal={proposalId}
-      className="overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50"
-    >
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-controls={detailsId}
-        onClick={() => onExpandedChange(!expanded)}
-        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        <IconChevronDown
-          size={14}
-          className={cn(
-            "mt-px shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
-            !expanded && "-rotate-90",
-          )}
-        />
-        <span
-          className={cn(
-            "min-w-0 flex-1 break-words font-medium",
-            !expanded && "line-clamp-2",
-          )}
-        >
-          {summary}
-        </span>
-        <span className="shrink-0 text-muted-foreground">
-          {t("comments.proposalEditCount", {
-            count: pending.length || totalCount,
-          })}
-        </span>
-      </button>
-      {expanded ? (
-        <div
-          id={detailsId}
-          className="grid gap-2 border-t border-border/60 p-2"
-        >
-          {children}
-        </div>
-      ) : null}
-      {canDecide && pending.length > 0 ? (
-        <div className="flex justify-end gap-1 border-t border-border/60 px-2 py-1.5">
-          <button
-            type="button"
-            disabled={deciding}
-            onClick={() => onDecide("accepted")}
-            className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
-          >
-            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
-          </button>
-          <button
-            type="button"
-            disabled={deciding}
-            onClick={() => onDecide("rejected")}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-          >
-            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * Why an agent suggested an edit, for a suggestion on its own card. A grouped
  * suggestion's reason is its group's header instead. People's suggestions and
@@ -4235,52 +4141,20 @@ function DraftSuggestionThreadView({
         }
         threadActions={
           canDecide ? (
-            <>
-              {(["accepted", "rejected"] as const).map((decision) => (
-                <Tooltip key={decision}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t(
-                        decision === "accepted"
-                          ? "editor.acceptSuggestion"
-                          : "editor.rejectSuggestion",
-                      )}
-                      disabled={
-                        isSaving ||
-                        deciding ||
-                        (!onDecideDraft && !onMaterialize)
-                      }
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (onDecideDraft) {
-                          onDecideDraft(suggestion, decision);
-                          return;
-                        }
-                        void materialize().then((saved) => {
-                          if (saved) onDecide(saved, decision);
-                        });
-                      }}
-                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-                      data-suggestion-decision={decision}
-                    >
-                      {decision === "accepted" ? (
-                        <IconCheck size={18} />
-                      ) : (
-                        <IconX size={18} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t(
-                      decision === "accepted"
-                        ? "editor.acceptSuggestion"
-                        : "editor.rejectSuggestion",
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </>
+            <SuggestionDecisionButtons
+              disabled={
+                isSaving || deciding || (!onDecideDraft && !onMaterialize)
+              }
+              onDecide={(decision) => {
+                if (onDecideDraft) {
+                  onDecideDraft(suggestion, decision);
+                  return;
+                }
+                void materialize().then((saved) => {
+                  if (saved) onDecide(saved, decision);
+                });
+              }}
+            />
           ) : null
         }
       />
@@ -4639,42 +4513,10 @@ function SuggestionThreadView({
         }
         threadActions={
           canDecide && suggestion.status === "pending" ? (
-            <>
-              {(["accepted", "rejected"] as const).map((decision) => (
-                <Tooltip key={decision}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={t(
-                        decision === "accepted"
-                          ? "editor.acceptSuggestion"
-                          : "editor.rejectSuggestion",
-                      )}
-                      disabled={deciding}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDecide(decision);
-                      }}
-                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-                      data-suggestion-decision={decision}
-                    >
-                      {decision === "accepted" ? (
-                        <IconCheck size={18} />
-                      ) : (
-                        <IconX size={18} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t(
-                      decision === "accepted"
-                        ? "editor.acceptSuggestion"
-                        : "editor.rejectSuggestion",
-                    )}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </>
+            <SuggestionDecisionButtons
+              disabled={deciding}
+              onDecide={onDecide}
+            />
           ) : null
         }
         feedback={
@@ -4806,13 +4648,30 @@ function ThreadView({
   const seenEntryCount = useRef(thread.comments.length);
 
   // A capped card hides what arrives below the fold, such as the AI's revised
-  // suggestion after a follow-up, so bring new entries into view.
+  // suggestion after a follow-up, so bring a new entry into view from its
+  // start: a long suggestion opens on its reason, not its last edit.
   useEffect(() => {
     const added = thread.comments.length > seenEntryCount.current;
     seenEntryCount.current = thread.comments.length;
     const body = bodyRef.current;
-    if (!added || !body || body.scrollHeight <= body.clientHeight) return;
-    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+    const latest = thread.comments.slice(-1).pop();
+    if (!added || !body || !latest || body.scrollHeight <= body.clientHeight)
+      return;
+    const entry = body.querySelector<HTMLElement>(
+      `[data-comment-entry="${cssEscape(latest.id)}"]`,
+    );
+    if (!entry) return;
+    const entryTop =
+      entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    // Its start already shows, under the comment that asked for it: leave
+    // the reader where they are.
+    if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
+      return;
+    const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
+    body.scrollTo({
+      top: body.scrollTop + entryTop - padding,
+      behavior: "smooth",
+    });
   }, [thread.comments.length]);
 
   useEffect(() => {
@@ -5000,7 +4859,9 @@ function ThreadView({
           "relative grid grid-cols-1 gap-3.5",
           isPanel
             ? "px-4 py-3.5"
-            : "max-h-96 min-h-0 overflow-y-auto px-4 pb-3.5 pt-3.5",
+            : // Scrolling past either end of a long thread stays in the card
+              // instead of moving the page behind it.
+              "max-h-96 min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-3.5 pt-3.5",
         )}
         data-comment-thread-body
       >
@@ -5082,7 +4943,7 @@ function ThreadView({
           return renderEntry ? (
             <Fragment key={c.id}>
               {earlier}
-              <div className={indent}>
+              <div className={indent} data-comment-entry={c.id}>
                 {renderEntry(c.id, {
                   headerActions: index === 0 ? firstRowActions : undefined,
                   revealActions: index === 0 ? "always" : "hover",
@@ -5095,6 +4956,7 @@ function ThreadView({
               {earlier}
               <CommentRow
                 className={indent}
+                data-comment-entry={c.id}
                 avatar={
                   <CommentAvatar
                     email={c.author_email}

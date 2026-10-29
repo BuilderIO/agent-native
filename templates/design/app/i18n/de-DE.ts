@@ -65,7 +65,7 @@ export default {
     appBandHeading: "{app} · {count} Sitzungen",
     journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
     journeyTitleAppBandsSummary:
-      "{from} bis {to} · getrennte Kohorten je App{partial}",
+      "{from} bis {to} · getrennte Kohorten{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
     otherBranchesShown: "{shown} von {total} Zweigen angezeigt",
@@ -320,6 +320,10 @@ export default {
       chooseFrame: "Frame wählen",
       inspect: "Prüfen",
       exportSvg: "SVG exportieren",
+      moreActions: "Weitere Aktionen",
+      askAboutFile: "Zu dieser Datei fragen",
+      askAboutFilePrompt:
+        "Stelle Fragen zu dieser verknüpften Designdatei. {{url}}",
       actionsPrefill: "Prüfen und senden",
       retry: "Erneut versuchen",
       currentDesign: "das aktuelle Design",
@@ -2764,6 +2768,159 @@ export default {
   },
   home: {
     suggestedPrompts: "Vorgeschlagene Prompts",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Erstelle ein Produktanalyse-Dashboard mit KPI-Karten, Conversion-Diagramm und Aktivitätstabelle in einem sicheren, datenorientierten Ton.",
+        roadmapWorkspace:
+          "Gestalte einen Roadmap-Arbeitsbereich mit Quartalszeitachse, Prioritäten und Kundenfeedback in einem ruhigen, kooperativen Ton.",
+        onboardingFlow:
+          "Erstelle den Einstieg einer Budget-App mit Fortschrittsschritten, Zielen und Kontoeinrichtung in einem beruhigenden Ton.",
+        featureComparison:
+          "Gestalte einen SaaS-Funktionsvergleich mit Tarifkarten, Funktionsmatrix und FAQ in einem direkten, conversion-orientierten Ton.",
+        feedbackPortal:
+          "Erstelle ein Feedbackportal mit Ideenboard, Abstimmungen und Statusfiltern in einem offenen, gemeinschaftlichen Ton.",
+        releaseNotes:
+          "Gestalte ein Update-Center mit Versionszeitachse, Highlights und Migrationshinweisen in einem prägnanten Editorial-Ton.",
+        projectWorkspace:
+          "Erstelle einen Produktarbeitsbereich mit Kanban-Spalten, Zuständigkeiten und Meilensteinen in einem produktiven Ton.",
+        launchWaitlist:
+          "Gestalte eine Wartelistenseite mit Titelbereich, Nachweisen und Anmeldeformular in einem optimistischen Ton.",
+      },
+      design: {
+        portfolioHome:
+          "Gestalte die Startseite eines Design-Portfolios mit Kurzvorstellung, Projektübersicht, Profil und Kontakt in einem sorgfältigen Editorial-Ton.",
+        designSystem:
+          "Erstelle eine Designsystem-Referenz mit Farb- und Typografie-Tokens, Komponentenübersicht und Nutzungshinweisen in einem präzisen Dokumentationston.",
+        bankingApp:
+          "Erstelle den Startbildschirm einer Mobile-Banking-App mit Kontostand, Umsätzen und Sparzielen in einem ruhigen, vertrauenswürdigen Ton.",
+        travelBooking:
+          "Gestalte eine Reisesuche mit Zielfiltern, Reiseplänen und Karte in einem leichten, abenteuerlichen Ton.",
+        coffeeShop:
+          "Erstelle einen Kaffeeshop mit ausgewählten Bohnen, Herkunftsgeschichten und Abo-CTA in einem warmen, haptischen Ton.",
+        musicFestival:
+          "Gestalte eine Festival-Seite mit Line-up, Zeitplan und Geländeplan in einem energiegeladenen Poster-Stil.",
+        accessibilityAudit:
+          "Erstelle ein Barrierefreiheits-Dashboard mit Punktzahl, Problemliste und Filtern in einem klaren kontrastreichen Stil.",
+        artBook:
+          "Gestalte eine Kunstbuch-Seite mit immersiven Werken, Zitat und Kapitelnavigation in einem zurückhaltenden Galerieton.",
+      },
+      developer: {
+        apiDocs:
+          "Erstelle ein API-Dokuportal mit Seitennavigation, Codebeispielen und Anfrage-Builder in einem präzisen technischen Ton.",
+        deploymentDashboard:
+          "Gestalte ein Deployment-Dashboard mit Umgebungs-Karten, Live-Logs und Rollback-Steuerung in einem ruhigen operativen Ton.",
+        componentPlayground:
+          "Erstelle einen Komponenten-Spielplatz mit Props-Steuerung, Zustandsvarianten und Codefeld in einem klaren Entwicklerstil.",
+        databaseConsole:
+          "Gestalte eine Datenbankkonsole mit Abfrageeditor, Schema-Baum und Ergebnistabelle in einem sachlichen Technikstil.",
+        issueTriage:
+          "Erstelle ein Issue-Board mit Filtern, Prioritäten und Zuständigkeitsliste in einem klaren, fokussierten Ton.",
+        authSettings:
+          "Gestalte Auth-Einstellungen mit Anbieter-Karten, Callback-URL und Berechtigungen in einem sicheren, beruhigenden Ton.",
+        workflowBuilder:
+          "Erstelle einen CI-Workflow-Builder mit Schritten, Ausführungshistorie und Branch-Auswahl in einem präzisen technischen Ton.",
+        developerPortfolio:
+          "Gestalte ein Entwicklerportfolio mit Projekten, Toolset und Zeitachse in einem dunklen, fokussierten Stil.",
+      },
+      marketing: {
+        campaignLanding:
+          "Gestalte eine Kampagnenseite mit starker Überschrift, Vorteilen, Kundenbelegen und Anmeldung in einem energiegeladenen Ton.",
+        emailBuilder:
+          "Erstelle einen E-Mail-Editor mit Betreffvorschau, Inhaltsblöcken und Zielgruppenübersicht in einem klaren, freundlichen Ton.",
+        socialCalendar:
+          "Gestalte einen Social-Content-Kalender mit Kanalreitern, geplanten Posts und Leistungswerten in einem hellen Editorial-Stil.",
+        brandCampaign:
+          "Erstelle eine Markenkampagne mit Überschrift, Art Direction und Asset-Galerie in einem sicheren, stimmigen Ton.",
+        webinarRegistration:
+          "Gestalte eine Webinar-Anmeldung mit Sprecherkarten, Agenda und Formular in einem glaubwürdigen, einladenden Ton.",
+        seoBrief:
+          "Erstelle ein SEO-Briefing mit Keyword-Gruppen, Gliederung und Wettbewerbsnotizen in einem fokussierten Rechercheton.",
+        launchMetrics:
+          "Gestalte ein Launch-Dashboard mit Kanal-Karten, Conversion-Diagramm und Kampagnentabelle in einem analytischen Ton.",
+        newsletterSignup:
+          "Erstelle eine Newsletter-Seite mit redaktioneller Vorschau, Themenwahl und E-Mail-Feld in einem warmen, knappen Ton.",
+      },
+      sales: {
+        leadWorkspace:
+          "Erstelle einen Vertriebsarbeitsbereich mit Kontaktdaten, Aktivitätsverlauf und Qualifizierungsfeldern in einem entschlossenen, professionellen Ton.",
+        accountBrief:
+          "Gestalte ein Account-Briefing mit Unternehmensprofil, Beteiligten und aktuellen Signalen in einem klaren Executive-Stil.",
+        productDemo:
+          "Erstelle eine Produktdemo-Seite mit Anwendungsreitern, Screenshots und Kundenbelegen in einem überzeugenden, sicheren Ton.",
+        proposalBuilder:
+          "Gestalte einen Angebots-Builder mit Leistungsumfang, Preiskarten und Zeitplan in einem sorgfältigen Beratungston.",
+        pipelineDashboard:
+          "Erstelle ein Pipeline-Dashboard mit Phasen, Deal-Werten und Prognosediagramm in einem prägnanten Geschäftsstil.",
+        meetingBooking:
+          "Gestalte eine Terminbuchung mit Kalenderzeiten, Agenda-Vorschau und Formular in einem einladenden professionellen Ton.",
+        customerStory:
+          "Erstelle eine Kundengeschichte mit Herausforderung, Ergebnissen, Zitat und Kennzahlen in einem faktenbasierten Editorial-Ton.",
+        accountHandoff:
+          "Gestalte eine Account-Übergabe mit Kundenzielen, Kontakten und offenen Aufgaben in einem ruhigen kooperativen Ton.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Erstelle ein Bestands-Dashboard mit Lagerständen, Nachbestellwarnungen und Kategorienfiltern in einem praktischen operativen Ton.",
+        staffScheduler:
+          "Gestalte einen Dienstplan mit Schichtübersicht, Verfügbarkeit und Abwesenheiten in einem gut scannbaren Stil.",
+        vendorPortal:
+          "Erstelle ein Lieferantenportal mit Checkliste, Dokumentenstatus und Kontakten in einem klaren beruhigenden Ton.",
+        incidentResponse:
+          "Gestalte eine Incident-Seite mit Schweregrad, Ereignisverlauf und Zuständigkeit in einem ruhigen fokussierten Ton.",
+        expenseApprovals:
+          "Erstelle eine Ausgabenfreigabe mit Belegen, Richtlinienhinweisen und Summen in einem neutralen effizienten Stil.",
+        warehouseReceiving:
+          "Gestalte eine Wareneingangs-App mit Lieferdetails, Scanstatus und Artikelliste in einem sehr klaren Stil.",
+        automationControl:
+          "Erstelle ein Workflow-Panel mit Automationen, Verlauf und Fehlerwarnungen in einem sicheren operativen Ton.",
+        helpdeskQueue:
+          "Gestalte eine interne Support-Queue mit Anfragen, Statusfiltern und Zuweisungen in einem klaren hilfreichen Ton.",
+      },
+      individual: {
+        personalPortfolio:
+          "Gestalte ein persönliches Portfolio mit Kurzbiografie, ausgewählten Arbeiten, Fähigkeiten und Kontakt in einem warmen Editorial-Ton.",
+        mealPlanner:
+          "Erstelle einen Essensplan mit Wochenrezepten, Einkaufsliste und Ernährungsfiltern in einem freundlichen praktischen Stil.",
+        homeBudget:
+          "Gestalte ein Haushaltsbudget mit Monatsübersicht, Kategorien-Diagramm und Rechnungen in einem ruhigen unterstützenden Ton.",
+        tripPlanner:
+          "Erstelle einen Reiseplaner mit Zeitachse, Karte und Reservierungen in einem leichten abenteuerlichen Stil.",
+        readingJournal:
+          "Gestalte ein Lesetagebuch mit Buchcovern, Fortschrittsnotizen und Bewertungen in einem ruhigen literarischen Ton.",
+        invoiceTracker:
+          "Erstelle eine Freiberufler-Rechnungsübersicht mit Kunden, Zahlungsstatus und Fristen in einem ordentlichen professionellen Stil.",
+        habitTracker:
+          "Gestalte einen Habit-Tracker mit Tages-Check-ins, Serien und Fortschrittsdiagramm in einem sanft motivierenden Ton.",
+        neighborhoodEvents:
+          "Erstelle eine Nachbarschaftsseite mit Veranstaltungen, lokalen Filtern und RSVP-Steuerung in einem einladenden Gemeinschaftston.",
+      },
+      general: {
+        saasHomepage:
+          "Erstelle eine SaaS-Startseite mit Titelbereich, Funktionsabschnitten und Kundenbelegen in einem klaren einladenden Ton.",
+        analyticsDashboard:
+          "Gestalte ein Analyse-Dashboard mit KPI-Karten, Trenddiagramm und Aktivitätstabelle in einem ruhigen datenorientierten Ton.",
+        habitApp:
+          "Erstelle den Startbildschirm einer Habit-App mit Tageszielen, Fortschrittsringen und Erinnerungen in einem freundlichen ermutigenden Ton.",
+        onlineStore:
+          "Gestalte eine Shop-Startseite mit ausgewählten Produkten, Kategorien und Kundenbewertungen in einem warmen gepflegten Stil.",
+        creativePortfolio:
+          "Erstelle ein Kreativportfolio mit Kurzvorstellung, Projektübersicht und Profil in einem ausdrucksstarken Editorial-Ton.",
+        bookingPage:
+          "Gestalte eine Buchungsseite mit Verfügbarkeitskalender, Services und Bewertungen in einem klaren vertrauenswürdigen Ton.",
+        adminDashboard:
+          "Erstelle ein Admin-Dashboard mit Seitennavigation, Übersichtskarten und aktuellen Aktivitäten in einem sachlichen praktischen Stil.",
+        communityEvent:
+          "Gestalte eine Veranstaltungsseite mit Zeitplan, Ort und Sprechern in einem einladenden festlichen Ton.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Nächste Schritte",
+      refineWithPrompt: "Mit einer Eingabe verfeinern",
+      export: "Exportieren",
+      shareLink: "Link teilen",
+      dismiss: "Schließen",
+    },
     import: "Importieren",
     importOptions: "Importoptionen",
     figmaLink: "Figma-Link",
@@ -2842,6 +2999,89 @@ export default {
     paginationPrevious: "Zurück",
     paginationNext: "Weiter",
     paginationPage: "Seite {{page}} von {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "Produktanalyse-Dashboard",
+        roadmapWorkspace: "Roadmap-Arbeitsbereich",
+        onboardingFlow: "Einstieg einer Budget-App",
+        featureComparison: "SaaS-Funktionsvergleich",
+        feedbackPortal: "Feedbackportal",
+        releaseNotes: "Update-Center",
+        projectWorkspace: "Produktarbeitsbereich",
+        launchWaitlist: "Wartelistenseite",
+      },
+      design: {
+        portfolioHome: "Startseite eines Design-Portfolios",
+        designSystem: "Designsystem-Referenz",
+        bankingApp: "Startbildschirm einer Mobile-Banking-App",
+        travelBooking: "Reisesuche",
+        coffeeShop: "Kaffeeshop",
+        musicFestival: "Festival-Seite",
+        accessibilityAudit: "Barrierefreiheits-Dashboard",
+        artBook: "Kunstbuch-Seite",
+      },
+      developer: {
+        apiDocs: "API-Dokuportal",
+        deploymentDashboard: "Deployment-Dashboard",
+        componentPlayground: "Komponenten-Spielplatz",
+        databaseConsole: "Datenbankkonsole",
+        issueTriage: "Issue-Board",
+        authSettings: "Auth-Einstellungen",
+        workflowBuilder: "CI-Workflow-Builder",
+        developerPortfolio: "Entwicklerportfolio",
+      },
+      marketing: {
+        campaignLanding: "Kampagnenseite",
+        emailBuilder: "E-Mail-Editor",
+        socialCalendar: "Social-Content-Kalender",
+        brandCampaign: "Markenkampagne",
+        webinarRegistration: "Webinar-Anmeldung",
+        seoBrief: "SEO-Briefing",
+        launchMetrics: "Launch-Dashboard",
+        newsletterSignup: "Newsletter-Seite",
+      },
+      sales: {
+        leadWorkspace: "Vertriebsarbeitsbereich",
+        accountBrief: "Account-Briefing",
+        productDemo: "Produktdemo-Seite",
+        proposalBuilder: "Angebots-Builder",
+        pipelineDashboard: "Pipeline-Dashboard",
+        meetingBooking: "Terminbuchung",
+        customerStory: "Kundengeschichte",
+        accountHandoff: "Account-Übergabe",
+      },
+      ops: {
+        inventoryDashboard: "Bestands-Dashboard",
+        staffScheduler: "Dienstplan",
+        vendorPortal: "Lieferantenportal",
+        incidentResponse: "Incident-Seite",
+        expenseApprovals: "Ausgabenfreigabe",
+        warehouseReceiving: "Wareneingangs-App",
+        automationControl: "Workflow-Panel",
+        helpdeskQueue: "interne Support-Queue",
+      },
+      individual: {
+        personalPortfolio: "persönliches Portfolio",
+        mealPlanner: "Essensplan",
+        homeBudget: "Haushaltsbudget",
+        tripPlanner: "Reiseplaner",
+        readingJournal: "Lesetagebuch",
+        invoiceTracker: "Freiberufler-Rechnungsübersicht",
+        habitTracker: "Habit-Tracker",
+        neighborhoodEvents: "Nachbarschaftsseite",
+      },
+      general: {
+        saasHomepage: "SaaS-Startseite",
+        analyticsDashboard: "Analyse-Dashboard",
+        habitApp: "Startbildschirm einer Habit-App",
+        onlineStore: "Shop-Startseite",
+        creativePortfolio: "Kreativportfolio",
+        bookingPage: "Buchungsseite",
+        adminDashboard: "Admin-Dashboard",
+        communityEvent: "Veranstaltungsseite",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "Visuelle Bearbeitung",
@@ -3271,6 +3511,71 @@ export default {
     searching: "Suche…",
     reactionFailed: "Reaktion konnte nicht aktualisiert werden",
     moveFailed: "Kommentar konnte nicht verschoben werden",
+    threadTitle: "Kommentar",
+    agentBadge: "Agent",
+    closeThread: "Thread schließen",
+    deleteThread: "Thread löschen",
+    deleteThreadTitle: "Thread löschen?",
+    deleteThreadDescription: "Dadurch wird der Thread aus dem Review entfernt.",
+    pin: {
+      thread_one: "Thread von {{authors}}, {{count}} Kommentar",
+      thread_other: "Thread von {{authors}}, {{count}} Kommentaren",
+      authorsOther_one: "{{count}} weitere Person",
+      authorsOther_other: "{{count}} weitere Personen",
+      unread: "ungelesen",
+      resolved: "erledigt",
+      draft: "Kommentarentwurf",
+    },
+    reaction: {
+      label_one: "{{emoji}}, {{count}} Reaktion",
+      label_other: "{{emoji}}, {{count}} Reaktionen",
+      labelMine_one: "{{emoji}}, {{count}} Reaktion, inklusive dir",
+      labelMine_other: "{{emoji}}, {{count}} Reaktionen, inklusive dir",
+    },
+    filtersActive: "Filter angewendet",
+    suggestChanges: "Änderungen vorschlagen",
+    replyInThread: "Im Thread antworten",
+    applyChangesAndResolve: "Änderungen übernehmen und erledigen",
+    agent: {
+      sectionLabel: "Agenten",
+      queued: "{{agent}} wartet in der Warteschlange",
+      working: "{{agent}} arbeitet…",
+      replied: "{{agent}} hat geantwortet",
+      suggested: "{{agent}} hat Änderungen vorgeschlagen",
+      applied: "{{agent}} hat Änderungen übernommen und den Thread erledigt",
+      needsInput: "{{agent}} braucht deine Eingabe",
+      failed: "{{agent}} konnte nicht fertig werden",
+      cancelled: "Gestoppt",
+      cancel: "Abbrechen",
+      openChat: "Chat öffnen",
+      retry: "Erneut versuchen",
+      fallbackName: "AI",
+      setupRequired: "Verbinde ein KI-Modell, um Agenten zu nutzen",
+      startFailed: "Der Agent konnte nicht gestartet werden",
+      cancelFailed: "Der Agent konnte nicht gestoppt werden",
+      busy: "Ein Agent arbeitet bereits an diesem Thread",
+      error: {
+        engineNotConfigured: "Kein KI-Modell verbunden",
+        noResult: "Der Agent ist beendet, ohne zu antworten",
+        timeout: "Der Agent hat nicht rechtzeitig reagiert",
+        permission: "Du hast keinen Bearbeitungszugriff mehr",
+        threadUnavailable: "Dieser Thread ist nicht mehr geöffnet",
+        targetChanged: "Das Design wurde geändert, während der Agent arbeitete",
+        applyUnavailable: "Ein Agent kann diesen Bildschirm nicht bearbeiten",
+        applyIncomplete:
+          "Das Design wurde bearbeitet, der Thread wurde aber nicht erledigt. Prüfe die Änderung.",
+        cancelledAfterEdit:
+          "Gestoppt, nachdem das Design bearbeitet wurde. Prüfe die Änderung.",
+        generic: "Etwas ist schiefgelaufen",
+      },
+    },
+    newThread: "Neuer Thread",
+    threadsCount_one: "{{count}} Thread",
+    threadsCount_other: "{{count}} Threads",
+    boardGroup: "Canvas",
+    send: "Senden",
+    pinLabel_one: "Kommentar-Thread mit {{count}} Kommentar",
+    pinLabel_other: "Kommentar-Thread mit {{count}} Kommentaren",
     status: {
       draft: "Entwurf",
       in_review: "In Prüfung",

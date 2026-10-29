@@ -41,6 +41,11 @@ vi.mock("../server/lib/factory-definitions.js", async () => {
     await import("../server/workflow-host/testing/workflow-actions-kit.js");
   return kit.factoryDefinitionsModule;
 });
+vi.mock("../server/lib/factory-sentry-fallback.js", async () => {
+  const kit =
+    await import("../server/workflow-host/testing/workflow-actions-kit.js");
+  return kit.sentryFallbackModule;
+});
 
 import * as kit from "../server/workflow-host/testing/workflow-actions-kit.js";
 import { STORY_GRAPHS } from "../server/workflow/story-graphs.fixture.js";
@@ -228,6 +233,53 @@ describe("set-factory-workflow-enabled: turning on", () => {
 
     expect(failure).toMatchObject({ errorCode: "graph_invalid" });
     expect((await stored(workflow.id))?.enabled).toBe(false);
+  });
+
+  describe("a workflow saved under an older rule", () => {
+    // Saved straight to the store: a save refuses these graphs today, an older
+    // one accepted them, and an enabled one of them still runs.
+    async function saved(graph: ReturnType<typeof kit.simpleGraph>) {
+      reportStatus({});
+      const store = kit.currentStore();
+      const workflow = await store.createWorkflow(scope, {
+        name: "Old",
+        graph,
+        ownerEmail: kit.USER_EMAIL,
+      });
+      await store.recordCleanDryRun(scope, {
+        workflowId: workflow.id,
+        version: 1,
+      });
+      return workflow.id;
+    }
+
+    it("turns on although a node reads a field its operation does not declare", async () => {
+      const workflowId = await saved(kit.graphReadingUndeclaredOutput());
+
+      const result = await toggle(workflowId, true);
+
+      expect(result.enabled).toBe(true);
+      expect((await stored(workflowId))?.enabled).toBe(true);
+    });
+
+    it("turns on a Sentry source that names no project when the factory's settings name an organization", async () => {
+      const workflowId = await saved(kit.graphWithUnscopedSentry());
+      kit.setSentryFallbackConfigured(true);
+
+      const result = await toggle(workflowId, true);
+
+      expect(result.enabled).toBe(true);
+    });
+
+    it("refuses that Sentry source when the factory has no Sentry settings, and changes nothing", async () => {
+      const workflowId = await saved(kit.graphWithUnscopedSentry());
+
+      const failure = await kit.failureOf(() => toggle(workflowId, true));
+
+      expect(failure.errorCode).toBe("graph_invalid");
+      expect(failure.message).toContain('"organization/project"');
+      expect((await stored(workflowId))?.enabled).toBe(false);
+    });
   });
 
   it("switches the store back off when the job file cannot be switched on", async () => {

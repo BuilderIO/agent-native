@@ -51,17 +51,12 @@ const messages = {
     untitledChat: "Unbenannter Chat",
   },
   home: {
-    composerPlaceholder: "Ruf die Aktion hello für Alex auf",
     communityTitle: "Mach mit",
     docsAddAction: "Aktion hinzufügen",
     docsAddPage: "Seite hinzufügen",
     docsGettingStarted: "Erste Schritte",
     docsKeyConcepts: "Grundkonzepte",
     docsTitle: "Dokumentation",
-    editHint:
-      "Bearbeite {{file}}, speichere und frag erneut, um die neue Begrüßung zu sehen.",
-    lead: "Die Oberfläche deiner App und ihr Agent nutzen dieselben Aktionen.",
-    leadTry: "Bitte den Agenten, die Aktion hello aufzurufen.",
     title: "Loslegen",
   },
   navigation: {

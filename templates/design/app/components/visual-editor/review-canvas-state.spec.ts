@@ -185,7 +185,7 @@ describe("review visible region", () => {
     // Opening right of a pin near the right edge shifts it back inside.
     expect(
       getReviewPopoverBox({ x: 900, y: 200 }, region, below, 100),
-    ).toMatchObject({ left: 1000 - 8 - 320 - 900, width: 320 });
+    ).toMatchObject({ left: 1000 - 8 - 360 - 900, width: 360 });
     // Opening left of a pin near the left edge shifts it back inside.
     expect(
       getReviewPopoverBox(
@@ -194,10 +194,10 @@ describe("review visible region", () => {
         { horizontal: "end", vertical: "below" },
         100,
       ),
-    ).toMatchObject({ left: 300 + 8 - 320, width: 320 });
+    ).toMatchObject({ left: 300 + 8 - 320, width: 360 });
     expect(
       getReviewPopoverBox({ x: 400, y: 200 }, region, below, 100),
-    ).toMatchObject({ left: 12, width: 320 });
+    ).toMatchObject({ left: 12, width: 360 });
     expect(
       getReviewPopoverBox(
         { x: 700, y: 200 },
@@ -205,7 +205,7 @@ describe("review visible region", () => {
         { horizontal: "end", vertical: "below" },
         100,
       ),
-    ).toMatchObject({ left: -12 - 320, width: 320 });
+    ).toMatchObject({ left: -12 - 360, width: 360 });
   });
 
   it("narrows a popover that cannot fit the region", () => {
@@ -222,7 +222,7 @@ describe("review visible region", () => {
     // 300px from y=204 ends at 504, above the toolbar's 580 minus its margin.
     expect(
       getReviewPopoverBox({ x: 400, y: 200 }, region, below, 300),
-    ).toMatchObject({ ...below, left: 12, top: 4, width: 320 });
+    ).toMatchObject({ ...below, left: 12, top: 4, width: 360 });
 
     // Far to the left of the toolbar, only the region limits the height.
     const wide = {
@@ -236,14 +236,14 @@ describe("review visible region", () => {
       ...below,
       left: 12,
       top: 4,
-      width: 320,
+      width: 360,
       maxHeight: 640 - 204,
     });
     expect(getReviewPopoverBox(anchor, wide, above, 120)).toEqual({
       ...above,
       left: 12,
       top: 12 - 120,
-      width: 320,
+      width: 360,
       maxHeight: 212 - 56,
     });
   });
