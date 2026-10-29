@@ -14,6 +14,7 @@ import {
   DEFAULT_ONBOARDING_EVENT_ROW_BUDGET,
   getOnboardingJourney,
   MAX_ONBOARDING_EVENT_ROW_BUDGET,
+  ONBOARDING_JOURNEY_EXPERIMENT_IDS,
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
@@ -192,10 +193,10 @@ export default defineAction({
           "Leave out examples whose viewport was not recorded or cannot be read. Without it they are kept with viewport null and a viewportReason.",
         ),
       experimentId: z
-        .literal("first_run_builder_credits")
+        .enum(ONBOARDING_JOURNEY_EXPERIMENT_IDS)
         .optional()
         .describe(
-          "Return session trees for the control and credits arms from one event read. Sessions with conflicting or missing assignment properties remain outside both arms.",
+          "Experiment ID to match exactly against each exposure event's experiment_id: first_run_builder_credits or first_run_builder_credits_v2. Returns control and credits session trees from one event read; events for other IDs are not included. Sessions with conflicting or missing assignments remain outside both arms.",
         ),
       splitDesignFirstTouch: z
         .boolean()

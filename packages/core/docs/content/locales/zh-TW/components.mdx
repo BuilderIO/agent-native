@@ -280,7 +280,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 ### 暫存的輸入框上下文 {#composer-context}
 
-`PromptComposer` 和 `TiptapComposer` 的 `submissionDisabled` 僅阻止提交，仍允許編輯草稿、新增檔案及準備上下文。未設定供應商不會阻止準備工作。`disabled` 仍會停用整個輸入框。
+`PromptComposer` 和 `TiptapComposer` 的 `submissionDisabled` 僅阻止提交，仍允許編輯草稿、新增檔案及準備上下文。使用 `requireAgentEngine` 時，未設定供應商且設定卡片顯示在畫面上時，`PromptComposer` 無法輸入，點擊它會指向該卡片。畫面上沒有卡片時，只阻止提交。`disabled` 仍會停用整個輸入框。
 
 `PromptComposer`、`TiptapComposer` 和 `AgentKitComposer` 接受 `contextItems` 與 `contextMenuItems`。應用程式負責讀取來源及提供在地化選單標籤。
 

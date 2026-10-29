@@ -137,6 +137,16 @@ export function buildPostgresAbSql(): string {
 export function buildBigQueryAbSql(eventsTableRange: string): string {
   const cte = bigQueryFirstTouchEventsCte(eventsTableRange, {
     includeAllApps: true,
+    columns: {
+      id: true,
+      eventDate: false,
+      sessionId: false,
+      url: false,
+      personKey: true,
+      identityEmail: false,
+      referralSource: false,
+      properties: true,
+    },
   });
   return `${cte},
 experiment_events AS (

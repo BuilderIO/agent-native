@@ -2,6 +2,7 @@ import type {
   ElementProvenance,
   RuntimeComponentIdentity,
 } from "@shared/source-mode";
+import type { SvgShapeOffset } from "@shared/svg-shape-offset";
 
 export interface PortableStyleSnapshotNode {
   sourceId?: string;
@@ -209,6 +210,12 @@ export interface ElementInfo {
     c: number;
     d: number;
   };
+  /**
+   * Set only on a shape inside an editable SVG, which moves by its CSS
+   * `translate` in its parent's user units; `positionContainingBlockTransform`
+   * then maps those units to canvas px. Null when the translate is unreadable.
+   */
+  svgShapeOffset?: SvgShapeOffset | null;
   relativeContainingBlockDirection?: "ltr" | "rtl";
   absoluteSiblingVisualOrigin?: { x: number; y: number };
   textContent?: string;

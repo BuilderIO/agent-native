@@ -113,7 +113,6 @@ import {
   IconDots,
   IconExternalLink,
   IconEye,
-  IconEyeOff,
   IconFilter,
   IconFileText,
   IconFolder,
@@ -126,7 +125,6 @@ import {
   IconMinus,
   IconPlus,
   IconPlugConnected,
-  IconPalette,
   IconPencil,
   IconRefresh,
   IconSearch,
@@ -5526,7 +5524,6 @@ function DatabaseItemPreview({
                         void duplicatePreviewRow();
                       }}
                     >
-                      <IconCopy className="me-2 size-4" />
                       {dbText("duplicateRow")}
                     </DropdownMenuItem>
                   ) : null}
@@ -5541,7 +5538,6 @@ function DatabaseItemPreview({
                         );
                       }}
                     >
-                      <IconStarOff className="me-2 size-4" />
                       {sidebarText("removeFromFavorites")}
                     </DropdownMenuItem>
                   ) : null}
@@ -6256,7 +6252,6 @@ function DatabaseTableView({
                     onGroupByChange(groupByPropertyId === id ? null : id)
                   }
                 >
-                  <IconList className="mr-2 size-4 text-muted-foreground" />
                   <span className="flex-1">{dbText("group")}</span>
                   {groupByPropertyId === id ? (
                     <IconCheck className="size-4" />
@@ -6868,7 +6863,6 @@ export function DatabaseActiveConstraintsBar({
                           onSaveForEveryone();
                         }}
                       >
-                        <IconCheck className="mr-2 size-4 text-muted-foreground" />
                         {dbText("saveForEveryone")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -7047,7 +7041,7 @@ function DatabaseInlineSortControl({
         >
           <div className="flex items-center gap-0.5">
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="h-8 min-w-0 flex-1 rounded px-1.5 text-xs [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
                 <SortFieldIcon sort={sort} properties={properties} />
                 <span className="min-w-0 flex-1 truncate">{sort.label}</span>
                 <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
@@ -7061,7 +7055,7 @@ function DatabaseInlineSortControl({
             </DropdownMenuSub>
 
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="h-8 min-w-0 flex-1 rounded px-1.5 text-xs [&>svg:last-child]:hidden">
+              <DropdownMenuSubTrigger className="min-w-0 flex-1 [&>svg:last-child]:hidden">
                 <span className="min-w-0 flex-1 truncate">
                   {databaseSortDirectionLabel(sort.direction)}
                 </span>
@@ -7100,7 +7094,6 @@ function DatabaseInlineSortControl({
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="[&>svg:last-child]:hidden">
-              <IconPlus className="mr-2 size-4 text-muted-foreground" />
               <span className="flex-1">{dbText("addSort")}</span>
             </DropdownMenuSubTrigger>
             <DatabasePropertyPickerSubContent
@@ -7117,7 +7110,6 @@ function DatabaseInlineSortControl({
               onRemove();
             }}
           >
-            <IconTrash className="mr-2 size-4 text-muted-foreground" />
             {dbText("deleteSort")}
           </DropdownMenuItem>
         </div>
@@ -7178,7 +7170,6 @@ export function DatabaseAddFilterButton({
               );
             }}
           >
-            <IconPlus className="mr-2 size-4 text-muted-foreground" />
             {dbText("addAdvancedFilter")}
           </DropdownMenuItem>
         </div>
@@ -7416,8 +7407,7 @@ function DatabaseAdvancedFilterGroupControl({
 
           <DropdownMenuSeparator className="my-1" />
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="h-9 rounded px-2 text-xs text-muted-foreground [&>svg:last-child]:hidden">
-              <IconPlus className="mr-2 size-4 text-muted-foreground" />
+            <DropdownMenuSubTrigger className="text-muted-foreground [&>svg:last-child]:hidden">
               <span className="flex-1">{dbText("addFilterRule")}</span>
               <IconChevronDown className="ml-1 size-3 shrink-0 text-muted-foreground" />
             </DropdownMenuSubTrigger>
@@ -7428,7 +7418,6 @@ function DatabaseAdvancedFilterGroupControl({
                   addAdvancedRule(addRuleCandidate.key, addRuleCandidate.label);
                 }}
               >
-                <IconPlus className="mr-2 size-4 text-muted-foreground" />
                 {dbText("addFilterRule")}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -7440,13 +7429,12 @@ function DatabaseAdvancedFilterGroupControl({
                   );
                 }}
               >
-                <IconPlus className="mr-2 size-4 text-muted-foreground" />
                 {dbText("addFilterGroup")}
               </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuItem
-            className="h-9 rounded px-2 text-xs text-muted-foreground"
+            className="text-muted-foreground"
             onSelect={(event) => {
               event.preventDefault();
               onFiltersChange(
@@ -7455,7 +7443,6 @@ function DatabaseAdvancedFilterGroupControl({
               onOpenChange(false);
             }}
           >
-            <IconTrash className="mr-2 size-4 text-muted-foreground" />
             {dbText("deleteFilter")}
           </DropdownMenuItem>
         </div>
@@ -7635,7 +7622,6 @@ function DatabaseAdvancedFilterRuleRow({
                   onRemove();
                 }}
               >
-                <IconX className="mr-2 size-4 text-muted-foreground" />
                 Remove
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -7780,7 +7766,6 @@ function DatabaseAdvancedNestedFilterGroup({
                 );
               }}
             >
-              <IconPlus className="mr-2 size-4 text-muted-foreground" />
               {dbText("addFilterRule")}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -7803,7 +7788,6 @@ function DatabaseAdvancedNestedFilterGroup({
               onRemoveGroup();
             }}
           >
-            <IconX className="mr-2 size-4 text-muted-foreground" />
             Remove
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -7981,7 +7965,6 @@ function DatabaseInlineFilterControl({
                     );
                   }}
                 >
-                  <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
                   {dbText("moveFilterUp")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -7995,7 +7978,6 @@ function DatabaseInlineFilterControl({
                     );
                   }}
                 >
-                  <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
                   {dbText("moveFilterDown")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -8005,7 +7987,6 @@ function DatabaseInlineFilterControl({
                     onRemove();
                   }}
                 >
-                  <IconX className="mr-2 size-4 text-muted-foreground" />
                   Remove
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -8617,7 +8598,7 @@ const BUILDER_WRITE_MODE_OPTIONS: Array<{
   {
     mode: "stage_only",
     labelKey: "stageOnly",
-    descriptionKey: "savesDraftsNeverPublishes",
+    descriptionKey: "savesChangesNeverPublishes",
   },
   {
     mode: "publish_updates",
@@ -8675,6 +8656,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      stagedPublicationTransition: changeSet.stagedPublicationTransition,
       effect,
       execution: latestExecution,
     };
@@ -11734,8 +11716,6 @@ function DatabaseOpenPagesInSetting({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 p-1">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
-          const Icon =
-            option === "full_page" ? IconExternalLink : IconLayoutGrid;
           return (
             <DropdownMenuItem
               key={option}
@@ -11745,7 +11725,6 @@ function DatabaseOpenPagesInSetting({
                 onChange(option);
               }}
             >
-              <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">
                   {databaseOpenPagesInLabel(option)}
@@ -13340,7 +13319,6 @@ function DatabaseBoardView({
                       onHideEmptyGroupsChange(!hideEmptyGroups);
                     }}
                   >
-                    <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
                     <span className="flex-1">{dbText("hideEmptyGroups")}</span>
                     {hideEmptyGroups ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -13361,7 +13339,6 @@ function DatabaseBoardView({
                       );
                     }}
                   >
-                    <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
                     {dbText("collapseAllGroups")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -13374,7 +13351,6 @@ function DatabaseBoardView({
                       );
                     }}
                   >
-                    <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
                     {dbText("expandAllGroups")}
                   </DropdownMenuItem>
                 </>
@@ -13653,7 +13629,6 @@ function DatabaseBoardColumnHeader({
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={disabled}>
-                <IconPalette className="mr-2 size-4 text-muted-foreground" />
                 Color
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-44">
@@ -13683,7 +13658,6 @@ function DatabaseBoardColumnHeader({
               className="text-destructive focus:text-destructive"
               onSelect={() => void onRemove(group)}
             >
-              <IconTrash className="mr-2 size-4" />
               {dbText("deleteGroup")}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -16141,13 +16115,9 @@ function DatabaseViewTabs({
                     {dbText("renameView")}
                   </DropdownMenuItem>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <ViewIcon className="mr-2 size-4 text-muted-foreground" />
-                      Layout
-                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubTrigger>Layout</DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-48">
                       {DATABASE_VIEW_TYPES.map((type) => {
-                        const LayoutIcon = databaseViewIcon(type);
                         return (
                           <DropdownMenuItem
                             key={type}
@@ -16162,7 +16132,6 @@ function DatabaseViewTabs({
                               );
                             }}
                           >
-                            <LayoutIcon className="mr-2 size-4 text-muted-foreground" />
                             <span className="min-w-0 flex-1">
                               {databaseViewDefaultName(type)}
                             </span>
@@ -16182,7 +16151,6 @@ function DatabaseViewTabs({
                       );
                     }}
                   >
-                    <IconCopy className="mr-2 size-4 text-muted-foreground" />
                     {dbText("duplicateView")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -16196,7 +16164,6 @@ function DatabaseViewTabs({
                       );
                     }}
                   >
-                    <IconTrash className="mr-2 size-4" />
                     {dbText("deleteView")}
                   </DropdownMenuItem>
                 </>
@@ -17340,10 +17307,7 @@ function ColumnHeaderMenuContent({
         {label}
       </DropdownMenuLabel>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <IconFilter className="mr-2 size-4 text-muted-foreground" />
-          {dbText("filter")}
-        </DropdownMenuSubTrigger>
+        <DropdownMenuSubTrigger>{dbText("filter")}</DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           {quickFilters.map((quickFilter) => (
             <DropdownMenuItem
@@ -17381,10 +17345,7 @@ function ColumnHeaderMenuContent({
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <IconArrowsSort className="mr-2 size-4 text-muted-foreground" />
-          {dbText("sort")}
-        </DropdownMenuSubTrigger>
+        <DropdownMenuSubTrigger>{dbText("sort")}</DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
           {(["asc", "desc"] as const).map((direction) => (
             <DropdownMenuItem
@@ -17436,7 +17397,6 @@ function ColumnHeaderMenuContent({
           disabled={hideDisabled}
           onSelect={() => void onHide()}
         >
-          <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
           {dbText("hideInView")}
         </DropdownMenuItem>
       ) : null}
@@ -18065,7 +18025,6 @@ function SortMenu({
                 >
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger className="min-w-0">
-                      <SortFieldIcon sort={sort} properties={properties} />
                       <span className="min-w-0 flex-1 truncate">
                         {sort.label}
                       </span>
@@ -18224,7 +18183,6 @@ export function FilterMenu({
               );
             }}
           >
-            <IconPlus className="mr-2 size-4 text-muted-foreground" />
             {dbText("addAdvancedFilter")}
           </DropdownMenuItem>
         </div>
@@ -18427,13 +18385,11 @@ function DatabaseFilterValueControl({
           <div className="max-h-60 overflow-auto py-0.5">
             {showClearValue ? (
               <DropdownMenuItem
-                className="text-xs"
                 onSelect={(event) => {
                   event.preventDefault();
                   onValueChange("");
                 }}
               >
-                <IconX className="mr-2 size-4 text-muted-foreground" />
                 {dbText("clearValue")}
               </DropdownMenuItem>
             ) : null}
@@ -18445,7 +18401,6 @@ function DatabaseFilterValueControl({
             {filteredOptions.map((option) => (
               <DropdownMenuItem
                 key={option.id}
-                className="text-xs"
                 onSelect={(event) => {
                   event.preventDefault();
                   chooseFilterOption(option);
@@ -18472,13 +18427,11 @@ function DatabaseFilterValueControl({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={configureProperty.isPending}
-                  className="text-xs"
                   onSelect={(event) => {
                     event.preventDefault();
                     void createFilterOption();
                   }}
                 >
-                  <IconPlus className="mr-2 size-4 text-muted-foreground" />
                   Create &ldquo;{optionQuery.trim()}&rdquo;
                 </DropdownMenuItem>
               </>
@@ -19807,7 +19760,6 @@ export function RowActionsCell({
               onOpenPage();
             }}
           >
-            <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             {dbText("openPage")}
           </DropdownMenuItem>
           {canDuplicateRow ? (
@@ -19818,7 +19770,6 @@ export function RowActionsCell({
                 void duplicateRow();
               }}
             >
-              <IconCopy className="mr-2 size-4 text-muted-foreground" />
               {dbText("duplicateRow")}
             </DropdownMenuItem>
           ) : null}
@@ -19833,7 +19784,6 @@ export function RowActionsCell({
                 void removeRowOrDeleteWorkspace();
               }}
             >
-              <IconStarOff className="mr-2 size-4 text-muted-foreground" />
               {sidebarText("removeFromFavorites")}
             </DropdownMenuItem>
           ) : canRemoveFromDatabase || canDeleteWorkspace ? (
@@ -19845,7 +19795,6 @@ export function RowActionsCell({
                 setConfirmDeleteOpen(true);
               }}
             >
-              <IconTrash className="mr-2 size-4" />
               {canDeleteWorkspace
                 ? "Delete workspace"
                 : dbText("removeFromDatabase")}

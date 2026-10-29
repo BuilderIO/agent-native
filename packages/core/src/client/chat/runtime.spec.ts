@@ -912,6 +912,51 @@ describe("createAgentNativeChatRuntime", () => {
     vi.useRealTimers();
   });
 
+  it("keeps streamed tool input that arrives without a call id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_input_delta", tool: "add-slide", text: '{"deckId"' },
+        { type: "tool_input_delta", tool: "add-slide", text: ':"d1"}' },
+        {
+          type: "tool_input_delta",
+          tool: "add-slide",
+          id: "call-2",
+          text: "{",
+        },
+        { type: "tool_start", tool: "add-slide", input: { deckId: "d1" } },
+        { type: "tool_done", tool: "add-slide", result: "ok" },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-input" });
+    const turn = await session.startTurn({ prompt: "Add a slide" });
+    const events = await drain(turn.events);
+
+    const deltas = events.flatMap((event) =>
+      event.type === "tool-delta"
+        ? [{ id: event.toolCallId, text: event.inputTextDelta }]
+        : [],
+    );
+    expect(deltas.map((delta) => delta.text)).toEqual([
+      '{"deckId"',
+      ':"d1"}',
+      "{",
+    ]);
+    const [first, second, third] = deltas;
+    expect(first?.id).toEqual(expect.any(String));
+    expect(second?.id).toBe(first?.id);
+    expect(third?.id).toBe("call-2");
+    // The id-less input and the tool that runs from it are the same call.
+    const finished = events.find((event) => event.type === "tool-done");
+    expect(finished?.type === "tool-done" && finished.toolCallId).toBe(
+      first?.id,
+    );
+  });
+
   it("splits the streamed reply around a message sent into the run", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([

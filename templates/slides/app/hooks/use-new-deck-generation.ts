@@ -1,4 +1,7 @@
-import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
+import {
+  getAgentChatSubmitTarget,
+  sendToAgentChatAndConfirm,
+} from "@agent-native/core/client/agent-chat";
 import { nanoid } from "nanoid";
 import {
   useCallback,
@@ -150,12 +153,14 @@ type NewDeckGenerationRunReference = {
 
 const runTabIds = new Map<string, string>();
 const runConversationThreadIds = new Map<string, string>();
+const clearedRunKeys = new Set<string>();
 
 export function clearNewDeckGenerationRun(
   deckId: string,
   submitMessageId: string,
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
+  clearedRunKeys.add(key);
   runTabIds.delete(key);
   runConversationThreadIds.delete(key);
   window.sessionStorage.removeItem(key);
@@ -621,8 +626,26 @@ function getRunTabId(deckId: string, submitMessageId: string): string | null {
   const inMemory = runTabIds.get(key);
   if (inMemory) return inMemory;
   const stored = window.sessionStorage.getItem(key);
-  if (stored) runTabIds.set(key, stored);
-  return stored;
+  if (stored) {
+    runTabIds.set(key, stored);
+    return stored;
+  }
+  const reported = reportedRunRoute(deckId, submitMessageId)?.tabId ?? null;
+  if (reported) {
+    rememberNewDeckGenerationRunTab(deckId, submitMessageId, reported);
+  }
+  return reported;
+}
+
+// The chat's route history outlives this tracker's storage, so a run that was
+// cleared, or that another run has since replaced, must not come back from it.
+function reportedRunRoute(deckId: string, submitMessageId: string) {
+  if (clearedRunKeys.has(getRunTabStorageKey(deckId, submitMessageId))) {
+    return null;
+  }
+  const activeRun = getActiveRun(deckId);
+  if (activeRun && activeRun.submitMessageId !== submitMessageId) return null;
+  return getAgentChatSubmitTarget(submitMessageId);
 }
 
 function getRunConversationThreadId(
@@ -636,7 +659,18 @@ function getRunConversationThreadId(
   const stored = window.sessionStorage.getItem(
     getRunConversationThreadStorageKey(deckId, submitMessageId),
   );
-  if (stored === null) return null;
+  if (stored === null) {
+    const reported =
+      reportedRunRoute(deckId, submitMessageId)?.threadId ?? null;
+    if (reported) {
+      rememberNewDeckGenerationRunConversationThread(
+        deckId,
+        submitMessageId,
+        reported,
+      );
+    }
+    return reported;
+  }
   if (!stored.trim()) {
     throw new Error(
       `Cannot restore Slides generation ownership for deck ${deckId}: invalid session data.`,
@@ -652,6 +686,7 @@ export function rememberNewDeckGenerationRunTab(
   tabId: string,
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
+  clearedRunKeys.delete(key);
   runTabIds.set(key, tabId);
   window.sessionStorage.setItem(key, tabId);
   const conversationThreadId = getRunConversationThreadId(

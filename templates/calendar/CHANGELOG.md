@@ -3,6 +3,30 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-27
+
+### Fixed
+
+- Calendar keeps successful invitation rules applied while another rule is retried.
+
+## 2026-10-26
+
+### Improved
+
+- Calendar event rules can use OpenAI when Jev is unavailable.
+
+## 2026-10-25
+
+### Fixed
+
+- Moving one event in a recurring series keeps the series on the right weekday after a time-zone change and at the right local time across daylight-saving changes
+
+## 2026-10-22
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
 ## 2026-10-21
 
 ### Fixed

@@ -1,0 +1,101 @@
+slug: weekly-marketing-report
+app: analytics
+roles:
+  - marketing
+title: 스프레드시트 없이 주간 마케팅 리포트를 만들어 보세요
+seo_title: GA4와 HubSpot으로 만드는 주간 마케팅 리포트
+meta_description: "Agent-Native Analytics로 Google Analytics와 HubSpot 데이터에서 주간 마케팅 리포트를 만드세요. 이번 주가 어땠는지 묻고, 답을 대시보드로 공유하세요."
+updated: 2026-10-27
+hero:
+  body: "Agent-Native Analytics는 Google Analytics와 HubSpot 데이터를 월요일 마케팅 리포트로 만들어 줘요. 이번 주가 어땠는지 물으면, 에이전트가 답을 다시 만들 필요 없는 대시보드에 남겨 둬요."
+  button:
+    label: 대시보드 만들기
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b9582619b1b42e4a44e6246e01ff7f8
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70d3b80ce73f472c95b94f7f5c0d65d6
+    alt: "Analytics에서 연 주간 마케팅 대시보드. 맨 위 지표 카드에 이번 주 세션, 자연 검색 가입, 새 HubSpot 연락처, 생성된 딜이 지난주 대비 변화와 함께 보여요. 아래에는 이번 주와 지난주의 채널별 세션을 비교하는 막대 차트와, 하루별 HubSpot 딜 생성 수를 보여 주는 선 차트가 있어요. 오른쪽 에이전트 채팅에는 “How did the week go?”라는 질문과, 자연 검색이 가장 크게 늘었다는 짧은 답이 있어요."
+how_to:
+  heading: AI로 주간 마케팅 리포트를 만드는 방법
+  steps:
+    - title: 마케팅 데이터 연결하기
+      body: "**데이터 소스**를 열고 Google Analytics와 HubSpot 카드의 [설정 단계](https://www.agent-native.com/docs/template-analytics-connectors/)를 따른 뒤 **연결 테스트**을 클릭하세요. Google Analytics에는 속성에 대한 뷰어 권한이 있는 Google Cloud 서비스 계정이 필요해요. 한 번만 설정하면 돼요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0218d6c271db4bbe8534c00e6f5e85a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
+        alt: "Google Analytics와 HubSpot이 연결됨으로 표시된 Data Sources 페이지 확대 화면. 옆에 HubSpot 설정 패널이 열려 있고, 토큰이 설정돼 있으며 Test connection에 Connection successful이 보여요."
+    - title: 이번 주가 어땠는지 묻기
+      body: "분석가에게 묻듯이 물어보세요. 예를 들어 “이번 주 자연 검색 가입은 지난주와 비교해 어땠어?” 에이전트가 내 데이터에 실시간 쿼리를 실행하고 차트로 답해요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb
+        alt: "그 질문과 답이 담긴 에이전트 채팅. 두 문장으로 자연 검색 가입이 지난주보다 늘었다고 말하고, 그 아래에 이번 주와 지난주의 채널별 가입 막대 차트가 있어요."
+    - title: 대시보드 저장하고 공유하기
+      body: "에이전트에게 “이걸 내 주간 마케팅 대시보드로 만들어 줘”라고 하세요. **공유**를 클릭해 팀원이나 조직 전체에 [보기 또는 편집 권한](https://www.agent-native.com/docs/sharing/)을 주거나, **이메일 보고서**를 열어 원하는 시간에 매일 보내세요."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F04feeeb2a1384ce0adecb7bee676b806
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F61fd64ac2bff4f53a3ca6cfbd97225fe
+        alt: "Email reports 대화 상자가 열린 주간 마케팅 대시보드. Send to는 Email과 Slack으로 설정돼 있고, 팀 주소 두 개, 9:00 발송 시간, Send now 버튼이 보여요."
+features:
+  heading: 마케팅 한 주를 보고하는 데 필요한 모든 것
+  items:
+    - title: 질문 하나에 두 도구를
+      body: "Google Analytics 세션과 HubSpot 연락처를 한 질문으로 물으면, 에이전트가 둘을 나란히 놓고 답해요."
+    - title: 트래픽 옆에 검색 순위
+      body: "DataForSEO를 연결하고, 이번 주 자연 검색 세션과 함께 키워드 순위가 어떻게 움직였는지 물어보세요."
+    - title: 늘 최신인 숫자
+      body: "Google Analytics 차트는 실시간으로 쿼리하고 HubSpot 차트는 알아서 새로 고쳐지니, 리포트는 항상 최신 주를 보여 줘요."
+    - title: 지난주 분석 다시 실행하기
+      body: "질문과 단계를 담아 분석을 저장한 뒤, 에이전트에게 이번 주 데이터로 다시 실행해 달라고 하세요."
+    - title: 우리 팀의 정의
+      body: "관리자가 시맨틱 레이어 페이지에서 리드나 가입의 기준을 정하면, 에이전트가 모든 답에 그 정의를 써요."
+    - title: 어떤 차트든 질문하기
+      body: "차트를 클릭하고 무엇이 바뀌었는지 물어보세요. 에이전트가 질문과 함께 그 차트를 받아, 차트 뒤의 데이터로 답해요."
+integrations:
+  heading: 이미 쓰는 도구와 Analytics 연결하기
+  cards:
+    - title: 마케팅 데이터 가져오기
+      logos:
+        - name: Google Analytics
+        - name: HubSpot
+        - name: X
+      body: "트래픽은 Google Analytics, 연락처와 딜은 HubSpot, 게시물 참여는 X로, 모두 데이터 소스 페이지에서 연결하세요."
+    - title: 팀이 보는 곳으로 리포트 보내기
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: "Slack 웹훅으로 매일 요약과 대시보드 링크를 Slack 채널에 보내고, 어떤 표든 연결된 Google Sheets 계정으로 내보내세요."
+    - title: MCP로 무엇이든 연결하기
+      logos:
+        - name: Notion
+        - name: Webflow
+        - name: Exa
+      more: true
+      body: "팀이 쓰는 도구를 MCP로 연결하거나, URL로 어떤 MCP 서버든 추가하세요."
+other_uses:
+  heading: Agent-Native Analytics로 할 수 있는 다른 일
+  cards:
+    - title: 스타트업 KPI 대시보드를 만들어 보세요
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "스타트업의 매출, 가입자, 이탈률을 추적하고, 숫자가 왜 움직였는지 에이전트에게 물어보세요."
+    - title: 신규 사용자가 이탈하는 지점을 찾아보세요
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "신규 사용자가 이탈하는 단계를 찾고, 그 순간의 세션을 직접 보세요."
+    - title: HubSpot과 Gong 데이터로 영업 파이프라인을 검토하세요
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: "HubSpot 딜과 Gong 통화에 평소 말로 질문하세요."
+faqs:
+  heading: 궁금한 점이 있으신가요? 답해 드릴게요
+  items:
+    - q: Agent-Native Analytics는 무료인가요?
+      a: "네, Agent-Native Analytics는 무료 오픈 소스예요. 내 Google Analytics와 HubSpot 계정을 연결해서 써요. 처음에 에이전트용으로 무료 Builder.io AI 크레딧이나 내 AI 모델 키를 고르니, AI 사용량에는 한도가 있어요. Analytics는 알파 버전이라 바뀌는 부분이 있을 수 있어요."
+    - q: 어떤 마케팅 데이터 소스를 연결할 수 있나요?
+      a: "Agent-Native Analytics는 Google Analytics(GA4), HubSpot, 키워드 순위와 검색량을 위한 DataForSEO, 게시물 참여를 위한 X에 연결돼요. BigQuery, Amplitude, Mixpanel, PostHog, Stripe에도 연결돼요. 소스마다 자격 증명이 필요하고, Google Analytics에는 Google Cloud 서비스 계정이 필요해요."
+    - q: Agent-Native Analytics가 매주 월요일에 리포트를 보내 줄 수 있나요?
+      a: "아직 주간 일정은 없어요. [대시보드 이메일 보고서](https://www.agent-native.com/docs/template-analytics-dashboards/)는 매일 원하는 시간과 시간대에 최대 다섯 개의 이메일 주소, Slack 채널, 또는 둘 다로 보내져요. 월요일 회의 전에 **이메일 보고서**에서 **지금 전송**을 클릭하면 최신 대시보드를 보낼 수 있어요."
+    - q: SQL을 알아야 하나요?
+      a: "아니요. 평소 말로 물으면 에이전트가 소스를 고르고 쿼리를 써요. 확인하고 싶다면 어떤 답이든 그 뒤의 쿼리를 보여 달라고 하세요."
+    - q: 숫자를 믿어도 되나요?
+      a: "에이전트는 숫자를 알려 주기 전에 내 데이터에 실시간 쿼리를 실행하고, 쿼리가 실행되지 않은 수치에는 “Unverified”라고 표시해요. 그래도 첫 주 리포트는 팀에 보내기 전에 Google Analytics와 HubSpot과 비교해 보세요."
+    - q: Agent-Native Analytics는 GA4나 HubSpot 리포트와 무엇이 다른가요?
+      a: "Google Analytics와 HubSpot은 각자 자기 데이터만 보고해요. Agent-Native Analytics는 질문 하나에 두 곳의 데이터로 평소 말로 답하고, 그 답을 물어보며 다듬을 수 있는 대시보드 하나로 남겨요. 그래서 Analytics는 [에이전틱 앱](https://www.agent-native.com/articles/what-is-an-agent-native-app/)이에요. 에이전트의 두뇌와 앱의 직관성을 함께 갖췄죠."

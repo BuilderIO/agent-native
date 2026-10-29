@@ -1627,9 +1627,15 @@ const corePackageRoot = path.resolve(
 );
 
 function linkCorePackageForWorker(dir: string): void {
+  // The plain Node worker needs built exports, which Stryker's sandbox omits.
+  const packageRootForWorker = corePackageRoot.includes(
+    `${path.sep}.stryker-tmp${path.sep}`,
+  )
+    ? path.resolve(corePackageRoot, "../..")
+    : corePackageRoot;
   const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
   fs.mkdirSync(path.dirname(packageLink), { recursive: true });
-  fs.symlinkSync(corePackageRoot, packageLink, "dir");
+  fs.symlinkSync(packageRootForWorker, packageLink, "dir");
 }
 
 describe("Netlify static cache headers", () => {
@@ -2753,6 +2759,10 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
+      "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+      "/_platform",
+    );
+    vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([
         { id: "workspace-calendar", path: "/recordings" },
@@ -2780,6 +2790,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(html).toContain('"workspaceAppPath":"/recordings"');
     expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
     expect(html).toContain('"workspaceRuntime":true');
+    expect(html).toContain('"frameworkRoutePrefix":"/_platform"');
   });
 
   it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
@@ -2885,6 +2896,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
 
     expect(html).toContain('"workspaceAppPath":"/"');
     expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+    expect(html).toContain('"explicitRootPath":true');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {

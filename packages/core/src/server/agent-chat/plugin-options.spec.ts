@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
+import { jobBelongsToApp } from "../../jobs/frontmatter.js";
 import type { RealtimeVoiceIntelligence } from "../realtime-voice.js";
 import {
   resolveA2AAgentDelegationEnabled,
@@ -28,5 +29,32 @@ describe("resolveA2AAgentDelegationEnabled", () => {
     expect(
       resolveA2AAgentDelegationEnabled({ a2aAgentDelegation: false }),
     ).toBe(false);
+  });
+});
+
+const picksUp = (
+  options: AgentChatPluginOptions,
+  job: { appId: string },
+): boolean => jobBelongsToApp(job, options.appId, options.additionalJobAppIds);
+
+describe("AgentChatPluginOptions.additionalJobAppIds", () => {
+  const options = {
+    appId: "factory",
+    additionalJobAppIds: ["factory-workflows"],
+  } satisfies AgentChatPluginOptions;
+
+  it("widens the job files the app picks up to the listed app ids, beside its own", () => {
+    expect(picksUp(options, { appId: "factory-workflows" })).toBe(true);
+    expect(picksUp(options, { appId: "factory" })).toBe(true);
+  });
+
+  it("leaves a job under any other app id to the build that lists it", () => {
+    expect(picksUp(options, { appId: "other-app" })).toBe(false);
+  });
+
+  it("changes nothing when it is not set", () => {
+    expect(picksUp({ appId: "factory" }, { appId: "factory-workflows" })).toBe(
+      false,
+    );
   });
 });

@@ -265,8 +265,10 @@ export function MapDragProvider({
 }
 
 /**
- * The grip that starts a drag from a field. It shows on the row's hover, and
- * it is left out where the modal takes no drops.
+ * The grip that starts a drag from a field. It rests faint so it can be found,
+ * comes up on the row's hover or when focused, and is left out where the modal
+ * takes no drops. A keyboard has no drag: it maps through the field's own path
+ * picker.
  */
 export function MapGrip({ path, kind }: { path: string; kind: SourceKind }) {
   const drag = useContext(MapDragContext);
@@ -280,7 +282,7 @@ export function MapGrip({ path, kind }: { path: string; kind: SourceKind }) {
           variant="ghost"
           size="icon-xs"
           aria-label={ws.nodeData.dragHint}
-          className="shrink-0 cursor-grab opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+          className="shrink-0 cursor-grab opacity-40 transition-opacity group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
           onMouseDown={(event) =>
             drag.startDrag(event, { label: labelOf(path), path, kind })
           }

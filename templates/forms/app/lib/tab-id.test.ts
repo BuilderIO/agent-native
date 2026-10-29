@@ -3,8 +3,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "agent-native:browser-tab-id";
+const SHARED_STATE_KEY = Symbol.for("@agent-native/core/client/browser-tab-id");
 const originalGetEntriesByType = (entryType: string) =>
   performance.getEntriesByType(entryType);
+
+function resetSharedTabIds() {
+  delete (globalThis as typeof globalThis & Record<symbol, unknown>)[
+    SHARED_STATE_KEY
+  ];
+}
 
 async function loadTabId() {
   vi.resetModules();
@@ -22,9 +29,11 @@ describe("Forms browser tab id", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     window.sessionStorage.clear();
+    resetSharedTabIds();
   });
 
   afterEach(() => {
+    resetSharedTabIds();
     vi.restoreAllMocks();
     Object.defineProperty(performance, "getEntriesByType", {
       configurable: true,

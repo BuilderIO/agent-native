@@ -99,12 +99,8 @@ type FigImportPreview = PreparedFigImport["summary"] & {
   error?: string;
 };
 
-function defaultFigPageSelection(
-  summary: PreparedFigImport["summary"],
-): Set<string> {
-  return summary.frameCount <= MAX_BROWSER_FIG_FRAMES
-    ? new Set(summary.pages.map((page) => page.id))
-    : new Set();
+function defaultFigPageSelection(): Set<string> {
+  return new Set();
 }
 
 export interface DesignImportPanelHandle {
@@ -129,6 +125,7 @@ export const DesignImportPanel = forwardRef<
   const importFigmaFrame = useActionMutation("import-figma-frame");
   const figFileInputRef = useRef<HTMLInputElement | null>(null);
   const htmlFileInputRef = useRef<HTMLInputElement | null>(null);
+  const htmlFileReadRef = useRef(0);
   const [homeImport, setHomeImport] = useState(() =>
     readPendingDesignImport(context.designId),
   );
@@ -206,9 +203,7 @@ export const DesignImportPanel = forwardRef<
       pendingFigImportRef.current = prepared;
       setActiveMode("fig-upload");
       setFigImportSelection(
-        retry
-          ? new Set(retry.selection)
-          : defaultFigPageSelection(prepared.summary),
+        retry ? new Set(retry.selection) : defaultFigPageSelection(),
       );
       setFigImportPreview({
         ...prepared.summary,
@@ -223,6 +218,7 @@ export const DesignImportPanel = forwardRef<
     unmountedRef.current = false;
     return () => {
       unmountedRef.current = true;
+      htmlFileReadRef.current += 1;
       const pending = pendingFigImportRef.current;
       pendingFigImportRef.current = null;
       if (pending) parkPreparedFigImport(designIdRef.current, pending);
@@ -374,6 +370,7 @@ export const DesignImportPanel = forwardRef<
 
   const importHtmlString = useCallback(
     (content: string, originalName?: string) => {
+      htmlFileReadRef.current += 1;
       if (!looksLikeStandaloneHtml(content)) {
         toast.error(t("designEditor.import.errors.notHtml"));
         return;
@@ -390,7 +387,18 @@ export const DesignImportPanel = forwardRef<
             void finishImport(
               result as ImportResult,
               t("designEditor.import.htmlSuccess"),
-            );
+            )
+              .then(() =>
+                setHtmlText((current) => (current === content ? "" : current)),
+              )
+              .catch((error: unknown) => {
+                toast.error(t("designEditor.import.errors.importFailed"), {
+                  description:
+                    error instanceof Error
+                      ? error.message
+                      : t("common.genericError"),
+                });
+              });
           },
           onError: (error: unknown) => {
             toast.error(t("designEditor.import.errors.importFailed"), {
@@ -502,15 +510,28 @@ export const DesignImportPanel = forwardRef<
 
   const handleHtmlFileChange = useCallback(
     async (file: File | undefined) => {
+      const readId = ++htmlFileReadRef.current;
+      if (htmlFileInputRef.current) htmlFileInputRef.current.value = "";
       if (!file) return;
       setActiveMode("html");
       try {
-        importHtmlString(await file.text(), file.name);
-      } finally {
-        if (htmlFileInputRef.current) htmlFileInputRef.current.value = "";
+        const content = await file.text();
+        if (readId !== htmlFileReadRef.current) return;
+        if (!looksLikeStandaloneHtml(content)) {
+          importHtmlString(content, file.name);
+          return;
+        }
+        setHtmlText(content);
+        importHtmlString(content, file.name);
+      } catch {
+        if (readId === htmlFileReadRef.current) {
+          toast.error(t("designEditor.import.errors.importFailed"), {
+            description: t("common.genericError"),
+          });
+        }
       }
     },
-    [importHtmlString],
+    [importHtmlString, t],
   );
 
   const runPreparedFigImport = useCallback(
@@ -1109,6 +1130,10 @@ export const DesignImportPanel = forwardRef<
                           size="sm"
                           variant="outline"
                           className="h-6 px-2 text-xs"
+                          disabled={
+                            figImportSelection.size ===
+                            figImportPreview.pages.length
+                          }
                           onClick={() =>
                             setFigImportSelection(
                               new Set(
@@ -1124,6 +1149,7 @@ export const DesignImportPanel = forwardRef<
                           size="sm"
                           variant="outline"
                           className="h-6 px-2 text-xs"
+                          disabled={figImportSelection.size === 0}
                           onClick={() => setFigImportSelection(new Set())}
                         >
                           {t("designEditor.import.figImportClearAll")}
@@ -1251,7 +1277,10 @@ export const DesignImportPanel = forwardRef<
             <div className="space-y-2 p-2">
               <Textarea
                 value={htmlText}
-                onChange={(event) => setHtmlText(event.target.value)}
+                onChange={(event) => {
+                  htmlFileReadRef.current += 1;
+                  setHtmlText(event.target.value);
+                }}
                 placeholder={t("designEditor.import.htmlPlaceholder")}
                 className="min-h-24 resize-none text-xs"
               />

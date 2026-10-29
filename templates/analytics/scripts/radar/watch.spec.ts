@@ -7,6 +7,8 @@ import {
   campaignUnavailableCheck,
   safeCampaignLabel,
   createEventChecks,
+  filterPrefetchedEventRowsForWatch,
+  formatWatchMarkdown,
   matureFunnelCohortDate,
   runWatch,
   uploadRejectionCheck,
@@ -89,6 +91,94 @@ describe("hourly event query", () => {
       expect(query).not.toContain(", linked_events AS (");
     },
   );
+});
+
+describe("weekly prefetched SLO rows", () => {
+  it("filters weekly event rows to each daily watch's rolling window", () => {
+    const rows = [
+      { period_start: "2026-09-25T00:00:00.000Z", event_name: "old" },
+      { period_start: "2026-09-26T00:00:00.000Z", event_name: "start" },
+      { period_start: "2026-10-26T00:00:00.000Z", event_name: "current" },
+      { period_start: "2026-10-27T00:00:00.000Z", event_name: "future" },
+    ];
+
+    expect(
+      filterPrefetchedEventRowsForWatch(rows, "2026-10-26", "daily"),
+    ).toEqual([rows[1], rows[2]]);
+  });
+
+  it("evaluates only SLO rows for the current watch date", async () => {
+    queryMocks.resolveRadarOrganizationId.mockResolvedValue("org-id");
+    queryMocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+      sink: "bigquery",
+      table: null,
+    });
+    queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+
+    const run = await runWatch({
+      window: "daily",
+      date: "2026-10-26",
+      includeCampaign: false,
+      prefetched: {
+        eventRows: [],
+        funnelRows: [],
+        uploadRows: [],
+        sloRows: [
+          {
+            target_date: "2026-10-26",
+            app: "design",
+            sample_size: 10,
+            p90_seconds: 500,
+          },
+          {
+            target_date: "2026-10-25",
+            app: "design",
+            sample_size: 10,
+            p90_seconds: 1_000,
+          },
+        ],
+      },
+    });
+
+    expect(
+      run.checks.filter((check) => check.id === "prompt-output-p90"),
+    ).toEqual([
+      expect.objectContaining({
+        app: "design",
+        status: "fired",
+        numerator: 500,
+      }),
+    ]);
+    expect(run.queryCount).toBe(2);
+    expect(queryMocks.runPostgresQuery).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("fresh BigQuery fallback reads", () => {
+  it("bypasses both caches for event, funnel, and SLO reads", async () => {
+    queryMocks.resolveRadarOrganizationId.mockResolvedValue("org-id");
+    queryMocks.resolveRadarFirstPartyBackend.mockResolvedValue({
+      sink: "bigquery",
+      table: null,
+    });
+    queryMocks.resolveRadarBigQueryEventsTable.mockResolvedValue(
+      "`project_id.analytics.events_raw_query_range`",
+    );
+    queryMocks.runBigQuery.mockResolvedValue({ rows: [] });
+    queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+
+    await runWatch({
+      window: "daily",
+      date: "2026-10-26",
+      includeCampaign: false,
+      freshBigQuery: true,
+    });
+
+    const queries = queryMocks.runBigQuery.mock.calls;
+    expect(queries).toHaveLength(4);
+    for (const [, options] of queries)
+      expect(options).toMatchObject({ fresh: true, cache: false });
+  });
 });
 
 describe("radar event labels", () => {
@@ -484,7 +574,8 @@ describe("upload rejection evidence routing", () => {
     queryMocks.runBigQuery.mockResolvedValue({
       rows: [
         {
-          app: "clips",
+          event_date: "2026-10-25",
+          app: "other",
           reason: "storage",
           status: "413",
           rejected_recorders: 2,
@@ -492,7 +583,8 @@ describe("upload rejection evidence routing", () => {
           rejected_session_ids: ["recording-1", "recording-2"],
         },
         {
-          app: "clips",
+          event_date: "2026-10-25",
+          app: "other",
           reason: "network",
           status: "502",
           rejected_recorders: 1,
@@ -502,7 +594,24 @@ describe("upload rejection evidence routing", () => {
       ],
     });
     queryMocks.runPostgresQuery.mockResolvedValue({
-      rows: [{ app: "clips", recorders: 8 }],
+      rows: [
+        {
+          app: "clips",
+          reason: "storage",
+          status: "413",
+          rejected_recorders: 2,
+          unidentified_rejections: 0,
+          recorders: 8,
+        },
+        {
+          app: "clips",
+          reason: "network",
+          status: "502",
+          rejected_recorders: 1,
+          unidentified_rejections: 0,
+          recorders: 8,
+        },
+      ],
     });
 
     const rows = await loadUploadRejectionRows(
@@ -524,7 +633,22 @@ describe("upload rejection evidence routing", () => {
         {
           __radarJsonbParameter: true,
           value: [
-            { app: "clips", session_ids: ["recording-1", "recording-2"] },
+            {
+              event_date: "2026-10-25",
+              app: "other",
+              reason: "storage",
+              status: "413",
+              session_ids: ["recording-1", "recording-2"],
+              unidentified_rejections: 0,
+            },
+            {
+              event_date: "2026-10-25",
+              app: "other",
+              reason: "network",
+              status: "502",
+              session_ids: ["recording-1"],
+              unidentified_rejections: 0,
+            },
           ],
         },
       ],
@@ -551,6 +675,58 @@ describe("upload rejection evidence routing", () => {
         recorders: 8,
       },
     ]);
+  });
+
+  it("attributes a multi-day replay window in one PostgreSQL query", async () => {
+    const rejectionRows = [
+      {
+        event_date: "2026-10-02",
+        app: "clips",
+        reason: "storage",
+        status: "413",
+        unidentified_rejections: 0,
+        rejected_session_ids: ["session-1"],
+      },
+      {
+        event_date: "2026-10-03",
+        app: "clips",
+        reason: "network",
+        status: "502",
+        unidentified_rejections: 0,
+        rejected_session_ids: ["session-2"],
+      },
+    ];
+    queryMocks.runPostgresQuery.mockResolvedValue({ rows: [] });
+
+    await loadUploadRejectionRows(
+      { sink: "bigquery", table: "analytics.events" },
+      "2026-10-02",
+      "org-id",
+      rejectionRows,
+      "2026-10-03",
+    );
+
+    expect(queryMocks.runBigQuery).not.toHaveBeenCalled();
+    expect(queryMocks.runPostgresQuery).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("jsonb_array_elements($4::jsonb)"),
+      [
+        "2026-10-02",
+        "2026-10-03",
+        "org-id",
+        {
+          __radarJsonbParameter: true,
+          value: rejectionRows.map((row) => ({
+            event_date: row.event_date,
+            app: row.app,
+            reason: row.reason,
+            status: row.status,
+            session_ids: row.rejected_session_ids,
+            unidentified_rejections: row.unidentified_rejections,
+          })),
+        },
+      ],
+      { fresh: true },
+    );
   });
 
   it("uses the combined Postgres query for Postgres and dual sinks", async () => {
@@ -587,6 +763,65 @@ describe("upload rejection evidence routing", () => {
       numerator: 2,
       denominator: null,
     });
+  });
+
+  it("evaluates aggregate distinct rejected recorders across failure reasons", () => {
+    expect(
+      uploadRejectionCheck({
+        app: "clips",
+        reasons: "quota / 429, storage / 503",
+        rejected_recorders: 6,
+        unidentified_rejections: 0,
+        recorders: 100,
+      }),
+    ).toMatchObject({
+      id: "replay-upload-rejection",
+      app: "clips",
+      status: "fired",
+      numerator: 6,
+      denominator: 100,
+      value: 0.06,
+      detail: "6/100 recorders rejected (quota / 429, storage / 503).",
+    });
+  });
+
+  it("surfaces insufficient checks in the watch Markdown summary and findings", () => {
+    const markdown = formatWatchMarkdown({
+      generatedAt: "2026-10-27T00:00:00.000Z",
+      window: "daily",
+      date: "2026-10-26",
+      exitCode: 1,
+      checks: [
+        {
+          id: "sample-check",
+          app: "clips",
+          window: "daily",
+          baselineDays: 7,
+          minN: 10,
+          threshold: null,
+          operator: "signal",
+          severity: "warning",
+          message: "Sample check",
+          query: "events",
+          status: "insufficient",
+          numerator: 3,
+          denominator: 3,
+          detail: "Only three observations were available.",
+        },
+      ],
+      journeyRows: [],
+      campaignAnnotations: [],
+      issues: [],
+      coverage: { eventSourceCoverage: {} },
+      queryCount: 2,
+    });
+
+    expect(markdown).toContain(
+      "Exit 1. 0 fired, 0 unavailable, 1 insufficient, 2 queries.",
+    );
+    expect(markdown).toContain(
+      "| insufficient | sample-check | clips | n/a | n/a | Only three observations were available. |",
+    );
   });
 
   it("reports sessionless rejection events as unavailable", () => {

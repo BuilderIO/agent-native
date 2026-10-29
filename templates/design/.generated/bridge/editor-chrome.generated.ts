@@ -1135,6 +1135,52 @@ export const editorChromeBridgeScript: string = `"use strict";
     return candidates;
   }
 
+  // shared/svg-shape-offset.ts
+  var MOVABLE_SVG_SHAPE_TAGS = /* @__PURE__ */ new Set([
+    "circle",
+    "ellipse",
+    "g",
+    "image",
+    "line",
+    "path",
+    "polygon",
+    "polyline",
+    "rect",
+    "svg",
+    "text",
+    "use"
+  ]);
+  function isMovableSvgShapeTag(tagName) {
+    return MOVABLE_SVG_SHAPE_TAGS.has(tagName.toLowerCase());
+  }
+  var PX_TOKEN = /^-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:e[-+]?\\d+)?(?:px)?$/i;
+  function parseSvgShapeTranslate(value) {
+    const raw = (value ?? "").trim();
+    if (!raw || raw === "none") return { x: 0, y: 0 };
+    const tokens = raw.split(/\\s+/);
+    if (tokens.length > 3 || !tokens.every((token) => PX_TOKEN.test(token))) {
+      return null;
+    }
+    const [x = 0, y = 0, z = 0] = tokens.map((token) => Number.parseFloat(token));
+    if (![x, y, z].every(Number.isFinite) || z !== 0) return null;
+    return { x, y };
+  }
+  function formatSvgShapeTranslate(offset) {
+    const px = (value) => \`\${Number(value.toFixed(2)) || 0}px\`;
+    return \`\${px(offset.x)} \${px(offset.y)}\`;
+  }
+  function svgShapeTranslateAfterMove(offset, toCanvas, distance) {
+    const { a, b, c, d } = toCanvas;
+    const determinant = a * d - b * c;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+      return null;
+    }
+    return formatSvgShapeTranslate({
+      x: offset.x + (d * distance.dx - c * distance.dy) / determinant,
+      y: offset.y + (-b * distance.dx + a * distance.dy) / determinant
+    });
+  }
+
   // shared/text-layer-rule.ts
   var TEXT_LAYER_TAGS = /* @__PURE__ */ new Set([
     "a",
@@ -3772,6 +3818,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
+    function editableSvgShapeParent(el) {
+      var parent = el && el.parentElement;
+      if (!el || !parent || el.namespaceURI !== "http://www.w3.org/2000/svg" || parent.namespaceURI !== "http://www.w3.org/2000/svg" || !isMovableSvgShapeTag(el.tagName)) {
+        return null;
+      }
+      var root = outermostSvgAncestor(el);
+      return root && root.getAttribute("data-an-primitive") === "pasted-svg" ? parent : null;
+    }
+    function svgShapeUserUnitsToCanvas(el) {
+      var parent = editableSvgShapeParent(el);
+      var matrix = parent && parent.getScreenCTM();
+      return matrix ? { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d } : null;
+    }
     function isBoardRootMarqueeSurface(el) {
       if (!designCanvasBoardSurface || !el) return false;
       if (isDocumentRootElement(el)) return true;
@@ -6406,6 +6465,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
         positionRenderOffset
       ) : void 0;
+      var svgShapeToCanvas = editableSvgShapeParent(el) ? svgShapeUserUnitsToCanvas(el) : void 0;
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -6507,6 +6567,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           positionReferenceRect,
           positionContainingBlockOrigin: positionCoordinateContext.origin,
           positionContainingBlockTransform: positionCoordinateContext.transform
+        } : {},
+        ...svgShapeToCanvas !== void 0 ? {
+          svgShapeOffset: svgShapeToCanvas ? parseSvgShapeTranslate(cs.translate) : null,
+          ...svgShapeToCanvas ? { positionContainingBlockTransform: svgShapeToCanvas } : {}
         } : {},
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
@@ -10864,6 +10928,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
     var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
     var frameLabelRenderKey = "";
+    var editingFrameLabel = false;
     function outermostFrameElements() {
       if (!designCanvasBoardSurface) return [];
       var frames = Array.prototype.slice.call(
@@ -10901,6 +10966,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       postElementSelect(selectedEl, e);
     }
     function refreshFrameNameLabels() {
+      if (editingFrameLabel) return;
       var frames = outermostFrameElements();
       var line = chromeLineScale();
       var fontSize = 11 * line;
@@ -10949,6 +11015,63 @@ export const editorChromeBridgeScript: string = `"use strict";
           event.preventDefault();
           event.stopPropagation();
           selectFrameFromLabel(placement.frame, event);
+        });
+        label.addEventListener("dblclick", function(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (readOnly || interactionMode || isLayerInteractionBlocked(placement.frame))
+            return;
+          editingFrameLabel = true;
+          var input = document.createElement("input");
+          input.setAttribute("data-agent-native-frame-label-input", "");
+          input.setAttribute("aria-label", placement.text);
+          input.value = placement.text;
+          input.style.cssText = label.style.cssText + ";border:1px solid var(--design-editor-accent-color);background:var(--background);outline:none;";
+          var finished = false;
+          function finish(commit) {
+            if (finished) return;
+            finished = true;
+            var name = input.value.trim();
+            editingFrameLabel = false;
+            frameLabelRenderKey = "";
+            refreshFrameNameLabels();
+            if (commit && name && name !== placement.text) {
+              window.parent.postMessage(
+                {
+                  type: "frame-label-rename",
+                  payload: getElementInfo(placement.frame),
+                  name
+                },
+                "*"
+              );
+            }
+          }
+          input.addEventListener("mousedown", function(e) {
+            e.stopPropagation();
+          });
+          input.addEventListener("click", function(e) {
+            e.stopPropagation();
+          });
+          input.addEventListener("dblclick", function(e) {
+            e.stopPropagation();
+          });
+          input.addEventListener("keydown", function(e) {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              finish(true);
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              finish(false);
+            }
+          });
+          input.addEventListener("blur", function() {
+            finish(true);
+          });
+          label.replaceWith(input);
+          input.focus();
+          input.select();
         });
         frameLabelLayer.appendChild(label);
       });
@@ -18735,6 +18858,164 @@ export const editorChromeBridgeScript: string = `"use strict";
       snapGuideLayer.innerHTML = "";
       snapGuideNodeCount = 0;
     }
+    function moveGroupMixesSvgShapes(gestureEl) {
+      var members = collectMoveGroupMembers(gestureEl);
+      var shapes = members.filter(function(member) {
+        return !!editableSvgShapeParent(member);
+      });
+      return shapes.length > 0 && shapes.length < members.length;
+    }
+    function startRejectedDrag(e, reason, selectOnRelease) {
+      postCrossScreenDrag("cancel");
+      var events = dragEventNames(e);
+      function onRejectedMove(ev) {
+        showRejectedDragBadge(reason, ev.clientX, ev.clientY);
+      }
+      function cleanupRejectedDrag() {
+        document.removeEventListener(events.move, onRejectedMove, true);
+        document.removeEventListener(events.up, onRejectedUp, true);
+        document.removeEventListener("keydown", onRejectedKeyDown, true);
+        clearActiveDragCancel(onRejectedEscape);
+        shieldOverlay.style.cursor = "default";
+      }
+      function onRejectedEscape() {
+        resetBridgeDragModifierStateOnCancel();
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        suppressNextShieldClickBriefly();
+        return true;
+      }
+      function onRejectedKeyDown(ev) {
+        if (ev.key === "Escape") {
+          stopNativeInteraction(ev);
+          onRejectedEscape();
+        }
+      }
+      function onRejectedUp() {
+        cleanupRejectedDrag();
+        hideTransformBadge();
+        if (selectOnRelease) {
+          selectedEl = selectOnRelease;
+          positionOverlay(selectionOverlay, selectedEl);
+        }
+      }
+      shieldOverlay.style.cursor = "not-allowed";
+      showRejectedDragBadge(reason, e.clientX, e.clientY);
+      document.addEventListener(events.move, onRejectedMove, true);
+      document.addEventListener(events.up, onRejectedUp, true);
+      document.addEventListener("keydown", onRejectedKeyDown, true);
+      setActiveDragCancel(onRejectedEscape);
+    }
+    function startSvgShapeMove(e, gestureEl, pointerStart) {
+      postCrossScreenDrag("cancel");
+      var events = dragEventNames(e);
+      var startX = pointerStart ? pointerStart.clientX : e.clientX;
+      var startY = pointerStart ? pointerStart.clientY : e.clientY;
+      var DRAG_THRESHOLD = 3;
+      var members = collectMoveGroupMembers(gestureEl);
+      var states = members.map(function(member) {
+        var shape = member;
+        var toCanvas = svgShapeUserUnitsToCanvas(shape);
+        rememberLiveVisualEditOriginalStyles(shape);
+        return {
+          el: shape,
+          toCanvas,
+          offset: toCanvas ? parseSvgShapeTranslate(window.getComputedStyle(shape).translate) : null,
+          originalTranslate: shape.style.translate,
+          originalStyleAttribute: shape.getAttribute("style")
+        };
+      });
+      var rejection = null;
+      for (var state of states) {
+        if (!state.toCanvas || state.offset && !svgShapeTranslateAfterMove(state.offset, state.toCanvas, {
+          dx: 0,
+          dy: 0
+        })) {
+          rejection = "Can't move hidden shapes";
+          break;
+        }
+        if (!state.offset) rejection = "Can't move shapes offset by a percentage";
+      }
+      if (rejection) {
+        startRejectedDrag(e, rejection, null);
+        return;
+      }
+      var moved = false;
+      function restore() {
+        states.forEach(function(state2) {
+          if (state2.originalStyleAttribute === null) {
+            state2.el.removeAttribute("style");
+          } else {
+            state2.el.style.translate = state2.originalTranslate;
+          }
+        });
+      }
+      function onMove(ev) {
+        var dx = ev.clientX - startX;
+        var dy = ev.clientY - startY;
+        if (!moved && Math.hypot(dx, dy) <= DRAG_THRESHOLD) return;
+        moved = true;
+        if (ev.shiftKey) {
+          if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+          else dx = 0;
+        }
+        states.forEach(function(state2) {
+          var next = state2.toCanvas && state2.offset ? svgShapeTranslateAfterMove(state2.offset, state2.toCanvas, {
+            dx: Math.round(dx),
+            dy: Math.round(dy)
+          }) : null;
+          if (next) state2.el.style.translate = next;
+        });
+        refreshOverlays();
+      }
+      function cleanup() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onKeyDown, true);
+        clearActiveDragCancel(onEscape);
+      }
+      function onEscape() {
+        resetBridgeDragModifierStateOnCancel();
+        cleanup();
+        restore();
+        suppressNextShieldClickBriefly();
+        refreshOverlays();
+        if (selectedEl) postElementSelect(selectedEl);
+        return true;
+      }
+      function onKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        onEscape();
+      }
+      function onUp(ev) {
+        onMove(ev);
+        cleanup();
+        if (!moved) return;
+        suppressNextShieldClickBriefly();
+        states.forEach(function(state2) {
+          var styles = { translate: state2.el.style.translate };
+          if (styles.translate === state2.originalTranslate) return;
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(state2.el),
+              styles,
+              originalStyles: originalInlineStylesForPatch(state2.el, styles),
+              payload: getElementInfo(state2.el)
+            },
+            "*"
+          );
+          recordSourceOwnership(state2.el);
+        });
+        refreshOverlays();
+        if (selectedEl) postElementSelect(selectedEl);
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onKeyDown, true);
+      setActiveDragCancel(onEscape);
+    }
     function startMove(e, gestureElParam, pointerStartParam) {
       if (readOnly) return;
       var gestureEl = gestureElParam || selectedEl;
@@ -18743,6 +19024,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if (editableSvgShapeParent(gestureEl)) {
+        if (e.altKey) {
+          startRejectedDrag(e, "Can't duplicate SVG shapes by dragging", null);
+        } else if (moveGroupMixesSvgShapes(gestureEl)) {
+          startRejectedDrag(e, "Can't move SVG shapes with other layers", null);
+        } else {
+          startSvgShapeMove(e, gestureEl, pointerStartParam);
+        }
+        return;
+      }
+      if (!e.altKey && moveGroupMixesSvgShapes(gestureEl)) {
+        startRejectedDrag(e, "Can't move SVG shapes with other layers", null);
+        return;
+      }
       clearGridProjectionCaches();
       var moveGestureId = ++dragGestureSequence;
       var gestureStartedAt = eventEpochMilliseconds(e) ?? Date.now();
@@ -18793,50 +19088,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         postCrossScreenDrag("cancel");
       }
       if (!isGroupDrag && !duplicatedForDrag && isFlowReorderCandidate(gestureEl) && isTemplateCloneElement(gestureEl)) {
-        let onRejectedMove2 = function(ev) {
-          showRejectedDragBadge(
-            "Can't reorder repeated items",
-            ev.clientX,
-            ev.clientY
-          );
-        }, cleanupRejectedDrag2 = function() {
-          document.removeEventListener(events.move, onRejectedMove2, true);
-          document.removeEventListener(events.up, onRejectedUp2, true);
-          document.removeEventListener("keydown", onRejectedKeyDown2, true);
-          clearActiveDragCancel(onRejectedEscape2);
-          shieldOverlay.style.cursor = "default";
-        }, onRejectedEscape2 = function() {
-          resetBridgeDragModifierStateOnCancel();
-          cleanupRejectedDrag2();
-          hideTransformBadge();
-          suppressNextShieldClickBriefly();
-          return true;
-        }, onRejectedKeyDown2 = function(ev) {
-          if (ev.key === "Escape") {
-            stopNativeInteraction(ev);
-            onRejectedEscape2();
-          }
-        }, onRejectedUp2 = function() {
-          cleanupRejectedDrag2();
-          hideTransformBadge();
-          selectTargetAfterRejectedDrag2();
-        }, selectTargetAfterRejectedDrag2 = function() {
-          selectedEl = rejectedEl;
-          positionOverlay(selectionOverlay, selectedEl);
-        };
-        var onRejectedMove = onRejectedMove2, cleanupRejectedDrag = cleanupRejectedDrag2, onRejectedEscape = onRejectedEscape2, onRejectedKeyDown = onRejectedKeyDown2, onRejectedUp = onRejectedUp2, selectTargetAfterRejectedDrag = selectTargetAfterRejectedDrag2;
-        postCrossScreenDrag("cancel");
-        var rejectedEl = gestureEl;
-        shieldOverlay.style.cursor = "not-allowed";
-        showRejectedDragBadge(
-          "Can't reorder repeated items",
-          e.clientX,
-          e.clientY
-        );
-        document.addEventListener(events.move, onRejectedMove2, true);
-        document.addEventListener(events.up, onRejectedUp2, true);
-        document.addEventListener("keydown", onRejectedKeyDown2, true);
-        setActiveDragCancel(onRejectedEscape2);
+        startRejectedDrag(e, "Can't reorder repeated items", gestureEl);
         return;
       }
       if (isFlowReorderCandidate(gestureEl)) {

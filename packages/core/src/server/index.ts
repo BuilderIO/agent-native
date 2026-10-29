@@ -240,7 +240,10 @@ export {
   type CurrentTurnRunEvent,
 } from "../agent/run-store.js";
 export { callerHasThreadAccess } from "../agent/run-ownership.js";
-export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
+export {
+  abortTurnByRefDurably,
+  getActiveRunForThreadAsync,
+} from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
   realtimeVoiceSafetyIdentifier,
@@ -573,6 +576,7 @@ export {
 } from "./request-context.js";
 export {
   loadFirstRunBuilderCreditsV2Assignment,
+  resolveFirstRunBuilderCreditsV2Assignment,
   recordFirstRunBuilderCreditsV2Exposure,
 } from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
@@ -859,6 +863,10 @@ export {
   type SendBuilderBranchMessageOptions,
   type SendBuilderBranchMessageResult,
 } from "./builder-branch.js";
+export {
+  BuilderBranchFilesError,
+  readBuilderBranchFiles,
+} from "./builder-branch-files.js";
 export {
   ensureFusionContainer,
   sendFusionBranchMessage,

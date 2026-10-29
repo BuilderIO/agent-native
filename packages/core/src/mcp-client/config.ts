@@ -13,10 +13,16 @@ export interface McpStdioServerConfig {
   description?: string;
 }
 
+export interface McpOAuthAccessRefresh {
+  identity: string;
+  refresh: () => Promise<string | null>;
+}
+
 export interface McpHttpServerConfig {
   type: "http";
   url: string;
   headers?: Record<string, string>;
+  oauthAccessRefresh?: McpOAuthAccessRefresh;
   /** Internal failure marker for a server whose saved settings could not be materialized. */
   configurationError?: Error;
   firstParty?: boolean;

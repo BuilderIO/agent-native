@@ -5,6 +5,8 @@ import {
   designStylesheetsKey,
 } from "@/components/design/design-canvas/linked-stylesheets";
 import { useContainHorizontalOverscroll } from "@/hooks/use-contain-horizontal-overscroll";
+import { ReviewAgentProvider } from "@/lib/review-agent/review-agent-context";
+import { useReviewAgentRequests } from "@/lib/review-agent/use-review-agent-requests";
 
 import { AgentChatContextBookkeeping } from "./design-editor/agent-chat-context-bookkeeping";
 import { useDesignAgentSelect } from "./design-editor/design-agent-select";
@@ -79,6 +81,16 @@ function DesignEditor() {
     editorCanvasAndScreens,
     editorLiveEditsAndPresence,
   });
+  // Built here, not in a provider component, because the card menu's handler
+  // (inside `useEditorToolsAndVectors`) starts runs too.
+  const reviewAgent = useReviewAgentRequests({
+    designId: editorCore.id,
+    enabled:
+      editorGenerationAndAccess.canEditDesign &&
+      editorCore.isSignedIn &&
+      !editorCore.shellMode,
+    surfaceActive: editorGenerationAndAccess.pinMode,
+  });
   const editorToolsAndVectors = useEditorToolsAndVectors({
     editorCore,
     editorHistory,
@@ -88,6 +100,7 @@ function DesignEditor() {
     editorCanvasAndScreens,
     editorLiveEditsAndPresence,
     editorContentAndComponents,
+    reviewAgent: reviewAgent.enabled ? reviewAgent : null,
   });
   const editorSelectionAndStyles = useEditorSelectionAndStyles({
     editorCore,
@@ -298,7 +311,11 @@ function DesignEditor() {
         enabled={editorCore.isSignedIn}
         presentRef={editorToolsAndVectors.composerContextHasOurKeyRef}
       />
-      {view}
+      <ReviewAgentProvider
+        controller={reviewAgent.enabled ? reviewAgent : null}
+      >
+        {view}
+      </ReviewAgentProvider>
     </DesignStylesheetsContext.Provider>
   );
 }

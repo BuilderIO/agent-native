@@ -1,3 +1,9 @@
+## 0.13.10
+
+### Patch Changes
+
+- 7c5888c: Make chat history rail overflow actions replace timestamps without layout shifts.
+
 ## 0.13.9
 
 ### Patch Changes

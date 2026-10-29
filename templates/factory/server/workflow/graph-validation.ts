@@ -17,6 +17,7 @@ import {
 } from "./expressions.js";
 import {
   isWriteAllowedForNode,
+  operationOutputs,
   type OperationCatalog,
   type OperationDefinition,
   type OperationNodeKind,
@@ -443,6 +444,15 @@ function fieldIssues(
   return found;
 }
 
+interface ValidationOptions {
+  /**
+   * Refuse `nodes.<step>.<field>` when the step's operation declares its
+   * outputs and does not list that field. A graph saved before outputs were
+   * declared keeps running, so the run path turns this off.
+   */
+  checkOutputFields?: boolean;
+}
+
 /**
  * Checks that a graph is complete enough to save. "Upstream" means reachable
  * backwards over forward edges only, so a back-edge never makes a later node
@@ -453,6 +463,7 @@ function fieldIssues(
 export function validateWorkflowGraph(
   graph: WorkflowGraph,
   catalog: OperationCatalog,
+  { checkOutputFields = true }: ValidationOptions = {},
 ): WorkflowValidation {
   const issues: WorkflowIssue[] = [];
   const add = (issue: WorkflowIssue) => {
@@ -692,6 +703,27 @@ export function validateWorkflowGraph(
   const badReference = (node: WorkflowNode, where: string, why: string) =>
     add({ code: "bad_reference", nodeId: node.id, detail: `${where}: ${why}` });
 
+  /** Why `field` is not something `target`'s result carries, or undefined when it is, or when nothing is declared to check it against. */
+  const unknownOutput = (
+    target: WorkflowNode,
+    field: string,
+  ): string | undefined => {
+    if (
+      target.kind !== "lookup" &&
+      target.kind !== "action" &&
+      target.kind !== "agent"
+    ) {
+      return undefined;
+    }
+    const use = operationUse(target);
+    const def = use ? catalog.get(use.id) : undefined;
+    const outputs = def ? operationOutputs(def) : undefined;
+    if (!def || !outputs || outputs.some((output) => output.name === field)) {
+      return undefined;
+    }
+    return `reads "${field}", which ${def.id} does not return. It returns: ${outputs.map((output) => output.name).join(", ")}.`;
+  };
+
   const checkParsedPath = (
     node: WorkflowNode,
     where: string,
@@ -699,7 +731,7 @@ export function validateWorkflowGraph(
     path: ParsedPath,
   ) => {
     if (path.root !== "nodes") return;
-    const [name] = path.segments;
+    const [name, field] = path.segments;
     if (typeof name !== "string") {
       return badReference(
         node,
@@ -710,7 +742,15 @@ export function validateWorkflowGraph(
     const target = scopeKeys.get(name);
     if (!target) return badReference(node, where, `no node is named "${name}"`);
     if (!upstreamOf(node.id).has(target.id)) {
-      badReference(node, where, `"${name}" is not upstream of this node`);
+      return badReference(
+        node,
+        where,
+        `"${name}" is not upstream of this node`,
+      );
+    }
+    if (checkOutputFields && typeof field === "string") {
+      const unknown = unknownOutput(target, field);
+      if (unknown) badReference(node, where, `"${text}" ${unknown}`);
     }
   };
 

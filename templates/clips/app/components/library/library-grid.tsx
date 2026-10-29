@@ -6,12 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
-import {
-  IconAlertTriangle,
-  IconFolderPlus,
-  IconLink,
-  IconUpload,
-} from "@tabler/icons-react";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import {
   type DragEvent,
   type ReactElement,
@@ -78,12 +73,26 @@ import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
-  view: "library" | "shared" | "space" | "archive" | "trash" | "all";
+  view:
+    | "library"
+    | "shared"
+    | "space"
+    | "archive"
+    | "trash"
+    | "all"
+    | "from-content";
   /** "image" narrows the same list to screenshots; defaults to everything. */
   kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
-  emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
+  emptyKind?:
+    | "library"
+    | "shared"
+    | "folder"
+    | "space"
+    | "archive"
+    | "trash"
+    | "fromContent";
   title?: string;
   breadcrumbItems?: readonly PageBreadcrumbItem[];
   tagFilter?: string | null;
@@ -142,7 +151,6 @@ function LibraryCanvasContextMenu({
             setTimeout(onCreateFolder, 0);
           }}
         >
-          <IconFolderPlus className="me-2 size-4" />
           {t("navigation.newFolder")}
         </ContextMenuItem>
         <ContextMenuSeparator />
@@ -152,14 +160,10 @@ function LibraryCanvasContextMenu({
             openUploadPicker(uploadHref);
           }}
         >
-          <IconUpload />
           {t("preRecord.uploadVideo")}
         </ContextMenuItem>
         <ContextMenuItem asChild>
-          <Link to={importLoomHref}>
-            <IconLink />
-            {t("preRecord.importLoom")}
-          </Link>
+          <Link to={importLoomHref}>{t("preRecord.importLoom")}</Link>
         </ContextMenuItem>
       </ContextMenuContent>
       {input}

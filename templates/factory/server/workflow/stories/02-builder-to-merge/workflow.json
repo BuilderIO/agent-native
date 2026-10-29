@@ -111,6 +111,11 @@
                 "left": "nodes.check.state",
                 "op": "equals",
                 "right": "completed"
+              },
+              {
+                "left": "nodes.check.state",
+                "op": "equals",
+                "right": "not_found"
               }
             ]
           }

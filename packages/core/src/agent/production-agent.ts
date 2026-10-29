@@ -50,6 +50,7 @@ import {
   isAgentConnectionRequiredError,
   actionCallIntent,
   ActionInputValidationError,
+  telemetryInvalidPaths,
   type ActionExecutionOutcome,
   invocationEffect,
   runPreparedActionCall,
@@ -393,6 +394,11 @@ import {
   type Processor,
 } from "./processors.js";
 import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
+import {
+  IncompleteAgentRunError,
+  incompleteAgentRunFailure,
+  RUN_RATE_LIMITED_MESSAGE,
+} from "./run-errors.js";
 import {
   startRun,
   subscribeToRun,
@@ -1360,6 +1366,7 @@ export interface ActionEntry {
    *  decision, so they never count as the action declaring its hints. */
   mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  eagerInputStreaming?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
@@ -2402,11 +2409,6 @@ const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
 const MAX_CONSECUTIVE_MAX_TOKENS_CONTINUATIONS = 3;
 const TRUNCATED_TOOL_CALL_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
-const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
-const RUN_BUDGET_EXHAUSTED_MESSAGE =
-  "I ran out of time before finishing this step. " +
-  "I stopped rather than keep retrying silently. " +
-  "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 const MAX_INLINE_ATTACHMENT_BASE64_CHARS = MAX_INLINE_FILE_BASE64_CHARS;
 const MAX_TEXT_ATTACHMENT_CHARS = MAX_INLINE_TEXT_ATTACHMENT_CHARS;
 const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS =
@@ -3035,7 +3037,7 @@ function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
   return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
 }
 
-function describeAttachmentPreUploadWarning(): string {
+export function describeAttachmentPreUploadWarning(): string {
   return '<chat-attachment-preparation-warning code="pre-upload-failed">The attachment pre-upload step failed. This may affect its durable URL, but it does not prove the contents are unreadable in this request. Inspect any inline payload or reference normally, and only report an attachment as unreadable if the actual payload is missing or invalid.</chat-attachment-preparation-warning>';
 }
 
@@ -5844,6 +5846,7 @@ export function actionsToEngineTools(
       name,
       description: entry.tool.description,
       inputSchema,
+      ...(entry.eagerInputStreaming ? { eagerInputStreaming: true } : {}),
     });
   }
   return tools;
@@ -7554,6 +7557,8 @@ export async function runAgentLoop(opts: {
     model: string,
     reasoningEffort: ReasoningEffort | undefined,
   ) => void;
+  /** A provider request passed the run's safe-dispatch boundary. */
+  onModelDispatchStarted?: () => void;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -8424,6 +8429,12 @@ export async function runAgentLoop(opts: {
           beforeModelDispatch: opts.beforeModelDispatch,
           onModelDispatchStarted: () => {
             usage.llmCalls = (usage.llmCalls ?? 0) + 1;
+            try {
+              opts.onModelDispatchStarted?.();
+            } catch {
+              // coercion-ok: telemetry observers cannot change model dispatch.
+              // Telemetry observers cannot change whether a model request runs.
+            }
           },
           providerOptions,
         };
@@ -8528,6 +8539,9 @@ export async function runAgentLoop(opts: {
           try {
             returnPromise = iterator.return?.();
           } catch {
+            // coercion-ok: telemetry observers cannot change model dispatch.
+            // coercion-ok: telemetry observers cannot change model dispatch.
+            // coercion-ok: telemetry observers cannot change run completion.
             return;
           }
           if (!returnPromise) return;
@@ -9684,6 +9698,7 @@ export async function runAgentLoop(opts: {
         guidance: string,
         isError = false,
         errorClass?: ToolErrorClass,
+        invalidPaths?: string[],
       ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
         return (async () => {
@@ -9702,6 +9717,7 @@ export async function runAgentLoop(opts: {
             isError: true,
             completedSideEffect: false,
             ...(errorClass ? { errorClass } : {}),
+            ...(invalidPaths ? { invalidPaths } : {}),
           });
           recordToolResult(result, true);
           return {
@@ -9858,6 +9874,9 @@ export async function runAgentLoop(opts: {
           thrownToolResult(intent?.error),
           true,
           "input_invalid",
+          intent?.error instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(intent.error.paths)
+            : undefined,
         );
       }
 
@@ -11151,6 +11170,10 @@ export async function runAgentLoop(opts: {
             : callEffect === "none" && !actionIsReadOnly
               ? "rejected"
               : undefined;
+        const toolInvalidPaths =
+          thrown instanceof ActionInputValidationError
+            ? telemetryInvalidPaths(thrown.paths)
+            : undefined;
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -11281,6 +11304,7 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(toolErrorClass ? { errorClass: toolErrorClass } : {}),
+          ...(toolInvalidPaths ? { invalidPaths: toolInvalidPaths } : {}),
           ...(callEffect === "unknown"
             ? { outcomeUnknown: true as const }
             : isError || receipt || callEffect === "committed"
@@ -11878,6 +11902,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
   };
   const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
     mergeAgentLoopUsage(usage, next);
+  let dispatchedModelCalls = 0;
 
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const resumeResumableErrorsInProcess =
@@ -11916,6 +11941,15 @@ export async function runAgentLoopWithMainChatInternalContinuations(
         send,
         finalResponseGuardRequestText,
         hasVisibleTurnText: () => turnHasVisibleText(localTurnEvents),
+        onModelDispatchStarted: () => {
+          dispatchedModelCalls++;
+          try {
+            opts.onModelDispatchStarted?.();
+          } catch {
+            // coercion-ok: telemetry observers cannot change model dispatch.
+            // Telemetry observers cannot change whether a model request runs.
+          }
+        },
       });
       addUsage(nextUsage);
     } catch (err) {
@@ -11952,12 +11986,28 @@ export async function runAgentLoopWithMainChatInternalContinuations(
   }
 
   if (!opts.signal.aborted && lastAttemptWasUnfinishedContinuation) {
-    opts.send({
-      type: "error",
-      error: RUN_BUDGET_EXHAUSTED_MESSAGE,
-      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-      recoverable: false,
+    const producedToolOutput = localTurnEvents.some(
+      (event) => event.type === "tool_done" && event.isError !== true,
+    );
+    const failure = incompleteAgentRunFailure({
+      dispatchedModelCalls,
+      hasVisibleText: turnHasVisibleText(localTurnEvents),
+      hasSuccessfulToolOutput: producedToolOutput,
+      reason: "continuation_limit",
     });
+    try {
+      opts.onOutcome?.({
+        state: "failed",
+        code: failure.code,
+        retryable: false,
+        message: failure.message,
+      });
+    } catch {
+      // coercion-ok: outcome observers cannot change run completion.
+      // coercion-ok: outcome observers cannot change run completion.
+      // Outcome observers are telemetry/protocol adapters and cannot alter the run.
+    }
+    throw new IncompleteAgentRunError(failure, usage);
   }
   return usage;
 }
@@ -12050,8 +12100,7 @@ export function rateLimitChainCapTripped(opts: {
   );
 }
 
-export const PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE =
-  "The AI provider is rate limiting requests right now. Wait a minute and try again.";
+export const PROVIDER_RATE_LIMITED_TERMINAL_MESSAGE = RUN_RATE_LIMITED_MESSAGE;
 
 export function rateLimitChainCapTerminalEvent(
   run: ActiveRun,

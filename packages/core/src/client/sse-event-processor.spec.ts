@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../app-config/run-lifecycle-invariants.js";
+import { getBrowserTabId } from "./browser-tab-id.js";
 import { subscribeChatFirstOpenApp } from "./chat-first-state.js";
 import {
   AgentAutoContinueSignal,
@@ -51,6 +52,50 @@ describe("SSE event admission across deploy versions", () => {
     expect(
       admitSSEEvent({ type: "tool_done", seq: 6 }, seenSeqs, seenIds),
     ).toBe(false);
+  });
+});
+
+describe("SSE tool completion tab identity", () => {
+  it("emits browser-tab identity separately from the chat tab id", () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", {
+      location: { pathname: "/" },
+      sessionStorage: {
+        getItem: () => null,
+        setItem: vi.fn(),
+      },
+      dispatchEvent,
+    });
+    const browserTabId = getBrowserTabId();
+
+    try {
+      processEvent(
+        {
+          type: "tool_done",
+          tool: "navigate",
+          id: "call-1",
+          result: "{}",
+          completedSideEffect: true,
+        },
+        [],
+        { value: 0 },
+        "chat-tab-a",
+        undefined,
+        { runId: "run-1" },
+      );
+
+      const completed = dispatchEvent.mock.calls
+        .map(([event]) => event as Event & { detail?: Record<string, unknown> })
+        .find((event) => event.type === "agent-native:tool-done");
+      expect(completed?.detail).toMatchObject({
+        tabId: "chat-tab-a",
+        browserTabId,
+        runId: "run-1",
+      });
+      expect(browserTabId).not.toBe("chat-tab-a");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

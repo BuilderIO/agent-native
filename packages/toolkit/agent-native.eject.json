@@ -550,6 +550,7 @@
         "@agent-native/core/client/uploads/use-upload-resource",
         "@agent-native/core/client/use-action",
         "@agent-native/core/client/onboarding/use-onboarding",
+        "@agent-native/core/client/use-session",
         "@agent-native/core/demo/browser-state",
         "@agent-native/core/feature-flags/registry",
         "@agent-native/core/file-upload/storage-settings",
@@ -1158,7 +1159,10 @@
       "label": "Toolkit app Onboarding",
       "catalog": "toolkit-ui",
       "catalogItems": ["app-onboarding"],
-      "entrypoints": ["./app/onboarding"],
+      "entrypoints": [
+        "./app/onboarding",
+        "./app/onboarding/first-run-builder-credits-flag"
+      ],
       "strategy": "source-copy",
       "sourceEntries": ["src/app/onboarding"],
       "targetRoot": "app/components/agent-native/toolkit",
@@ -1241,6 +1245,19 @@
       ]
     },
     {
+      "id": "toolkit/app-generation",
+      "label": "Toolkit app Generation",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-generation"],
+      "entrypoints": ["./app/generation"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/generation"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "react"],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/generation-stream"]
+    },
+    {
       "id": "toolkit/app-progress",
       "label": "Toolkit app Progress",
       "catalog": "toolkit-ui",
@@ -1272,6 +1289,11 @@
       "dependencies": [
         "@agent-native/core",
         "@tabler/icons-react",
+        "@tiptap/core",
+        "@tiptap/extension-placeholder",
+        "@tiptap/pm",
+        "@tiptap/react",
+        "@tiptap/starter-kit",
         "clsx",
         "react",
         "react-markdown",

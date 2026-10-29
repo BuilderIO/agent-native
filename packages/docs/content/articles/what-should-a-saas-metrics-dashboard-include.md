@@ -1,6 +1,6 @@
 ---
 slug: what-should-a-saas-metrics-dashboard-include
-use_case: startup-kpi-dashboard
+use_case: ai-kpi-dashboard
 job_id: job-kpi-dashboard
 title: "What should a SaaS metrics dashboard include?"
 meta_description: "A SaaS metrics dashboard should show recurring revenue, whether customers stay, and whether new users become active. The core metrics, and how to build the dashboard."

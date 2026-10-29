@@ -8,6 +8,13 @@ export interface ApplyEditsResult {
   applied: number;
 }
 
+export class ApplyEditConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApplyEditConflictError";
+  }
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -51,13 +58,13 @@ export function applyOneEdit(
       exact > 1
         ? `${exact} places (exact) and ${flexible} places (whitespace-insensitive)`
         : `${flexible} places (whitespace-insensitive)`;
-    throw new Error(
+    throw new ApplyEditConflictError(
       `Edit ${index + 1}: "search" matched ${detail} — add more surrounding context so it matches exactly one location.`,
     );
   }
 
-  throw new Error(
-    `Edit ${index + 1}: "search" text was not found in the file. Read the current file (get-design-snapshot) and copy the exact text you want to change.`,
+  throw new ApplyEditConflictError(
+    `Edit ${index + 1}: search text was not found in the file. Read the current file (get-design-snapshot) and copy the exact text you want to change.`,
   );
 }
 
