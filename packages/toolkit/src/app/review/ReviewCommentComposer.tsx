@@ -81,8 +81,10 @@ export interface ReviewCommentComposerProps {
   /**
    * `expanded` is always the full editor with its toolbar. `reply` is a
    * one-line field that grows into the editor on focus or once it has content.
+   * `draft` is the one-line field a new canvas comment starts as: it shows its
+   * focus ring while empty and grows only once there is something to send.
    */
-  variant?: "expanded" | "reply";
+  variant?: "expanded" | "reply" | "draft";
   /** Only `aria-*`, `data-*` and `id` reach the editor. */
   textareaProps?: TextareaHTMLAttributes<HTMLTextAreaElement> &
     Record<string, unknown>;
@@ -122,7 +124,12 @@ export function ReviewCommentComposer({
   className,
 }: ReviewCommentComposerProps) {
   const resolvedPlaceholder =
-    placeholder ?? (variant === "reply" ? "Reply" : "Add a comment...");
+    placeholder ??
+    (variant === "reply"
+      ? "Reply"
+      : variant === "draft"
+        ? "Add a comment"
+        : "Add a comment...");
   const showAgent = showAgentAction ?? Boolean(agentAction);
   const canSubmit = Boolean(value.trim()) && !disabled;
   const editorRef = useRef<ReviewComposerEditorHandle>(null);
@@ -333,7 +340,7 @@ export function ReviewCommentComposer({
   const hasContent = value.length > 0;
   const expanded =
     variant === "expanded" ||
-    focused ||
+    (variant === "reply" && focused) ||
     hasContent ||
     Boolean(attachments) ||
     emojiOpen ||
@@ -381,7 +388,7 @@ export function ReviewCommentComposer({
           data-expanded={expanded ? "" : undefined}
           className={cn(
             "relative rounded-[10px] border bg-secondary text-sm",
-            expanded
+            expanded || variant === "draft"
               ? "border-input focus-within:border-[color:var(--review-composer-focus,hsl(var(--ring)))]"
               : "border-transparent",
           )}

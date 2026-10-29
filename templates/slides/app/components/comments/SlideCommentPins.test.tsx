@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import type { ReviewComment } from "@agent-native/core/review";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -107,6 +108,9 @@ vi.mock("@/components/ui/popover", () => ({
     useContext(PopoverContext)?.open ? <div>{children}</div> : null,
 }));
 
+import { setSlideCommentsHidden } from "@/hooks/use-slide-comments-hidden";
+import { requestSlideComment } from "@/lib/slide-comment-requests";
+
 import { SlideCommentPins } from "./SlideCommentPins";
 
 function rect(left: number, top: number, width: number, height: number) {
@@ -180,6 +184,7 @@ afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
   vi.clearAllMocks();
+  setSlideCommentsHidden(false);
 });
 
 describe("SlideCommentPins", () => {
@@ -268,5 +273,88 @@ describe("SlideCommentPins", () => {
     fireEvent.click(screen.getByLabelText("comments.openThreadBy"));
     expect(screen.getByText("Thread t1")).toBeTruthy();
     expect(onSelectThread).toHaveBeenCalledWith("t1");
+  });
+
+  it("opens a thread the panel asks for, and starts a draft at a text selection", async () => {
+    mountCanvas();
+    const point = { x: 20, y: 30 };
+    mocks.createComment.mockResolvedValue({ id: "new", threadId: "new" });
+    render(
+      <SlideCommentPins {...props} active={false} comments={[thread("t1")]} />,
+    );
+    act(() =>
+      requestSlideComment({
+        kind: "open-thread",
+        slideId: "slide-1",
+        threadId: "t1",
+      }),
+    );
+    expect(screen.getByText("Thread t1")).toBeTruthy();
+
+    act(() =>
+      requestSlideComment({
+        kind: "draft",
+        slideId: "slide-1",
+        anchor: point,
+        quotedText: "Q3 Revenue",
+      }),
+    );
+    fireEvent.change(await screen.findByLabelText("composer"), {
+      target: { value: "Shorter" },
+    });
+    fireEvent.click(screen.getByText("submit"));
+    await waitFor(() =>
+      expect(mocks.createComment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          anchor: {
+            kind: "slide",
+            slideId: "slide-1",
+            quotedText: "Q3 Revenue",
+            point,
+          },
+        }),
+      ),
+    );
+  });
+
+  it("leaves a request for another slide waiting", () => {
+    mountCanvas();
+    render(
+      <SlideCommentPins {...props} active={false} comments={[thread("t1")]} />,
+    );
+    act(() =>
+      requestSlideComment({
+        kind: "open-thread",
+        slideId: "slide-2",
+        threadId: "t9",
+      }),
+    );
+    expect(screen.queryByText("Thread t1")).toBeNull();
+  });
+
+  it("shows no pins while comments are hidden, and Shift+C brings them back", () => {
+    mountCanvas();
+    const { container } = render(
+      <SlideCommentPins {...props} active={false} comments={[thread("t1")]} />,
+    );
+    act(() => setSlideCommentsHidden(true));
+    expect(
+      container.querySelectorAll("[data-slide-comment-marker-position]"),
+    ).toHaveLength(0);
+    fireEvent.keyDown(window, { key: "C", shiftKey: true });
+    expect(
+      container.querySelectorAll("[data-slide-comment-marker-position]"),
+    ).toHaveLength(1);
+  });
+
+  it("turns comments back on when the pin tool is picked", () => {
+    mountCanvas();
+    setSlideCommentsHidden(true);
+    const { container } = render(
+      <SlideCommentPins {...props} active comments={[thread("t1")]} />,
+    );
+    expect(
+      container.querySelectorAll("[data-slide-comment-marker-position]"),
+    ).toHaveLength(1);
   });
 });

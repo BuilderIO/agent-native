@@ -12,3 +12,7 @@ export * from "./ReviewThreadMenu.js";
 export * from "./ReviewMentionChip.js";
 export * from "./ReviewMentionPicker.js";
 export * from "./use-review-agent-mentions.js";
+export * from "./ReviewInitialAvatar.js";
+export * from "./ReviewThreadRow.js";
+export * from "./ReviewThreadsPanel.js";
+export * from "./ReviewPinBadge.js";

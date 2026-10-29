@@ -1,21 +1,17 @@
 // @vitest-environment happy-dom
-import type { ReviewComment, ReviewMention } from "@agent-native/core/review";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { ReviewComment } from "@agent-native/core/review";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CommentThread } from "@/hooks/use-slide-comments";
+import {
+  subscribeSlideCommentRequests,
+  takeSlideCommentRequest,
+  type SlideCommentRequest,
+} from "@/lib/slide-comment-requests";
 
 const mocks = vi.hoisted(() => ({
-  threads: [] as unknown[],
-  createComment: vi.fn(),
-  startIfTagged: vi.fn(),
+  comments: [] as ReviewComment[],
 }));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
@@ -29,114 +25,64 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   setClientAppState: vi.fn(async () => undefined),
 }));
 
-vi.mock("@agent-native/core/client/review", () => ({
-  useCreateReviewComment: () => ({
-    isPending: false,
-    mutateAsync: mocks.createComment,
-  }),
-}));
-
-// The real thread card is covered by the toolkit; here it only has to say
-// which thread it is showing.
-vi.mock("./SlideReviewThreadCard", () => ({
-  SlideReviewThreadCard: ({ thread }: { thread: CommentThread }) => (
-    <article>{thread.review.root.body}</article>
-  ),
-}));
-
-// A plain stand-in for the rich composer: a text field, a button that adds a
-// chip, and the submit button.
-vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/toolkit/app/review")
-  >()),
-  ReviewAuthorAvatar: () => null,
-  ReviewThreadCardFrame: ({ children }: { children: ReactNode }) => (
-    <section>{children}</section>
-  ),
-  ReviewCommentComposer: ({
-    value,
-    onChange,
-    onSubmit,
-    mentions = [],
-    onMentionsChange,
-    mentionOptions = [],
-  }: {
-    value: string;
-    onChange: (value: string) => void;
-    onSubmit: (target: "human") => void;
-    mentions?: ReviewMention[];
-    onMentionsChange?: (mentions: ReviewMention[]) => void;
-    mentionOptions?: ReviewMention[];
-  }) => (
-    <div>
-      <textarea
-        aria-label="composer"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {mentionOptions.map((option) => (
-        <button
-          key={option.id ?? option.email ?? option.label}
-          type="button"
-          onClick={() => onMentionsChange?.([...mentions, option])}
-        >
-          mention {option.label}
-        </button>
-      ))}
-      <button type="button" onClick={() => onSubmit("human")}>
-        submit
-      </button>
-    </div>
-  ),
-}));
-
-vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipContent: () => null,
-}));
-
-vi.mock("@/hooks/use-slide-comments", () => ({
-  useSlideComments: (
-    _deckId: string | null,
-    slideId: string | null,
-    scope: "slide" | "deck" = "slide",
-  ) => ({
-    data: (mocks.threads as CommentThread[]).filter(
-      (thread) => scope === "deck" || thread.slideId === slideId,
-    ),
-    discussion: undefined,
+vi.mock("@agent-native/core/client/review/use-review", () => ({
+  useReviewComments: () => ({
+    data: {
+      comments: mocks.comments,
+      discussion: {
+        reactions: {},
+        threadPreferences: {},
+        canReact: true,
+        canSetThreadPreferences: true,
+      },
+    },
     isLoading: false,
     isError: false,
-    refetch: vi.fn(),
   }),
+  useSetReviewThreadUnread: () => ({ isPending: false, mutate: vi.fn() }),
+  useSetReviewThreadsUnread: () => ({ isPending: false, mutate: vi.fn() }),
+}));
+
+vi.mock("@/hooks/use-slide-comments", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-slide-comments")>()),
+  useSlideComments: () => ({ discussion: undefined }),
 }));
 
 vi.mock("@/hooks/use-slide-review-surface", () => ({
   useSlideReviewSurface: () => ({
-    peopleMentionOptions: [{ label: "Sam", email: "sam@example.com" }],
-    agent: {
-      mentionOptions: [{ label: "Claude", id: "agent:anthropic:claude" }],
-      startIfTagged: mocks.startIfTagged,
-    },
+    peopleMentionOptions: [],
+    agent: { mentionOptions: [], startIfTagged: vi.fn() },
   }),
 }));
 
-import { groupThreadsBySlide, SlideCommentsPanel } from "./SlideCommentsPanel";
+// The thread card is covered on its own; here it only has to say which
+// thread opened under its row.
+vi.mock("./SlideReviewThreadCard", () => ({
+  SlideReviewThreadCard: ({ thread }: { thread: CommentThread }) => (
+    <article>card {thread.review.root.body}</article>
+  ),
+}));
 
-function root(overrides: Partial<ReviewComment>): ReviewComment {
+import { SlideCommentsPanel } from "./SlideCommentsPanel";
+
+function comment(
+  id: string,
+  slideId: string | null,
+  overrides: Partial<ReviewComment> = {},
+): ReviewComment {
   return {
-    id: "c1",
+    id,
     resourceType: "deck",
     resourceId: "deck-1",
-    threadId: "c1",
+    threadId: id,
     parentCommentId: null,
-    targetId: "slide-1",
+    targetId: slideId,
     kind: "comment",
     status: "open",
-    anchor: null,
-    body: "Body",
+    anchor: slideId
+      ? { kind: "slide", slideId, point: { x: 10, y: 10 } }
+      : null,
+    body: `Body ${id}`,
     authorEmail: "alice@example.com",
     authorName: "Alice",
     createdBy: "human",
@@ -157,22 +103,6 @@ function root(overrides: Partial<ReviewComment>): ReviewComment {
   };
 }
 
-function thread(
-  id: string,
-  slideId: string | null,
-  overrides: Partial<ReviewComment> = {},
-): CommentThread {
-  const comment = root({ id, threadId: id, targetId: slideId, ...overrides });
-  return {
-    threadId: id,
-    slideId,
-    quotedText: null,
-    anchor: null,
-    resolved: comment.status === "resolved",
-    review: { root: comment, replies: [] },
-  };
-}
-
 const baseProps = {
   deckId: "deck-1",
   slideId: "slide-1",
@@ -185,101 +115,71 @@ const baseProps = {
   onClose: vi.fn(),
 };
 
+let requests: SlideCommentRequest[] = [];
+let unsubscribe: () => void = () => {};
+
 beforeEach(() => {
-  mocks.threads = [];
-  const store = new Map<string, string>();
-  vi.stubGlobal("localStorage", {
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => store.set(key, value),
-    removeItem: (key: string) => store.delete(key),
-    clear: () => store.clear(),
+  mocks.comments = [];
+  requests = [];
+  unsubscribe = subscribeSlideCommentRequests(() => {
+    for (const slideId of ["slide-1", "slide-2"]) {
+      const request = takeSlideCommentRequest(slideId);
+      if (request) requests.push(request);
+    }
   });
 });
 
-// oracle-change: the panel now lists core review threads; editing, reactions and reply cases are covered by the toolkit thread card.
 afterEach(() => {
+  unsubscribe();
   cleanup();
   vi.clearAllMocks();
-  vi.unstubAllGlobals();
 });
 
-describe("groupThreadsBySlide", () => {
-  it("orders groups by the deck's current slide order and keeps orphaned threads last", () => {
-    const groups = groupThreadsBySlide(
-      [
-        thread("on-a", "slide-a"),
-        thread("orphan", "deleted-slide"),
-        thread("on-b", "slide-b"),
-      ],
-      ["slide-b", "slide-a"],
-    );
-    expect(
-      groups.map((group) => [
-        group.slideNumber,
-        group.threads.map((entry) => entry.threadId),
-      ]),
-    ).toEqual([
-      [1, ["on-b"]],
-      [2, ["on-a"]],
-      [null, ["orphan"]],
-    ]);
-  });
-});
-
+// oracle-change: the panel is now the shared one-line thread list; thread editing, reactions and replies moved to the toolkit card and its tests.
 describe("SlideCommentsPanel", () => {
-  it("shows this slide's open threads, and resolved ones on request", () => {
-    mocks.threads = [
-      thread("open", "slide-1", { body: "Open on this slide" }),
-      thread("done", "slide-1", { body: "Resolved one", status: "resolved" }),
-      thread("other", "slide-2", { body: "On slide 2" }),
+  it("lists threads under their slide in deck order, a removed slide's threads last", () => {
+    mocks.comments = [
+      comment("gone", "deleted-slide"),
+      comment("second", "slide-2"),
+      comment("first", "slide-1"),
     ];
     render(<SlideCommentsPanel {...baseProps} />);
-    expect(screen.getByText("Open on this slide")).toBeTruthy();
-    expect(screen.queryByText("Resolved one")).toBeNull();
-    expect(screen.queryByText("On slide 2")).toBeNull();
-
-    fireEvent.click(screen.getByText('comments.showResolved {"count":1}'));
-    expect(screen.getByText("Resolved one")).toBeTruthy();
-  });
-
-  it("filters For you to threads that mention you or that you are in with someone else", () => {
-    window.localStorage.setItem("slides:comments-filters-expanded", "true");
-    mocks.threads = [
-      thread("mention", "slide-1", {
-        body: "Mentions me",
-        mentions: [{ label: "Me", email: "ME@example.com" }],
-      }),
-      thread("unrelated", "slide-1", { body: "Not for me" }),
-    ];
-    render(<SlideCommentsPanel {...baseProps} />);
-    fireEvent.click(screen.getByText("comments.forYou"));
-    expect(screen.getByText("Mentions me")).toBeTruthy();
-    expect(screen.queryByText("Not for me")).toBeNull();
-  });
-
-  it("groups all slides' threads under their slide number", () => {
-    window.localStorage.setItem("slides:comments-filters-expanded", "true");
-    mocks.threads = [
-      thread("second", "slide-2", { body: "Second slide note" }),
-      thread("first", "slide-1", { body: "First slide note" }),
-    ];
-    render(<SlideCommentsPanel {...baseProps} />);
-    fireEvent.click(screen.getByText("comments.allComments"));
-    const headings = screen
-      .getAllByRole("heading", { level: 3 })
-      .map((heading) => heading.textContent);
-    expect(headings).toEqual([
+    expect(
+      screen
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual([
       'comments.slideGroup {"number":1}',
       'comments.slideGroup {"number":2}',
+      "comments.removedSlidesGroup",
     ]);
+    expect(screen.getByText('comments.threadsCount {"count":3}')).toBeTruthy();
   });
 
-  it("posts a text-selection comment on the slide and hands an agent chip to the agent", async () => {
-    mocks.createComment.mockResolvedValue({ id: "new", threadId: "new" });
-    mocks.startIfTagged.mockResolvedValue("started");
-    const point = { x: 12, y: 34, objectId: "title", objectX: 1, objectY: 2 };
+  it("opens a pinned thread on the canvas, moving to its slide first", () => {
+    mocks.comments = [comment("second", "slide-2")];
+    const onSelectSlide = vi.fn();
+    render(<SlideCommentsPanel {...baseProps} onSelectSlide={onSelectSlide} />);
+    fireEvent.click(screen.getByText("Body second"));
+    expect(onSelectSlide).toHaveBeenCalledWith("slide-2");
+    expect(requests).toEqual([
+      { kind: "open-thread", slideId: "slide-2", threadId: "second" },
+    ]);
+    expect(screen.queryByText("card Body second")).toBeNull();
+  });
+
+  it("opens a thread with no canvas pin under its row", () => {
+    mocks.comments = [comment("legacy", "slide-1", { anchor: null })];
+    render(<SlideCommentsPanel {...baseProps} />);
+    fireEvent.click(screen.getByText("Body legacy"));
+    expect(screen.getByText("card Body legacy")).toBeTruthy();
+    expect(requests).toEqual([]);
+  });
+
+  it("starts a text-selection comment as a draft on the canvas", () => {
     const onPendingDone = vi.fn();
-    render(
+    const point = { x: 12, y: 34 };
+    const { rerender } = render(
       <SlideCommentsPanel
         {...baseProps}
         onPendingDone={onPendingDone}
@@ -290,45 +190,56 @@ describe("SlideCommentsPanel", () => {
         }}
       />,
     );
-    fireEvent.change(screen.getByLabelText("composer"), {
-      target: { value: "Shorter please" },
-    });
-    fireEvent.click(screen.getByText("mention Claude"));
-    fireEvent.click(screen.getByText("submit"));
-
-    await waitFor(() => expect(mocks.startIfTagged).toHaveBeenCalled());
-    expect(mocks.createComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceType: "deck",
-        resourceId: "deck-1",
-        targetId: "slide-1",
-        body: "Shorter please",
-        anchor: {
-          kind: "slide",
-          slideId: "slide-1",
-          quotedText: "Q3 Revenue",
-          point,
-        },
-        mentions: [{ label: "Claude", id: "agent:anthropic:claude" }],
-      }),
-    );
-    expect(mocks.startIfTagged).toHaveBeenCalledWith({
-      threadId: "new",
-      commentId: "new",
-      mentions: [{ label: "Claude", id: "agent:anthropic:claude" }],
-    });
+    expect(requests).toEqual([
+      {
+        kind: "draft",
+        slideId: "slide-1",
+        anchor: point,
+        quotedText: "Q3 Revenue",
+      },
+    ]);
     expect(onPendingDone).toHaveBeenCalled();
-  });
 
-  it("offers commenters people to mention but no agent", () => {
-    render(
+    // A shortcut with no selection has no point; the draft starts mid-slide.
+    rerender(
       <SlideCommentsPanel
         {...baseProps}
-        canEdit={false}
+        onPendingDone={onPendingDone}
         pendingComment={{ slideId: "slide-1", quotedText: "" }}
       />,
     );
-    expect(screen.getByText("mention Sam")).toBeTruthy();
-    expect(screen.queryByText("mention Claude")).toBeNull();
+    expect(requests.at(-1)).toEqual({
+      kind: "draft",
+      slideId: "slide-1",
+      anchor: { x: 50, y: 50 },
+      quotedText: undefined,
+    });
+  });
+
+  it("arms the pin tool from + and closes from the header", () => {
+    const onNewThread = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <SlideCommentsPanel
+        {...baseProps}
+        onNewThread={onNewThread}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("comments.addComment"));
+    fireEvent.click(screen.getByLabelText("comments.close"));
+    expect(onNewThread).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("hides + from someone who cannot comment", () => {
+    render(
+      <SlideCommentsPanel
+        {...baseProps}
+        canComment={false}
+        onNewThread={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText("comments.addComment")).toBeNull();
   });
 });

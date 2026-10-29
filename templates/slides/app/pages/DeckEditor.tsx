@@ -169,6 +169,7 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
+import { useSlideCommentsHidden } from "@/hooks/use-slide-comments-hidden";
 import { useUndoSelection } from "@/hooks/use-undo-selection";
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
@@ -5015,6 +5016,7 @@ export default function DeckEditor() {
     onSelectSlide: handleSlideSelection,
     onSelectThread: selectCommentThread,
   });
+  const commentsHidden = useSlideCommentsHidden();
   const currentSlideThreads: CommentThread[] =
     currentSlideCommentsQuery.data ?? [];
   const unresolvedCommentCount = currentSlideThreads.filter(
@@ -5980,7 +5982,7 @@ export default function DeckEditor() {
             readOnly={!canEdit}
             canComment={canComment}
             currentUserEmail={session?.email ?? null}
-            comments={currentSlideThreads}
+            comments={commentsHidden ? [] : currentSlideThreads}
             onSelectCommentThread={selectCommentThread}
             slideScroll={
               compactLayout
@@ -6208,6 +6210,7 @@ export default function DeckEditor() {
             deckId={id}
             slideId={currentSlide?.id ?? null}
             slideIds={deckSlideIds}
+            onNewThread={toggleComments}
             canComment={canComment}
             canEdit={canEdit}
             currentUserEmail={session?.email ?? null}

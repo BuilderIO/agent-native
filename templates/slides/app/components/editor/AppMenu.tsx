@@ -14,12 +14,17 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
   DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  setSlideCommentsHidden,
+  useSlideCommentsHidden,
+} from "@/hooks/use-slide-comments-hidden";
 
 import type { SlideCanvasCommands } from "./SlideEditor";
 
@@ -91,6 +96,7 @@ export function AppMenu({
   onNextSlide,
 }: AppMenuProps) {
   const t = useT();
+  const commentsHidden = useSlideCommentsHidden();
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -252,6 +258,14 @@ export function AppMenu({
               >
                 {t("appMenu.zoomOut")}
               </DropdownMenuItem>
+              <DropdownMenuCheckboxItem
+                className={itemClass}
+                checked={!commentsHidden}
+                onCheckedChange={(checked) => setSlideCommentsHidden(!checked)}
+              >
+                {t("appMenu.comments")}
+                <DropdownMenuShortcut>⇧C</DropdownMenuShortcut>
+              </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className={itemClass}
