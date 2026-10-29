@@ -61,7 +61,7 @@ export default {
     recordingStarted: "錄製開始時間",
     appBandHeading: "{app} · {count} 個工作階段",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 個工作階段{partial}",
-    journeyTitleAppBandsSummary: "{from} 至 {to} · 各應用程式獨立群組{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 獨立群組{partial}",
     sessionCount: "{count} 個工作階段",
     otherPaths: "其他路徑",
     otherBranchesShown: "已顯示 {shown}/{total} 個分支",
@@ -350,6 +350,63 @@ export default {
     searching: "搜尋中…",
     reactionFailed: "無法更新反應",
     moveFailed: "無法移動評論",
+    threadTitle: "評論",
+    agentBadge: "代理",
+    closeThread: "關閉討論串",
+    deleteThread: "刪除討論串",
+    deleteThreadTitle: "刪除討論串？",
+    deleteThreadDescription: "這會從審閱中移除該討論串。",
+    pin: {
+      thread_other: "{{authors}} 的討論串，{{count}} 則評論",
+      authorsOther_other: "另外 {{count}} 人",
+      unread: "未讀",
+      resolved: "已解決",
+      draft: "草稿評論",
+    },
+    reaction: {
+      label_other: "{{emoji}}，{{count}} 則回應",
+      labelMine_other: "{{emoji}}，{{count}} 則回應，包括你的",
+    },
+    filtersActive: "已套用篩選",
+    suggestChanges: "建議修改",
+    replyInThread: "在討論串中回覆",
+    applyChangesAndResolve: "套用修改並解決",
+    agent: {
+      sectionLabel: "代理",
+      queued: "{{agent}} 排隊中",
+      working: "{{agent}} 正在處理…",
+      replied: "{{agent}} 已回覆",
+      suggested: "{{agent}} 已建議修改",
+      applied: "{{agent}} 已套用修改並解決討論串",
+      needsInput: "{{agent}} 需要你的輸入",
+      failed: "{{agent}} 無法完成",
+      cancelled: "已停止",
+      cancel: "取消",
+      openChat: "開啟聊天",
+      retry: "重試",
+      fallbackName: "AI",
+      setupRequired: "連接 AI 模型後才能使用代理",
+      startFailed: "無法啟動代理",
+      cancelFailed: "無法停止代理",
+      busy: "已有代理正在處理此討論串",
+      error: {
+        engineNotConfigured: "未連接 AI 模型",
+        noResult: "代理未作答即已結束",
+        timeout: "代理未及時回應",
+        permission: "你已沒有編輯權限",
+        threadUnavailable: "此討論串已不再開放",
+        targetChanged: "代理工作時設計已變更",
+        applyUnavailable: "代理無法編輯此畫面",
+        applyIncomplete: "設計已編輯，但討論串未解決。請檢查修改。",
+        cancelledAfterEdit: "設計編輯後已停止。請檢查修改。",
+        generic: "發生錯誤",
+      },
+    },
+    newThread: "新討論串",
+    threadsCount_other: "{{count}} 則討論串",
+    boardGroup: "畫布",
+    send: "傳送",
+    pinLabel_other: "包含 {{count}} 則評論的討論串",
     status: {
       draft: "草稿",
       in_review: "審閱中",
@@ -2725,6 +2782,159 @@ export default {
   },
   home: {
     suggestedPrompts: "建議提示",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "設計一個產品分析儀表板，包含KPI卡片、轉換圖表和活動表格，整體採用自信的數據導向風格。",
+        roadmapWorkspace:
+          "設計一個產品路線圖工作區，包含季度時間軸、優先順序和客戶回饋面板，整體採用平和協作的風格。",
+        onboardingFlow:
+          "設計一個預算應用程式的引導流程，包含進度步驟、目標選擇和帳戶設定，整體採用令人安心的風格。",
+        featureComparison:
+          "設計一個SaaS功能比較頁面，包含方案卡片、功能矩陣和常見問題，整體採用直接且重視轉換的風格。",
+        feedbackPortal:
+          "設計一個客戶回饋入口，包含需求看板、投票控制和狀態篩選，整體採用開放的社群風格。",
+        releaseNotes:
+          "設計一個版本更新中心，包含版本時間軸、功能亮點和移轉說明，整體採用簡潔的編輯風格。",
+        projectWorkspace:
+          "設計一個產品團隊工作區，包含看板欄位、負責人標籤和里程碑，整體採用專注效率的風格。",
+        launchWaitlist:
+          "設計一個產品上市候補名單頁面，包含主視覺、客戶佐證和註冊表單，整體採用樂觀的風格。",
+      },
+      design: {
+        portfolioHome:
+          "設計一個設計師作品集首頁，包含簡短介紹、案例網格、個人簡介和聯絡入口，整體採用精緻的編輯風格。",
+        designSystem:
+          "設計一個設計系統參考頁，包含色彩與字體權杖、元件展示和使用說明，整體採用精準的文件風格。",
+        bankingApp:
+          "設計一個手機銀行應用程式首頁，包含餘額卡片、交易清單和儲蓄目標，整體採用平靜可信的風格。",
+        travelBooking:
+          "設計一個旅遊預訂搜尋頁面，包含目的地篩選、行程卡片和地圖面板，整體採用輕盈冒險的風格。",
+        coffeeShop:
+          "設計一個咖啡店網店，包含精選咖啡、產地故事和訂閱入口，整體採用溫暖細膩的風格。",
+        musicFestival:
+          "設計一個音樂節活動頁面，包含演出陣容、日程和場地地圖，整體採用充滿活力的海報風格。",
+        accessibilityAudit:
+          "設計一個無障礙檢查儀表板，包含評分摘要、問題清單和篩選控制，整體採用清晰高對比風格。",
+        artBook:
+          "設計一個藝術書編輯頁面，包含沉浸式作品、重點引言和章節導覽，整體採用克制的藝廊風格。",
+      },
+      developer: {
+        apiDocs:
+          "設計一個API文件入口，包含側邊導覽、程式碼範例和請求建構器，整體採用精準的技術風格。",
+        deploymentDashboard:
+          "設計一個部署儀表板，包含環境卡片、即時記錄和回復控制，整體採用平靜的營運風格。",
+        componentPlayground:
+          "設計一個元件試驗場，包含屬性控制、狀態變體和程式碼面板，整體採用清爽的開發者風格。",
+        databaseConsole:
+          "設計一個資料庫控制台，包含查詢編輯器、結構樹和結果表格，整體採用克制的技術風格。",
+        issueTriage:
+          "設計一個問題分流看板，包含篩選、優先級徽章和負責人佇列，整體採用清楚專注的風格。",
+        authSettings:
+          "設計一個驗證設定頁，包含服務供應商卡片、回呼網址和權限清單，整體採用安全安心的風格。",
+        workflowBuilder:
+          "設計一個CI工作流程建構器，包含步驟節點、執行紀錄和分支選擇，整體採用精準的技術風格。",
+        developerPortfolio:
+          "設計一個開發者作品集，包含專案卡片、工具組合和時間軸，整體採用沉穩的深色風格。",
+      },
+      marketing: {
+        campaignLanding:
+          "設計一個行銷活動頁面，包含醒目主視覺、主要優勢、客戶佐證和註冊入口，整體採用活力風格。",
+        emailBuilder:
+          "設計一個電子郵件行銷編輯器，包含主旨預覽、內容區塊和受眾摘要，整體採用清楚友善的風格。",
+        socialCalendar:
+          "設計一個社群內容日曆，包含頻道分頁、排程貼文和成效指標，整體採用明亮的編輯風格。",
+        brandCampaign:
+          "設計一個品牌活動頁面，包含標題、藝術指導和素材藝廊，整體採用自信一致的風格。",
+        webinarRegistration:
+          "設計一個網路研討會報名頁，包含講者卡片、議程和報名表單，整體採用可信親切的風格。",
+        seoBrief:
+          "設計一份SEO內容簡報，包含關鍵字群組、內容大綱和競品備註，整體採用專注研究的風格。",
+        launchMetrics:
+          "設計一個上市指標儀表板，包含頻道卡片、轉換圖表和活動表格，整體採用分析型風格。",
+        newsletterSignup:
+          "設計一個電子報訂閱頁，包含編輯預覽、主題選擇和電子郵件欄位，整體採用溫暖簡潔的風格。",
+      },
+      sales: {
+        leadWorkspace:
+          "設計一個銷售線索工作區，包含聯絡資訊、活動時間軸和資格欄位，整體採用果斷專業的風格。",
+        accountBrief:
+          "設計一份客戶帳戶研究簡報，包含公司概況、相關人員和近期動態，整體採用清楚的主管風格。",
+        productDemo:
+          "設計一個產品展示頁，包含使用情境分頁、產品畫面和客戶佐證，整體採用自信有說服力的風格。",
+        proposalBuilder:
+          "設計一個提案建構器，包含範圍章節、價格卡片和時間安排，整體採用精緻的顧問風格。",
+        pipelineDashboard:
+          "設計一個銷售管道儀表板，包含階段欄位、商機金額和預測圖表，整體採用簡潔商務風格。",
+        meetingBooking:
+          "設計一個會議預約頁，包含日曆時段、議程預覽和表單，整體採用專業親切的風格。",
+        customerStory:
+          "設計一個客戶案例頁面，包含挑戰、成果、引言和指標，整體採用以證據為本的編輯風格。",
+        accountHandoff:
+          "設計一個帳戶交接工作區，包含客戶目標、聯絡人和待辦事項，整體採用平靜協作的風格。",
+      },
+      ops: {
+        inventoryDashboard:
+          "設計一個庫存儀表板，包含庫存水位、補貨提醒和類別篩選，整體採用實用的營運風格。",
+        staffScheduler:
+          "設計一個員工排班表，包含班次網格、可用時間和請假申請，整體做到一目了然。",
+        vendorPortal:
+          "設計一個供應商加入入口，包含檢查清單、文件上傳狀態和聯絡人，整體採用清楚安心的風格。",
+        incidentResponse:
+          "設計一個事故應變頁面，包含嚴重程度橫幅、事件時間軸和負責人面板，整體採用冷靜專注的風格。",
+        expenseApprovals:
+          "設計一個費用核准佇列，包含收據預覽、政策提醒和金額總計，整體採用中性高效的風格。",
+        warehouseReceiving:
+          "設計一個倉庫收貨頁面，包含貨運資訊、掃描狀態和商品清單，整體做到清楚易懂。",
+        automationControl:
+          "設計一個工作流程控制面板，包含自動化卡片、執行紀錄和失敗提醒，整體採用可靠的營運風格。",
+        helpdeskQueue:
+          "設計一個內部服務台佇列，包含請求卡片、狀態篩選和指派控制，整體採用清楚友善的風格。",
+      },
+      individual: {
+        personalPortfolio:
+          "設計一個個人作品集，包含簡短簡介、精選作品、技能和聯絡方式，整體採用溫暖的編輯風格。",
+        mealPlanner:
+          "設計一個餐點規劃應用程式頁面，包含每週食譜、採買清單和飲食篩選，整體採用實用友善的風格。",
+        homeBudget:
+          "設計一個家庭預算儀表板，包含每月摘要、分類圖表和帳單清單，整體採用平靜支持的風格。",
+        tripPlanner:
+          "設計一個旅行規劃器，包含行程時間軸、地圖和預訂卡片，整體採用輕盈冒險的風格。",
+        readingJournal:
+          "設計一個閱讀日誌，包含書籍封面、進度筆記和星級評分，整體採用安靜的文學風格。",
+        invoiceTracker:
+          "設計一個自由工作者發票追蹤器，包含客戶清單、付款狀態和到期日，整體採用整潔專業的風格。",
+        habitTracker:
+          "設計一個習慣追蹤應用程式，包含每日打卡、連續紀錄卡片和進度圖表，整體採用溫和鼓勵的風格。",
+        neighborhoodEvents:
+          "設計一個社區活動頁面，包含活動卡片、在地篩選和報名控制，整體採用熱情友善的社群風格。",
+      },
+      general: {
+        saasHomepage:
+          "設計一個SaaS首頁，包含主視覺、功能區塊和客戶佐證，整體採用清楚親切的風格。",
+        analyticsDashboard:
+          "設計一個分析儀表板，包含KPI卡片、趨勢圖表和活動表格，整體採用平靜的數據導向風格。",
+        habitApp:
+          "設計一個習慣應用程式手機首頁，包含每日目標、進度環和提醒，整體採用友善鼓勵的風格。",
+        onlineStore:
+          "設計一個網店首頁，包含精選商品、類別卡片和客戶評價，整體採用溫暖精緻的風格。",
+        creativePortfolio:
+          "設計一個創意作品集頁面，包含簡短介紹、專案網格和個人簡介，整體採用富有表現力的編輯風格。",
+        bookingPage:
+          "設計一個服務預約頁，包含可預約日曆、服務卡片和評價摘錄，整體採用清楚可信的風格。",
+        adminDashboard:
+          "設計一個管理儀表板，包含側邊導覽、摘要卡片和近期活動，整體採用克制實用的風格。",
+        communityEvent:
+          "設計一個社區活動頁面，包含活動安排、場地資訊和講者，整體採用熱情歡迎的風格。",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "後續步驟",
+      refineWithPrompt: "使用提示詞調整",
+      export: "匯出",
+      shareLink: "分享連結",
+      dismiss: "關閉",
+    },
     import: "匯入",
     importOptions: "匯入選項",
     figmaLink: "Figma 連結",
@@ -2801,6 +3011,89 @@ export default {
     paginationPrevious: "上一頁",
     paginationNext: "下一頁",
     paginationPage: "第 {{page}} / {{totalPages}} 頁",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "產品分析儀表板",
+        roadmapWorkspace: "產品路線圖工作區",
+        onboardingFlow: "預算應用程式的引導流程",
+        featureComparison: "SaaS功能比較頁面",
+        feedbackPortal: "客戶回饋入口",
+        releaseNotes: "版本更新中心",
+        projectWorkspace: "產品團隊工作區",
+        launchWaitlist: "產品上市候補名單頁面",
+      },
+      design: {
+        portfolioHome: "設計師作品集首頁",
+        designSystem: "設計系統參考頁",
+        bankingApp: "手機銀行應用程式首頁",
+        travelBooking: "旅遊預訂搜尋頁面",
+        coffeeShop: "咖啡店網店",
+        musicFestival: "音樂節活動頁面",
+        accessibilityAudit: "無障礙檢查儀表板",
+        artBook: "藝術書編輯頁面",
+      },
+      developer: {
+        apiDocs: "API文件入口",
+        deploymentDashboard: "部署儀表板",
+        componentPlayground: "元件試驗場",
+        databaseConsole: "資料庫控制台",
+        issueTriage: "問題分流看板",
+        authSettings: "驗證設定頁",
+        workflowBuilder: "CI工作流程建構器",
+        developerPortfolio: "開發者作品集",
+      },
+      marketing: {
+        campaignLanding: "行銷活動頁面",
+        emailBuilder: "電子郵件行銷編輯器",
+        socialCalendar: "社群內容日曆",
+        brandCampaign: "品牌活動頁面",
+        webinarRegistration: "網路研討會報名頁",
+        seoBrief: "一份SEO內容簡報",
+        launchMetrics: "上市指標儀表板",
+        newsletterSignup: "電子報訂閱頁",
+      },
+      sales: {
+        leadWorkspace: "銷售線索工作區",
+        accountBrief: "一份客戶帳戶研究簡報",
+        productDemo: "產品展示頁",
+        proposalBuilder: "提案建構器",
+        pipelineDashboard: "銷售管道儀表板",
+        meetingBooking: "會議預約頁",
+        customerStory: "客戶案例頁面",
+        accountHandoff: "帳戶交接工作區",
+      },
+      ops: {
+        inventoryDashboard: "庫存儀表板",
+        staffScheduler: "員工排班表",
+        vendorPortal: "供應商加入入口",
+        incidentResponse: "事故應變頁面",
+        expenseApprovals: "費用核准佇列",
+        warehouseReceiving: "倉庫收貨頁面",
+        automationControl: "工作流程控制面板",
+        helpdeskQueue: "內部服務台佇列",
+      },
+      individual: {
+        personalPortfolio: "個人作品集",
+        mealPlanner: "餐點規劃應用程式頁面",
+        homeBudget: "家庭預算儀表板",
+        tripPlanner: "旅行規劃器",
+        readingJournal: "閱讀日誌",
+        invoiceTracker: "自由工作者發票追蹤器",
+        habitTracker: "習慣追蹤應用程式",
+        neighborhoodEvents: "社區活動頁面",
+      },
+      general: {
+        saasHomepage: "SaaS首頁",
+        analyticsDashboard: "分析儀表板",
+        habitApp: "習慣應用程式手機首頁",
+        onlineStore: "網店首頁",
+        creativePortfolio: "創意作品集頁面",
+        bookingPage: "服務預約頁",
+        adminDashboard: "管理儀表板",
+        communityEvent: "社區活動頁面",
+      },
+    },
   },
   templatesPage: {
     previewEmpty: "此範本中沒有可預覽的畫面。",

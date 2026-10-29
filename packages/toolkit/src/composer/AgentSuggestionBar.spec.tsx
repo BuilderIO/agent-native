@@ -91,6 +91,70 @@ describe("AgentSuggestionBar", () => {
     expect(onSelect).toHaveBeenCalledWith(suggestion);
   });
 
+  it("keeps tracked home suggestions as centered compact chips and reports clicks", () => {
+    const onSelect = vi.fn();
+    const onHomeSuggestionClick = vi.fn();
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={[
+            { id: "first", label: "First prompt", prompt: "Build the first" },
+            {
+              id: "second",
+              label: "Second prompt",
+              prompt: "Build the second in full",
+            },
+          ]}
+          homeTracking={{ appId: "design", role: "marketing" }}
+          onHomeSuggestionClick={onHomeSuggestionClick}
+          layout="single-line"
+          onSelect={onSelect}
+        />,
+      );
+    });
+
+    const buttons = container.querySelectorAll("button");
+    expect(
+      container
+        .querySelector('[data-agent-suggestion-bar="true"]')
+        ?.getAttribute("data-home-suggestion-app-id"),
+    ).toBe("design");
+    expect(buttons[1]?.getAttribute("data-agent-suggestion-position")).toBe(
+      "2",
+    );
+    expect(buttons[1]?.getAttribute("data-home-suggestion-id")).toBe("second");
+    const track = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-track="true"]',
+    );
+    expect(track?.className).toContain("h-6");
+    expect(track?.className).toContain("w-max");
+    expect(track?.className).toContain("flex-nowrap");
+    expect(track?.className).toContain("items-center");
+    expect(track?.className).not.toContain("flex-wrap");
+    expect(buttons[1]?.className).toContain("h-6");
+    expect(buttons[1]?.className).toContain("px-2.5");
+    expect(buttons[1]?.className).toContain("text-center");
+    expect(buttons[1]?.className).toContain("whitespace-nowrap");
+    expect(buttons[1]?.className).toContain("justify-center");
+    expect(buttons[1]?.querySelector("span")?.textContent).toBe(
+      "Second prompt",
+    );
+    act(() => buttons[1]?.click());
+
+    expect(onHomeSuggestionClick).toHaveBeenCalledExactlyOnceWith({
+      appId: "design",
+      role: "marketing",
+      suggestionId: "second",
+      position: 2,
+    });
+    expect(onSelect).toHaveBeenCalledWith({
+      id: "second",
+      label: "Second prompt",
+      prompt: "Build the second in full",
+    });
+  });
+
   it("reserves a single row with skeleton chips while suggestions load", () => {
     act(() => {
       root.render(

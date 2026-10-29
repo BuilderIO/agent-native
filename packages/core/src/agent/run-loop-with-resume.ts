@@ -9,6 +9,15 @@ import {
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import { EngineError, type EngineMessage } from "./engine/types.js";
 import {
+  IncompleteAgentRunError,
+  incompleteAgentRunFailure,
+} from "./run-errors.js";
+export {
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+  RUN_BUDGET_EXHAUSTED_MESSAGE,
+  RUN_CONTINUATION_LIMIT_EXHAUSTED_MESSAGE,
+} from "./run-errors.js";
+import {
   runAgentLoop,
   mergeAgentLoopUsage,
   appendAgentLoopContinuation,
@@ -154,7 +163,7 @@ async function completedSideEffectInCurrentTurn(
 
 function internalContinuationReasonForAttempt(
   events: readonly AgentChatEvent[],
-): AgentLoopContinuationReason | undefined {
+): Exclude<AgentLoopContinuationReason, "max_tokens"> | undefined {
   const last = events.at(-1);
   if (last?.type !== "auto_continue") return undefined;
   if (
@@ -211,13 +220,6 @@ function waitForBackgroundRateLimitCooldown(
 
 export { SERVER_OWNED_ABORT_REASONS, clientAbortReason };
 
-export const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
-
-export const RUN_BUDGET_EXHAUSTED_MESSAGE =
-  "I ran out of time before finishing this step. " +
-  "I stopped rather than keep retrying silently. " +
-  "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
-
 export class AgentLoopAbortedError extends Error {
   readonly usage: Awaited<ReturnType<typeof runAgentLoop>>;
 
@@ -239,9 +241,19 @@ export async function runAgentLoopDirectWithSoftTimeout(
     opts.finalResponseGuardRequestText ??
     resolveFinalResponseGuardRequestText(opts.messages);
   const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
+  let dispatchedModelCalls = 0;
   const stableOpts = {
     ...opts,
     finalResponseGuardRequestText,
+    onModelDispatchStarted: () => {
+      dispatchedModelCalls++;
+      try {
+        opts.onModelDispatchStarted?.();
+      } catch {
+        // coercion-ok: telemetry observers cannot change model dispatch.
+        // Telemetry observers cannot change whether a model request runs.
+      }
+    },
     ...(timeoutMs > 0 ? { runSoftTimeoutMs: timeoutMs } : {}),
   };
   let finalOutcomeReported = false;
@@ -251,6 +263,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     try {
       opts.onOutcome?.(outcome);
     } catch {
+      // coercion-ok: outcome observers cannot change run completion.
       // Outcome observers cannot alter recovery or completion.
     }
   };
@@ -322,12 +335,22 @@ export async function runAgentLoopDirectWithSoftTimeout(
       if (turnSignal.aborted) {
         reportFinalOutcome(turnAbortOutcome());
       } else if (unfinishedReason) {
+        const failure = incompleteAgentRunFailure({
+          dispatchedModelCalls,
+          hasVisibleText: turnHasVisibleText(directEvents),
+          hasSuccessfulToolOutput: directEvents.some(
+            (event) => event.type === "tool_done" && event.isError !== true,
+          ),
+          reason: unfinishedReason,
+        });
         reportFinalOutcome({
           state: "failed",
-          code: unfinishedReason,
+          code: failure.code,
           retryable: false,
-          message: `Agent stopped before finishing (${unfinishedReason}).`,
+          message: failure.message,
         });
+        onUsage?.({ ...result });
+        throw new IncompleteAgentRunError(failure, result);
       } else {
         reportFinalOutcome(directOutcome ?? { state: "completed" });
       }
@@ -445,12 +468,21 @@ export async function runAgentLoopDirectWithSoftTimeout(
         if (turnSignal.aborted) {
           reportFinalOutcome(turnAbortOutcome());
         } else if (unfinishedReason) {
+          const failure = incompleteAgentRunFailure({
+            dispatchedModelCalls,
+            hasVisibleText: turnHasVisibleText(localTurnEvents),
+            hasSuccessfulToolOutput: localTurnEvents.some(
+              (event) => event.type === "tool_done" && event.isError !== true,
+            ),
+            reason: unfinishedReason,
+          });
           reportFinalOutcome({
             state: "failed",
-            code: unfinishedReason,
+            code: failure.code,
             retryable: false,
-            message: `Agent stopped before finishing (${unfinishedReason}).`,
+            message: failure.message,
           });
+          throw new IncompleteAgentRunError(failure, usage);
         } else {
           reportFinalOutcome(attemptOutcome ?? { state: "completed" });
         }
@@ -644,18 +676,21 @@ export async function runAgentLoopDirectWithSoftTimeout(
 
   if (!turnSignal.aborted && lastAttemptWasUnfinishedContinuation) {
     await clearUnseenDraftIfSafe();
-    opts.send({
-      type: "error",
-      error: RUN_BUDGET_EXHAUSTED_MESSAGE,
-      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-      recoverable: false,
+    const failure = incompleteAgentRunFailure({
+      dispatchedModelCalls,
+      hasVisibleText: turnHasVisibleText(localTurnEvents),
+      hasSuccessfulToolOutput: localTurnEvents.some(
+        (event) => event.type === "tool_done" && event.isError !== true,
+      ),
+      reason: "continuation_limit",
     });
     reportFinalOutcome({
       state: "failed",
-      code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      code: failure.code,
       retryable: false,
-      message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+      message: failure.message,
     });
+    throw new IncompleteAgentRunError(failure, usage);
   } else if (turnSignal.aborted) {
     reportFinalOutcome(turnAbortOutcome());
   }

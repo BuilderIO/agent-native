@@ -31,34 +31,20 @@ import type {
 import {
   IconArrowBarDown,
   IconArrowBarUp,
-  IconArrowBackUp,
-  IconArrowForwardUp,
   IconAlertTriangle,
   IconCheck,
   IconChevronDown,
-  IconCopy,
-  IconDownload,
-  IconFileImport,
   IconDotsVertical,
   IconExternalLink,
-  IconFileTypeHtml,
-  IconFileTypePdf,
   IconFolder,
-  IconLink,
   IconLinkOff,
   IconLoader2,
-  IconMarkdown,
   IconSearch,
   IconFileText,
-  IconFolderOpen,
   IconPlus,
-  IconHistory,
-  IconInfoCircle,
   IconMessageCircle,
   IconRefresh,
-  IconPin,
   IconPencil,
-  IconTrash,
   IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
@@ -73,31 +59,11 @@ import {
   type MouseEvent,
   type Ref,
   type ReactNode,
-  type SVGProps,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
-
-function IconSuggestEdits(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="1.5"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-      {...props}
-    >
-      <path d="M21.9165 10.5001C21.9351 10.6557 21.9495 10.8127 21.9598 10.9708C22.0134 11.801 22.0134 12.6608 21.9598 13.491C21.6856 17.7333 18.3536 21.1126 14.1706 21.3906C12.7435 21.4855 11.2536 21.4853 9.8294 21.3906C9.33896 21.358 8.8044 21.241 8.34401 21.0514C7.83177 20.8404 7.5756 20.7349 7.44544 20.7509C7.31527 20.7669 7.1264 20.9062 6.74868 21.1847C6.08268 21.6758 5.24367 22.0286 3.99943 21.9983C3.37026 21.983 3.05568 21.9753 2.91484 21.7352C2.77401 21.4951 2.94941 21.1627 3.30021 20.4979C3.78674 19.5759 4.09501 18.5204 3.62791 17.6747C2.82343 16.4667 2.1401 15.0361 2.04024 13.491C1.98659 12.6608 1.98659 11.801 2.04024 10.9708C2.31441 6.7285 5.64639 3.34925 9.8294 3.07119C11.0318 2.99126 12.2812 2.97868 13.5 3.0338" />
-      <path d="M8.5 15.0001H15.5M8.5 10.0001H11" />
-      <path d="M20.8684 2.43946L21.5607 3.13183C22.1465 3.71761 22.1465 4.66736 21.5607 5.25315L17.9333 8.94881C17.648 9.23416 17.283 9.42652 16.8863 9.50061L14.6381 9.98865C14.2832 10.0657 13.9671 9.75054 14.0431 9.39537L14.5217 7.16005C14.5958 6.76336 14.7881 6.39836 15.0735 6.11301L18.747 2.43946C19.3328 1.85368 20.2826 1.85368 20.8684 2.43946Z" />
-    </svg>
-  );
-}
 
 const ShareButton = lazy(() =>
   import("@agent-native/toolkit/app/sharing").then((m) => ({
@@ -856,7 +822,6 @@ function ToolbarBreadcrumbSiblingPage({
               setNextPageVisible(true);
             }}
           >
-            <IconChevronDown className="size-3.5" />
             {t("sidebar.showMore")}
           </DropdownMenuItem>
         )
@@ -2027,12 +1992,6 @@ export function DocumentToolbar({
                       }, 50);
                     }}
                   >
-                    <IconSuggestEdits
-                      aria-hidden="true"
-                      className="me-2 shrink-0"
-                      height={16}
-                      width={16}
-                    />
                     {t(
                       suggesting
                         ? "editor.toolbar.stopSuggesting"
@@ -2044,11 +2003,9 @@ export function DocumentToolbar({
               ) : null}
               <DropdownMenuGroup>
                 <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
-                  <IconArrowBackUp className="me-2 h-4 w-4" />
                   {t("editor.toolbar.undo")}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
-                  <IconArrowForwardUp className="me-2 h-4 w-4" />
                   {t("editor.toolbar.redo")}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
@@ -2058,10 +2015,6 @@ export function DocumentToolbar({
                   <DropdownMenuItem
                     onSelect={() => onToggleFavorite(!isFavorite)}
                   >
-                    <IconPin
-                      className="me-2 h-4 w-4"
-                      strokeWidth={isFavorite ? 2.2 : 1.7}
-                    />
                     {isFavorite
                       ? t("editor.toolbar.unpin")
                       : t("editor.toolbar.pin")}
@@ -2074,7 +2027,6 @@ export function DocumentToolbar({
                       commentsHistoryOpen && "bg-accent text-accent-foreground",
                     )}
                   >
-                    <IconMessageCircle className="me-2 h-4 w-4" />
                     {t("comments.discussion")}
                     {openCommentCount ? (
                       <span className="ms-auto ps-3 text-xs text-muted-foreground">
@@ -2100,7 +2052,6 @@ export function DocumentToolbar({
                       "bg-accent text-accent-foreground",
                   )}
                 >
-                  <IconInfoCircle className="me-2 h-4 w-4" />
                   {t("editor.toolbar.info")}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
@@ -2112,14 +2063,12 @@ export function DocumentToolbar({
                       <DropdownMenuItem
                         onSelect={() => setShareRequested(true)}
                       >
-                        <IconUserPlus className="me-2 h-4 w-4" />
                         {t("editor.toolbar.share")}
                       </DropdownMenuItem>
                     ) : null}
                     <DropdownMenuItem
                       onSelect={() => void handleCopyPageLink()}
                     >
-                      <IconLink className="me-2 h-4 w-4" />
                       {t("editor.toolbar.copyPageLink")}
                     </DropdownMenuItem>
                     {isLocalFileDocument ? (
@@ -2127,7 +2076,6 @@ export function DocumentToolbar({
                         disabled={shareLocalFile.isPending}
                         onSelect={() => void handleShareLocalFile()}
                       >
-                        <IconUserPlus className="me-2 h-4 w-4" />
                         {t("editor.toolbar.createShareableCopy")}
                       </DropdownMenuItem>
                     ) : null}
@@ -2141,27 +2089,23 @@ export function DocumentToolbar({
                     {t("editor.toolbar.localFile")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem disabled className="min-w-0">
-                    <IconFileText className="me-2 h-4 w-4 shrink-0" />
                     <span className="truncate">{source?.path}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={!canEdit || revealLocalSource.isPending}
                     onSelect={() => void handleRevealLocalPath()}
                   >
-                    <IconFolderOpen className="me-2 h-4 w-4" />
                     {t("editor.toolbar.revealInFinder")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => void handleCopyLocalRelativePath()}
                   >
-                    <IconCopy className="me-2 h-4 w-4" />
                     {t("editor.toolbar.copyRelativePath")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={!canEdit}
                     onSelect={() => void handleCopyLocalAbsolutePath()}
                   >
-                    <IconCopy className="me-2 h-4 w-4" />
                     {t("editor.toolbar.copyAbsolutePath")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -2178,7 +2122,6 @@ export function DocumentToolbar({
                         setHistoryOpen(true);
                       }}
                     >
-                      <IconHistory className="me-2 h-4 w-4" />
                       {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
@@ -2187,7 +2130,6 @@ export function DocumentToolbar({
                     <DropdownMenuItem
                       onSelect={() => setDatabaseExportOpen(true)}
                     >
-                      <IconDownload className="me-2 h-4 w-4" />
                       {t("editor.toolbar.export")}
                     </DropdownMenuItem>
                   ) : (
@@ -2197,9 +2139,7 @@ export function DocumentToolbar({
                       >
                         {exportDocument.isPending ? (
                           <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <IconDownload className="me-2 h-4 w-4" />
-                        )}
+                        ) : null}
                         {t("editor.toolbar.export")}
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent className="w-44">
@@ -2207,21 +2147,18 @@ export function DocumentToolbar({
                           disabled={exportDocument.isPending}
                           onSelect={() => void handleExport("pdf")}
                         >
-                          <IconFileTypePdf className="me-2 h-4 w-4" />
                           PDF
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={exportDocument.isPending}
                           onSelect={() => void handleExport("markdown")}
                         >
-                          <IconMarkdown className="me-2 h-4 w-4" />
                           Markdown
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={exportDocument.isPending}
                           onSelect={() => void handleExport("html")}
                         >
-                          <IconFileTypeHtml className="me-2 h-4 w-4" />
                           HTML
                         </DropdownMenuItem>
                       </DropdownMenuSubContent>
@@ -2229,7 +2166,6 @@ export function DocumentToolbar({
                   )}
                   {onImport ? (
                     <DropdownMenuItem onSelect={onImport}>
-                      <IconFileImport className="me-2 h-4 w-4" />
                       {t("contentImport.menuItem")}
                     </DropdownMenuItem>
                   ) : null}
@@ -2242,26 +2178,8 @@ export function DocumentToolbar({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex w-full items-center rounded-sm px-2 py-1.5 text-sm text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
                       >
-                        <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
-                          {hasConflict ? (
-                            <span className="relative">
-                              <NotionIcon className="h-4 w-4" />
-                              <IconAlertTriangle
-                                size={8}
-                                className="absolute -end-1 -top-1 text-amber-500"
-                              />
-                            </span>
-                          ) : isLinked && autoSync ? (
-                            <span className="relative">
-                              <NotionIcon className="h-4 w-4" />
-                              <span className="absolute -end-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
-                            </span>
-                          ) : (
-                            <NotionIcon className="h-4 w-4" />
-                          )}
-                        </span>
                         <span className="min-w-0 flex-1 truncate text-start">
                           {isLinked
                             ? t("editor.toolbar.notionSync")
@@ -2269,6 +2187,14 @@ export function DocumentToolbar({
                               ? t("editor.toolbar.linkToNotion")
                               : t("editor.toolbar.connectNotion")}
                         </span>
+                        {hasConflict ? (
+                          <IconAlertTriangle
+                            size={16}
+                            className="shrink-0 text-destructive"
+                          />
+                        ) : isLinked && autoSync ? (
+                          <span className="size-2 shrink-0 rounded-full bg-primary" />
+                        ) : null}
                       </button>
                     </PopoverTrigger>
 
@@ -2596,7 +2522,6 @@ export function DocumentToolbar({
                     className="text-destructive focus:text-destructive"
                     onSelect={() => setDeleteDialogOpen(true)}
                   >
-                    <IconTrash className="me-2 h-4 w-4" />
                     {t("database.delete")}
                   </DropdownMenuItem>
                 </>

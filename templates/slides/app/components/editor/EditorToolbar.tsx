@@ -13,7 +13,10 @@ import {
 } from "@agent-native/creative-context/client";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
-import { ShareButton } from "@agent-native/toolkit/app/sharing";
+import {
+  ShareButton,
+  type ShareButtonActionHandle,
+} from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconCircle,
@@ -49,6 +52,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type Ref,
 } from "react";
 import { toast } from "sonner";
 
@@ -127,6 +131,7 @@ import {
   ExportMenu,
   ExportStatusDialog,
   ExportSubmenu,
+  type ExportDropdownActionHandle,
   type ExportMenuHandle,
   type ExportStatus,
 } from "./ExportMenu";
@@ -195,6 +200,8 @@ interface EditorToolbarProps {
   onDeleteSlides?: () => void;
   onPreviousSlide?: () => void;
   onNextSlide?: () => void;
+  exportActionRef?: Ref<ExportDropdownActionHandle>;
+  shareActionRef?: Ref<ShareButtonActionHandle>;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -262,6 +269,8 @@ export default function EditorToolbar({
   onDeleteSlides,
   onPreviousSlide,
   onNextSlide,
+  exportActionRef,
+  shareActionRef,
   canEdit = true,
 }: EditorToolbarProps) {
   const t = useT();
@@ -1089,6 +1098,7 @@ export default function EditorToolbar({
       {/* Framework share (ownership, per-user/org grants, visibility) */}
       <div className="flex-shrink-0">
         <ShareButton
+          actionRef={shareActionRef}
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
@@ -1144,6 +1154,7 @@ export default function EditorToolbar({
       {!widgetEmbed && (
         <ExportDropdown
           exportMenuRef={exportMenuRef}
+          actionRef={exportActionRef}
           hasSlides={hasSlides}
           showGoogleSlides={Boolean(onExportGoogleSlides)}
         />

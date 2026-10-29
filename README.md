@@ -97,6 +97,7 @@ https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
 ## Open-source agents
 
 Start from one of these agents or use it as an example for your own.
+For a source-to-answer architecture example, see [Brain’s visual overview](templates/brain/README.md#brain-at-a-glance).
 
 <br />
 

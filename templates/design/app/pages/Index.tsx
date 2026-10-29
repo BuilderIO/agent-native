@@ -25,8 +25,15 @@ import {
 import {
   PromptHome,
   TemplateLibraryGrid,
+  createHomeSuggestionRandom,
+  normalizeHomeSuggestionRole,
+  pickHomeSuggestions,
+  useHomeSuggestionRole,
+  useHomeSuggestionSeed,
+  useFirstPaintPromptDraft,
   useHomeSearchShortcut,
   useSetPageTitle,
+  writeHomeSuggestionRole,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import {
@@ -35,6 +42,7 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import { ClientOnly } from "@agent-native/toolkit/app/shared";
 import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
@@ -55,7 +63,14 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+} from "react";
 import {
   useLocation,
   useNavigate,
@@ -78,6 +93,7 @@ import {
   DesignHomeLibrary,
   type DesignHomeLibraryTab,
 } from "@/components/home/DesignHomeLibrary";
+import { DesignRecentSkeleton } from "@/components/home/DesignRecentSkeleton";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { DesignTemplateLibrary } from "@/components/templates/DesignTemplateLibrary";
 import {
@@ -106,6 +122,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DESIGN_HOME_SUGGESTION_POOLS,
+  trackDesignHomeSuggestionClick,
+} from "@/home-suggestions";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
@@ -123,6 +143,13 @@ import {
   writePendingGeneration,
 } from "@/lib/pending-generation";
 import { cn } from "@/lib/utils";
+
+import {
+  clearDesignHomeLibraryTabSelection,
+  readDesignHomeLibraryInitialState,
+  subscribeToDesignHomeLibraryTab,
+  writeHomeLibraryHasRecents,
+} from "../home-library-state";
 
 type ProjectType = "prototype" | "other";
 interface Design {
@@ -150,65 +177,6 @@ interface DesignListResult {
 
 const DESIGN_PAGE_SIZE = 50;
 const HOME_TEMPLATE_LIMIT = 8;
-const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
-
-function readHomeLibraryHasRecents():
-  | { status: "available"; value: boolean | null }
-  | { status: "unavailable" } {
-  if (typeof window === "undefined") return { status: "unavailable" };
-
-  try {
-    const value = window.localStorage.getItem(
-      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
-    );
-    return {
-      status: "available",
-      value: value === "true" ? true : value === "false" ? false : null,
-    };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-
-function writeHomeLibraryHasRecents(
-  value: boolean,
-): { status: "available" } | { status: "unavailable" } {
-  if (typeof window === "undefined") return { status: "unavailable" };
-  try {
-    window.localStorage.setItem(
-      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
-      String(value),
-    );
-    return { status: "available" };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-
-interface HomeSuggestion {
-  id?: string;
-  label: string;
-  prompt: string;
-}
-
-type HomeSuggestionsResult =
-  | { status: "ready"; suggestions: HomeSuggestion[] }
-  | {
-      status: "unavailable";
-      reason:
-        | "missing_credentials"
-        | "timeout"
-        | "agent_engine_settings_unavailable";
-      suggestions: [];
-    };
-
-const HOME_SUGGESTIONS_UI_TIMEOUT_MS = 12_000;
-
-function isReadyHomeSuggestions(
-  result: HomeSuggestionsResult | undefined,
-): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
-  return result?.status === "ready" && result.suggestions.length === 3;
-}
 
 export default function Index() {
   const t = useT();
@@ -229,16 +197,15 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
-  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
-    isSaveTemplateGettingStarted
-      ? "recent"
-      : storedHasAccessibleDesigns.status === "available" &&
-          storedHasAccessibleDesigns.value === true
-        ? "recent"
-        : "templates",
+  const [initialHomeLibraryState] = useState(() =>
+    readDesignHomeLibraryInitialState(isSaveTemplateGettingStarted),
   );
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
+    initialHomeLibraryState.tab,
+  );
+  const homeLibraryTabWasSelectedRef = useRef(
+    initialHomeLibraryState.userSelected,
+  );
   const checklistSearch = searchParams.toString();
   const previousChecklistLocationRef = useRef({
     isSaveTemplateGettingStarted,
@@ -247,6 +214,7 @@ export default function Index() {
   });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
+  const focusComposer = useCallback(() => composerRef.current?.focus(), []);
   const [quickStartPending, setQuickStartPending] = useState(false);
   const quickStartRef = useRef(false);
   const submissionErrorRef = useRef(false);
@@ -263,6 +231,16 @@ export default function Index() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
+
+  useLayoutEffect(() => {
+    const unsubscribe = subscribeToDesignHomeLibraryTab((tab) => {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection(tab);
+      clearDesignHomeLibraryTabSelection();
+    });
+    clearDesignHomeLibraryTabSelection();
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     const previousLocation = previousChecklistLocationRef.current;
@@ -435,164 +413,139 @@ export default function Index() {
     suggestionSession?.orgId ?? "",
   ];
   const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionRoleScope =
+    suggestionSession?.authUserId || suggestionSession?.userId
+      ? JSON.stringify([
+          suggestionSession.authUserId ?? suggestionSession.userId,
+          suggestionSession.orgId ?? "",
+        ])
+      : null;
+  const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
+  const firstPaintPromptDraft = useFirstPaintPromptDraft(
+    "design",
+    homeSuggestionDraftScope,
+  );
+  const firstPaintPrompt =
+    firstPaintPromptDraft.status === "present"
+      ? firstPaintPromptDraft.draft
+      : null;
+  const [homePromptInitialText, setHomePromptInitialText] = useState(
+    () => firstPaintPrompt?.text,
+  );
+  const [homePromptInitialTextKey, setHomePromptInitialTextKey] = useState(
+    () => firstPaintPrompt?.revision,
+  );
+  const homeSuggestionPromptSourceRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion",
+  );
+  const homeSuggestionPromptTextRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion"
+      ? firstPaintPrompt.text
+      : null,
+  );
+  const handleHomePromptTextChange = useCallback((text: string) => {
+    if (
+      homeSuggestionPromptSourceRef.current &&
+      homeSuggestionPromptTextRef.current !== null &&
+      homeSuggestionPromptTextRef.current !== text
+    ) {
+      homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
+    }
+  }, []);
+  const homeSuggestionSeed = useHomeSuggestionSeed();
+  const shellSuggestionRole = useHomeSuggestionRole();
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   const homeSuggestionsProfile = useActionQuery<{
     onboardingRole?: string | null;
   }>(
     "get-user-profile",
     {},
     {
-      enabled: quickActionsEnabled,
       queryKeyScope: [homeSuggestionsIdentityScope],
       staleTime: 0,
     },
   );
-  const homeSuggestionsProfileReady =
-    quickActionsEnabled &&
-    (homeSuggestionsProfile.data !== undefined ||
-      homeSuggestionsProfile.isError);
-  const homeSuggestionsCacheScope = JSON.stringify([
-    ...homeSuggestionsIdentity,
-    homeSuggestionsProfile.data?.onboardingRole ?? null,
-  ]);
-  const fallbackHomeSuggestions = useMemo(
-    () =>
-      [
-        t("chat.suggestionLandingPage"),
-        t("chat.suggestionBrandMatch"),
-        t("chat.suggestionMobile"),
-      ].map((prompt, index) => ({
-        id: `design-home-generic-${index}`,
-        label: prompt,
-        prompt,
-      })),
-    [t],
-  );
-  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
-    useState<{
-      scope: string;
-      suggestions: HomeSuggestion[];
-    } | null>(null);
-  const homeSuggestionsSnapshot =
-    homeSuggestionsProfileReady &&
-    homeSuggestionsSnapshotState?.scope === homeSuggestionsIdentityScope
-      ? homeSuggestionsSnapshotState.suggestions
-      : null;
-  const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
-    "generate-home-suggestions",
-    {},
-    {
-      enabled: homeSuggestionsProfileReady && homeSuggestionsSnapshot === null,
-      queryKeyScope: [homeSuggestionsCacheScope],
-      retry: false,
-      staleTime: (query) =>
-        isReadyHomeSuggestions(query.state.data) ? Number.POSITIVE_INFINITY : 0,
-      gcTime: Number.POSITIVE_INFINITY,
-      refetchOnMount: (query) => !isReadyHomeSuggestions(query.state.data),
-      refetchOnWindowFocus: (query) =>
-        !isReadyHomeSuggestions(query.state.data),
-      refetchOnReconnect: (query) => !isReadyHomeSuggestions(query.state.data),
-    },
-  );
-  const readyHomeSuggestions =
-    homeSuggestionsProfileReady &&
-    homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length === 3
-      ? homeSuggestionsQuery.data.suggestions
-      : null;
-  const homeSuggestionsQueryUnavailable =
-    !homeSuggestionsQuery.isFetching &&
-    quickActionsEnabled &&
-    (homeSuggestionsQuery.isError ||
-      homeSuggestionsQuery.data?.status === "unavailable" ||
-      (homeSuggestionsQuery.data?.status === "ready" &&
-        homeSuggestionsQuery.data.suggestions.length !== 3));
-  const [homeSuggestionsTimeout, setHomeSuggestionsTimeout] = useState({
-    scope: homeSuggestionsIdentityScope,
-    timedOut: false,
-  });
-  if (homeSuggestionsTimeout.scope !== homeSuggestionsIdentityScope) {
-    setHomeSuggestionsTimeout({
-      scope: homeSuggestionsIdentityScope,
-      timedOut: false,
-    });
-  }
-  const homeSuggestionsTimedOut =
-    quickActionsEnabled &&
-    homeSuggestionsTimeout.scope === homeSuggestionsIdentityScope &&
-    homeSuggestionsTimeout.timedOut;
+  useEffect(() => {
+    const handleFirstRunCompleted = () => void homeSuggestionsProfile.refetch();
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
+  }, [homeSuggestionsProfile.refetch]);
+  const homeSuggestionRole =
+    homeSuggestionsProfile.data !== undefined
+      ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
+      : (shellSuggestionRole ?? "general");
+  useEffect(() => {
+    if (homeSuggestionsProfile.data === undefined) return;
+    writeHomeSuggestionRole(
+      "design",
+      homeSuggestionsProfile.data.onboardingRole,
+      homeSuggestionRoleScope,
+    );
+  }, [homeSuggestionRoleScope, homeSuggestionsProfile.data]);
+  const firstPaintSubmitRevisionRef = useRef<number | null>(null);
   useEffect(() => {
     if (
+      !firstPaintPrompt?.submitted ||
+      !firstPaintPrompt.text.trim() ||
       !quickActionsEnabled ||
-      homeSuggestionsSnapshot !== null ||
-      readyHomeSuggestions !== null ||
-      homeSuggestionsQueryUnavailable
+      firstRunOwnsSurface ||
+      firstPaintSubmitRevisionRef.current === firstPaintPrompt.revision
     ) {
-      setHomeSuggestionsTimeout({
-        scope: homeSuggestionsIdentityScope,
-        timedOut: false,
-      });
       return;
     }
-    const timer = window.setTimeout(
-      () =>
-        setHomeSuggestionsTimeout({
-          scope: homeSuggestionsIdentityScope,
-          timedOut: true,
-        }),
-      HOME_SUGGESTIONS_UI_TIMEOUT_MS,
-    );
-    return () => window.clearTimeout(timer);
+    const composer = composerRef.current;
+    if (!composer) return;
+    firstPaintSubmitRevisionRef.current = firstPaintPrompt.revision;
+    submissionErrorRef.current = false;
+    void (async () => {
+      try {
+        for (const file of firstPaintPrompt.files ?? []) {
+          await composer.addAttachment(file);
+        }
+        const accepted = await composer.submitWithText(firstPaintPrompt.text);
+        if (!accepted && !submissionErrorRef.current) {
+          toast.error(t("homeContext.notReady"));
+        }
+      } catch {
+        if (!submissionErrorRef.current) {
+          toast.error(t("home.failedToCreateDesign"));
+        }
+      } finally {
+        homeSuggestionPromptSourceRef.current = false;
+        homeSuggestionPromptTextRef.current = null;
+      }
+    })();
   }, [
+    firstPaintPrompt?.revision,
+    firstPaintPrompt?.submitted,
+    firstPaintPrompt?.text,
+    firstPaintPrompt?.files,
+    firstRunOwnsSurface,
     quickActionsEnabled,
-    homeSuggestionsSnapshot,
-    readyHomeSuggestions,
-    homeSuggestionsQueryUnavailable,
-    homeSuggestionsIdentityScope,
+    t,
   ]);
-  const homeSuggestionsUnavailable =
-    homeSuggestionsQueryUnavailable || homeSuggestionsTimedOut;
-  useEffect(() => {
-    if (homeSuggestionsSnapshot !== null) return;
-    const result = homeSuggestionsQuery.data;
-    if (
-      quickActionsEnabled &&
-      homeSuggestionsProfileReady &&
-      result?.status === "ready" &&
-      result.suggestions.length === 3
-    ) {
-      setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsIdentityScope,
-        suggestions: result.suggestions,
-      });
-    } else if (
-      quickActionsEnabled &&
-      homeSuggestionsProfileReady &&
-      homeSuggestionsQueryUnavailable
-    ) {
-      setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsIdentityScope,
-        suggestions: fallbackHomeSuggestions,
-      });
-    }
-  }, [
-    homeSuggestionsQuery.data,
-    homeSuggestionsSnapshot,
-    homeSuggestionsCacheScope,
-    homeSuggestionsIdentityScope,
-    quickActionsEnabled,
-    homeSuggestionsProfileReady,
-    homeSuggestionsQueryUnavailable,
-    fallbackHomeSuggestions,
-  ]);
-  const homeSuggestions =
-    homeSuggestionsSnapshot ??
-    readyHomeSuggestions ??
-    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
-  const homeSuggestionsLoading =
-    homeSuggestionsSnapshot === null &&
-    readyHomeSuggestions === null &&
-    !homeSuggestionsTimedOut &&
-    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
+  const selectedHomeSuggestionKeys = useMemo(
+    () =>
+      pickHomeSuggestions(
+        DESIGN_HOME_SUGGESTION_POOLS,
+        homeSuggestionRole,
+        createHomeSuggestionRandom(homeSuggestionSeed),
+      ),
+    [homeSuggestionsIdentityScope, homeSuggestionRole, homeSuggestionSeed],
+  );
+  const homeSuggestions = selectedHomeSuggestionKeys.map(
+    ({ id, label, prompt }) => {
+      return { id, label: t(label), prompt: t(prompt ?? label) };
+    },
+  );
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -953,9 +906,10 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean; fromSkip?: boolean },
     ) => {
-      const promptSource = quickStartRef.current
-        ? "suggestion_chip"
-        : "composer";
+      const promptSource =
+        quickStartRef.current || homeSuggestionPromptSourceRef.current
+          ? "home_suggestion"
+          : "composer";
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
@@ -1161,6 +1115,8 @@ export default function Index() {
       }
 
       reportPromptSubmitted(id);
+      homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
@@ -1419,19 +1375,13 @@ export default function Index() {
       />
     </div>
   );
-  const showHomeSuggestions =
-    quickActionsEnabled &&
-    (homeSuggestionsLoading ||
-      homeSuggestionsUnavailable ||
-      readyHomeSuggestions !== null ||
-      homeSuggestionsSnapshot !== null);
-
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <PromptHome
         title={t("home.designPromptTitle")}
-        connectionAttached={agentEngineMissing}
+        focusComposer={focusComposer}
+        connectionAttached={agentEngine.state !== "configured"}
         connection={
           agentEngineConfigured ? null : agentEngineMissing ? (
             <BuilderSetupCard
@@ -1466,7 +1416,13 @@ export default function Index() {
               requireAgentEngine
               showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}
-              draftScope="design:new:0"
+              draftScope={`design:new:0:${homeSuggestionDraftScope}`}
+              initialText={homePromptInitialText}
+              initialTextKey={homePromptInitialTextKey}
+              initialTextOverridesSavedDraft={
+                homePromptInitialText !== undefined
+              }
+              onPromptTextChange={handleHomePromptTextChange}
               placeholder={
                 selectedTemplate
                   ? t("promptDialog.templatePromptPlaceholder", {
@@ -1522,77 +1478,75 @@ export default function Index() {
           </div>
         }
         quickActions={
-          showHomeSuggestions || !selectedTemplate ? (
-            <div
-              data-home-prompt-actions
-              className="flex w-full min-w-0 items-center justify-between gap-1"
-            >
-              {showHomeSuggestions ? (
-                <AgentSuggestionBar
-                  loading={homeSuggestionsLoading}
-                  announceUpdates
-                  layout="single-line"
-                  suggestions={homeSuggestions.map((suggestion, index) => ({
-                    ...suggestion,
-                    id: suggestion.id ?? `design-home-${index}`,
-                    disabled:
-                      !quickActionsEnabled ||
-                      newDesignHandoffPending ||
-                      quickStartPending,
-                  }))}
-                  ariaLabel={t("home.suggestedPrompts")}
-                  className="min-w-0 flex-1 px-0 py-0"
-                  onSelect={async (suggestion) => {
-                    if (
-                      !quickActionsEnabled ||
-                      quickStartRef.current ||
-                      !composerRef.current
-                    )
-                      return;
-                    quickStartRef.current = true;
-                    submissionErrorRef.current = false;
-                    setQuickStartPending(true);
-                    try {
-                      const accepted = await composerRef.current.submitWithText(
-                        agentSuggestionPrompt(suggestion),
-                      );
-                      if (!accepted && !submissionErrorRef.current) {
-                        toast.error(t("homeContext.notReady"));
-                      }
-                    } finally {
-                      quickStartRef.current = false;
-                      setQuickStartPending(false);
+          <div
+            data-home-prompt-actions
+            className="flex w-full min-w-0 items-center justify-between gap-1"
+          >
+            <AgentSuggestionBar
+              announceUpdates
+              layout="single-line"
+              homeTracking={{
+                appId: "design",
+                role: homeSuggestionRole,
+                seed: homeSuggestionSeed,
+              }}
+              onHomeSuggestionClick={trackDesignHomeSuggestionClick}
+              suggestions={homeSuggestions.map((suggestion) => ({
+                ...suggestion,
+                disabled: newDesignHandoffPending || quickStartPending,
+              }))}
+              ariaLabel={t("home.suggestedPrompts")}
+              className="min-w-0 flex-1 px-0 py-0"
+              onSelect={(suggestion) => {
+                if (quickStartRef.current || !composerRef.current) return;
+                if (!quickActionsEnabled) {
+                  homeSuggestionPromptSourceRef.current = true;
+                  const prompt = agentSuggestionPrompt(suggestion);
+                  homeSuggestionPromptTextRef.current = prompt;
+                  setHomePromptInitialText(prompt);
+                  setHomePromptInitialTextKey(Date.now());
+                  composerRef.current.setText(prompt);
+                  composerRef.current.focus();
+                  return;
+                }
+                quickStartRef.current = true;
+                submissionErrorRef.current = false;
+                setQuickStartPending(true);
+                void composerRef.current
+                  .submitWithText(agentSuggestionPrompt(suggestion))
+                  .then((accepted) => {
+                    if (!accepted && !submissionErrorRef.current) {
+                      toast.error(t("homeContext.notReady"));
                     }
-                  }}
-                />
-              ) : (
-                <span className="min-w-0 flex-1" />
-              )}
-              {!selectedTemplate ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  disabled={newDesignHandoffPending}
-                  className="h-7 shrink-0 px-2 font-normal text-muted-foreground hover:text-foreground"
-                  data-testid="design-home-skip-prompt"
-                  onClick={() => {
-                    // startBlankDesign shows the failure toast before rejecting.
-                    void handleSkipToEditor().catch((error: unknown) => {
-                      trace("persist", "skip-to-editor-failed", {
-                        message:
-                          error instanceof Error
-                            ? error.message
-                            : String(error),
-                      });
+                  })
+                  .finally(() => {
+                    quickStartRef.current = false;
+                    setQuickStartPending(false);
+                  });
+              }}
+            />
+            {!selectedTemplate ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={newDesignHandoffPending}
+                className="h-7 min-w-[85px] shrink-0 justify-center px-2 font-normal text-muted-foreground hover:text-foreground"
+                data-testid="design-home-skip-prompt"
+                onClick={() => {
+                  // startBlankDesign shows the failure toast before rejecting.
+                  void handleSkipToEditor().catch((error: unknown) => {
+                    trace("persist", "skip-to-editor-failed", {
+                      message:
+                        error instanceof Error ? error.message : String(error),
                     });
-                  }}
-                >
-                  {t("promptDialog.skipPrompt")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null
+                  });
+                }}
+              >
+                {t("promptDialog.skipPrompt")}
+              </Button>
+            ) : null}
+          </div>
         }
       >
         {accessibleDesignsSummary.isError ? (
@@ -1611,13 +1565,19 @@ export default function Index() {
             onValueChange={(value) => {
               homeLibraryTabWasSelectedRef.current = true;
               setHomeSection(value);
+              clearDesignHomeLibraryTabSelection();
             }}
             labels={{
               templates: t("navigation.templates"),
               recent: t("home.recent"),
             }}
             browseAll={
-              <Button variant="ghost" size="sm" asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-w-[111px] justify-center"
+                asChild
+              >
                 <Link to="/templates">
                   {t("home.browseAllTemplates")}
                   <IconArrowRight />
@@ -1648,7 +1608,7 @@ export default function Index() {
             recent={
               <>
                 {isLoading || (isFetching && designs.length === 0) ? (
-                  <LoadingSkeleton />
+                  <DesignRecentSkeleton />
                 ) : isError ? (
                   <QueryErrorState
                     onRetry={() => void refetch()}
@@ -2050,27 +2010,6 @@ function NewDesignHandoffOverlay() {
         {t("home.openingDesign")}
       </div>
     </div>
-  );
-}
-
-function LoadingSkeleton() {
-  return (
-    <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-border bg-card overflow-hidden"
-          >
-            <div className="aspect-video bg-muted/50 animate-pulse" />
-            <div className="p-4 space-y-2">
-              <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
-              <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
   );
 }
 

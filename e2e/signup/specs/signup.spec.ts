@@ -71,9 +71,20 @@ function assertBetterAuthSession(
 }
 
 async function waitForApplicationReady(page: Page, app: string) {
-  await expect(
-    page.locator('[data-first-run-startup-loading="true"]'),
-  ).toHaveCount(0, { timeout: 60_000 });
+  await expect
+    .poll(
+      async () => {
+        const appIsInert =
+          (await page.locator('[data-first-run-app-inert="true"]').count()) > 0;
+        const onboardingIsVisible =
+          (await page
+            .locator("[data-onboarding-screen], [data-onboarding-loading]")
+            .count()) > 0;
+        return !appIsInert || onboardingIsVisible;
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(true);
 
   if (app === "chat") {
     const composer = page.getByRole("textbox", { name: "Message agent" });

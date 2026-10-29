@@ -119,7 +119,7 @@ function planLinkedDuplicateSelection(args: {
 }
 
 export interface DuplicateSelectionArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   clearExplicitOverviewScreenSelection?: () => void;
   designId: string | undefined;
@@ -259,6 +259,7 @@ export function runDuplicateSelection({
     activeFileId: activeFile?.id ?? null,
     viewMode: viewModeRef.current,
   });
+  if (!activeFile) return;
   let structureUnsupported = false;
   const onUnsupportedStructure = () => {
     structureUnsupported = true;
