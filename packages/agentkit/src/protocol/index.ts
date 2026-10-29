@@ -887,6 +887,14 @@ export type AgentEvent =
       type: "message.completed";
       message: AgentMessage;
     })
+  /**
+   * Replaces the parts of a message that is still streaming, such as when the
+   * server discards a draft and the agent writes it again. Status is unchanged.
+   */
+  | (AgentEventBase & {
+      type: "message.replaced";
+      message: AgentMessage;
+    })
   | (AgentEventBase & {
       type: "reasoning.delta";
       messageId: string;

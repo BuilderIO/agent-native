@@ -1,5 +1,37 @@
 # @agent-native/dispatch
 
+## 0.40.43
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 25daf38: Expose bounded stage codes when Builder branch readback cannot be verified.
+- Updated dependencies [86af196]
+- Updated dependencies [c96a41d]
+- Updated dependencies
+  - @agent-native/toolkit@0.222.1
+
+## 0.40.42
+
+### Patch Changes
+
+- 65cb1d5: Require Core 0.222.0 or newer for authenticated Builder branch readback.
+- 1ccb574: Use mounted Workspace app paths for embedded agent chat sessions.
+- Release all public npm packages with a patch version bump.
+- 3901677: Verify Builder branch files through authenticated full-backup readback, revision and byte-integrity checks, and exact reviewed community-template hashes. Add an owner-only verification action without enabling community installs.
+- Updated dependencies [ede5c57]
+- Updated dependencies [7e08199]
+- Updated dependencies [c038e00]
+- Updated dependencies [51e8de9]
+- Updated dependencies
+- Updated dependencies [7e08199]
+- Updated dependencies [f8c2ba6]
+- Updated dependencies [78fa714]
+- Updated dependencies [0bf6393]
+- Updated dependencies [8adaead]
+- Updated dependencies [a54e178]
+  - @agent-native/toolkit@0.222.0
+
 ## 0.40.41
 
 ### Patch Changes
@@ -1402,17 +1434,5 @@
 ### Patch Changes
 
 - 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
-
-## 0.31.0
-
-### Minor Changes
-
-- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
-
-## 0.30.5
-
-### Patch Changes
-
-- 8e51925: Fix Electron chat feedback around app visibility, local development tools, and run recovery.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -3,9 +3,6 @@ import {
   IconChevronRight,
   IconFolder,
   IconFolderOpen,
-  IconFolderPlus,
-  IconTrash,
-  IconEdit,
   IconDots,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
@@ -245,7 +242,6 @@ function FolderItem({
                         }, 0);
                       }}
                     >
-                      <IconEdit className="h-3.5 w-3.5 me-2" />{" "}
                       {t("folderTree.rename")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -256,7 +252,6 @@ function FolderItem({
                         }, 0);
                       }}
                     >
-                      <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
                       {t("folderTree.newSubfolder")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -266,7 +261,6 @@ function FolderItem({
                       }
                       className="text-destructive"
                     >
-                      <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
                       {t("folderTree.delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -285,7 +279,6 @@ function FolderItem({
           <ContextMenuContent>
             <ContextMenuItem asChild>
               <NavLink to={buildPath(node.id)}>
-                <IconFolder className="h-4 w-4 me-2" />
                 {t("clipsFinalRaw.view")}
               </NavLink>
             </ContextMenuItem>
@@ -298,7 +291,7 @@ function FolderItem({
                 }, 0);
               }}
             >
-              <IconEdit className="h-3.5 w-3.5 me-2" /> {t("folderTree.rename")}
+              {t("folderTree.rename")}
             </ContextMenuItem>
             <ContextMenuItem
               onSelect={() => {
@@ -308,7 +301,6 @@ function FolderItem({
                 }, 0);
               }}
             >
-              <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
               {t("folderTree.newSubfolder")}
             </ContextMenuItem>
             <ContextMenuSeparator />
@@ -316,7 +308,6 @@ function FolderItem({
               onSelect={() => setTimeout(() => setConfirmDelete(true), 0)}
               className="text-destructive"
             >
-              <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
               {t("folderTree.delete")}
             </ContextMenuItem>
           </ContextMenuContent>

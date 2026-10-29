@@ -4,6 +4,7 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 
 const oauthMocks = vi.hoisted(() => ({
   delete: vi.fn(),
+  getAccessToken: vi.fn(),
   revoke: vi.fn(),
   save: vi.fn(),
 }));
@@ -19,7 +20,7 @@ const appSecretMocks = vi.hoisted(() => ({
 
 vi.mock("./oauth-client.js", () => ({
   deleteMcpOAuthCredentials: oauthMocks.delete,
-  getMcpOAuthAccessToken: vi.fn(),
+  getMcpOAuthAccessToken: oauthMocks.getAccessToken,
   revokeMcpOAuthCredentials: oauthMocks.revoke,
   saveMcpOAuthCredentials: oauthMocks.save,
 }));
@@ -568,6 +569,39 @@ describe("first-party remote MCP metadata", () => {
 });
 
 describe("stored remote MCP headers", () => {
+  it("keeps a scoped refresh path for OAuth server requests", async () => {
+    oauthMocks.getAccessToken
+      .mockResolvedValueOnce("<OLD_ACCESS_TOKEN>")
+      .mockResolvedValueOnce("<NEW_ACCESS_TOKEN>");
+
+    const config = await toHttpServerConfigAsync("org", "org-1", {
+      id: "mcps_oauth",
+      name: "example",
+      url: "https://mcp.example.com/",
+      oauthSecretKey: "mcp_oauth:example",
+      createdAt: 1,
+    });
+
+    expect(config.headers?.Authorization).toBe("Bearer <OLD_ACCESS_TOKEN>");
+    expect(config.oauthAccessRefresh?.identity).toMatch(/^[a-f0-9]{64}$/);
+    await expect(config.oauthAccessRefresh?.refresh()).resolves.toBe(
+      "<NEW_ACCESS_TOKEN>",
+    );
+    expect(oauthMocks.getAccessToken).toHaveBeenNthCalledWith(1, {
+      key: "mcp_oauth:example",
+      scope: "org",
+      scopeId: "org-1",
+      serverUrl: "https://mcp.example.com/",
+    });
+    expect(oauthMocks.getAccessToken).toHaveBeenNthCalledWith(2, {
+      key: "mcp_oauth:example",
+      scope: "org",
+      scopeId: "org-1",
+      serverUrl: "https://mcp.example.com/",
+      forceRefresh: true,
+    });
+  });
+
   it("rejects a missing saved header secret reference instead of dropping auth", async () => {
     appSecretMocks.read.mockResolvedValue(null);
 

@@ -2381,6 +2381,83 @@ const executeWrapperSummaryResultCache = new WeakMap<
   WeakMap<ts.FunctionLikeDeclaration, number[]>
 >();
 
+const executeReachCache = new WeakMap<
+  SqlAnalysis,
+  WeakMap<ts.FunctionLikeDeclaration, boolean>
+>();
+
+/**
+ * Whether a function, or any function it calls, makes an execute call. One
+ * that does not has an empty wrapper summary, so its calls' arguments are never
+ * traced: in a large function that trace is what takes minutes.
+ */
+function reachesExecuteSink(
+  declaration: ts.FunctionLikeDeclaration,
+  analysis: SqlAnalysis,
+): boolean {
+  const visited: Array<[ts.FunctionLikeDeclaration, SqlAnalysis]> = [];
+  const visiting = new Set<ts.FunctionLikeDeclaration>();
+  const remember = (
+    current: ts.FunctionLikeDeclaration,
+    currentAnalysis: SqlAnalysis,
+    reaches: boolean,
+  ) => {
+    const byDeclaration =
+      executeReachCache.get(currentAnalysis) ?? new WeakMap();
+    byDeclaration.set(current, reaches);
+    executeReachCache.set(currentAnalysis, byDeclaration);
+  };
+  const reaches = (
+    current: ts.FunctionLikeDeclaration,
+    currentAnalysis: SqlAnalysis,
+  ): boolean => {
+    const known = executeReachCache.get(currentAnalysis)?.get(current);
+    if (known !== undefined) return known;
+    if (!current.body || visiting.has(current)) return false;
+    visiting.add(current);
+    visited.push([current, currentAnalysis]);
+    let found = false;
+    const visit = (node: ts.Node) => {
+      if (found) return;
+      if (ts.isCallExpression(node)) {
+        if (
+          isExecuteCall(
+            node.expression,
+            currentAnalysis.checker,
+            node.getSourceFile(),
+            currentAnalysis.executeAliases,
+          )
+        ) {
+          found = true;
+          return;
+        }
+        for (const nested of callableDeclarations(node, currentAnalysis)) {
+          const nestedAnalysis =
+            currentAnalysis.relatedAnalyses?.get(nested.getSourceFile()) ??
+            currentAnalysis;
+          if (reaches(nested, nestedAnalysis)) {
+            found = true;
+            return;
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(current.body);
+    // A "no" is only final once the whole search from the root says no: a
+    // function cut off by a cycle may still reach a sink through its caller.
+    if (found) remember(current, currentAnalysis, true);
+    return found;
+  };
+  const result = reaches(declaration, analysis);
+  if (!result) {
+    for (const [current, currentAnalysis] of visited) {
+      remember(current, currentAnalysis, false);
+    }
+  }
+  return result;
+}
+
 function executeWrapperSummaryTemplate(
   declaration: ts.FunctionLikeDeclaration,
   wrapperAnalysis: SqlAnalysis,
@@ -2407,7 +2484,10 @@ function executeWrapperSummaryTemplate(
     }
   });
 
-  if (parameterIndexes.size > 0) {
+  if (
+    parameterIndexes.size > 0 &&
+    reachesExecuteSink(declaration, wrapperAnalysis)
+  ) {
     const indexesForExpression = (expression: ts.Expression): Set<number> => {
       const indexes = new Set<number>();
       const current = ts.isSpreadElement(expression)
@@ -2463,6 +2543,9 @@ function executeWrapperSummaryTemplate(
               wrapperAnalysis.relatedAnalyses?.get(
                 nestedDeclaration.getSourceFile(),
               ) ?? wrapperAnalysis;
+            if (!reachesExecuteSink(nestedDeclaration, nestedAnalysis)) {
+              continue;
+            }
             const argumentIndexes = new Map<number, Set<number>>();
             nestedDeclaration.parameters.forEach((parameter, nestedIndex) => {
               const nestedArgumentIndexes = parameter?.dotDotDotToken
@@ -3072,25 +3155,31 @@ export function findRawSqlInterpolationViolationsInSources(
           analysis.executeAliases,
         )
       ) {
-        const callChanged = touchesChangedLines(node);
-        const hasChangedSqlSource = node.arguments.some((argument) => {
-          if (isStaticSqlValue(argument)) return false;
-          const unsafeSqlSources = findUnsafeSqlSources(
-            argument,
-            analysis,
-            new Set(),
-            new Set(),
-            true,
-          );
-          return (
-            unsafeSqlSources.size > 0 &&
-            (callChanged || [...unsafeSqlSources].some(touchesChangedLines))
-          );
-        });
-        if (hasChangedSqlSource) {
-          for (const index of executeWrapperArgumentIndexes(node, analysis)) {
-            const argument = node.arguments[index];
-            if (argument) reportUnsafeSqlValue(analysis, node, argument);
+        // Only a call into an execute wrapper can carry SQL to a sink. Tracing
+        // every other call's arguments made any change to a large file with an
+        // execute sink, such as the agent loop, run for tens of minutes.
+        const wrapperIndexes = executeWrapperArgumentIndexes(node, analysis);
+        if (wrapperIndexes.length > 0) {
+          const callChanged = touchesChangedLines(node);
+          const hasChangedSqlSource = node.arguments.some((argument) => {
+            if (isStaticSqlValue(argument)) return false;
+            const unsafeSqlSources = findUnsafeSqlSources(
+              argument,
+              analysis,
+              new Set(),
+              new Set(),
+              true,
+            );
+            return (
+              unsafeSqlSources.size > 0 &&
+              (callChanged || [...unsafeSqlSources].some(touchesChangedLines))
+            );
+          });
+          if (hasChangedSqlSource) {
+            for (const index of wrapperIndexes) {
+              const argument = node.arguments[index];
+              if (argument) reportUnsafeSqlValue(analysis, node, argument);
+            }
           }
         }
       }
@@ -3741,7 +3830,12 @@ export function addChangedSqlExecuteWrapperModules(
       };
 
       const visitForwardedCalls = (node: ts.Node) => {
-        if (ts.isCallExpression(node)) {
+        // Only a call into another module can forward a tracked parameter
+        // there, so other calls skip the argument trace.
+        if (
+          ts.isCallExpression(node) &&
+          importedSqlCallTarget(node, sourceFile, new Set(), new Set())
+        ) {
           const argumentIndexes = new Set<number>();
           const spreadArgumentIndexes = new Set<number>();
           node.arguments.forEach((argument, index) => {
@@ -3811,15 +3905,15 @@ function addChangedSqlHelperCallers(
         `could not read ${path.relative(rootDir, file)}: ${message}`,
       );
     }
-    sources.set(file, {
+    const traceSqlCallLines = changedSqlHelperCallsiteLines(
       source,
-      addedLines: new Set(),
-      traceSqlCallLines: changedSqlHelperCallsiteLines(
-        source,
-        file,
-        new Set(helperNames),
-      ),
-    });
+      file,
+      helperNames,
+    );
+    // The grep is by bare word, so a common helper name like `run` matches
+    // thousands of files; loading them all into one program runs out of memory.
+    if (traceSqlCallLines.size === 0) continue;
+    sources.set(file, { source, addedLines: new Set(), traceSqlCallLines });
   }
 }
 

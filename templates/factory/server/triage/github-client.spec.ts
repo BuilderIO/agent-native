@@ -279,6 +279,12 @@ describe("GitHub triage client", () => {
     const approvalRequest = fetchImpl.mock.calls.find(([input]) =>
       new URL(String(input)).pathname.endsWith("/reviews"),
     );
+    expect(approvalRequest?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(
+      mockedResolveConnectorSecret.mock.calls.filter(
+        ([key]) => key === "GITHUB_TOKEN",
+      ),
+    ).toHaveLength(1);
     expect(JSON.parse(String(approvalRequest?.[1]?.body))).toMatchObject({
       event: "APPROVE",
       body: "Factory approval",
@@ -404,6 +410,7 @@ describe("GitHub triage client", () => {
     expect(evidence.reviews).toEqual([
       {
         author: "reviewer",
+        authorId: 2,
         state: "changes_requested",
         observedAt: "2026-08-28T12:00:00Z",
       },
@@ -544,6 +551,7 @@ describe("GitHub triage client", () => {
     });
     expect(reviews[100]).toEqual({
       author: "maintainer",
+      authorId: 2,
       state: "approved",
       authorAssociation: "MEMBER",
       authorType: "User",
@@ -554,6 +562,7 @@ describe("GitHub triage client", () => {
     // A review GitHub gives no association for is passed on without one, never with a made-up value.
     expect(reviews[101]).not.toHaveProperty("authorAssociation");
     expect(reviews[101]).not.toHaveProperty("authorType");
+    expect(reviews[101]).toHaveProperty("authorId", 3);
     expect(reviews[101]).not.toHaveProperty("commitSha");
   });
 
@@ -899,6 +908,33 @@ describe("GitHub triage client", () => {
       threadId: "PRRT_kwDOABC",
     });
   });
+
+  it.each([
+    ["user ID", { id: 18, login: "reviewer" }],
+    ["login", { id: 17, login: "renamed-reviewer" }],
+  ])(
+    "rejects organization membership when GitHub returns a different %s",
+    async (_field, user) => {
+      const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path === "/users/reviewer") return response(user);
+        throw new Error(`unexpected ${path}`);
+      });
+      const client = createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      });
+
+      await expect(
+        client.checkOrganizationMemberById("BuilderIO", 17, "reviewer"),
+      ).resolves.toEqual({
+        username: "reviewer",
+        isMember: false,
+        permission: null,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
 });
 
 describe("GitHub client reads and merges for workflows", () => {
@@ -1064,6 +1100,7 @@ describe("GitHub client reads and merges for workflows", () => {
           mergeable: null,
           mergeable_state: null,
           review_comments: 0,
+          assignees: [],
         }),
       ),
     });
@@ -1084,7 +1121,7 @@ describe("getPullRequestSummary: where the pull request comes from", () => {
     state: "open",
     draft: false,
     html_url: "https://github.test/pr/7",
-    user: { id: 1, login: "builder-io-integration[bot]" },
+    user: { id: 1, login: "builder-io-integration[bot]", type: "Bot" },
     head: { sha: "h", ref: "r", repo: head },
     base: { ref: "main", repo: base },
     created_at: "2026-08-28T10:00:00Z",
@@ -1095,6 +1132,7 @@ describe("getPullRequestSummary: where the pull request comes from", () => {
     mergeable: true,
     mergeable_state: "clean",
     review_comments: 0,
+    assignees: [],
   });
   const summaryOf = (body: unknown) =>
     createGitHubClient({
@@ -1110,7 +1148,50 @@ describe("getPullRequestSummary: where the pull request comes from", () => {
       headRepository: "someone/app",
       baseRepository: "acme/app",
       baseDefaultBranch: "trunk",
+      userType: "Bot",
     });
+  });
+
+  it("reads assignee identities from the live pull request", async () => {
+    await expect(
+      summaryOf(payload({ full_name: "someone/app" }, base)),
+    ).resolves.toMatchObject({ assignees: [] });
+
+    await expect(
+      summaryOf({
+        ...payload({ full_name: "someone/app" }, base),
+        assignees: [{ id: 1001, login: "builder-member" }],
+      }),
+    ).resolves.toMatchObject({
+      assignees: [{ id: 1001, login: "builder-member" }],
+    });
+  });
+
+  it.each([undefined, null, {}])(
+    "rejects missing or malformed assignee collections: %s",
+    async (assignees) => {
+      await expect(
+        summaryOf({
+          ...payload({ full_name: "someone/app" }, base),
+          assignees,
+        }),
+      ).rejects.toThrow(
+        "GitHub pull request assignees response was not an array",
+      );
+    },
+  );
+
+  it.each([
+    [{ login: "builder-member" }, /missing pull request assignee ID/],
+    [{ id: 1001 }, /missing pull request assignee login/],
+    [{ id: 0, login: "builder-member" }, /invalid pull request assignee ID/],
+  ])("rejects malformed assignee identities: %s", async (assignee, error) => {
+    await expect(
+      summaryOf({
+        ...payload({ full_name: "someone/app" }, base),
+        assignees: [assignee],
+      }),
+    ).rejects.toThrow(error);
   });
 
   it("reads a deleted fork as no head repository, and an unreadable answer as an error", async () => {

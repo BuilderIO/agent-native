@@ -160,6 +160,41 @@ describe("agentWorkTimeline", () => {
     ]);
   });
 
+  it("drops reasoning a replaced draft discarded and resumes after the kept part", () => {
+    const message = reply([
+      { type: "reasoning", text: "**Searching** first. " },
+      { type: "reasoning", text: "**Checking** receipts." },
+    ]);
+    const entries = timeline(
+      [
+        delta("reply", "**Searching** first. "),
+        toolStarted("call-1"),
+        delta("reply", "**Drafting** an answer."),
+        event({
+          type: "message.replaced",
+          message: {
+            id: "reply",
+            role: "assistant",
+            parts: [{ type: "reasoning", text: "**Searching** first. " }],
+          },
+        }),
+        delta("reply", "**Checking** receipts."),
+      ],
+      [message],
+    );
+    expect(entries).toEqual([
+      expect.objectContaining({
+        type: "reasoning",
+        text: "**Searching** first. ",
+      }),
+      { type: "call", id: "call-1" },
+      expect.objectContaining({
+        type: "reasoning",
+        text: "**Checking** receipts.",
+      }),
+    ]);
+  });
+
   it("marks only the last chunk of a streaming message active", () => {
     const message = reply(
       [{ type: "reasoning", text: "**One** a. **Two** b." }],

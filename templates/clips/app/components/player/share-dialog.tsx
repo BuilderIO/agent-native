@@ -64,6 +64,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -755,7 +756,7 @@ function RecordingAdvancedAccess({
           >
             {t("embedRoute.passwordRequired")}
           </Label>
-          <ViewerSwitch
+          <Switch
             id="share-password-required"
             checked={passwordEnabled}
             disabled={!canEdit || updateRecording.isPending}
@@ -765,7 +766,7 @@ function RecordingAdvancedAccess({
 
         {passwordEnabled ? (
           <>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <Input
                 size="sm"
                 type="text"
@@ -778,12 +779,10 @@ function RecordingAdvancedAccess({
                     ? t("playerSettings.passwordSetPlaceholder")
                     : t("playerSettings.passwordInputPlaceholder")
                 }
-                className="min-w-0"
               />
               <Button
                 type="button"
                 size="sm"
-                className="shrink-0"
                 disabled={
                   !canEdit || updateRecording.isPending || !password.trim()
                 }
@@ -815,7 +814,7 @@ function RecordingAdvancedAccess({
         <Label htmlFor="share-expiry" className="text-sm font-normal">
           {t("shareDialog.linkExpires")}
         </Label>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <Input
             id="share-expiry"
             size="sm"
@@ -825,12 +824,10 @@ function RecordingAdvancedAccess({
             onChange={(event) =>
               setExpiryDraft(fromDatetimeLocal(event.target.value))
             }
-            className="min-w-0"
           />
           <Button
             type="button"
             size="sm"
-            className="shrink-0"
             disabled={!canEdit || updateRecording.isPending}
             onClick={() => {
               const nextExpiry = expiryDraft || null;

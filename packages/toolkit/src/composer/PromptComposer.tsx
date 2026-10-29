@@ -28,6 +28,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate-context.js";
 import { Button } from "../ui/button.js";
 import {
   Dialog,
@@ -236,6 +237,10 @@ export interface PromptComposerProps {
   initialText?: string;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
   initialTextKey?: string | number;
+  /** Let an explicit host handoff replace a saved draft. */
+  initialTextOverridesSavedDraft?: boolean;
+  /** Skip onTextChange notifications caused only by initial draft setup. */
+  suppressInitialTextChange?: boolean;
   /** Chips placed into `initialText`, as the composer handle's `setText` takes them. */
   initialReferences?: readonly ComposerTextReference[];
   /** Optional host-owned control rendered directly after the "+" button. */
@@ -823,6 +828,8 @@ function PromptComposerInner({
   extensionTools = false,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
+  suppressInitialTextChange = false,
   initialReferences,
   modeControl,
   requireAgentEngine = false,
@@ -1081,11 +1088,12 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   useEffect(() => {
-    if (!autoFocus || composerDisabled) return;
+    if (!autoFocus || composerDisabled || firstRunOwnsSurface) return;
     const id = window.setTimeout(() => localRef.current?.focus(), 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, composerDisabled]);
+  }, [autoFocus, composerDisabled, firstRunOwnsSurface]);
 
   const handleSubmit = useCallback(
     async (
@@ -1210,6 +1218,8 @@ function PromptComposerInner({
           conversationStarted={conversationStarted}
           initialText={initialText}
           initialTextKey={initialTextKey}
+          initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
+          suppressInitialTextChange={suppressInitialTextChange}
           initialReferences={initialReferences}
           onSubmit={handleSubmit}
           onEmptySubmit={onEmptySubmit}
