@@ -3040,12 +3040,14 @@ function saveDeckToAPI(
   );
 }
 
-export function flushPendingSaves() {
+export function flushPendingSaves(
+  options: { keepalive?: boolean } = { keepalive: true },
+) {
   for (const deckId of new Set([
     ...pendingSaves.keys(),
     ...inFlightSaveChains.keys(),
   ])) {
-    void drainPendingDeckOps(deckId, { keepalive: true });
+    void drainPendingDeckOps(deckId, options);
   }
 }
 
@@ -6034,8 +6036,12 @@ export function DeckProvider({
   ]);
 
   useEffect(() => {
+    // The page is still alive when it turns hidden, so a plain request can carry
+    // a body past the 64 KB keepalive cap; keepalive is only the last resort.
     const onHidden = () => {
-      if (document.visibilityState === "hidden") flushPendingSaves();
+      if (document.visibilityState === "hidden") {
+        flushPendingSaves({ keepalive: false });
+      }
     };
     const onPageHide = () => flushPendingSaves();
     document.addEventListener("visibilitychange", onHidden);

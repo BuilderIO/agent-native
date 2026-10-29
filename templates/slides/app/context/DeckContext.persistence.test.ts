@@ -1224,6 +1224,70 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges("flush-large-deck")).toBe(false);
   });
 
+  it("sends an over-budget save as a plain request when the tab hides", async () => {
+    window.history.pushState({}, "", "/deck/hidden-large-deck");
+    const { fetchMock, resolveDeferredPatch, setAccessibleDeck } = setupFetch({
+      deferredPatch: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "hidden-large-deck",
+      title: "Hidden large deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<p>Before</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "hidden-large-deck",
+        "slide-1",
+        { content: `<p>${"x".repeat(100_000)}</p>` },
+        { persistence: "debounced" },
+      );
+    });
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      );
+    expect(patchCalls()).toHaveLength(0);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    delete (document as { visibilityState?: unknown }).visibilityState;
+
+    expect(patchCalls()).toHaveLength(1);
+    expect(patchCalls()[0]?.[1]?.keepalive).not.toBe(true);
+
+    resolveDeferredPatch();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await result.current.flushDeckSave("hidden-large-deck");
+    expect(hasUnsavedDeckChanges("hidden-large-deck")).toBe(false);
+  });
+
   it("keeps an unload flush behind the active save chain", async () => {
     window.history.pushState({}, "", "/deck/flush-order-deck");
     const {
