@@ -156,7 +156,16 @@ describe.each(["oneOf", "anyOf"] as const)(
       expect((run.mock.calls[0] as any)[0]).toEqual({
         deckId: "MB8Yb3BKQe",
         operations: [
-          { op: "patch-deck-fields", fields: { title: "Giraffes vs Horses" } },
+          // oracle-change: schema-valid clears retain their meaning beside invalid placeholders.
+          {
+            op: "patch-deck-fields",
+            fields: {
+              title: "Giraffes vs Horses",
+              designSystemId: "",
+              shareToken: "",
+              starred: false,
+            },
+          },
         ],
       });
     });

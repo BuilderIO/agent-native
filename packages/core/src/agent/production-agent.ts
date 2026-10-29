@@ -5423,6 +5423,7 @@ const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
+const MAX_TOOL_FAILURE_STREAK = 5;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
 const MAX_STOP_ERROR_LINE_CHARS = 300;
@@ -6512,7 +6513,7 @@ export function normalizeToolErrorForBreaker(error: string): string {
     stripDiagnosticSnippets(error)
       // The argument echo, up to the next sentence boundary.
       .replace(
-        /Received:\s*[\s\S]*?\.\s(?=Expected:|The tool was not executed)/g,
+        /Received:\s*[\s\S]*?(?:\.\s(?=Expected:|The tool was not executed)|$)/g,
         "",
       )
       // Bare JSON payloads some providers inline instead of a Received: span.
@@ -7093,17 +7094,32 @@ function stripOptionalToolPlaceholders(
   );
   const record = value as Record<string, unknown>;
   const placeholders: string[] = [];
-  let hasSchemaInvalidPlaceholder = false;
   let normalized: Record<string, unknown> | null = null;
 
   for (const [key, entry] of Object.entries(record)) {
-    const propertySchema = properties[key];
-    if (!propertySchema || typeof propertySchema !== "object") continue;
-    if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
-      placeholders.push(key);
-      if (schemaRejectsToolValue(propertySchema, entry)) {
-        hasSchemaInvalidPlaceholder = true;
+    const propertySchema = Object.hasOwn(properties, key)
+      ? properties[key]
+      : undefined;
+    if (!propertySchema) {
+      // Root unions are flattened by providers; an unused branch can arrive as null.
+      const branches = schema.oneOf ?? schema.anyOf;
+      if (
+        entry === null &&
+        objectSchema.additionalProperties === false &&
+        branches?.some((branch) =>
+          branch.properties ? Object.hasOwn(branch.properties, key) : false,
+        )
+      ) {
+        placeholders.push(key);
       }
+      continue;
+    }
+    if (
+      !required.has(key) &&
+      isStructurallyEmptyToolValue(entry) &&
+      schemaRejectsToolValue(propertySchema, entry)
+    ) {
+      placeholders.push(key);
       continue;
     }
     const nested = stripOptionalToolPlaceholders(propertySchema, entry);
@@ -7113,7 +7129,7 @@ function stripOptionalToolPlaceholders(
     }
   }
 
-  if (hasSchemaInvalidPlaceholder) {
+  if (placeholders.length > 0) {
     normalized ??= { ...record };
     for (const key of placeholders) delete normalized[key];
   }
@@ -7246,7 +7262,7 @@ function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
 ): { input: unknown; changed: boolean } {
-  if (!schema?.properties || !input || typeof input !== "object") {
+  if (!schema || !input || typeof input !== "object") {
     return { input, changed: false };
   }
   if (Array.isArray(input)) return { input, changed: false };
@@ -8137,6 +8153,7 @@ export async function runAgentLoop(opts: {
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
+    failureStreaks,
   } = seedRepeatedToolErrorCountsFromJournal(
     journalRead.status === "read" ? journalRead.priorToolCallSequence : [],
     toolCallCacheKey,
@@ -8280,9 +8297,13 @@ export async function runAgentLoop(opts: {
     const attemptHasText = () => streamedAssistantText.trim().length > 0;
     // A clear wipes the reply, so it is sent only when nothing the client shows would be lost.
     const sendClear = async () => {
-      if (!(opts.hasVisibleTurnText?.() ?? attemptHasText())) {
-        await send({ type: "clear" });
-      }
+      if (
+        loopBreakerCloseout ||
+        opts.hasVisibleTurnText?.() ||
+        attemptHasText()
+      )
+        return;
+      await send({ type: "clear" });
     };
     const streamedAssistantToolCalls: import("./engine/types.js").EngineToolCallPart[] =
       [];
@@ -8787,13 +8808,13 @@ export async function runAgentLoop(opts: {
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
           const stalledMs = Date.now() - attemptStartedAt;
+          await sendClear();
           if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
             send({
               type: "activity",
               label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err, engine) + 1})`,
             });
           }
-          await sendClear();
           await retryDelay(retry, signal, retryAfterMs);
           continue;
         }
@@ -8818,11 +8839,11 @@ export async function runAgentLoop(opts: {
               getContextWindowForModel(fallbackModel) * 0.8;
           if (fallbackModel && fallbackFits) {
             fallbackModelAttempted = true;
+            await sendClear();
             send({
               type: "activity",
               label: "Model is rate limited — switching to a backup model",
             });
-            await sendClear();
             model = fallbackModel;
             usage.inputTokens = 0;
             usage.outputTokens = 0;
@@ -9522,7 +9543,9 @@ export async function runAgentLoop(opts: {
         isError: boolean,
         artifacts?: ArtifactReceipt[],
         receipt?: WriteReceipt,
+        replayed = false,
       ) => {
+        if (!isError && !replayed) failureStreaks.delete(toolCall.name);
         toolResultHistory.push({
           toolCallId: toolCall.id,
           name: toolCall.name,
@@ -9535,6 +9558,8 @@ export async function runAgentLoop(opts: {
       let directStop: { message: string; explicit: boolean } | null = null;
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
+        const failureCount = (failureStreaks.get(toolCall.name) ?? 0) + 1;
+        failureStreaks.set(toolCall.name, failureCount);
         const permanentRemedy = directStop?.explicit
           ? directStop.message
           : permanentPreconditionRemedy(directStop?.message ?? sanitizedResult);
@@ -9572,6 +9597,21 @@ export async function runAgentLoop(opts: {
           (repeatedToolErrorsAnyArgs.get(anyArgsKey) ?? 0) + 1;
         repeatedToolErrorsAnyArgs.set(anyArgsKey, anyArgsCount);
         if (
+          failureCount >= MAX_TOOL_FAILURE_STREAK &&
+          count < MAX_IDENTICAL_TOOL_ERRORS &&
+          anyArgsCount < MAX_SAME_ERROR_ACROSS_ARGUMENTS
+        ) {
+          requestedActionStop ??= {
+            message:
+              `I stopped because ${toolCall.name} failed ${failureCount} times without a successful call. ` +
+              `Last error: ${clipHead(stopErrorLine(sanitizedResult), MAX_STOP_ERROR_LINE_CHARS)}\n\n` +
+              "Anything completed before this is saved.",
+            errorCode: "repeated_tool_failure",
+            details: sanitizedResult,
+          };
+          return sanitizedResult;
+        }
+        if (
           count < MAX_IDENTICAL_TOOL_ERRORS &&
           anyArgsCount >= MAX_SAME_ERROR_ACROSS_ARGUMENTS
         ) {
@@ -9600,7 +9640,8 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message:
             `I stopped because the ${toolCall.name} action failed ${count} times in a row the same way, ` +
-            "so retrying it again would not have worked. Anything completed before this is saved.",
+            `so retrying it again would not have worked. Last error: ${clipHead(stopErrorLine(sanitizedResult), MAX_STOP_ERROR_LINE_CHARS)}\n\n` +
+            "Anything completed before this is saved.",
           errorCode: "repeated_identical_tool_error",
           details: sanitizedResult,
         };
@@ -10223,7 +10264,7 @@ export async function runAgentLoop(opts: {
             : {}),
           ...(fileMutation ? { fileMutation } : {}),
         });
-        recordToolResult(result, isError, artifacts, receipt);
+        recordToolResult(result, isError, artifacts, receipt, true);
         if (!isError) {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
         }
@@ -10372,7 +10413,13 @@ export async function runAgentLoop(opts: {
                 }
               : {}),
           });
-          recordToolResult(result, replayedFailure, journaled.artifacts);
+          recordToolResult(
+            result,
+            replayedFailure,
+            journaled.artifacts,
+            undefined,
+            true,
+          );
           if (!replayedFailure) {
             noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           }
@@ -10495,7 +10542,13 @@ export async function runAgentLoop(opts: {
             ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
             ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           });
-          recordToolResult(result, false, ledgerResult.artifacts);
+          recordToolResult(
+            result,
+            false,
+            ledgerResult.artifacts,
+            undefined,
+            true,
+          );
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
@@ -11476,6 +11529,7 @@ export async function runAgentLoop(opts: {
     if (requestedActionStop) {
       const stop = requestedActionStop as TerminalActionStop;
       if (isLoopBreakerStop(stop)) {
+        await send({ type: "text", text: `${stop.message}\n\n` });
         loopBreakerCloseout = stop;
         messages.push({
           role: "user",
@@ -11491,6 +11545,9 @@ export async function runAgentLoop(opts: {
         continue;
       }
       terminalActionStop = stop;
+      if (stop.errorCode === "repeated_tool_failure") {
+        await send({ type: "text", text: stop.message });
+      }
       if (requestedConnection) {
         send({ type: "connection_required", ...requestedConnection });
       } else if (!requestedActionStopTranscriptSent) {
@@ -11942,6 +11999,15 @@ export async function runAgentLoopWithMainChatInternalContinuations(
 
     lastAttemptWasUnfinishedContinuation = true;
     await clearUnseenDraft(localTurnEvents, opts.send, true);
+    if (
+      continuationReason === "gateway_timeout" &&
+      attempt + 1 < maxContinuations
+    ) {
+      send({
+        type: "activity",
+        label: `Model did not respond — retrying (${attempt + 2}/${maxContinuations})`,
+      });
+    }
     appendContinuationCheckpoint(
       opts.messages,
       localTurnEvents.slice(attemptStartIndex),

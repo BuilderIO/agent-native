@@ -6,6 +6,10 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  executeAgentToolCall,
+  type ActionEntry,
+} from "../../../packages/core/src/agent/production-agent.js";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
 
 const path = join(
@@ -53,6 +57,63 @@ beforeAll(async () => {
 afterAll(() => rmSync(path, { recursive: true, force: true }));
 
 describe("ordinary property and table-view setup", () => {
+  it("persists a sparse view update from the in-app union tool boundary", async () => {
+    const created = await asOwner(() =>
+      createDatabase.run({
+        spaceId,
+        title: "Transport view update",
+        idempotencyKey: "transport-view-database",
+      }),
+    );
+    const initial = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id, limit: 0 }),
+    );
+    if (
+      !("mutationContract" in initial) ||
+      !initial.mutationContract ||
+      !("configurationRevision" in initial)
+    )
+      throw new Error("Expected view mutation revisions");
+    const viewId = initial.database.viewConfig.views[0]?.id;
+    if (!viewId) throw new Error("Expected an initial view");
+    const result = await asOwner(() =>
+      executeAgentToolCall({
+        actions: {
+          "update-content-database-view": updateView as unknown as ActionEntry,
+        },
+        name: "update-content-database-view",
+        input: {
+          operation: "update",
+          target: {
+            spaceId,
+            databaseId: created.database.id,
+            databaseDocumentId: created.database.documentId,
+          },
+          expectedSchemaRevision: initial.mutationContract.schemaRevision,
+          expectedConfigurationRevision: initial.configurationRevision,
+          idempotencyKey: "transport-view-update",
+          view: null,
+          viewId,
+          patch: {
+            name: null,
+            hiddenPropertyIds: [],
+            wrapCells: false,
+            rowDensity: "compact",
+          },
+        },
+      }),
+    );
+    expect(result.status).toBe("completed");
+    const saved = await asOwner(() =>
+      readDatabase.run({ databaseId: created.database.id, limit: 0 }),
+    );
+    expect(saved.database.viewConfig.views[0]).toMatchObject({
+      hiddenPropertyIds: [],
+      wrapCells: false,
+      rowDensity: "compact",
+    });
+  });
+
   it("hides a new collection's sole Blocks field in its default table view", async () => {
     const created = await asOwner(() =>
       createDatabase.run({

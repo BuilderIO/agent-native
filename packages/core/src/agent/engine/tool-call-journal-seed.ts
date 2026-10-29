@@ -675,9 +675,11 @@ export function seedRepeatedToolErrorCountsFromJournal(
 ): {
   sameArguments: Map<string, number>;
   sameTool: Map<string, number>;
+  failureStreaks: Map<string, number>;
 } {
   const sameArguments = new Map<string, number>();
   const sameTool = new Map<string, number>();
+  const failureStreaks = new Map<string, number>();
   for (const call of calls) {
     if (call.event === "start") continue;
 
@@ -697,11 +699,14 @@ export function seedRepeatedToolErrorCountsFromJournal(
     }
 
     if (call.isError) {
+      failureStreaks.set(call.name, (failureStreaks.get(call.name) ?? 0) + 1);
       const error = normalizeError(call.result);
       const toolKey = `${call.name}:${error}`;
       sameTool.set(toolKey, (sameTool.get(toolKey) ?? 0) + 1);
       const callKey = `${keyForCall(call.name, call.input)}:${error}`;
       sameArguments.set(callKey, (sameArguments.get(callKey) ?? 0) + 1);
+    } else {
+      failureStreaks.delete(call.name);
     }
 
     if (call.completedSideEffect !== true) continue;
@@ -713,5 +718,5 @@ export function seedRepeatedToolErrorCountsFromJournal(
       if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
     }
   }
-  return { sameArguments, sameTool };
+  return { sameArguments, sameTool, failureStreaks };
 }

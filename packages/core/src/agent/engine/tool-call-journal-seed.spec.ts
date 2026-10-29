@@ -262,6 +262,55 @@ describe("seedRepeatedToolErrorCountsFromJournal", () => {
   const seedErrors = (calls: PriorTurnToolCallSequenceEntry[]) =>
     seedRepeatedToolErrorCountsFromJournal(calls, keyForCall, (error) => error);
 
+  it("keeps changing errors across continuation and resets only a successful tool", () => {
+    const calls: PriorTurnToolCallSequenceEntry[] = [
+      {
+        event: "done",
+        name: "edit",
+        input: { id: 1 },
+        result: "bad field",
+        isError: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "read",
+        input: {},
+        result: "found",
+        isError: false,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: { id: 2 },
+        result: "bad filter",
+        isError: true,
+        matchedStart: true,
+      },
+      {
+        event: "done",
+        name: "edit",
+        input: { id: 2 },
+        result: "bad filter",
+        isError: true,
+        replayed: true,
+        matchedStart: true,
+      },
+    ];
+    expect(seedErrors(calls).failureStreaks.get("edit")).toBe(2);
+    calls.push({
+      event: "done",
+      name: "edit",
+      input: { id: 3 },
+      result: "saved",
+      isError: false,
+      completedSideEffect: true,
+      matchedStart: true,
+    });
+    expect(seedErrors(calls).failureStreaks.has("edit")).toBe(false);
+  });
+
   it("replays mutation boundaries when seeding repeated errors", () => {
     const result = seedErrors([
       {

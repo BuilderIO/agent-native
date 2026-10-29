@@ -16020,6 +16020,14 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("normalizes truncated nested argument echoes to the same breaker key", () => {
+    const prefix = "Invalid action parameters — Invalid input. ";
+    const error = (key: string) =>
+      `${prefix}Received: {"patch":{"filter":{"group":null}},"idempotencyKey":"${key}","order":[…`;
+    expect(normalizeToolErrorForBreaker(error("first"))).toBe(prefix.trim());
+    expect(normalizeToolErrorForBreaker(error("second"))).toBe(prefix.trim());
+  });
+
   it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -19301,7 +19309,17 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).toHaveBeenCalledOnce();
-    expect(run).toHaveBeenCalledWith({ id: "ext-1" }, expect.any(Object));
+    // oracle-change: repairing an invalid enum must preserve schema-valid clears.
+    expect(run).toHaveBeenCalledWith(
+      {
+        id: "ext-1",
+        description: "",
+        patches: [{}],
+        edits: [{}],
+        format: false,
+      },
+      expect.any(Object),
+    );
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "tool_done",
