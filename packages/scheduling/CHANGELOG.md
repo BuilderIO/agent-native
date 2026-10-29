@@ -1,5 +1,24 @@
 # @agent-native/scheduling
 
+## 0.2.47
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 4123c9c: Require Core 0.222.0 or newer to match the Core peer requirement of Scheduling's Toolkit dependency.
+- Updated dependencies [ede5c57]
+- Updated dependencies [7e08199]
+- Updated dependencies [c038e00]
+- Updated dependencies [51e8de9]
+- Updated dependencies
+- Updated dependencies [7e08199]
+- Updated dependencies [f8c2ba6]
+- Updated dependencies [78fa714]
+- Updated dependencies [0bf6393]
+- Updated dependencies [8adaead]
+- Updated dependencies [a54e178]
+  - @agent-native/toolkit@0.222.0
+
 ## 0.2.46
 
 ### Patch Changes
@@ -1202,11 +1221,5 @@
 - f43d34c: Re-validate availability before creating bookings and make booking writes transactional.
 - Updated dependencies [f43d34c]
   - @agent-native/toolkit@0.4.6
-
-## 0.1.23
-
-### Patch Changes
-
-- 86697e9: Depend on `@agent-native/toolkit` via `workspace:^` instead of `workspace:*`. Publishing now pins a caret range (e.g. `^0.4.3`) rather than an exact version, so an app that scaffolds `@agent-native/toolkit@latest` separately can dedupe against it through normal semver resolution instead of installing two mismatched toolkit copies side by side (which crashed Vite with `"./collab-ui" is not exported`).
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

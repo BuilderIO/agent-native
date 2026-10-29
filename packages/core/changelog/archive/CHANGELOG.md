@@ -1,3 +1,17 @@
+## 0.169.1
+
+### Patch Changes
+
+- 4de4af3: Point missing-provider recovery errors to Settings > Agent > AI providers.
+- 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
+- 4de4af3: Stop shipping unused native database packages to deployments. The deploy bundler now includes only database code that the emitted bundle actually imports. Measured on the docs app: server function 55.9MB → 46.6MB.
+- Release all public npm packages with a patch version bump.
+- 4de4af3: Keep chat turns queued through transient server-run handoffs and delay missing-final warnings until the run state settles.
+- 4de4af3: Show the Connect AI setup for desktop chat relay failures and keep other recovery actions compact.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.8
+  - @agent-native/toolkit@0.16.10
+
 ## 0.169.0
 
 ### Minor Changes

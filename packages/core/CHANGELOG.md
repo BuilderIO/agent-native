@@ -51,6 +51,64 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.222.0
+
+### Minor Changes
+
+- 39707a7: Add `getAdditionalSession`, `getAdditionalBrowserSession` and `clearAdditionalSession` auth options: an extra identity source consulted before the built-in sessions that, unlike `getSession`, does not replace them. A request the provider does not recognize resolves as it would without it, and the built-in sign-in routes stay mounted. A provider that throws refuses the request (503) rather than falling through to another identity, and an explicit bearer credential outranks the cookie provider. `clearAdditionalSession` runs on sign-out and sign-out of all sessions. The additional identity hooks are ignored when `getSession` is configured, because it takes over every session.
+
+  The delegated Builder credential hook (`registerDelegatedBuilderCredentials`) may now return a promise, so hosts on serverless can keep the credential in shared storage. It can answer `"none"` for a host-managed user with no credential, which stops every fallback (including deployment and gateway credentials), and a thrown error is a failed lookup.
+
+- e898337: Add an `eagerInputStreaming` option to `defineAction`. Actions that set it are sent to Anthropic models with `eager_input_streaming: true`, so their tool input streams as the model writes it instead of arriving one complete argument at a time. Use it for actions whose input is a large payload the UI renders progressively. Streamed input can be invalid JSON when a response is cut off.
+
+### Patch Changes
+
+- 29e85ab: Files attached in one app now reach the app it delegates to over A2A. `call-agent` takes an `attachments` list of uploaded file URLs, `callAgent()` sends them as A2A file parts, and the receiving app treats them like files attached in its own chat: its `prepareRequest` hook can save them, the model can read them, and actions see them in `ctx.attachments`.
+- 07a33fb: Keep Builder OAuth grants retryable after transient refresh failures and report the connection as unavailable until refresh succeeds.
+- 4f1ea92: Clear collaborative presence when a page exits and resume it safely after back-forward cache restoration.
+- 9156ae9: `useCollaborativeDoc` can keep a doc's unacknowledged updates in localStorage. Pass `durableUpdates: true` and the edits survive a refresh, a closed tab, or a stretch offline: they are sent again when the doc next opens for the same account, and as soon as the browser is back online. `durableUpdatesFailed` turns true when the browser refuses to store an update. `onUpdateAcknowledged` receives each server acknowledgment, including its live-copy outcome, only while its original document and account subscription remains active. In durable mode, an update the server refuses as too large (HTTP 413) is no longer resent forever: a refused batch of updates is sent in halves, and once a single update is refused the client stops sending updates and `updatesRefused` turns true, with the updates still unacknowledged and kept. Other callers retain their existing retry behavior.
+
+  Applications that depend on live-copy derivation can also pass `requireLiveCopyOutcome: true`. Each update captures that requirement when it is queued; later subscription changes do not rewrite it. All newly kept updates use a versioned outbox record that preserves each requirement through reload and that older clients leave alone. Previously written v1 bytes retain their adoption compatibility. Strict bytes remain pending through unsubscribe and the final keepalive until a current strict subscriber for the same document and account handles a known outcome. Ordinary bytes clear on their normal acknowledgment even after a strict subscriber arrives. A retained strict predecessor is delivered before an ordinary successor without releasing its outcome custody or inflating the successor's request. A flush remains unconfirmed while any strict bytes are unconfirmed.
+
+  A tab keeps an exclusive Web Lock for its outbox owner. Reopening a doc adopts another owner's bytes only while holding that owner's available lock and rereading the entry; a live or frozen tab keeps its edits until it wakes. When the browser cannot check ownership, other entries stay untouched and `durableUpdatesFailed` is set instead of replaying them.
+
+- 9b40458: Dev agent chat no longer imports every file in an app's `scripts/` folder while discovering actions. A CLI script with side effects at the top level, such as one that closes the database, used to run on every `pnpm dev` boot. Put actions in `actions/`.
+- f3c0f47: Keep queued submission promotion claims alive while run admission is pending.
+- b4774af: Keep terminal Factory items closed during pull request approval recovery.
+- 82db457: The Factory feedback sweep now treats issues from its error sources (such as Sentry and Analytics) like Slack reports, needs a real reproduction attempt before marking a report as needing a person, opens its PR only after every claimed report has been tried, re-reads every thread it owns so a newer reply after its 🎫 isn't missed, and looks back 5 days for open items as well as new reports.
+- 8cc1884: Factory's feedback-sweep skill now asks for a reproduction and a before/after proof for each fix.
+- 8434495: Check durable abort state before dispatching a recovered harness run and require the canary prompt to match its submitted turn.
+- c038e00: Apps can now show content the agent is still writing. `@agent-native/core/client/generation-stream` follows a tool call's arguments while they stream (`useStreamingToolInput`, or `useStreamingToolInputs` for every call one response writes), parses incomplete JSON and HTML, and patches the preview in place. New elements are drafted the way a designer blocks out a layout: each nesting level's frames trace in, then the content fades in beneath them. The AgentKit chat now forwards streamed tool input to the page instead of dropping it. `@agent-native/toolkit/app/generation` adds `GeneratingFrame`, `GeneratingLabel`, and `StreamingHtmlFrame`, which hold the final size, outline the work in the selection color with a wash over the label, and show a failed call as failed rather than finished.
+- f9ae09a: HubSpot workspace connections now record the scopes HubSpot actually granted. HubSpot returns them as a `scopes` array, which was ignored, so every connection showed the catalog's read-only list even when its token could write. The HubSpot connection also no longer sends a fixed scope list: HubSpot grants the scopes configured on the HubSpot app, so that app is the single source of truth. A new `list-workspace-connection-scopes` action lets any app, its agent, or an MCP host see which scopes the current user's connections hold before calling a provider API.
+
+  A user's own HubSpot connection now also powers HubSpot's MCP server in every app it is granted to, with no second sign-in. The token is resolved for each MCP request and never stored on the server config; organization-shared and other users' connections are never used. The generic `provider-api-request` agent tool is now read-only for HubSpot: reads (including search and batch reads) still work, and writes go through HubSpot's MCP tools or app-defined actions. Those reads include HubSpot's date-based API versions (`/crm/objects/2026-09/...` and `/crm/2026-09/objects/...`), and the provider API skill now tells coding agents to write new HubSpot code against a date-based version, the only kind that applies the portal's required-property rules to API writes.
+
+- 51e8de9: `getAgentChatSubmitTarget(submitMessageId)` returns where a submission was routed: its chat tab and, when the routing chat knows it, its conversation thread. `reportAgentChatSubmitTarget` takes that thread as an option, and the multi-tab chat passes it. Code that mounts after the one-time target event can still find the route. Slides uses it to keep tracking a new deck's generation when the editor route loads after Home sends the prompt.
+- Release all public npm packages with a patch version bump.
+- bfe10ff: Retry transient Builder failures, report incomplete runs as typed errors, and add privacy-safe prompt metadata and page-leave tracking across apps.
+- 11f79c3: Preserve safe error identity in background worker failure diagnostics.
+- 7e08199: Restyle the review comment thread to the new design and add the building blocks Design's canvas card now shares with the sidebar:
+  - New exports from `@agent-native/toolkit/app/review`: `ReviewThreadCardFrame` (360px card with title bar), `ReviewCommentItem` (root and reply variants), `ReviewThreadMenu`, `ReviewReactionBar`, `ReviewAuthorAvatar`, `ReviewMentionChip`, `ReviewMentionPicker`, `ReviewAgentMark` and `resolveReviewAgent`.
+  - Agent-authored comments show an `Agent` badge and a brand mark. The mark is chosen from the author name (Claude, Claude Code, Codex), and any other agent gets a neutral mark.
+  - Replies show the relative age next to the name and the clock time on the right, with a react button and reaction chips under the body. Every comment, including the first, has that react button and those chips. Chips show a count from two reactions up, and 🔥 joins the default reactions.
+  - `ReviewCommentComposer` is now an editor with inline mention chips and a toolbar for emoji, mention and image. The text it submits and the `mentions` it reports are unchanged. New optional props: `variant` (`"expanded"` or the collapsed `"reply"` pill) and `attachments`. The "Send to agent" button renders only when `agentAction` or `showAgentAction` is passed.
+  - `ReviewThreadMenu` reads Send to agent, Suggest changes, Reply in thread, Apply changes and resolve, Copy link, Delete thread. The four agent items show only when their handler is passed, and `agentActionsDisabled` turns them off while a hand-off runs. Edit and Mark as unread stay available as optional items.
+  - The review editor's Tiptap packages are declared in the toolkit's eject manifest, and the migration manifest points `isTrustedReviewAttachmentUrl` at its new home, `ReviewCommentItem`.
+
+- f8c2ba6: A reply the agent rewrote after a final-answer check now shows once. Before, the chat kept the rejected draft and added the rewrite to its end, and a reload showed the rewrite again as a second reply. Now the draft leaves the screen when the server discards it, and a run that fails after a discard no longer leaves the draft behind. A reply the agent sends together with its follow-up suggestions is now the final answer. Before, the server erased it and asked the model again, which wrote a short recap of a reply that was no longer on screen. A streamed reply with a reasoning part is now replaced by its saved reply like any other. While a turn is still working, its steps stay in one live row above the reply, even when the agent writes a line between steps. Before, each such line closed the steps above it into a "Worked for" row while the agent kept working, so the turn showed two rows. Lines the agent writes between steps also show as separate lines while they stream, instead of running together.
+
+  AgentKit adds a `message.replaced` event, which swaps the parts of a message that is still streaming.
+
+- 78fa714: Workspace app mounts keep embedded credentials and browser tab identity scoped to the resolved mount. Successful agent navigation refreshes only the originating tab's route state, and resource views stay current when Vite serves duplicate Core module instances.
+- 4b21c39: Tool calls rejected for invalid arguments now record which argument fields failed, as paths without values, in the generation's tool entries and the per-tool `$ai_span` event. `$ai_span` also carries `error_class` and `outcome`.
+- 3901677: Verify Builder branch files through authenticated full-backup readback, revision and byte-integrity checks, and exact reviewed community-template hashes. Add an owner-only verification action without enabling community installs.
+- 78fa714: Keep MCP app embed credentials scoped to the resolved workspace mount.
+- 2d58749: Workspace provider OAuth start (`/_agent-native/connections/oauth/<provider>/start`) no longer stores a connection under the hard-coded app id `creative-context` when the request omits `appId`. It now uses the current app's identity (`app.workspaceId`, then `app.id`), so the connection the user approves is granted to the app that started the flow. For non-Sigma providers, an unresolved app id or invalid `appId` returns 400. Sigma returns 403 when the current app cannot be resolved, the requested scope is not user-scoped, or a supplied `appId` does not match the current app.
+- Updated dependencies
+- Updated dependencies [f8c2ba6]
+  - @agent-native/agentkit@0.222.0
+  - @agent-native/recap-cli@0.5.91
+
 ## 0.221.0
 
 ### Minor Changes
@@ -4515,19 +4573,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 - Updated dependencies [9735e4d]
 - Updated dependencies [15b86eb]
   - @agent-native/toolkit@0.16.11
-
-## 0.169.1
-
-### Patch Changes
-
-- 4de4af3: Point missing-provider recovery errors to Settings > Agent > AI providers.
-- 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
-- 4de4af3: Stop shipping unused native database packages to deployments. The deploy bundler now includes only database code that the emitted bundle actually imports. Measured on the docs app: server function 55.9MB → 46.6MB.
-- Release all public npm packages with a patch version bump.
-- 4de4af3: Keep chat turns queued through transient server-run handoffs and delay missing-final warnings until the run state settles.
-- 4de4af3: Show the Connect AI setup for desktop chat relay failures and keep other recovery actions compact.
-- Updated dependencies
-  - @agent-native/recap-cli@0.5.8
-  - @agent-native/toolkit@0.16.10
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
