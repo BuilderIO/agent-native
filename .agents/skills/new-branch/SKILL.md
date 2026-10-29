@@ -13,12 +13,11 @@ metadata:
 
 # New Branch
 
-A task-owned worktree can create or switch branches without asking. A shared
-checkout keeps its branch. Platform-assigned Builder.io and Fusion branches stay
-where they are. Never move a branch that another worktree has checked out
+Creating or switching branches never needs permission. In a checkout other
+sessions are using, branch in a new worktree instead of switching that
+checkout's branch under them. Platform-assigned Builder.io and Fusion branches
+stay where they are. Never move a branch that another worktree has checked out
 (`git worktree list --porcelain`), and never stash, reset, or force anything.
-
-If the current branch already suits the task, keep using it.
 
 ## Name
 
