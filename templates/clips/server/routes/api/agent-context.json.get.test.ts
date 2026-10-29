@@ -137,9 +137,19 @@ describe("/api/agent-context route", () => {
         },
       },
     });
-    mockBuildPublicAgentContext.mockReturnValue({ instructions: [] });
+    mockBuildPublicAgentContext.mockReturnValue({
+      instructions: [],
+      commentCount: 0,
+      commentsTruncated: false,
+      reactionCount: 0,
+      reactionsTruncated: false,
+    });
     const result = await handler({} as H3Event);
     expect(result).toMatchObject({
+      commentCount: null,
+      commentsTruncated: null,
+      reactionCount: null,
+      reactionsTruncated: null,
       editedTimelineOmissions: expect.arrayContaining([
         "appActivity",
         "browserDiagnostics",

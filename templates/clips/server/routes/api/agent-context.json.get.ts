@@ -196,6 +196,10 @@ export default defineEventHandler(async (event: H3Event) => {
   if (!edited) return context;
   return {
     ...context,
+    commentCount: null,
+    commentsTruncated: null,
+    reactionCount: null,
+    reactionsTruncated: null,
     ...(transcriptUnavailable
       ? {
           transcript: {

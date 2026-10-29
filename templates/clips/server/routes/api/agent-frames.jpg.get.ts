@@ -175,7 +175,9 @@ export default defineEventHandler(async (event: H3Event) => {
   };
   // With fps given, an oversized request fails before the media download.
   const earlyPlan =
-    parsed.value.fps === null
+    parsed.value.fps === null ||
+    (hasCuts &&
+      frameSheetReachesPast(parsed.value, parsed.value.fps, editedDurationMs))
       ? null
       : planWithin(parsed.value.fps, editedDurationMs);
   if (earlyPlan && !earlyPlan.ok) return requestFailure(event, earlyPlan);
@@ -189,24 +191,52 @@ export default defineEventHandler(async (event: H3Event) => {
       // past it, plan against the file's real duration so the sheet covers
       // the range that was asked for, not an earlier one. If the probe fails,
       // plan without a duration rather than move the range on the stored one.
-      const durationMs =
-        !hasCuts &&
-        frameSheetReachesPast(parsed.value, fps, recording.durationMs)
-          ? await probeMediaDurationMsFromFile(media.path)
+      const reachesPast = frameSheetReachesPast(
+        parsed.value,
+        fps,
+        editedDurationMs,
+      );
+      const probedDurationMs = reachesPast
+        ? await probeMediaDurationMsFromFile(media.path)
+        : null;
+      if (hasCuts && reachesPast && probedDurationMs === null) {
+        throw new VideoFrameExtractionError(
+          "EXTRACTION_FAILED",
+          "Could not determine the source duration for this trimmed range.",
+        );
+      }
+      const sourceDurationMs = hasCuts
+        ? (probedDurationMs ?? recording.durationMs)
+        : recording.durationMs;
+      const durationMs = hasCuts
+        ? effectiveDuration(sourceDurationMs, edits)
+        : reachesPast
+          ? probedDurationMs
           : editedDurationMs;
       const plan = planWithin(fps, durationMs);
       if (!plan.ok) return requestFailure(event, plan);
       const extractEdited = (
         editedPlan: FrameSheetPlan,
         sourceDurationMs: number,
-      ) =>
-        extractEditedJpegFrameSheetFromFile({
+      ) => {
+        if (cuts.every((cut) => editedPlan.endMs <= cut.startMs)) {
+          return extractJpegFrameSheetFromFile({
+            mediaPath: media.path,
+            plan: editedPlan,
+          });
+        }
+        return extractEditedJpegFrameSheetFromFile({
           mediaPath: media.path,
           plan: editedPlan,
           sourceFrames: editedPlan.frameTimesMs.map((editedMs) => {
             const atMs = editedToOriginal(editedMs, edits);
             return {
               atMs,
+              visibleStartMs: cuts.reduce(
+                (start, cut) =>
+                  cut.endMs <= atMs ? Math.max(start, cut.endMs) : start,
+                0,
+              ),
               visibleEndMs: Math.min(
                 sourceDurationMs,
                 cuts.find((cut) => cut.startMs > atMs)?.startMs ??
@@ -215,12 +245,13 @@ export default defineEventHandler(async (event: H3Event) => {
             };
           }),
         });
+      };
       let result: { plan: FrameSheetPlan; sheet: Uint8Array };
       if (hasCuts) {
         try {
           result = {
             plan: plan.value,
-            sheet: await extractEdited(plan.value, recording.durationMs),
+            sheet: await extractEdited(plan.value, sourceDurationMs),
           };
         } catch (error) {
           if (
@@ -228,9 +259,9 @@ export default defineEventHandler(async (event: H3Event) => {
             error.code !== "NO_FRAME_AT_TIMESTAMP"
           )
             throw error;
-          const actualDurationMs = await probeMediaDurationMsFromFile(
-            media.path,
-          );
+          const actualDurationMs =
+            probedDurationMs ??
+            (await probeMediaDurationMsFromFile(media.path));
           if (
             actualDurationMs === null ||
             actualDurationMs >= recording.durationMs
@@ -242,9 +273,10 @@ export default defineEventHandler(async (event: H3Event) => {
           );
           if (
             actualEditedDurationMs <= 0 ||
-            !plan.value.frameTimesMs.some(
-              (time) => editedToOriginal(time, edits) >= actualDurationMs,
-            )
+            (!(reachesPast && probedDurationMs !== null) &&
+              !plan.value.frameTimesMs.some(
+                (time) => editedToOriginal(time, edits) >= actualDurationMs,
+              ))
           )
             throw error;
           let recovered:

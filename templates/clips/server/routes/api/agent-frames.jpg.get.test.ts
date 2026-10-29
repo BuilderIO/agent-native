@@ -236,6 +236,21 @@ describe("agent-frames.jpg route", () => {
     }
   });
 
+  it("uses one decode pass for a sheet wholly before the first cut", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 4000, endMs: 5000, excluded: true }],
+        }),
+      }),
+    });
+    const { event } = await run({ startMs: "1000", endMs: "3000", fps: "2" });
+    expect(event.status).toBe(200);
+    expect(mockExtractJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
+    expect(mockExtractEditedJpegFrameSheetFromFile).not.toHaveBeenCalled();
+  });
+
   it("maps sheet samples across a cut on the edited timeline", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
@@ -250,8 +265,8 @@ describe("agent-frames.jpg route", () => {
     expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceFrames: [
-          { atMs: 1000, visibleEndMs: 2000 },
-          { atMs: 4000, visibleEndMs: 10000 },
+          { atMs: 1000, visibleStartMs: 0, visibleEndMs: 2000 },
+          { atMs: 4000, visibleStartMs: 4000, visibleEndMs: 10000 },
         ],
       }),
     );
@@ -341,7 +356,9 @@ describe("agent-frames.jpg route", () => {
     expect(event.headers.get("x-clips-frame-sheet-times")).toBe("2997");
     expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceFrames: [{ atMs: 4997, visibleEndMs: 5000 }],
+        sourceFrames: [
+          { atMs: 4997, visibleStartMs: 3000, visibleEndMs: 5000 },
+        ],
       }),
     );
   });
@@ -370,7 +387,9 @@ describe("agent-frames.jpg route", () => {
     expect(event.headers.get("x-clips-frame-sheet-times")).toBe("1997");
     expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceFrames: [{ atMs: 3997, visibleEndMs: 5000 }],
+        sourceFrames: [
+          { atMs: 3997, visibleStartMs: 3000, visibleEndMs: 5000 },
+        ],
       }),
     );
   });
@@ -392,6 +411,45 @@ describe("agent-frames.jpg route", () => {
     const { event } = await run({ startMs: "999", endMs: "1499", fps: "2" });
     expect(event.status).toBe(422);
     expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("probes an understated source duration before planning trimmed sheets", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        durationMs: 5000,
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
+        }),
+      }),
+    });
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(8000);
+    const { event } = await run({ startMs: "5000", endMs: "5500", fps: "2" });
+    expect(event.status).toBe(200);
+    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("5000");
+    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceFrames: [
+          { atMs: 6000, visibleStartMs: 2000, visibleEndMs: 8000 },
+        ],
+      }),
+    );
+  });
+
+  it("does not return a shortened edited sheet when the source duration cannot be probed", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        durationMs: 5000,
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
+        }),
+      }),
+    });
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
+    const { event } = await run({ startMs: "5000", endMs: "5500", fps: "2" });
+    expect(event.status).toBe(502);
+    expect(mockExtractEditedJpegFrameSheetFromFile).not.toHaveBeenCalled();
   });
 
   it("plans again inside the real duration when the stored one is too long", async () => {

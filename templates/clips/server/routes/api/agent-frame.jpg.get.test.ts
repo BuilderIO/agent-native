@@ -72,6 +72,8 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../../lib/agent-frame-store.js", () => ({
+  agentFrameMediaKey: (recording: { videoUrl?: string; editsJson?: string }) =>
+    `${recording.videoUrl ?? ""}:${recording.editsJson ?? ""}`,
   loadStoredAgentFrame: (...args: unknown[]) =>
     mockLoadStoredAgentFrame(...args),
   clampAgentFrameAtMs: (atMs: number, durationMs: number) =>
@@ -261,6 +263,43 @@ describe("agent-frame.jpg route", () => {
     }
   });
 
+  it("reuses public edited frames and invalidates them when edits change", async () => {
+    const cut = (endMs: number) =>
+      JSON.stringify({ trims: [{ startMs: 0, endMs, excluded: true }] });
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "edited-cache",
+          durationMs: 10000,
+          editsJson: cut(1000),
+        },
+      }),
+    });
+    const event = () =>
+      makeEvent({ id: "edited-cache", atMs: "500" }) as unknown as Parameters<
+        typeof handler
+      >[0];
+    await handler(event());
+    await handler(event());
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "edited-cache",
+          durationMs: 10000,
+          editsJson: cut(2000),
+        },
+      }),
+    });
+    await handler(event());
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(2);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith(
+      expect.objectContaining({ atMs: 2500, visibleStartMs: 2000 }),
+    );
+  });
+
   it("rejects unreadable edits before exposing media", async () => {
     mockLoadPublicAgentAccess.mockResolvedValue({
       ok: true,
@@ -300,6 +339,7 @@ describe("agent-frame.jpg route", () => {
     expect(mockExtractJpegFrameFromFile).toHaveBeenCalledWith({
       mediaPath: "/tmp/recording.webm",
       atMs: 5000,
+      visibleStartMs: 5000,
       visibleEndMs: 9000,
     });
     expect(mockLoadStoredAgentFrame).not.toHaveBeenCalled();
@@ -311,6 +351,7 @@ describe("agent-frame.jpg route", () => {
     expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith({
       mediaPath: "/tmp/recording.webm",
       atMs: 8999,
+      visibleStartMs: 5000,
       visibleEndMs: 9000,
     });
   });
@@ -685,6 +726,7 @@ describe("agent-frame.jpg route", () => {
     expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith({
       mediaPath: "/tmp/recording.webm",
       atMs: 4999,
+      visibleStartMs: 3000,
       visibleEndMs: 5000,
     });
   });

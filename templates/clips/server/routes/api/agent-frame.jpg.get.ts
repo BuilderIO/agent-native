@@ -30,6 +30,7 @@ import {
   sendFrameJson,
 } from "../../lib/agent-frame-request.js";
 import {
+  agentFrameMediaKey,
   clampAgentFrameAtMs,
   loadStoredAgentFrame,
 } from "../../lib/agent-frame-store.js";
@@ -69,12 +70,14 @@ function cacheKey({
   recordingId,
   updatedAt,
   atMs,
+  mediaKey,
 }: {
   recordingId: string;
   updatedAt: string;
   atMs: number;
+  mediaKey: string;
 }): string {
-  return `${recordingId}:${updatedAt}:${atMs}`;
+  return JSON.stringify([recordingId, updatedAt, atMs, mediaKey]);
 }
 
 function getCachedFrame(key: string): Buffer | null {
@@ -236,6 +239,11 @@ async function extractEditedFrameWithStaleDurationRecovery({
     extractJpegFrameFromFile({
       mediaPath,
       atMs: sourceMs,
+      visibleStartMs: cuts.reduce(
+        (start, cut) =>
+          cut.endMs <= sourceMs ? Math.max(start, cut.endMs) : start,
+        0,
+      ),
       visibleEndMs: Math.min(
         sourceDurationMs,
         cuts.find((cut) => cut.startMs > sourceMs)?.startMs ?? sourceDurationMs,
@@ -328,10 +336,11 @@ export default defineEventHandler(async (event: H3Event) => {
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
     atMs,
+    mediaKey: `${agentFrameMediaKey(recording)}:${durationMs}`,
   });
 
   const access = accessResult.access;
-  const cacheable = !hasCuts && isPubliclyCacheableFrame(access);
+  const cacheable = isPubliclyCacheableFrame(access);
   const storedMimeType =
     recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
   const cached = cacheable ? getCachedFrame(key) : null;

@@ -290,10 +290,12 @@ export async function extractJpegFrameFromFile({
   mediaPath,
   atMs,
   visibleEndMs,
+  visibleStartMs = 0,
 }: {
   mediaPath: string;
   atMs: number;
   visibleEndMs?: number;
+  visibleStartMs?: number;
 }): Promise<Uint8Array> {
   const info = await stat(mediaPath);
   if (!info.size) {
@@ -316,15 +318,15 @@ export async function extractJpegFrameFromFile({
         // ffmpeg starts at the first frame at or after -ss. Comment times are
         // a frame start rounded up to a whole millisecond, so begin 1 ms
         // early to keep a sub-millisecond start (30 fps MP4) on that frame.
-        ...(visibleEndMs === undefined ? [] : ["-copyts"]),
+        ...(visibleEndMs === undefined ? [] : ["-copyts", "-start_at_zero"]),
         "-ss",
-        String(Math.max(0, atMs - (visibleEndMs === undefined ? 1 : 0)) / 1000),
+        String(Math.max(visibleStartMs, atMs - 1) / 1000),
         "-i",
         mediaPath,
         "-frames:v",
         "1",
         "-vf",
-        `${visibleEndMs === undefined ? "" : `trim=start=${atMs / 1000}:end=${visibleEndMs / 1000},`}scale='min(1280,iw)':-2`,
+        `${visibleEndMs === undefined ? "" : `trim=start=${Math.max(visibleStartMs, atMs - 1) / 1000}:end=${visibleEndMs / 1000},`}scale='min(1280,iw)':-2`,
         "-q:v",
         "3",
         outputPath,
@@ -463,7 +465,11 @@ export async function extractEditedJpegFrameSheetFromFile({
 }: {
   mediaPath: string;
   plan: FrameSheetPlan;
-  sourceFrames: Array<{ atMs: number; visibleEndMs: number }>;
+  sourceFrames: Array<{
+    atMs: number;
+    visibleEndMs: number;
+    visibleStartMs?: number;
+  }>;
 }): Promise<Uint8Array> {
   if (
     sourceFrames.length !== plan.frameCount ||
@@ -493,17 +499,27 @@ export async function extractEditedJpegFrameSheetFromFile({
       for (let offset = 0; offset < sourceFrames.length; offset += batchSize) {
         const frames = sourceFrames.slice(offset, offset + batchSize);
         const batchPath = join(dir, `batch-${batches.length}.jpg`);
-        const inputs = frames.flatMap(({ atMs }) => [
+        const seekMs = Math.min(
+          ...frames.map(({ atMs, visibleStartMs = 0 }) =>
+            Math.max(visibleStartMs, atMs - 1),
+          ),
+        );
+        const inputs = [
           "-threads",
           "1",
           "-ss",
-          String(atMs / 1000),
+          String(seekMs / 1000),
           "-i",
           mediaPath,
-        ]);
+        ];
+        const streams = frames.map((_, index) => `[input${index}]`).join("");
+        const split =
+          frames.length === 1
+            ? `[0:v]null${streams}`
+            : `[0:v]split=${frames.length}${streams}`;
         const cells = frames.map(
-          ({ atMs, visibleEndMs }, index) =>
-            `[${index}:v]trim=start=${atMs / 1000}:end=${visibleEndMs / 1000},trim=end_frame=1,setpts=PTS-STARTPTS,scale=${plan.cellWidth}:${plan.cellHeight}:force_original_aspect_ratio=decrease,pad=${plan.cellWidth}:${plan.cellHeight}:-1:-1:color=black[c${index}]`,
+          ({ atMs, visibleEndMs, visibleStartMs = 0 }, index) =>
+            `[input${index}]trim=start=${Math.max(visibleStartMs, atMs - 1) / 1000}:end=${visibleEndMs / 1000},trim=end_frame=1,setpts=PTS-STARTPTS,scale=${plan.cellWidth}:${plan.cellHeight}:force_original_aspect_ratio=decrease,pad=${plan.cellWidth}:${plan.cellHeight}:-1:-1:color=black[c${index}]`,
         );
         const labels = frames.map((_, index) => `[c${index}]`).join("");
         const layout = frames
@@ -525,11 +541,12 @@ export async function extractEditedJpegFrameSheetFromFile({
             "-nostdin",
             "-y",
             "-copyts",
+            "-start_at_zero",
             ...inputs,
             "-filter_complex_threads",
             "1",
             "-filter_complex",
-            [...cells, stack, pad].join(";"),
+            [split, ...cells, stack, pad].join(";"),
             "-map",
             "[out]",
             "-frames:v",

@@ -20,6 +20,10 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   buildPublicAgentContext: () => ({
     instructions: ["Use transcript.segments"],
     transcript: { fullText: "unsafe" },
+    commentCount: 0,
+    commentsTruncated: false,
+    reactionCount: 0,
+    reactionsTruncated: false,
     recommendedFrames: [{ atMs: 0 }],
     apis: { frame: { urlTemplate: "/frame" } },
   }),
@@ -79,6 +83,10 @@ describe("agent context HTTP failure", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toMatchObject({
+      commentCount: null,
+      commentsTruncated: null,
+      reactionCount: null,
+      reactionsTruncated: null,
       transcript: { status: "unavailable", segments: [] },
       recommendedFrames: [{ atMs: 0 }],
       apis: { frame: { urlTemplate: "/frame" } },

@@ -798,3 +798,141 @@ describe("edited frame sheets", () => {
     }
   });
 });
+
+describe("edited frame timestamps", () => {
+  it("keeps the rounded 30 fps frame with a nonzero media start", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-offset-frame-"));
+    const video = join(dir, "offset.mp4");
+    const jpeg = join(dir, "frame.jpg");
+    try {
+      await execFileAsync(availableFfmpegPath ?? "ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=red:s=64x64:r=30:d=0.1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=blue:s=64x64:r=30:d=0.1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=green:s=64x64:r=30:d=0.1",
+        "-filter_complex",
+        "[0:v]trim=end_frame=1,setpts=PTS-STARTPTS[a];[1:v]trim=end_frame=1,setpts=PTS-STARTPTS[b];[2:v]trim=end_frame=1,setpts=PTS-STARTPTS[c];[a][b][c]concat=n=3:v=1:a=0[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "mpeg4",
+        "-output_ts_offset",
+        "5",
+        video,
+      ]);
+      const frame = await extractJpegFrameFromFile({
+        mediaPath: video,
+        atMs: 34,
+        visibleStartMs: 0,
+        visibleEndMs: 100,
+      });
+      await writeFile(jpeg, frame);
+      const { stdout } = await execFileAsync(
+        availableFfmpegPath ?? "ffmpeg",
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-i",
+          jpeg,
+          "-vf",
+          "scale=1:1",
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          "-",
+        ],
+        { encoding: "buffer" },
+      );
+      expect(stdout.readUInt8(2)).toBeGreaterThan(stdout.readUInt8(1));
+      expect(stdout.readUInt8(2)).toBeGreaterThan(stdout.readUInt8(0));
+      const plan = {
+        startMs: 34,
+        endMs: 35,
+        fps: 1,
+        frameCount: 1,
+        frameTimesMs: [34],
+        columns: 1,
+        rows: 1,
+        cellWidth: 64,
+        cellHeight: 64,
+      };
+      const sheet = await extractEditedJpegFrameSheetFromFile({
+        mediaPath: video,
+        plan,
+        sourceFrames: [{ atMs: 34, visibleStartMs: 0, visibleEndMs: 100 }],
+      });
+      await writeFile(jpeg, sheet);
+      const result = await execFileAsync(
+        availableFfmpegPath ?? "ffmpeg",
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-i",
+          jpeg,
+          "-vf",
+          "scale=1:1",
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          "-",
+        ],
+        { encoding: "buffer" },
+      );
+      expect(result.stdout.readUInt8(2)).toBeGreaterThan(
+        result.stdout.readUInt8(1),
+      );
+      const afterCut = await extractJpegFrameFromFile({
+        mediaPath: video,
+        atMs: 34,
+        visibleStartMs: 34,
+        visibleEndMs: 100,
+      });
+      await writeFile(jpeg, afterCut);
+      const cutPixel = await execFileAsync(
+        availableFfmpegPath ?? "ffmpeg",
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-i",
+          jpeg,
+          "-vf",
+          "scale=1:1",
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          "-",
+        ],
+        { encoding: "buffer" },
+      );
+      expect(cutPixel.stdout.readUInt8(1)).toBeGreaterThan(
+        cutPixel.stdout.readUInt8(2),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
