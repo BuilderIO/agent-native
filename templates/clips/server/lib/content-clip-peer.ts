@@ -13,7 +13,18 @@ import {
 } from "@agent-native/core/server";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
 import { isEmailDerivedName } from "@agent-native/core/user-profile";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { getQuery, getRequestHeader, getRouterParam, type H3Event } from "h3";
 import { z } from "zod";
 
@@ -29,8 +40,13 @@ import {
   CONTENT_CLIP_CLAIMS,
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
   CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
+  CONTENT_CLIP_COMMENT_TEXT_CHARS,
+  CONTENT_CLIP_MAX_COMMENT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_THREADS,
+  CONTENT_CLIP_MAX_LISTED_REPLIES,
   CONTENT_CLIP_MAX_TOKEN_SECONDS,
+  CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS,
+  CONTENT_CLIP_OPEN_THREADS_VIEW,
   CONTENT_CLIP_PUBLIC_READER,
   CONTENT_CLIP_RECORDING_TITLE_CHARS,
   CONTENT_CLIP_SCOPES,
@@ -92,10 +108,8 @@ const MAX_DOCUMENT_ID_CHARS = 256;
 const MAX_ISSUER_CHARS = 2048;
 const MAX_VIEWER_NAME_CHARS = 200;
 const ISSUED_AT_SKEW_SECONDS = 60;
-const MAX_COMMENT_CHARS = 10_000;
 const MAX_COMMENT_ID_CHARS = 128;
 const MAX_EMOJI_CHARS = 32;
-const MAX_VIDEO_TIMESTAMP_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 const viewerEmailSchema = z.string().email().max(320);
 
@@ -556,50 +570,152 @@ const commentListQuerySchema = z.object({
     .transform(Number)
     .pipe(z.number().int().min(1).max(CONTENT_CLIP_MAX_COMMENT_THREADS))
     .default(CONTENT_CLIP_MAX_COMMENT_THREADS),
+  view: z.literal(CONTENT_CLIP_OPEN_THREADS_VIEW).optional(),
 });
 
 /**
  * The first `limit` thread starts by video time, as `list-comments` orders
- * them, reading one more to tell a full page from the whole list. Text and
- * names are cut to the contract's lengths. A signed-out reader's list carries
- * no commenter's email, nor a name made from one.
+ * them, reading one more to tell a full page from the whole list. The
+ * open-threads view lists only open threads, each with its replies up to the
+ * contract's bound. Text and names are cut to the contract's lengths. A
+ * signed-out reader's list carries no commenter's email, nor a name made
+ * from one.
  */
-async function listCommentThreads(peer: ContentClipPeer, limit: number) {
+async function listCommentThreads(
+  peer: ContentClipPeer,
+  limit: number,
+  openThreads: boolean,
+) {
   const { recordingId } = peer;
   const signedOut = peer.viewerEmail === null;
   await assertCommentAccess(recordingId, "read");
   const comments = schema.recordingComments;
+  const text = sql<string>`left(${comments.content}, ${
+    openThreads
+      ? CONTENT_CLIP_COMMENT_TEXT_CHARS
+      : CONTENT_CLIP_COMMENT_PREVIEW_CHARS
+  })`;
   const rows = await getDb()
     .select({
       id: comments.id,
       authorEmail: comments.authorEmail,
       authorName: comments.authorName,
-      content: sql<string>`left(${comments.content}, ${CONTENT_CLIP_COMMENT_PREVIEW_CHARS})`,
+      content: text,
       videoTimestampMs: comments.videoTimestampMs,
+      createdAt: comments.createdAt,
     })
     .from(comments)
     .where(
-      and(eq(comments.recordingId, recordingId), isNull(comments.parentId)),
+      and(
+        eq(comments.recordingId, recordingId),
+        isNull(comments.parentId),
+        openThreads ? eq(comments.resolved, false) : undefined,
+      ),
     )
-    .orderBy(asc(comments.videoTimestampMs), asc(comments.createdAt))
+    .orderBy(
+      asc(comments.videoTimestampMs),
+      asc(comments.createdAt),
+      asc(comments.id),
+    )
     .limit(limit + 1);
+  const author = <
+    Row extends { authorEmail: string; authorName: string | null },
+  >(
+    row: Row,
+  ) => {
+    const authorName =
+      signedOut && isEmailDerivedName(row.authorName, row.authorEmail)
+        ? null
+        : row.authorName;
+    return {
+      ...row,
+      authorEmail: signedOut
+        ? null
+        : row.authorEmail.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
+      authorName:
+        authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
+    };
+  };
   const threads = await hydrateCommentAuthorNames(rows.slice(0, limit));
+  const truncated = rows.length > limit;
+  if (!openThreads) {
+    return {
+      comments: threads.map(({ createdAt: _createdAt, ...thread }) =>
+        author(thread),
+      ),
+      truncated,
+    };
+  }
+
+  const threadIds = threads.map((thread) => thread.id);
+  const replies = threadIds.length
+    ? await listThreadReplies(recordingId, threadIds, text)
+    : { rows: [], counts: new Map<string, number>() };
+  const repliesOf = new Map<string, unknown[]>();
+  for (const { threadId, ...reply } of await hydrateCommentAuthorNames(
+    replies.rows,
+  )) {
+    repliesOf.set(threadId, [
+      ...(repliesOf.get(threadId) ?? []),
+      author(reply),
+    ]);
+  }
   return {
-    comments: threads.map((thread) => {
-      const authorName =
-        signedOut && isEmailDerivedName(thread.authorName, thread.authorEmail)
-          ? null
-          : thread.authorName;
-      return {
-        ...thread,
-        authorEmail: signedOut
-          ? null
-          : thread.authorEmail.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS),
-        authorName:
-          authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
-      };
-    }),
-    truncated: rows.length > limit,
+    comments: threads.map((thread) => ({
+      ...author(thread),
+      replyCount: replies.counts.get(thread.id) ?? 0,
+      replies: repliesOf.get(thread.id) ?? [],
+    })),
+    truncated,
+  };
+}
+
+/**
+ * The listed threads' replies, oldest first, from the earliest thread on and
+ * no more than the contract's bound, with how many each thread has.
+ */
+async function listThreadReplies(
+  recordingId: string,
+  threadIds: string[],
+  text: SQL<string>,
+) {
+  const comments = schema.recordingComments;
+  const root = alias(comments, "thread_start");
+  const inThreads = and(
+    eq(comments.recordingId, recordingId),
+    inArray(comments.threadId, threadIds),
+    isNotNull(comments.parentId),
+  );
+  const [rows, counts] = await Promise.all([
+    getDb()
+      .select({
+        id: comments.id,
+        threadId: comments.threadId,
+        authorEmail: comments.authorEmail,
+        authorName: comments.authorName,
+        content: text,
+        createdAt: comments.createdAt,
+      })
+      .from(comments)
+      .innerJoin(root, eq(root.id, comments.threadId))
+      .where(inThreads)
+      .orderBy(
+        asc(root.videoTimestampMs),
+        asc(root.createdAt),
+        asc(root.id),
+        asc(comments.createdAt),
+        asc(comments.id),
+      )
+      .limit(CONTENT_CLIP_MAX_LISTED_REPLIES),
+    getDb()
+      .select({ threadId: comments.threadId, replies: count() })
+      .from(comments)
+      .where(inThreads)
+      .groupBy(comments.threadId),
+  ]);
+  return {
+    rows,
+    counts: new Map(counts.map((row) => [row.threadId, Number(row.replies)])),
   };
 }
 
@@ -629,21 +745,35 @@ export async function handleContentClipComments(
       );
     }
     try {
-      return json(await listCommentThreads(peer, query.data.limit));
+      return json(
+        await listCommentThreads(
+          peer,
+          query.data.limit,
+          query.data.view === CONTENT_CLIP_OPEN_THREADS_VIEW,
+        ),
+      );
     } catch (error) {
       return forbiddenResponse(error);
     }
   });
 }
 
-const commentText = z.string().trim().min(1).max(MAX_COMMENT_CHARS);
+const commentText = z
+  .string()
+  .trim()
+  .min(1)
+  .max(CONTENT_CLIP_MAX_COMMENT_CHARS);
 const commentId = z.string().trim().min(1).max(MAX_COMMENT_ID_CHARS);
 const commentWriteSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("add"),
       content: commentText,
-      videoTimestampMs: z.number().int().min(0).max(MAX_VIDEO_TIMESTAMP_MS),
+      videoTimestampMs: z
+        .number()
+        .int()
+        .min(0)
+        .max(CONTENT_CLIP_MAX_VIDEO_TIMESTAMP_MS),
     })
     .strict(),
   z

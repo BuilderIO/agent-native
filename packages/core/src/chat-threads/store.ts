@@ -2728,6 +2728,28 @@ export async function recordQueuedSubmissionInterruptRun(input: {
   return mutateQueuedSubmissionInterruptRun(input, "record");
 }
 
+/** Renews a queued submission's live promotion claim during admission. */
+export async function renewQueuedSubmissionClaim(input: {
+  threadId: string;
+  messageId: string;
+  claimId: string;
+  runId?: string;
+  renewUntil?: number;
+}): Promise<boolean> {
+  // raw-sql-ok: the queue store binds the mutation fields as SQL parameters.
+  const result = await mutateThreadQueuedMessages(input.threadId, {
+    type: "renewClaim",
+    messageId: input.messageId,
+    claimId: input.claimId,
+    ...(input.runId === undefined ? {} : { runId: input.runId }),
+    ...(input.renewUntil === undefined ? {} : { renewUntil: input.renewUntil }),
+  });
+  return (
+    result?.claimLost !== true &&
+    result?.claimedMessage?.promotionClaim?.id === input.claimId
+  );
+}
+
 /** Renews a live interruption claim before its recorded run is aborted. */
 export async function renewQueuedSubmissionInterruptClaim(input: {
   threadId: string;
@@ -2735,16 +2757,7 @@ export async function renewQueuedSubmissionInterruptClaim(input: {
   runId: string;
   claimId: string;
 }): Promise<boolean> {
-  const result = await mutateThreadQueuedMessages(input.threadId, {
-    type: "renewClaim",
-    messageId: input.messageId,
-    runId: input.runId,
-    claimId: input.claimId,
-  });
-  return (
-    result?.claimLost !== true &&
-    result?.claimedMessage?.promotionClaim?.id === input.claimId
-  );
+  return renewQueuedSubmissionClaim(input);
 }
 
 /** Clear a recorded interruption only after its turn abort is durable. */
@@ -2793,7 +2806,8 @@ export type ThreadQueuedMessageMutation =
   | {
       type: "renewClaim";
       messageId: string;
-      runId: string;
+      runId?: string;
+      renewUntil?: number;
       claimId: string;
     }
   | { type: "release"; messageId: string; claimId: string };
@@ -3001,6 +3015,7 @@ export async function mutateThreadQueuedMessages(
     let receiptClaimMessage: QueuedMessage | undefined;
     let claimQueueSnapshot: QueuedMessage[] | undefined;
     try {
+      // raw-sql-ok: updateThreadData binds the thread values in its SQL args.
       await updateThreadData(threadId, "{}", "", "", 0, {
         preserveExistingQueuedMessages: false,
         preserveCurrentMetadata: true,
@@ -3384,6 +3399,8 @@ export async function mutateThreadQueuedMessages(
               if (
                 !message ||
                 queuedSubmissionExpired(message, now) ||
+                (mutation.renewUntil !== undefined &&
+                  now >= mutation.renewUntil) ||
                 !receiptMutationOwnsPromotionClaim(
                   message,
                   mutation.claimId,
@@ -3509,7 +3526,10 @@ export async function mutateThreadQueuedMessages(
                         if (
                           result?.claimLost === true ||
                           receipt?.state !== "queued" ||
-                          receipt.interruptRunId !== mutation.runId
+                          (mutation.renewUntil !== undefined &&
+                            Date.now() >= mutation.renewUntil) ||
+                          (mutation.runId !== undefined &&
+                            receipt.interruptRunId !== mutation.runId)
                         ) {
                           if (result) {
                             result.claimLost = true;

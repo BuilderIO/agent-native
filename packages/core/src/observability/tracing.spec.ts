@@ -7,10 +7,12 @@ import {
   __resetAgentTracerCache,
   __setAgentTraceRuntimeForTests,
   __setAgentTracerForTests,
+  createTrackingEventScope,
   endAgentSpan,
   flushTrackingEvents,
   queueTrackingEvent,
   recordTrackingEvent,
+  registerTrackingWork,
   startAgentSpan,
   withAgentSpanContext,
 } from "./tracing.js";
@@ -311,6 +313,39 @@ describe("tracing helper — test provider registered", () => {
     await flushTrackingEvents();
 
     expect(spans[0]?.ended).toBe(true);
+  });
+
+  it("flushes tracking work registered by deferred tracking work", async () => {
+    const scope = createTrackingEventScope();
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const first = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    }).then(() => {
+      registerTrackingWork(
+        new Promise<void>((resolve) => {
+          releaseSecond = resolve;
+        }),
+        scope,
+      );
+    });
+    registerTrackingWork(first, scope);
+
+    let flushed = false;
+    const responseFlush = flushTrackingEvents(scope).then(() => {
+      flushed = true;
+    });
+    releaseFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(flushed).toBe(false);
+    expect(scope.pending.size).toBe(1);
+
+    releaseSecond();
+    await responseFlush;
+    expect(flushed).toBe(true);
+    expect(scope.pending.size).toBe(0);
   });
 
   it("installs a span as the active context for child spans", async () => {

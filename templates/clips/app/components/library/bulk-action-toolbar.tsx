@@ -1,11 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconArchive,
-  IconFolder,
-  IconFolderPlus,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react";
+import { IconArchive, IconFolder, IconTrash, IconX } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -118,7 +112,6 @@ export function BulkActionToolbar({
                 setTimeout(() => onCreateFolder?.(), 0);
               }}
             >
-              <IconFolderPlus className="h-4 w-4 me-2" />
               {t("navigation.newFolder")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />

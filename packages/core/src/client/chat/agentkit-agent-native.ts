@@ -1313,8 +1313,6 @@ function reconcileDurableMessages(
       snapshotReply.id !== durableReply.id &&
       eventMessageIds?.size === 1 &&
       eventMessageIds.has(snapshotReply.id) &&
-      snapshotReply.parts.length > 0 &&
-      snapshotReply.parts.every((part) => part.type === "text") &&
       snapshotText.length > 0 &&
       durableText.length > 0 &&
       snapshotText !== durableText &&
@@ -5345,6 +5343,7 @@ export function createAgentNativeAgentKitTransport(
           switch (sourceEvent.type) {
             case "message.created":
             case "message.completed":
+            case "message.replaced":
               if (sourceEvent.message.role === "assistant") {
                 const messageId = foldedMessageIdFor(sourceEvent.message.id);
                 if (messageId && messageId !== sourceEvent.message.id) {

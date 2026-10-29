@@ -2719,6 +2719,20 @@ export function createAgentKitProtocolAdapter(
           },
           ...attachPendingWidgets(event.messageId),
         ];
+      case "message-replace":
+        run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
+        run.activeMessageCompleted = false;
+        return [
+          {
+            type: "message.replaced",
+            ...(base.occurredAt === undefined
+              ? {}
+              : { occurredAt: base.occurredAt }),
+            ...(base.metadata === undefined ? {} : { metadata: base.metadata }),
+            message: runtimeMessageToProtocolMessage(event.message, textFormat),
+          },
+        ];
       case "message-done":
         run.activeMessageId = event.message.id;
         run.activeMessageRole = event.message.role;

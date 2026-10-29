@@ -31,6 +31,7 @@ import {
   type ActionEntry,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+import { IncompleteAgentRunError } from "../agent/run-errors.js";
 import {
   appendDurableContinuationContext,
   runAgentLoopDirectWithSoftTimeout,
@@ -1181,6 +1182,7 @@ async function processIncomingMessage(
   };
 
   return new Promise<ProcessIntegrationTaskResult>((resolve) => {
+    // raw-sql-ok: This run callback contains log and response strings, not SQL.
     startRun(
       runId,
       threadId,
@@ -1304,6 +1306,9 @@ async function processIncomingMessage(
                 );
                 return usage;
               } catch (error) {
+                if (error instanceof IncompleteAgentRunError) {
+                  usage = error.usage;
+                }
                 if (
                   attempt > 0 ||
                   opts.principalType !== "service" ||

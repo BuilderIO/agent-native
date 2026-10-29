@@ -48,6 +48,7 @@ import {
 import {
   type ComponentPropsWithoutRef,
   useEffect,
+  useImperativeHandle,
   useId,
   useRef,
   useState,
@@ -78,6 +79,8 @@ export interface ShareButtonProps {
   panelTitle?: ReactNode;
   triggerContent?: ReactNode;
   onOpenChange?: (open: boolean) => void;
+  actionRef?: Ref<ShareButtonActionHandle>;
+  actionEvent?: string;
   onShareSuccess?: () => void;
   defaultOpen?: boolean;
   shareUrl?: string;
@@ -157,6 +160,10 @@ export interface ShareButtonProps {
     onValueChange?: (value: string) => void;
   };
   popoverClassName?: string;
+}
+
+export interface ShareButtonActionHandle {
+  open: (tab?: string) => void;
 }
 
 type Visibility = ShareButtonVisibility;
@@ -346,6 +353,31 @@ export function ShareButton(props: ShareButtonProps) {
     allowedRoles: allowedRolesFor(props),
     hideInSearchControl: props.hideInSearchControl,
   });
+  useImperativeHandle(
+    props.actionRef,
+    () => ({
+      open: (tab) => {
+        controller.handleOpenChange(true);
+        if (tab) controller.handleShareTabChange(tab);
+      },
+    }),
+    [controller.handleOpenChange, controller.handleShareTabChange],
+  );
+  useEffect(() => {
+    const actionEvent = props.actionEvent;
+    if (!actionEvent) return;
+    const openFromAction = (event: Event) => {
+      const tab = (event as CustomEvent<{ tab?: unknown }>).detail.tab;
+      controller.handleOpenChange(true);
+      if (typeof tab === "string") controller.handleShareTabChange(tab);
+    };
+    window.addEventListener(actionEvent, openFromAction);
+    return () => window.removeEventListener(actionEvent, openFromAction);
+  }, [
+    props.actionEvent,
+    controller.handleOpenChange,
+    controller.handleShareTabChange,
+  ]);
   useEffect(() => {
     if (!controller.open || !hasShareModes) return;
     const timer = window.setTimeout(() => {

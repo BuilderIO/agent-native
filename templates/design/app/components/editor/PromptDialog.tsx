@@ -165,6 +165,8 @@ interface PromptPopoverProps {
   composerRef?: React.Ref<TiptapComposerHandle>;
   initialText?: string;
   initialTextKey?: number;
+  initialTextOverridesSavedDraft?: boolean;
+  onPromptTextChange?: (text: string) => void;
   disabled?: boolean;
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
@@ -262,6 +264,8 @@ export default function PromptPopover({
   composerRef,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
+  onPromptTextChange,
   disabled = false,
   submissionDisabled = false,
   showModelSelector,
@@ -726,6 +730,7 @@ export default function PromptPopover({
       onBeforeSubmit={onBeforeSubmit}
       onTextChange={(text) => {
         draftTextRef.current = text;
+        onPromptTextChange?.(text);
       }}
       contextItems={contextItems}
       onRemoveContextItem={onRemoveContextItem}
@@ -738,6 +743,7 @@ export default function PromptPopover({
           ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
           : `seed:${initialTextKey ?? 0}`
       }
+      initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
       contextMenuItems={contextMenuItems ?? []}
       // Inside the composer so an attached setup card above meets the box directly.
       toolbarSlot={inline ? creationModeToggle : undefined}

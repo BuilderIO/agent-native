@@ -321,55 +321,143 @@ function setExistingFile(
 }
 
 describe("generate-design action tool schema", () => {
-  it("exposes a lean native-tool schema while retaining Zod validation", () => {
-    const parameters = action.tool.parameters as {
-      properties?: Record<
-        string,
-        { type?: string | readonly string[]; description?: string }
-      >;
-      required?: string[];
-    };
+  const html = "<!doctype html><html><body>Hello</body></html>";
+  const validInput = () => ({
+    designId: "design_123",
+    prompt: "Dark SaaS landing page",
+    files: [{ filename: "index.html", fileType: "html", content: html }],
+  });
+  const parameters = action.tool.parameters as {
+    properties: Record<
+      string,
+      {
+        type?: string | readonly string[];
+        description?: string;
+        items?: { properties?: Record<string, { enum?: string[] }> };
+      }
+    >;
+    required?: string[];
+  };
 
+  it("shows the model the real shape of every structured field", () => {
     expect(parameters.required).toEqual(["designId", "prompt", "files"]);
-    expect(parameters.properties?.files?.type).toBe("string");
-    expect(parameters.properties?.files?.description).toContain(
+    for (const field of ["files", "tweaks", "canvasFrames", "reuseLabels"]) {
+      expect(parameters.properties[field]?.type, field).toBe("array");
+    }
+    expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
+      ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
+    );
+    expect(JSON.stringify(parameters.properties.designSystemId)).toContain(
+      "null",
+    );
+    expect(JSON.stringify(parameters.properties.contextModeOverride)).toContain(
+      '"off"',
+    );
+  });
+
+  it("does not offer frameType to the model, but still validates it", () => {
+    const fileProps = (
+      parameters.properties.files?.items as {
+        properties?: Record<string, unknown>;
+      }
+    ).properties;
+    expect(Object.keys(fileProps ?? {}).sort()).toEqual([
+      "content",
+      "fileType",
+      "filename",
+    ]);
+    const withFrameType = {
+      ...validInput(),
+      files: [
+        {
+          filename: "email.html",
+          content: html,
+          frameType: "hubspot-email",
+        },
+      ],
+    };
+    expect((action as any).schema.safeParse(withFrameType).success).toBe(true);
+  });
+
+  it("keeps the placement and routing guidance in the field descriptions", () => {
+    const { files, devices } = parameters.properties;
+    expect(files?.description).toContain(
       "Do not use generate-design to replace a selected variant screen",
     );
-    expect(parameters.properties?.files?.description).toContain("edit-design");
-    expect(parameters.properties?.designSystemId?.type).toEqual([
-      "string",
-      "null",
-    ]);
-    expect(parameters.properties?.tweaks?.type).toBe("string");
-    expect(parameters.properties?.canvasFrames?.type).toBe("string");
-    expect(parameters.properties?.reuseLabels?.type).toBe("string");
-    expect(parameters.properties?.contextModeOverride?.type).toBe("string");
-    expect(parameters.properties?.devices?.description).toContain(
-      "ignore this field",
+    expect(files?.description).toContain("edit-design");
+    expect(devices?.description).toContain("ignore this field");
+  });
+
+  it("validates exactly the fields the model is shown, and requires the same ones", async () => {
+    const shape = (action as any).schema.shape as Record<string, unknown>;
+    expect(Object.keys(parameters.properties).sort()).toEqual(
+      Object.keys(shape).sort(),
     );
 
+    const base = validInput();
+    expect((action as any).schema.safeParse(base).success).toBe(true);
+    for (const key of Object.keys(shape)) {
+      const { [key as keyof typeof base]: _omitted, ...rest } = base;
+      expect(
+        (action as any).schema.safeParse(rest).success,
+        `omitting ${key}`,
+      ).toBe(!(parameters.required ?? []).includes(key));
+    }
+  });
+
+  it("still accepts structured fields sent as JSON strings", () => {
     const parsed = (action as any).schema.safeParse({
-      designId: "design_123",
-      prompt: "Dark SaaS landing page",
+      ...validInput(),
       designSystemId: null,
-      files: JSON.stringify([
+      files: JSON.stringify(validInput().files),
+      tweaks: JSON.stringify([
         {
-          filename: "index.html",
-          fileType: "html",
-          content: "<!doctype html><html><body>Hello</body></html>",
+          id: "accent",
+          label: "Accent",
+          type: "color-swatch",
+          defaultValue: "#0ea5e9",
         },
       ]),
     });
 
     expect(parsed.success).toBe(true);
     expect(parsed.data.designSystemId).toBeNull();
-    expect(parsed.data.files).toEqual([
-      {
-        filename: "index.html",
-        fileType: "html",
-        content: "<!doctype html><html><body>Hello</body></html>",
-      },
-    ]);
+    expect(parsed.data.files).toEqual(validInput().files);
+    expect(parsed.data.tweaks).toHaveLength(1);
+  });
+
+  it("names the field when a JSON string does not parse", async () => {
+    const result = await (action as any).schema["~standard"].validate({
+      ...validInput(),
+      files: "[{bad",
+      tweaks: "{",
+    });
+
+    expect(
+      result.issues.map((issue: { path: unknown[] }) => issue.path),
+    ).toEqual([["files"], ["tweaks"]]);
+    expect(result.issues[0].message).toContain("files is not valid JSON");
+    expect(result.issues[1].message).toContain("tweaks is not valid JSON");
+  });
+
+  it("rejects a tweak the model-facing schema describes, by path", async () => {
+    const result = await (action as any).schema["~standard"].validate({
+      ...validInput(),
+      tweaks: [
+        { id: "a", label: "A", type: "dropdown", defaultValue: "x" },
+        {
+          id: "b",
+          label: "B",
+          type: "segment",
+          options: ["one", "two"],
+          defaultValue: "one",
+        },
+      ],
+    });
+
+    expect(
+      result.issues.map((issue: { path: unknown[] }) => issue.path.join(".")),
+    ).toEqual(["tweaks.0.type", "tweaks.1.options.0", "tweaks.1.options.1"]);
   });
 });
 
@@ -3086,6 +3174,51 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
     expect(mocks.mutateDesignData).toHaveBeenCalledTimes(2);
     expect(mocks.resolveGenerationCreativeContext).toHaveBeenCalledOnce();
+  });
+
+  it("lets a corrected call run after an HTML integrity rejection", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    const send = (html: string) => ({
+      designId: "design-1",
+      prompt: "Make a design",
+      files: JSON.stringify([
+        { filename: "index.html", fileType: "html", content: html },
+      ]),
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    await runAgentLoop({
+      engine: scriptedEngine([
+        send("<!doctype html><html><body><div><div>x</div></body></html>"),
+        send("<!doctype html><html><body><div>x</div></body></html>"),
+      ]) as never,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Make a design" }] },
+      ],
+      actions: { "generate-design": action as never },
+      send: (event) => events.push(event as unknown as Record<string, unknown>),
+      signal: new AbortController().signal,
+    });
+
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "rejected",
+      result: expect.stringContaining("DESIGN_HTML_INTEGRITY"),
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "error" &&
+          event.errorCode === "write_tool_outcome_unknown",
+      ),
+    ).toBe(false);
   });
 
   it("rejects generation without a renderable file before checkpointing", async () => {

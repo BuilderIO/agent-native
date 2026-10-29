@@ -13,6 +13,7 @@ import type { CommentThread } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
 import { commentThreadQuote } from "./comment-block-anchors";
+import { commentThreadReplyCount } from "./comment-stacks";
 import {
   CommentAvatar,
   CommentRow,
@@ -189,7 +190,7 @@ function StackFrontPreview({
 }) {
   const timestamp = useCommentTimestamp();
   const first = thread.comments.length > 0 ? thread.comments[0] : null;
-  const replies = thread.comments.length - 1;
+  const replies = commentThreadReplyCount(thread);
   return (
     <>
       <div
@@ -216,7 +217,9 @@ function StackFrontPreview({
             }}
           >
             <span className="line-clamp-3">
-              {renderCommentBody(first.content, first.mentions)}
+              {renderCommentBody(first.content, first.mentions, {
+                compact: true,
+              })}
             </span>
           </CommentRow>
         ) : null}
@@ -326,7 +329,7 @@ export function CommentStackCard({
   const firstName = first
     ? (first.author_name ?? first.author_email.split("@")[0])
     : null;
-  const replies = front.comments.length - 1;
+  const replies = commentThreadReplyCount(front);
   const others = threads.filter((thread) => thread !== front);
   return (
     <div
@@ -414,7 +417,11 @@ export function CommentStackCard({
           {first ? (
             <>
               <p>{firstName}</p>
-              <p>{renderCommentBody(first.content, first.mentions)}</p>
+              <p>
+                {renderCommentBody(first.content, first.mentions, {
+                  compact: true,
+                })}
+              </p>
             </>
           ) : null}
           {replies > 0 ? (

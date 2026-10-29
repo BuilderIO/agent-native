@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { tagEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import type { AgentEngine } from "../agent/engine/types.js";
+import { IncompleteAgentRunError } from "../agent/run-errors.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { observabilityConfig } from "../app-config/observability.js";
 import {
@@ -387,6 +388,75 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generation!.properties).not.toHaveProperty("terminal_state");
   });
 
+  it("finalizes run-level trace usage carried by incomplete-run errors", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
+    const usage = {
+      inputTokens: 24,
+      outputTokens: 8,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 1,
+      model: "claude-test",
+      llmCalls: 2,
+      usageReported: true,
+    };
+    const error = new IncompleteAgentRunError(
+      {
+        code: "run_budget_exhausted",
+        message:
+          "This run reached its continuation limit before it could finish.",
+      },
+      usage,
+    );
+
+    await expect(
+      instrumentAgentLoop({
+        runAgentLoop: async () => {
+          throw error;
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-incomplete-usage",
+        threadId: "thread-incomplete-usage",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      }),
+    ).rejects.toBe(error);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      spans.find((span) => span.name === "invoke_agent")?.attributes,
+    ).toMatchObject({
+      "agent.llm_calls": 2,
+      "gen_ai.usage.input_tokens": 24,
+      "gen_ai.usage.output_tokens": 8,
+    });
+    expect(
+      events.find((event) => event.name === "$ai_trace")?.properties,
+    ).toMatchObject({
+      input_tokens: 24,
+      output_tokens: 8,
+      llm_calls: 2,
+    });
+  });
+
   it.each([
     { turnId: "turn-ai-1", expected: "turn-ai-1" },
     { turnId: undefined, expected: undefined },
@@ -593,6 +663,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   });
 
   it("emits a PostHog-compatible AI generation tracking event", async () => {
+    const { spans, runtime } = createRecordingTracer();
+    __setAgentTraceRuntimeForTests(runtime as any);
+
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -632,10 +705,22 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
       experimentAssignments: [
         {
+          experimentId: "question-intake-experiment",
+          variantId: "no_questions",
+        },
+        {
+          experimentId: "selected-experiment",
+          variantId: "treatment",
+        },
+        {
           experimentId: "hosted-model-test",
           variantId: "gpt-5-6-luna",
         },
       ],
+      singularExperimentAssignment: {
+        experimentId: "selected-experiment",
+        variantId: "treatment",
+      },
       modelSelectionSource: "experiment",
     });
 
@@ -672,10 +757,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       ],
       tools_truncated: false,
       model_selection_source: "experiment",
-      experiment_id: "hosted-model-test",
-      experiment_variant: "gpt-5-6-luna",
-      experiment_ids: "hosted-model-test",
-      experiment_variants: "gpt-5-6-luna",
+      experiment_id: "selected-experiment",
+      experiment_variant: "treatment",
+      experiment_ids:
+        "question-intake-experiment,selected-experiment,hosted-model-test",
+      experiment_variants: "no_questions,treatment,gpt-5-6-luna",
       $ai_trace_id: "run-ai-1",
       $ai_session_id: "thread-ai-1",
       $ai_model: "claude-test",
@@ -686,6 +772,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       $ai_request_count: 1,
     });
     expect(event.properties?.cost_cents_x100).toEqual(expect.any(Number));
+    const runSpan = spans.find((span) => span.name === "invoke_agent");
+    expect(runSpan?.attributes).toMatchObject({
+      "agent.experiment_id": "selected-experiment",
+      "agent.experiment_variant": "treatment",
+    });
     expect(event.properties?.cost_usd).toEqual(expect.any(Number));
     expect(event.properties?.["$ai_total_cost_usd"]).toEqual(
       expect.any(Number),
@@ -2250,6 +2341,133 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ]);
   });
 
+  it("records the failing fields and each tool span's class and outcome", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation" || event.name === "$ai_span") {
+          events.push(event);
+        }
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "bad", tool: "save", input: {} });
+        send({ type: "tool_start", id: "ok", tool: "save", input: {} });
+        send({
+          type: "tool_done",
+          id: "bad",
+          tool: "save",
+          result: "Invalid action parameters",
+          isError: true,
+          completedSideEffect: false,
+          errorClass: "input_invalid",
+          invalidPaths: ["tweaks.2.type"],
+        });
+        send({
+          type: "tool_done",
+          id: "ok",
+          tool: "save",
+          result: "saved",
+          completedSideEffect: true,
+        });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+        };
+      },
+      loopOpts: {
+        engine: { name: "builder" },
+        model: "gpt-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      runId: "run-invalid-paths",
+      threadId: "thread-invalid-paths",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generation = events.find((e) => e.name === "$ai_generation");
+    const tools = generation?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(tools[0]).toMatchObject({
+      error_class: "input_invalid",
+      outcome: "no_side_effect",
+      invalid_paths: ["tweaks.2.type"],
+    });
+    expect(tools[1]).not.toHaveProperty("invalid_paths");
+
+    const spans = events.filter((e) => e.name === "$ai_span");
+    const failed = spans.find((s) => s.properties?.["$ai_is_error"] === true);
+    const saved = spans.find((s) => s.properties?.["$ai_is_error"] === false);
+    expect(failed?.properties).toMatchObject({
+      error_class: "input_invalid",
+      outcome: "no_side_effect",
+      invalid_paths: ["tweaks.2.type"],
+      $ai_error_type: "tool_error",
+    });
+    expect(saved?.properties).toMatchObject({
+      error_class: null,
+      outcome: "completed",
+    });
+    expect(saved?.properties).not.toHaveProperty("invalid_paths");
+  });
+
+  it("tags an interrupted tool span as interrupted and unknown", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_span") events.push(event);
+      },
+    });
+
+    await expect(
+      instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "tool_start", id: "hung", tool: "slow", input: {} });
+          throw new Error("run timed out");
+        },
+        loopOpts: {
+          engine: { name: "builder" },
+          model: "gpt-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        },
+        runId: "run-interrupted-span",
+        threadId: "thread-interrupted-span",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      }),
+    ).rejects.toThrow("run timed out");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      $ai_span_name: "slow",
+      error_class: "interrupted",
+      outcome: "unknown",
+      $ai_error_type: "interrupted",
+    });
+    expect(events[0]?.properties).not.toHaveProperty("invalid_paths");
+  });
+
   it("caps tracked tool detail while retaining complete rollup counts", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
@@ -2717,7 +2935,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     registerTrackingProvider({
       name: "qa-ai-generation",
       track(event) {
-        if (event.name === "$ai_generation") events.push(event);
+        if (event.name === "$ai_trace" || event.name === "$ai_generation") {
+          events.push(event);
+        }
       },
     });
     const loopOpts: any = {
@@ -2750,15 +2970,13 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(events).toHaveLength(1);
-    expect(events[0]?.properties?.input_tokens).toBeUndefined();
-    expect(events[0]?.properties?.output_tokens).toBeUndefined();
-    expect(events[0]?.properties?.total_tokens).toBeUndefined();
-    expect(events[0]?.properties?.cache_read_tokens).toBeUndefined();
-    expect(events[0]?.properties?.cache_write_tokens).toBeUndefined();
-    expect(events[0]?.properties?.cost_cents_x100).toBeUndefined();
-    expect(events[0]?.properties?.cost_usd).toBeUndefined();
-    expect(events[0]?.properties?.time_to_first_token_ms).toBeUndefined();
+    // oracle-change: pre-dispatch runs do not emit a synthetic generation.
+    expect(
+      events.find((event) => event.name === "$ai_generation"),
+    ).toBeUndefined();
+    expect(
+      events.find((event) => event.name === "$ai_trace")?.properties?.llm_calls,
+    ).toBe(0);
   });
 
   it("reports time_to_first_token_ms measured from run start when the engine reports a first-event timestamp", async () => {
@@ -3122,7 +3340,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     __setAgentTraceRuntimeForTests(runtime as any);
     try {
       await instrumentAgentLoop({
-        runAgentLoop: async ({ send, onUsage, onModelInput }) => {
+        runAgentLoop: async ({
+          send,
+          onUsage,
+          onModelInput,
+          onModelDispatchStarted,
+        }) => {
           onModelInput?.([{ role: "user", content: "first model input" }]);
           send({ type: "model_stream", status: "start" });
           onUsage?.({
@@ -3142,6 +3365,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
             isError: true,
           } as any);
           onModelInput?.([{ role: "user", content: "failing retry input" }]);
+          onModelDispatchStarted?.();
           throw new Error("provider down");
         },
         loopOpts: {
@@ -4013,10 +4237,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
 
     await instrumentAgentLoop({
-      runAgentLoop: async ({ onModelInput }) => {
+      runAgentLoop: async ({ onModelInput, onModelDispatchStarted }) => {
         onModelInput?.([
           { role: "user", content: "transformed prompt sent to the model" },
         ]);
+        onModelDispatchStarted?.();
         throw new Error("provider failed before streaming");
       },
       loopOpts: {
@@ -4046,6 +4271,48 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(failed?.properties?.["$ai_input"]).toEqual([
       { role: "user", content: "transformed prompt sent to the model" },
     ]);
+  });
+
+  it("records zero model calls when failure happens before dispatch", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace" || event.name === "$ai_generation") {
+          events.push(event);
+        }
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ onModelInput }) => {
+        onModelInput?.([{ role: "user", content: "safe test request" }]);
+        throw new Error("aborted before provider dispatch");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-failed-before-model-dispatch",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events.filter((event) => event.name === "$ai_generation")).toEqual(
+      [],
+    );
+    expect(
+      events.find((event) => event.name === "$ai_trace")?.properties?.llm_calls,
+    ).toBe(0);
   });
 
   it("records terminal pre-stream failures without capturing prompts", async () => {
@@ -4091,9 +4358,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     let modelInputObserver: unknown;
     try {
       await instrumentAgentLoop({
-        runAgentLoop: async ({ onModelInput }) => {
+        runAgentLoop: async ({ onModelInput, onModelDispatchStarted }) => {
           modelInputObserver = onModelInput;
           onModelInput?.([{ role: "user", content: privatePrompt }]);
+          onModelDispatchStarted?.();
           clock.advance(50);
           throw new Error("provider failed before streaming");
         },
@@ -4170,10 +4438,16 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
 
     await instrumentAgentLoop({
-      runAgentLoop: async ({ send, onModelInput, onUsage }) => {
+      runAgentLoop: async ({
+        send,
+        onModelInput,
+        onModelDispatchStarted,
+        onUsage,
+      }) => {
         onModelInput?.([
           { role: "user", content: "first model invocation input" },
         ]);
+        onModelDispatchStarted?.();
         send({ type: "model_stream", status: "start" });
         onUsage?.({
           inputTokens: 100,
@@ -4186,6 +4460,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         onModelInput?.([
           { role: "user", content: "later invocation failed before streaming" },
         ]);
+        onModelDispatchStarted?.();
         throw new Error("second model call failed before streaming");
       },
       loopOpts: {
@@ -4249,8 +4524,14 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
 
     await instrumentAgentLoop({
-      runAgentLoop: async ({ onModelInput, send, onUsage }) => {
+      runAgentLoop: async ({
+        onModelInput,
+        onModelDispatchStarted,
+        send,
+        onUsage,
+      }) => {
         onModelInput?.([{ role: "user", content: "first attempt prompt" }]);
+        onModelDispatchStarted?.();
         onModelInput?.([{ role: "user", content: "retried prompt" }]);
         send({ type: "model_stream", status: "start" });
         onUsage?.({
@@ -4470,7 +4751,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
 
     await instrumentAgentLoop({
-      runAgentLoop: async () => {
+      runAgentLoop: async ({ onModelDispatchStarted }) => {
+        onModelDispatchStarted?.();
         throw new Error("boom");
       },
       loopOpts: {
@@ -5400,13 +5682,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     };
 
     await instrumentAgentLoop({
-      runAgentLoop: async () => ({
-        inputTokens: 1,
-        outputTokens: 1,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: "claude-test",
-      }),
+      runAgentLoop: async ({ onModelDispatchStarted }) => {
+        onModelDispatchStarted?.();
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          llmCalls: 1,
+        };
+      },
       loopOpts,
       runId: "run-http-status-ok",
       threadId: null,
@@ -5418,7 +5704,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       statusCode: 429,
     });
     await instrumentAgentLoop({
-      runAgentLoop: async () => {
+      runAgentLoop: async ({ onModelDispatchStarted }) => {
+        onModelDispatchStarted?.();
         throw rateLimited;
       },
       loopOpts: { ...loopOpts },
@@ -5429,7 +5716,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     }).catch(() => {});
 
     await instrumentAgentLoop({
-      runAgentLoop: async () => {
+      runAgentLoop: async ({ onModelDispatchStarted }) => {
+        onModelDispatchStarted?.();
         throw new Error("socket hang up");
       },
       loopOpts: { ...loopOpts },
@@ -5465,7 +5753,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
 
     await instrumentAgentLoop({
-      runAgentLoop: async () => {
+      runAgentLoop: async ({ onModelDispatchStarted }) => {
+        onModelDispatchStarted?.();
         throw Object.assign(new Error("overloaded"), { status: 529 });
       },
       loopOpts: {

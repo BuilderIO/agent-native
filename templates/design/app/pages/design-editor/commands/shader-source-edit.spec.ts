@@ -8,7 +8,10 @@ const BOARD =
   `<div data-agent-native-node-id="${FRAME_ID}" style="background:#ffffff"></div>` +
   `</body></html>`;
 
-function setup(initial = BOARD, status: "accepted" | "refused" = "accepted") {
+function setup(
+  initial = BOARD,
+  status: "accepted" | "refused" | "deferred" = "accepted",
+) {
   let content = initial;
   const applyFileContentUpdate = vi.fn(
     (_fileId: string, next: string, _options: unknown) => {
@@ -88,5 +91,14 @@ describe("runShaderSourceEdit", () => {
       status: "failed",
       error: "Could not save the shader",
     });
+  });
+
+  it("does not report a deferred write as applied", () => {
+    const { args, content } = setup(BOARD, "deferred");
+    expect(runShaderSourceEdit(args, "board-file", markBoard)).toEqual({
+      status: "failed",
+      error: "Could not save the shader",
+    });
+    expect(content()).toBe(BOARD);
   });
 });

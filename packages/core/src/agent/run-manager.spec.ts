@@ -15,6 +15,7 @@ import {
 import { EngineError } from "./engine/types.js";
 import {
   currentExecutionFence,
+  StaleExecutionFenceError,
   withExecutionFence,
 } from "./execution-fence.js";
 import {
@@ -256,6 +257,11 @@ import { track } from "../tracking/registry.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
+  AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  IncompleteAgentRunError,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+} from "./run-errors.js";
+import {
   abortRun,
   abortRunDurably,
   abortRunAndTurnDurably,
@@ -427,7 +433,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockReset();
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
-    vi.mocked(bumpRunProgress).mockClear();
+    vi.mocked(bumpRunProgress).mockReset();
+    vi.mocked(bumpRunProgress).mockResolvedValue(true);
     vi.mocked(setRunError).mockClear();
     vi.mocked(setRunTerminalReason).mockClear();
     vi.mocked(setRunTerminalReasonIfStatus).mockReset();
@@ -3065,10 +3072,15 @@ describe("run manager soft timeout", () => {
 
   it("aborts the in-process run before a turn-reference abort resolves", async () => {
     let observedAbortReason: unknown;
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-turn-ref-abort",
       "thread-turn-ref-abort",
       async (_send, signal) => {
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener(
             "abort",
@@ -3084,6 +3096,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0, turnId: "turn-ref-abort" },
     );
 
+    await runStarted;
     await abortTurnByRefDurably(
       "thread-turn-ref-abort",
       "turn-ref-abort",
@@ -3284,10 +3297,15 @@ describe("run manager soft timeout", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     let abortReason: unknown;
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-durable-abort-failure",
       "thread-durable-abort-failure",
       async (_send, signal) => {
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener(
             "abort",
@@ -3303,6 +3321,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
+    await runStarted;
     try {
       await expect(
         abortRunDurably("run-durable-abort-failure", "user_stuck_retry"),
@@ -3458,11 +3477,16 @@ describe("run manager soft timeout", () => {
 
   it("persists the partial turn on a no-progress recovery abort", async () => {
     const onComplete = vi.fn();
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-no-progress-abort",
       "thread-no-progress-abort",
       async (send, signal) => {
-        send({ type: "text", text: "half an answer" });
+        await send({ type: "text", text: "half an answer" });
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => resolve(), { once: true });
         });
@@ -3471,6 +3495,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
+    await runStarted;
     expect(abortRun("run-no-progress-abort", "no_progress")).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
 
@@ -3533,11 +3558,70 @@ describe("run manager soft timeout", () => {
     expect(seen).toEqual([{ type: "done" }]);
   });
 
+  it.each([false, true])(
+    "checks a cross-isolate SQL abort before provider dispatch (lease=%s)",
+    async (executionLease) => {
+      const order: string[] = [];
+      vi.mocked(insertRun).mockImplementationOnce(async () => {
+        order.push("insert");
+      });
+      vi.mocked(getRunAbortState).mockImplementationOnce(async () => {
+        order.push("abort-state");
+        return { aborted: true, reason: "user" };
+      });
+      const runFn = vi.fn(async () => undefined);
+
+      const run = startRun(
+        executionLease
+          ? "run-startup-sql-abort-with-lease"
+          : "run-startup-sql-abort-without-lease",
+        executionLease
+          ? "thread-startup-sql-abort-with-lease"
+          : "thread-startup-sql-abort-without-lease",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease },
+      );
+
+      await run.finalized;
+
+      expect(order).toEqual(["insert", "abort-state"]);
+      expect(runFn).not.toHaveBeenCalled();
+      expect(run.abortReason).toBe("user");
+    },
+  );
+
+  it.each([false, true])(
+    "fails closed when the pre-dispatch SQL abort check fails (lease=%s)",
+    async (executionLease) => {
+      vi.mocked(getRunAbortState).mockRejectedValueOnce(
+        new Error("abort state unavailable"),
+      );
+      const runFn = vi.fn(async () => undefined);
+
+      const run = startRun(
+        executionLease
+          ? "run-startup-sql-abort-failure-with-lease"
+          : "run-startup-sql-abort-failure-without-lease",
+        executionLease
+          ? "thread-startup-sql-abort-failure-with-lease"
+          : "thread-startup-sql-abort-failure-without-lease",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease },
+      );
+
+      await run.finalized;
+
+      expect(runFn).not.toHaveBeenCalled();
+      expect(run.status).toBe("errored");
+    },
+  );
+
   it("observes cross-isolate SQL aborts even when the run is idle", async () => {
-    vi.mocked(getRunAbortState).mockResolvedValue({
-      aborted: true,
-      reason: "no_progress",
-    });
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockResolvedValue({ aborted: true, reason: "no_progress" });
     let abortReason: unknown;
 
     const run = startRun(
@@ -4239,6 +4323,7 @@ describe("run manager soft timeout", () => {
     expect(abortRun("run-progress-rearms-after-failure")).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
     expect(run.status).toBe("aborted");
+    await run.finalized;
   });
 
   it("waits for the SQL run row insert before writing terminal status", async () => {
@@ -4258,10 +4343,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(run.status).toBe("completed");
+    await vi.waitFor(() => expect(run.status).toBe("completed"));
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-insert-race",
       "completed",
@@ -5283,6 +5365,62 @@ describe("run manager soft timeout", () => {
     }
   });
 
+  // raw-sql-ok: This test passes error codes and run IDs, not SQL.
+  it.each([
+    [
+      RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      "I ran out of time before finishing this step.",
+    ],
+    [AGENT_RUN_NO_OUTPUT_ERROR_CODE, "The agent run ended without output."],
+  ])(
+    "does not capture expected incomplete-run error %s to Sentry",
+    async (code, message) => {
+      const provider = vi.fn(() => "evt_run");
+      const unregister = registerErrorCaptureProvider(
+        `run-incomplete-${code}-no-capture`,
+        provider,
+      );
+      const events: AgentChatEvent[] = [];
+
+      try {
+        // raw-sql-ok: These interpolated values are run and thread IDs.
+        const run = startRun(
+          `run-incomplete-${code}-no-capture`,
+          `thread-incomplete-${code}-no-capture`,
+          async () => {
+            throw new IncompleteAgentRunError(
+              { code, message },
+              {
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                model: "test-model",
+              },
+            );
+          },
+          undefined,
+          { softTimeoutMs: 0 },
+        );
+        run.subscribers.add((event) => events.push(event.event));
+
+        await run.finalized;
+
+        expect(run.status).toBe("errored");
+        expect(provider).not.toHaveBeenCalled();
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            error: message,
+            errorCode: code,
+          }),
+        );
+      } finally {
+        unregister();
+      }
+    },
+  );
+
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
     const onComplete = vi.fn(
@@ -5912,7 +6050,9 @@ describe("run manager soft timeout", () => {
   });
 
   it("normalizes missing SQL abort reasons to user aborts", async () => {
-    vi.mocked(getRunAbortState).mockResolvedValue({ aborted: true });
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockResolvedValue({ aborted: true });
     let abortReason: unknown;
 
     const run = startRun(
@@ -8180,8 +8320,10 @@ describe("run manager soft timeout", () => {
     );
   });
 
-  it("keeps running to completion when every abort-state read fails", async () => {
-    vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+  it("keeps running to completion when a background abort-state poll fails", async () => {
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockRejectedValue(new Error("read timeout"));
     vi.mocked(getRunStatus).mockRejectedValue(new Error("read timeout"));
 
     let abortFired = false;
@@ -9155,8 +9297,11 @@ describe("run manager soft timeout", () => {
       const completionStarted = Promise.withResolvers<void>();
       vi.mocked(renewTurnExecutionLease).mockClear();
       vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
-        Object.assign(new Error("lease transferred during completion"), {
-          code: "stale_execution_fence",
+        new StaleExecutionFenceError({
+          runId: "run-finalization-lease-loss",
+          threadId: "thread-finalization-lease-loss",
+          turnId: "turn-finalization-lease-loss",
+          generation: "1",
         }),
       );
 
@@ -9189,6 +9334,7 @@ describe("run manager soft timeout", () => {
 
     it("does not attempt a fenced abort after the heartbeat loses the execution lease", async () => {
       const runId = "run-heartbeat-lease-loss";
+      const threadId = "thread-heartbeat-lease-loss";
       let releaseTool!: () => void;
       let markStarted!: () => void;
       const started = new Promise<void>((resolve) => {
@@ -9199,15 +9345,22 @@ describe("run manager soft timeout", () => {
       });
       vi.mocked(markRunAborted).mockClear();
       vi.mocked(renewTurnExecutionLease).mockClear();
-      vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
-        Object.assign(new Error("lease taken over by a successor"), {
-          code: "stale_execution_fence",
+      vi.mocked(renewTurnExecutionLease).mockRejectedValue(
+        new StaleExecutionFenceError({
+          runId,
+          threadId,
+          turnId: "turn-heartbeat-lease-loss",
+          generation: "1",
         }),
+      );
+      const unregister = registerErrorCaptureProvider(
+        "heartbeat-lease-loss",
+        captureException,
       );
 
       const run = startRun(
         runId,
-        "thread-heartbeat-lease-loss",
+        threadId,
         async (send) => {
           await send({
             type: "tool_start",
@@ -9227,14 +9380,21 @@ describe("run manager soft timeout", () => {
       );
 
       await started;
-      await vi.advanceTimersByTimeAsync(1_500);
+      await vi.advanceTimersByTimeAsync(3 * 1_500);
 
       expect(run.abort.signal.aborted).toBe(true);
       expect(run.abortReason).toBe(EXECUTION_LEASE_LOST_ABORT_REASON);
+      expect(renewTurnExecutionLease).toHaveBeenCalledTimes(3);
+      expect(track).not.toHaveBeenCalledWith(
+        "$exception",
+        expect.anything(),
+        undefined,
+      );
 
       releaseTool();
       await run.finalized;
       expect(markRunAborted).not.toHaveBeenCalledWith(runId, expect.anything());
+      unregister();
     });
 
     it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {
@@ -9819,11 +9979,16 @@ describe("run manager soft timeout", () => {
     it("still ends the turn immediately on a user Stop", async () => {
       let turnAborted = false;
       let boundaryReason: string | null = "unset";
+      let signalRunStarted!: () => void;
+      const runStarted = new Promise<void>((resolve) => {
+        signalRunStarted = resolve;
+      });
 
       const run = startRun(
         "run-chunk-user-stop",
         "thread-chunk-user-stop",
         async (send, signal, control) => {
+          signalRunStarted();
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           });
@@ -9840,6 +10005,7 @@ describe("run manager soft timeout", () => {
       );
       run.subscribers.add(() => {});
 
+      await runStarted;
       expect(abortRun("run-chunk-user-stop")).toBe(true);
       await run.finalized;
 

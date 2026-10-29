@@ -41,7 +41,7 @@ import {
 export interface GroupSelectionArgs {
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeBreakpointWidthState: number | undefined;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {

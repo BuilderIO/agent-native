@@ -4943,12 +4943,28 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  const streamedDraft = "Here are the main answers so you can pick.";
   it.each([
-    ["text", []],
-    ["text and an empty reasoning part", [{ type: "reasoning", text: "" }]],
+    ["a saved reply of text", [], [{ type: "text", text: streamedDraft }]],
+    [
+      "a saved reply of text and an empty reasoning part",
+      [{ type: "reasoning", text: "" }],
+      [{ type: "text", text: streamedDraft }],
+    ],
+    [
+      "a streamed reply of reasoning and a rejected draft",
+      [],
+      [
+        { type: "reasoning", text: "Comparing the options." },
+        {
+          type: "text",
+          text: `${streamedDraft}Here are the main answers, so you can pick your own.`,
+        },
+      ],
+    ],
   ])(
-    "keeps the streamed id when a saved reply of %s differs from the stream",
-    async (_shape, leadingParts) => {
+    "keeps the streamed id when %s differs from the stream",
+    async (_shape, leadingParts, streamedParts) => {
       const threadId = "thread-saved-reply-differs";
       const runId = "run-saved-reply-differs";
       const turnId = "turn-saved-reply-differs";
@@ -5010,12 +5026,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                         id: streamedId,
                         role: "assistant",
                         status: "complete",
-                        parts: [
-                          {
-                            type: "text",
-                            text: "Here are the main answers so you can pick.",
-                          },
-                        ],
+                        parts: streamedParts,
                       },
                     ],
                     events: [
@@ -5030,12 +5041,7 @@ describe("createAgentNativeAgentKitTransport", () => {
                           id: streamedId,
                           role: "assistant",
                           status: "complete",
-                          parts: [
-                            {
-                              type: "text",
-                              text: "Here are the main answers so you can pick.",
-                            },
-                          ],
+                          parts: streamedParts,
                         },
                       },
                     ],
