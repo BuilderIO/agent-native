@@ -54,7 +54,7 @@ const mocks = vi.hoisted(() => ({
   useOnboardingPreviewStep: vi.fn(),
   setOnboardingExperiment: vi.fn(),
   setupVariant: "control" as "control" | "credits" | null,
-  creditsV2FlagState: { status: "ready", enabled: false } as {
+  creditsV2ConfigState: { status: "ready", enabled: false } as {
     status: "ready" | "loading" | "unavailable";
     enabled: boolean;
   },
@@ -76,10 +76,7 @@ vi.mock("react-router", async (importOriginal) => {
 });
 
 vi.mock("@agent-native/core/client/feature-flags/use-feature-flag", () => ({
-  useFeatureFlagState: (key: string) =>
-    key === "clips-first-run-credits-v2"
-      ? mocks.creditsV2FlagState
-      : { status: "ready", enabled: true },
+  useFeatureFlagState: () => ({ status: "ready", enabled: true }),
 }));
 
 vi.mock("@agent-native/core/client/use-action", () => ({
@@ -100,7 +97,20 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   setCustomKeyOnboardingAttempt: mocks.setCustomKeyOnboardingAttempt,
   setOnboardingExperiment: mocks.setOnboardingExperiment,
   trackOnboardingEvent: mocks.trackOnboardingEvent,
-  useOnboarding: mocks.useOnboarding,
+  useOnboarding: (...args: unknown[]) => {
+    const result = mocks.useOnboarding(...args);
+    return result.profile
+      ? {
+          ...result,
+          profile: {
+            ...result.profile,
+            firstRunCreditsExperiment: mocks.creditsV2ConfigState.enabled
+              ? "v2"
+              : "v1",
+          },
+        }
+      : result;
+  },
 }));
 
 vi.mock("@agent-native/core/client/onboarding/use-preview-mode", () => ({
@@ -145,7 +155,7 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewStep.mockReset();
-    mocks.creditsV2FlagState = { status: "ready", enabled: false };
+    mocks.creditsV2ConfigState = { status: "ready", enabled: false };
     mocks.recordCreditsV2Exposure.mockReset();
     mocks.recordCreditsV2Exposure.mockResolvedValue({ assignment: null });
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
@@ -1794,7 +1804,7 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("labels Clips setup as Builder, custom keys, or an optional skip", async () => {
-    mocks.creditsV2FlagState = { status: "ready", enabled: true };
+    mocks.creditsV2ConfigState = { status: "ready", enabled: true };
     mocks.recordCreditsV2Exposure.mockResolvedValue({
       assignment: {
         experiment_id: "first_run_builder_credits_v2",
@@ -1877,8 +1887,8 @@ describe("FirstRunOnboarding", () => {
     ).toBeNull();
   });
 
-  it("does not hold another app's first-run screen while the v2 flag loads", async () => {
-    mocks.creditsV2FlagState = { status: "loading", enabled: false };
+  it("does not hold another app's first-run screen when v1 is configured", async () => {
+    mocks.creditsV2ConfigState = { status: "loading", enabled: false };
     mocks.useOnboarding.mockReturnValue({
       firstRun: true,
       loading: false,
@@ -1913,7 +1923,7 @@ describe("FirstRunOnboarding", () => {
   it.each(["design", "slides", "clips"])(
     "shows the v2 credits actions in %s",
     async (appId) => {
-      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.creditsV2ConfigState = { status: "ready", enabled: true };
       mocks.recordCreditsV2Exposure.mockResolvedValue({
         assignment: {
           experiment_id: "first_run_builder_credits_v2",
@@ -3244,7 +3254,7 @@ describe("FirstRunOnboarding", () => {
     };
 
     it("does not expose the credits v2 experiment when connection status is unavailable", () => {
-      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.creditsV2ConfigState = { status: "ready", enabled: true };
       openClipsChoice(vi.fn(), { statusUnavailable: true });
 
       expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
@@ -3257,7 +3267,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     it("retries credits v2 exposure after a transient mutation failure", async () => {
-      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.creditsV2ConfigState = { status: "ready", enabled: true };
       mocks.recordCreditsV2Exposure
         .mockRejectedValueOnce(new Error("temporary failure"))
         .mockResolvedValue({
@@ -3306,7 +3316,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     it("retries exposure persistence after tracking the rendered v2 arm", async () => {
-      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.creditsV2ConfigState = { status: "ready", enabled: true };
       let confirmationAttempts = 0;
       mocks.recordCreditsV2Exposure.mockImplementation((...args: unknown[]) => {
         const input = args[0] as { confirmedVariant?: string } | undefined;
@@ -3358,7 +3368,7 @@ describe("FirstRunOnboarding", () => {
     it("reconciles failed exposure persistence without blocking the rendered v2 arm", async () => {
       vi.useFakeTimers();
       try {
-        mocks.creditsV2FlagState = { status: "ready", enabled: true };
+        mocks.creditsV2ConfigState = { status: "ready", enabled: true };
         mocks.recordCreditsV2Exposure
           .mockResolvedValueOnce({
             assignment: {
@@ -3595,7 +3605,7 @@ describe("FirstRunOnboarding", () => {
     it("keeps a late Builder status response out of Clips v2 after timeout", () => {
       vi.useFakeTimers();
       try {
-        mocks.creditsV2FlagState = { status: "ready", enabled: true };
+        mocks.creditsV2ConfigState = { status: "ready", enabled: true };
         openClipsChoice(vi.fn(), { hasFetchedStatus: false });
 
         expect(mocks.recordCreditsV2Exposure).not.toHaveBeenCalled();
@@ -3632,7 +3642,7 @@ describe("FirstRunOnboarding", () => {
     it("falls back if the Clips v2 exposure mutation stalls and ignores a late assignment", async () => {
       vi.useFakeTimers();
       try {
-        mocks.creditsV2FlagState = { status: "ready", enabled: true };
+        mocks.creditsV2ConfigState = { status: "ready", enabled: true };
         let resolveAssignment:
           | ((result: {
               assignment: {
@@ -3699,7 +3709,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     it("renders and attributes the v2 choice while exposure persistence is pending", async () => {
-      mocks.creditsV2FlagState = { status: "ready", enabled: true };
+      mocks.creditsV2ConfigState = { status: "ready", enabled: true };
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       mocks.useOnboarding.mockReturnValue({
         ...mocks.useOnboarding(),

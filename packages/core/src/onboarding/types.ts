@@ -133,6 +133,7 @@ export interface OnboardingCapability {
 }
 
 export interface OnboardingAppProfile {
+  firstRunCreditsExperiment?: "v1" | "v2";
   appId: string;
   appName: string;
   capabilities: OnboardingCapability[];
