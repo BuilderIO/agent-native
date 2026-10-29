@@ -1,6 +1,7 @@
 import {
   agentNativePath,
   appBasePath,
+  appPath,
 } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { workspaceProviderOAuthUrl } from "@agent-native/core/client/integrations";
@@ -13,7 +14,6 @@ import {
   useOrgSwitcherAppLinks,
 } from "@agent-native/toolkit/app/org/workspace-app-links";
 import { useCallback, useEffect, useRef } from "react";
-import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { APP_NAME } from "@/lib/app-config";
@@ -148,19 +148,16 @@ export function ConnectProviderButton({
       </Button>
     );
   }
+  // A plain anchor gets no base path from the router, so a Settings route is prefixed here.
+  const href =
+    target.kind === "dispatch"
+      ? dispatchApiKeysHref(apps)
+      : appPath(buildSettingsRoute(target.page, target.sub));
   return (
     <Button asChild type="button" variant="outline" size="sm">
-      {target.kind === "dispatch" ? (
-        <a
-          href={dispatchApiKeysHref(apps)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {label}
-        </a>
-      ) : (
-        <Link to={buildSettingsRoute(target.page, target.sub)}>{label}</Link>
-      )}
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {label}
+      </a>
     </Button>
   );
 }
