@@ -142,9 +142,110 @@ describe("failed tool attempts", () => {
     expect(events.filter((event) => event.type === "error")).toEqual([]);
   });
 
-  it.each([0, 4, 5])(
-    "bounds parallel dispatch with %s durable failures already recorded",
-    async (previousFailures) => {
+  it.each([false, true])(
+    "preserves failed attempts when a cached read returns (continued: %s)",
+    async (continued) => {
+      const run = vi.fn(async ({ attempt }: { attempt: number }) => {
+        if (attempt !== 0) throw new Error(`Failure variant ${attempt}`);
+        return "Found the view";
+      });
+      const action = defineAction({
+        description: "Check a view",
+        readOnly: true,
+        schema: z.object({ attempt: z.number() }),
+        run,
+      });
+      let nextCall = 0;
+      const runInputs = async (
+        inputs: number[],
+        events: AgentChatEvent[],
+        priorEvents?: AgentChatEvent[],
+      ) => {
+        let step = 0;
+        const engine: AgentEngine = {
+          name: "test",
+          label: "Test",
+          defaultModel: "test",
+          supportedModels: ["test"],
+          capabilities: {
+            thinking: false,
+            promptCaching: false,
+            vision: false,
+            computerUse: false,
+            parallelToolCalls: false,
+          },
+          async *stream(): AsyncIterable<EngineEvent> {
+            if (step === inputs.length) {
+              yield { type: "stop", reason: "end_turn" };
+              return;
+            }
+            yield {
+              type: "tool-call",
+              id: `call-${nextCall++}`,
+              name: "check-view",
+              input: { attempt: inputs[step++] },
+            };
+            yield { type: "stop", reason: "tool_use" };
+          },
+        };
+        const read = priorEvents
+          ? vi
+              .spyOn(runStore, "getCurrentTurnEventsForThread")
+              .mockResolvedValue(priorEvents)
+          : undefined;
+        try {
+          await runAgentLoop({
+            engine,
+            model: "test",
+            systemPrompt: "Test",
+            tools: [],
+            messages: [
+              {
+                role: "user",
+                content: [{ type: "text", text: "Check views" }],
+              },
+            ],
+            actions: { "check-view": action as unknown as ActionEntry },
+            ...(priorEvents
+              ? { threadId: "fixture-thread", turnId: "fixture-turn" }
+              : {}),
+            send: (event) => events.push(event),
+            signal: new AbortController().signal,
+          });
+        } finally {
+          read?.mockRestore();
+        }
+      };
+      const events: AgentChatEvent[] = [];
+      if (continued) {
+        const priorEvents: AgentChatEvent[] = [];
+        await runInputs([0, 1, 2, 3, 4, 0], priorEvents);
+        await runInputs([5, 6, 7, 8], events, priorEvents);
+      } else {
+        await runInputs([0, 1, 2, 3, 4, 0, 5, 6, 7, 8], events);
+      }
+      expect(run).toHaveBeenCalledTimes(6);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "repeated_tool_failure",
+          error: expect.stringContaining("Failure variant 5"),
+        }),
+      );
+    },
+  );
+
+  it.each([
+    { previousFailures: 0, equivalent: false },
+    { previousFailures: 4, equivalent: false },
+    { previousFailures: 5, equivalent: false },
+    { previousFailures: 0, equivalent: true },
+    { previousFailures: 2, equivalent: true },
+    { previousFailures: 3, equivalent: true },
+  ])(
+    "bounds parallel dispatch after $previousFailures failures (equivalent: $equivalent)",
+    async ({ previousFailures, equivalent }) => {
+      const limit = equivalent ? 3 : 5;
       const priorEvents: AgentChatEvent[] = Array.from(
         { length: previousFailures },
         (_, attempt): AgentChatEvent[] => [
@@ -159,7 +260,9 @@ describe("failed tool attempts", () => {
             id: `prior-${attempt}`,
             tool: "check-view",
             input: { attempt: -attempt - 1 },
-            result: `Earlier failure ${attempt}`,
+            result: equivalent
+              ? "Error running check-view: Transient provider failure"
+              : `Earlier failure ${attempt}`,
             isError: true,
             completedSideEffect: false,
           },
@@ -169,7 +272,11 @@ describe("failed tool attempts", () => {
         .spyOn(runStore, "getCurrentTurnEventsForThread")
         .mockResolvedValue(priorEvents);
       const run = vi.fn(async ({ attempt }: { attempt: number }) => {
-        throw new Error(`Failure variant ${attempt}`);
+        throw new Error(
+          equivalent
+            ? "Transient provider failure"
+            : `Failure variant ${attempt}`,
+        );
       });
       const action = defineAction({
         description: "Check a view",
@@ -225,21 +332,33 @@ describe("failed tool attempts", () => {
       } finally {
         read.mockRestore();
       }
-      expect(run).toHaveBeenCalledTimes(5 - previousFailures);
-      expect(events).toContainEqual(
-        expect.objectContaining({
-          type: "error",
-          errorCode: "repeated_tool_failure",
-          error: expect.stringContaining(
-            previousFailures === 5 ? "Earlier failure 4" : "Failure variant",
-          ),
-        }),
+      expect(run).toHaveBeenCalledTimes(limit - previousFailures);
+      if (!equivalent) {
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            errorCode: "repeated_tool_failure",
+          }),
+        );
+      }
+      const visible = events.reduce((text, event) => {
+        if (event.type === "clear") return "";
+        if (event.type === "error") return text + event.error;
+        return event.type === "text" ? text + event.text : text;
+      }, "");
+      expect(visible).toContain(
+        equivalent
+          ? "Transient provider failure"
+          : previousFailures === 5
+            ? "Earlier failure 4"
+            : "Failure variant",
       );
+      expect(visible).toMatch(/stopped/i);
       expect(
         events.filter(
           (event) => event.type === "tool_done" && event.notExecuted,
         ),
-      ).toHaveLength(25 + previousFailures);
+      ).toHaveLength(30 - limit + previousFailures);
     },
   );
 

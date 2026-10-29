@@ -144,6 +144,68 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
+  it("keeps failed reads counted when a cached result is reconstructed from durable steps", async () => {
+    const events: AgentChatEvent[] = [];
+    const actionRun = vi.fn(async ({ id }: { id: string }) => {
+      if (id !== "found") throw new Error(`Missing view ${id}`);
+      return "Found the view";
+    });
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor(
+          [
+            [toolCall("read-0", { id: "found" })],
+            [toolCall("read-1", { id: "missing-1" })],
+            [toolCall("read-2", { id: "missing-2" })],
+            [toolCall("cached-read", { id: "found" })],
+            [text("Checks complete.")],
+          ],
+          [],
+        ),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Check views" }] },
+        ],
+        actions: {
+          "create-deck": {
+            schema: z.object({ id: z.string() }),
+            tool: {
+              description: "Read a view",
+              parameters: {
+                type: "object" as const,
+                properties: { id: { type: "string" } },
+                required: ["id"],
+              },
+            },
+            readOnly: true,
+            run: actionRun,
+          },
+        },
+        threadId: fence.threadId,
+        turnId: fence.turnId,
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(actionRun).toHaveBeenCalledTimes(3);
+    durableStep.priorEvents = events;
+    const journalSeed = await import("./engine/tool-call-journal-seed.js");
+    const journal = await journalSeed.loadPriorTurnToolCallJournal(
+      fence.threadId,
+      fence.turnId,
+    );
+    if (journal.status !== "read")
+      throw new Error("Expected a readable journal");
+    const seeded = journalSeed.seedRepeatedToolErrorCountsFromJournal(
+      journal.priorToolCallSequence,
+      (name, input) => `${name}:${JSON.stringify(input)}`,
+      (error) => error,
+    );
+    expect(seeded.failureStreaks.get("create-deck")).toBe(2);
+  });
+
   it("leaves a prepared write retryable when interrupted before dispatch", async () => {
     const controller = new AbortController();
     const actionRun = vi.fn(async () => "Deck saved");

@@ -8210,6 +8210,22 @@ export async function runAgentLoop(opts: {
     toolCallCacheKey,
     normalizeToolErrorForBreaker,
   );
+  const toolFailureBudget = (name: string) => {
+    const failures = failureStreaks.get(name) ?? 0;
+    let equivalentFailures = 0;
+    for (const [key, count] of repeatedToolErrorsAnyArgs) {
+      if (key.startsWith(`${name}:`)) {
+        equivalentFailures = Math.max(equivalentFailures, count);
+      }
+    }
+    return {
+      failures: Math.max(failures, equivalentFailures),
+      remaining: Math.min(
+        MAX_TOOL_FAILURE_STREAK - failures,
+        MAX_SAME_ERROR_ACROSS_ARGUMENTS - equivalentFailures,
+      ),
+    };
+  };
   const repeatedToolCalls = seedRepeatedToolCallCountsFromJournal(
     journalRead.status === "read" ? journalRead.priorToolCallSequence : [],
     toolCallCacheKey,
@@ -9146,6 +9162,10 @@ export async function runAgentLoop(opts: {
       const hasEmptyFinalResponse =
         collectTextParts(assistantContentForHistory).trim().length === 0 &&
         streamedAssistantText.trim().length === 0;
+      if (loopBreakerCloseout && hasEmptyFinalResponse) {
+        loopBreakerStopped = true;
+        break;
+      }
       if (followUpResults.length > 0)
         messages.push({ role: "user", content: followUpResults });
       if (terminalStopReason === "max_tokens") {
@@ -10741,6 +10761,7 @@ export async function runAgentLoop(opts: {
                 result,
                 isError: false,
                 completedSideEffect: false,
+                replayed: true,
               }),
             );
             executionStepFinalizationAttempted = false;
@@ -10754,9 +10775,10 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             completedSideEffect: false,
+            replayed: true,
           });
           toolDonePersistenceFailed = false;
-          recordToolResult(result, false);
+          recordToolResult(result, false, undefined, undefined, false);
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -11557,8 +11579,8 @@ export async function runAgentLoop(opts: {
     };
 
     for (const toolCall of toolCallParts) {
-      const failureCount = failureStreaks.get(toolCall.name) ?? 0;
-      if (failureCount >= MAX_TOOL_FAILURE_STREAK && !requestedActionStop) {
+      const failureBudget = toolFailureBudget(toolCall.name);
+      if (failureBudget.remaining <= 0 && !requestedActionStop) {
         const lastError = [...toolResultHistory]
           .reverse()
           .find(
@@ -11566,7 +11588,7 @@ export async function runAgentLoop(opts: {
           )?.content;
         requestedActionStop = repeatedToolFailureStop(
           toolCall.name,
-          failureCount,
+          failureBudget.failures,
           lastError ?? "Earlier failures were recorded without error details.",
         );
       }
@@ -11579,8 +11601,7 @@ export async function runAgentLoop(opts: {
         const pendingForTool = parallelBatch.filter(
           (pending) => pending.name === toolCall.name,
         ).length;
-        const remainingAttempts =
-          MAX_TOOL_FAILURE_STREAK - (failureStreaks.get(toolCall.name) ?? 0);
+        const remainingAttempts = toolFailureBudget(toolCall.name).remaining;
         if (
           (parallelBatchKind && parallelBatchKind !== batchKind) ||
           pendingForTool >= remainingAttempts

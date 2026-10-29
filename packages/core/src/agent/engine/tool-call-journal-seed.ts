@@ -193,6 +193,7 @@ function durableStepToolDone(
       ? { errorCode: outcome.errorCode }
       : {}),
     completedSideEffect: outcome.completedSideEffect,
+    ...(outcome.replayed === true ? { replayed: true } : {}),
     argumentsHash: input.argumentsHash,
     ...(artifacts.length > 0 ? { artifacts } : {}),
     ...(mcpApp ? { mcpApp } : {}),
