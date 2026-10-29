@@ -3,6 +3,8 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconCheck,
@@ -204,7 +206,7 @@ function CommentThreadPopover({
                 data-slide-comment-marker
                 data-thread-id={thread.threadId}
                 className="relative inline-flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full shadow-2xl shadow-black/35 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={root.content}
+                aria-label={commentExcerpt(root.content)}
               >
                 <CommentAvatar
                   email={root.author_email}
@@ -317,7 +319,7 @@ function CommentThreadPopover({
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-64">
-        {root.content}
+        <CommentBody compact body={root.content} className="line-clamp-4" />
       </TooltipContent>
     </Tooltip>
   );

@@ -26,6 +26,7 @@ import {
   localPlanBridgeRetryDelay,
   nativeMarkerPlacementForAnchor,
   runtimeAnnotationFromThread,
+  runtimeAnnotationMarkerTitle,
   nativePointForAnchor,
   removePlanCommentFromBundle,
   removePlanCommentThreadFromBundle,
@@ -449,6 +450,22 @@ describe("plan comment thread UI model", () => {
         },
       ],
     });
+  });
+
+  it("names a pin with its comment's words, not its Markdown", () => {
+    const root = comment("root", {
+      authorEmail: "damian@example.com",
+      authorName: "Damian",
+      anchor: JSON.stringify({ x: 42, y: 24, sectionTitle: "Summary" }),
+      message:
+        "**Two fixes** for @[Sam Lee](mailto:sam@example.com):\n\n- rename `step-1`",
+    });
+    const [thread] = buildCommentThreads([root]);
+    if (!thread) throw new Error("expected a thread");
+
+    expect(
+      runtimeAnnotationMarkerTitle(runtimeAnnotationFromThread(thread, 0, {})),
+    ).toBe("1 comment by Damian: Two fixes for @Sam Lee: - rename step-1");
   });
 
   it("collects unique comment author emails for avatar image lookup", () => {

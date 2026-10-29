@@ -30,6 +30,7 @@ import { fetchOrgMemberPage } from "@agent-native/core/client/sharing";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
@@ -1384,7 +1385,7 @@ function runtimeParticipantPresentation(
   };
 }
 
-function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
+export function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
   const names = annotation.participants
     .map((participant) => runtimeParticipantPresentation(participant).name)
     .filter(Boolean)
@@ -1393,9 +1394,12 @@ function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
   const countLabel = `${annotation.commentCount} comment${
     annotation.commentCount === 1 ? "" : "s"
   }`;
+  // The marker's tooltip and accessible name are plain text, so they read
+  // the comment's words, not its Markdown.
+  const excerpt = commentExcerpt(annotation.message);
   return names
-    ? `${countLabel} by ${names}: ${annotation.message}`
-    : `${countLabel}: ${annotation.message}`;
+    ? `${countLabel} by ${names}: ${excerpt}`
+    : `${countLabel}: ${excerpt}`;
 }
 
 function planExportFilename(
