@@ -11,6 +11,73 @@ import { classifyToolCallJournal } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
 describe("failed tool attempts", () => {
+  it("resets a tool's failure streak after a fresh successful execution", async () => {
+    const run = vi.fn(async ({ attempt }: { attempt: number }) => {
+      if (attempt % 5 !== 0) throw new Error(`Failure variant ${attempt}`);
+      return "found";
+    });
+    const action = defineAction({
+      description: "Check a view",
+      readOnly: true,
+      schema: z.object({ attempt: z.number() }),
+      run,
+    });
+    let attempt = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test",
+      supportedModels: ["test"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        if (attempt === 10) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Checks complete." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        attempt += 1;
+        yield {
+          type: "tool-call",
+          id: `call-${attempt}`,
+          name: "check-view",
+          input: { attempt },
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test",
+      systemPrompt: "Test",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Check views" }] },
+      ],
+      actions: { "check-view": action as unknown as ActionEntry },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(run).toHaveBeenCalledTimes(10);
+    const results = events.filter((event) => event.type === "tool_done");
+    expect(results.filter((event) => event.isError)).toHaveLength(8);
+    expect(
+      results.filter(
+        (event) => !event.isError && !event.replayed && !event.notExecuted,
+      ),
+    ).toHaveLength(2);
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
+  });
+
   it.each([0, 4, 5])(
     "bounds parallel dispatch with %s durable failures already recorded",
     async (previousFailures) => {
