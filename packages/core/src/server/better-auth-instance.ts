@@ -2636,6 +2636,24 @@ async function createBetterAuthInstance(
                     experimentId,
                   },
                 );
+                if (experimentId) {
+                  try {
+                    track(
+                      "agent_experiment_assignment_failed",
+                      {
+                        experiment_id: experimentId,
+                        failure_stage: "signup",
+                        error_code: "question_intake_assignment_failed",
+                      },
+                      { authUserId: user.id, userId: email },
+                    );
+                  } catch {
+                    console.error(
+                      "[auth] failed to track question-intake assignment failure",
+                      { code: "question_intake_assignment_tracking_failed" },
+                    );
+                  }
+                }
                 try {
                   const { captureError } = await import("./capture-error.js");
                   captureError(error, {

@@ -53,6 +53,7 @@ export interface DesignNoQuestionsReadout {
   targetLift: number;
   sampleNeededPerArm: number;
   sampleNeededTotal: number;
+  signupAssignmentFailures: number;
   arms: DesignNoQuestionsArm[];
   generatedAt: string;
 }
@@ -80,6 +81,15 @@ exposure_rows AS (
 exposures AS (
   SELECT person_key, variant, exposed_at, exposed_turn_id
   FROM exposure_rows WHERE exposure_number = 1
+),
+assignment_failures AS (
+  SELECT count(DISTINCT person_key)::int AS signup_assignment_failures
+  FROM base_events
+  WHERE app = 'design' AND event_name = 'agent_experiment_assignment_failed'
+    AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND properties ->> 'failure_stage' = 'signup'
+    AND event_date BETWEEN $1 AND $2
+    AND happened_at <= $4::timestamptz
 ),
 prompts AS (
   SELECT id, person_key, happened_at, properties ->> 'output_id' AS output_id,
@@ -159,7 +169,11 @@ exports AS (
     AND e.properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND e.properties ->> 'experiment_variant' = a.variant
     AND e.properties ->> 'status' = 'completed'
-    AND e.properties ->> 'render_location' = 'server'
+    AND (
+      e.properties ->> 'render_location' = 'browser'
+      OR (e.properties ->> 'render_location' = 'server'
+        AND e.properties ->> 'caller' = 'frontend')
+    )
   GROUP BY a.person_key
 ),
 returns AS (
@@ -199,8 +213,27 @@ summary AS (
     count(*) FILTER (WHERE mature_1to7d)::int AS mature_1to7d,
     count(*) FILTER (WHERE mature_1to7d AND returned_at IS NOT NULL)::int AS return_1to7d
   FROM per_user GROUP BY variant
+),
+variants AS (
+  SELECT unnest(ARRAY['control', 'no_questions']::text[]) AS variant
 )
-SELECT * FROM summary ORDER BY variant`;
+SELECT v.variant,
+  coalesce(s.exposed, 0) AS exposed,
+  coalesce(s.prompt_joined, 0) AS prompt_joined,
+  coalesce(s.mature_24h, 0) AS mature_24h,
+  coalesce(s.mature_24h_prompt, 0) AS mature_24h_prompt,
+  coalesce(s.ready_24h, 0) AS ready_24h,
+  s.time_p50_ms,
+  s.time_p90_ms,
+  coalesce(s.second_prompt_24h, 0) AS second_prompt_24h,
+  coalesce(s.completed_export_24h, 0) AS completed_export_24h,
+  coalesce(s.mature_1to7d, 0) AS mature_1to7d,
+  coalesce(s.return_1to7d, 0) AS return_1to7d,
+  f.signup_assignment_failures
+FROM variants v
+LEFT JOIN summary s USING (variant)
+CROSS JOIN assignment_failures f
+ORDER BY v.variant`;
 
 const BIGQUERY_AB_SQL = (eventsTableRange: string) =>
   `${bigQueryFirstTouchEventsCte(eventsTableRange, {
@@ -224,6 +257,15 @@ exposure_rows AS (
 exposures AS (
   SELECT person_key, variant, exposed_at, exposed_turn_id
   FROM exposure_rows WHERE exposure_number = 1
+),
+assignment_failures AS (
+  SELECT count(DISTINCT person_key) AS signup_assignment_failures
+  FROM base_events
+  WHERE app = 'design' AND event_name = 'agent_experiment_assignment_failed'
+    AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND json_value(properties, '$.failure_stage') = 'signup'
+    AND event_date BETWEEN @start_date AND @end_date
+    AND happened_at <= @as_of
 ),
 prompts AS (
   SELECT id, person_key, happened_at,
@@ -304,7 +346,11 @@ exports AS (
     AND json_value(e.properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
     AND json_value(e.properties, '$.experiment_variant') = a.variant
     AND json_value(e.properties, '$.status') = 'completed'
-    AND json_value(e.properties, '$.render_location') = 'server'
+    AND (
+      json_value(e.properties, '$.render_location') = 'browser'
+      OR (json_value(e.properties, '$.render_location') = 'server'
+        AND json_value(e.properties, '$.caller') = 'frontend')
+    )
   GROUP BY a.person_key
 ),
 returns AS (
@@ -325,20 +371,42 @@ per_user AS (
   LEFT JOIN second_prompts s USING (person_key)
   LEFT JOIN exports x USING (person_key)
   LEFT JOIN returns v USING (person_key)
+),
+summary AS (
+  SELECT variant,
+    count(*) AS exposed,
+    countif(first_prompt_at IS NOT NULL) AS prompt_joined,
+    countif(mature_24h) AS mature_24h,
+    countif(mature_24h AND first_prompt_at IS NOT NULL) AS mature_24h_prompt,
+    countif(mature_24h AND ready_at IS NOT NULL) AS ready_24h,
+    approx_quantiles(if(mature_24h AND ready_at IS NOT NULL, time_to_ready_ms, NULL), 100)[SAFE_OFFSET(50)] AS time_p50_ms,
+    approx_quantiles(if(mature_24h AND ready_at IS NOT NULL, time_to_ready_ms, NULL), 100)[SAFE_OFFSET(90)] AS time_p90_ms,
+    countif(mature_24h AND first_prompt_at IS NOT NULL AND second_prompt_at IS NOT NULL) AS second_prompt_24h,
+    countif(mature_24h AND exported_at IS NOT NULL) AS completed_export_24h,
+    countif(mature_1to7d) AS mature_1to7d,
+    countif(mature_1to7d AND returned_at IS NOT NULL) AS return_1to7d
+  FROM per_user GROUP BY variant
+),
+variants AS (
+  SELECT 'control' AS variant UNION ALL SELECT 'no_questions'
 )
-SELECT variant,
-  count(*) AS exposed,
-  countif(first_prompt_at IS NOT NULL) AS prompt_joined,
-  countif(mature_24h) AS mature_24h,
-  countif(mature_24h AND first_prompt_at IS NOT NULL) AS mature_24h_prompt,
-  countif(mature_24h AND ready_at IS NOT NULL) AS ready_24h,
-  approx_quantiles(if(mature_24h AND ready_at IS NOT NULL, time_to_ready_ms, NULL), 100)[SAFE_OFFSET(50)] AS time_p50_ms,
-  approx_quantiles(if(mature_24h AND ready_at IS NOT NULL, time_to_ready_ms, NULL), 100)[SAFE_OFFSET(90)] AS time_p90_ms,
-  countif(mature_24h AND first_prompt_at IS NOT NULL AND second_prompt_at IS NOT NULL) AS second_prompt_24h,
-  countif(mature_24h AND exported_at IS NOT NULL) AS completed_export_24h,
-  countif(mature_1to7d) AS mature_1to7d,
-  countif(mature_1to7d AND returned_at IS NOT NULL) AS return_1to7d
-FROM per_user GROUP BY variant ORDER BY variant`;
+SELECT variants.variant,
+  coalesce(summary.exposed, 0) AS exposed,
+  coalesce(summary.prompt_joined, 0) AS prompt_joined,
+  coalesce(summary.mature_24h, 0) AS mature_24h,
+  coalesce(summary.mature_24h_prompt, 0) AS mature_24h_prompt,
+  coalesce(summary.ready_24h, 0) AS ready_24h,
+  summary.time_p50_ms,
+  summary.time_p90_ms,
+  coalesce(summary.second_prompt_24h, 0) AS second_prompt_24h,
+  coalesce(summary.completed_export_24h, 0) AS completed_export_24h,
+  coalesce(summary.mature_1to7d, 0) AS mature_1to7d,
+  coalesce(summary.return_1to7d, 0) AS return_1to7d,
+  assignment_failures.signup_assignment_failures
+FROM variants
+LEFT JOIN summary USING (variant)
+CROSS JOIN assignment_failures
+ORDER BY variants.variant`;
 
 function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -549,6 +617,10 @@ export async function runDesignNoQuestionsReadout(
     targetLift: 0.1,
     sampleNeededPerArm,
     sampleNeededTotal: sampleNeededPerArm * 2,
+    signupAssignmentFailures: number(
+      result.rows[0] ?? {},
+      "signup_assignment_failures",
+    ),
     arms,
     generatedAt: new Date().toISOString(),
   };
@@ -570,6 +642,7 @@ export function formatDesignNoQuestionsReadout(
     "",
     `Window: ${result.startDate} through ${result.endDate} (inclusive); data cutoff ${result.dataCutoff}.`,
     `Primary metric baseline used for power: ${(result.primaryBaseline * 100).toFixed(1)}%; target lift: +${(result.targetLift * 100).toFixed(0)} points; sample needed: ${result.sampleNeededPerArm} per arm (${result.sampleNeededTotal} total), two-sided 5% significance and 80% power.`,
+    `Signup assignment failures with no arm: ${result.signupAssignmentFailures}.`,
     "",
     "| Variant | Exposed | Prompt joined | 24h mature | Design ready within 24h | Time to design p50 / p90 | Second prompt within 24h | Completed export within 24h | Mature 1–7d | 1–7d return |",
     "| --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | --- |",
@@ -581,7 +654,7 @@ export function formatDesignNoQuestionsReadout(
   }
   lines.push(
     "",
-    `Design-ready and completed-export rates use the mature exposed cohort. Exports count only completed server-recorded exports; browser-local exports are not attributed because their completion cannot be verified server-side. Ready and export events must match the first prompt's Design output id. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
+    `Design-ready and completed-export rates use the mature exposed cohort. Exports count completed browser exports and completed server exports initiated by the Design UI; agent and automation exports are excluded. Ready and export events must match the first prompt's Design output id. Signup assignment failures are reported separately and are not assigned to either arm. The second-prompt rate uses mature exposed users with a joined first prompt. The return rate uses only users with a full 8-day observation window. Exposure joins to a stamped Design prompt within ±${PROMPT_EXPOSURE_JOIN_WINDOW}; when that prompt event is missing, time-based outcomes use the server exposure timestamp. Design-ready and export outcomes require matching experiment id and variant.`,
   );
   return lines.join("\n");
 }

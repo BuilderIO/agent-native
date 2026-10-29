@@ -43,6 +43,7 @@ beforeEach(() => {
         completed_export_24h: 2,
         mature_1to7d: 5,
         return_1to7d: 1,
+        signup_assignment_failures: 2,
       },
       {
         variant: "no_questions",
@@ -95,12 +96,15 @@ describe("Design no-questions readout query", () => {
       expect(sql).toContain("experiment_ids");
       expect(sql).toContain("experiment_variants");
       expect(sql).toContain("render_location");
+      expect(sql).toContain("agent_experiment_assignment_failed");
+      expect(sql).toContain("signup_assignment_failures");
+      expect(sql).toContain("caller");
       expect(sql).toContain("no_questions");
       expect(sql).toContain("mature_1to7d");
       expect(sql).toContain("mature_24h");
       expect(
         sql.match(/AND happened_at <= (\$4::timestamptz|@as_of)/g),
-      ).toHaveLength(2);
+      ).toHaveLength(3);
     },
   );
 
@@ -150,11 +154,15 @@ describe("Design no-questions readout query", () => {
       completedExport24h: { users: 2, denominator: 8 },
       return1to7d: { users: 1, denominator: 5 },
     });
+    expect(result.signupAssignmentFailures).toBe(2);
     expect(formatDesignNoQuestionsReadout(result)).toContain(
       "358 per arm (716 total)",
     );
     expect(formatDesignNoQuestionsReadout(result)).toContain(
-      "Exports count only completed server-recorded exports",
+      "Signup assignment failures with no arm: 2",
+    );
+    expect(formatDesignNoQuestionsReadout(result)).toContain(
+      "Exports count completed browser exports and completed server exports initiated by the Design UI",
     );
     expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
       buildPostgresDesignNoQuestionsAbSql(),

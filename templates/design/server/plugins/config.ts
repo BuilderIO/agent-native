@@ -14,7 +14,7 @@ export default defineAppConfig({
         "design_ready_viewed",
         "design_exported",
       ],
-      clientTrackedEventNames: ["design_prompt_submitted"],
+      clientTrackedEventNames: ["design_prompt_submitted", "design_exported"],
     },
   },
 });
