@@ -17,6 +17,11 @@ import { asc, eq } from "drizzle-orm";
 import { setResponseHeader, type H3Event } from "h3";
 
 import {
+  getExcludedRanges,
+  originalToEdited,
+  parseEdits,
+} from "../../app/lib/timestamp-mapping.js";
+import {
   buildAgentApiUrls,
   buildRecommendedFrames,
   buildAgentHttpToolManifest,
@@ -47,6 +52,7 @@ import { isLoomRecordingSource } from "../../shared/loom.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  type TranscriptSegment,
 } from "../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
@@ -540,24 +546,35 @@ export async function canReadAppActivityEvents(
 export async function loadAgentTranscript(
   recordingId: string,
   durationMs: number,
+  editsJson?: string | null,
 ) {
-  const [transcript] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, recordingId))
     .limit(1);
+  const transcript = rows.length ? rows[0] : null;
 
-  const normalized = normalizeTranscriptSegments({
+  let normalized = normalizeTranscriptSegments({
     segments: parseTranscriptSegments(transcript?.segmentsJson),
-    fullText: transcript?.fullText,
+    fullText: transcript?.fullText ?? null,
     durationMs,
   });
+  let fullText = transcript ? transcript.fullText : "";
+  if (editsJson && transcript) {
+    const edited = transcriptForEditedTimeline(transcript, editsJson);
+    if (edited) {
+      normalized = edited;
+      fullText = edited.map((segment) => segment.text).join(" ");
+    }
+  }
   const presentation = resolveTranscriptPresentation(transcript);
 
   return {
     transcript: transcript
       ? {
           ...transcript,
+          fullText,
           status: presentation.stalePending ? "failed" : transcript.status,
           failureReason: presentation.failureReason,
         }
@@ -565,6 +582,107 @@ export async function loadAgentTranscript(
     segments: normalized,
     agentSegments: toAgentTranscriptSegments(normalized),
   };
+}
+
+export function transcriptForEditedTimeline(
+  transcript: Pick<
+    NonNullable<PublicAgentTranscript>,
+    "segmentsJson" | "fullText"
+  >,
+  editsJson: string,
+): TranscriptSegment[] | null {
+  const fail = () => {
+    throw Object.assign(
+      new Error("The edited transcript cannot be safely timed to this clip."),
+      { statusCode: 409, code: "EDITED_TRANSCRIPT_UNAVAILABLE" },
+    );
+  };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(editsJson);
+  } catch {
+    return fail();
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fail();
+  const trims = (raw as { trims?: unknown }).trims;
+  if (
+    trims !== undefined &&
+    (!Array.isArray(trims) ||
+      trims.some(
+        (trim) =>
+          !trim ||
+          typeof trim !== "object" ||
+          typeof trim.excluded !== "boolean" ||
+          typeof trim.startMs !== "number" ||
+          !Number.isFinite(trim.startMs) ||
+          typeof trim.endMs !== "number" ||
+          !Number.isFinite(trim.endMs) ||
+          trim.startMs < 0 ||
+          trim.endMs < trim.startMs,
+      ))
+  )
+    return fail();
+  const edits = parseEdits(editsJson);
+  const cuts = getExcludedRanges(edits).filter(
+    (cut) => cut.endMs > cut.startMs,
+  );
+  if (!cuts.length) return null;
+  let entries: unknown;
+  try {
+    entries = JSON.parse(transcript.segmentsJson);
+  } catch {
+    return fail();
+  }
+  if (
+    !Array.isArray(entries) ||
+    (!entries.length && transcript.fullText.trim())
+  )
+    return fail();
+  if (
+    entries.some(
+      (entry) =>
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.startMs !== "number" ||
+        !Number.isFinite(entry.startMs) ||
+        typeof entry.endMs !== "number" ||
+        !Number.isFinite(entry.endMs),
+    )
+  )
+    return fail();
+  const segments = parseTranscriptSegments(transcript.segmentsJson);
+  if (
+    entries.some(
+      (entry) =>
+        typeof entry.text === "string" &&
+        entry.text.trim() &&
+        (entry.endMs <= entry.startMs || entry.startMs < 0),
+    ) ||
+    segments.length !==
+      entries.filter(
+        (entry) => typeof entry.text === "string" && entry.text.trim(),
+      ).length
+  )
+    return fail();
+  return segments.flatMap((segment) => {
+    const overlaps = cuts.filter(
+      (cut) => segment.startMs < cut.endMs && segment.endMs > cut.startMs,
+    );
+    if (
+      overlaps.some(
+        (cut) => cut.startMs <= segment.startMs && cut.endMs >= segment.endMs,
+      )
+    )
+      return [];
+    if (overlaps.length) return fail();
+    return [
+      {
+        ...segment,
+        startMs: originalToEdited(segment.startMs, edits),
+        endMs: originalToEdited(segment.endMs, edits),
+      },
+    ];
+  });
 }
 
 export function parseAgentChapters(recording: PublicAgentRecording) {

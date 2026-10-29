@@ -19,6 +19,12 @@ import {
 } from "h3";
 
 import {
+  editedToOriginal,
+  effectiveDuration,
+  getExcludedRanges,
+  parseEdits,
+} from "../../../app/lib/timestamp-mapping.js";
+import {
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -38,6 +44,7 @@ import {
 } from "../../lib/video-frame-sheet.js";
 import {
   extractJpegFrameSheetFromFile,
+  extractEditedJpegFrameSheetFromFile,
   probeFrameSheetFpsFromFile,
   probeMediaDurationMsFromFile,
   VideoFrameExtractionError,
@@ -131,13 +138,27 @@ export default defineEventHandler(async (event: H3Event) => {
     });
   }
 
+  const edits = parseEdits(recording.editsJson);
+  const cuts = getExcludedRanges(edits);
+  const hasCuts = cuts.length > 0;
+  const editedDurationMs = hasCuts
+    ? effectiveDuration(recording.durationMs, edits)
+    : recording.durationMs;
+  if (hasCuts && editedDurationMs <= 0) {
+    return sendFrameJson(event, 422, {
+      failureKind: "unsupported",
+      error: "This clip has no visible frames after its trims.",
+      nextStep: "Restore part of the recording before requesting frames.",
+    });
+  }
+
   const parsed = parseFrameSheetRequest({
     startMs: queryString(query.startMs),
     endMs: queryString(query.endMs),
     fps: queryString(query.fps),
   });
   if (!parsed.ok) return requestFailure(event, parsed);
-  const range = clampFrameSheetRange(parsed.value, recording.durationMs);
+  const range = clampFrameSheetRange(parsed.value, editedDurationMs);
   if (!range.ok) return requestFailure(event, range);
 
   // Plan against a duration: clamp the request to it, then lay out the grid.
@@ -156,7 +177,7 @@ export default defineEventHandler(async (event: H3Event) => {
   const earlyPlan =
     parsed.value.fps === null
       ? null
-      : planWithin(parsed.value.fps, recording.durationMs);
+      : planWithin(parsed.value.fps, editedDurationMs);
   if (earlyPlan && !earlyPlan.ok) return requestFailure(event, earlyPlan);
 
   try {
@@ -168,20 +189,35 @@ export default defineEventHandler(async (event: H3Event) => {
       // past it, plan against the file's real duration so the sheet covers
       // the range that was asked for, not an earlier one. If the probe fails,
       // plan without a duration rather than move the range on the stored one.
-      const durationMs = frameSheetReachesPast(
-        parsed.value,
-        fps,
-        recording.durationMs,
-      )
-        ? await probeMediaDurationMsFromFile(media.path)
-        : recording.durationMs;
+      const durationMs =
+        !hasCuts &&
+        frameSheetReachesPast(parsed.value, fps, recording.durationMs)
+          ? await probeMediaDurationMsFromFile(media.path)
+          : editedDurationMs;
       const plan = planWithin(fps, durationMs);
       if (!plan.ok) return requestFailure(event, plan);
-      const result = await extractSheetWithStaleDurationRecovery({
-        mediaPath: media.path,
-        plan: plan.value,
-        replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
-      });
+      const result = hasCuts
+        ? {
+            plan: plan.value,
+            sheet: await extractEditedJpegFrameSheetFromFile({
+              mediaPath: media.path,
+              plan: plan.value,
+              sourceFrames: plan.value.frameTimesMs.map((editedMs) => {
+                const atMs = editedToOriginal(editedMs, edits);
+                return {
+                  atMs,
+                  visibleEndMs:
+                    cuts.find((cut) => cut.startMs > atMs)?.startMs ??
+                    recording.durationMs,
+                };
+              }),
+            }),
+          }
+        : await extractSheetWithStaleDurationRecovery({
+            mediaPath: media.path,
+            plan: plan.value,
+            replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
+          });
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
     } finally {

@@ -6,8 +6,16 @@ import {
   type H3Event,
 } from "h3";
 
+import {
+  originalToEdited,
+  parseEdits,
+} from "../../../app/lib/timestamp-mapping.js";
 import { canReadRecordingComments } from "../../../shared/comment-access.js";
 import { getDb, schema } from "../../db/index.js";
+import {
+  EDITED_TIMELINE_UNAVAILABLE,
+  editedTimelineState,
+} from "../../lib/agent-edited-timeline.js";
 import {
   applyAgentJsonHeaders,
   buildPublicAgentContext,
@@ -42,14 +50,39 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
+  const timelineState = editedTimelineState(recording.editsJson);
+  if (timelineState === "invalid") {
+    setResponseStatus(event, 409);
+    return EDITED_TIMELINE_UNAVAILABLE;
+  }
+  const edited = timelineState === "edited";
   const commentsReadable = canReadRecordingComments({
     enableComments: recording.enableComments,
     viewerIsOwner: accessResult.access.viewerIsOwner,
   });
   const db = getDb();
   const historyQueryLimit = MAX_PUBLIC_AGENT_HISTORY_ITEMS + 1;
+  let transcriptResult: Awaited<ReturnType<typeof loadAgentTranscript>>;
+  let transcriptUnavailable = false;
+  try {
+    transcriptResult = await loadAgentTranscript(
+      recording.id,
+      recording.durationMs,
+      recording.editsJson,
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "EDITED_TRANSCRIPT_UNAVAILABLE"
+    ) {
+      transcriptUnavailable = true;
+      transcriptResult = { transcript: null, segments: [], agentSegments: [] };
+    } else {
+      throw error;
+    }
+  }
   const [
-    { transcript, agentSegments },
     commentRows,
     reactionRows,
     commentCountRows,
@@ -58,8 +91,7 @@ export default defineEventHandler(async (event: H3Event) => {
     browserDiagnostics,
     bugReport,
   ] = await Promise.all([
-    loadAgentTranscript(recording.id, recording.durationMs),
-    commentsReadable
+    commentsReadable && !edited
       ? db
           .select({
             id: schema.recordingComments.id,
@@ -82,7 +114,7 @@ export default defineEventHandler(async (event: H3Event) => {
           )
           .limit(historyQueryLimit)
       : Promise.resolve([]),
-    recording.enableReactions
+    recording.enableReactions && !edited
       ? db
           .select({
             id: schema.recordingReactions.id,
@@ -96,23 +128,24 @@ export default defineEventHandler(async (event: H3Event) => {
           .orderBy(asc(schema.recordingReactions.createdAt))
           .limit(historyQueryLimit)
       : Promise.resolve([]),
-    commentsReadable
+    commentsReadable && !edited
       ? db
           .select({ count: count() })
           .from(schema.recordingComments)
           .where(eq(schema.recordingComments.recordingId, recording.id))
       : Promise.resolve([{ count: 0 }]),
-    recording.enableReactions
+    recording.enableReactions && !edited
       ? db
           .select({ count: count() })
           .from(schema.recordingReactions)
           .where(eq(schema.recordingReactions.recordingId, recording.id))
       : Promise.resolve([{ count: 0 }]),
-    loadAgentCtas(recording.id),
-    loadAgentBrowserDiagnostics(recording.id),
-    loadAgentBugReport(recording.id),
+    edited ? Promise.resolve([]) : loadAgentCtas(recording.id),
+    edited ? Promise.resolve(null) : loadAgentBrowserDiagnostics(recording.id),
+    edited ? Promise.resolve(null) : loadAgentBugReport(recording.id),
   ]);
-  const chapters = parseAgentChapters(recording);
+  const { transcript, agentSegments } = transcriptResult;
+  const chapters = edited ? [] : parseAgentChapters(recording);
   const comments = (await hydrateCommentAuthorNames(commentRows)).slice(
     0,
     MAX_PUBLIC_AGENT_HISTORY_ITEMS,
@@ -125,9 +158,23 @@ export default defineEventHandler(async (event: H3Event) => {
     accessResult.access,
   );
 
-  return buildPublicAgentContext({
+  const context = buildPublicAgentContext({
     event,
-    access: accessResult.access,
+    access: edited
+      ? {
+          ...accessResult.access,
+          recording: {
+            ...recording,
+            durationMs: originalToEdited(
+              recording.durationMs,
+              parseEdits(recording.editsJson),
+            ),
+            thumbnailUrl: null,
+            animatedThumbnailUrl: null,
+            description: "",
+          },
+        }
+      : accessResult.access,
     transcript,
     agentSegments,
     chapters,
@@ -146,4 +193,42 @@ export default defineEventHandler(async (event: H3Event) => {
     bugReport,
     appActivityEventsReadable,
   });
+  if (!edited) return context;
+  return {
+    ...context,
+    ...(transcriptUnavailable
+      ? {
+          transcript: {
+            status: "unavailable",
+            failureReason:
+              "Transcript timing overlaps an edit and cannot safely identify retained speech.",
+            segments: [],
+            segmentCount: 0,
+          },
+        }
+      : {}),
+    editedTimelineOmissions: [
+      "chapters",
+      "comments",
+      "reactions",
+      "browserDiagnostics",
+      "appActivity",
+      "thumbnail",
+      "description",
+      "bugReport",
+      "ctas",
+    ],
+    instructions: [
+      ...context.instructions.filter(
+        (instruction) =>
+          !transcriptUnavailable || !/transcript/i.test(instruction),
+      ),
+      "Some source-clock context is unavailable for the edited timeline; see editedTimelineOmissions.",
+      ...(transcriptUnavailable
+        ? [
+            "Transcript is unavailable for this edited clip. Use the frame API with playback timestamps to inspect retained video.",
+          ]
+        : []),
+    ],
+  };
 });

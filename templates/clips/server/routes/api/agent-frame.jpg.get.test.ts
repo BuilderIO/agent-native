@@ -1,3 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import ffmpegPath from "ffmpeg-static";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -86,6 +93,18 @@ vi.mock("../../lib/ensure-recording-thumbnail.js", () => ({
 import { RecordingMediaFetchError } from "../../lib/public-agent-context.js";
 import handler from "./agent-frame.jpg.get";
 
+const ffmpegBinary =
+  ffmpegPath && existsSync(ffmpegPath)
+    ? ffmpegPath
+    : (() => {
+        try {
+          execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+          return "ffmpeg";
+        } catch {
+          return null;
+        }
+      })();
+
 function makeAccess(overrides: Record<string, unknown> = {}) {
   const { recording: recordingOverrides, ...accessOverrides } = overrides;
   return {
@@ -161,6 +180,139 @@ describe("agent-frame.jpg route", () => {
     mockRunWithRequestContext.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
+  });
+
+  it("extracts real media from the edited timeline without cached cut frames", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-agent-route-cut-"));
+    const video = join(dir, "colors.mp4");
+    const frame = join(dir, "frame.jpg");
+    try {
+      execFileSync(ffmpegBinary ?? "ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=red:s=64x64:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=blue:s=64x64:r=10:d=1",
+        "-filter_complex",
+        "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "mpeg4",
+        video,
+      ]);
+      const actual = await vi.importActual<
+        typeof import("../../lib/video-frame.js")
+      >("../../lib/video-frame.js");
+      mockExtractJpegFrameFromFile.mockImplementation(
+        actual.extractJpegFrameFromFile,
+      );
+      mockLoadRecordingMediaFile.mockResolvedValue({
+        path: video,
+        mimeType: "video/mp4",
+        cleanup: mockCleanupMediaFile,
+      });
+      mockLoadPublicAgentAccess.mockResolvedValue({
+        ok: true,
+        access: makeAccess({
+          recording: {
+            id: "real-cut",
+            durationMs: 2000,
+            editsJson: JSON.stringify({
+              trims: [{ startMs: 0, endMs: 1000, excluded: true }],
+            }),
+          },
+        }),
+      });
+      const result = await handler(
+        makeEvent({ id: "real-cut", atMs: "0" }) as unknown as Parameters<
+          typeof handler
+        >[0],
+      );
+      await writeFile(frame, result as Buffer);
+      const rgb = execFileSync(ffmpegBinary ?? "ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        frame,
+        "-vf",
+        "scale=1:1",
+        "-frames:v",
+        "1",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-",
+      ]);
+      expect(rgb.readUInt8(2)).toBeGreaterThan(rgb.readUInt8(0));
+      expect(mockLoadStoredAgentFrame).not.toHaveBeenCalled();
+      expect(mockCleanupMediaFile).toHaveBeenCalled();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unreadable edits before exposing media", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ recording: { editsJson: "{invalid" } }),
+    });
+    const event = makeEvent({ id: "rec-1", atMs: "0" });
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
+    expect(event.status).toBe(422);
+    expect(result).toMatchObject({ failureKind: "unsupported" });
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+  });
+
+  it("maps edited times across cuts and bypasses old stored frames", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "trimmed",
+          durationMs: 10_000,
+          editsJson: JSON.stringify({
+            trims: [
+              { startMs: 0, endMs: 1000, excluded: true },
+              { startMs: 3000, endMs: 5000, excluded: true },
+              { startMs: 9000, endMs: 10000, excluded: true },
+            ],
+          }),
+        },
+      }),
+    });
+    await handler(
+      makeEvent({ id: "trimmed", atMs: "2000" }) as unknown as Parameters<
+        typeof handler
+      >[0],
+    );
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledWith({
+      mediaPath: "/tmp/recording.webm",
+      atMs: 5000,
+      visibleEndMs: 9000,
+    });
+    expect(mockLoadStoredAgentFrame).not.toHaveBeenCalled();
+    await handler(
+      makeEvent({ id: "trimmed", atMs: "99999" }) as unknown as Parameters<
+        typeof handler
+      >[0],
+    );
+    expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith({
+      mediaPath: "/tmp/recording.webm",
+      atMs: 8999,
+      visibleEndMs: 9000,
+    });
   });
 
   it("holds the frame back while redactions are drawn but not burned", async () => {

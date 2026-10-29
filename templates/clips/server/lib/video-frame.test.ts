@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { clampFrameSheetRange, planFrameSheet } from "./video-frame-sheet.js";
 import {
   extractJpegFrameFromFile,
+  extractEditedJpegFrameSheetFromFile,
   extractJpegFrameSheetFromFile,
   probeFrameSheetFpsFromFile,
   probeMediaDurationMs,
@@ -317,7 +318,7 @@ describe("extractJpegFrameFromFile", () => {
           ],
           { encoding: "buffer" },
         );
-        const level = stdout[0];
+        const level = stdout.readUInt8(0);
         return level < 75 ? 0 : level < 168 ? 1 : 2;
       };
 
@@ -624,4 +625,176 @@ describe("extractJpegFrameSheetFromFile", () => {
       });
     },
   );
+});
+
+describe("visible frame extraction", () => {
+  it("never returns the first frame after a visible range", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-cut-frame-"));
+    const video = join(dir, "colors.mp4");
+    const frame = join(dir, "frame.jpg");
+    try {
+      await execFileAsync(availableFfmpegPath ?? "ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=red:s=64x64:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=blue:s=64x64:r=10:d=1",
+        "-filter_complex",
+        "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "mpeg4",
+        video,
+      ]);
+      await expect(
+        extractJpegFrameFromFile({
+          mediaPath: video,
+          atMs: 999,
+          visibleEndMs: 1000,
+        }),
+      ).rejects.toMatchObject({ code: "NO_FRAME_AT_TIMESTAMP" });
+      const bytes = await extractJpegFrameFromFile({
+        mediaPath: video,
+        atMs: 1000,
+        visibleEndMs: 2000,
+      });
+      await writeFile(frame, bytes);
+      const { stdout } = await execFileAsync(
+        availableFfmpegPath ?? "ffmpeg",
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-i",
+          frame,
+          "-vf",
+          "scale=1:1",
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          "-",
+        ],
+        { encoding: "buffer" },
+      );
+      expect(stdout.readUInt8(2)).toBeGreaterThan(stdout.readUInt8(0));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("edited frame sheets", () => {
+  it("renders samples on both sides of a cut and refuses a missing frame", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-edited-sheet-test-"));
+    const video = join(dir, "colors.mp4");
+    const sheet = join(dir, "sheet.jpg");
+    const plan = {
+      startMs: 500,
+      endMs: 1500,
+      fps: 2,
+      frameCount: 2,
+      frameTimesMs: [500, 1000],
+      columns: 2,
+      rows: 1,
+      cellWidth: 64,
+      cellHeight: 64,
+    };
+    try {
+      await execFileAsync(availableFfmpegPath ?? "ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=red:s=64x64:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=blue:s=64x64:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=green:s=64x64:r=10:d=1",
+        "-filter_complex",
+        "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "mpeg4",
+        video,
+      ]);
+      const bytes = await extractEditedJpegFrameSheetFromFile({
+        mediaPath: video,
+        plan,
+        sourceFrames: [
+          { atMs: 500, visibleEndMs: 1000 },
+          { atMs: 2000, visibleEndMs: 3000 },
+        ],
+      });
+      await writeFile(sheet, bytes);
+      const { stdout } = await execFileAsync(
+        availableFfmpegPath ?? "ffmpeg",
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-i",
+          sheet,
+          "-vf",
+          "scale=2:1",
+          "-frames:v",
+          "1",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          "-",
+        ],
+        { encoding: "buffer" },
+      );
+      expect(stdout.readUInt8(0)).toBeGreaterThan(stdout.readUInt8(2));
+      expect(stdout.readUInt8(4)).toBeGreaterThan(stdout.readUInt8(5));
+      const maxPlan = {
+        ...plan,
+        frameCount: 36,
+        frameTimesMs: Array.from({ length: 36 }, (_, i) => i * 50),
+        columns: 6,
+        rows: 6,
+      };
+      const maxSheet = await extractEditedJpegFrameSheetFromFile({
+        mediaPath: video,
+        plan: maxPlan,
+        sourceFrames: Array.from({ length: 36 }, (_, i) => ({
+          atMs: i * 50,
+          visibleEndMs: 3000,
+        })),
+      });
+      expect(maxSheet.byteLength).toBeGreaterThan(0);
+      await expect(
+        extractEditedJpegFrameSheetFromFile({
+          mediaPath: video,
+          plan,
+          sourceFrames: [
+            { atMs: 999, visibleEndMs: 1000 },
+            { atMs: 2000, visibleEndMs: 3000 },
+          ],
+        }),
+      ).rejects.toBeTruthy();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -6778,6 +6778,17 @@ export function startInPlaceTextSession(
     stripFreeformReservation(el);
     if (initialContentEditable === null) el.removeAttribute("contenteditable");
     else el.setAttribute("contenteditable", initialContentEditable);
+    if (edited && !el.style.getPropertyValue("overflow-wrap")) {
+      const style = window.getComputedStyle(el);
+      if (
+        style.overflowWrap === "normal" &&
+        !["nowrap", "pre"].includes(style.whiteSpace) &&
+        el.clientWidth > 0 &&
+        el.scrollWidth > el.clientWidth
+      ) {
+        el.style.overflowWrap = "break-word";
+      }
+    }
     if (initialEditingBlock === null) el.removeAttribute("data-editing-block");
     else el.setAttribute("data-editing-block", initialEditingBlock);
     if (import.meta.env.DEV) {

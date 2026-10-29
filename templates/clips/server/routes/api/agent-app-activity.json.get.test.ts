@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -71,6 +72,29 @@ describe("/api/agent-app-activity route", () => {
       summary,
       activity: { events, watched: { inbox: "shown" }, pending: [] },
     });
+  });
+
+  it("withholds source-clock activity for a trimmed clip", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: {
+        recording: {
+          id: "rec-1",
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 100, endMs: 200, excluded: true }],
+          }),
+        },
+        viewerIsOwner: true,
+        agentLinkCreatorEmail: null,
+      },
+    });
+    const result = await handler({} as H3Event);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(result).toMatchObject({
+      failureKind: "unavailable",
+      error: expect.stringContaining("clip exists"),
+    });
+    expect(mockLoadRecordingAppActivity).not.toHaveBeenCalled();
   });
 
   it("refuses an open public link without a Share with agents token", async () => {

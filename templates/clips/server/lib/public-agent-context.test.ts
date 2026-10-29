@@ -96,8 +96,63 @@ import {
   loadPublicAgentAccess,
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
+  loadAgentTranscript,
+  transcriptForEditedTimeline,
   RecordingMediaFetchError,
 } from "./public-agent-context";
+
+describe("edited agent transcript", () => {
+  const edits = JSON.stringify({
+    trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
+  });
+  const transcript = {
+    segmentsJson: JSON.stringify([
+      { startMs: 0, endMs: 1000, text: "kept before" },
+      { startMs: 1000, endMs: 2000, text: "removed secret" },
+      { startMs: 2000, endMs: 3000, text: "kept after" },
+    ]),
+    fullText: "kept before removed secret kept after",
+  };
+  it("drops cut speech, retimes boundary cues, and rebuilds fullText", async () => {
+    mockRecordings.rows = [{ ...transcript, status: "ready" }];
+    const result = await loadAgentTranscript("rec", 3000, edits);
+    expect(result.transcript?.fullText).toBe("kept before kept after");
+    expect(
+      result.segments.map(({ startMs, endMs, text }) => ({
+        startMs,
+        endMs,
+        text,
+      })),
+    ).toEqual([
+      { startMs: 0, endMs: 1000, text: "kept before" },
+      { startMs: 1000, endMs: 2000, text: "kept after" },
+    ]);
+  });
+  it("fails rather than expose speech crossing a cut", () => {
+    expect(() =>
+      transcriptForEditedTimeline(
+        {
+          segmentsJson: JSON.stringify([
+            { startMs: 900, endMs: 1100, text: "uncertain" },
+          ]),
+          fullText: "uncertain",
+        },
+        edits,
+      ),
+    ).toThrow(/cannot be safely timed/);
+  });
+  it("fails on untimed text and unreadable edits", () => {
+    expect(() =>
+      transcriptForEditedTimeline(
+        { segmentsJson: "[]", fullText: "secret" },
+        edits,
+      ),
+    ).toThrow(/cannot be safely timed/);
+    expect(() => transcriptForEditedTimeline(transcript, "{")).toThrow(
+      /cannot be safely timed/,
+    );
+  });
+});
 import { verifySharePassword } from "./share-password.js";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;

@@ -1,3 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import ffmpegPath from "ffmpeg-static";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -7,6 +14,7 @@ const mockApplyAgentJsonHeaders = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrameSheetFromFile = vi.hoisted(() => vi.fn());
+const mockExtractEditedJpegFrameSheetFromFile = vi.hoisted(() => vi.fn());
 const mockProbeFrameSheetFpsFromFile = vi.hoisted(() => vi.fn());
 const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
 const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
@@ -52,6 +60,8 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../../lib/video-frame.js", () => ({
+  extractEditedJpegFrameSheetFromFile: (...args: unknown[]) =>
+    mockExtractEditedJpegFrameSheetFromFile(...args),
   extractJpegFrameSheetFromFile: (...args: unknown[]) =>
     mockExtractJpegFrameSheetFromFile(...args),
   probeFrameSheetFpsFromFile: (...args: unknown[]) =>
@@ -62,6 +72,17 @@ vi.mock("../../lib/video-frame.js", () => ({
 }));
 
 import handler from "./agent-frames.jpg.get";
+const ffmpegBinary =
+  ffmpegPath && existsSync(ffmpegPath)
+    ? ffmpegPath
+    : (() => {
+        try {
+          execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+          return "ffmpeg";
+        } catch {
+          return null;
+        }
+      })();
 
 function makeAccess(recording: Record<string, unknown> = {}) {
   return {
@@ -121,11 +142,120 @@ describe("agent-frames.jpg route", () => {
       cleanup: mockCleanupMediaFile,
     });
     mockCleanupMediaFile.mockResolvedValue(undefined);
+    mockExtractEditedJpegFrameSheetFromFile.mockResolvedValue(
+      new Uint8Array([0xff, 0xd8, 0xff]),
+    );
     mockExtractJpegFrameSheetFromFile.mockResolvedValue(
       new Uint8Array([0xff, 0xd8, 0xff]),
     );
     mockProbeFrameSheetFpsFromFile.mockResolvedValue(30);
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
+  });
+
+  it("returns real sheet pixels across a cut", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-agent-sheet-route-"));
+    const video = join(dir, "colors.mp4");
+    const sheet = join(dir, "sheet.jpg");
+    try {
+      execFileSync(ffmpegBinary ?? "ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=red:s=64x64:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=blue:s=64x64:r=10:d=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=green:s=64x64:r=10:d=1",
+        "-filter_complex",
+        "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
+        "-map",
+        "[v]",
+        "-c:v",
+        "mpeg4",
+        video,
+      ]);
+      const actual = await vi.importActual<
+        typeof import("../../lib/video-frame.js")
+      >("../../lib/video-frame.js");
+      mockExtractEditedJpegFrameSheetFromFile.mockImplementation(
+        actual.extractEditedJpegFrameSheetFromFile,
+      );
+      mockLoadRecordingMediaFile.mockResolvedValue({
+        path: video,
+        mimeType: "video/mp4",
+        cleanup: mockCleanupMediaFile,
+      });
+      mockLoadPublicAgentAccess.mockResolvedValue({
+        ok: true,
+        access: makeAccess({
+          durationMs: 3000,
+          width: 64,
+          height: 64,
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
+          }),
+        }),
+      });
+      const { event, body } = await run({
+        startMs: "500",
+        endMs: "1500",
+        fps: "2",
+      });
+      expect(event.status).toBe(200);
+      expect(event.headers.get("x-clips-frame-sheet-times")).toBe("500,1000");
+      await writeFile(sheet, body);
+      const rgb = execFileSync(ffmpegBinary ?? "ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        sheet,
+        "-vf",
+        "scale=2:1",
+        "-frames:v",
+        "1",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-",
+      ]);
+      expect(rgb.readUInt8(0)).toBeGreaterThan(rgb.readUInt8(2));
+      expect(rgb.readUInt8(4)).toBeGreaterThan(rgb.readUInt8(5));
+      expect(mockCleanupMediaFile).toHaveBeenCalled();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("maps sheet samples across a cut on the edited timeline", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 2000, endMs: 4000, excluded: true }],
+        }),
+      }),
+    });
+    const { event } = await run({ startMs: "1000", endMs: "3000", fps: "1" });
+    expect(event.status).toBe(200);
+    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceFrames: [
+          { atMs: 1000, visibleEndMs: 2000 },
+          { atMs: 4000, visibleEndMs: 10000 },
+        ],
+      }),
+    );
+    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("1000,2000");
   });
 
   it("returns one JPEG sheet with each cell's time in the headers", async () => {

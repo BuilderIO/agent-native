@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -84,6 +85,41 @@ describe("/api/agent-transcript route", () => {
       },
       agentSegments: segments,
     });
+  });
+
+  it("returns an explicit unavailable response for unsafe edited transcript timing", async () => {
+    mockLoadAgentTranscript.mockRejectedValue(
+      Object.assign(
+        new Error("The edited transcript cannot be safely timed to this clip."),
+        { code: "EDITED_TRANSCRIPT_UNAVAILABLE" },
+      ),
+    );
+    const result = await handler({} as H3Event);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(result).toMatchObject({
+      failureKind: "unavailable",
+      error: expect.stringContaining("cannot be safely timed"),
+    });
+  });
+
+  it("reports edited playback duration", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: {
+        recording: {
+          id: "rec-1",
+          title: "Demo",
+          durationMs: 3000,
+          status: "ready",
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 1000, endMs: 2000, excluded: true }],
+          }),
+        },
+        apiToken: null,
+      },
+    });
+    const result = await handler({} as H3Event);
+    expect(result).toMatchObject({ recording: { durationMs: 2000 } });
   });
 
   it("keeps the complete legacy response when no paging parameters are supplied", async () => {

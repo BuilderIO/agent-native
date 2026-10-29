@@ -200,3 +200,42 @@ describe.each([...areas])(
     }
   },
 );
+
+describe("edited card wrapping in Chromium", () => {
+  it("keeps a long word inside its card after ending and reloading", async () => {
+    const page = await browser.newPage();
+    try {
+      await page.setContent(
+        '<div style="width:400px;display:flex;gap:10px"><span style="width:30px;flex:0 0 30px">6</span><div id="leaf" style="min-width:0;font-size:17px">Example</div></div>',
+      );
+      await page.addScriptTag({ content: hostScript });
+      await page.evaluate(() => {
+        const el = document.querySelector<HTMLElement>("#leaf")!;
+        const session = window.rteHost.startInPlaceTextSession(el);
+        (
+          window as typeof window & { testSession: typeof session }
+        ).testSession = session;
+        el.focus();
+        const selection = window.getSelection()!;
+        selection.selectAllChildren(el);
+        selection.collapseToEnd();
+      });
+      await page.keyboard.type("abcdefghijklmnopqrstuvwx".repeat(5));
+      await page.evaluate(() =>
+        (
+          window as typeof window & {
+            testSession: ReturnType<Host["startInPlaceTextSession"]>;
+          }
+        ).testSession.end(),
+      );
+      const saved = await page.locator("body").innerHTML();
+      await page.setContent(saved);
+      const dimensions = await page
+        .locator("#leaf")
+        .evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }));
+      expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.client);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+});

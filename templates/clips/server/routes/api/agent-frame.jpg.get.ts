@@ -18,6 +18,12 @@ import {
 } from "h3";
 
 import {
+  editedToOriginal,
+  effectiveDuration,
+  getExcludedRanges,
+  parseEdits,
+} from "../../../app/lib/timestamp-mapping.js";
+import {
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -240,7 +246,18 @@ export default defineEventHandler(async (event: H3Event) => {
     queryString(query.atMs),
     queryString(query.tSeconds),
   );
-  const atMs = clampAgentFrameAtMs(requestedMs, durationMs);
+  const edits = parseEdits(recording.editsJson);
+  const hasCuts = getExcludedRanges(edits).length > 0;
+  const editedDurationMs = effectiveDuration(durationMs, edits);
+  if (hasCuts && editedDurationMs <= 0) {
+    return sendFrameJson(event, 422, {
+      failureKind: "unsupported",
+      error: "This clip has no visible frames after its trims.",
+      nextStep: "Restore part of the recording before requesting a frame.",
+    });
+  }
+  const editedMs = clampAgentFrameAtMs(requestedMs, editedDurationMs);
+  const atMs = editedToOriginal(editedMs, edits);
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
@@ -248,7 +265,7 @@ export default defineEventHandler(async (event: H3Event) => {
   });
 
   const access = accessResult.access;
-  const cacheable = isPubliclyCacheableFrame(access);
+  const cacheable = !hasCuts && isPubliclyCacheableFrame(access);
   const storedMimeType =
     recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
   const cached = cacheable ? getCachedFrame(key) : null;
@@ -263,7 +280,9 @@ export default defineEventHandler(async (event: H3Event) => {
     return cached;
   }
 
-  const lookup = await loadStoredAgentFrame(recording, atMs);
+  const lookup = hasCuts
+    ? { claim: null }
+    : await loadStoredAgentFrame(recording, atMs);
   if ("frame" in lookup) {
     await persistDefaultThumbnailIfMissing(
       access,
@@ -281,10 +300,22 @@ export default defineEventHandler(async (event: H3Event) => {
   try {
     const media = await loadRecordingMediaFile(recording);
     try {
-      const resolved = await extractFrameWithStaleDurationRecovery({
-        mediaPath: media.path,
-        atMs,
-      });
+      const visibleEndMs =
+        getExcludedRanges(edits).find((cut) => cut.startMs > atMs)?.startMs ??
+        durationMs;
+      const resolved = hasCuts
+        ? {
+            frame: await extractJpegFrameFromFile({
+              mediaPath: media.path,
+              atMs,
+              visibleEndMs,
+            }),
+            atMs,
+          }
+        : await extractFrameWithStaleDurationRecovery({
+            mediaPath: media.path,
+            atMs,
+          });
 
       await persistDefaultThumbnailIfMissing(
         access,

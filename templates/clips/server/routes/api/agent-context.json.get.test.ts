@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetQuery = vi.hoisted(() => vi.fn());
@@ -118,6 +119,84 @@ describe("/api/agent-context route", () => {
         return builder;
       }),
     });
+  });
+
+  it("withholds source-clock context for a trimmed clip", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: {
+        recording: {
+          id: "rec-1",
+          durationMs: 1000,
+          thumbnailUrl: "original",
+          animatedThumbnailUrl: "original",
+          description: "original",
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 100, endMs: 200, excluded: true }],
+          }),
+        },
+      },
+    });
+    mockBuildPublicAgentContext.mockReturnValue({ instructions: [] });
+    const result = await handler({} as H3Event);
+    expect(result).toMatchObject({
+      editedTimelineOmissions: expect.arrayContaining([
+        "appActivity",
+        "browserDiagnostics",
+        "chapters",
+        "comments",
+      ]),
+    });
+    expect(mockBuildPublicAgentContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access: expect.objectContaining({
+          recording: expect.objectContaining({
+            durationMs: 900,
+            thumbnailUrl: null,
+            animatedThumbnailUrl: null,
+            description: "",
+          }),
+        }),
+        chapters: [],
+        browserDiagnostics: null,
+      }),
+    );
+    expect(mockLoadAgentBrowserDiagnostics).not.toHaveBeenCalled();
+  });
+
+  it("keeps edited frame discovery available when transcript timing crosses a cut", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: {
+        recording: {
+          id: "rec-1",
+          durationMs: 1000,
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 100, endMs: 200, excluded: true }],
+          }),
+        },
+      },
+    });
+    mockLoadAgentTranscript.mockRejectedValue(
+      Object.assign(new Error("unsafe"), {
+        code: "EDITED_TRANSCRIPT_UNAVAILABLE",
+      }),
+    );
+    mockBuildPublicAgentContext.mockReturnValue({
+      instructions: ["Use transcript.segments", "Use frames"],
+      transcript: { fullText: "must not leak" },
+      recommendedFrames: [{ atMs: 0 }],
+      apis: { frame: { urlTemplate: "/frame" } },
+    });
+    const result = await handler({} as H3Event);
+    expect(mockSetResponseStatus).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      transcript: { status: "unavailable", segments: [], segmentCount: 0 },
+      recommendedFrames: [{ atMs: 0 }],
+      apis: { frame: { urlTemplate: "/frame" } },
+    });
+    expect(JSON.stringify(result)).not.toContain("must not leak");
+    expect(result.instructions).not.toContain("Use transcript.segments");
   });
 
   it.each([true, false])(
