@@ -291,12 +291,36 @@ export function useDesignReadyViewTracking({
             designId,
             runId: terminalRunId,
             turnId,
-            recordReadyView: true,
           },
           { method: "GET", uiOnly: true },
-        ).catch(() => {
-          // coercion-ok: an analytics failure must never affect the editor.
-        });
+        )
+          .then((result) => {
+            const visible = latest.current;
+            if (
+              result.status !== "has_output" ||
+              visible.designId !== designId ||
+              !visible.designLoaded ||
+              !visible.isOwner ||
+              document.visibilityState !== "visible"
+            ) {
+              return;
+            }
+            const currentScreenCount = generationOutputFiles(
+              visible.files,
+            ).length;
+            if (currentScreenCount === 0) return;
+            trackDesignRelay("design_ready_viewed", {
+              output_id: designId,
+              output_type: "design",
+              run_id: terminalRunId,
+              turn_id: turnId,
+              screen_count: currentScreenCount,
+              is_owner: true,
+            });
+          })
+          .catch(() => {
+            // coercion-ok: analytics failure must never affect the editor.
+          });
       });
     }
   };

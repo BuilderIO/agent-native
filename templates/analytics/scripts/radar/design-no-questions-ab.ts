@@ -136,9 +136,10 @@ ready AS (
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < a.anchor_at + interval '24 hours'
     AND e.happened_at <= $4::timestamptz
-    AND e.properties ->> 'telemetry_origin' = 'server'
-    AND e.properties ->> 'caller' = 'frontend'
+    AND e.properties ->> 'telemetry_origin' = 'client'
     AND e.properties ->> 'turn_id' = a.exposed_turn_id
+    AND e.properties ->> 'is_owner' = 'true'
+    AND coalesce(nullif(e.properties ->> 'screen_count', '')::int, 0) > 0
     AND nullif(e.properties ->> 'output_id', '') IS NOT NULL
   GROUP BY a.person_key
 ),
@@ -318,9 +319,10 @@ ready AS (
     AND e.happened_at >= a.anchor_at
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND e.happened_at <= @as_of
-    AND json_value(e.properties, '$.telemetry_origin') = 'server'
-    AND json_value(e.properties, '$.caller') = 'frontend'
+    AND json_value(e.properties, '$.telemetry_origin') = 'client'
     AND json_value(e.properties, '$.turn_id') = a.exposed_turn_id
+    AND json_value(e.properties, '$.is_owner') = 'true'
+    AND safe_cast(json_value(e.properties, '$.screen_count') AS INT64) > 0
     AND nullif(json_value(e.properties, '$.output_id'), '') IS NOT NULL
   GROUP BY a.person_key
 ),
@@ -651,7 +653,7 @@ export function formatDesignNoQuestionsReadout(
     `Primary metric baseline used for power: ${(result.primaryBaseline * 100).toFixed(1)}%; target lift: +${(result.targetLift * 100).toFixed(0)} points; sample needed: ${result.sampleNeededPerArm} per arm (${result.sampleNeededTotal} total), two-sided 5% significance and 80% power.`,
     `Signup assignment failures with no arm: ${result.signupAssignmentFailures}.`,
     "",
-    "| Variant | Exposed | Server prompt trace | 24h mature | Design ready within 24h | Time to design p50 / p90 | Second prompt within 24h | Completed UI export within 24h | Mature 1–7d | 1–7d return |",
+    "| Variant | Exposed | Server prompt trace | 24h mature | Client-observed Design ready within 24h | Time to design p50 / p90 | Second prompt within 24h | Completed UI export within 24h | Mature 1–7d | 1–7d return |",
     "| --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | --- |",
   ];
   for (const arm of result.arms) {
@@ -661,7 +663,7 @@ export function formatDesignNoQuestionsReadout(
   }
   lines.push(
     "",
-    "Design-ready and completed UI-export rates use the mature exposed cohort. Time starts at the first server-traced generation in the exposed turn, falling back to the server exposure timestamp when a trace is missing. Ready outcomes require a server-origin event from the Design UI for the exposed turn. Exports count only completed server-origin exports initiated by the Design UI and matching the output from that verified ready event; client-reported browser exports are excluded. Signup assignment failures are reported separately and are not assigned to either arm. The second-prompt rate uses mature exposed users with a joined first server trace. The return rate uses only users with a full 8-day observation window.",
+    "Design-ready is client-observed: the Design editor emits it only after the owner view loads saved screens for the exposed turn, and the server has confirmed that turn's output receipt. It is not a server-verified proof of a human view. Completed UI exports use server-origin events matching the output ID. Time starts at the first server-traced generation in the exposed turn, falling back to the server exposure timestamp when a trace is missing. Signup assignment failures are reported separately and are not assigned to either arm. The second-prompt rate uses mature exposed users with a joined first server trace. The return rate uses only users with a full 8-day observation window.",
   );
   return lines.join("\n");
 }

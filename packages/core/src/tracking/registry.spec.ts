@@ -341,7 +341,7 @@ describe("tracking registry", () => {
     );
   });
 
-  it("attributes only allowlisted client experiment events and keeps outcomes server-trusted", async () => {
+  it("attributes only allowlisted client experiment events and preserves client provenance", async () => {
     const events = captureEvents();
     const pending: Promise<unknown>[] = [];
     const clientSource = {
@@ -361,7 +361,10 @@ describe("tracking registry", () => {
             "design_ready_viewed",
             "design_exported",
           ],
-          clientTrackedEventNames: ["design_prompt_submitted"],
+          clientTrackedEventNames: [
+            "design_prompt_submitted",
+            "design_ready_viewed",
+          ],
         },
       },
     });
@@ -383,7 +386,11 @@ describe("tracking registry", () => {
           { prompt_length_bucket: "1-50" },
           clientSource,
         );
-        track("design_ready_viewed", { status: "completed" }, clientSource);
+        track(
+          "design_ready_viewed",
+          { is_owner: true, screen_count: 1, turn_id: "turn-1" },
+          clientSource,
+        );
         track(
           "design_exported",
           {
@@ -425,7 +432,11 @@ describe("tracking registry", () => {
       experiment_id: "design_no_questions",
       experiment_variant: "no_questions",
     });
-    expect(clientReadyEvent?.properties).not.toHaveProperty("experiment_id");
+    expect(clientReadyEvent?.properties).toMatchObject({
+      experiment_id: "design_no_questions",
+      experiment_variant: "no_questions",
+      telemetry_origin: "client",
+    });
     expect(clientExportEvent?.properties).not.toHaveProperty("experiment_id");
     expect(clientExportEvent?.properties).toMatchObject({
       telemetry_origin: "client",
@@ -437,7 +448,7 @@ describe("tracking registry", () => {
       experiment_variant: "no_questions",
       telemetry_origin: "server",
     });
-    expect(mockQuestionIntakeAssignment).toHaveBeenCalledTimes(2);
+    expect(mockQuestionIntakeAssignment).toHaveBeenCalledTimes(3);
   });
 
   it("registers deferred experiment attribution before response-scope flush", async () => {

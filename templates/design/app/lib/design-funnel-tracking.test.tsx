@@ -64,25 +64,9 @@ function ReadyHarness(props: ReadyProps) {
 }
 
 function readyEvents() {
-  const runEvents = mocks.callAction.mock.calls
-    .filter(
-      ([name, input]) =>
-        name === "get-design-generation-output" && input.recordReadyView,
-    )
-    .map(([, input]) => [
-      "design_ready_viewed",
-      {
-        output_id: input.designId,
-        output_type: "design",
-        run_id: input.runId,
-        turn_id: input.turnId,
-        is_owner: true,
-      },
-    ]);
-  const linkEvents = mocks.trackDesignRelay.mock.calls.filter(
-    ([name]) => name === "design_ready_viewed",
-  );
-  return [...runEvents, ...linkEvents];
+  return mocks.trackDesignRelay.mock.calls
+    .filter(([name]) => name === "design_ready_viewed")
+    .map(([name, properties]) => [name, properties]);
 }
 
 async function renderReady(props: Partial<ReadyProps> = {}) {
@@ -252,6 +236,7 @@ describe("design_ready_viewed", () => {
           output_type: "design",
           run_id: "run-1",
           turn_id: "turn-1",
+          screen_count: 2,
           is_owner: true,
         },
       ],
@@ -262,7 +247,6 @@ describe("design_ready_viewed", () => {
         designId: "design-1",
         runId: "run-1",
         turnId: "turn-1",
-        recordReadyView: true,
       },
       { method: "GET", uiOnly: true },
     );
@@ -297,6 +281,7 @@ describe("design_ready_viewed", () => {
           is_owner: true,
           run_id: "run-1",
           turn_id: "turn-1",
+          screen_count: 1,
         },
       ],
     ]);

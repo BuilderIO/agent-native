@@ -73,7 +73,7 @@ describe("Design no-questions readout query", () => {
       ),
     ],
   ])(
-    "uses server traces, proven UI outcomes and maturity joins (%s)",
+    "uses server traces, client-observed ready events and maturity joins (%s)",
     (_name, sql) => {
       expect(sql).toContain("agent_experiment_exposed");
       expect(sql).not.toContain("design_prompt_submitted");
@@ -89,12 +89,22 @@ describe("Design no-questions readout query", () => {
         /exposure_rows AS \(([\s\S]*?)\),\s*exposures AS/.exec(sql)?.[1];
       const assignmentFailures =
         /assignment_failures AS \(([\s\S]*?)\),\s*prompts AS/.exec(sql)?.[1];
+      const readyEvents = /ready AS \(([\s\S]*?)\),\s*second_prompts AS/.exec(
+        sql,
+      )?.[1];
       expect(exposureRows).toContain("agent_experiment_exposed");
       expect(exposureRows).toContain(serverOriginFilter);
       expect(assignmentFailures).toContain(
         "agent_experiment_assignment_failed",
       );
       expect(assignmentFailures).toContain(serverOriginFilter);
+      expect(readyEvents).toContain(
+        _name === "PostgreSQL"
+          ? "properties ->> 'telemetry_origin' = 'client'"
+          : "json_value(e.properties, '$.telemetry_origin') = 'client'",
+      );
+      expect(readyEvents).toContain("turn_id");
+      expect(readyEvents).not.toContain("telemetry_origin' = 'server'");
       if (_name === "PostgreSQL") {
         expect(sql).toContain("e.properties ->> 'output_id' = r.output_id");
         expect(sql).toContain("e.properties ->> 'telemetry_origin' = 'server'");
@@ -184,7 +194,10 @@ describe("Design no-questions readout query", () => {
       "Signup assignment failures with no arm: 2",
     );
     expect(formatDesignNoQuestionsReadout(result)).toContain(
-      "Exports count only completed server-origin exports initiated by the Design UI",
+      "Design-ready is client-observed",
+    );
+    expect(formatDesignNoQuestionsReadout(result)).toContain(
+      "Completed UI exports use server-origin events matching the output ID",
     );
     expect(queryMocks.runPostgresQuery).toHaveBeenCalledWith(
       buildPostgresDesignNoQuestionsAbSql(),
