@@ -689,6 +689,28 @@ describe("executeMcpActionCall sanitizing", () => {
     });
   });
 
+  it("replaces a database failure's SQL and parameters with a fixed message", async () => {
+    await expect(
+      execute(
+        {
+          insert: entry({
+            run: async () => {
+              throw new Error(
+                'Failed query: insert into "decks" params: ["deck-taken", "{\\"slides\\":[]}"]',
+              );
+            },
+          }),
+        },
+        "insert",
+      ),
+    ).resolves.toEqual({
+      status: "failed",
+      stage: "action",
+      message: "The database rejected the request.",
+      errorCode: undefined,
+    });
+  });
+
   it("drops object keys that carry an embed URL and the credentials beside them", async () => {
     const outcome = await execute(
       {

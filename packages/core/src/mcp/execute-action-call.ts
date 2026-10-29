@@ -839,6 +839,10 @@ async function refuseOutsideServiceGrant(
   }
 }
 
+function isSqlFailure(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("Failed query:");
+}
+
 function failedOutcome(
   stage: McpActionCallFailureStage,
   error: unknown,
@@ -846,7 +850,12 @@ function failedOutcome(
   let message: string;
   let errorCode: string | undefined;
   try {
-    const raw = error instanceof Error ? error.message : error;
+    // Drizzle puts the SQL and its bound parameters in the message; they must not reach MCP clients.
+    const raw = isSqlFailure(error)
+      ? "The database rejected the request."
+      : error instanceof Error
+        ? error.message
+        : error;
     message =
       typeof raw === "string"
         ? redactEmbedText(raw)
