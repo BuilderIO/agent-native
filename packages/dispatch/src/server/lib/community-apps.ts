@@ -15,6 +15,7 @@ import type {
   WorkspaceAppSummary,
 } from "./app-creation-store.js";
 import {
+  builderManagedCreationResult,
   getAppCreationSettings,
   getWorkspaceInfo,
   isLocalAppCreationRuntime,
@@ -280,6 +281,13 @@ export async function installCuratedCommunityApp(input: {
   const source = requireCommunitySource(input.sourceId);
   const appId = normalizeWorkspaceAppId(input.appId?.trim() || source.appId);
   requireNonShadowingCommunityAppId(appId);
+
+  // A Builder-linked workspace builds apps in Builder; link there before the
+  // workspace checks below, which would otherwise fail first.
+  const { builderWorkspaceUrl } = getWorkspaceInfo();
+  if (builderWorkspaceUrl) {
+    return { ...builderManagedCreationResult(builderWorkspaceUrl), source };
+  }
 
   const localRuntime = isLocalAppCreationRuntime();
   if (!(await hasAssociatedWorkspace(localRuntime))) {

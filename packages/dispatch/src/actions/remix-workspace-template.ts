@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getBuilderWorkspaceUrl } from "@agent-native/core/server";
 import {
   getWorkspaceAppIdValidationError,
   normalizeWorkspaceAppId,
@@ -6,6 +7,7 @@ import {
 import { z } from "zod";
 
 import {
+  builderManagedCreationResult,
   isLocalAppCreationRuntime,
   scaffoldWorkspaceAppFromTemplate,
   startWorkspaceAppCreation,
@@ -67,6 +69,14 @@ export default defineAction({
   }),
   run: async (input) => {
     const sourceTemplate = getCuratedWorkspaceTemplate(input.templateId);
+    // A Builder-linked workspace builds apps in Builder, local runtime or not.
+    const builderWorkspaceUrl = getBuilderWorkspaceUrl();
+    if (builderWorkspaceUrl) {
+      return {
+        ...builderManagedCreationResult(builderWorkspaceUrl),
+        sourceTemplate,
+      };
+    }
     const appId = input.appId?.trim() || `${sourceTemplate.template}-remix`;
 
     const result = isLocalAppCreationRuntime()
