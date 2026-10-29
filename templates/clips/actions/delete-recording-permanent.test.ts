@@ -176,6 +176,15 @@ describe("permanent recording deletion with durable media cleanup", () => {
       await action.run({ id: "rec-1" });
       await runRecordingMediaCleanup("rec-1");
       expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+        status: "blocked",
+        deleted: 0,
+      });
+      expect(mocks.remove).not.toHaveBeenCalled();
+      await client.exec(
+        "UPDATE recordings SET edits_json='{}' WHERE id='legacy'",
+      );
+      await runRecordingMediaCleanup("rec-1");
+      expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
         status: shared ? "retained_shared" : "complete",
         deleted: shared ? 0 : 1,
       });
@@ -184,13 +193,65 @@ describe("permanent recording deletion with durable media cleanup", () => {
   it("uses an index for normalized recording references", async () => {
     await client.exec("SET enable_seqscan=off");
     const plan = await client.query<{ "QUERY PLAN": string }>(
-      "EXPLAIN SELECT id FROM recordings WHERE clips_recording_media_keys(video_url,thumbnail_url,animated_thumbnail_url,filmstrip_url,image_url,base_image_url,edits_json) @> ARRAY[$1]",
+      "EXPLAIN SELECT id FROM recordings WHERE clips_recording_media_keys(video_url,thumbnail_url,animated_thumbnail_url,filmstrip_url,image_url,base_image_url,edits_json) && ARRAY[$1,'unreadable:edits_json','unreadable:media_url']",
       ["s3:clips/rec-1/video.mp4"],
     );
     expect(plan.rows.map((row) => row["QUERY PLAN"]).join("\n")).toContain(
       "clips_recording_media_reference_idx",
     );
   });
+  it("blocks deletion when another recording's frame identity is unreadable", async () => {
+    await insertRecording("legacy", video + "-other");
+    await client.exec(
+      "ALTER TABLE recording_agent_frames DISABLE TRIGGER clips_recording_frame_media_fence",
+    );
+    await client.query(
+      "INSERT INTO recording_agent_frames(id,recording_id,storage_url) VALUES ('unknown-frame','legacy',$1)",
+      [video + "%"],
+    );
+    await client.exec(
+      "ALTER TABLE recording_agent_frames ENABLE TRIGGER clips_recording_frame_media_fence",
+    );
+    await action.run({ id: "rec-1" });
+    await runRecordingMediaCleanup("rec-1");
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(await mediaCleanupSummary("rec-1", owner)).toMatchObject({
+      status: "blocked",
+      reason: "reference_unreadable",
+      deleted: 0,
+    });
+  });
+  it.each(["%", "%2", "%GG", "%FF", "%00", "%25"])(
+    "indexes legacy URL encodings without losing uncertainty (%s)",
+    async (escape) => {
+      await client.exec(
+        "DROP INDEX clips_recording_media_reference_idx; DROP INDEX clips_frame_media_reference_idx; ALTER TABLE recordings DISABLE TRIGGER clips_recording_media_fence; ALTER TABLE recording_agent_frames DISABLE TRIGGER clips_recording_frame_media_fence",
+      );
+      const url = video.replace("video.mp4", "bad" + escape + ".mp4");
+      await client.query("UPDATE recordings SET video_url=$1", [url]);
+      await client.query(
+        "INSERT INTO recording_agent_frames(id,recording_id,storage_url) VALUES ('legacy-frame','rec-1',$1)",
+        [url],
+      );
+      const { splitSqlStatements } = await vi.importActual<{
+        splitSqlStatements: (sql: string) => string[];
+      }>("../../../packages/core/src/db/migrations.js");
+      for (const statement of splitSqlStatements(
+        recordingMediaCleanupMigration,
+      ))
+        await client.exec(statement);
+      const key = await client.query<{ key: string }>(
+        "SELECT clips_media_object_key($1) AS key",
+        [url],
+      );
+      expect(key.rows.shift()?.key).toBe(
+        escape === "%25" ? "s3:clips/rec-1/bad%.mp4" : "unreadable:media_url",
+      );
+      const write = client.query("UPDATE recordings SET video_url=$1", [url]);
+      if (escape === "%25") await expect(write).resolves.toBeDefined();
+      else await expect(write).rejects.toThrow(/unreadable/);
+    },
+  );
   it("preserves a Builder credential connection binding across retry", async () => {
     await action.run({ id: "rec-1" });
     await client.query(

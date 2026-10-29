@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS recording_media_producers (
 CREATE INDEX IF NOT EXISTS recording_media_producer_recording_idx ON recording_media_producers(recording_id,status);
 
 CREATE OR REPLACE FUNCTION clips_media_url_path(raw TEXT) RETURNS TEXT
-LANGUAGE plpgsql IMMUTABLE AS $$
+LANGUAGE plpgsql IMMUTABLE SET search_path FROM CURRENT AS $$
 DECLARE path TEXT; segment TEXT; segments TEXT[] := '{}'; decoded BYTEA := ''::bytea; position INTEGER := 1; octet TEXT;
 BEGIN
   path := regexp_replace(split_part(split_part(raw,'?',1),'#',1),'^https?:/*[^/]*','');
@@ -39,7 +39,7 @@ BEGIN
   WHILE position <= length(path) LOOP
     IF substr(path,position,1) = '%' THEN
       octet := substr(path,position+1,2);
-      IF octet !~ '^[0-9A-Fa-f]{2}$' THEN RAISE EXCEPTION 'Media path encoding is unreadable'; END IF;
+      IF octet !~ '^[0-9A-Fa-f]{2}$' THEN RETURN NULL; END IF;
       decoded := decoded || decode(octet,'hex');
       position := position+3;
     ELSE
@@ -48,11 +48,13 @@ BEGIN
     END IF;
   END LOOP;
   RETURN convert_from(decoded,'UTF8');
+EXCEPTION WHEN character_not_in_repertoire OR untranslatable_character THEN
+  RETURN NULL;
 END $$;
 
 CREATE OR REPLACE FUNCTION clips_media_object_key(raw TEXT) RETURNS TEXT
-LANGUAGE plpgsql IMMUTABLE AS $$
-DECLARE path TEXT; parts TEXT[];
+LANGUAGE plpgsql IMMUTABLE SET search_path FROM CURRENT AS $$
+DECLARE path TEXT; decoded_path TEXT; parts TEXT[];
 BEGIN
   raw := replace(regexp_replace(translate(raw,chr(9)||chr(10)||chr(13),''),'^[[:cntrl:] ]+|[[:cntrl:] ]+$','','g'),E'\\\\','/');
   IF lower(left(raw,6)) = 'https:' THEN raw := 'https:' || substr(raw,7);
@@ -64,13 +66,15 @@ BEGIN
     parts := regexp_match(path,'/assets/([A-Za-z0-9_-]{8,128})/([a-f0-9]{32})(/compressed|-original)?$');
     IF parts IS NOT NULL THEN RETURN 'builder:' || parts[1] || ':' || parts[2]; END IF;
   END IF;
-  parts := regexp_match(clips_media_url_path(raw),'/(clips/[^/]+(?:/[^/]+)?)$');
+  decoded_path := clips_media_url_path(raw);
+  IF decoded_path IS NULL THEN RETURN 'unreadable:media_url'; END IF;
+  parts := regexp_match(decoded_path,'/(clips/[^/]+(?:/[^/]+)?)$');
   IF parts IS NOT NULL THEN RETURN 's3:' || parts[1]; END IF;
   RETURN regexp_replace(path,'^https?://','url:');
 END $$;
 
 CREATE OR REPLACE FUNCTION clips_media_keys(document JSONB) RETURNS TEXT[]
-LANGUAGE plpgsql IMMUTABLE AS $$
+LANGUAGE plpgsql IMMUTABLE SET search_path FROM CURRENT AS $$
 DECLARE item JSONB; result TEXT[] := '{}'; key TEXT; edits JSONB;
 BEGIN
   FOR item IN SELECT jsonb_path_query(document, '$.** ? (@.type() == "string")') LOOP
@@ -89,7 +93,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION clips_recording_media_keys(video TEXT,thumbnail TEXT,animated TEXT,filmstrip TEXT,image TEXT,base_image TEXT,edits TEXT) RETURNS TEXT[]
-LANGUAGE plpgsql IMMUTABLE AS $$
+LANGUAGE plpgsql IMMUTABLE SET search_path FROM CURRENT AS $$
 BEGIN
   RETURN clips_media_keys(jsonb_build_object('video_url',video,'thumbnail_url',thumbnail,'animated_thumbnail_url',animated,'filmstrip_url',filmstrip,'image_url',image,'base_image_url',base_image,'edits_json',edits));
 END $$;
@@ -97,14 +101,14 @@ CREATE INDEX IF NOT EXISTS clips_recording_media_reference_idx ON recordings USI
 CREATE INDEX IF NOT EXISTS clips_frame_media_reference_idx ON recording_agent_frames(clips_media_object_key(storage_url));
 
 CREATE OR REPLACE FUNCTION clips_fence_deleted_media() RETURNS TRIGGER
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE key TEXT;
 BEGIN
   IF EXISTS (SELECT 1 FROM recording_media_cleanups WHERE id=NEW.id) THEN
     RAISE EXCEPTION 'Recording permanently deleted';
   END IF;
   FOR key IN SELECT unnest(clips_recording_media_keys(NEW.video_url,NEW.thumbnail_url,NEW.animated_thumbnail_url,NEW.filmstrip_url,NEW.image_url,NEW.base_image_url,NEW.edits_json)) ORDER BY 1 LOOP
-    IF key='unreadable:edits_json' THEN RAISE EXCEPTION 'Recording media edits are unreadable'; END IF;
+    IF key LIKE 'unreadable:%' THEN RAISE EXCEPTION 'Recording media references are unreadable'; END IF;
     PERFORM pg_advisory_xact_lock(hashtextextended('clips-media:' || key,0));
     IF EXISTS (SELECT 1 FROM recording_media_cleanup_objects WHERE object_key=key AND deletion_claimed) THEN
       RAISE EXCEPTION 'Recording media is being deleted';
@@ -115,12 +119,13 @@ END $$;
 CREATE OR REPLACE TRIGGER clips_recording_media_fence BEFORE INSERT OR UPDATE OF video_url,thumbnail_url,animated_thumbnail_url,filmstrip_url,image_url,base_image_url,edits_json ON recordings FOR EACH ROW EXECUTE FUNCTION clips_fence_deleted_media();
 
 CREATE OR REPLACE FUNCTION clips_fence_deleted_frame_media() RETURNS TRIGGER
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE key TEXT;
 BEGIN
   PERFORM id FROM recordings WHERE id=NEW.recording_id FOR KEY SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Recording permanently deleted'; END IF;
   key := clips_media_object_key(NEW.storage_url);
+  IF key LIKE 'unreadable:%' THEN RAISE EXCEPTION 'Recording frame media reference is unreadable'; END IF;
   IF key IS NOT NULL THEN
     PERFORM pg_advisory_xact_lock(hashtextextended('clips-media:' || key,0));
     IF EXISTS (SELECT 1 FROM recording_media_cleanup_objects WHERE object_key=key AND deletion_claimed) THEN
@@ -132,7 +137,7 @@ END $$;
 CREATE OR REPLACE TRIGGER clips_recording_frame_media_fence BEFORE INSERT OR UPDATE OF storage_url ON recording_agent_frames FOR EACH ROW EXECUTE FUNCTION clips_fence_deleted_frame_media();
 
 CREATE OR REPLACE FUNCTION clips_fence_deleted_activity_media() RETURNS TRIGGER
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE key TEXT; handle JSONB;
 BEGIN
   PERFORM id FROM recordings WHERE id=NEW.recording_id FOR KEY SHARE;

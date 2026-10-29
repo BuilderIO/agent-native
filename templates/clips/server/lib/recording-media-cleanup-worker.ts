@@ -155,21 +155,48 @@ async function claimObject(
     return false;
   }
   // guard:allow-unscoped — only a boolean leaves this cross-owner shared-object check.
+  const referenceKeys = sql<
+    string[]
+  >`clips_recording_media_keys(${schema.recordings.videoUrl},${schema.recordings.thumbnailUrl},${schema.recordings.animatedThumbnailUrl},${schema.recordings.filmstripUrl},${schema.recordings.imageUrl},${schema.recordings.baseImageUrl},${schema.recordings.editsJson})`;
   const references = await tx
-    .select({ id: schema.recordings.id })
+    .select({ keys: referenceKeys })
     .from(schema.recordings)
     .where(
-      sql`clips_recording_media_keys(${schema.recordings.videoUrl},${schema.recordings.thumbnailUrl},${schema.recordings.animatedThumbnailUrl},${schema.recordings.filmstripUrl},${schema.recordings.imageUrl},${schema.recordings.baseImageUrl},${schema.recordings.editsJson}) @> ARRAY[${object.objectKey}]::text[]`,
+      sql`${referenceKeys} && ARRAY[${object.objectKey},'unreadable:edits_json','unreadable:media_url']::text[]`,
     )
     .limit(1);
   // guard:allow-unscoped — frames can retain the same object independently of a recording column.
   const frames = await tx
-    .select({ id: schema.recordingAgentFrames.id })
+    .select({
+      key: sql<string>`clips_media_object_key(${schema.recordingAgentFrames.storageUrl})`,
+    })
     .from(schema.recordingAgentFrames)
     .where(
-      sql`clips_media_object_key(${schema.recordingAgentFrames.storageUrl}) = ${object.objectKey}`,
+      sql`clips_media_object_key(${schema.recordingAgentFrames.storageUrl}) IN (${object.objectKey},'unreadable:media_url')`,
     )
     .limit(1);
+  if (
+    references.some((row) =>
+      row.keys.some((key) => key.startsWith("unreadable:")),
+    ) ||
+    frames.some((row) => row.key.startsWith("unreadable:"))
+  ) {
+    await tx
+      .update(objects)
+      .set({
+        phase: "blocked",
+        reason: "reference_unreadable",
+        deletionClaimed: false,
+        updatedAt: iso(),
+      })
+      .where(
+        and(
+          eq(objects.recordingId, object.recordingId),
+          eq(objects.objectKey, object.objectKey),
+        ),
+      );
+    return false;
+  }
   if (references.length || frames.length) {
     await tx
       .update(objects)
