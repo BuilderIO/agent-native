@@ -337,6 +337,11 @@ ON uploaded_assets (owner_email, upload_session_id)`,
       name: "slides-uploaded-assets-org-id",
       sql: `ALTER TABLE uploaded_assets ADD COLUMN IF NOT EXISTS org_id TEXT`,
     },
+    {
+      version: 35,
+      name: "slides-deck-share-links-deck-id",
+      sql: `ALTER TABLE IF EXISTS deck_share_links ADD COLUMN IF NOT EXISTS deck_id TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

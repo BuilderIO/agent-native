@@ -461,6 +461,9 @@ const messages = {
   },
   share: {
     createFailed: "無法建立共用連結",
+    snapshotLinks: "快照連結",
+    revokeLink: "撤銷",
+    revokeFailed: "無法撤銷分享連結",
     title: "共用簡報",
     cloudUpgradeDescription:
       "要公開共用簡報，請連線雲端資料庫，讓幻燈片可從任何位置存取。",

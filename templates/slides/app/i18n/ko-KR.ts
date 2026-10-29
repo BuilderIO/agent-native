@@ -475,6 +475,9 @@ const messages = {
   },
   share: {
     createFailed: "공유 링크를 만들 수 없습니다",
+    snapshotLinks: "스냅샷 링크",
+    revokeLink: "취소",
+    revokeFailed: "공유 링크를 취소할 수 없습니다",
     title: "프레젠테이션 공유",
     cloudUpgradeDescription:
       "프레젠테이션을 공개적으로 공유하려면 클라우드 데이터베이스를 연결해 어디서나 슬라이드에 접근할 수 있게 하세요.",

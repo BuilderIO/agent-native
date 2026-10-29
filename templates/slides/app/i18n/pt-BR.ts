@@ -482,6 +482,9 @@ const messages = {
   },
   share: {
     createFailed: "Não foi possível criar o link de compartilhamento",
+    snapshotLinks: "Links de snapshot",
+    revokeLink: "Revogar",
+    revokeFailed: "Não foi possível revogar o link de compartilhamento",
     title: "Compartilhar apresentação",
     cloudUpgradeDescription:
       "Para compartilhar apresentações publicamente, conecte um banco de dados em nuvem para que seus slides possam ser acessados de qualquer lugar.",

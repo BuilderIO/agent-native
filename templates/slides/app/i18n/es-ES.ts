@@ -488,6 +488,9 @@ const messages = {
   },
   share: {
     createFailed: "No se pudo crear el enlace para compartir",
+    snapshotLinks: "Enlaces de instantánea",
+    revokeLink: "Revocar",
+    revokeFailed: "No se pudo revocar el enlace para compartir",
     title: "Compartir presentación",
     cloudUpgradeDescription:
       "Para compartir presentaciones públicamente, conecta una base de datos en la nube para que tus diapositivas estén disponibles desde cualquier lugar.",

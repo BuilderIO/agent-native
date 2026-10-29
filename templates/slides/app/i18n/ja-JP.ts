@@ -481,6 +481,9 @@ const messages = {
   },
   share: {
     createFailed: "共有リンクを作成できませんでした",
+    snapshotLinks: "スナップショットのリンク",
+    revokeLink: "取り消す",
+    revokeFailed: "共有リンクを取り消せませんでした",
     title: "プレゼンテーションを共有",
     cloudUpgradeDescription:
       "プレゼンテーションを公開共有するには、クラウドデータベースを接続して、どこからでもスライドにアクセスできるようにしてください。",

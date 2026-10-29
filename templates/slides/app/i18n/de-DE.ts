@@ -487,6 +487,9 @@ const messages = {
   },
   share: {
     createFailed: "Freigabelink konnte nicht erstellt werden",
+    snapshotLinks: "Snapshot-Links",
+    revokeLink: "Widerrufen",
+    revokeFailed: "Freigabelink konnte nicht widerrufen werden",
     title: "Präsentation teilen",
     cloudUpgradeDescription:
       "Um Präsentationen öffentlich zu teilen, verbinde eine Cloud-Datenbank, damit deine Folien überall verfügbar sind.",

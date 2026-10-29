@@ -462,6 +462,9 @@ const messages = {
   },
   share: {
     createFailed: "无法创建共享链接",
+    snapshotLinks: "快照链接",
+    revokeLink: "撤销",
+    revokeFailed: "无法撤销共享链接",
     title: "共享演示文稿",
     cloudUpgradeDescription:
       "要公开共享演示文稿，请连接云数据库，让幻灯片可从任何位置访问。",

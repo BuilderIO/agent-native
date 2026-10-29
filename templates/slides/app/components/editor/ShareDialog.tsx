@@ -17,6 +17,8 @@ import { toast } from "sonner";
 
 import type { Deck } from "@/context/DeckContext";
 
+import { SnapshotShareLinks } from "./SnapshotShareLinks";
+
 interface ShareDialogProps {
   deck: Deck;
   children?: ReactNode;
@@ -136,6 +138,7 @@ export default function ShareDialog({
         title={t("share.title")}
         resourceTitle={deck.title}
         shareUrl={primaryShareLink}
+        linkTabExtras={<SnapshotShareLinks deckId={deck.id} />}
       />
     </>
   );

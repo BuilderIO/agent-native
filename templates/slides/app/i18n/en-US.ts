@@ -475,6 +475,9 @@ const messages = {
   },
   share: {
     createFailed: "Failed to create share link",
+    snapshotLinks: "Snapshot links",
+    revokeLink: "Revoke",
+    revokeFailed: "Could not revoke share link",
     title: "Share Presentation",
     cloudUpgradeDescription:
       "To share presentations publicly, connect a cloud database so your slides can be accessed from anywhere.",

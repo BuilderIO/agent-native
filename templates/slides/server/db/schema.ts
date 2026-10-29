@@ -54,6 +54,7 @@ export const designSystemShares = createSharesTable("design_system_shares");
 
 export const deckShareLinks = table("deck_share_links", {
   token: text("token").primaryKey(),
+  deckId: text("deck_id"), // Null on legacy rows, which can no longer be served
   title: text("title").notNull(),
   slides: text("slides").notNull(), // JSON array of slide snapshots
   aspectRatio: text("aspect_ratio"),
