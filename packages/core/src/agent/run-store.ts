@@ -7,7 +7,11 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import type { DbExec } from "../db/client.js";
-import { getDbExec, getScopedTransactionDbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getScopedDbExec,
+  getScopedTransactionDbExec,
+} from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -1763,7 +1767,7 @@ function earlierTurnProjectionPendingSql(): string {
 }
 
 export async function claimBackgroundRun(runId: string): Promise<boolean> {
-  await ensureRunTables();
+  if (getScopedDbExec() === undefined) await ensureRunTables();
   const client = getDbExec();
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs

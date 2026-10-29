@@ -28,6 +28,10 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import {
+  resetAppConfigForTests,
+  setAppConfigLayer,
+} from "../app-config/store.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
 import type { TextAttachmentStorage } from "../file-upload/attachment-text.js";
@@ -48,6 +52,7 @@ import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
+import * as questionIntakeExperiment from "../observability/question-intake-experiment.js";
 import * as appRoles from "../org/app-roles.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
@@ -119,6 +124,8 @@ import {
   isRetryableError,
   actionsToEngineTools,
   filterActionsByAllowedNames,
+  filterActionsByExcludedNames,
+  trackExperimentExposureAtDispatch,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   backgroundNoProgressTerminalEvent,
@@ -4435,6 +4442,118 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("returns a typed retryable failure when an experiment assignment cannot be read", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(new Error("assignment store unavailable"));
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(503);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_unavailable",
+        retryable: true,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
+  it("returns a non-retryable failure for an invalid stored experiment variant", async () => {
+    setAppConfigLayer("app", {
+      agent: {
+        questionIntake: {
+          enabled: true,
+          experimentId: "design_no_questions",
+          questionToolNames: ["show-design-questions"],
+          treatmentInstructions: "Design first.",
+          trackedEventNames: ["design_prompt_submitted"],
+        },
+      },
+    });
+    const assignmentLookup = vi
+      .spyOn(
+        questionIntakeExperiment,
+        "resolveQuestionIntakeExperimentAssignment",
+      )
+      .mockRejectedValue(
+        new questionIntakeExperiment.InvalidQuestionIntakeExperimentAssignmentError(
+          "design_no_questions",
+        ),
+      );
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Build a dashboard" }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          authUserId: "better-auth-user-5",
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(event.res.status ?? event.node.res.statusCode).toBe(500);
+      expect(response).toMatchObject({
+        code: "question_intake_assignment_invalid",
+        retryable: false,
+      });
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      assignmentLookup.mockRestore();
+      resetAppConfigForTests();
+    }
+  });
+
   it("waits for the durable queue receipt and replays it after a lost acknowledgement", async () => {
     const threadId = "thread-durable-admission";
     const messageId = "message-durable-admission";
@@ -10291,7 +10410,55 @@ describe("filterActionsByAllowedNames", () => {
   });
 });
 
+describe("filterActionsByExcludedNames", () => {
+  it("removes treatment-only tools before they reach the model or tool search", () => {
+    const actions = {
+      "show-design-questions": actionEntry({}),
+      "create-design": actionEntry({}),
+      "tool-search": actionEntry({}),
+    };
+
+    expect(
+      Object.keys(
+        filterActionsByExcludedNames(actions, ["show-design-questions"]),
+      ),
+    ).toEqual(["create-design", "tool-search"]);
+    expect(filterActionsByExcludedNames(actions, [])).toBe(actions);
+  });
+});
+
 describe("runAgentLoop", () => {
+  it("tracks experiment exposure only after a model dispatch is admitted", async () => {
+    let interruptResult: "none" | "pending" = "pending";
+    const trackExposure = vi.fn();
+    const guards = createRunSafeBoundaryGuards({
+      signal: new AbortController().signal,
+      flushEvents: async () => {},
+      interruptRequestedAtBoundary: async () => interruptResult,
+    });
+    const beforeModelDispatch = trackExperimentExposureAtDispatch(
+      guards.beforeModelDispatch,
+      trackExposure,
+    );
+    const dispatch = vi.fn(() => "started");
+
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: false,
+    });
+    expect(trackExposure).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+
+    interruptResult = "none";
+    await expect(beforeModelDispatch(dispatch)).resolves.toEqual({
+      started: true,
+      value: "started",
+    });
+    await beforeModelDispatch(dispatch);
+
+    expect(trackExposure).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
   it("defers a queued interrupt when the durable abort declines", async () => {
     const abort = vi.fn(async () => false);
     const defer = vi.fn(async () => true);

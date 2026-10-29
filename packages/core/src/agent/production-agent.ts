@@ -143,7 +143,13 @@ import {
 import {
   isHostedModelExperimentEnabled,
   resolveHostedModelExperiment,
+  singleNonHostedAssignment,
 } from "../observability/hosted-model-experiment.js";
+import {
+  InvalidQuestionIntakeExperimentAssignmentError,
+  resolveQuestionIntakeExperimentAssignment,
+  treatmentInstructionsForQuestionIntake,
+} from "../observability/question-intake-experiment.js";
 import {
   isFirstPartyHostedAgentNative,
   shouldInferSentimentForTurn,
@@ -235,6 +241,7 @@ import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
+import { trackQuestionIntakeExposure } from "../tracking/index.js";
 import type { TrackingMeta } from "../tracking/registry.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import { agentErrorDetails } from "./action-error-details.js";
@@ -1705,6 +1712,17 @@ export function filterActionsByAllowedNames(
   }
 
   return filtered;
+}
+
+export function filterActionsByExcludedNames(
+  actions: Record<string, ActionEntry>,
+  excludedActionNames: readonly string[],
+): Record<string, ActionEntry> {
+  if (excludedActionNames.length === 0) return actions;
+  const excludedNames = new Set(excludedActionNames);
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name]) => !excludedNames.has(name)),
+  );
 }
 
 export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
@@ -7480,6 +7498,21 @@ export function createRunSafeBoundaryGuards(input: {
       }
     },
   };
+}
+
+export function trackExperimentExposureAtDispatch(
+  beforeModelDispatch: BeforeModelDispatch,
+  trackExposure: () => void,
+): BeforeModelDispatch {
+  let tracked = false;
+  return async <T>(dispatch: () => T) =>
+    beforeModelDispatch(() => {
+      if (!tracked) {
+        tracked = true;
+        trackExposure();
+      }
+      return dispatch();
+    });
 }
 
 export async function confirmQueuedRunInterrupt(input: {
@@ -13547,7 +13580,10 @@ export function createProductionAgentHandler(
       }
       filtered[name] = entry;
     }
-    return filtered;
+    return filterActionsByExcludedNames(
+      filtered,
+      getRequestRunContext()?.excludedActionNames ?? [],
+    );
   };
   const getEngineTools = (actions: Record<string, ActionEntry>) =>
     actionsToEngineTools(getRequestActions(actions));
@@ -13960,6 +13996,48 @@ export function createProductionAgentHandler(
 
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
     const runRequestContext = getRequestContext();
+    const questionIntakeConfig = getAppConfig().agent.questionIntake;
+    let questionIntakeAssignment: Awaited<
+      ReturnType<typeof resolveQuestionIntakeExperimentAssignment>
+    > = null;
+    try {
+      // raw-sql-ok: the assignment store binds the authenticated user ID as a query argument.
+      questionIntakeAssignment =
+        await resolveQuestionIntakeExperimentAssignment(
+          questionIntakeConfig,
+          runRequestContext?.agentRunAnonymous
+            ? undefined
+            : runRequestContext?.authUserId,
+        );
+    } catch (error) {
+      const invalidAssignment =
+        error instanceof InvalidQuestionIntakeExperimentAssignmentError
+          ? error
+          : null;
+      console.error(
+        invalidAssignment
+          ? "[agent-chat] question-intake assignment is invalid"
+          : "[agent-chat] question-intake assignment lookup failed",
+      );
+      setResponseStatus(event, invalidAssignment ? 500 : 503);
+      return {
+        error: "The agent run failed.",
+        code:
+          invalidAssignment?.code ?? "question_intake_assignment_unavailable",
+        retryable: invalidAssignment === null,
+      };
+    }
+    if (questionIntakeAssignment) {
+      const runContext = ensureRequestRunContext();
+      if (runContext) {
+        runContext.questionIntakeExperimentAssignment =
+          questionIntakeAssignment;
+        runContext.excludedActionNames =
+          questionIntakeAssignment.variantId === "no_questions"
+            ? (questionIntakeConfig?.questionToolNames ?? [])
+            : [];
+      }
+    }
     const turnInitiator: AgentTurnInitiator | undefined = ownerEmail
       ? {
           email: ownerEmail,
@@ -15032,7 +15110,17 @@ export function createProductionAgentHandler(
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;
-    }> = [];
+    }> = questionIntakeAssignment
+      ? [
+          {
+            experimentId: questionIntakeAssignment.experimentId,
+            variantId: questionIntakeAssignment.variantId,
+          },
+        ]
+      : [];
+    let singularExperimentAssignment:
+      | { experimentId: string; variantId: string }
+      | undefined;
 
     try {
       // A pinned request model suppresses the experiment's model override, so
@@ -15050,7 +15138,13 @@ export function createProductionAgentHandler(
                 : undefined,
             assignments: expConfig.assignments,
           });
-          experimentAssignments = experimentSelection.assignments;
+          singularExperimentAssignment = singleNonHostedAssignment(
+            experimentSelection.assignments,
+          );
+          experimentAssignments = [
+            ...experimentAssignments,
+            ...experimentSelection.assignments,
+          ];
           if (experimentSelection.model) {
             effectiveModel = normalizeModelForEngine(
               engine,
@@ -15236,7 +15330,13 @@ export function createProductionAgentHandler(
             typeof options.systemPrompt === "function"
               ? await options.systemPrompt(event)
               : options.systemPrompt;
-          return built;
+          const treatmentInstructions = treatmentInstructionsForQuestionIntake(
+            questionIntakeConfig,
+            questionIntakeAssignment,
+          );
+          return treatmentInstructions
+            ? [built, treatmentInstructions].filter(Boolean).join("\n\n")
+            : built;
         } catch (error) {
           systemPromptError =
             error instanceof Error
@@ -16796,6 +16896,7 @@ export function createProductionAgentHandler(
       return { ok: true, skipped: "setup-deadline" };
     }
 
+    // raw-sql-ok: run callback IDs and prompts reach static queries as bound arguments.
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -16883,12 +16984,26 @@ export function createProductionAgentHandler(
             }
             return "none";
           };
-        const { beforeModelDispatch, beforeWrite } =
+        const { beforeModelDispatch: guardedBeforeModelDispatch, beforeWrite } =
           createRunSafeBoundaryGuards({
             signal,
             flushEvents: control.flushEvents,
             interruptRequestedAtBoundary: interruptQueuedRunAtBoundary,
           });
+        const exposureAssignment =
+          questionIntakeAssignment && !internalContinuation && !continueOf
+            ? questionIntakeAssignment
+            : null;
+        const beforeModelDispatch = exposureAssignment
+          ? trackExperimentExposureAtDispatch(guardedBeforeModelDispatch, () =>
+              trackQuestionIntakeExposure(exposureAssignment, {
+                appId: options.appId ?? "app",
+                ...(threadId === undefined ? {} : { threadId }),
+                turnId: effectiveTurnId,
+                ...(ownerEmail ? { userId: ownerEmail } : {}),
+              }),
+            )
+          : guardedBeforeModelDispatch;
 
         if (selfChainBudget?.skipToBoundary) {
           await recordRunDiagnostic(
@@ -17452,6 +17567,7 @@ export function createProductionAgentHandler(
                     : {}),
                 },
                 experimentAssignments,
+                singularExperimentAssignment,
                 modelSelectionSource,
                 sentimentInput: shouldInferSentimentForTurn({
                   internalContinuation: Boolean(internalContinuation),
