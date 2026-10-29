@@ -4,7 +4,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { ownableColumns, table, text } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { accessFilter, resolveAccess, resolveAccessStatus } from "./access.js";
+import {
+  accessFilter,
+  assertAccess,
+  resolveAccess,
+  resolveAccessStatus,
+  TrashedResourceError,
+} from "./access.js";
 import getResourceAccessStatus from "./actions/get-resource-access-status.js";
 import { registerShareableResource } from "./registry.js";
 import { createSharesTable } from "./schema.js";
@@ -521,6 +527,9 @@ describe("a registration with deletedAtColumn", () => {
     expect(await listIds()).toEqual(["live"]);
     expect(await listIds(true)).toEqual(["gone", "live"]);
     expect(await asOwner(() => resolveAccess(softType, "gone"))).toBeNull();
+    await expect(
+      asOwner(() => assertAccess(softType, "gone")),
+    ).rejects.toBeInstanceOf(TrashedResourceError);
     expect(
       (
         await asOwner(() =>

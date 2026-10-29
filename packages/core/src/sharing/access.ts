@@ -40,6 +40,23 @@ export class ForbiddenError extends Error {
   }
 }
 
+/**
+ * Thrown by `assertAccess` when the caller could open the resource but it is
+ * soft-deleted, so "in the trash" stays distinguishable from "no access".
+ * It extends ForbiddenError so existing not-found handling still applies.
+ */
+export class TrashedResourceError extends ForbiddenError {
+  constructor(message: string) {
+    super(message);
+    this.name = "TrashedResourceError";
+  }
+}
+
+function isStamped(reg: ShareableResourceRegistration, resource: any) {
+  const column = reg.deletedAtColumn;
+  return column !== undefined && resource[column] != null;
+}
+
 export interface AccessContext {
   transaction?: DbExec;
   userEmail?: string;
@@ -550,9 +567,7 @@ export function isResourceAvailable(
   reg: ShareableResourceRegistration,
   resource: any,
 ): boolean {
-  if (reg.deletedAtColumn && resource[reg.deletedAtColumn] != null) {
-    return false;
-  }
+  if (isStamped(reg, resource)) return false;
   if (!reg.availability) return true;
   if (reg.availability.columns.some((column) => !(column in resource))) {
     return true;
@@ -643,6 +658,8 @@ function inAccessTransaction<T>(
 
 interface LoadedAccess {
   access: ResolvedAccess | null;
+  /** The row is soft-deleted and the caller could otherwise open it. */
+  trashed?: boolean;
   /** The row access was resolved against, kept even when access is denied. */
   resource: any;
   reg: ShareableResourceRegistration;
@@ -670,18 +687,11 @@ async function loadAndResolveAccess(
 
   const resource = await loadResourceForAccess(reg, resourceId, options);
   if (!resource) return { access: null, resource: null, reg };
-  if (
-    !options.includeDeleted &&
-    reg.deletedAtColumn &&
-    resource[reg.deletedAtColumn] != null
-  ) {
-    return { access: null, resource, reg };
+  const access = await accessToResource(reg, resourceId, resource, ctx);
+  if (!options.includeDeleted && isStamped(reg, resource)) {
+    return { access: null, trashed: access !== null, resource, reg };
   }
-  return {
-    access: await accessToResource(reg, resourceId, resource, ctx),
-    resource,
-    reg,
-  };
+  return { access, resource, reg };
 }
 
 /**
@@ -987,13 +997,18 @@ export async function assertAccess(
   ctx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected> {
-  const { access } = await loadAndResolveAccess(
+  const { access, trashed } = await loadAndResolveAccess(
     resourceType,
     resourceId,
     ctx,
     options,
   );
   if (!access) {
+    if (trashed) {
+      throw new TrashedResourceError(
+        `${resourceType} ${resourceId} is in the trash`,
+      );
+    }
     throw new ForbiddenError(`No access to ${resourceType} ${resourceId}`);
   }
   if (ROLE_RANK[access.role] < ROLE_RANK[minRole]) {

@@ -55,6 +55,19 @@ describe("no new hard delete guard", () => {
     assert.deepEqual(flaggedLines(source), []);
   });
 
+  it("does not let a pragma elsewhere in an action exempt an arrow-body delete", () => {
+    const source = [
+      "export default defineAction({",
+      "  // guard:allow-hard-delete — purge helper below",
+      "  purge: async () => { await db.delete(schema.old); },",
+      "  run: async ({ id }) =>",
+      "    db.delete(schema.decks).where(eq(schema.decks.id, id)),",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [5]);
+  });
+
   it("scopes to app actions/server code, not core or tests", () => {
     assert.equal(isHardDeleteScopePath(FILE), true);
     assert.equal(

@@ -4070,6 +4070,12 @@ const PATTERNS = [
     re: /\b(write|add).{0,24}(failing|red) test|test.{0,16}fail(s|ed)? first|where'?s the (failing )?test|no test for (this|that) (fix|bug)|prove it fails\b/i,
   },
   {
+    key: "hard-delete",
+    label: "Had to ask for a delete to be soft or undoable",
+    fixedBy: ".agents/skills/soft-delete + guard:no-new-hard-delete (2026-10-29)",
+    re: /\bsoft[- ]?delet|\bhard[- ]?delet|can'?t undo (the |that |a )?delet|undo (the |that |a )?delet|deleted? (it|them|everything) (permanently|forever)\b/i,
+  },
+  {
     key: "shipping-churn",
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",

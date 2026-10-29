@@ -44,7 +44,7 @@ const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-hard-delete\b/;
 const IN_SCOPE =
   /^(?:templates|community-templates|apps)\/[^/]+\/(?:actions|server)\//;
 const SKIPPED =
-  /(\.spec\.|\.test\.|\/__tests__\/|\/e2e\/|\/dist\/|\/node_modules\/)/;
+  /(\.spec\.|\.test[.-]|\/__tests__\/|\/e2e\/|\/dist\/|\/node_modules\/)/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const DB_HANDLE = /^(?:db|tx|trx|database|transaction|\w+Db|\w+Tx)$/;
 const DB_GETTER = /^get\w*(?:Db|Database)$/;
@@ -108,7 +108,8 @@ function enclosingStatement(node: ts.Node): ts.Node {
     !ts.isBlock(current.parent) &&
     !ts.isModuleBlock(current.parent) &&
     !ts.isCaseClause(current.parent) &&
-    !ts.isDefaultClause(current.parent)
+    !ts.isDefaultClause(current.parent) &&
+    !(ts.isArrowFunction(current.parent) && current.parent.body === current)
   ) {
     current = current.parent;
   }

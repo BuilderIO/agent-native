@@ -99,6 +99,7 @@ export const HEADLESS_TEMPLATE_SHARED_SKILLS = [
   "security",
   "self-modifying-code",
   "sharing",
+  "soft-delete",
   "storing-data",
 ] as const;
 
@@ -156,6 +157,7 @@ export const FRAMEWORK_TEMPLATE_SHARED_SKILLS = [
   "secrets",
   "storing-data",
   "sharing",
+  "soft-delete",
   "turn-into-app",
   "turn-into-skill",
   "upgrade-agent-native",
