@@ -23,6 +23,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   listContentOrganizationMemberships,
   resolveContentSpaceAccess,
@@ -204,16 +205,21 @@ type DocumentAccessAuthority = {
   };
 };
 
+/**
+ * `db` runs the space lookups. From inside a transaction, pass its handle and
+ * scope its executor with `withDbExec`, which `resolveAccess` reads.
+ */
 export async function resolveDocumentAccess(
   id: string,
+  options?: { skipResourceBody?: false; db?: ReturnType<typeof getDb> },
 ): Promise<(ResolvedAccess & DocumentAccessAuthority) | null>;
 export async function resolveDocumentAccess(
   id: string,
-  options: { skipResourceBody: true },
+  options: { skipResourceBody: true; db?: ReturnType<typeof getDb> },
 ): Promise<({ role: ResolvedAccess["role"] } & DocumentAccessAuthority) | null>;
 export async function resolveDocumentAccess(
   id: string,
-  options: { skipResourceBody?: boolean } = {},
+  options: { skipResourceBody?: boolean; db?: ReturnType<typeof getDb> } = {},
 ) {
   const resolve = (ctx?: AccessContext) =>
     options.skipResourceBody
@@ -229,12 +235,15 @@ export async function resolveDocumentAccess(
       },
     };
   }
-  const [reference] = await getDb()
-    .select({ spaceId: schema.documents.spaceId })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, id))
-    .limit(1);
-  const authority = await contentSpaceAuthority(reference?.spaceId);
+  const db = options.db ?? getDb();
+  const reference = firstRow(
+    await db
+      .select({ spaceId: schema.documents.spaceId })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id))
+      .limit(1),
+  );
+  const authority = await contentSpaceAuthority(reference?.spaceId, db);
   if (!authority) return null;
   const granted = await resolve({
     userEmail: authority.userEmail,
@@ -250,10 +259,13 @@ export async function resolveDocumentAccess(
  */
 export async function contentSpaceAuthority(
   spaceId: string | null | undefined,
+  db?: ReturnType<typeof getDb>,
 ): Promise<{ userEmail: string; orgId: string | null } | null> {
   if (!spaceId) return null;
   try {
-    const { authority } = await resolveContentSpaceAccess(spaceId);
+    const { authority } = await resolveContentSpaceAccess(spaceId, "viewer", {
+      db,
+    });
     return { userEmail: authority.userEmail, orgId: authority.orgId ?? null };
   } catch (error) {
     if (

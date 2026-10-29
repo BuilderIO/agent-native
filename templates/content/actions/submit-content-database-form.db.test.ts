@@ -3,9 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
+import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { serializePropertyOptions } from "../shared/properties.js";
 
@@ -15,14 +19,6 @@ const TEST_DB_PATH = join(
 );
 const OWNER = "form-owner@example.com";
 const OWNED_IMAGE = "a1111111-1111-4111-8111-111111111111";
-
-vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/private-media")
-  >()),
-  ownsPrivateMedia: async (id: string, email: string | null | undefined) =>
-    id === OWNED_IMAGE && email === OWNER,
-}));
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -279,6 +275,16 @@ describe("submit-content-database-form", () => {
   });
 
   it("attaches a private image the submitter uploaded to the new row", async () => {
+    await privateMediaStore.ready();
+    await getDb().insert(privateMedia).values({
+      id: OWNED_IMAGE,
+      ownerEmail: OWNER,
+      mimeType: "image/png",
+      size: 3,
+      sha256: "0",
+      blobHandleJson: "{}",
+      createdAt: 0,
+    });
     const seeded = await seedFormDatabase();
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       submitForm.run({

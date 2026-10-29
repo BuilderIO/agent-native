@@ -1,6 +1,7 @@
 import {
   isPrivateMediaId,
-  ownsPrivateMedia,
+  privateMedia,
+  privateMediaStore,
 } from "@agent-native/core/private-media";
 import { and, asc, eq, inArray, isNull, like } from "drizzle-orm";
 
@@ -12,6 +13,7 @@ import {
   privateMediaPath,
 } from "../../shared/private-media.js";
 import { getDb, schema } from "../db/index.js";
+import { firstRow } from "./first-row.js";
 
 type Database = ReturnType<typeof getDb>;
 
@@ -39,7 +41,8 @@ export async function bindUploadedPrivateMedia(input: {
  * this image: the page has a reference row and its body still links to it.
  * A page in Trash, or in a collection that was deleted, is not live, just as
  * `get-document` refuses it. Runs inside the caller's request context, so
- * space membership counts.
+ * space membership counts. Its queries run on `db`, and access rules on the
+ * executor `withDbExec` scopes.
  *
  * The query skips pages in Trash or in a deleted collection and pages whose
  * body no longer mentions the image, so a refusal costs one access check per
@@ -48,9 +51,9 @@ export async function bindUploadedPrivateMedia(input: {
  */
 export async function canReadPrivateMediaThroughDocument(
   mediaId: string,
+  db: Database = getDb(),
 ): Promise<boolean> {
   if (!isPrivateMediaId(mediaId)) return false;
-  const db = getDb();
   for (let offset = 0; ; offset += REFERENCE_PAGE_SIZE) {
     const references = await db
       .select({ documentId: schema.privateMediaReferences.documentId })
@@ -72,7 +75,7 @@ export async function canReadPrivateMediaThroughDocument(
       .limit(REFERENCE_PAGE_SIZE)
       .offset(offset);
     for (const { documentId } of references) {
-      const access = await resolveDocumentAccess(documentId);
+      const access = await resolveDocumentAccess(documentId, { db });
       if (
         access &&
         !access.resource.trashedAt &&
@@ -86,6 +89,23 @@ export async function canReadPrivateMediaThroughDocument(
   }
 }
 
+/** True when `userEmail` uploaded this image, read on `db`. */
+async function uploadedBy(
+  db: Database,
+  mediaId: string,
+  userEmail: string | null,
+): Promise<boolean> {
+  const email = userEmail?.trim().toLowerCase();
+  if (!email) return false;
+  await privateMediaStore.ready();
+  const rows = await db
+    .select({ ownerEmail: privateMedia.ownerEmail })
+    .from(privateMedia)
+    .where(eq(privateMedia.id, mediaId))
+    .limit(1);
+  return firstRow(rows)?.ownerEmail === email;
+}
+
 /**
  * Binds the private images a body write adds to its page. An image joins a
  * page only when the person saving uploaded it or can already see it on
@@ -94,6 +114,11 @@ export async function canReadPrivateMediaThroughDocument(
  * uploader. Rows are never removed here: a removed image's row is inert
  * because the body no longer links to it, and it lets undo and version
  * restore bring the image back.
+ *
+ * Saves call this inside their transaction, so every check runs on `db`, and
+ * a raw `DbExec` transaction must be scoped with `withDbExec` for the access
+ * rules. A query on another connection would wait for the one the save holds,
+ * which on a one-connection serverless pool never frees.
  */
 export async function syncPrivateMediaReferences(
   db: Database,
@@ -117,8 +142,8 @@ export async function syncPrivateMediaReferences(
   for (const mediaId of mediaIds) {
     if (existing.has(mediaId)) continue;
     const allowed =
-      (await ownsPrivateMedia(mediaId, input.userEmail)) ||
-      (await canReadPrivateMediaThroughDocument(mediaId));
+      (await uploadedBy(db, mediaId, input.userEmail)) ||
+      (await canReadPrivateMediaThroughDocument(mediaId, db));
     if (!allowed) continue;
     await db
       .insert(schema.privateMediaReferences)

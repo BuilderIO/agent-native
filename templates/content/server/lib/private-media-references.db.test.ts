@@ -1,7 +1,13 @@
+import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
+import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { H3 } from "h3";
@@ -54,6 +60,7 @@ const SHARED = "media-shared@example.test";
 const OTHER = "media-other@example.test";
 
 let db: ReturnType<typeof import("../db/index.js").getDb>;
+let drizzleOverExec: typeof import("../db/exec.js").drizzleOverExec;
 let schema: typeof import("../db/schema.js");
 let refs: typeof import("./private-media-references.js");
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
@@ -63,6 +70,20 @@ let count = 0;
 function mediaId(prefix = "1") {
   const n = String(++count).padStart(11, "0");
   return `${prefix}1111111-1111-4111-8111-${prefix}${n}`;
+}
+
+/** Records an upload where binding reads it and where the route's mocks do. */
+async function uploaded(id: string, ownerEmail: string) {
+  owners.set(id, ownerEmail);
+  await db.insert(privateMedia).values({
+    id,
+    ownerEmail,
+    mimeType: "image/png",
+    size: 3,
+    sha256: "0",
+    blobHandleJson: "{}",
+    createdAt: 0,
+  });
 }
 
 function body(...ids: string[]) {
@@ -141,11 +162,13 @@ beforeAll(async () => {
   const module = await import("../db/index.js");
   db = module.getDb();
   schema = module.schema;
+  drizzleOverExec = (await import("../db/exec.js")).drizzleOverExec;
   refs = await import("./private-media-references.js");
   updateDocumentAction = (await import("../../actions/update-document.js"))
     .default;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
+  await privateMediaStore.ready();
   const route = (await import("../routes/api/private-media/[id].get.js"))
     .default;
   const app = new H3();
@@ -158,7 +181,7 @@ afterAll(() => rmSync(TEST_DB_PATH, { recursive: true, force: true }));
 describe("private media references", () => {
   it("serves an image to the page's readers and refuses everyone else alike", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     const content = body(id);
     const page = await document({ content });
     await share(page);
@@ -191,7 +214,7 @@ describe("private media references", () => {
 
   it("does not bind an image ID the saver cannot already see", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     await document({ content: body(id) });
     const content = body(id);
     const forged = await document({ ownerEmail: OTHER, content });
@@ -202,7 +225,7 @@ describe("private media references", () => {
 
   it("lets a reader copy an image they can see into their own page", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     const content = body(id);
     const source = await document({ content });
     await share(source);
@@ -217,7 +240,7 @@ describe("private media references", () => {
 
   it("stops serving when the page drops the link or goes to Trash, and resumes on restore", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     const content = body(id);
     const page = await document({ content });
     await share(page);
@@ -245,7 +268,7 @@ describe("private media references", () => {
 
   it("stops serving when the collection holding the page is deleted", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     const content = body(id);
     const collectionPage = await document();
     const item = await document({ content });
@@ -277,7 +300,7 @@ describe("private media references", () => {
 
   it("serves an image on a public page without a session", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     const content = body(id);
     const page = await document({ visibility: "public", content });
     await save(page, content);
@@ -287,14 +310,14 @@ describe("private media references", () => {
 
   it("serves an unsaved image to its uploader only", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     expect((await get(id, OWNER)).status).toBe(200);
     expect((await get(id, SHARED)).status).toBe(404);
   });
 
   it("redirects to storage's short-lived link, and sandboxes SVG", async () => {
     const linked = mediaId();
-    owners.set(linked, OWNER);
+    await uploaded(linked, OWNER);
     redirects.add(linked);
     const redirected = await get(linked, OWNER);
     expect(redirected.status).toBe(302);
@@ -304,7 +327,7 @@ describe("private media references", () => {
     expect(redirected.headers.get("cache-control")).toBe("private, no-store");
 
     const svg = mediaId("5");
-    owners.set(svg, OWNER);
+    await uploaded(svg, OWNER);
     const response = await get(svg, OWNER);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/svg+xml");
@@ -315,7 +338,7 @@ describe("private media references", () => {
 
   it("binds images when update-document saves a body", async () => {
     const id = mediaId();
-    owners.set(id, OWNER);
+    await uploaded(id, OWNER);
     const page = await document();
     await share(page);
     await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -323,5 +346,57 @@ describe("private media references", () => {
     );
     expect(await references(page, id)).toHaveLength(1);
     await expect(canRead(id, SHARED)).resolves.toBe(true);
+  });
+
+  it("checks a save's new images on the save's own transaction", async () => {
+    const own = mediaId();
+    const copied = mediaId();
+    await uploaded(own, SHARED);
+    await uploaded(copied, OWNER);
+    const source = await document({ content: body(copied) });
+    await share(source);
+    await save(source, body(copied));
+    const content = body(own, copied);
+    const page = await document({ ownerEmail: SHARED, content });
+
+    // A live-copy save holds a raw transaction, scoped as core scopes it.
+    // A check that queried another connection would wait on this one.
+    const exec = getDbExec();
+    assert(exec.transaction);
+    const statements: string[] = [];
+    await exec.transaction(async (tx) => {
+      const recorded: DbExec = {
+        execute(input) {
+          statements.push(typeof input === "string" ? input : input.sql);
+          return tx.execute(input);
+        },
+      };
+      await runWithRequestContext({ userEmail: SHARED }, () =>
+        withDbExec(recorded, () =>
+          refs.syncPrivateMediaReferences(drizzleOverExec(recorded), {
+            documentId: page,
+            after: content,
+            userEmail: SHARED,
+          }),
+        ),
+      );
+    });
+    expect(await references(page, own)).toHaveLength(1);
+    expect(await references(page, copied)).toHaveLength(1);
+    // Ownership, the pages that link the copy, and the access rules.
+    const ran = (pattern: RegExp) =>
+      statements.some((sql) => pattern.test(sql));
+    expect(ran(/from "private_media"/)).toBe(true);
+    expect(
+      ran(/from "content_private_media_references" inner join "documents"/),
+    ).toBe(true);
+    expect(ran(/from "document_shares"/)).toBe(true);
+
+    // update-document saves in a Drizzle transaction instead.
+    const viaAction = await document({ ownerEmail: SHARED });
+    await runWithRequestContext({ userEmail: SHARED }, () =>
+      updateDocumentAction.run({ id: viaAction, content: body(copied) }),
+    );
+    expect(await references(viaAction, copied)).toHaveLength(1);
   });
 });
