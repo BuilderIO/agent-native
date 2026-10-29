@@ -22,23 +22,21 @@ export function commentPlainText(markdown: string): string {
   let fence: string | null = null;
   for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
     const opener = FENCE.exec(line);
+    const marker = opener?.[1] ?? "";
+    const info = line.slice(opener?.[0].length ?? 0);
     if (fence) {
       const closes =
-        opener &&
-        opener[1]![0] === fence[0] &&
-        opener[1]!.length >= fence.length &&
-        !line.slice(opener[0].length).trim();
+        marker.charAt(0) === fence.charAt(0) &&
+        marker.length >= fence.length &&
+        !info.trim();
       if (closes) fence = null;
       else lines.push(line);
       continue;
     }
     // A backtick fence's info string can't hold a backtick; one that does is
     // inline code, not a fence.
-    if (
-      opener &&
-      !(opener[1]![0] === "`" && line.slice(opener[0].length).includes("`"))
-    ) {
-      fence = opener[1]!;
+    if (marker && !(marker.startsWith("`") && info.includes("`"))) {
+      fence = marker;
       continue;
     }
     lines.push(plainLine(line));
@@ -87,29 +85,30 @@ function plainLine(line: string): string {
 function codeSpans(
   text: string,
 ): { start: number; end: number; ticks: number }[] {
-  const runs = Array.from(text.matchAll(/`+/g), (match) => ({
+  const runs = Array.from(text.matchAll(/`+/g), (match, index) => ({
+    index,
     at: match.index,
     length: match[0].length,
   }));
-  const nextSameLength = new Array<number>(runs.length);
-  const laterByLength = new Map<number, number>();
-  for (let index = runs.length - 1; index >= 0; index -= 1) {
-    const { length } = runs[index]!;
-    nextSameLength[index] = laterByLength.get(length) ?? -1;
-    laterByLength.set(length, index);
+  type Run = (typeof runs)[number];
+  const closers = new Map<Run, Run>();
+  const laterByLength = new Map<number, Run>();
+  for (const run of [...runs].reverse()) {
+    const later = laterByLength.get(run.length);
+    if (later) closers.set(run, later);
+    laterByLength.set(run.length, run);
   }
   const spans: { start: number; end: number; ticks: number }[] = [];
-  for (let index = 0; index < runs.length; index += 1) {
-    const close = nextSameLength[index]!;
-    if (close === -1) continue;
-    const open = runs[index]!;
-    const closing = runs[close]!;
+  let next = 0;
+  for (const open of runs) {
+    const closing = closers.get(open);
+    if (open.index < next || !closing) continue;
     spans.push({
       start: open.at,
       end: closing.at + closing.length,
       ticks: open.length,
     });
-    index = close;
+    next = closing.index + 1;
   }
   return spans;
 }
@@ -135,6 +134,9 @@ function plainInline(text: string): string {
         /(^|[^\p{L}\p{N}_])_([^\s_](?:[^_]*?[^\s_])?)_(?![\p{L}\p{N}_])/gu,
         "$1$2",
       )
-      .replace(/\uE000(\d+)\uE001/g, (_, index: string) => escaped[+index]!)
+      .replace(
+        /\uE000(\d+)\uE001/g,
+        (_, index: string) => escaped[+index] ?? "",
+      )
   );
 }

@@ -1372,7 +1372,7 @@ export function CommentAiConversation({
               ) : null
             }
           >
-            {renderCommentBody(turn.assistantText!, [])}
+            {renderCommentBody(turn.assistantText ?? "", [])}
           </CommentRow>
         ))}
     </div>

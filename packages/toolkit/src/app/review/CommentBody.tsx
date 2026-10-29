@@ -158,14 +158,15 @@ function findCommentBodyMentions(
   const found: FoundMention[] = [];
   const claimed = new Set<number>();
   for (const match of body.matchAll(MAILTO_MENTION)) {
-    const email = safeDecodeURIComponent(match[2]!);
+    const [source, name = "", encodedEmail = ""] = match;
+    const email = safeDecodeURIComponent(encodedEmail);
     const listed = mentions.find(
       (mention) => mention.email?.toLowerCase() === email.toLowerCase(),
     );
     found.push({
       at: match.index,
-      source: match[0],
-      mention: { ...listed, label: match[1]!.trim() || email, email },
+      source,
+      mention: { ...listed, label: name.trim() || email, email },
     });
     claimed.add(match.index);
   }
