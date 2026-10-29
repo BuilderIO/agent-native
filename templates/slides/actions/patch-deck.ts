@@ -1557,8 +1557,14 @@ export default defineAction({
         .map((operation) => operation.slideId)
         .filter((slideId) => !existingSlideIds.has(slideId));
       if (missingSlideIds.length > 0) {
-        throw new Error(
-          `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
+        const slideIds = [...new Set(missingSlideIds)];
+        throw new NoWriteError(
+          `Cannot patch missing slide(s): ${slideIds.join(", ")}. The slide was deleted; no slides were changed.`,
+          {
+            errorCode: "slide_not_found",
+            statusCode: 404,
+            details: { slideIds },
+          },
         );
       }
 

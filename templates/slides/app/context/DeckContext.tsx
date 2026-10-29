@@ -2483,6 +2483,66 @@ function drainPendingDeckOps(
         }
       }
 
+      if (
+        err &&
+        typeof err === "object" &&
+        "errorCode" in err &&
+        err.errorCode === "slide_not_found"
+      ) {
+        const details =
+          "details" in err && err.details && typeof err.details === "object"
+            ? (err.details as Record<string, unknown>)
+            : undefined;
+        const missingSlideIds = new Set(
+          Array.isArray(details?.slideIds)
+            ? details.slideIds.filter(
+                (id): id is string => typeof id === "string",
+              )
+            : [],
+        );
+        const retainedOps = [...ops, ...pending].filter(
+          (op) => op.op !== "patch-slide" || !missingSlideIds.has(op.slideId),
+        );
+        if (retainedOps.length > 0) {
+          pendingOpsQueue.set(deckId, retainedOps);
+        } else {
+          pendingOpsQueue.delete(deckId);
+        }
+        const retainedHandlers = [
+          ...persistedResultHandlers,
+          ...pendingHandlers,
+        ].flatMap(({ handler, slideWriteSequences }) => {
+          const liveSequences = new Map(
+            [...slideWriteSequences].filter(
+              ([slideId]) => !missingSlideIds.has(slideId),
+            ),
+          );
+          return liveSequences.size > 0
+            ? [{ handler, slideWriteSequences: liveSequences }]
+            : [];
+        });
+        if (retainedHandlers.length > 0) {
+          pendingPersistedResultHandlers.set(deckId, retainedHandlers);
+        } else {
+          pendingPersistedResultHandlers.delete(deckId);
+        }
+        clearDeckSaveFailure(deckId);
+        deckSaveRetryAttempts.delete(deckId);
+        deckRevisionConflictRetryAttempts.delete(deckId);
+        const pendingTimer = pendingSaves.get(deckId);
+        if (pendingTimer) clearTimeout(pendingTimer);
+        pendingSaves.delete(deckId);
+        if (retainedOps.length > 0) {
+          immediateFlushRequests.set(
+            deckId,
+            immediateFlushRequests.get(deckId) ?? false,
+          );
+        } else {
+          immediateFlushRequests.delete(deckId);
+        }
+        return;
+      }
+
       if (staleFullReplaceDrafts.has(deckId)) {
         pendingOpsQueue.delete(deckId);
         pendingPersistedResultHandlers.delete(deckId);

@@ -5801,3 +5801,45 @@ describe("run() — patch-slide edits", () => {
     ).toBe(false);
   });
 });
+
+describe("run() — a patch to a deleted slide is a typed 404 with no write", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+  });
+
+  it("names the slide the client is still editing and writes nothing", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Edited</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      statusCode: 404,
+      details: { slideIds: ["slide-2"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+});

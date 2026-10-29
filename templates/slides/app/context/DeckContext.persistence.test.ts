@@ -502,6 +502,28 @@ function setupFetch(options?: {
           }),
         );
       }
+      const operations = Array.isArray(body.operations)
+        ? (body.operations as { op?: unknown; slideId?: unknown }[])
+        : [];
+      const missingSlideId = operations.find(
+        (operation) =>
+          operation.op === "patch-slide" &&
+          !accessibleDeck.slides.some(
+            (slide) => slide.id === operation.slideId,
+          ),
+      )?.slideId;
+      if (typeof missingSlideId === "string") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: `Cannot patch missing slide(s): ${missingSlideId}. The slide was deleted; no slides were changed.`,
+              errorCode: "slide_not_found",
+              details: { slideIds: [missingSlideId] },
+            }),
+            { status: 404 },
+          ),
+        );
+      }
       if (
         deckId === options?.revisionConflicts?.deckId &&
         attempts <= options.revisionConflicts.count
@@ -2085,6 +2107,63 @@ describe("DeckContext deck creation persistence", () => {
       { id: "slide-1", content: "Edited", notes: "New notes" },
       { id: "slide-4", notes: "Remote revision 1" },
     ]);
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("drops a queued edit to a slide deleted on the server instead of blocking saves", async () => {
+    const deckId = "deleted-slide-queued-edit-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const keptSlide = {
+      id: "slide-1",
+      content: "One",
+      notes: "",
+      layout: "title",
+    };
+    const deletedSlide = {
+      id: "slide-2",
+      content: "Two",
+      notes: "",
+      layout: "content",
+    };
+    const deck = {
+      id: deckId,
+      title: "Deleted slide deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [keptSlide, deletedSlide],
+    };
+    setAccessibleDeck(deck);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    setAccessibleDeck({
+      ...deck,
+      updatedAt: "2026-05-12T00:00:01.000Z",
+      slides: [keptSlide],
+    });
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-2",
+        { content: "Local edit" },
+        { persistence: "immediate" },
+      );
+    });
+
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(1);
     expect(hasFailedDeckSave(deckId)).toBe(false);
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
