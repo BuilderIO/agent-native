@@ -550,6 +550,41 @@ describe("writeLayoutChange — freeform to auto layout", () => {
     });
   });
 
+  it("replaces padding and alignment a frame kept from an earlier layout, zero included", () => {
+    const write = ok(
+      writeLayoutChange(
+        model(
+          {
+            styles: {
+              display: "block",
+              boxSizing: "content-box",
+              padding: "16px",
+              justifyContent: "center",
+              alignItems: "center",
+            },
+            declaredSize: { width: "168px", height: "104px" },
+            resolvedSize: { horizontal: 200, vertical: 136 },
+          },
+          read([
+            child("first", { x: 0, y: 0, width: 200, height: 60 }),
+            child("second", { x: 0, y: 76, width: 120, height: 60 }),
+          ]),
+        ),
+        { kind: "enable-auto-layout" },
+      ),
+    );
+    expect(write.frame).toEqual({
+      display: "flex",
+      flexDirection: "column",
+      gap: "16px",
+      padding: "0px 0px 0px 0px",
+      width: "200px",
+      height: "136px",
+      alignItems: "flex-start",
+      justifyContent: "flex-start",
+    });
+  });
+
   it("writes centred or end alignment, never stretch", () => {
     const centred = ok(
       writeLayoutChange(

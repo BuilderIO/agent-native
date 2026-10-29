@@ -595,21 +595,35 @@ export function resolveSlideFlowInsertionIndex(
   dragged: HTMLElement,
   point: { x: number; y: number },
 ): number {
-  const horizontal = mainAxisOf(group) === "horizontal";
-  const reversed = (
-    group.style.flexDirection || computedStyleOf(group).flexDirection
-  ).endsWith("reverse");
-  const at = horizontal ? point.x : point.y;
-  const before = flowMembers(group)
-    .filter((member) => member !== dragged)
-    .filter((member) => {
-      const rect = member.getBoundingClientRect();
-      const centre = horizontal
-        ? rect.left + rect.width / 2
-        : rect.top + rect.height / 2;
-      return reversed ? centre > at : centre < at;
-    });
-  return before.length;
+  const members = flowMembers(group);
+  const centreOf = (member: HTMLElement) => {
+    const rect = member.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  };
+  // Flow runs from the first member to the last as painted, which a rotated
+  // or flipped group turns away from the screen axis its direction names.
+  const first = members.at(0);
+  const last = members.at(-1);
+  let axis = { x: 0, y: 0 };
+  if (first && last && first !== last) {
+    const [from, to] = [centreOf(first), centreOf(last)];
+    axis = { x: to.x - from.x, y: to.y - from.y };
+  }
+  if (Math.hypot(axis.x, axis.y) < 1) {
+    const reversed = (
+      group.style.flexDirection || computedStyleOf(group).flexDirection
+    ).endsWith("reverse");
+    const sign = reversed ? -1 : 1;
+    axis =
+      mainAxisOf(group) === "horizontal"
+        ? { x: sign, y: 0 }
+        : { x: 0, y: sign };
+  }
+  const along = ({ x, y }: { x: number; y: number }) => x * axis.x + y * axis.y;
+  const at = along(point);
+  return members.filter(
+    (member) => member !== dragged && along(centreOf(member)) < at,
+  ).length;
 }
 
 /** The member's index among the group's members in flow, or -1. */

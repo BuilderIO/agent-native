@@ -202,6 +202,69 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("reorders along a rotated group's own direction", async () => {
+    const page = await openPage();
+    const order = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      // The row now runs down the screen.
+      group.style.transform = "rotate(90deg)";
+      const first = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="first"]',
+      )!;
+      const third = group
+        .querySelector<HTMLElement>('[data-slide-object-id="third"]')!
+        .getBoundingClientRect();
+      const index = api.resolveSlideFlowInsertionIndex(group, first, {
+        x: third.left + third.width / 2,
+        y: third.bottom - 2,
+      });
+      api.moveSlideFlowMember(group, first, index);
+      return Array.from(group.children, (child) =>
+        child.getAttribute("data-slide-object-id"),
+      );
+    });
+    expect(order).toEqual(["second", "third", "first"]);
+    await page.close();
+  });
+
+  it("turns back on after members moved to the edge without keeping the old padding", async () => {
+    const page = await openPage();
+    const before = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      group.style.justifyContent = "center";
+      api.disableSlideGroupAutoLayout(group);
+      const members = ["first", "second", "third"].map(
+        (id) =>
+          group.querySelector<HTMLElement>(`[data-slide-object-id="${id}"]`)!,
+      );
+      members.forEach((member, index) => {
+        member.style.left = `${index * 140}px`;
+        member.style.top = "0px";
+      });
+      // The last member reaches the far edge, so the inferred padding is 0.
+      members[2]!.style.width = `${420 - 280}px`;
+      members[1]!.style.height = "120px";
+      return group.style.padding;
+    });
+    expect(before).toBe("30px 20px");
+    const rects = await memberRects(page);
+    const style = await page.evaluate(() => {
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      window.slideAutoLayout.enableSlideGroupAutoLayout(group);
+      return {
+        padding: group.style.padding,
+        justifyContent: group.style.justifyContent,
+      };
+    });
+    expect(style).toEqual({ padding: "0px", justifyContent: "flex-start" });
+    expectSameRects(await memberRects(page), rects);
+    await page.close();
+  });
+
   it("hugs its members and fills the space they leave", async () => {
     const page = await openPage();
     const result = await page.evaluate(() => {

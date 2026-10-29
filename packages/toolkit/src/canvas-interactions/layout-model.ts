@@ -307,6 +307,14 @@ const MARGIN_PROPERTIES = [
 ];
 
 const lower = (value: string | undefined) => value?.trim().toLowerCase() ?? "";
+/** Alignment values that leave flow children where the inference put them. */
+const PACKED_AT_START = new Set([
+  "",
+  "normal",
+  "stretch",
+  "flex-start",
+  "start",
+]);
 const sizeProperty = (axis: LayoutAxis) =>
   axis === "horizontal" ? "width" : "height";
 
@@ -928,18 +936,33 @@ function writeEnable(
   frame.flexDirection =
     arrangement.direction === "horizontal" ? "row" : "column";
   frame.gap = `${arrangement.gap}px`;
+  // The inferred arrangement is the whole flow. A frame that laid out before
+  // keeps its padding and alignment while freeform, and either would move
+  // the children it was inferred from, so each is overwritten, zero included.
+  const styles = model.node.styles;
+  const current = model.frame.padding;
+  const hadPadding = [
+    styles.padding,
+    styles.paddingTop,
+    styles.paddingRight,
+    styles.paddingBottom,
+    styles.paddingLeft,
+  ].some((value) => {
+    const declared = lower(value);
+    return declared !== "" && !/^0[a-z%]*$/.test(declared);
+  });
   if (width !== null && height !== null) {
     const { top, right, bottom, left } = arrangement.padding;
-    if (top > 0 || right > 0 || bottom > 0 || left > 0) {
+    if (top > 0 || right > 0 || bottom > 0 || left > 0 || hadPadding) {
       frame.padding = `${top}px ${right}px ${bottom}px ${left}px`;
       // A content-box size excludes padding: a Fixed axis gives the padding
       // back out of its declared size so the frame keeps its rendered box.
-      if (lower(model.node.styles.boxSizing) !== "border-box") {
-        for (const [axis, extent, inset] of [
-          ["horizontal", width, left + right],
-          ["vertical", height, top + bottom],
+      if (lower(styles.boxSizing) !== "border-box") {
+        for (const [axis, extent, inset, was] of [
+          ["horizontal", width, left + right, current.left + current.right],
+          ["vertical", height, top + bottom, current.top + current.bottom],
         ] as const) {
-          if (inset === 0) continue;
+          if (inset === was) continue;
           if (readNodeSizing(model.node, model.parent, axis) !== "fixed") {
             continue;
           }
@@ -958,6 +981,11 @@ function writeEnable(
     arrangement.alignItems === "flex-end"
   ) {
     frame.alignItems = arrangement.alignItems;
+  } else if (!PACKED_AT_START.has(lower(styles.alignItems))) {
+    frame.alignItems = "flex-start";
+  }
+  if (!PACKED_AT_START.has(lower(styles.justifyContent))) {
+    frame.justifyContent = "flex-start";
   }
   return { status: "ok", frame, children, order: arrangement.order };
 }
