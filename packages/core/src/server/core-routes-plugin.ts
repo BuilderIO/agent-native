@@ -178,6 +178,7 @@ import { memoizeAgentEngineStatus } from "./agent-engine-status-cache.js";
 import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
+  readBrowserTabIdHeader,
 } from "./agent-run-context.js";
 import { isAnonymousWaitlistSessionEmail } from "./anonymous-identity.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
@@ -5120,8 +5121,15 @@ export function createCoreRoutesPlugin(
           // uses. Without this, per-user Builder keys stored in app_secrets are
           // invisible to the run path and the call throws "Builder keys are not
           // configured" even though the status endpoint correctly reports configured=true.
+          // The tab id lets a host's branch-project provider find the view
+          // this click came from (its navigation state is tab-scoped).
+          const browserTabId = readBrowserTabIdHeader(event);
           return runWithRequestContext(
-            { userEmail, orgId: orgId ?? undefined },
+            {
+              userEmail,
+              orgId: orgId ?? undefined,
+              ...(browserTabId ? { run: { browserTabId } } : {}),
+            },
             async () => {
               const projectId = await resolveBuilderBranchProjectId();
               if (!projectId) {

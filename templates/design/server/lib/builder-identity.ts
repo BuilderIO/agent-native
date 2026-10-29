@@ -503,7 +503,8 @@ if (isBuilderIdentityEnabled()) {
     if (typeof designId !== "string" || !designId) return undefined;
     const access = await assertAccess("design", designId, "viewer");
     const app = readFusionApp(access.resource?.data);
-    // A local launch session has no Builder project to hand work to.
+    // A local launch session is not bound to a Builder project, so it names
+    // none; the deployment's own project setting, if any, applies as usual.
     if (!app || app.projectId === "local") return undefined;
     return app.projectId;
   });
