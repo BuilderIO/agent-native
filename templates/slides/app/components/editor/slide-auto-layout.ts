@@ -438,10 +438,14 @@ export function disableSlideGroupAutoLayout(
   const write = writeLayoutChange(model, { kind: "disable-auto-layout" });
   if (write.status !== "ok") return refused(write.reason, write.nodeIds);
   // A text box that sizes to its text keeps doing so once placed; pinning
-  // its rendered height would clip the next edit.
+  // its rendered height would clip the next edit. A Fill height came from
+  // the group, not the text, so that one is pinned.
   const sizesItself = new Set(
     Array.from(members.values()).filter(
-      (member) => resolveFreeformSizing(member) !== "fixed",
+      (member) =>
+        resolveFreeformSizing(member) !== "fixed" &&
+        readModel(member, measure, "sizing-box").frame.sizing.vertical.mode !==
+          "fill",
     ),
   );
   applyWrite(group, write, members, (member, patch) => {
@@ -664,24 +668,41 @@ export function resolveSlideFlowInsertionIndex(
     const rect = member.getBoundingClientRect();
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   };
-  // Flow runs from the first member to the last as painted, which a rotated
-  // or flipped group turns away from the screen axis its direction names.
+  const reversed = (
+    group.style.flexDirection || computedStyleOf(group).flexDirection
+  ).endsWith("reverse");
+  const sign = reversed ? -1 : 1;
+  let axis =
+    mainAxisOf(group) === "horizontal" ? { x: sign, y: 0 } : { x: 0, y: sign };
+  // A rotated or flipped group paints its main axis away from the screen
+  // axis it names. The turn is read off two members: where they sit in the
+  // group's own layout against where they paint. Only the turn is kept, so
+  // members of different cross sizes do not tilt the axis.
   const first = members.at(0);
   const last = members.at(-1);
-  let axis = { x: 0, y: 0 };
   if (first && last && first !== last) {
-    const [from, to] = [centreOf(first), centreOf(last)];
-    axis = { x: to.x - from.x, y: to.y - from.y };
-  }
-  if (Math.hypot(axis.x, axis.y) < 1) {
-    const reversed = (
-      group.style.flexDirection || computedStyleOf(group).flexDirection
-    ).endsWith("reverse");
-    const sign = reversed ? -1 : 1;
-    axis =
-      mainAxisOf(group) === "horizontal"
-        ? { x: sign, y: 0 }
-        : { x: 0, y: sign };
+    const local = (member: HTMLElement) => ({
+      x: member.offsetLeft + member.offsetWidth / 2,
+      y: member.offsetTop + member.offsetHeight / 2,
+    });
+    const [from, to] = [local(first), local(last)];
+    const [paintedFrom, paintedTo] = [centreOf(first), centreOf(last)];
+    const laid = { x: to.x - from.x, y: to.y - from.y };
+    const painted = {
+      x: paintedTo.x - paintedFrom.x,
+      y: paintedTo.y - paintedFrom.y,
+    };
+    // painted × conj(laid), as complex numbers: the rotation between them.
+    const turn = {
+      x: painted.x * laid.x + painted.y * laid.y,
+      y: painted.y * laid.x - painted.x * laid.y,
+    };
+    if (Math.hypot(turn.x, turn.y) > 1e-6) {
+      axis = {
+        x: axis.x * turn.x - axis.y * turn.y,
+        y: axis.x * turn.y + axis.y * turn.x,
+      };
+    }
   }
   const along = ({ x, y }: { x: number; y: number }) => x * axis.x + y * axis.y;
   const at = along(point);

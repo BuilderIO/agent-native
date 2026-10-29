@@ -220,6 +220,56 @@ describe("slide group auto layout in Chromium", () => {
     await page.close();
   });
 
+  it("pins a text member's Fill height when auto layout turns off", async () => {
+    const page = await openPage();
+    const heights = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      api.enableSlideGroupAutoLayout(group);
+      const second = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="second"]',
+      )!;
+      api.setSlideLayoutSizing(second, "vertical", "fill");
+      const filled = second.offsetHeight;
+      api.disableSlideGroupAutoLayout(group);
+      return { filled, pinned: second.offsetHeight };
+    });
+    expect(heights.filled).toBe(60);
+    expect(heights.pinned).toBe(60);
+    await page.close();
+  });
+
+  it("reorders along the row when its members differ in height", async () => {
+    const page =
+      await openPage(`<div class="fmd-slide-group" data-slide-group="true" data-slide-object-id="group"
+  style="position: absolute; left: 120px; top: 80px; width: 420px; height: 160px; box-sizing: border-box; display: flex; gap: 25px; padding: 20px; align-items: flex-start;">
+  <div data-slide-object-id="tall" style="width: 110px; height: 120px; flex-shrink: 0;"></div>
+  <div data-slide-object-id="middle" style="width: 110px; height: 60px; flex-shrink: 0;"></div>
+  <div data-slide-object-id="short" style="width: 110px; height: 20px; flex-shrink: 0;"></div>
+</div>`);
+    const order = await page.evaluate(() => {
+      const api = window.slideAutoLayout;
+      const group = document.querySelector<HTMLElement>(".fmd-slide-group")!;
+      const tall = group.querySelector<HTMLElement>(
+        '[data-slide-object-id="tall"]',
+      )!;
+      const short = group
+        .querySelector<HTMLElement>('[data-slide-object-id="short"]')!
+        .getBoundingClientRect();
+      // Just short of the last member along the row, well above the row.
+      const index = api.resolveSlideFlowInsertionIndex(group, tall, {
+        x: short.left + short.width / 2 - 5,
+        y: short.top + short.height / 2 - 100,
+      });
+      api.moveSlideFlowMember(group, tall, index);
+      return Array.from(group.children, (child) =>
+        child.getAttribute("data-slide-object-id"),
+      );
+    });
+    expect(order).toEqual(["middle", "tall", "short"]);
+    await page.close();
+  });
+
   it("reorders a member to the slot under the pointer", async () => {
     const page = await openPage();
     const order = await page.evaluate(() => {

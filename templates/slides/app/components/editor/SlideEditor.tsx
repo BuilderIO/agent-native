@@ -7622,6 +7622,14 @@ export default function SlideEditor({
       let groupResizeOriginalStyles = new Map<HTMLElement, string | null>();
       let fitResize = false;
       let fitFloorHeight: number | undefined;
+      // The group places a member in flow; the left and top a resize writes
+      // would offset a relatively positioned one from its slot.
+      const dropFlowInsets = () => {
+        if (!inFlowLayout) return;
+        for (const property of ["left", "top", "right", "bottom"]) {
+          element.style.removeProperty(property);
+        }
+      };
       let began: "pending" | "ready" | "failed" = "pending";
 
       const beginResize = () => {
@@ -7751,6 +7759,7 @@ export default function SlideEditor({
             { x: next.x, y: next.y, width: next.width },
             { overrideSizeCaps: true },
           );
+          dropFlowInsets();
           if (next.minHeight !== undefined) {
             element.style.minHeight = `${next.minHeight}px`;
           }
@@ -7810,6 +7819,7 @@ export default function SlideEditor({
               ) && resizeTransform.transform === "none",
           },
         );
+        dropFlowInsets();
         if (memberPlans) {
           for (const member of groupResizeMembers) {
             const plan = memberPlans.get(member.element);
