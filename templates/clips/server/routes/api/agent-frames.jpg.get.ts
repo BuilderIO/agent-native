@@ -196,28 +196,92 @@ export default defineEventHandler(async (event: H3Event) => {
           : editedDurationMs;
       const plan = planWithin(fps, durationMs);
       if (!plan.ok) return requestFailure(event, plan);
-      const result = hasCuts
-        ? {
+      const extractEdited = (
+        editedPlan: FrameSheetPlan,
+        sourceDurationMs: number,
+      ) =>
+        extractEditedJpegFrameSheetFromFile({
+          mediaPath: media.path,
+          plan: editedPlan,
+          sourceFrames: editedPlan.frameTimesMs.map((editedMs) => {
+            const atMs = editedToOriginal(editedMs, edits);
+            return {
+              atMs,
+              visibleEndMs: Math.min(
+                sourceDurationMs,
+                cuts.find((cut) => cut.startMs > atMs)?.startMs ??
+                  sourceDurationMs,
+              ),
+            };
+          }),
+        });
+      let result: { plan: FrameSheetPlan; sheet: Uint8Array };
+      if (hasCuts) {
+        try {
+          result = {
             plan: plan.value,
-            sheet: await extractEditedJpegFrameSheetFromFile({
-              mediaPath: media.path,
-              plan: plan.value,
-              sourceFrames: plan.value.frameTimesMs.map((editedMs) => {
-                const atMs = editedToOriginal(editedMs, edits);
-                return {
-                  atMs,
-                  visibleEndMs:
-                    cuts.find((cut) => cut.startMs > atMs)?.startMs ??
-                    recording.durationMs,
-                };
-              }),
-            }),
+            sheet: await extractEdited(plan.value, recording.durationMs),
+          };
+        } catch (error) {
+          if (
+            !(error instanceof VideoFrameExtractionError) ||
+            error.code !== "NO_FRAME_AT_TIMESTAMP"
+          )
+            throw error;
+          const actualDurationMs = await probeMediaDurationMsFromFile(
+            media.path,
+          );
+          if (
+            actualDurationMs === null ||
+            actualDurationMs >= recording.durationMs
+          )
+            throw error;
+          const actualEditedDurationMs = effectiveDuration(
+            actualDurationMs,
+            edits,
+          );
+          if (
+            actualEditedDurationMs <= 0 ||
+            !plan.value.frameTimesMs.some(
+              (time) => editedToOriginal(time, edits) >= actualDurationMs,
+            )
+          )
+            throw error;
+          let recovered:
+            | { plan: FrameSheetPlan; sheet: Uint8Array }
+            | undefined;
+          const candidates = [
+            actualEditedDurationMs,
+            Math.max(1, actualEditedDurationMs - 1000),
+            1,
+          ];
+          for (const candidate of [...new Set(candidates)]) {
+            const retry = planWithin(fps, candidate);
+            if (!retry.ok) continue;
+            try {
+              recovered = {
+                plan: retry.value,
+                sheet: await extractEdited(retry.value, actualDurationMs),
+              };
+              break;
+            } catch (retryError) {
+              if (
+                !(retryError instanceof VideoFrameExtractionError) ||
+                retryError.code !== "NO_FRAME_AT_TIMESTAMP"
+              )
+                throw retryError;
+            }
           }
-        : await extractSheetWithStaleDurationRecovery({
-            mediaPath: media.path,
-            plan: plan.value,
-            replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
-          });
+          if (!recovered) throw error;
+          result = recovered;
+        }
+      } else {
+        result = await extractSheetWithStaleDurationRecovery({
+          mediaPath: media.path,
+          plan: plan.value,
+          replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
+        });
+      }
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
     } finally {

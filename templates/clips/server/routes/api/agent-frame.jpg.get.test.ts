@@ -657,6 +657,60 @@ describe("agent-frame.jpg route", () => {
     expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(2);
   });
 
+  it("recovers stale edited duration using visible source frames and edited redirect times", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          durationMs: 10000,
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
+          }),
+        },
+      }),
+    });
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
+    mockExtractJpegFrameFromFile
+      .mockRejectedValueOnce(
+        new MockVideoFrameExtractionError("No frame", "NO_FRAME_AT_TIMESTAMP"),
+      )
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+    const result = await handler(
+      makeEvent({ id: "rec-1", atMs: "7000" }) as unknown as Parameters<
+        typeof handler
+      >[0],
+    );
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).headers.get("location")).toContain("atMs=2999");
+    expect(mockExtractJpegFrameFromFile).toHaveBeenLastCalledWith({
+      mediaPath: "/tmp/recording.webm",
+      atMs: 4999,
+      visibleEndMs: 5000,
+    });
+  });
+
+  it("does not recover a missing frame at a cut when the source still extends beyond it", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          durationMs: 10000,
+          editsJson: JSON.stringify({
+            trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
+          }),
+        },
+      }),
+    });
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
+    mockExtractJpegFrameFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError("No frame", "NO_FRAME_AT_TIMESTAMP"),
+    );
+    const event = makeEvent({ id: "rec-1", atMs: "999" });
+    await handler(event as unknown as Parameters<typeof handler>[0]);
+    expect(event.status).toBe(422);
+    expect(mockExtractJpegFrameFromFile).toHaveBeenCalledTimes(1);
+  });
+
   it("redirects to the actual media range when stored duration is stale", async () => {
     mockProbeMediaDurationMsFromFile.mockResolvedValue(4000);
     mockExtractJpegFrameFromFile

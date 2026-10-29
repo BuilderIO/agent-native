@@ -322,6 +322,78 @@ describe("agent-frames.jpg route", () => {
     expect(lastPlan()).toMatchObject({ startMs: 9900, frameCount: 3 });
   });
 
+  it("replans trimmed sheets against the actual source duration", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        durationMs: 10000,
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
+        }),
+      }),
+    });
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
+    mockExtractEditedJpegFrameSheetFromFile.mockRejectedValueOnce(
+      new MockVideoFrameExtractionError("NO_FRAME_AT_TIMESTAMP", "No frame"),
+    );
+    const { event } = await run({ startMs: "7000", fps: "2" });
+    expect(event.status).toBe(200);
+    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("2997");
+    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceFrames: [{ atMs: 4997, visibleEndMs: 5000 }],
+      }),
+    );
+  });
+
+  it("backs up within the visible timeline when the last millisecond has no frame", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        durationMs: 10000,
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
+        }),
+      }),
+    });
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
+    const missing = new MockVideoFrameExtractionError(
+      "NO_FRAME_AT_TIMESTAMP",
+      "No frame",
+    );
+    mockExtractEditedJpegFrameSheetFromFile
+      .mockRejectedValueOnce(missing)
+      .mockRejectedValueOnce(missing)
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+    const { event } = await run({ startMs: "7000", fps: "2" });
+    expect(event.status).toBe(200);
+    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("1997");
+    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceFrames: [{ atMs: 3997, visibleEndMs: 5000 }],
+      }),
+    );
+  });
+
+  it("does not move a trimmed sheet when a cut boundary has no frame", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        durationMs: 10000,
+        editsJson: JSON.stringify({
+          trims: [{ startMs: 1000, endMs: 3000, excluded: true }],
+        }),
+      }),
+    });
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
+    mockExtractEditedJpegFrameSheetFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError("NO_FRAME_AT_TIMESTAMP", "No frame"),
+    );
+    const { event } = await run({ startMs: "999", endMs: "1499", fps: "2" });
+    expect(event.status).toBe(422);
+    expect(mockExtractEditedJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
+  });
+
   it("plans again inside the real duration when the stored one is too long", async () => {
     mockExtractJpegFrameSheetFromFile.mockRejectedValueOnce(
       new MockVideoFrameExtractionError(

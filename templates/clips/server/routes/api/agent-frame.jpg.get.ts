@@ -218,6 +218,72 @@ async function extractFrameWithStaleDurationRecovery({
   }
 }
 
+async function extractEditedFrameWithStaleDurationRecovery({
+  mediaPath,
+  atMs,
+  editedMs,
+  durationMs,
+  edits,
+}: {
+  mediaPath: string;
+  atMs: number;
+  editedMs: number;
+  durationMs: number;
+  edits: ReturnType<typeof parseEdits>;
+}): Promise<{ frame: Uint8Array; atMs: number; editedMs: number }> {
+  const cuts = getExcludedRanges(edits);
+  const extract = (sourceMs: number, sourceDurationMs: number) =>
+    extractJpegFrameFromFile({
+      mediaPath,
+      atMs: sourceMs,
+      visibleEndMs: Math.min(
+        sourceDurationMs,
+        cuts.find((cut) => cut.startMs > sourceMs)?.startMs ?? sourceDurationMs,
+      ),
+    });
+  try {
+    return { frame: await extract(atMs, durationMs), atMs, editedMs };
+  } catch (error) {
+    if (
+      !(error instanceof VideoFrameExtractionError) ||
+      error.code !== "NO_FRAME_AT_TIMESTAMP"
+    )
+      throw error;
+    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
+    if (
+      actualDurationMs === null ||
+      actualDurationMs >= durationMs ||
+      atMs < actualDurationMs
+    )
+      throw error;
+    const actualEditedDurationMs = effectiveDuration(actualDurationMs, edits);
+    if (actualEditedDurationMs <= 0) throw error;
+    const candidates = [
+      Math.max(0, actualEditedDurationMs - 1),
+      Math.max(0, actualEditedDurationMs - 1000),
+      0,
+    ];
+    for (const candidate of [...new Set(candidates)]) {
+      const sourceMs = editedToOriginal(candidate, edits);
+      if (sourceMs >= actualDurationMs) continue;
+      try {
+        return {
+          frame: await extract(sourceMs, actualDurationMs),
+          atMs: sourceMs,
+          editedMs: candidate,
+        };
+      } catch (candidateError) {
+        if (
+          !(candidateError instanceof VideoFrameExtractionError) ||
+          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
+        )
+          throw candidateError;
+      }
+    }
+    throw error;
+  }
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const accessResult = await loadAgentFrameAccess(event);
@@ -300,18 +366,14 @@ export default defineEventHandler(async (event: H3Event) => {
   try {
     const media = await loadRecordingMediaFile(recording);
     try {
-      const visibleEndMs =
-        getExcludedRanges(edits).find((cut) => cut.startMs > atMs)?.startMs ??
-        durationMs;
       const resolved = hasCuts
-        ? {
-            frame: await extractJpegFrameFromFile({
-              mediaPath: media.path,
-              atMs,
-              visibleEndMs,
-            }),
+        ? await extractEditedFrameWithStaleDurationRecovery({
+            mediaPath: media.path,
             atMs,
-          }
+            editedMs,
+            durationMs,
+            edits,
+          })
         : await extractFrameWithStaleDurationRecovery({
             mediaPath: media.path,
             atMs,
@@ -325,7 +387,13 @@ export default defineEventHandler(async (event: H3Event) => {
       );
 
       if (resolved.atMs !== atMs) {
-        return redirectToResolvedFrame(event, access, resolved.atMs);
+        return redirectToResolvedFrame(
+          event,
+          access,
+          "editedMs" in resolved && typeof resolved.editedMs === "number"
+            ? resolved.editedMs
+            : resolved.atMs,
+        );
       }
 
       await claim?.fill(
