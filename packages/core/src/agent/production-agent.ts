@@ -15919,10 +15919,8 @@ export function createProductionAgentHandler(
             ? { attachments: requestAttachments }
             : {}),
         } as unknown as Record<string, unknown>;
-        if (isQueuedPromotion) {
-          // onRunPrepared consumes this one-time claim before worker replay.
-          delete dispatchBody.queuedMessageClaimId;
-        }
+        // This one-time claim authorizes only the request that consumes it.
+        delete dispatchBody.queuedMessageClaimId;
         durableDispatchPayload = serializeDurableDispatchPayload(dispatchBody);
       } catch (error) {
         if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
