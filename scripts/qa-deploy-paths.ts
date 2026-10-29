@@ -1435,7 +1435,7 @@ async function exerciseScheduledStaleChatContinuation(
               `errorCode=${String(successor.error_code ?? "unknown")}`,
               `terminalReason=${String(successor.terminal_reason ?? "unknown")}`,
               `diagStage=${diagnosticStageName(successor.diag_stage)}`,
-              `workerStage=${String(successor.worker_stage ?? "unknown")}`,
+              `workerStage=${diagnosticStageName(successor.worker_stage)}`,
               ...(observedRouteFailure ? [observedRouteFailure] : []),
             ].join(" ");
             return false;

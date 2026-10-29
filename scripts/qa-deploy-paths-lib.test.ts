@@ -298,6 +298,15 @@ describe("route failure diagnostics", () => {
       ),
       "route_threw",
     );
+    assert.equal(
+      diagnosticStageName(
+        JSON.stringify({
+          stage: "worker_setup_step",
+          detail: "private provider response",
+        }),
+      ),
+      "worker_setup_step",
+    );
     assert.equal(diagnosticStageName("not json"), "unavailable");
   });
 });
