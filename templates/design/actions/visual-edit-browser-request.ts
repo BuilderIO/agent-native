@@ -8,7 +8,7 @@ import {
   issueLocalhostBridgeOperationCapability,
 } from "@agent-native/core/visual-edit-bridge-capability";
 
-import { isBuilderIdentityEnabled } from "../server/lib/builder-identity.js";
+import { isBuilderIdentityEnabled } from "../server/lib/builder-identity-enabled.js";
 import { isBuilderHostOrigin } from "../shared/builder-host-origins.js";
 import {
   LOCALHOST_BRIDGE_RELAY_HEADER,

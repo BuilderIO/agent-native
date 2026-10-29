@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   requestOrigin: "https://beta.design.agent-native.com",
 }));
 
-vi.mock("../server/lib/builder-identity.js", () => ({
+vi.mock("../server/lib/builder-identity-enabled.js", () => ({
   isBuilderIdentityEnabled: () => mocks.identityEnabled,
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
