@@ -29,6 +29,13 @@ const MAX_EMPHASIS_MARKERS = 1_000;
 const MAX_HTML_COMMENTS = 64;
 /** Brackets open inside each other. */
 const MAX_BRACKET_DEPTH = 16;
+/**
+ * Characters the parser looks back over for brackets in one paragraph. Each
+ * `]` looks back for the `[` it closes, or to the paragraph's start when none
+ * is open, and while a `[` is open, each word looks back to it for a bare
+ * link it can't start inside a label.
+ */
+const MAX_BRACKET_LOOKBACK = 500_000;
 /** Quote and list markers opening one line, as in `> > - 1. text`. */
 const MAX_LINE_NESTING = 16;
 
@@ -43,7 +50,10 @@ export function splitCommentAtMarkdownLimit(body: string): {
   markdown: string;
   rest: string;
 } {
-  const { tangledAt, fences } = readCommentLines(body);
+  // Nothing past the limit is read as Markdown, so nothing past it is read.
+  const { tangledAt, fences } = readCommentLines(
+    body.slice(0, COMMENT_MARKDOWN_LIMIT),
+  );
   let cut = tangledAt;
   if (cut === undefined) {
     if (body.length <= COMMENT_MARKDOWN_LIMIT) {
@@ -79,11 +89,10 @@ interface Fence {
 }
 
 /**
- * Reads a comment's lines up to the limit: where the first paragraph that
- * passes the limits above starts, if one does, and where its fenced code
- * blocks sit. Code isn't Markdown, so it isn't counted. A blank line or a
- * fence always ends a paragraph, so counting between them never counts too
- * few.
+ * Reads a comment's lines: where the first paragraph that passes the limits
+ * above starts, if one does, and where its fenced code blocks sit. Code isn't
+ * Markdown, so it isn't counted. A blank line or a fence always ends a
+ * paragraph, so counting between them never counts too few.
  */
 function readCommentLines(body: string): {
   tangledAt: number | undefined;
@@ -94,17 +103,22 @@ function readCommentLines(body: string): {
   // Only fences outside any quote, list or footnote are followed: at the
   // left margin, or up to three spaces in before any line has opened one. A
   // fence inside one could be closed by a line that looks like it opens one,
-  // and a fence line inside an HTML block is HTML, which can run past blank
-  // lines. So after a line that could open either, stop trusting fences and
-  // count everything.
+  // so after a fence marker the scan doesn't follow, it stops trusting fences
+  // and counts everything. A fence line inside an HTML block is HTML: most
+  // blocks end at a blank line, so until one no fence opens, but a comment,
+  // `<pre>`, `<script>` and a few others run past blank lines, so after a line
+  // that could open one of those the scan stops trusting fences too.
   let trustFences = true;
+  let html = false;
   let containers = false;
   let paragraph = 0;
   let emphasis = 0;
   let htmlComments = 0;
-  let brackets = 0;
+  // Where each `[` still open in the paragraph sits.
+  let brackets: number[] = [];
+  let lookback = 0;
   let start = 0;
-  while (start < body.length && start < COMMENT_MARKDOWN_LIMIT) {
+  while (start < body.length) {
     // Lines end as the parser ends them: at `\n`, `\r\n` or a lone `\r`.
     let end = start;
     while (end < body.length && !isLineEnding(body.charAt(end))) end += 1;
@@ -115,6 +129,7 @@ function readCommentLines(body: string): {
     const opening =
       fence === undefined &&
       trustFences &&
+      !html &&
       (indent === 0 ||
         (!containers && indent <= 3 && !body.slice(start, at).includes("\t")))
         ? openingFence(body, at, end)
@@ -127,14 +142,17 @@ function readCommentLines(body: string): {
       }
     } else if (at === end || opening !== undefined) {
       if (opening !== undefined) fence = { ...opening, start };
+      else html = false;
       paragraph = next;
       emphasis = 0;
       htmlComments = 0;
-      brackets = 0;
+      brackets = [];
+      lookback = 0;
     } else {
       const text = body.slice(at, end);
+      if (text.startsWith("<")) html = true;
       if (
-        text.startsWith("<") ||
+        opensLongHtmlBlock(text) ||
         text.includes("```") ||
         text.includes("~~~")
       ) {
@@ -151,17 +169,22 @@ function readCommentLines(body: string): {
             return { tangledAt: paragraph, fences };
           }
         } else if (char === "[") {
-          brackets += 1;
-          if (brackets > MAX_BRACKET_DEPTH) {
+          brackets.push(index);
+          if (brackets.length > MAX_BRACKET_DEPTH) {
             return { tangledAt: paragraph, fences };
           }
         } else if (char === "]") {
-          brackets = Math.max(0, brackets - 1);
+          lookback += index - (brackets.pop() ?? paragraph);
         } else if (char === "<" && body.startsWith("<!--", index)) {
           htmlComments += 1;
           if (htmlComments > MAX_HTML_COMMENTS) {
             return { tangledAt: paragraph, fences };
           }
+        } else if (brackets.length > 0 && startsBareLink(body, index)) {
+          lookback += index - (brackets.at(-1) ?? index);
+        }
+        if (lookback > MAX_BRACKET_LOOKBACK) {
+          return { tangledAt: paragraph, fences };
         }
       }
     }
@@ -169,6 +192,19 @@ function readCommentLines(body: string): {
   }
   if (fence !== undefined) fences.push({ start: fence.start, end: Infinity });
   return { tangledAt: undefined, fences };
+}
+
+/**
+ * Whether a line could open an HTML block that runs past blank lines: a
+ * comment, `<?`, a `<!` declaration or CDATA, or `<pre>`, `<script>`,
+ * `<style>` or `<textarea>`.
+ */
+function opensLongHtmlBlock(text: string): boolean {
+  if (text.startsWith("<!") || text.startsWith("<?")) return true;
+  const tag = text.slice(1, 9).toLowerCase();
+  return ["pre", "script", "style", "textarea"].some((name) =>
+    tag.startsWith(name),
+  );
 }
 
 interface OpeningFence {
@@ -238,6 +274,35 @@ function lineNesting(body: string, at: number, end: number): number {
     nesting += 1;
     at = marker;
   }
+}
+
+/**
+ * Whether GitHub's Markdown could start a bare email or URL here, as it
+ * tries to after anything but a letter, digit or `+-._`, and for `http`
+ * after anything but a letter.
+ */
+function startsBareLink(body: string, index: number): boolean {
+  const char = body.charAt(index);
+  const previous = body.charAt(index - 1);
+  return (
+    (isAtext(char) && !isAtext(previous)) ||
+    ((char === "h" || char === "H") && !isAsciiLetter(previous))
+  );
+}
+
+function isAtext(char: string): boolean {
+  return (
+    isAsciiLetter(char) ||
+    isDigit(char) ||
+    char === "+" ||
+    char === "-" ||
+    char === "." ||
+    char === "_"
+  );
+}
+
+function isAsciiLetter(char: string): boolean {
+  return (char >= "a" && char <= "z") || (char >= "A" && char <= "Z");
 }
 
 function isSpace(char: string): boolean {

@@ -260,11 +260,18 @@ describe("commentPlainText", () => {
       `${"![".repeat(3_000)}x${"](u)".repeat(3_000)}`,
       `${">".repeat(15_000)} x`,
       `${"- ".repeat(8_000)}x`,
+      // Brackets the parser looks back for, and a list nested by indents.
+      "a]".repeat(10_000),
+      `x [${"\na".repeat(10_000)}`,
+      `[${"\n1h".repeat(7_000)}`,
+      Array.from({ length: 140 }, (_, i) => `${"  ".repeat(i)}- x`).join("\n"),
       // Just inside each paragraph and line limit.
       `${"*a".repeat(999)}\n\n`.repeat(10),
       `${"![".repeat(16)}x${"](u)".repeat(16)} `.repeat(400),
       `${"- ".repeat(16)}x\n`.repeat(600),
       `${"x <!--".repeat(64)}\n\n`.repeat(50),
+      `${"a]".repeat(700)}\n\n`.repeat(15),
+      `x [${"\na".repeat(700)}\n\n`.repeat(15),
       // Code in a fence, which the limits leave alone.
       `\`\`\`\n${"*a[".repeat(6_000)}`,
     ]) {
@@ -286,6 +293,23 @@ describe("splitCommentAtMarkdownLimit", () => {
       markdown: "one\r\n\r\n",
       rest: tangled,
     });
+  });
+
+  it("stops before a paragraph whose brackets the parser looks back for too long", () => {
+    // Each `]` looks back for its `[`, or to the paragraph's start.
+    expect(splitCommentAtMarkdownLimit(`ok\n\n${"a]".repeat(1_000)}`)).toEqual({
+      markdown: "ok\n\n",
+      rest: "a]".repeat(1_000),
+    });
+    // While a `[` is open, each word looks back to it.
+    const open = `x [${"\na".repeat(1_000)}`;
+    expect(splitCommentAtMarkdownLimit(open).rest).toBe(open);
+    // Links close their own brackets, so a paragraph full of them is fine,
+    // as is a short one after a `[` left open.
+    const links = "[link](https://example.com) ".repeat(600);
+    expect(splitCommentAtMarkdownLimit(links).rest).toBe("");
+    const unclosed = `see [1 ${"word ".repeat(200)}`;
+    expect(splitCommentAtMarkdownLimit(unclosed).rest).toBe("");
   });
 
   it("ends lines where the parser does, even at a lone carriage return", () => {
@@ -357,13 +381,15 @@ describe("splitCommentAtMarkdownLimit", () => {
   });
 
   it("stops following fences after a line that could hide one", () => {
-    // A fence inside an HTML block is HTML, and the block runs past a blank
-    // line. A fence opened in a quote or after spaces can be closed by a line
-    // that looks like an opening one. A backtick in a backtick fence's info
-    // string makes the line text.
+    // A fence inside an HTML block is HTML, and a comment or `<pre>` runs
+    // past a blank line. A fence opened in a quote or after spaces can be
+    // closed by a line that looks like an opening one. A backtick in a
+    // backtick fence's info string makes the line text.
     const tangled = "*a".repeat(1_001);
     for (const before of [
       "<div>\n```\n",
+      "<!-- x\n\n```\n-->\n",
+      "<pre>\n\n```\n</pre>\n",
       "  ```\n```\n",
       "> ```\n```\n",
       "``` a`b\n",
@@ -371,6 +397,18 @@ describe("splitCommentAtMarkdownLimit", () => {
       expect(
         splitCommentAtMarkdownLimit(`${before}\n${tangled}`).markdown,
       ).toBe(`${before}\n`);
+    }
+  });
+
+  it("follows fences again once a blank line ends an HTML block", () => {
+    const tangled = "*a".repeat(1_001);
+    for (const before of [
+      "<3 thanks",
+      "<Button> is wrong",
+      "<div>\nnote\n</div>",
+    ]) {
+      const body = `${before}\n\n\`\`\`\n${tangled}\n\`\`\`\n\nafter`;
+      expect(splitCommentAtMarkdownLimit(body).rest).toBe("");
     }
   });
 
