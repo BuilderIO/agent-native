@@ -1795,6 +1795,10 @@ describe("DatabaseView UI regressions", () => {
     const { chip } = await renderStatusFilteredTable();
     await mousePointerDown(chip);
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.querySelector("[data-menu-outside-click-shield]"),
+    ).not.toBeNull();
     const outside = document.createElement("button");
     document.body.append(outside);
     await act(async () => {
