@@ -83,6 +83,7 @@ import {
   resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
   resolveBuilderPreviewRelayTargetOrigin,
+  registerBuilderBranchProject,
   resolveBuilderBranchProjectId,
   runBuilderAgent,
   removeBuilderConnectStateCookie,
@@ -1649,6 +1650,42 @@ describe("Builder callback CSRF state", () => {
 
       await expect(resolveBuilderBranchProjectId()).resolves.toBe("");
       expect(resolverMocks.resolveSecret).not.toHaveBeenCalled();
+    });
+
+    describe("host-bound project", () => {
+      afterEach(() => registerBuilderBranchProject(null));
+
+      it("takes the project the host names over Dispatch and env settings", async () => {
+        resolverMocks.getRequestOrgId.mockReturnValue("org-123");
+        resolverMocks.getSetting.mockResolvedValue({
+          builderProjectId: "dispatch-project",
+        });
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => " host-project ");
+
+        await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+          "host-project",
+        );
+        expect(resolverMocks.getSetting).not.toHaveBeenCalled();
+      });
+
+      it("falls back to the usual lookups when the host names none", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(() => undefined);
+
+        await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+          "env-project",
+        );
+      });
+
+      it("fails closed when the host cannot name a project", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => {
+          throw new Error("no access");
+        });
+
+        await expect(resolveBuilderBranchProjectId()).resolves.toBe("");
+      });
     });
 
     it("keeps legacy fallbacks when no scoped Dispatch row exists", async () => {

@@ -837,6 +837,7 @@ export {
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  registerBuilderBranchProject,
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,

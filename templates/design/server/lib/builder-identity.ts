@@ -25,14 +25,21 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { ActionContractError } from "@agent-native/core/action";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
 import {
   deleteAppSecret,
   readAppSecret,
   writeAppSecret,
 } from "@agent-native/core/secrets";
-import { registerDelegatedBuilderCredentials } from "@agent-native/core/server";
-import { registerHostAccessResolver } from "@agent-native/core/sharing";
+import {
+  registerBuilderBranchProject,
+  registerDelegatedBuilderCredentials,
+} from "@agent-native/core/server";
+import {
+  assertAccess,
+  registerHostAccessResolver,
+} from "@agent-native/core/sharing";
 import { deleteCookie, getCookie, type H3Event } from "h3";
 import { createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
 
@@ -483,6 +490,22 @@ if (isBuilderIdentityEnabled()) {
       if (error instanceof BuilderUnavailableError && isOwner) return undefined;
       throw error;
     }
+  });
+}
+
+if (isBuilderIdentityEnabled()) {
+  // Code-change handoffs go to the Builder project of the design the user has
+  // open, not to a deployment-wide setting. Access is checked as for any read
+  // of that design, so a design the user cannot see names no project.
+  registerBuilderBranchProject(async () => {
+    const navigation = await readAppStateForCurrentTab("navigation");
+    const designId = navigation?.["designId"];
+    if (typeof designId !== "string" || !designId) return undefined;
+    const access = await assertAccess("design", designId, "viewer");
+    const app = readFusionApp(access.resource?.data);
+    // A local launch session has no Builder project to hand work to.
+    if (!app || app.projectId === "local") return undefined;
+    return app.projectId;
   });
 }
 
