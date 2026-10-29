@@ -468,6 +468,46 @@ describe("ReviewCommentComposer", () => {
     expect(state.mentions).toEqual([bob]);
   });
 
+  it("reports what follows the @ to the host, and an empty query once the picker closes", async () => {
+    const onMentionQueryChange = vi.fn();
+    await render(<Harness onMentionQueryChange={onMentionQueryChange} />);
+    keydown("@");
+    expect(onMentionQueryChange).not.toHaveBeenCalled();
+    typeText("al");
+    await act(async () => {});
+    expect(onMentionQueryChange).toHaveBeenLastCalledWith("al");
+    keydown("Escape");
+    expect(onMentionQueryChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("keeps the picker open, saying no one matched, when the host answers a query with no one", async () => {
+    function SearchedHarness() {
+      const [query, setQuery] = useState("");
+      return (
+        <Harness
+          mentionOptions={query === "zzz" ? [] : [alice, bob]}
+          onMentionQueryChange={setQuery}
+        />
+      );
+    }
+    await render(<SearchedHarness />);
+    keydown("@");
+    typeText("zzz");
+    await act(async () => {});
+    expect(mentionOptionLabels()).toEqual([]);
+    expect(mentionListbox()).toBeNull();
+    expect(document.body.textContent).toContain("No people found");
+  });
+
+  it("does not open a picker for a bare @ when there is no one to offer", async () => {
+    await render(
+      <Harness mentionOptions={[]} onMentionQueryChange={vi.fn()} />,
+    );
+    keydown("@");
+    await act(async () => {});
+    expect(document.body.textContent).not.toContain("No people found");
+  });
+
   it("filters the picker by what follows the @", async () => {
     await render(<Harness />);
     keydown("@");

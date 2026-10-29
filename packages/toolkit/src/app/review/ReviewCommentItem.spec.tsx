@@ -165,8 +165,8 @@ describe("ReviewCommentItem", () => {
     expect(container.querySelector("[data-review-reaction-bar]")).toBeNull();
   });
 
-  it("shows the clock time and a react button on a reply", () => {
-    const createdAt = new Date(2026, 6, 13, 14, 31).toISOString();
+  it("shows the age and a react button on a reply, and no clock time", () => {
+    const createdAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     render(
       <ReviewCommentItem
         comment={makeComment({ createdAt, parentCommentId: "comment-0" })}
@@ -175,12 +175,57 @@ describe("ReviewCommentItem", () => {
         canReact
       />,
     );
-    const clock = container.querySelector("[data-review-comment-clock]");
-    expect(clock?.textContent).toMatch(/^2:31\s?PM$/);
-    expect(clock?.className).toContain("font-mono");
+    const times = container.querySelectorAll("time");
+    expect(Array.from(times).map((time) => time.textContent)).toEqual([
+      "2 hours ago",
+    ]);
+    expect(container.querySelector("[data-review-comment-clock]")).toBeNull();
     expect(reactButton()).not.toBeNull();
-    const name = container.querySelector("span.truncate");
-    expect(name?.className).toContain("font-medium");
+  });
+
+  it("gives the first comment and a reply the same header and body type", () => {
+    const typeOf = (variant: "root" | "reply") => {
+      act(() =>
+        root.render(
+          <ReviewCommentItem
+            comment={makeComment({
+              parentCommentId: variant === "reply" ? "comment-0" : null,
+            })}
+            variant={variant}
+          />,
+        ),
+      );
+      return [
+        container.querySelector("span.truncate")?.className,
+        container.querySelector("time")?.className,
+        container.querySelector(".ps-8 > :first-child")?.className,
+      ];
+    };
+    expect(typeOf("reply")).toEqual(typeOf("root"));
+    expect(typeOf("root")).toEqual([
+      expect.stringContaining("text-sm font-semibold"),
+      expect.stringContaining("text-sm text-muted-foreground"),
+      expect.stringContaining("text-sm leading-6"),
+    ]);
+  });
+
+  it("puts the menu slot at the end of the header, ahead of the body", () => {
+    render(
+      <ReviewCommentItem
+        comment={makeComment({ parentCommentId: "comment-0" })}
+        variant="reply"
+        menu={<button type="button" data-test-menu />}
+      />,
+    );
+    const menu = container.querySelector("[data-test-menu]");
+    const body = container.querySelector("p");
+    expect(menu).not.toBeNull();
+    expect(
+      container.querySelector("time")?.compareDocumentPosition(menu!),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(menu?.compareDocumentPosition(body!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it("marks the portaled reaction picker as review UI", async () => {

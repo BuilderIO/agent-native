@@ -3284,6 +3284,7 @@ export default {
     updateFailed: "无法更新评论",
     commentsInCluster: "群组中的评论：{{count}}",
     moreActions: "更多操作",
+    moreActionsFor: "{{author}} 的更多操作",
     copyLink: "复制链接",
     linkCopied: "链接已复制",
     copyLinkFailed: "无法复制链接",
@@ -3348,7 +3349,6 @@ export default {
     },
     filtersActive: "已应用筛选",
     suggestChanges: "建议修改",
-    replyInThread: "在讨论中回复",
     applyChangesAndResolve: "应用修改并解决",
     agent: {
       sectionLabel: "智能体",

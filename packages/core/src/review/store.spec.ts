@@ -29,6 +29,7 @@ vi.mock("../db/client.js", () => ({
 const {
   __resetReviewInitForTests,
   consumeReviewFeedback,
+  deleteReviewComment,
   ensureReviewTables,
   getReviewStatus,
   insertReviewComment,
@@ -239,6 +240,75 @@ describe("review store", () => {
     ]);
     expect(comments[0].metadata).toEqual({ severity: "medium" });
     expect(comments[1].parentCommentId).toBe(root.id);
+  });
+
+  describe("deleteReviewComment", () => {
+    const thread = async (resourceId: string) => {
+      const root = await insertReviewComment({
+        resourceType: "plan",
+        resourceId,
+        body: "Root",
+        authorEmail: "alice@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      const reply = await insertReviewComment({
+        resourceType: "plan",
+        resourceId,
+        threadId: root.threadId,
+        parentCommentId: root.id,
+        body: "Reply",
+        authorEmail: "bob@example.com",
+        ownerEmail: "alice@example.com",
+      });
+      return { root, reply };
+    };
+    const liveBodies = async (resourceId: string) =>
+      (
+        await queryReviewComments({
+          resourceType: "plan",
+          resourceId,
+          scope: { userEmail: "alice@example.com" },
+        })
+      ).map((comment) => comment.body);
+
+    it("deletes the whole thread when its first comment is deleted", async () => {
+      const { root } = await thread("p1");
+      await thread("p2");
+
+      expect(await deleteReviewComment(root.id, "alice@example.com")).toBe(2);
+
+      expect(await liveBodies("p1")).toEqual([]);
+      expect(await liveBodies("p2")).toEqual(["Root", "Reply"]);
+    });
+
+    it("deletes only a reply when a reply is deleted", async () => {
+      const { reply } = await thread("p1");
+
+      expect(await deleteReviewComment(reply.id, "bob@example.com")).toBe(1);
+
+      expect(await liveBodies("p1")).toEqual(["Root"]);
+    });
+
+    it("keeps who deleted a reply that was already gone", async () => {
+      const { root, reply } = await thread("p1");
+      await deleteReviewComment(reply.id, "bob@example.com");
+
+      await deleteReviewComment(root.id, "alice@example.com");
+
+      const rows = await queryReviewComments({
+        resourceType: "plan",
+        resourceId: "p1",
+        scope: { userEmail: "alice@example.com" },
+        includeDeleted: true,
+      });
+      const byBody = Object.fromEntries(
+        rows.map((comment) => [comment.body, comment.deletedBy]),
+      );
+      expect(byBody).toEqual({
+        Root: "alice@example.com",
+        Reply: "bob@example.com",
+      });
+    });
   });
 
   it("keeps legacy replies when filtering comments by the root target", async () => {

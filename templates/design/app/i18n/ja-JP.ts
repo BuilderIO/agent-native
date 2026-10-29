@@ -3429,6 +3429,7 @@ export default {
     updateFailed: "コメントを更新できませんでした",
     commentsInCluster: "クラスター内のコメント: {{count}}",
     moreActions: "その他の操作",
+    moreActionsFor: "{{author}} のその他の操作",
     copyLink: "リンクをコピー",
     linkCopied: "リンクをコピーしました",
     copyLinkFailed: "リンクをコピーできませんでした",
@@ -3493,7 +3494,6 @@ export default {
     },
     filtersActive: "絞り込みを適用中",
     suggestChanges: "変更を提案",
-    replyInThread: "スレッドで返信",
     applyChangesAndResolve: "変更を適用して解決",
     agent: {
       sectionLabel: "エージェント",

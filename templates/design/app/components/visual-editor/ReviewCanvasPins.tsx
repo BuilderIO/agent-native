@@ -1,6 +1,5 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { useOrgMembers } from "@agent-native/core/client/org";
 import {
   useCreateReviewComment,
   useDeleteReviewComment,
@@ -24,6 +23,7 @@ import {
   ReviewAuthorAvatar,
   ReviewCommentComposer,
   ReviewCommentItem,
+  ReviewCommentMenu,
   ReviewThreadCardFrame,
   ReviewThreadMenu,
   type ReviewMentionOption,
@@ -80,6 +80,7 @@ import {
 } from "@/lib/review-agent/review-agent-context";
 import { firstAgentMention } from "@/lib/review-agent/review-agent-models";
 import type { ReviewAgentController } from "@/lib/review-agent/use-review-agent-requests";
+import { useReviewMentionPeople } from "@/lib/review-mention-people";
 import type { ReviewThreadAgentAction } from "@/lib/review-thread-agent-actions";
 import { cn } from "@/lib/utils";
 
@@ -1072,20 +1073,12 @@ export function ReviewCanvasPins({
       enabled: Boolean(!hidden && resourceType && resourceId),
     },
   );
-  const { data: organizationMembers } = useOrgMembers();
+  const { people: peopleMentionOptions, onMentionQueryChange } =
+    useReviewMentionPeople();
   const reviewAgentController = useReviewAgent();
   // Only editors get agent features; the server refuses everyone else too.
   const reviewAgent =
     canResolve && reviewAgentController?.enabled ? reviewAgentController : null;
-  const peopleMentionOptions = useMemo<ReviewMention[]>(
-    () =>
-      (organizationMembers?.members ?? []).map((member) => ({
-        label:
-          member.name?.trim() || member.email.split("@")[0] || member.email,
-        email: member.email,
-      })),
-    [organizationMembers?.members],
-  );
   const mentionOptions = useMemo<readonly ReviewMentionOption[]>(
     () => [...peopleMentionOptions, ...(reviewAgent?.mentionOptions ?? [])],
     [peopleMentionOptions, reviewAgent?.mentionOptions],
@@ -1135,6 +1128,8 @@ export function ReviewCanvasPins({
   const [deleteCandidate, setDeleteCandidate] = useState<ReviewComment | null>(
     null,
   );
+  // Deleting a reply leaves the card open, and the menu that held focus is gone.
+  const focusCardAfterDeleteRef = useRef(false);
   const [optimisticAnchors, setOptimisticAnchors] = useState<
     Record<string, DesignReviewAnchor>
   >({});
@@ -2878,6 +2873,11 @@ export function ReviewCanvasPins({
       ? hoverTargetClientRect(canvas, highlightTarget, frameNodeGeometry)
       : null;
 
+  // The first comment is the thread: deleting it takes the replies along.
+  const deletingThread = Boolean(
+    deleteCandidate &&
+    threads.some((thread) => thread.root.id === deleteCandidate.id),
+  );
   return createPortal(
     <div
       ref={overlayRootRef}
@@ -3048,20 +3048,28 @@ export function ReviewCanvasPins({
                   }
                   currentUserEmail={currentUserEmail}
                   canReply={canPost && thread.root.status === "open"}
-                  canEdit={Boolean(
-                    canPost &&
-                    normalizedCurrentUserEmail &&
-                    thread.root.authorEmail?.trim().toLowerCase() ===
-                      normalizedCurrentUserEmail,
-                  )}
-                  editing={editCandidate?.id === thread.root.id}
+                  canEditComment={(comment) =>
+                    Boolean(
+                      canPost &&
+                      normalizedCurrentUserEmail &&
+                      // An agent's comments carry its owner's address, but
+                      // the words are the agent's.
+                      resolveReviewAgent({
+                        createdBy: comment.createdBy,
+                        authorName: comment.authorName,
+                      }) === null &&
+                      comment.authorEmail?.trim().toLowerCase() ===
+                        normalizedCurrentUserEmail,
+                    )
+                  }
+                  editingCommentId={editCandidate?.id ?? null}
                   editDraft={editDraft}
                   editMentions={editMentions}
                   updating={updateComment.isPending}
-                  onEdit={() => {
-                    setEditCandidate(thread.root);
-                    setEditDraft(thread.root.body);
-                    setEditMentions([...thread.root.mentions]);
+                  onEdit={(comment) => {
+                    setEditCandidate(comment);
+                    setEditDraft(comment.body);
+                    setEditMentions([...comment.mentions]);
                   }}
                   onEditDraftChange={setEditDraft}
                   onEditMentionsChange={setEditMentions}
@@ -3074,8 +3082,12 @@ export function ReviewCanvasPins({
                   unread={threadIsUnread(thread.root.threadId)}
                   onCopyLink={() => void copyThreadLink(thread)}
                   onSetUnread={(unread) => setThreadUnread(thread, unread)}
-                  onDelete={() => setDeleteCandidate(thread.root)}
-                  canDelete={canPost && (thread.root.canDelete ?? false)}
+                  onDeleteThread={() => setDeleteCandidate(thread.root)}
+                  canDeleteThread={canPost && (thread.root.canDelete ?? false)}
+                  onDeleteComment={setDeleteCandidate}
+                  canDeleteComment={(comment) =>
+                    canPost && (comment.canDelete ?? false)
+                  }
                   onAgentAction={
                     onSendThreadToAgent &&
                     canResolve &&
@@ -3085,7 +3097,6 @@ export function ReviewCanvasPins({
                   }
                   agentItems={{
                     suggest: Boolean(reviewAgent),
-                    reply: Boolean(reviewAgent),
                     // The server re-checks; this hides the item for a board
                     // thread or a screen an agent cannot edit.
                     apply:
@@ -3103,6 +3114,7 @@ export function ReviewCanvasPins({
                   replyMentions={replyMentions}
                   mentionOptions={mentionOptions}
                   editMentionOptions={peopleMentionOptions}
+                  onMentionQueryChange={onMentionQueryChange}
                   replyAttachments={replyAttachments}
                   onReplyAttachmentsChange={setReplyAttachments}
                   onReplyDraftChange={setReplyDraft}
@@ -3223,6 +3235,7 @@ export function ReviewCanvasPins({
                     : mentionOptions
                 }
                 onMentionsChange={setDraftMentions}
+                onMentionQueryChange={onMentionQueryChange}
                 attachments={draftAttachments}
                 onAttachmentsChange={setDraftAttachments}
                 onChange={(value) => {
@@ -3275,13 +3288,25 @@ export function ReviewCanvasPins({
             "data-review-popover": "",
             "data-review-confirmation-overlay": "",
           }}
+          onCloseAutoFocus={(event) => {
+            if (!focusCardAfterDeleteRef.current) return;
+            focusCardAfterDeleteRef.current = false;
+            event.preventDefault();
+            document
+              .querySelector<HTMLElement>("[data-review-thread-card]")
+              ?.focus({ preventScroll: true });
+          }}
         >
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("review.deleteCommentTitle")}
+              {deletingThread
+                ? t("review.deleteThreadTitle")
+                : t("review.deleteCommentTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("review.deleteCommentDescription")}
+              {deletingThread
+                ? t("review.deleteThreadDescription")
+                : t("review.deleteCommentDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3295,13 +3320,19 @@ export function ReviewCanvasPins({
                 const candidate = deleteCandidate;
                 if (!candidate) return;
                 // The optimistic delete unmounts the pin before this succeeds.
-                const returnTo = focusReturnTo(candidate.threadId);
+                const returnTo = deletingThread
+                  ? focusReturnTo(candidate.threadId)
+                  : null;
                 deleteComment.mutate(
                   { resourceType, resourceId, commentId: candidate.id },
                   {
                     onSuccess: () => {
                       setDeleteCandidate(null);
-                      if (activeThreadIdRef.current === candidate.threadId) {
+                      if (!deletingThread) {
+                        focusCardAfterDeleteRef.current = true;
+                      } else if (
+                        activeThreadIdRef.current === candidate.threadId
+                      ) {
                         focusReturnRef.current = returnTo;
                         closeActiveThread();
                       }
@@ -3311,7 +3342,9 @@ export function ReviewCanvasPins({
                 );
               }}
             >
-              {t("review.deleteComment")}
+              {deletingThread
+                ? t("review.deleteThread")
+                : t("review.deleteComment")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3803,6 +3836,7 @@ function DraftComposer({
   mentions,
   mentionOptions,
   onMentionsChange,
+  onMentionQueryChange,
   attachments,
   onAttachmentsChange,
   onChange,
@@ -3817,6 +3851,7 @@ function DraftComposer({
   mentions: readonly ReviewMention[];
   mentionOptions: readonly ReviewMentionOption[];
   onMentionsChange: (mentions: ReviewMention[]) => void;
+  onMentionQueryChange: (query: string) => void;
   attachments: ReviewImageAttachment[];
   onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onChange: (value: string) => void;
@@ -3849,11 +3884,9 @@ function DraftComposer({
         }}
       >
         <div className="flex items-start gap-2 px-3 py-4">
-          <ReviewAuthorAvatar
+          <ReviewCurrentUserAvatar
             className="mt-0.5"
-            name={reviewUserLabel(currentUserEmail, t("review.reviewer"))}
             email={currentUserEmail}
-            size={24}
           />
           <ReviewCommentComposer
             className="min-w-0 flex-1"
@@ -3862,6 +3895,7 @@ function DraftComposer({
             mentions={mentions}
             onMentionsChange={onMentionsChange}
             mentionOptions={mentionOptions}
+            onMentionQueryChange={onMentionQueryChange}
             agentsLabel={t("review.agent.sectionLabel")}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
@@ -3923,8 +3957,8 @@ function ReviewThreadPopover({
   replying,
   resolving,
   canReply,
-  canEdit,
-  editing,
+  canEditComment,
+  editingCommentId,
   editDraft,
   editMentions,
   updating,
@@ -3936,8 +3970,10 @@ function ReviewThreadPopover({
   unread,
   onCopyLink,
   onSetUnread,
-  onDelete,
-  canDelete,
+  onDeleteThread,
+  canDeleteThread,
+  onDeleteComment,
+  canDeleteComment,
   onAgentAction,
   agentItems,
   agentActionsDisabled,
@@ -3948,6 +3984,7 @@ function ReviewThreadPopover({
   replyMentions,
   mentionOptions,
   editMentionOptions,
+  onMentionQueryChange,
   replyAttachments,
   onReplyAttachmentsChange,
   onReplyDraftChange,
@@ -3964,12 +4001,12 @@ function ReviewThreadPopover({
   replying: boolean;
   resolving: boolean;
   canReply: boolean;
-  canEdit: boolean;
-  editing: boolean;
+  canEditComment: (comment: ReviewComment) => boolean;
+  editingCommentId: string | null;
   editDraft: string;
   editMentions: readonly ReviewMention[];
   updating: boolean;
-  onEdit: () => void;
+  onEdit: (comment: ReviewComment) => void;
   onEditDraftChange: (value: string) => void;
   onEditMentionsChange: (mentions: ReviewMention[]) => void;
   onEditCancel: () => void;
@@ -3977,12 +4014,15 @@ function ReviewThreadPopover({
   unread: boolean;
   onCopyLink: () => void;
   onSetUnread: (unread: boolean) => void;
-  onDelete: () => void;
-  canDelete: boolean;
+  /** Deletes the thread and its replies. */
+  onDeleteThread: () => void;
+  canDeleteThread: boolean;
+  onDeleteComment: (comment: ReviewComment) => void;
+  canDeleteComment: (comment: ReviewComment) => boolean;
   /** Set only for editors on an open thread; it backs the agent menu items. */
   onAgentAction: ((action: ReviewThreadAgentAction) => void) | undefined;
   /** Send to agent always shows; the review-agent items need a connected controller. */
-  agentItems: { suggest: boolean; reply: boolean; apply: boolean };
+  agentItems: { suggest: boolean; apply: boolean };
   agentActionsDisabled: boolean;
   reviewAgent: ReviewAgentController | null;
   anchor: ReviewPopoverAnchor;
@@ -3992,6 +4032,7 @@ function ReviewThreadPopover({
   mentionOptions: readonly ReviewMentionOption[];
   /** A comment edit never starts a run, so it offers people only. */
   editMentionOptions: readonly ReviewMention[];
+  onMentionQueryChange: (query: string) => void;
   replyAttachments: ReviewImageAttachment[];
   onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
   onReplyDraftChange: (value: string) => void;
@@ -4005,8 +4046,9 @@ function ReviewThreadPopover({
   // The card takes focus when it opens, and again once an edit ends. The reply
   // field stays collapsed until the user goes there, and an edit focuses its own editor.
   useEffect(() => {
-    if (!editing) cardRef.current?.focus({ preventScroll: true });
-  }, [editing]);
+    if (editingCommentId === null)
+      cardRef.current?.focus({ preventScroll: true });
+  }, [editingCommentId]);
   const replyImages = useReviewImageAttachments({
     attachments: replyAttachments,
     disabled: replying || resolving,
@@ -4053,13 +4095,34 @@ function ReviewThreadPopover({
       onReact={(target, reaction, active) =>
         onReact(target.id, reaction, active)
       }
+      menu={
+        <ReviewCommentMenu
+          moreActionsLabel={t("review.moreActions")}
+          ariaLabel={t("review.moreActionsFor", {
+            author:
+              comment.authorName?.trim() ||
+              comment.authorEmail?.trim() ||
+              t("review.reviewer"),
+          })}
+          editLabel={t("review.editComment")}
+          deleteLabel={t("review.deleteComment")}
+          onEdit={canEditComment(comment) ? () => onEdit(comment) : undefined}
+          // The first comment is the thread; its delete is the thread menu's.
+          onDelete={
+            variant === "reply" && canDeleteComment(comment)
+              ? () => onDeleteComment(comment)
+              : undefined
+          }
+        />
+      }
       editor={
-        variant === "root" && editing ? (
+        editingCommentId === comment.id ? (
           <ReviewCommentComposer
             value={editDraft}
             mentions={editMentions}
             onMentionsChange={onEditMentionsChange}
             mentionOptions={editMentionOptions}
+            onMentionQueryChange={onMentionQueryChange}
             showCommentTools
             emojiLabel={t("review.addEmoji")}
             mentionLabel={t("review.mention")}
@@ -4089,22 +4152,15 @@ function ReviewThreadPopover({
             moreActionsLabel={t("review.moreActions")}
             sendToAgentLabel={t("review.sendToAgent")}
             suggestChangesLabel={t("review.suggestChanges")}
-            replyInThreadLabel={t("review.replyInThread")}
             applyAndResolveLabel={t("review.applyChangesAndResolve")}
             copyLinkLabel={t("review.copyLink")}
             linkCopiedLabel={t("review.linkCopied")}
             copyLinkFailedLabel={t("review.copyLinkFailed")}
-            editLabel={t("review.editComment")}
-            deleteLabel={t("review.deleteComment")}
+            deleteLabel={t("review.deleteThread")}
             onSendToAgent={onAgentAction && (() => onAgentAction("send"))}
             onSuggestChanges={
               onAgentAction && agentItems.suggest
                 ? () => onAgentAction("suggest")
-                : undefined
-            }
-            onReplyInThread={
-              onAgentAction && agentItems.reply
-                ? () => onAgentAction("reply")
                 : undefined
             }
             onApplyAndResolve={
@@ -4113,10 +4169,8 @@ function ReviewThreadPopover({
                 : undefined
             }
             agentActionsDisabled={agentActionsDisabled}
-            canEdit={canEdit}
-            onEdit={onEdit}
             onCopyLink={onCopyLink}
-            onDelete={canDelete ? onDelete : undefined}
+            onDelete={canDeleteThread ? onDeleteThread : undefined}
           />
         }
         resolved={resolvedStatus}
@@ -4153,11 +4207,7 @@ function ReviewThreadPopover({
         {canReply ? (
           <div className="group/reply flex items-start gap-2 px-3 py-4">
             <div className="mt-2 shrink-0 group-has-data-expanded/reply:mt-0.5">
-              <ReviewAuthorAvatar
-                name={reviewUserLabel(currentUserEmail, t("review.reviewer"))}
-                email={currentUserEmail}
-                size={24}
-              />
+              <ReviewCurrentUserAvatar email={currentUserEmail} />
             </div>
             <ReviewCommentComposer
               className="min-w-0 flex-1"
@@ -4166,6 +4216,7 @@ function ReviewThreadPopover({
               mentions={replyMentions}
               onMentionsChange={onReplyMentionsChange}
               mentionOptions={mentionOptions}
+              onMentionQueryChange={onMentionQueryChange}
               agentsLabel={t("review.agent.sectionLabel")}
               showCommentTools
               commentToolsEnd={replyImages.toolsEnd}
@@ -4187,6 +4238,35 @@ function ReviewThreadPopover({
         ) : null}
       </ReviewThreadCardFrame>
     </ReviewPopoverFrame>
+  );
+}
+
+/**
+ * The signed-in person beside their own composer, named the way their comments
+ * are: by display name, so their initials match the card and the pin.
+ */
+function ReviewCurrentUserAvatar({
+  email,
+  className,
+}: {
+  email: string | null | undefined;
+  className?: string;
+}) {
+  const t = useT();
+  const { session } = useSession();
+  const isSessionUser =
+    Boolean(email?.trim()) &&
+    session?.email.trim().toLowerCase() === email?.trim().toLowerCase();
+  return (
+    <ReviewAuthorAvatar
+      {...(className ? { className } : {})}
+      name={
+        (isSessionUser && session?.name?.trim()) ||
+        reviewUserLabel(email, t("review.reviewer"))
+      }
+      email={email}
+      size={24}
+    />
   );
 }
 

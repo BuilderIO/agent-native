@@ -51,6 +51,12 @@ export interface ReviewCommentComposerProps {
   mentions?: readonly ReviewMention[] | undefined;
   onMentionsChange?: ((mentions: ReviewMention[]) => void) | undefined;
   mentionOptions?: readonly ReviewMentionOption[] | undefined;
+  /**
+   * Called with the text after an `@` as it changes, and with "" once the
+   * picker closes. A host that searches its people list server-side narrows
+   * `mentionOptions` from it.
+   */
+  onMentionQueryChange?: ((query: string) => void) | undefined;
   showCommentTools?: boolean | undefined;
   /** Rendered at the end of the left tools group, e.g. an image button. */
   commentToolsEnd?: ReactNode;
@@ -96,6 +102,7 @@ export function ReviewCommentComposer({
   mentions = [],
   onMentionsChange,
   mentionOptions = [],
+  onMentionQueryChange,
   showCommentTools = false,
   commentToolsEnd,
   attachments,
@@ -153,7 +160,12 @@ export function ReviewCommentComposer({
     return () => cancelAnimationFrame(frame);
   }, [autoFocus, editorReady]);
 
-  const mentionMenuOpen = mentionOpen && mentionOptions.length > 0;
+  // A host that searches server-side can answer a typed query with no one at
+  // all; the picker then says so instead of closing under the caret.
+  const mentionMenuOpen =
+    mentionOpen &&
+    (mentionOptions.length > 0 ||
+      (onMentionQueryChange !== undefined && mentionQuery !== ""));
 
   const filteredMentionOptions = mentionOptions.filter((mention) => {
     const query = mentionQuery.trim().toLowerCase();
@@ -172,6 +184,7 @@ export function ReviewCommentComposer({
 
   const closeMention = () => {
     mentionArmedRef.current = false;
+    if (mentionQueryRef.current !== "") onMentionQueryChange?.("");
     mentionQueryRef.current = "";
     setMentionOpen(false);
     setMentionQuery("");
@@ -188,6 +201,7 @@ export function ReviewCommentComposer({
     if (mentionQueryRef.current !== trigger.query) {
       mentionQueryRef.current = trigger.query;
       setMentionQuery(trigger.query);
+      onMentionQueryChange?.(trigger.query);
       setMentionActiveIndex(0);
     }
   };

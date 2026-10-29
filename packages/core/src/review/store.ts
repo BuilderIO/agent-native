@@ -1283,14 +1283,20 @@ export async function deleteReviewComment(
 ): Promise<number> {
   await ensureReviewTables();
   const now = new Date().toISOString();
+  // A thread's first comment is the thread. Replies left behind would have no
+  // root for any list to hang them on, but would still sit in the table.
+  // raw-sql-ok: the statement is constant text; the ids and actor are bound.
   const result = await getDbExec().execute({
     sql: `UPDATE agent_review_comments
         SET status = 'deleted',
             deleted_by = ?,
             deleted_at = ?,
             updated_at = ?
-      WHERE id = ?`,
-    args: [deletedBy ?? null, now, now, id],
+      WHERE id = ?
+         OR (deleted_at IS NULL AND thread_id = (
+              SELECT thread_id FROM agent_review_comments
+               WHERE id = ? AND parent_comment_id IS NULL))`,
+    args: [deletedBy ?? null, now, now, id, id],
   });
   return result.rowsAffected ?? 0;
 }

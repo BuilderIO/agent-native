@@ -3435,6 +3435,7 @@ export default {
     updateFailed: "No se pudo actualizar el comentario",
     commentsInCluster: "Comentarios en el grupo: {{count}}",
     moreActions: "Más acciones",
+    moreActionsFor: "Más acciones para {{author}}",
     copyLink: "Copiar enlace",
     linkCopied: "Enlace copiado",
     copyLinkFailed: "No se pudo copiar el enlace",
@@ -3509,7 +3510,6 @@ export default {
     },
     filtersActive: "Filtros aplicados",
     suggestChanges: "Sugerir cambios",
-    replyInThread: "Responder en el hilo",
     applyChangesAndResolve: "Aplicar cambios y resolver",
     agent: {
       sectionLabel: "Agentes",

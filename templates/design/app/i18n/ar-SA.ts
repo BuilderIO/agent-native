@@ -3360,6 +3360,7 @@ export default {
     updateFailed: "تعذر تحديث التعليق",
     commentsInCluster: "التعليقات في المجموعة: {{count}}",
     moreActions: "مزيد من الإجراءات",
+    moreActionsFor: "مزيد من الإجراءات لـ {{author}}",
     copyLink: "نسخ الرابط",
     linkCopied: "تم نسخ الرابط",
     copyLinkFailed: "تعذر نسخ الرابط",
@@ -3444,7 +3445,6 @@ export default {
     },
     filtersActive: "تم تطبيق التصفية",
     suggestChanges: "اقتراح تعديلات",
-    replyInThread: "الرد في المحادثة",
     applyChangesAndResolve: "تطبيق التعديلات وحل المحادثة",
     agent: {
       sectionLabel: "الوكلاء",

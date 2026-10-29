@@ -3326,6 +3326,7 @@ export default {
     updateFailed: "Could not update the comment",
     commentsInCluster: "Comments in cluster: {{count}}",
     moreActions: "More actions",
+    moreActionsFor: "More actions for {{author}}",
     copyLink: "Copy link",
     linkCopied: "Link copied",
     copyLinkFailed: "Could not copy link",
@@ -3396,7 +3397,6 @@ export default {
     },
     filtersActive: "Filters applied",
     suggestChanges: "Suggest changes",
-    replyInThread: "Reply in thread",
     applyChangesAndResolve: "Apply changes and resolve",
     agent: {
       sectionLabel: "Agents",

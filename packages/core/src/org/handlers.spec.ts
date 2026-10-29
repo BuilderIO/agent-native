@@ -1051,6 +1051,24 @@ describe("org handlers", () => {
     expect(mockGetUserProfiles).toHaveBeenCalledWith(["bob@example.test"]);
   });
 
+  it("never lists a member whose removal is pending, paged or searched", async () => {
+    mockExecute.mockImplementation(async ({ sql }: { sql: string }) => ({
+      rows: sql.includes("COUNT(*) AS") ? [{ totalCount: 0 }] : [],
+    }));
+    mockGetUserProfiles.mockResolvedValue(new Map());
+
+    await listMembersHandler(makeEvent("/_agent-native/org/members?limit=25"));
+    await listMembersHandler(
+      makeEvent("/_agent-native/org/members?search=smith&limit=25"),
+    );
+
+    const statements = mockExecute.mock.calls.map(([call]) => call.sql);
+    expect(statements.length).toBeGreaterThanOrEqual(3);
+    for (const sql of statements) {
+      expect(sql).toContain("federation_removal_pending_at IS NULL");
+    }
+  });
+
   it("keeps SQL name matches when profile hydration is partial", async () => {
     mockExecute.mockResolvedValueOnce({
       rows: [

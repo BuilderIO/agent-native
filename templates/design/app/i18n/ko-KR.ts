@@ -3393,6 +3393,7 @@ export default {
     updateFailed: "댓글을 업데이트할 수 없습니다",
     commentsInCluster: "클러스터의 댓글: {{count}}",
     moreActions: "추가 작업",
+    moreActionsFor: "{{author}}에 대한 추가 작업",
     copyLink: "링크 복사",
     linkCopied: "링크 복사됨",
     copyLinkFailed: "링크를 복사할 수 없습니다",
@@ -3457,7 +3458,6 @@ export default {
     },
     filtersActive: "필터 적용됨",
     suggestChanges: "변경 제안",
-    replyInThread: "스레드에 답글 달기",
     applyChangesAndResolve: "변경 사항 적용 후 해결",
     agent: {
       sectionLabel: "에이전트",
