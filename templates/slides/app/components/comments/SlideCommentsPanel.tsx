@@ -4,7 +4,7 @@ import {
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
@@ -259,8 +259,8 @@ export function CommentItem({
             </div>
           </div>
         ) : (
-          <InlineMarkdown
-            content={comment.content}
+          <CommentBody
+            body={comment.content}
             className="mt-0.5 text-[12px] leading-relaxed text-foreground/90"
           />
         )}

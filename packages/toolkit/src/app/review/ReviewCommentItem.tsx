@@ -7,7 +7,7 @@ import { cn } from "@agent-native/toolkit/utils";
 import { IconCircleCheck } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
-import { InlineMarkdown } from "./InlineMarkdown.js";
+import { CommentBody } from "./CommentBody.js";
 import { resolveReviewAgent } from "./review-agent.js";
 import { ReviewAuthorAvatar } from "./ReviewAuthorAvatar.js";
 import {
@@ -164,8 +164,9 @@ export function ReviewCommentItem({
       </div>
       <div className="min-w-0 ps-8">
         {!bodyIsResolutionNote ? (
-          <InlineMarkdown
-            content={displayReviewCommentBody(comment.body)}
+          <CommentBody
+            body={comment.body}
+            mentions={comment.mentions}
             className="text-sm leading-5 text-foreground"
           />
         ) : null}
@@ -175,8 +176,8 @@ export function ReviewCommentItem({
             aria-label={resolvedLabel}
           >
             <IconCircleCheck className="mt-0.5 size-3.5 shrink-0" />
-            <InlineMarkdown
-              content={displayReviewCommentBody(resolutionNote)}
+            <CommentBody
+              body={resolutionNote}
               className="min-w-0 text-xs leading-4"
             />
           </div>
@@ -314,10 +315,6 @@ export function isTrustedReviewAttachmentUrl(value: string): boolean {
   if (typeof window !== "undefined" && parsed.origin === window.location.origin)
     return true;
   return parsed.protocol === "https:" && parsed.hostname === "cdn.builder.io";
-}
-
-function displayReviewCommentBody(body: string): string {
-  return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
 function getReviewResolutionNote(comment: ReviewComment): string | null {

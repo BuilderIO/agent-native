@@ -30,6 +30,8 @@ status such as draft, review, approved, or needs changes.
 | `ReviewStatusBadge`            | Controlled status badge for app headers, sidebars, and review panels.                                                                                             |
 | Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
 | Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
+| `CommentBody`                  | Draws a comment's Markdown the same way in every app, with mention chips and a `compact` mode for previews.                                                       |
+| `commentPlainText()`           | Plain text for emails and webhooks, from `@agent-native/core/review/plain-text`; `commentExcerpt()` puts it on one line and shortens it.                          |
 
 ## Shared Model {#shared-model}
 
@@ -110,10 +112,8 @@ actions and thread UI.
 
 ## What's next
 
-- [**Plan**](/docs/template-plan) — a template that uses review threads for
-  plan feedback.
-- [**Content**](/docs/template-content) — a template that uses review threads
-  for editorial approval.
+- [**Design**](/docs/template-design) — a template that uses review threads
+  for comments pinned to its screens.
 - [**Sharing Kit**](/docs/toolkit-sharing) — the access model reviewable
   resources can reuse.
 - [**History Kit**](/docs/toolkit-history) — version history alongside the

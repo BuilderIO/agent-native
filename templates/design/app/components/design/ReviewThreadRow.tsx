@@ -1,5 +1,6 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
+  CommentBody,
   formatReviewCommentRelativeTime,
   resolveReviewAgent,
   type ReviewThread,
@@ -70,14 +71,15 @@ export function ReviewThreadRow({
         agent={agent}
         size={16}
       />
-      <span
+      <CommentBody
+        compact
+        body={root.body}
+        mentions={root.mentions}
         className={cn(
-          "min-w-0 flex-1 truncate text-[11px] leading-4 text-foreground",
+          "min-w-0 flex-1 truncate whitespace-nowrap text-[11px] leading-4 text-foreground",
           unread && "font-medium",
         )}
-      >
-        {reviewThreadPreview(root.body)}
-      </span>
+      />
       <span className="flex shrink-0 items-center gap-1">
         {resolved ? (
           <IconCircleCheck
@@ -97,20 +99,5 @@ export function ReviewThreadRow({
         </time>
       </span>
     </button>
-  );
-}
-
-/**
- * The first non-empty line of a comment as plain text. The mention markup is
- * `@[name](mailto:…)`; the toolkit keeps its equivalent private, so the same
- * rule lives here.
- */
-export function reviewThreadPreview(body: string): string {
-  const plain = body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
-  return (
-    plain
-      .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.length > 0) ?? ""
   );
 }

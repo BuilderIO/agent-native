@@ -1,5 +1,5 @@
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import { useEffect, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -230,8 +230,9 @@ export function CommentPreview({
           <p className="truncate text-xs font-semibold text-background/80 dark:text-foreground/80">
             {author}
           </p>
-          <InlineMarkdown
-            content={comment.content}
+          <CommentBody
+            compact
+            body={comment.content}
             className="line-clamp-3 text-sm leading-5 text-background dark:text-foreground"
             linkClassName="text-background underline decoration-background/60 hover:decoration-background dark:text-foreground dark:decoration-foreground/60 dark:hover:decoration-foreground"
             codeClassName="bg-background/15 text-background dark:bg-foreground/15 dark:text-foreground"

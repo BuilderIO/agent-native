@@ -622,6 +622,7 @@
     "./org/workspace-url": "./dist/org/workspace-url.js",
     "./progress/types": "./dist/progress/types.js",
     "./resources/pack-constants": "./dist/resources/pack-constants.js",
+    "./review/plain-text": "./dist/review/plain-text.js",
     "./review/types": "./dist/review/types.js",
     "./secrets/api-keys": "./dist/secrets/api-keys.js",
     "./secrets/key-aliases": "./dist/secrets/key-aliases.js",

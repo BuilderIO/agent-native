@@ -1,3 +1,4 @@
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import {
   emailStrong,
   getAppProductionUrl,
@@ -69,13 +70,10 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function commentExcerpt(message: string): string {
-  const normalized = message.replace(/\s+/g, " ").trim();
-  const excerpt =
-    normalized.length > 260
-      ? `${normalized.slice(0, 257).trim()}...`
-      : normalized;
-  return escapeHtml(excerpt || "Open the plan to read the comment.");
+function emailCommentExcerpt(message: string): string {
+  return escapeHtml(
+    commentExcerpt(message, 260) || "Open the plan to read the comment.",
+  );
 }
 
 function appPath(path: string): string {
@@ -225,7 +223,7 @@ export function renderPlanCommentEmail(input: {
         : "New comment on your plan",
       paragraphs: [
         `${emailStrong(input.actor)} ${actionText} ${emailStrong(input.planTitle)}.`,
-        `Comment: "${commentExcerpt(input.message)}"`,
+        `Comment: "${emailCommentExcerpt(input.message)}"`,
       ],
       cta: { label: "Open plan", url: input.planUrl },
       footer:

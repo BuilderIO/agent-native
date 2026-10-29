@@ -7,6 +7,7 @@ import { getAppProductionUrl } from "../server/app-url.js";
 import { emailStrong, renderEmail } from "../server/email-template.js";
 import { sendEmail } from "../server/email.js";
 import { filterRecipientsByResourceAccess } from "../sharing/recipients.js";
+import { commentExcerpt } from "./plain-text.js";
 import {
   getReviewableResource,
   resolveReviewableResourceAccess,
@@ -25,14 +26,6 @@ import type { ReviewComment } from "./types.js";
 export const REVIEW_NOTIFICATION_PREFS_KEY = "activity-notification-prefs";
 
 const LOG_LABEL = "[review] comment notification";
-const EXCERPT_LIMIT = 240;
-
-function excerpt(body: string): string {
-  const collapsed = body.replace(/\s+/g, " ").trim();
-  return collapsed.length > EXCERPT_LIMIT
-    ? `${collapsed.slice(0, EXCERPT_LIMIT - 1)}…`
-    : collapsed;
-}
 
 async function resourceUrl(comment: ReviewComment): Promise<string> {
   const registration = getReviewableResource(comment.resourceType);
@@ -156,7 +149,7 @@ async function deliverReviewCommentEmails(
           : isReply
             ? "New reply in a review thread"
             : "New review comment",
-        paragraphs: [lead, `"${excerpt(comment.body)}"`],
+        paragraphs: [lead, `"${commentExcerpt(comment.body)}"`],
         cta: { label: "Open review", url },
         footer:
           "You received this because you own, were mentioned in, or participated in this review thread.",

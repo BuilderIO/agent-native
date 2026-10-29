@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Children, type ReactNode } from "react";
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
@@ -120,7 +120,11 @@ export function InlineMarkdown({
           codeClassName,
         )}
       >
-        {children}
+        {Children.map(children, (child) =>
+          typeof child === "string"
+            ? restoreProtectedSpanSource(child, protectedSpans)
+            : child,
+        )}
       </code>
     ),
     p: ({ children }) =>
@@ -259,6 +263,23 @@ function protectInlineMarkdownSpans(
     cursor = end;
   }
   return markdown + content.slice(cursor);
+}
+
+// The link `protectInlineMarkdownSpans` writes for a span: its escaped label,
+// then PROTECTED_SPAN_PREFIX and the span's index.
+const PROTECTED_SPAN_LINK =
+  /\[(?:\\[\\[\]]|[^\\[\]])*\]\(https:\/\/inline-markdown-protected\.invalid\/span\/(\d+)\)/g;
+
+// Markdown leaves link syntax inside code as text, so a span protected there
+// would show its placeholder link; code shows the span's original text.
+function restoreProtectedSpanSource(
+  text: string,
+  spans: readonly InlineMarkdownProtectedSpan[],
+): string {
+  return text.replace(
+    PROTECTED_SPAN_LINK,
+    (link, index: string) => spans[Number(index)]?.source ?? link,
+  );
 }
 
 function escapeProtectedSpanLabel(label: string): string {

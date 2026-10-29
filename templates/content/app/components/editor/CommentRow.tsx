@@ -1,5 +1,5 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import {
   findCommentMentions,
   type CommentMention,
@@ -29,12 +29,12 @@ export { CommentAvatar } from "./CommentAvatar";
  */
 
 /**
- * Render a comment body. Each `@name` that matches one of the comment's
- * stored mentions becomes a pill for that person or agent; text that only
- * looks like a mention stays text. Raw HTML is never interpreted.
+ * Render a comment body with the toolkit's `CommentBody`. Each `@name` that
+ * matches one of the comment's stored mentions becomes a pill for that person
+ * or agent; text that only looks like a mention stays text. Links to other
+ * pages open in the app.
  *
- * Paragraphs, lists, quotes and code blocks keep their shape; `compact`
- * flattens them to one run of text for clamped previews.
+ * `compact` flattens the body to one run of text for clamped previews.
  */
 export function renderCommentBody(
   content: string,
@@ -48,23 +48,17 @@ export function renderCommentBody(
     ]),
   );
   return (
-    <InlineMarkdown
-      content={content}
-      inline={compact}
-      renderLists
-      protectedSpans={[...mentionAt].map(([at, mention]) => ({
-        source: `@${mention.name}`,
-        label: `@${mention.name}`,
+    <CommentBody
+      body={content}
+      compact={compact}
+      mentions={[...mentionAt].map(([at, mention]) => ({
+        label: mention.name,
         at,
+        kind: mention.kind,
       }))}
-      renderProtectedSpan={(span, children) => {
-        const mention =
-          span.at === undefined ? undefined : mentionAt.get(span.at);
-        return mention ? (
-          <CommentMentionPill mention={mention} />
-        ) : (
-          <span>{children}</span>
-        );
+      renderMention={({ at }) => {
+        const mention = at === undefined ? undefined : mentionAt.get(at);
+        return mention ? <CommentMentionPill mention={mention} /> : null;
       }}
       renderLink={(href, children, className) =>
         href.startsWith("/page/") ? (

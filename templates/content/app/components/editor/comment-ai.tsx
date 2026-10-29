@@ -9,7 +9,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import type {
   CommentAiIntent,
   CommentAiRequest,
@@ -33,7 +32,7 @@ import {
   modelDisplayName,
 } from "./agent-identity";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
-import { CommentAgentBadge, CommentRow } from "./CommentRow";
+import { CommentAgentBadge, CommentRow, renderCommentBody } from "./CommentRow";
 
 const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "classifying",
@@ -1373,7 +1372,7 @@ export function CommentAiConversation({
               ) : null
             }
           >
-            <InlineMarkdown content={turn.assistantText!} />
+            {renderCommentBody(turn.assistantText!, [])}
           </CommentRow>
         ))}
     </div>

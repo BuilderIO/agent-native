@@ -512,7 +512,7 @@ describe("content webhooks", () => {
     );
 
     const comment = await asOwner(() =>
-      addComment.run({ documentId: row.documentId, content: "Your turn" }),
+      addComment.run({ documentId: row.documentId, content: "Your **turn**" }),
     );
     await settled(pageHook.id, 1);
     await asOwner(() => updateComment.run({ id: comment.id, resolved: true }));
@@ -534,7 +534,8 @@ describe("content webhooks", () => {
         threadId: comment.id,
         parentId: null,
         authorEmail: OWNER,
-        content: "Your turn",
+        content: "Your **turn**",
+        contentText: "Your turn",
         resolved: false,
       },
     });
@@ -1217,6 +1218,7 @@ describe("content webhooks", () => {
     expect(value.truncated).toBe(true);
     expect(short).toMatchObject({ content: "short", truncated: false });
     expect(long.content).toHaveLength(2_000);
+    expect(long.contentText).toHaveLength(2_000);
     expect(long.truncated).toBe(true);
   });
 

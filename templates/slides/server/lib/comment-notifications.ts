@@ -1,3 +1,4 @@
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import {
   emailStrong,
   notifyActivity,
@@ -19,14 +20,6 @@ export type SlidesCommentNotificationResult =
   | { status: "deck-missing"; sent: []; failed: [] };
 
 const LOG_LABEL = "[slides] comment notification";
-const EXCERPT_LIMIT = 240;
-
-function excerpt(content: string): string {
-  const collapsed = content.replace(/\s+/g, " ").trim();
-  return collapsed.length > EXCERPT_LIMIT
-    ? `${collapsed.slice(0, EXCERPT_LIMIT - 1)}…`
-    : collapsed;
-}
 
 function deckUrl(deckId: string, slideNumber: number | null): string {
   const base = getDeckUrl(deckId);
@@ -107,7 +100,7 @@ export function renderDeckCommentEmail({
         isReply
           ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(title)}.`
           : `${emailStrong(actor)} commented on ${emailStrong(title)}.`,
-        `"${excerpt(content)}"`,
+        `"${commentExcerpt(content)}"`,
       ],
       cta: { label: "Open deck", url },
       footer:

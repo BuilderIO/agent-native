@@ -3,10 +3,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
-} from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import {
   IconArrowUp,
   IconMessageCircle,
@@ -1320,12 +1317,11 @@ function CommentCard({
           />
         ) : (
           <>
-            <InlineMarkdown
-              content={comment.content}
+            <CommentBody
+              body={comment.content}
+              mentions={comment.mentions?.map(({ name }) => ({ label: name }))}
               className="mt-0.5 text-sm leading-5 text-foreground [overflow-wrap:anywhere]"
               linkClassName="text-link underline-offset-2 hover:underline"
-              renderLists
-              protectedSpans={commentMentionSpans(comment.mentions)}
             />
 
             <div
@@ -1488,19 +1484,6 @@ function mentionArgs(
 ): { mentions?: CommentMention[] } {
   const present = mentionsForCommentText(text, mentions);
   return present.length > 0 ? { mentions: present } : {};
-}
-
-function commentMentionSpans(
-  mentions: readonly CommentMentionDisplay[] | null | undefined,
-): InlineMarkdownProtectedSpan[] {
-  const labels = Array.from(
-    new Set((mentions ?? []).map((mention) => mention.name)),
-  ).sort((a, b) => b.length - a.length);
-  return labels.map((name) => ({
-    source: `@${name}`,
-    label: `@${name}`,
-    className: "comment-mention font-medium text-primary",
-  }));
 }
 
 function initials(name: string): string {

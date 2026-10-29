@@ -1,3 +1,4 @@
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
 import {
   emailStrong,
   getAppProductionUrl,
@@ -21,7 +22,6 @@ import {
 export type DocumentCommentNotificationResult = ActivityNotificationResult;
 
 const LOG_LABEL = "[content] comment notification";
-const EXCERPT_LIMIT = 240;
 
 function escapeEmailText(value: string): string {
   return value
@@ -30,13 +30,6 @@ function escapeEmailText(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function excerpt(content: string): string {
-  const collapsed = content.replace(/\s+/g, " ").trim();
-  return collapsed.length > EXCERPT_LIMIT
-    ? `${collapsed.slice(0, EXCERPT_LIMIT - 1)}…`
-    : collapsed;
 }
 
 function commentUrl(documentId: string, threadId: string): string {
@@ -124,9 +117,9 @@ export function renderDocumentCommentEmail({
         ? [
             escapeEmailText(attribution),
             lead,
-            `"${escapeEmailText(excerpt(content))}"`,
+            `"${escapeEmailText(commentExcerpt(content))}"`,
           ]
-        : [lead, `"${escapeEmailText(excerpt(content))}"`],
+        : [lead, `"${escapeEmailText(commentExcerpt(content))}"`],
       cta: { label: "Open document", url },
       footer:
         "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",

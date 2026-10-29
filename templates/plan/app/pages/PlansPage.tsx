@@ -37,10 +37,7 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
-import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
-} from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
@@ -1008,46 +1005,6 @@ export function defaultInlineCommentDraftForPlanContext(input: {
     mentions: [mention],
     resolutionTarget: "human",
   };
-}
-
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function renderCommentMessage(message: string) {
-  const protectedSpans: InlineMarkdownProtectedSpan[] = [];
-  const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(message)) !== null) {
-    const label = match[1] ?? "";
-    const email = safeDecodeURIComponent(match[2] ?? "");
-    protectedSpans.push({
-      source: match[0],
-      label: label || email,
-      title: email,
-    });
-  }
-  return (
-    <InlineMarkdown
-      content={message}
-      inline
-      protectedSpans={protectedSpans}
-      renderProtectedSpan={(span, children) => (
-        <span
-          key={span.source}
-          className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-          title={span.title}
-        >
-          <IconAt className="size-3" />
-          <span className="truncate">{children}</span>
-        </span>
-      )}
-    />
-  );
 }
 
 function CommentAvatar({
@@ -9403,7 +9360,7 @@ function CommentThreadMessage({
           )}
         </div>
         <div className="mt-1 text-sm leading-6">
-          {renderCommentMessage(comment.message)}
+          <CommentBody body={comment.message} />
         </div>
       </div>
       {action}

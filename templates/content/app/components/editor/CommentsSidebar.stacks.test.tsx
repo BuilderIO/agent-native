@@ -64,7 +64,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     params?.count === undefined ? key : `${key}:${params.count}`,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => content,
+  CommentBody: ({ body }: { body: string }) => body,
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 

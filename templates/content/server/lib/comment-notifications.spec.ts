@@ -198,16 +198,16 @@ describe("content comment notifications", () => {
         ...BASE,
         submissionSource,
         authorName: '<img src=x onerror="alert(1)"> & Writer',
-        content: "<script>alert(2)</script> & comment",
+        content: "<script>alert(2)</script> 1 < 2 & comment",
       });
       await notifyArgs().send("owner@example.com");
       const email = mocks.sendEmail.mock.calls[0][0];
       expect(email.html).not.toContain("<img src=x");
-      expect(email.html).not.toContain("<script>alert(2)</script>");
+      expect(email.html).not.toContain("<script>");
       expect(email.html).toContain("&lt;img src=x");
-      expect(email.html).toContain(
-        "&lt;script&gt;alert(2)&lt;/script&gt; &amp; comment",
-      );
+      // The quote is the comment's plain text, which skips raw HTML tags as
+      // the app does, and escapes what's left.
+      expect(email.html).toContain("alert(2) 1 &lt; 2 &amp; comment");
       if (submissionSource)
         expect(email.html).toContain("Posted via AI on behalf of &lt;img");
     },

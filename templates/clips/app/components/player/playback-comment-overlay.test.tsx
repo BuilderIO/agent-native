@@ -329,12 +329,12 @@ describe("PlaybackCommentOverlay", () => {
     expect(
       container.querySelector('[class*="line-clamp-3"]')?.className,
     ).toContain("text-background dark:text-foreground");
-    expect(container.querySelector("a")?.className).toContain(
-      "text-background",
-    );
-    expect(container.querySelector("a")?.className).toContain(
-      "dark:text-foreground",
-    );
+    // The preview is a card that opens the comment, so a link reads as text.
+    expect(container.querySelector("a")).toBeNull();
+    const link = container.querySelector('[class*="decoration-background"]');
+    expect(link?.textContent).toBe("link");
+    expect(link?.className).toContain("text-background");
+    expect(link?.className).toContain("dark:text-foreground");
     expect(container.querySelector("code")?.className).toContain(
       "bg-background/15 text-background",
     );
