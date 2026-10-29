@@ -39,8 +39,8 @@ jobs:
       # Each run step copies the gate from the base commit just before using
       # it, after any PR code (the install) has run, so a PR can't loosen the
       # check it is held to. Only a PR that adds the gate runs its own copy.
-      # The proof commands themselves are PR code: this catches skipped or
-      # invented proofs, it is not a sandbox for a hostile PR.
+      # Proofs are limited to tracked repository test files, but those tests
+      # and their configuration are PR code; this is not a hostile-PR sandbox.
       - name: Look for a Reports section
         id: find
         env:

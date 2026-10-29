@@ -21,6 +21,10 @@ not judged by ledgers, receipts, or checker output, so don't produce them.
 
 ## The contract
 
+The detailed Slack reaction and reply rules are in
+[slack-reaction-replies.md](references/slack-reaction-replies.md); read it before
+marking, replying to, or closing any Slack report.
+
 Slack reactions on a report's root message mean exactly this:
 
 | Mark | Meaning                                   | When to add                                                                                      |
@@ -43,7 +47,8 @@ might need to take back. Every 👀 you add ends the run with a reply, plus
 either ✅ or 🎫, or a fix PR that is still open and lists the report (its
 merge adds the ✅). A 👀 with no follow-up is the most common complaint about this workflow.
 
-Every claimed report gets **one** reply in its thread per outcome. People
+Every claimed report gets **one** reply in its thread per outcome. The one exception is
+the merged `✅` close-out after an in-review reply, which gets no second reply. People
 have pushed back on replies that were long, technical, condescending, vague
 about who does what next, or that handed them work. Each reply must be:
 
@@ -270,16 +275,19 @@ apart from Steve's own 👀.
 - **Prove it.** The check has to fail with the fix's source changes put
   back to `main` and pass with them. A check that passes without your fix
   doesn't test the bug: write one that does. Tests that read source text
-  never count. For a purely visual fix, a before and after screenshot of the
-  signed-in app stands in. Put the proof under the report in the PR's
-  `Reports` section.
+  never count. For a purely visual fix, before and after screenshots are
+  evidence for a person to inspect, not automated proof. Before merging, a
+  human must open both images and confirm they show the reported change. Put
+  the evidence under the report in the PR's `Reports` section.
 <!-- framework-repo-only:start -->
   Commit the fix and its check, then run
   `node scripts/fix-proof.ts --fix <that commit> -- <the check>` from the
   repo root and paste its `fix-proof: proven ...` line, unchanged, under
   each report it fixes (`visual: <before> <after>` for a purely visual
-  fix). CI's `Feedback fix proof` check re-runs every line and fails the PR
-  on a report without one, so write the check before you push. The second
+  fix). The required `Lint & format` check runs this gate for PRs with a
+  `Reports` section and re-runs machine proofs. It marks visual-only reports
+  as needing human validation before merge; the screenshot URLs do not count
+  as proven. Write the check before you push. The second
   opinion below reads the red output to confirm the check failed on the
   bug, not on setup.
 <!-- framework-repo-only:end -->
