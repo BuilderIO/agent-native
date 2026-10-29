@@ -137,8 +137,7 @@ action, query, or test proof. Record merge or rollout state in the internal
 inventory; the checkmark records a verified scope and does not claim it is
 shipped or live.
 Before leaving each report, compare verified scopes and human/team handoffs
-with a fresh root-reaction read. Ensure one `✅` is present when any scope passed the
-proof bar and one `🎫` whenever any distinct unfinished action requires another
+with a fresh root-reaction read. Ensure one `✅` is present when any scope is fixed on `main`, and one `🎫` whenever any distinct unfinished action requires another
 person or team to act, even before ownership is assigned or accepted. Keep the
 mark as history after completion; read back each changed root reaction and
 verify its owner. Record whether each mark applies and any historical-reaction
@@ -233,7 +232,7 @@ stop. Keep
 distinct scopes and their status clear.
 
 Compare each reported symptom with the evidence in the internal inventory.
-Use one root `✅` when at least one fixed scope is verified; it covers every
+Use one root `✅` when at least one fixed scope is merged to `main` and verified; it covers every
 verified scope listed in `fixedScopes[]`, with proof recorded internally. Use
 one root `🎫` whenever at least one distinct unfinished action
 requires another person to act; it covers the actions listed in `handoffs[]`
