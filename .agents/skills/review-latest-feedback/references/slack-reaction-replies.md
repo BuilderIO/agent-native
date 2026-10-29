@@ -158,13 +158,12 @@ Add `🎫` for each distinct unfinished team or engineering action that another
 person or team must perform outside this workflow, whether or not a named
 person has accepted it or an external tracker ticket exists. Record each such
 action in `handoffs[]`
-with its exact scope, action, and responsible person/team; when no person owns it, use the team/role
-or `unassigned` as `owner` and set `status: "unassigned"`. Do not invent a
-person, Slack ID, request, or acceptance. An unassigned handoff gets an owner when a person's explicit first-person commitment to
-the recorded action appears in the thread; record that person's Slack ID and reply, and
-they become the accepting owner. For a named owner, only that person or team can
-accept it; another person's reply does not change its owner. If that named human later accepts,
-record their Slack ID and exact acceptance reply and change the status to
+with its exact scope, action, and responsible person or team. A team or role owner, or no owner
+at all, keeps `status: "unassigned"` until a named person commits. Another person's
+reply never changes an existing named owner. Do not invent a
+person, Slack ID, request, or acceptance. A handoff becomes `accepted` only when a named person makes an explicit first-person
+commitment to the recorded action in the thread. That person becomes its owner: record
+their Slack ID and exact reply, and change the status to
 `"accepted"`; when the accepted action is done, use `status: "completed"` with
 completion evidence. The `🎫` reaction remains as history after completion and
 no longer counts as an open blocker. Only a later owner withdrawal removes an
