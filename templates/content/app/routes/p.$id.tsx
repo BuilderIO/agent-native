@@ -39,6 +39,7 @@ import { clipShareUrl } from "@/components/editor/clip-embed/use-clips-links";
 import { VisualEditor } from "@/components/editor/VisualEditor";
 import {
   HIDDEN_WHILE_PRIVATE_LINK_REDIRECTS,
+  privateDocumentRedirectHref,
   privateDocumentRedirectScript,
   privateLinkRedirectStarted,
 } from "@/lib/private-link-redirect";
@@ -452,8 +453,10 @@ function PrivateDocumentNotice({
     : null;
   useEffect(() => {
     if (!pageHref || privateLinkRedirectStarted()) return;
-    window.location.replace(pageHref);
-  }, [pageHref]);
+    window.location.replace(
+      privateDocumentRedirectHref(pageHref, basePath ?? ""),
+    );
+  }, [pageHref, basePath]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -461,7 +464,7 @@ function PrivateDocumentNotice({
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: privateDocumentRedirectScript(pageHref),
+            __html: privateDocumentRedirectScript(pageHref, basePath ?? ""),
           }}
         />
       ) : null}

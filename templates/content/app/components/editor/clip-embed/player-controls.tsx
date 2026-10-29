@@ -1,11 +1,12 @@
 // Copied from Clips' `app/components/player/player-controls.tsx` until the
 // player moves to a shared package. Content docks the controls under the
-// video and leaves out captions, picture in picture, theater mode, reactions
-// and the comment button.
+// video and leaves out captions, picture in picture, theater mode and
+// reactions. Its comment button starts a comment in the page's margin.
 import { useT } from "@agent-native/core/client/i18n";
 import type { ClipCommentMarker } from "@shared/clips-peer-contract";
 import {
   IconMaximize,
+  IconMessagePlus,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerSkipForward,
@@ -47,7 +48,11 @@ export interface PlayerControlsProps {
   muted: boolean;
   speed: number;
   isFullscreen: boolean;
-  comments?: ClipCommentMarker[];
+  comments?: readonly ClipCommentMarker[];
+  /** A comment marker was clicked: the first comment at its moment. */
+  onOpenComment?: (commentId: string) => void;
+  /** Starts a comment at the playhead. */
+  onComment?: () => void;
   onPlayPause: () => void;
   onSeek: (ms: number) => void;
   onSeekRelative: (deltaMs: number) => void;
@@ -69,6 +74,8 @@ export function PlayerControls(props: PlayerControlsProps) {
     speed,
     isFullscreen,
     comments,
+    onOpenComment,
+    onComment,
     onPlayPause,
     onSeek,
     onSeekRelative,
@@ -113,6 +120,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         durationMs={durationMs}
         onSeek={onSeek}
         comments={comments}
+        onOpenComment={onOpenComment}
         onMarkerLanesChange={handleMarkerLanes}
       />
 
@@ -197,6 +205,12 @@ export function PlayerControls(props: PlayerControlsProps) {
         </span>
 
         <div className="flex-1" />
+
+        {onComment ? (
+          <IconBtn onClick={onComment} tooltip={t("clipEmbed.comment")}>
+            <IconMessagePlus />
+          </IconBtn>
+        ) : null}
 
         <DropdownMenu>
           <Tooltip>
