@@ -205,6 +205,22 @@ describe("openPrivateMediaForAuthorizedReader", () => {
     expect(readBlob).not.toHaveBeenCalled();
   });
 
+  it("keeps a redirect link to a minute unless asked otherwise", async () => {
+    const { openPrivateMediaForAuthorizedReader, putPrivateMedia } =
+      await import("./store.js");
+    const media = await putPrivateMedia({
+      ownerEmail: "alice@example.com",
+      data: png,
+      mimeType: "image/png",
+    });
+    readUrl.mockResolvedValueOnce({ url: "https://storage.test/signed" });
+    await openPrivateMediaForAuthorizedReader(media.id);
+    expect(readUrl).toHaveBeenCalledWith(handle, {
+      expiresInSeconds: 60,
+      contentType: "image/png",
+    });
+  });
+
   it("returns verified bytes when storage has no direct links", async () => {
     const { openPrivateMediaForAuthorizedReader, putPrivateMedia } =
       await import("./store.js");

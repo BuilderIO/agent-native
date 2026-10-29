@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/private-media";
 import { and, asc, eq, inArray } from "drizzle-orm";
 
+import { isSoftDeletedDatabaseDocument } from "../../actions/_database-utils.js";
 import { resolveDocumentAccess } from "../../actions/_document-access.js";
 import {
   PRIVATE_MEDIA_PATH_PREFIX,
@@ -36,7 +37,9 @@ export async function bindUploadedPrivateMedia(input: {
 /**
  * True when the current request's reader can view a live page that carries
  * this image: the page has a reference row and its body still links to it.
- * Runs inside the caller's request context, so space membership counts.
+ * A page in Trash, or in a collection that was deleted, is not live, just as
+ * `get-document` refuses it. Runs inside the caller's request context, so
+ * space membership counts.
  */
 export async function canReadPrivateMediaThroughDocument(
   mediaId: string,
@@ -57,7 +60,8 @@ export async function canReadPrivateMediaThroughDocument(
         access &&
         !access.resource.trashedAt &&
         typeof access.resource.content === "string" &&
-        privateMediaIdsInContent(access.resource.content).has(mediaId)
+        privateMediaIdsInContent(access.resource.content).has(mediaId) &&
+        !(await isSoftDeletedDatabaseDocument(documentId))
       ) {
         return true;
       }

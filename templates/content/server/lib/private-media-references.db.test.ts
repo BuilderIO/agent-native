@@ -243,6 +243,38 @@ describe("private media references", () => {
     await expect(canRead(id, SHARED)).resolves.toBe(false);
   });
 
+  it("stops serving when the collection holding the page is deleted", async () => {
+    const id = mediaId();
+    owners.set(id, OWNER);
+    const content = body(id);
+    const collectionPage = await document();
+    const item = await document({ content });
+    await share(item);
+    await save(item, content);
+    await expect(canRead(id, SHARED)).resolves.toBe(true);
+
+    const databaseId = `private-media-db-${++count}`;
+    await db.insert(schema.contentDatabases).values({
+      id: databaseId,
+      ownerEmail: OWNER,
+      documentId: collectionPage,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `private-media-item-${++count}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: item,
+    });
+    await expect(canRead(id, SHARED)).resolves.toBe(true);
+
+    await db
+      .update(schema.contentDatabases)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(schema.contentDatabases.id, databaseId));
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
+    expect((await get(id, SHARED)).status).toBe(404);
+  });
+
   it("serves an image on a public page without a session", async () => {
     const id = mediaId();
     owners.set(id, OWNER);

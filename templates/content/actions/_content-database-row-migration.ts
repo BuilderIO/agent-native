@@ -4,7 +4,9 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
@@ -564,6 +566,11 @@ export async function applyMigration(
       )
       .returning({ id: schema.documents.id });
     if (updated.length !== 1) throw new Error(`Stale row ${row.documentId}.`);
+    await syncPrivateMediaReferences(tx, {
+      documentId: row.documentId,
+      after: row.content,
+      userEmail: documentAttributionActor(),
+    });
   }
   const definitionRows = plan.propertyDefinitions.map((definition, index) => ({
     id: definition.id,

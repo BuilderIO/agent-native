@@ -340,6 +340,10 @@ export async function ownsPrivateMedia(
  * can hand out a short-lived direct link answers with a redirect, so the
  * bytes skip the app server; otherwise the bytes are read, checked against
  * the upload's hash, and returned.
+ *
+ * A link keeps working until it expires, even if the reader loses access in
+ * the meantime, so it lasts a minute by default: long enough for a browser to
+ * follow the redirect, short enough that revoking access takes effect soon.
  */
 export async function openPrivateMediaForAuthorizedReader(
   id: string,
@@ -350,7 +354,7 @@ export async function openPrivateMediaForAuthorizedReader(
   const media = metadata(row);
   const handle = parseHandle(row);
   const link = await getPrivateBlobReadUrl(handle, {
-    expiresInSeconds: options.redirectSeconds ?? 300,
+    expiresInSeconds: options.redirectSeconds ?? 60,
     contentType: media.mimeType,
   });
   if (link) return { kind: "redirect", media, url: link.url };
