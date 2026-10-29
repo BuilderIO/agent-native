@@ -194,6 +194,106 @@ describe("workspace provider OAuth", () => {
     });
   });
 
+  it("binds a start without an appId to the current app so its callback grants that app", async () => {
+    const email = "requester@example.com";
+    defineAppConfig({ app: { id: "content-2" } });
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const startUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/notion/start",
+    );
+    startUrl.searchParams.set("scope", "user");
+
+    const started = await handleWorkspaceProviderOAuthStart(
+      {
+        req: new Request(startUrl),
+        res: { status: 200, headers: new Headers() },
+      } as never,
+      "notion",
+    );
+
+    expect(started).toBeInstanceOf(Response);
+    const startResponse = started as Response;
+    const state = new URL(
+      startResponse.headers.get("Location")!,
+    ).searchParams.get("state")!;
+    expect(decodeOAuthState(state).app).toBe("content-2");
+    const flowCookie = startResponse.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("an_workspace_oauth_notion="))!
+      .split(";", 1)[0]!;
+    const flow = JSON.parse(
+      decryptSecretValue(decodeURIComponent(flowCookie.split("=", 2)[1]!)),
+    ) as WorkspaceProviderOAuthFlow;
+    expect(flow.appId).toBe("content-2");
+
+    callbackMocks.listWorkspaceConnections.mockResolvedValue([]);
+    callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
+      id: "notion-connection-1",
+    } as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "notion-access-token",
+            owner: { user: { id: "notion-user-1", person: { email } } },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const callbackUrl = new URL(flow.redirectUri);
+    callbackUrl.searchParams.set("code", "notion-code");
+    callbackUrl.searchParams.set("state", state);
+
+    await handleWorkspaceProviderOAuthCallback(
+      {
+        req: new Request(callbackUrl, { headers: { cookie: flowCookie } }),
+        res: { status: 200, headers: new Headers() },
+      } as never,
+      "notion",
+    );
+
+    expect(callbackMocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "notion-connection-1",
+        appId: "content-2",
+        provider: "notion",
+      }),
+    );
+  });
+
+  it("rejects an OAuth start when no app id can be resolved", async () => {
+    defineAppConfig({ app: {} });
+    callbackMocks.getSession.mockResolvedValue({
+      email: "requester@example.com",
+    });
+    const startUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/notion/start",
+    );
+    startUrl.searchParams.set("scope", "user");
+
+    const result = await handleWorkspaceProviderOAuthStart(
+      {
+        req: new Request(startUrl),
+        res: { status: 200, headers: new Headers() },
+      } as never,
+      "notion",
+    );
+
+    expect(result).toMatchObject({
+      error: "OAuth start requires an app id.",
+    });
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+  });
+
   it("allows organization owners and admins to connect shared OAuth accounts", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "owner")).toBe(true);
     expect(canConnectWorkspaceProviderOAuth("org-1", "admin")).toBe(true);

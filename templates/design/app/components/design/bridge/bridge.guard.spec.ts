@@ -604,6 +604,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/text-layer-rule",
     "../../../../shared/relative-position-containing-block",
     "../../../../shared/source-equivalent-selector",
+    "../../../../shared/svg-shape-offset",
   ],
   // The source-equivalent selector walker is shared with the parent canvas, which resolves
   // the selectors the bridge builds, so both sides skip the same siblings.
@@ -2757,6 +2758,229 @@ it(
       });
 
       expect(previousPrimaryHasPassiveOverlay).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge reports each dragged SVG shape's pre-drag translate as its revert baseline",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #art { position: absolute; left: 100px; top: 100px; }
+    </style>
+  </head>
+  <body>
+    <svg id="art" data-an-primitive="pasted-svg" data-agent-native-node-id="art" viewBox="0 0 200 100" width="400" height="200">
+      <rect id="a" data-agent-native-node-id="a" x="10" y="10" width="40" height="20" fill="#333"/>
+      <rect id="b" data-agent-native-node-id="b" x="100" y="10" width="40" height="20" fill="#333"/>
+    </svg>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate(() => {
+        (window as unknown as { __styleChanges: unknown[] }).__styleChanges =
+          [];
+        window.addEventListener("message", (event) => {
+          const data = event.data as { type?: string };
+          if (data?.type === "visual-style-change") {
+            (
+              window as unknown as { __styleChanges: unknown[] }
+            ).__styleChanges.push(data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#a",
+            selectorCandidates: ["#a"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+      // The layers panel adds the other shape without the bridge selecting it.
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-elements", selectorGroups: [["#a"], ["#b"]] },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '[data-agent-native-edit-overlay="multi-selection"]',
+          ),
+        ).some(
+          (overlay) => window.getComputedStyle(overlay).display !== "none",
+        ),
+      );
+
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(180, 150);
+      await page.mouse.move(200, 160);
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const changes = await page.evaluate(() =>
+        (
+          window as unknown as {
+            __styleChanges: Array<{
+              selector: string;
+              styles: Record<string, string>;
+              originalStyles: Record<string, string>;
+            }>;
+          }
+        ).__styleChanges.map((change) => ({
+          translate: change.styles.translate,
+          baseline: change.originalStyles.translate,
+        })),
+      );
+
+      expect(changes).toEqual([
+        { translate: "20px 10px", baseline: "" },
+        { translate: "20px 10px", baseline: "" },
+      ]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    name: "a selection that mixes SVG shapes with other layers",
+    selectorGroups: [["#a"], ["#card"]],
+    altKey: false,
+    badge: "Can't move SVG shapes with other layers",
+  },
+  {
+    name: "an Alt drag that would duplicate an SVG shape",
+    selectorGroups: [["#a"]],
+    altKey: true,
+    badge: "Can't duplicate SVG shapes by dragging",
+  },
+  {
+    name: "an SVG shape offset by a percentage",
+    selectorGroups: [["#pct"]],
+    altKey: false,
+    badge: "Can't move shapes offset by a percentage",
+  },
+])(
+  "editor chrome bridge refuses to drag $name",
+  { timeout: 30_000 },
+  async ({ selectorGroups, altKey, badge }) => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #art { position: absolute; left: 100px; top: 100px; }
+      #card { position: absolute; left: 100px; top: 400px; width: 120px; height: 80px; background: #e9eef8; }
+    </style>
+  </head>
+  <body>
+    <svg id="art" data-an-primitive="pasted-svg" data-agent-native-node-id="art" viewBox="0 0 200 100" width="400" height="200">
+      <rect id="a" data-agent-native-node-id="a" x="10" y="10" width="40" height="20" fill="#333"/>
+      <rect id="pct" data-agent-native-node-id="pct" x="100" y="10" width="40" height="20" fill="#333" style="translate: 10% 0px"/>
+    </svg>
+    <div id="card" data-agent-native-node-id="card"></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate((groups) => {
+        (window as unknown as { __styleChanges: unknown[] }).__styleChanges =
+          [];
+        window.addEventListener("message", (event) => {
+          const data = event.data as { type?: string };
+          if (
+            data?.type === "visual-style-change" ||
+            data?.type === "visual-style-batch-change"
+          ) {
+            (
+              window as unknown as { __styleChanges: unknown[] }
+            ).__styleChanges.push(data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#a",
+            selectorCandidates: ["#a"],
+          },
+          "*",
+        );
+        window.postMessage(
+          { type: "select-elements", selectorGroups: groups },
+          "*",
+        );
+      }, selectorGroups);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      if (altKey) await page.keyboard.down("Alt");
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(180, 150);
+      await page.mouse.move(200, 160);
+      const badgeText = await page
+        .locator("[data-agent-native-transform-badge]")
+        .textContent();
+      await page.mouse.up();
+      if (altKey) await page.keyboard.up("Alt");
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => ({
+        changes: (window as unknown as { __styleChanges: unknown[] })
+          .__styleChanges.length,
+        translate: document.querySelector<SVGElement>("#a")!.style.translate,
+        shapes: document.querySelectorAll("#art rect").length,
+      }));
+
+      expect(badgeText).toBe(badge);
+      expect(result).toEqual({ changes: 0, translate: "", shapes: 2 });
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

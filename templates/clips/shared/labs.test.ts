@@ -7,15 +7,15 @@ import {
 } from "./labs";
 
 describe("Clips earlier screen time lab", () => {
-  it("is on by default, and an explicit opt-out still turns it off", () => {
-    expect(CLIPS_LOOKBACK_CONTEXT.defaultEnabled).toBe(true);
-    expect(isLabEnabled({}, CLIPS_LOOKBACK_CONTEXT)).toBe(true);
+  it("is off by default, and an explicit opt-in turns it on", () => {
+    expect(CLIPS_LOOKBACK_CONTEXT.defaultEnabled).toBe(false);
+    expect(isLabEnabled({}, CLIPS_LOOKBACK_CONTEXT)).toBe(false);
     expect(
       isLabEnabled(
-        { [CLIPS_LOOKBACK_CONTEXT.key]: false },
+        { [CLIPS_LOOKBACK_CONTEXT.key]: true },
         CLIPS_LOOKBACK_CONTEXT,
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

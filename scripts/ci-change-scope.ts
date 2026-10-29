@@ -55,6 +55,8 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
 const RELATED_SCRIPT_TESTS = new Map([
+  ["scripts/fix-proof.ts", "scripts/fix-proof.test.ts"],
+  ["scripts/feedback-fix-proof.ts", "scripts/feedback-fix-proof.test.ts"],
   [
     "scripts/design-e2e-regression-pins.ts",
     "scripts/design-e2e-regression-pins.test.ts",

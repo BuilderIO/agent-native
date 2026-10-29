@@ -2008,6 +2008,7 @@ export function processEvent(
             tabId,
             browserTabId: getBrowserTabId(),
             runId: context?.runId,
+            ...(ev.id ? { toolCallId: ev.id } : {}),
             eventId: ev.eventId ?? ev.id,
           },
         }),

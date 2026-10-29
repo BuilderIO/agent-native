@@ -155,27 +155,34 @@ describe("parseReports", () => {
 });
 
 describe("feedback-fix-proof", () => {
-  it("runs from read-only pull-request CI with the live body and base SHA", () => {
+  it("uses the trusted base proof gate in read-only pull-request CI", () => {
     const workflow = readFileSync(
-      ".github/workflows/feedback-fix-proof.yml",
+      resolve(
+        import.meta.dirname,
+        "../.github/workflows/feedback-fix-proof.yml",
+      ),
       "utf8",
     );
 
     assert.match(workflow, /pull_request:\s*\n\s+types:.*edited/);
     assert.match(workflow, /permissions:\s*\n\s+contents: read/);
+    assert.match(
+      workflow,
+      /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/,
+    );
     assert.match(workflow, /persist-credentials: false/);
     assert.match(
       workflow,
-      /PR_BODY: \$\{\{ github\.event\.pull_request\.body \|\| '' \}\}/,
+      /PR_BODY: \$\{\{ github\.event\.pull_request\.body \}\}/,
     );
     assert.match(
       workflow,
       /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/,
     );
-    assert.match(workflow, /scripts\/feedback-fix-proof\.ts --has-reports/);
+    assert.match(workflow, /git show "\$BASE_SHA:scripts\/\$f"/);
     assert.match(
       workflow,
-      /if: steps\.reports\.outputs\.has_reports == 'true'[\s\S]*?scripts\/feedback-fix-proof\.ts/,
+      /if: steps\.find\.outputs\.has_reports == 'true'[\s\S]*?feedback-fix-proof\.ts/,
     );
     assert.doesNotMatch(workflow, /pull_request_target|secrets\.|GITHUB_TOKEN/);
   });

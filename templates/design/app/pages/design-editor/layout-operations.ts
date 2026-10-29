@@ -1,7 +1,15 @@
+import {
+  formatSvgShapeTranslate,
+  parseSvgShapeTranslate,
+  type SvgShapeOffset,
+} from "@shared/svg-shape-offset";
+
 import type {
   DesignHotkeyAlignEdge,
   DesignHotkeyDistributeAxis,
 } from "@/hooks/useDesignHotkeys";
+
+import { editableSvgShapeParent } from "./position-coordinate-context";
 
 /** An omitted axis keeps its authored offset, which may not be in px. */
 export type NodePositionPatch = { x?: number; y?: number };
@@ -223,6 +231,8 @@ export type AlignNodeLayout =
       /** Stretched across the parent's cross axis, so cross alignment is a no-op. */
       fillsCrossAxis: boolean;
     }
+  /** A shape inside an editable SVG, moved by its CSS `translate`. */
+  | { kind: "svg-shape"; offset: SvgShapeOffset }
   | { kind: "unsupported" };
 
 /**
@@ -414,7 +424,11 @@ export function planSharedMoves(
         nodeId: node.id,
       };
     }
-    if (node.layout.position === "static" && node.movesNestedLayers) {
+    if (
+      node.layout.kind === "offset" &&
+      node.layout.position === "static" &&
+      node.movesNestedLayers
+    ) {
       return {
         status: "blocked",
         blocker: "moves-nested-layers",
@@ -428,6 +442,19 @@ export function planSharedMoves(
         blocker: "unsupported-position",
         nodeId: node.id,
       };
+    }
+    if (node.layout.kind === "svg-shape") {
+      const { offset } = node.layout;
+      patches.set(node.id, [
+        [
+          "translate",
+          formatSvgShapeTranslate({
+            x: offset.x + local.dx,
+            y: offset.y + local.dy,
+          }),
+        ],
+      ]);
+      continue;
     }
     const patch = offsetStylePatch(node.layout, local);
     if (patch.length > 0) patches.set(node.id, patch);
@@ -845,6 +872,8 @@ function measureAlignNode(
   const doc = element.ownerDocument;
   const rect = sharedRectOf(element, view);
   if (!rect) return { reason: "not-rendered" };
+  const svgShape = measureSvgShapeAlignNode(target, rect, view);
+  if (svgShape) return svgShape;
   const styles = view.getComputedStyle(element);
   const parent = element.parentElement;
   const topLevel =
@@ -943,6 +972,38 @@ function measureAlignNode(
       x: offsetAxis(element, AXIS_PROPERTIES.x, width ?? 0),
       y: offsetAxis(element, AXIS_PROPERTIES.y, height ?? 0),
     },
+  };
+}
+
+// A shape aligns inside its whole SVG: its parent group's box moves with it.
+function measureSvgShapeAlignNode(
+  target: { id: string; element: Element },
+  rect: SharedRect,
+  view: Window,
+): Omit<MeasuredAlignNode, "selectedAncestorId"> | null {
+  const { element } = target;
+  const parent = editableSvgShapeParent(element);
+  let root = (element as SVGElement).ownerSVGElement;
+  while (root?.ownerSVGElement) root = root.ownerSVGElement;
+  if (!parent || !root) return null;
+  const matrix = parent.getScreenCTM();
+  const offset = parseSvgShapeTranslate(
+    view.getComputedStyle(element).translate,
+  );
+  const parentBox = sharedRectOf(root, view);
+  return {
+    id: target.id,
+    rect,
+    parentBox,
+    parentStableId: parent.getAttribute("data-agent-native-node-id"),
+    offsetToShared: matrix
+      ? { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d }
+      : IDENTITY_LINEAR,
+    movesNestedLayers: false,
+    layout:
+      matrix && offset && parentBox
+        ? { kind: "svg-shape", offset }
+        : { kind: "unsupported" },
   };
 }
 

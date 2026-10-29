@@ -41,6 +41,7 @@ import {
   sanitizeA2ACorrelationId,
   sanitizeA2ACorrelationMetadata,
 } from "../a2a/correlation.js";
+import { a2aFilePartsToAttachments } from "../a2a/file-attachments.js";
 import {
   createA2AApproval,
   a2aTaskLeaseThreadId,
@@ -111,6 +112,9 @@ import {
   abortRunAtSafeBoundaryDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
+  buildUserContentWithAttachments,
+  describeAttachmentPreUploadWarning,
+  isAgentModelVisionCapable,
   subscribeToRun,
   type ActionEntry,
   type AgentActionSurfaceDetails,
@@ -185,6 +189,7 @@ import {
   renewQueuedSubmissionInterruptClaim,
   registerChatThreadsShareable,
   retryQueuedSubmissionReceipt,
+  renewQueuedSubmissionClaim,
   resolveRunThreadScope,
   resolveThreadAccess,
   resolveThreadAccessScope,
@@ -219,6 +224,7 @@ import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import type { OwnedAttachmentHydrationBudget } from "../file-upload/owned-attachment.js";
+import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import {
   hydratePriorThreadImages,
   PriorThreadImageHistoryReadError,
@@ -357,6 +363,8 @@ export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
 const MAX_QUEUED_SUBMISSION_RETRIES = 5;
+const QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS = 20_000;
+const QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS = 60_000;
 // Matches AgentKit's MAX_REORDER_QUEUED_MESSAGE_IDS; a queue never nears it.
 const MAX_REORDER_QUEUED_MESSAGE_IDS = 500;
 
@@ -3095,14 +3103,62 @@ export function createAgentChatPlugin(
             },
           );
 
+          // The app's upload hook is what lets its actions open these files
+          // like chat uploads. Text-only turns skip it so their delegated
+          // prompt stays unchanged.
+          const inboundFiles = a2aFilePartsToAttachments(message.parts);
+          let a2aText = inboundFiles.unreadable.length
+            ? `${text}\n\nThe caller attached files that could not be read because they were not sent as https URLs: ${inboundFiles.unreadable.join(", ")}.`
+            : text;
+          let a2aAttachments = inboundFiles.attachments;
+          if (a2aAttachments.length > 0) {
+            try {
+              const prepared = await options?.prepareRequest?.({
+                event: context.event,
+                ownerEmail: userEmail,
+                message: a2aText,
+                attachments: a2aAttachments,
+                references: [],
+                threadId: context.taskId,
+                requestContext: a2aText,
+                contextPrefetchDeadlineAt: Date.now() + 1_300,
+                dispatchToBackground: false,
+                mode: "act",
+              });
+              if (prepared?.message?.trim()) a2aText = prepared.message;
+              if (Array.isArray(prepared?.attachments)) {
+                a2aAttachments = prepared.attachments;
+              }
+              const preUpload = await preUploadAttachments({
+                attachments: a2aAttachments,
+                ownerEmail: userEmail,
+                includeFiles: true,
+              });
+              if (preUpload.injectedText) {
+                a2aText = `${a2aText}\n\n${preUpload.injectedText}`;
+              }
+            } catch (err) {
+              console.warn(
+                "[agent-native] A2A attachment preparation failed:",
+                err instanceof Error ? err.message : String(err),
+              );
+              a2aText = `${a2aText}\n\n${describeAttachmentPreUploadWarning()}`;
+            }
+          }
+
           // Precise current time rides the user message (not the cached
           // system-prompt prefix) — same pattern as the interactive handler.
           const a2aMessages: EngineMessage[] = [
             {
               role: "user",
-              content: [
-                { type: "text", text: text + buildCurrentTimeUserContext() },
-              ],
+              content: buildUserContentWithAttachments({
+                text: a2aText + buildCurrentTimeUserContext(),
+                attachments: a2aAttachments,
+                vision: isAgentModelVisionCapable(
+                  model,
+                  a2aEngine.capabilities.vision === true,
+                ),
+              }),
             },
           ];
 
@@ -3203,6 +3259,9 @@ export function createAgentChatPlugin(
                 (correlation.callerApp ? [correlation.callerApp] : []),
               threadId: context.taskId,
               turnId: context.taskId,
+              ...(a2aAttachments.length > 0
+                ? { attachments: a2aAttachments }
+                : {}),
               onOutcome: (outcome) => {
                 a2aOutcome = outcome;
               },
@@ -9158,6 +9217,45 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       };
 
+      const startQueuedSubmissionClaimRenewal = (
+        threadId: string,
+        messageId: string,
+        claimId: string,
+      ) => {
+        let renewal: Promise<void> | undefined;
+        const renewUntil =
+          Date.now() + QUEUED_SUBMISSION_CLAIM_RENEW_MAX_DURATION_MS;
+        const timer = setInterval(() => {
+          if (Date.now() >= renewUntil) {
+            clearInterval(timer);
+            return;
+          }
+          if (renewal) return;
+          renewal = renewQueuedSubmissionClaim({
+            threadId,
+            messageId,
+            claimId,
+            renewUntil,
+          })
+            .then((renewed) => {
+              if (!renewed) clearInterval(timer);
+            })
+            .catch((error: unknown) => {
+              console.error(
+                `[agent-chat] could not renew queued submission claim ${messageId}:`,
+                error,
+              );
+            })
+            .finally(() => {
+              renewal = undefined;
+            });
+        }, QUEUED_SUBMISSION_CLAIM_RENEW_INTERVAL_MS);
+        return async () => {
+          clearInterval(timer);
+          await renewal;
+        };
+      };
+
       const drainQueuedSubmissionInbox = async (
         drainOptions: {
           threadId?: string;
@@ -9240,6 +9338,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             break;
           }
           let claimId: string | undefined;
+          let stopClaimRenewal: (() => Promise<void>) | undefined;
           let retryCount = receipt.retryCount;
           let recoveryMutationAttempted = false;
           let activeRunLookupError: { error: unknown } | undefined;
@@ -9366,13 +9465,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             }
 
-            claimId = crypto.randomUUID();
+            const activeClaimId = crypto.randomUUID();
+            claimId = activeClaimId;
             let claim: Awaited<ReturnType<typeof mutateThreadQueuedMessages>>;
             try {
+              // raw-sql-ok: mutateThreadQueuedMessages binds the thread update values.
               claim = await mutateThreadQueuedMessages(receipt.threadId, {
                 type: "claimFromInbox",
                 receipt,
-                claimId,
+                claimId: activeClaimId,
               });
             } catch (error) {
               if (
@@ -9426,6 +9527,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             const claimedMessage = claim.claimedMessage;
             result.claimed += 1;
+            stopClaimRenewal = startQueuedSubmissionClaimRenewal(
+              receipt.threadId,
+              receipt.messageId,
+              activeClaimId,
+            );
 
             const claimedReceipt = await getQueuedSubmissionReceipt(
               receipt.threadId,
@@ -9840,6 +9946,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               deferReceipt(receipt.threadId);
             }
+          } finally {
+            await stopClaimRenewal?.();
           }
         }
         return result;

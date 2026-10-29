@@ -816,9 +816,8 @@ export function renderDesignEditorView({
   });
   const activeRuntimeSourceLocationSnapshotFailed =
     activeRuntimeProjectionEligible &&
-    runtimeLayerSnapshotReadiness !== null &&
-    runtimeLayerSnapshotReadiness.screenId === activeFileId &&
-    runtimeLayerSnapshotReadiness.readiness.status === "error";
+    runtimeLayerSnapshotReadiness?.screenId === activeFileId &&
+    runtimeLayerSnapshotReadiness?.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";
   const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
@@ -1670,7 +1669,11 @@ export function renderDesignEditorView({
       ? (value: number, meta?: { phase?: "preview" | "commit" | "cancel" }) =>
           handleVectorCornerRadiusChange(
             value,
-            meta?.phase === "preview" ? "preview" : "commit",
+            meta?.phase === "preview"
+              ? "preview"
+              : meta?.phase === "cancel"
+                ? "cancel"
+                : "commit",
           )
       : undefined,
     selectionColorScopes,

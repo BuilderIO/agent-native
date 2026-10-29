@@ -4,10 +4,11 @@
  * app, install, migrate a real Postgres, build, run it the way the guide says,
  * then sign up, call the `hello` action, and confirm the account landed in
  * Postgres and survived a restart. The Netlify path also waits for its signed
- * scheduled wake to update scheduler health in the throwaway database.
+ * scheduled wake to update scheduler health in the throwaway database, and
+ * local-source runs verify durable AgentHarness recovery through that sweep.
  *
  *   pnpm qa:deploy-paths --target node|docker|netlify|vercel|presets
- *     [--source local|npm]
+ *     [--source local|npm] [--exercise-chat-durability]
  *
  * `node` and `docker` run the app here. `netlify` and `vercel` deploy it to a
  * real project on that host and run the same checks against its address.
@@ -100,6 +101,7 @@ const { values } = parseArgs({
     "netlify-account-slug": { type: "string" },
     "vercel-scope": { type: "string" },
     keep: { type: "boolean", default: false },
+    "exercise-chat-durability": { type: "boolean", default: false },
   },
 });
 
@@ -111,6 +113,7 @@ const adminDatabaseUrlArg =
 const netlifyAccountSlug = values["netlify-account-slug"];
 const vercelScope = values["vercel-scope"];
 const keep = values.keep === true;
+const exerciseChatDurability = values["exercise-chat-durability"] === true;
 
 if (!DEPLOY_TARGETS.includes(target)) {
   console.error(`--target must be one of: ${DEPLOY_TARGETS.join(", ")}`);
@@ -118,6 +121,17 @@ if (!DEPLOY_TARGETS.includes(target)) {
 }
 if (source !== "local" && source !== "npm") {
   console.error("--source must be local or npm");
+  process.exit(2);
+}
+if (exerciseChatDurability && (target !== "netlify" || source !== "local")) {
+  console.error(
+    "--exercise-chat-durability requires --target netlify and --source local",
+  );
+  process.exit(2);
+}
+const e2eOpenAiApiKey = process.env.BETA_E2E_OPENAI_API_KEY?.trim();
+if (exerciseChatDurability && !e2eOpenAiApiKey) {
+  console.error("--exercise-chat-durability requires BETA_E2E_OPENAI_API_KEY");
   process.exit(2);
 }
 
@@ -148,6 +162,7 @@ for (const name of ["NETLIFY_AUTH_TOKEN", "VERCEL_TOKEN"]) {
   const token = process.env[name];
   if (token) registerSecrets(token);
 }
+if (e2eOpenAiApiKey) registerSecrets(e2eOpenAiApiKey);
 
 interface StepResult {
   name: string;
@@ -765,19 +780,82 @@ function assertPresetShape(
 
 interface Session {
   cookie: string;
+  storageState: {
+    cookies: Array<{
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      expires: number;
+      httpOnly: boolean;
+      secure: boolean;
+      sameSite: "Strict" | "Lax" | "None";
+    }>;
+    origins: [];
+  };
 }
 
-function sessionFrom(response: Response): Session {
-  const cookie = response.headers
+function sessionFrom(response: Response, baseUrl: string): Session {
+  const host = new URL(baseUrl).hostname;
+  const cookies: Session["storageState"]["cookies"] = response.headers
     .getSetCookie()
-    .map((entry) => entry.split(";")[0]!)
-    .filter((pair) => !pair.endsWith("="))
+    .flatMap((entry) => {
+      const [pair, ...rawAttributes] = entry
+        .split(";")
+        .map((part) => part.trim());
+      if (!pair) return [];
+      const separator = pair.indexOf("=");
+      if (separator < 1) return [];
+      const attributes = new Map<string, string>(
+        rawAttributes.map((attribute) => {
+          const index = attribute.indexOf("=");
+          return index < 0
+            ? ([attribute.toLowerCase(), ""] as const)
+            : ([
+                attribute.slice(0, index).toLowerCase(),
+                attribute.slice(index + 1),
+              ] as const);
+        }),
+      );
+      const name = pair.slice(0, separator);
+      const value = pair.slice(separator + 1);
+      const rawSameSite = attributes.get("samesite")?.toLowerCase();
+      const sameSite: Session["storageState"]["cookies"][number]["sameSite"] =
+        rawSameSite === "strict"
+          ? "Strict"
+          : rawSameSite === "none"
+            ? "None"
+            : "Lax";
+      const maxAge = Number(attributes.get("max-age"));
+      const expiresAt = attributes.get("expires");
+      const expires = Number.isFinite(maxAge)
+        ? Math.floor(Date.now() / 1000) + maxAge
+        : expiresAt
+          ? Math.floor(Date.parse(expiresAt) / 1000)
+          : -1;
+      return [
+        {
+          name,
+          value,
+          domain: attributes.get("domain") || host,
+          path: attributes.get("path") || "/",
+          expires,
+          httpOnly: attributes.has("httponly"),
+          secure: attributes.has("secure"),
+          sameSite,
+        },
+      ];
+    })
+    .filter((cookie) => cookie.value.length > 0);
+  const cookie = cookies
+    .map(({ name, value }) => `${name}=${value}`)
     .join("; ");
   assert.ok(
     cookie.includes("session_token="),
     "The auth response should set a session cookie.",
   );
-  return { cookie };
+  for (const { name, value } of cookies) registerSecrets(`${name}=${value}`);
+  return { cookie, storageState: { cookies, origins: [] } };
 }
 
 async function authenticate(
@@ -799,7 +877,7 @@ async function authenticate(
   );
   const body = await response.text();
   assert.equal(response.status, 200, `${action} failed: ${body}`);
-  return sessionFrom(response);
+  return sessionFrom(response, baseUrl);
 }
 
 async function callHello(baseUrl: string, session: Session): Promise<void> {
@@ -812,12 +890,86 @@ async function callHello(baseUrl: string, session: Session): Promise<void> {
   assert.deepEqual(JSON.parse(body), { message: "Hello, deploy-paths!" });
 }
 
+async function exerciseDisposableChatReliability(
+  app: RunningApp,
+  workDir: string,
+  email: string,
+  session: Session,
+): Promise<void> {
+  assert.ok(
+    e2eOpenAiApiKey,
+    "The isolated Chat proof needs its dedicated key.",
+  );
+  const stateDir = path.join(workDir, "disposable-chat-e2e");
+  const authStateDir = path.join(stateDir, "auth-state");
+  const storageStateFile = path.join(stateDir, "signup-session.json");
+  const reportSlot = `deploy-paths-${process.pid}-${randomBytes(3).toString("hex")}`;
+  const outputDir = path.join(
+    repoRoot,
+    "e2e",
+    "beta",
+    "test-results",
+    reportSlot,
+  );
+  const reportDir = path.join(
+    repoRoot,
+    "e2e",
+    "beta",
+    "playwright-report",
+    reportSlot,
+  );
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(storageStateFile, JSON.stringify(session.storageState));
+
+  try {
+    await runLive(
+      "pnpm",
+      [
+        "e2e:beta",
+        "--project=chat",
+        "--grep",
+        "a direct busy POST retains its reference attachment across reload|Stop returns the composer to idle and the thread still works|refresh mid-run restores the complete answer",
+      ],
+      {
+        cwd: repoRoot,
+        env: {
+          ...baseEnv(),
+          CI: "true",
+          BETA_E2E_APPS: "chat",
+          BETA_E2E_AUTHED: "1",
+          BETA_E2E_CLUSTER: "chat",
+          BETA_E2E_EMAIL: email,
+          BETA_E2E_SESSION_TOKENS: "",
+          BETA_E2E_SESSION_TOKEN_CHAT: "",
+          BETA_E2E_STORAGE_STATE: "",
+          BETA_E2E_STORAGE_STATE_FILE: storageStateFile,
+          BETA_E2E_AUTH_STATE_DIR: authStateDir,
+          BETA_E2E_DISPOSABLE_CHAT_ORIGIN: app.baseUrl,
+          BETA_E2E_OPENAI_API_KEY: e2eOpenAiApiKey,
+          BETA_E2E_ALLOW_SHARED_KEY: "",
+          BETA_E2E_SHARED_OPENAI_API_KEY: "",
+          BETA_E2E_GLOBAL_TIMEOUT_MINUTES: "20",
+          BETA_E2E_REPORT_SLOT: reportSlot,
+        },
+        timeoutMs: 21 * 60_000,
+        label: "isolated authenticated Chat durability specs",
+      },
+    );
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.rmSync(reportDir, { recursive: true, force: true });
+  }
+}
+
 async function exerciseApp(
   app: RunningApp,
   appDir: string,
   databaseUrl: string,
 ): Promise<void> {
-  const email = `deploy-paths-${randomBytes(4).toString("hex")}@example.com`;
+  const email = exerciseChatDurability
+    ? `deploy-paths+autoz-${randomBytes(4).toString("hex")}@example.com`
+    : `deploy-paths-${randomBytes(4).toString("hex")}@example.com`;
 
   await step("the server reports no missing deploy settings", async () => {
     const response = await fetchWithTimeout(
@@ -906,6 +1058,161 @@ async function exerciseApp(
         ),
       ),
     );
+
+    if (source === "local") {
+      await step(
+        "a signed Netlify scheduled tick recovers an expired AgentHarness follow-up",
+        () => exerciseScheduledAgentHarnessRecovery(databaseUrl),
+      );
+    }
+
+    if (exerciseChatDurability) {
+      await step(
+        "authenticated busy Chat POST retains its reference attachment through reload",
+        () =>
+          exerciseDisposableChatReliability(
+            app,
+            path.dirname(appDir),
+            email,
+            session,
+          ),
+      );
+    }
+  }
+}
+
+async function exerciseScheduledAgentHarnessRecovery(
+  databaseUrl: string,
+): Promise<void> {
+  const [
+    {
+      claimAgentHarnessSessionFollowUp,
+      getAgentHarnessSession,
+      listAgentHarnessSessionEvents,
+      saveAgentHarnessSession,
+    },
+    { createDbExec, withDbExec },
+  ] = await Promise.all([
+    import("../packages/core/src/agent/harness/store.js"),
+    import("../packages/core/src/db/client.js"),
+  ]);
+  const sessionId = "qa-deploy-paths-scheduled-recovery";
+  const followUpId = `${sessionId}:follow-up`;
+  const claimId = `${sessionId}:claim`;
+  const db = await createDbExec({ url: databaseUrl });
+
+  try {
+    const { claimed, previousSchedulerCheck } = await withDbExec(
+      db,
+      async () => {
+        const session = await saveAgentHarnessSession({
+          id: sessionId,
+          harnessName: "qa-deploy-paths-scheduler-recovery",
+          threadId: `${sessionId}:thread`,
+        });
+        assert.equal(
+          session.generation,
+          1,
+          "The scheduled recovery fixture must start in a fresh database.",
+        );
+        assert.equal(session.status, "idle");
+
+        const claimed = await claimAgentHarnessSessionFollowUp(
+          sessionId,
+          session.generation,
+          claimId,
+          {
+            followUpId,
+            prompt: "Recover this undispatched deployment-path follow-up.",
+            metadata: { source: "qa-deploy-paths" },
+            claimLeaseMs: 15_000,
+            deadlineDurationMs: 30 * 60_000,
+          },
+        );
+        assert.ok(claimed, "The scheduled recovery fixture must be claimed.");
+        assert.equal(claimed.followUpDispatchedAt, null);
+
+        const health = await db.execute({
+          sql: `SELECT last_checked_at
+                FROM automation_scheduler_health
+                WHERE runtime = 'recurring-jobs' AND last_checked_at IS NOT NULL
+                ORDER BY last_checked_at DESC
+                LIMIT 1`,
+        });
+        const previousCheck = (
+          health.rows[0] as { last_checked_at?: unknown } | undefined
+        )?.last_checked_at;
+        assert.notEqual(
+          previousCheck,
+          undefined,
+          "The signed scheduler health check must exist before seeding recovery.",
+        );
+        assert.notEqual(previousCheck, null);
+        const previousSchedulerCheck = Number(previousCheck);
+        assert.ok(
+          Number.isSafeInteger(previousSchedulerCheck),
+          "The scheduler health check must be a safe integer timestamp.",
+        );
+        return { claimed, previousSchedulerCheck };
+      },
+    );
+    assert.ok(
+      claimed.followUpClaimExpiresAt !== null &&
+        claimed.followUpClaimExpiresAt !== undefined,
+      "The scheduled recovery fixture must have a short claim expiry.",
+    );
+
+    await waitFor(
+      "the scheduled sweep to recover the expired AgentHarness follow-up",
+      SCHEDULER_WAKE_TIMEOUT_MS,
+      async () =>
+        withDbExec(db, async () => {
+          const health = await db.execute({
+            sql: `SELECT last_checked_at
+                  FROM automation_scheduler_health
+                  WHERE runtime = 'recurring-jobs' AND last_checked_at IS NOT NULL
+                  ORDER BY last_checked_at DESC
+                  LIMIT 1`,
+          });
+          const tickAdvanced = health.rows.some((row) =>
+            schedulerCheckIsAfter(
+              (row as { last_checked_at?: unknown }).last_checked_at,
+              previousSchedulerCheck,
+            ),
+          );
+          if (!tickAdvanced) return false;
+
+          const recovered = await getAgentHarnessSession(sessionId);
+          return (
+            recovered?.generation === claimed.generation + 1 &&
+            recovered.status === "idle" &&
+            recovered.followUpOutcome === "not_dispatched"
+          );
+        }),
+    );
+
+    await withDbExec(db, async () => {
+      const recovered = await getAgentHarnessSession(sessionId);
+      assert.ok(recovered, "The AgentHarness session must remain persisted.");
+      assert.equal(recovered.status, "idle");
+      assert.equal(recovered.followUpOutcome, "not_dispatched");
+      assert.equal(recovered.followUpClaimId, null);
+      assert.equal(recovered.followUpDispatchedAt, null);
+      assert.equal(recovered.generation, claimed.generation + 1);
+
+      const events = await listAgentHarnessSessionEvents(sessionId);
+      assert.ok(
+        events.some(
+          ({ operationId, event }) =>
+            operationId === `follow-up:${followUpId}` &&
+            event.type === "error" &&
+            event.errorCode === "harness_follow_up_not_dispatched",
+        ),
+        "The scheduled recovery must journal the not-dispatched outcome for this follow-up.",
+      );
+    });
+  } finally {
+    await db.close?.();
   }
 }
 
